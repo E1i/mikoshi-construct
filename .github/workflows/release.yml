@@ -3,7 +3,12 @@
 #
 # Publishing uses npm trusted publishing (OIDC) — no NPM_TOKEN secret. It works only once the package
 # exists on npm and this repository + workflow are registered as a trusted publisher in the package's
-# settings; the first version is published by hand.
+# settings; the first version is published by hand. Registration is case-sensitive and the repository
+# owner is `E1i`.
+#
+# Trusted publishing needs npm 11.5.1 or newer. The Node major pinned in .nvmrc ships npm 10, which has
+# no OIDC support and publishes unauthenticated — the registry answers `404 Not Found - PUT`. So the
+# job upgrades npm before publishing, and keeps the pinned Node so the harness runs where CI runs it.
 
 name: Release
 
@@ -33,6 +38,9 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm to a release that supports trusted publishing
+        run: npm install --global "npm@^11.5.1"
 
       - run: pnpm install --frozen-lockfile
 
