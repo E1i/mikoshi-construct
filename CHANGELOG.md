@@ -1,5 +1,14 @@
 # mikoshi-construct
 
+## 0.1.3
+
+### Patch Changes
+
+- [#3](https://github.com/E1i/mikoshi-construct/pull/3) [`b3051b6`](https://github.com/E1i/mikoshi-construct/commit/b3051b6981139a9972b938126bcc464ce7a05b2c) Thanks [@E1i](https://github.com/E1i)! - cli: a `pnpm-workspace.yaml` or `workspaces` field counts as a monorepo only when it lists packages.
+  Since pnpm 10 that file also carries settings such as `minimumReleaseAge` and `allowBuilds`, and the
+  construct ships one in every preset, so a generated single-package project reported itself as a
+  monorepo and a second `init` suggested the wrong preset.
+
 ## 0.1.2
 
 ### Patch Changes
