@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "e1i/mikoshi-construct" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "E1i/mikoshi-construct" }],
   "commit": false,
   "access": "public",
   "baseBranch": "main",

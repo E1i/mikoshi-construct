@@ -51,7 +51,7 @@
     "ci": "pnpm run quality",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && npm publish --provenance --access public"
+    "release": "pnpm build && changeset publish"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",
