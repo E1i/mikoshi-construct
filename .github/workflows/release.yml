@@ -6,6 +6,11 @@
 # settings; the first version is published by hand. Registration is case-sensitive and the repository
 # owner is `E1i`.
 #
+# The action major must match the Changesets major: v2 of the action reads the CHANGESETS_OUTPUT
+# report that Changesets 3 writes. The v1 action instead scanned stdout for a `New tag:` line that
+# Changesets 3 no longer prints, so it pushed no tag and created no GitHub release while still
+# reporting success.
+#
 # Trusted publishing needs npm 11.5.1 or newer. The Node major pinned in .nvmrc ships npm 10, which has
 # no OIDC support and publishes unauthenticated — the registry answers `404 Not Found - PUT`. So the
 # job upgrades npm before publishing, and keeps the pinned Node so the harness runs where CI runs it.
@@ -47,12 +52,12 @@ jobs:
       - run: pnpm run quality
 
       - name: Version or publish
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
-          version: pnpm version-packages
-          publish: pnpm release
-          commit: 'chore: version packages'
-          title: 'chore: version packages'
+          version-script: pnpm version-packages
+          publish-script: pnpm release
+          commit-message: 'chore: version packages'
+          pr-title: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
