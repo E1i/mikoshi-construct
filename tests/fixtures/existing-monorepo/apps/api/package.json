@@ -1,0 +1,14 @@
+{
+  "name": "@example-monorepo/api",
+  "type": "module",
+  "version": "1.4.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "@example-monorepo/shared": "workspace:*",
+    "express": "^4.21.0"
+  }
+}

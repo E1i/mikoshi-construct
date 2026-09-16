@@ -160,15 +160,9 @@ These look like conventions but the codebase is not consistent about them. Confi
 them as rules.
 
 <!-- construct:discover:open-questions -->
-- [CLAUDE.md](CLAUDE.md) says `scripts/tests/lint/syntax-policy.test.ts` exists "in each preset";
-  it ships only in the node-backend and monorepo samples, not in node-frontend, whose styling policy
-  is unasserted.
-- The construct block above is the generic one: the H1 reads `d4` (the name `init` was run with) and
-  the commands block advertises `pnpm dev` as a service. Whether the CLI should re-render its own
-  `AGENTS.md` with `--name`, or the `.existing.eta` variant should apply here, is undecided.
+- `scripts/tests/lint/syntax-policy.test.ts` ships only in the node-backend and monorepo samples;
+  node-frontend's styling policy has no test that asserts the resolved lint restrictions per role.
 - Commands are listed in three places: README, CLAUDE.md § Commands and AGENTS.md. Which one the
   other two should point at is not settled.
-- `construct.json` lists `tsconfig.base.json` as a baseline file, but this repo keeps a single
-  `tsconfig.json` and the file was never committed, so `doctor` reports a missing baseline file.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->

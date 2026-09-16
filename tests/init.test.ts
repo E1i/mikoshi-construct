@@ -1,8 +1,7 @@
 import type { AiTarget, PresetId } from '../src/presets/index.js'
 import type { Prompter } from '../src/ui/prompts.js'
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor.js'
@@ -221,20 +220,20 @@ describe('construct doctor and the contract', () => {
   })
 })
 
-const GIVE_BUDDY = path.join(homedir(), 'projects/give-buddy')
+const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
 
-describe.skipIf(!existsSync(GIVE_BUDDY))('construct init on give-buddy', () => {
+describe('construct init on an existing monorepo', () => {
   it('dry run: creates only the agent layer, merges the manifests, touches nothing else', async () => {
-    const result = await runInit(ui, { dir: GIVE_BUDDY, preset: 'monorepo', yes: true, dryRun: true })
+    const result = await runInit(ui, { dir: EXISTING_MONOREPO, preset: 'monorepo', yes: true, dryRun: true })
     expect(result.status).toBe('dry-run')
     expect(result.skipped).toContain('eslint.config.mjs')
     expect(result.skipped).toContain('contracts/api/openapi.yaml')
     expect(result.conflicts.every(conflict => conflict.endsWith('package.json') || conflict.includes('package.json: '))).toBe(true)
   })
 
-  it('real init on a fresh clone leaves doctor green', async () => {
+  it('real init on a copy leaves doctor green and the repository\'s own files alone', async () => {
     const dir = scratch()
-    execFileSync('git', ['clone', '-q', '--depth', '1', `file://${GIVE_BUDDY}`, dir], { stdio: 'ignore' })
+    cpSync(EXISTING_MONOREPO, dir, { recursive: true })
     const before = new Set(readdirSync(dir, { recursive: true }) as string[])
     const result = await runInit(ui, { dir, preset: 'monorepo', yes: true, dryRun: false })
     expect(result.status).toBe('done')
@@ -242,6 +241,8 @@ describe.skipIf(!existsSync(GIVE_BUDDY))('construct init on give-buddy', () => {
     expect(created.every(file => file.startsWith('.claude/') || file.startsWith('architecture/') || file.startsWith('scripts/construct/') || file === 'construct.json')).toBe(true)
     const rewritten = result.written.filter(file => before.has(file))
     expect(rewritten.sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'package.json', 'packages/shared/package.json'])
+    expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8').startsWith('# example-monorepo\n')).toBe(true)
+    expect(JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).version).toBe('1.4.0')
     const doctor = runDoctor(dir)
     expect(doctor?.ok).toBe(true)
     expect(doctor?.harnessProblems).toEqual([])

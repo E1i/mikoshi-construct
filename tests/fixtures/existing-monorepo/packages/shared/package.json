@@ -1,0 +1,12 @@
+{
+  "name": "@example-monorepo/shared",
+  "type": "module",
+  "version": "1.4.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

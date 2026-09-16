@@ -1,0 +1,8 @@
+name: api-contract
+on: [pull_request]
+jobs:
+  api-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "api-contract"
