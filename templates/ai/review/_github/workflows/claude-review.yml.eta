@@ -43,6 +43,7 @@ jobs:
           plugins: code-review@claude-code-plugins
           prompt: /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number || inputs.pr }}
           claude_args: |
+            --model {{reviewModel}}
             --allowedTools "Read,Grep,Glob,Bash,Task,Agent,TodoWrite,WebFetch,mcp__github_inline_comment__create_inline_comment"
 
       - name: Remove trigger label

@@ -8,6 +8,7 @@ export interface Prompter {
   preset: (choices: Preset[], initial?: PresetId) => Promise<PresetId | undefined>
   aiTarget: (initial: AiTarget) => Promise<AiTarget | undefined>
   projectName: (initial: string) => Promise<string | undefined>
+  review: (initial: boolean) => Promise<boolean | undefined>
   confirm: (message: string) => Promise<boolean | undefined>
 }
 
@@ -78,6 +79,9 @@ export function createClackPrompter(lore: Lore, streams: PromptStreams = {}): Pr
       })
       const value = settle(answer)
       return value?.trim()
+    },
+    async review(initial) {
+      return settle(await confirm({ ...streams, message: lore.askReview, initialValue: initial }))
     },
     async confirm(message) {
       return settle(await confirm({ ...streams, message, initialValue: true }))

@@ -14,6 +14,6 @@ types with `pnpm contracts:types` before implementing. Composition models in
 `architecture/composition/*.yaml` are the source of the diagrams; edit the model and run
 `pnpm composition:render`, never the rendered block.
 
-Discovery: when asked to "run construct discovery", follow `.claude/commands/construct-discover.md`
-step by step if it exists, otherwise fill every `<!-- construct:discover:* -->` block in CLAUDE.md,
-AGENTS.md and architecture/ with what you verified by reading code.
+Discovery: when asked to "run construct discovery", follow the `construct-discover` rule in this
+directory step by step. It fills every `<!-- construct:discover:* -->` block in CLAUDE.md, AGENTS.md
+and architecture/ with what you verified by reading code.

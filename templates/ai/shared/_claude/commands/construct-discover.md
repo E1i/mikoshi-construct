@@ -17,8 +17,8 @@ placeholder.
 Work in this order:
 
 1. **Inventory.** Read `construct.json`, `package.json`, the directory tree two levels deep, the entry
-   points (`src/server.ts`, `src/app.ts`, CLI scripts, workers), the API contract and every
-   `*.config.ts` / `config.ts`. Note the package manager, runtime, database and clients, CI, deployment
+   points (servers, app factories, `main.ts`, CLI scripts, workers), the API contract if there is
+   one, and every `*.config.ts` / `config.ts`. Note the package manager, runtime, database and clients, CI, deployment
    and existing conventions. Do not write yet.
 2. **`product`** (AGENTS.md): what the system does, in one paragraph, and the one flow where a
    defect costs the most (money, identity, data). If the repository is empty apart from the baseline,
@@ -31,15 +31,17 @@ Work in this order:
    handlers are mounted, and the rule for adding a new one.
 6. **`dependency-policy`** (CLAUDE.md, and `eslint.config.mjs`): which modules or packages may import
    which. Describe it in one paragraph and make sure `eslint.config.mjs` enforces it — extend the
-   `dependencyPolicy` block there; a declared policy that lint does not enforce is not a policy.
+   policy blocks there (`ALLOWED_WORKSPACE_IMPORTS`, the `restrictSyntax` rules); a declared policy
+   that lint does not enforce is not a policy.
 7. **`high-effort-areas`** (CLAUDE.md): the paths where a wrong low-effort guess is expensive —
    attribution, authentication, money, schema, anything a shipped client depends on. This list is what
    `/implement` uses to classify a task as `high`.
 8. **`composition`** (`architecture/composition/*.yaml`): one model per real flow the code has today
-   beyond the baseline `http.yaml` (a worker, a sync, a CLI) — small, one per flow, every `path` must
-   exist. Add a `doc:` markdown with the `<!-- composition:<id> -->` block, run
-   `pnpm composition:render`, and confirm `pnpm composition:check` passes. Update `http.yaml` when the
-   HTTP composition root has grown past the baseline.
+   (the HTTP app, a worker, a sync, a CLI, the browser bootstrap) — small, one per flow, every `path`
+   must exist. A baseline model, when the construct shipped one, is updated, not duplicated; a
+   repository that had code before the construct starts with no model and needs at least one for its
+   main entry point. Add a `doc:` markdown with the `<!-- composition:<id> -->` block, run
+   `pnpm composition:render`, and confirm `pnpm composition:check` passes.
 9. **`security-invariants`** (`architecture/security-invariants.md`): rows in the form
    `Invariant | Enforced by` for the system-specific invariants — ownership checks, role middleware,
    integer money, closed DTOs. Name the lint rule, test or scanner that enforces each; write `review`

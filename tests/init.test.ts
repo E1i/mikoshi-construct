@@ -81,6 +81,7 @@ interface Script {
   preset?: PresetId
   ai?: AiTarget
   name?: string
+  review?: boolean
   confirm?: boolean
 }
 
@@ -96,6 +97,7 @@ function scripted(script: Script): { prompter: Prompter, asked: string[] } {
       preset: () => answer('preset'),
       aiTarget: () => answer('ai'),
       projectName: () => answer('name'),
+      review: () => answer('review'),
       confirm: () => answer('confirm'),
     },
   }
@@ -104,10 +106,12 @@ function scripted(script: Script): { prompter: Prompter, asked: string[] } {
 describe('construct init (interactive)', () => {
   it('fills every gap from the prompts and writes on confirmation', async () => {
     const dir = scratch()
-    const { prompter, asked } = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', confirm: true })
+    const { prompter, asked } = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', review: true, confirm: true })
     const result = await runInit(ui, { dir, yes: false, dryRun: false }, prompter)
     expect(result.status).toBe('done')
-    expect(asked).toEqual(['preset', 'ai', 'name', 'confirm'])
+    expect(asked).toEqual(['preset', 'ai', 'name', 'review', 'confirm'])
+    expect(existsSync(path.join(dir, '.github/workflows/claude-review.yml'))).toBe(true)
+    expect(readManifest(dir)?.review).toEqual({ provider: 'claude', model: 'claude-sonnet-5' })
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name: string }
     expect(pkg.name).toBe('custom-name')
     expect(existsSync(path.join(dir, '.cursor/rules'))).toBe(true)
@@ -117,14 +121,14 @@ describe('construct init (interactive)', () => {
   it('lets flags answer questions so only the confirmation is asked', async () => {
     const dir = scratch()
     const { prompter, asked } = scripted({ confirm: true })
-    const result = await runInit(ui, { dir, preset: 'node-backend', ai: 'cursor', name: 'flagged', yes: false, dryRun: false }, prompter)
+    const result = await runInit(ui, { dir, preset: 'node-backend', ai: 'cursor', name: 'flagged', review: 'none', yes: false, dryRun: false }, prompter)
     expect(result.status).toBe('done')
     expect(asked).toEqual(['confirm'])
     expect(existsSync(path.join(dir, '.claude'))).toBe(false)
   })
 
   it('writes nothing when the netrunner jacks out at any prompt', async () => {
-    for (const script of [{}, { preset: 'node-backend' as const }, { preset: 'node-backend' as const, ai: 'claude' as const, name: 'x', confirm: false }]) {
+    for (const script of [{}, { preset: 'node-backend' as const }, { preset: 'node-backend' as const, ai: 'claude' as const, name: 'x', review: false, confirm: false }]) {
       const dir = scratch()
       const result = await runInit(ui, { dir, yes: false, dryRun: false }, scripted(script).prompter)
       expect(result.status).toBe('aborted')
@@ -240,5 +244,55 @@ describe.skipIf(!existsSync(GIVE_BUDDY))('construct init on give-buddy', () => {
     const doctor = runDoctor(dir)
     expect(doctor?.ok).toBe(true)
     expect(doctor?.harnessProblems).toEqual([])
+  })
+})
+
+describe('construct init --ai cursor', () => {
+  it('renders the same rules as .mdc and writes nothing under .claude', async () => {
+    const dir = scratch()
+    const result = await runInit(ui, { dir, preset: 'node-frontend', ai: 'cursor', yes: true, dryRun: false })
+    expect(result.status).toBe('done')
+    expect(existsSync(path.join(dir, '.claude'))).toBe(false)
+    expect(readFileSync(path.join(dir, '.cursor/rules/conventions.mdc'), 'utf8').startsWith('---\ndescription: Code conventions\nalwaysApply: true\n---\n')).toBe(true)
+    expect(readFileSync(path.join(dir, '.cursor/rules/css.mdc'), 'utf8')).toContain('globs: **/*.css, **/*.vue, **/*.astro\nalwaysApply: false')
+    expect(existsSync(path.join(dir, '.cursor/rules/construct.mdc'))).toBe(true)
+  })
+
+  it('writes both formats for --ai both', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', ai: 'both', yes: true, dryRun: false })
+    for (const file of ['.claude/rules/tests.md', '.cursor/rules/tests.mdc', '.claude/rules/secrets.md', '.cursor/rules/secrets.mdc'])
+      expect(existsSync(path.join(dir, file)), file).toBe(true)
+  })
+})
+
+describe('construct init --review', () => {
+  it('adds the label-triggered Claude review workflow with the chosen model, and nothing without it', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', review: 'claude', reviewModel: 'claude-opus-5', yes: true, dryRun: false })
+    const workflow = readFileSync(path.join(dir, '.github/workflows/claude-review.yml'), 'utf8')
+    expect(workflow).toContain('--model claude-opus-5')
+    expect(workflow).toContain('CODE_REVIEW_API_KEY')
+    expect(readManifest(dir)?.review).toEqual({ provider: 'claude', model: 'claude-opus-5' })
+
+    const plain = scratch()
+    await runInit(ui, { dir: plain, preset: 'node-backend', yes: true, dryRun: false })
+    expect(existsSync(path.join(plain, '.github/workflows/claude-review.yml'))).toBe(false)
+    expect(readManifest(plain)?.review).toBeNull()
+  })
+})
+
+describe('the discovery protocol', () => {
+  it('ships as a Claude command and as an agent-requested Cursor rule, from one source', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', ai: 'both', yes: true, dryRun: false })
+    const command = readFileSync(path.join(dir, '.claude/commands/construct-discover.md'), 'utf8')
+    const rule = readFileSync(path.join(dir, '.cursor/rules/construct-discover.mdc'), 'utf8')
+    expect(command).toContain('$ARGUMENTS')
+    expect(rule.startsWith('---\ndescription: Discover this repository')).toBe(true)
+    expect(rule).toContain('alwaysApply: false')
+    expect(rule).not.toContain('$ARGUMENTS')
+    expect(rule).toContain('11. **Prove it.**')
+    expect(existsSync(path.join(dir, 'architecture/checklists.md'))).toBe(true)
   })
 })

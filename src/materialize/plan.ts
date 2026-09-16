@@ -1,7 +1,8 @@
-import type { TemplateGroup, TemplateMount, TemplateVars } from '../presets/index.js'
+import type { AiTarget, TemplateGroup, TemplateMount, TemplateVars } from '../presets/index.js'
 import type { Strategy } from './strategies.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { mapRulesForTargets } from './rules.js'
 import { appendBlock, mergeJson, strategyFor } from './strategies.js'
 import { listTemplateFiles, render } from './templates.js'
 
@@ -115,12 +116,17 @@ function planOne(root: string, target: string, content: string, conflicts: strin
   return { target, strategy, action: 'skip', content, note: 'exists, review manually' }
 }
 
-export function planMaterialize(root: string, groups: TemplateGroup[], vars: TemplateVars, emptyTarget: boolean): MaterializePlan {
+export interface PlanOptions {
+  emptyTarget: boolean
+  ai: AiTarget
+}
+
+export function planMaterialize(root: string, groups: TemplateGroup[], vars: TemplateVars, options: PlanOptions): MaterializePlan {
   const conflicts: string[] = []
   const omittedGroups: string[] = []
   const layered = new Map<string, string>()
   for (const mount of groups.map(toMount)) {
-    if (mount.onlyWhenEmpty === true && !emptyTarget) {
+    if (mount.onlyWhenEmpty === true && !options.emptyTarget) {
       omittedGroups.push(mount.group)
       continue
     }
@@ -131,7 +137,7 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
       layered.set(target, previous == null || strategyFor(target) !== 'merge-json' ? content : layerJson(previous, content))
     }
   }
-  const ops = [...layered.entries()]
+  const ops = [...mapRulesForTargets(layered, options.ai).entries()]
     .map(([target, content]) => planOne(root, target, content, conflicts))
     .sort((a, b) => a.target.localeCompare(b.target))
   return { ops, conflicts, omittedGroups }

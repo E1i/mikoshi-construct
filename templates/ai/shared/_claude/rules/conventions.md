@@ -32,7 +32,7 @@ budget are in [architecture/principles.md](../../architecture/principles.md).
 ## Design
 
 - When something owns state or varies in behaviour — services, repositories, gateways, cached-resource
-  wrappers, anything with injected dependencies — and the abstraction checklist above passes, use a
+  wrappers, anything with injected dependencies — and the abstraction checklist in [architecture/checklists.md](../../architecture/checklists.md) passes, use a
   class and the named pattern that fits: Template Method, Strategy, Repository, **Singleton** (one
   owner per concept: a single client, config or cache instance, not module-level mutable state),
   **Factory / Abstract Factory** (branching construction, so call sites stay free of `switch`).

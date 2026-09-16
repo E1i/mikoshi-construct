@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/*.css"
+  - "**/*.vue"
+  - "**/*.astro"
+---
+
 # CSS
 
 Modern, platform-native CSS. No preprocessor — nesting, custom properties, colour functions and

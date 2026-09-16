@@ -5,7 +5,7 @@ import { printDoctor, runDoctor } from './commands/doctor.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
 import { detect } from './detect/index.js'
-import { PRESET_IDS } from './presets/index.js'
+import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
 import { createUi } from './ui/console.js'
 import { createClackPrompter } from './ui/prompts.js'
 import { resolveTheme } from './ui/theme.js'
@@ -28,6 +28,8 @@ const init = defineCommand({
     preset: { type: 'string', description: `Preset: ${PRESET_IDS.join(' | ')}` },
     ai: { type: 'string', description: 'AI target: claude | cursor | both (default: claude)' },
     name: { type: 'string', description: 'Project name (defaults to the directory name)' },
+    review: { type: 'string', description: 'AI code review on pull requests: claude | none (default: none)' },
+    reviewModel: { type: 'string', description: `Model for the review workflow (default: ${DEFAULT_REVIEW_MODEL})` },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
     dryRun: { type: 'boolean', description: 'Print the plan, write nothing', default: false },
   },
@@ -36,7 +38,7 @@ const init = defineCommand({
     console.banner(VERSION, args.johnny)
     try {
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, yes: args.yes, dryRun: args.dryRun }, prompter)
+      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, yes: args.yes, dryRun: args.dryRun }, prompter)
       process.exitCode = result.status === 'aborted' ? 1 : 0
     }
     catch (error) {

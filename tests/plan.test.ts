@@ -18,6 +18,7 @@ const vars: TemplateVars = {
   harnessCommand: 'pnpm run quality',
   packageManager: 'pnpm',
   pnpmVersion: '12.0.0',
+  reviewModel: 'claude-sonnet-5',
   constructVersion: '0.0.0',
 }
 
@@ -27,7 +28,7 @@ function scratch(): string {
 
 describe('planMaterialize', () => {
   it('mounts a group under a prefix', () => {
-    const plan = planMaterialize(scratch(), [{ group: 'stacks/express-api/app', into: 'apps/api' }], vars, true)
+    const plan = planMaterialize(scratch(), [{ group: 'stacks/express-api/app', into: 'apps/api' }], vars, { emptyTarget: true, ai: 'claude' })
     const targets = plan.ops.map(op => op.target)
     expect(targets).toContain('apps/api/src/app.ts')
     expect(targets.every(target => target.startsWith('apps/api/'))).toBe(true)
@@ -35,7 +36,7 @@ describe('planMaterialize', () => {
   })
 
   it('omits sample groups when the directory is not empty and says which', () => {
-    const plan = planMaterialize(scratch(), ['stacks/http-contract', { group: 'stacks/express-api/app', onlyWhenEmpty: true }], vars, false)
+    const plan = planMaterialize(scratch(), ['stacks/http-contract', { group: 'stacks/express-api/app', onlyWhenEmpty: true }], vars, { emptyTarget: false, ai: 'claude' })
     const targets = plan.ops.map(op => op.target)
     expect(targets).toContain('contracts/api/openapi.yaml')
     expect(targets).not.toContain('src/app.ts')
@@ -43,7 +44,7 @@ describe('planMaterialize', () => {
   })
 
   it('layers package.json groups into the canonical key order with sorted dependencies', () => {
-    const plan = planMaterialize(scratch(), ['harness', 'stacks/http-contract'], vars, true)
+    const plan = planMaterialize(scratch(), ['harness', 'stacks/http-contract'], vars, { emptyTarget: true, ai: 'claude' })
     const manifest = plan.ops.find(op => op.target === 'package.json')
     const parsed = JSON.parse(manifest?.content ?? '{}') as Record<string, unknown>
     const keys = Object.keys(parsed)

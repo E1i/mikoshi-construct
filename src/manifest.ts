@@ -1,5 +1,5 @@
 import type { FileOp } from './materialize/plan.js'
-import type { AiTarget, PresetId, TemplateVars } from './presets/index.js'
+import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from './presets/index.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -26,6 +26,7 @@ export interface Manifest {
   createdAt: string
   preset: PresetId
   ai: AiTarget
+  review: { provider: ReviewProvider, model: string } | null
   harness: { command: string }
   contracts: { path: string, types: string } | null
   vars: Record<string, string>
@@ -56,6 +57,7 @@ export function buildManifest(input: {
   version: string
   preset: PresetId
   ai: AiTarget
+  review: ReviewProvider
   vars: TemplateVars
   written: FileOp[]
   contracts: boolean
@@ -69,6 +71,7 @@ export function buildManifest(input: {
     createdAt: new Date().toISOString(),
     preset: input.preset,
     ai: input.ai,
+    review: input.review === 'none' ? null : { provider: input.review, model: input.vars.reviewModel },
     harness: { command: input.vars.harnessCommand },
     contracts: input.contracts ? { path: input.vars.contractPath, types: input.vars.contractTypesOutput } : null,
     vars: input.vars,

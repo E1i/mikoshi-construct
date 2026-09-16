@@ -19,6 +19,7 @@ export interface TemplateVars extends Record<string, string> {
   harnessCommand: string
   packageManager: string
   pnpmVersion: string
+  reviewModel: string
   constructVersion: string
 }
 
@@ -157,6 +158,14 @@ export function getPreset(id: PresetId): Preset {
 
 export function aiGroups(target: AiTarget): string[] {
   return target === 'both' ? ['ai/shared', 'ai/claude', 'ai/cursor'] : ['ai/shared', `ai/${target}`]
+}
+
+export type ReviewProvider = 'claude' | 'none'
+
+export const DEFAULT_REVIEW_MODEL = 'claude-sonnet-5'
+
+export function reviewGroups(provider: ReviewProvider): string[] {
+  return provider === 'claude' ? ['ai/review'] : []
 }
 
 export function defaultProjectName(dir: string): string {

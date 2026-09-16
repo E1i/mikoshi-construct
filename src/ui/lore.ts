@@ -21,6 +21,7 @@ export interface Lore {
   askPreset: string
   askAi: string
   askName: string
+  askReview: string
   presetUnavailable: string
   nameInvalid: string
   cancelled: string
@@ -50,6 +51,7 @@ export const LORE: Lore = {
   askPreset: 'Which construct are we building?',
   askAi: 'Which Netrunners will jack in?',
   askName: 'Project name',
+  askReview: 'Add the Claude code-review workflow on pull requests? (label-triggered, needs a CODE_REVIEW_API_KEY secret)',
   presetUnavailable: 'not materialized yet in this version',
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
   cancelled: 'Netrunner jacked out. Nothing was written.',
@@ -79,6 +81,7 @@ export const PLAIN_LORE: Lore = {
   askPreset: 'Preset',
   askAi: 'AI agents',
   askName: 'Project name',
+  askReview: 'Add the Claude code-review workflow on pull requests? (label-triggered, needs a CODE_REVIEW_API_KEY secret)',
   presetUnavailable: 'not available yet in this version',
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
   cancelled: 'Cancelled. Nothing was written.',

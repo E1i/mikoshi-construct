@@ -1,5 +1,5 @@
 import type { DetectReport } from '../detect/index.js'
-import type { AiTarget, PresetId, TemplateVars } from '../presets/index.js'
+import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from '../presets/index.js'
 import type { Ui } from '../ui/console.js'
 import type { Prompter } from '../ui/prompts.js'
 import { mkdirSync } from 'node:fs'
@@ -8,7 +8,7 @@ import { detect } from '../detect/index.js'
 import { buildManifest, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
-import { AI_TARGET_LABELS, aiGroups, defaultProjectName, getPreset, isPresetId, PRESET_LIST } from '../presets/index.js'
+import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups } from '../presets/index.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { printDetectReport } from './soulkill.js'
@@ -20,6 +20,8 @@ export interface InitOptions {
   yes: boolean
   dryRun: boolean
   name?: string
+  review?: string
+  reviewModel?: string
 }
 
 export interface InitResult {
@@ -33,6 +35,7 @@ interface InitChoices {
   presetId: PresetId
   ai: AiTarget
   projectName: string
+  review: ReviewProvider
 }
 
 const CANCELLED = Symbol('cancelled')
@@ -57,6 +60,12 @@ function parseAi(value: string): AiTarget {
   if (value === 'claude' || value === 'cursor' || value === 'both')
     return value
   throw new Error(`unknown AI target "${value}" (claude | cursor | both)`)
+}
+
+function parseReview(value: string): ReviewProvider {
+  if (value === 'claude' || value === 'none')
+    return value
+  throw new Error(`unknown review provider "${value}" (claude | none)`)
 }
 
 function parseProjectName(value: string): string {
@@ -99,7 +108,15 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
       return CANCELLED
   }
 
-  return { presetId, ai, projectName }
+  let review: ReviewProvider | undefined = options.review == null ? undefined : parseReview(options.review)
+  if (review == null) {
+    const wanted = prompter == null ? false : await prompter.review(false)
+    if (wanted == null)
+      return CANCELLED
+    review = wanted ? 'claude' : 'none'
+  }
+
+  return { presetId, ai, projectName, review }
 }
 
 export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
@@ -125,7 +142,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const choices = await askChoices(ui, options, report, root, interactive)
   if (choices === CANCELLED)
     return aborted()
-  const { presetId, ai, projectName } = choices
+  const { presetId, ai, projectName, review } = choices
   const preset = getPreset(presetId)
   if (!preset.available)
     throw new Error(`preset "${presetId}" is not available yet in v${VERSION}`)
@@ -137,6 +154,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ['Project', projectName],
     ['Preset', `${preset.label} — ${preset.description}`],
     ['AI Netrunners', AI_TARGET_LABELS[ai]],
+    ['Code review', review === 'claude' ? `Claude on pull requests (${options.reviewModel ?? DEFAULT_REVIEW_MODEL})` : 'none'],
   ])
   ui.line()
 
@@ -150,12 +168,13 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     harnessCommand: 'pnpm run quality',
     packageManager: 'pnpm',
     pnpmVersion: report.pnpmVersion ?? '',
+    reviewModel: options.reviewModel ?? DEFAULT_REVIEW_MODEL,
     constructVersion: VERSION,
     ...preset.vars(report, projectName),
   }
 
-  const groups = [...preset.groups, ...aiGroups(ai)]
-  const plan = planMaterialize(root, groups, vars, report.layout === 'empty')
+  const groups = [...preset.groups, ...aiGroups(ai), ...reviewGroups(review)]
+  const plan = planMaterialize(root, groups, vars, { emptyTarget: report.layout === 'empty', ai })
 
   ui.phase(3, 4, '💾', ui.lore.phaseMaterialize)
   ui.tree([[ui.lore.materializeAi], [ui.lore.materializeContracts], [ui.lore.materializePolicies]])
@@ -188,7 +207,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     return aborted(skipped, plan.conflicts)
 
   const written = applyPlan(root, plan.ops)
-  writeManifest(root, buildManifest({ version: VERSION, preset: presetId, ai, vars, written, contracts: preset.contracts }))
+  writeManifest(root, buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts }))
 
   ui.phase(4, 4, '✅', ui.lore.phaseOnline)
   ui.tree([
