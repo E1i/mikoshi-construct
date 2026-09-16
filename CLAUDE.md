@@ -83,7 +83,7 @@ edits. Run it before reporting done.
 - **`no-restricted-syntax` blocks are cumulative, not additive.** In ESLint flat config the last
   matching block replaces the rule's whole option array, so every `restrictSyntax(...)` block carries
   the full set of restrictions for its file role, and roles go from broadest to most specific.
-  `scripts/tests/lint/syntax-policy.test.ts` in each preset asserts the resolved set per role — extend
+  `scripts/tests/lint/syntax-policy.test.ts` in the backend and monorepo presets asserts the resolved set per role — extend
   it when adding a restriction or a role.
 - Every user-facing string lives in `src/ui/lore.ts` with a `PLAIN_LORE` counterpart; `--plain` must
   produce output with no lore and no emoji.

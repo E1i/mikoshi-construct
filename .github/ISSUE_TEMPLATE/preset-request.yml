@@ -1,0 +1,28 @@
+name: Preset request
+description: A stack the construct should support
+labels: [preset, help wanted]
+body:
+  - type: input
+    id: stack
+    attributes:
+      label: Stack
+      placeholder: Fastify + Prisma, Python + FastAPI, Nx monorepo…
+    validations:
+      required: true
+  - type: textarea
+    id: layout
+    attributes:
+      label: What a repository looks like
+      description: Package manager, directory layout, where the entry point and config live.
+    validations:
+      required: true
+  - type: textarea
+    id: harness
+    attributes:
+      label: What the harness should run
+      description: Lint, typecheck, tests, contract checks — the commands a green change must pass.
+  - type: textarea
+    id: policy
+    attributes:
+      label: Dependency policy and invariants worth enforcing in lint
+      description: Which modules may import which; what must never appear outside a boundary (raw env reads, raw SQL, raw request data).

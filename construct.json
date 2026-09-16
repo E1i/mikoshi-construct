@@ -12,8 +12,8 @@
   },
   "contracts": null,
   "vars": {
-    "projectName": "d4",
-    "scope": "@d4",
+    "projectName": "mikoshi-construct",
+    "scope": "@mikoshi-construct",
     "nodeMajor": "22",
     "contracts": "false",
     "contractPath": "",
@@ -55,8 +55,7 @@
     "scripts/construct/implement.workflow.mjs": "7da112c9d2aaf31d283907988a4f1379a5b5bd627b09fbec328309b79d037c55",
     "scripts/tests/composition/files.test.ts": "098d6026c0552598371fb6fa06bd59e603350d9628848a2d7e97642670455c06",
     "scripts/tests/composition/model.test.ts": "65cec5b1dbe552fe65b5808156bc6a8f57ffd584e7a666d2976e66321ac846d8",
-    "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80",
-    "tsconfig.base.json": "040735e3e4af80365d0b48aac9729f779a1f8d97addee940f39b85d84e0424ad"
+    "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80"
   },
   "discovery": {
     "product": "AGENTS.md",

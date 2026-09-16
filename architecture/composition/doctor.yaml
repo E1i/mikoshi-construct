@@ -1,0 +1,53 @@
+id: doctor
+title: construct doctor composition
+description: >-
+  `runDoctor(root)` in `src/commands/doctor.ts` is the composition root: it reads `construct.json`
+  and derives three verdicts from it — baseline files, discovery markers, harness — then
+  `printDoctor` turns them into `CONSTRUCT STABLE` or a named `GLITCH` list with exit code 1.
+  Nothing is written.
+doc: architecture/doctor.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: checks
+    label: Checks · read only
+  - id: report
+    label: Report
+nodes:
+  - id: cli
+    label: construct doctor (citty)
+    path: src/cli.ts
+    boundary: entry
+  - id: run
+    label: runDoctor
+    path: src/commands/doctor.ts
+    boundary: entry
+  - id: manifest
+    label: readManifest → construct.json
+    path: src/manifest.ts
+    boundary: checks
+  - id: files
+    label: baseline files · missing / modified (sha256)
+    path: src/commands/doctor.ts
+    boundary: checks
+  - id: markers
+    label: discovery markers · placeholder or filled
+    path: src/commands/doctor.ts
+    boundary: checks
+  - id: harness
+    label: quality script steps · contract paths
+    path: src/commands/doctor.ts
+    boundary: checks
+  - id: print
+    label: printDoctor · STABLE or GLITCH, exit code
+    path: src/commands/doctor.ts
+    boundary: report
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: manifest, kind: sequence}
+  - {from: manifest, to: files, kind: fan-out}
+  - {from: manifest, to: markers, kind: fan-out}
+  - {from: manifest, to: harness, kind: fan-out}
+  - {from: files, to: print, kind: fan-in}
+  - {from: markers, to: print, kind: fan-in}
+  - {from: harness, to: print, kind: fan-in}

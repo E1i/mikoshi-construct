@@ -1,0 +1,28 @@
+name: Discovery report
+description: /construct-discover filled a marker with something the code does not say
+labels: [discovery]
+body:
+  - type: dropdown
+    id: marker
+    attributes:
+      label: Marker
+      options: [product, module-map, commands, composition-roots, dependency-policy, high-effort-areas, composition, security-invariants, defects-vs-variance, open-questions]
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      placeholder: Claude Code (model) / Cursor (model)
+  - type: textarea
+    id: wrote
+    attributes:
+      label: What discovery wrote
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What the code actually says
+    validations:
+      required: true

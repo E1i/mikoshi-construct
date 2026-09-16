@@ -1,5 +1,11 @@
-# The harness on every pull request and push to main: `pnpm run quality` is the single gate,
-# for humans and for AI agents alike. Keep it green; extend it in package.json, not here.
+# Two gates on every pull request and push to main.
+#
+# quality    — the repository's own harness: composition check, lint, typecheck, tests.
+# acceptance — what the CLI promises its users: an empty directory → `construct init` →
+#              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
+#              majors we support, with no manual edits. One leg installs under pnpm's
+#              minimumReleaseAge policy, because a template range that only matches today's
+#              publish fails a user's first install (see CLAUDE.md, version ranges).
 
 name: CI
 
@@ -16,16 +22,62 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - uses: pnpm/action-setup@v6
-
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run quality
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
+  acceptance:
+    needs: quality
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [node-backend, node-frontend, node-library, monorepo]
+        node: [22, 24]
+        release-age: [0]
+        include:
+          - preset: node-backend
+            node: 24
+            release-age: 1440
+    name: ${{ matrix.preset }} · node ${{ matrix.node }}${{ matrix.release-age != 0 && ' · minimumReleaseAge' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
-      - name: Quality
+      - name: construct init
+        run: |
+          mkdir -p "$RUNNER_TEMP/acceptance"
+          node dist/cli.js init --yes --preset ${{ matrix.preset }} --dir "$RUNNER_TEMP/acceptance" --plain
+
+      - name: Apply the release-age policy
+        if: matrix.release-age != 0
+        run: echo "minimum-release-age=${{ matrix.release-age }}" >> "$RUNNER_TEMP/acceptance/.npmrc"
+
+      - name: pnpm install
+        working-directory: ${{ runner.temp }}/acceptance
+        run: pnpm install
+
+      - name: pnpm run quality
+        working-directory: ${{ runner.temp }}/acceptance
         run: pnpm run quality
+
+      - name: construct doctor
+        working-directory: ${{ runner.temp }}/acceptance
+        run: node "$GITHUB_WORKSPACE/dist/cli.js" doctor --plain
