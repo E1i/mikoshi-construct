@@ -155,3 +155,7 @@ This repository runs on its own construct — `construct doctor` and `/implement
 ## License
 
 MIT
+
+## Get in touch
+
+I'm open to sponsorships, partnerships, and opportunities to work on developer tools and AI-native engineering workflows
