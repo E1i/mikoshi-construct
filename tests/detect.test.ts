@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { detect } from '../src/detect/index.js'
+import { declaresPnpmPackages } from '../src/detect/workspaces.js'
 
 function scratch(): string {
   return mkdtempSync(path.join(tmpdir(), 'construct-detect-'))
@@ -43,6 +44,48 @@ describe('detect', () => {
     expect(report.layout).toBe('monorepo')
     expect(report.monorepoTools).toEqual(['pnpm-workspace', 'turbo'])
     expect(report.workspaceDirs).toEqual(['apps'])
+  })
+
+  it('treats a pnpm-workspace.yaml that only carries settings as a single package', () => {
+    const dir = scratch()
+    writeFileSync(path.join(dir, 'package.json'), '{}')
+    mkdirSync(path.join(dir, 'src'))
+    writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'minimumReleaseAgeExcludePrune: true\n\nshellEmulator: true\n\nallowBuilds:\n  esbuild: true\n')
+    const report = detect(dir)
+    expect(report.layout).toBe('single')
+    expect(report.monorepoTools).toEqual([])
+  })
+
+  it('reads the packages list in every shape pnpm accepts', () => {
+    const declares = (yaml: string): boolean => {
+      const dir = scratch()
+      writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), yaml)
+      return declaresPnpmPackages(dir)
+    }
+    expect(declares('packages:\n  - apps/*\n')).toBe(true)
+    expect(declares('packages: [\'apps/*\', \'packages/*\']\n')).toBe(true)
+    expect(declares('shellEmulator: true\npackages:\n  # the apps\n  - apps/*\n')).toBe(true)
+    expect(declares('packages: []\n')).toBe(false)
+    expect(declares('packages:\nshellEmulator: true\n')).toBe(false)
+    expect(declares('shellEmulator: true\n')).toBe(false)
+    expect(declares('catalog:\n  packages: ^1.0.0\n')).toBe(false)
+    expect(declaresPnpmPackages(scratch())).toBe(false)
+  })
+
+  it('counts an npm workspaces field only when it lists something', () => {
+    const withList = scratch()
+    writeFileSync(path.join(withList, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }))
+    expect(detect(withList).monorepoTools).toEqual(['npm-workspaces'])
+
+    const nested = scratch()
+    writeFileSync(path.join(nested, 'package.json'), JSON.stringify({ workspaces: { packages: ['apps/*'] } }))
+    expect(detect(nested).monorepoTools).toEqual(['npm-workspaces'])
+
+    const empty = scratch()
+    writeFileSync(path.join(empty, 'package.json'), JSON.stringify({ workspaces: [] }))
+    mkdirSync(path.join(empty, 'src'))
+    expect(detect(empty).monorepoTools).toEqual([])
+    expect(detect(empty).layout).toBe('single')
   })
 
   it('does not recognize a directory with unrelated files', () => {
