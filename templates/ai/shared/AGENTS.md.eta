@@ -1,14 +1,91 @@
-# AGENTS.md
+# {{projectName}}
 
-Context for automated reviewers and coding agents working on {{projectName}}. Human-facing docs live
-in [README.md](README.md) and [architecture/](architecture/). The rules that apply everywhere are in
-[architecture/principles.md](architecture/principles.md); the harness is `{{harnessCommand}}`.
+Context for coding agents and automated reviewers working on {{projectName}}. This repository runs on a
+construct materialized by `mikoshi-construct` v{{constructVersion}}: architecture policy in
+[architecture/](architecture/), a harness that proves every change, and the rules that apply to all
+code in [architecture/principles.md](architecture/principles.md). What follows is what is specific to
+this repository. Sections marked "not discovered yet" are filled by construct discovery
+(`/construct-discover` in Claude Code, "run construct discovery" in Cursor), then kept current by
+whoever changes the thing they describe.
 
 ## What this product does
 
 <!-- construct:discover:product -->
 _Not discovered yet — run `/construct-discover`._
 <!-- /construct:discover:product -->
+
+## Module map
+
+<!-- construct:discover:module-map -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:module-map -->
+
+## Commands
+
+```bash
+pnpm dev             # run the service locally
+pnpm run quality     # the harness: contract + composition checks, lint, typecheck, tests — the CI gate and the agent gate
+{{#if contracts}}
+pnpm contracts:types # regenerate {{contractTypesOutput}} after editing the API contract
+{{/if}}
+pnpm composition:render # regenerate architecture diagrams after editing a composition model
+pnpm lint:fix        # ESLint with --fix; ESLint is the only formatter
+```
+
+Use `pnpm run quality` / `pnpm run ci` — bare `pnpm ci` is a pnpm install builtin, not this script.
+
+<!-- construct:discover:commands -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:commands -->
+
+## Harness
+
+`{{harnessCommand}}` is the gate for any change. A change is not done until it passes; a pass is
+reported by the harness, never by the implementer. Security invariants and the check that enforces
+each one: [architecture/security-invariants.md](architecture/security-invariants.md).
+
+{{#if contracts}}
+## Contract
+
+[{{contractPath}}]({{contractPath}}) is the HTTP contract. The service validates requests against it,
+consumers read the types generated into [{{contractTypesOutput}}]({{contractTypesOutput}}), and
+`oasdiff` flags breaking changes on pull requests. An API change edits the contract first, runs
+`pnpm contracts:types`, then implements.
+
+{{/if}}
+## Architecture
+
+The principles in [architecture/principles.md](architecture/principles.md) apply; this is how they map
+here.
+
+- *Composition roots.*
+  <!-- construct:discover:composition-roots -->
+  _Not discovered yet — run `/construct-discover`._
+  <!-- /construct:discover:composition-roots -->
+- *Dependency policy.*
+  <!-- construct:discover:dependency-policy -->
+  _Not discovered yet — run `/construct-discover`._
+  <!-- /construct:discover:dependency-policy -->
+- *Composition models* and their rendered diagrams: [{{compositionDir}}/]({{compositionDir}}/).
+
+## Reasoning budget
+
+High-effort areas — a task that touches one of these is classified `high` and designed before it is
+implemented (see `/implement`):
+
+<!-- construct:discover:high-effort-areas -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:high-effort-areas -->
+
+{{#if contracts}}
+Always high, whatever discovery finds: [{{contractPath}}]({{contractPath}}),
+`{{compositionDir}}/`, `eslint.config.mjs`, and every row of
+[architecture/security-invariants.md](architecture/security-invariants.md).
+{{/if}}
+{{#unless contracts}}
+Always high, whatever discovery finds: `{{compositionDir}}/`, `eslint.config.mjs`, and every
+row of [architecture/security-invariants.md](architecture/security-invariants.md).
+{{/unless}}
 
 ## Conventions the harness does not enforce
 

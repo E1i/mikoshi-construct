@@ -38,7 +38,7 @@ export default antfu(
     },
   },
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'pnpm-lock.yaml', 'src/contracts/openapi.ts'],
+    ignores: ['**/dist/**', '**/node_modules/**', 'pnpm-lock.yaml', 'scripts/construct/*.workflow.mjs', 'src/contracts/openapi.ts'],
   },
   ...dependencyPolicy,
   {

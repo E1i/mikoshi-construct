@@ -91,7 +91,9 @@ function layerJson(earlier: string, later: string): string {
   return `${JSON.stringify(orderManifestKeys(sortSections(mergeJson(override, base, []))), null, 2)}\n`
 }
 
-function planOne(root: string, target: string, content: string, conflicts: string[]): FileOp {
+const NOT_ADDED_TO_EXISTING_MANIFEST = ['version']
+
+function planOne(root: string, target: string, content: string, conflicts: string[], existingVariant?: string): FileOp {
   const strategy = strategyFor(target)
   const absolute = path.join(root, target)
   const exists = existsSync(absolute)
@@ -102,15 +104,17 @@ function planOne(root: string, target: string, content: string, conflicts: strin
   if (strategy === 'merge-json') {
     const existing = JSON.parse(readFileSync(absolute, 'utf8')) as Record<string, unknown>
     const incoming = JSON.parse(content) as Record<string, unknown>
+    for (const key of NOT_ADDED_TO_EXISTING_MANIFEST)
+      delete incoming[key]
     const localConflicts: string[] = []
     const merged = mergeJson(existing, incoming, localConflicts)
     conflicts.push(...localConflicts.map(key => `${target}: ${key}`))
-    return { target, strategy, action: 'merge', content: `${JSON.stringify(sortSections(merged), null, 2)}\n` }
+    return { target, strategy, action: 'merge', content: `${JSON.stringify(orderManifestKeys(sortSections(merged)), null, 2)}\n` }
   }
 
   if (strategy === 'append-block') {
     const existing = readFileSync(absolute, 'utf8')
-    return { target, strategy, action: 'append', content: appendBlock(existing, content, target) }
+    return { target, strategy, action: 'append', content: appendBlock(existing, existingVariant ?? content, target) }
   }
 
   return { target, strategy, action: 'skip', content, note: 'exists, review manually' }
@@ -125,6 +129,7 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
   const conflicts: string[] = []
   const omittedGroups: string[] = []
   const layered = new Map<string, string>()
+  const existingVariants = new Map<string, string>()
   for (const mount of groups.map(toMount)) {
     if (mount.onlyWhenEmpty === true && !options.emptyTarget) {
       omittedGroups.push(mount.group)
@@ -133,12 +138,16 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
     for (const file of listTemplateFiles(mount.group)) {
       const target = mountTarget(mount, file.target)
       const content = readTemplate(file.source, file.rendered, vars)
+      if (file.variant === 'existing') {
+        existingVariants.set(target, content)
+        continue
+      }
       const previous = layered.get(target)
       layered.set(target, previous == null || strategyFor(target) !== 'merge-json' ? content : layerJson(previous, content))
     }
   }
   const ops = [...mapRulesForTargets(layered, options.ai).entries()]
-    .map(([target, content]) => planOne(root, target, content, conflicts))
+    .map(([target, content]) => planOne(root, target, content, conflicts, existingVariants.get(target)))
     .sort((a, b) => a.target.localeCompare(b.target))
   return { ops, conflicts, omittedGroups }
 }

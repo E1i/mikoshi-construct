@@ -18,13 +18,24 @@ repository's CLAUDE.md and `construct.json`.
    contract already defined is `low`.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
-3. Call the Workflow tool with `scriptPath` set to `.claude/skills/implement/workflow.mjs` and `args` as
+3. Call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
+   script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
    `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] } }`
    where `harness.command` comes from `construct.json` and `harness.extra` lists any area-specific
    commands CLAUDE.md names for the files the task touches (usually empty).
    The user's `/implement` invocation is the opt-in the tool requires.
-4. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
+4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
+   with `at` (ISO time), `task` (first 120 characters), `effort` (the class you chose), `status`,
+   the rung that finished (`effort` from the result) and `attempts` from the result. Workflow scripts
+   have no filesystem access, so this log is written here, not by the script; `.construct/` is
+   gitignored.
+5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
    files changed, and the harness tail. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed`, give the last failure excerpt.
-5. Never commit. The user reviews the working tree first.
+   Unless `construct.json` sets `report.usage` to `false`, end with one usage line for this run:
+   run `construct cost --last --json` (or `npx mikoshi-construct cost --last --json`) and report the
+   billable tokens and calls per agent — implementer, harness, architect — so the cost of the rung
+   that succeeded is on record next to the result. If the command is unavailable, say so in that
+   line instead of guessing numbers.
+6. Never commit. The user reviews the working tree first.

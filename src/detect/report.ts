@@ -11,6 +11,7 @@ export interface ExistingFiles {
   agentsMd: boolean
   cursorRules: boolean
   openapi: string | null
+  compositionDir: string | null
   constructJson: boolean
 }
 

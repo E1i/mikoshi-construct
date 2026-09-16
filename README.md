@@ -49,8 +49,12 @@ Three principles, in this order:
 | `construct init` | Detect, configure, materialize. `--yes --preset node-backend --ai claude\|cursor\|both --dir . --dry-run` |
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
+| `construct cost` | Token usage of the `/implement` runs in this directory — the evidence behind "we don't pay for reasoning until we need it" (`--last`, `--json`) |
 
 `--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner.
+
+> If you already keep a user-level `implement` skill in `~/.claude/skills/`, it shadows the one the
+> construct puts in `.claude/skills/implement/`; move yours aside to run the repository's ladder.
 
 ## What lands in the repository
 

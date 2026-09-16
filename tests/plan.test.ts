@@ -12,6 +12,7 @@ const vars: TemplateVars = {
   contracts: 'true',
   contractPath: 'contracts/api/openapi.yaml',
   contractTypesOutput: 'src/contracts/openapi.ts',
+  compositionDir: 'architecture/composition',
   contractTypesImport: './openapi.js',
   contractPathFromConfig: '../contracts/api/openapi.yaml',
   appRoot: '',

@@ -1,0 +1,15 @@
+## Construct
+
+This repository runs on a construct materialized by `mikoshi-construct` v{{constructVersion}}. The
+discovery blocks — product, module map, commands, composition roots, dependency policy, high-effort
+areas, defects vs accepted variance, open questions — live in [AGENTS.md](AGENTS.md); the
+architecture, security and reasoning-budget rules in
+[architecture/principles.md](architecture/principles.md); repository-wide code rules in
+`.claude/rules/`.
+
+- `/construct-discover` — fill or refresh the discovery blocks.
+- `/plan <feature>` — decompose a feature into tasks with acceptance criteria and an effort class.
+- `/implement <task>` — the reasoning-budget ladder: classify, implement at the lowest rung, verify
+  with `{{harnessCommand}}`, escalate only when verification proves it was not enough.
+- `construct doctor` (or `npx mikoshi-construct doctor`) — check that the baseline and discovery are
+  intact.

@@ -70,9 +70,15 @@ export function preserveDiscovery(existing: string, incoming: string): string {
   return result
 }
 
+function withoutSecondH1(existing: string, block: string): string {
+  if (existing.trim() === '' || !/^# /m.test(existing))
+    return block
+  return block.replace(/^# (.*)$/m, '## $1')
+}
+
 export function appendBlock(existing: string, block: string, target: string): string {
   const [begin, end] = markersFor(target)
-  const wrapped = `${begin}\n${preserveDiscovery(existing, block).trimEnd()}\n${end}\n`
+  const wrapped = `${begin}\n${preserveDiscovery(existing, withoutSecondH1(existing, block)).trimEnd()}\n${end}\n`
   const start = existing.indexOf(begin)
   const stop = existing.indexOf(end)
   if (start !== -1 && stop !== -1 && stop > start)

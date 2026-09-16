@@ -11,7 +11,12 @@ tree and report what happened. If no command is given, run the harness command n
 `construct.json` (`harness.command`), and fall back to `pnpm run quality`. If the repository's CLAUDE.md
 names extra commands for the area the diff touches, run those too.
 
-Also inspect `git diff` (staged and unstaged) for:
+Git is usable only when `git rev-parse --show-toplevel` is the directory that holds `construct.json`.
+When it is not — the repository has no `.git`, or a parent directory's repository would answer — set
+`diffStat` to `not a git repository at <dir>`, and decide `contractChanged` and `testsWeakened` by
+reading the files the implementer's report names, never by a `git diff` that sees a different tree.
+
+When git is usable, also inspect `git diff` (staged and unstaged) for:
 
 - a deleted or renamed file under any `tests/` directory;
 - `.skip(` or `.only(` added to a test;

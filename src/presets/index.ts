@@ -16,6 +16,7 @@ export interface TemplateVars extends Record<string, string> {
   contracts: string
   contractPath: string
   contractTypesOutput: string
+  compositionDir: string
   harnessCommand: string
   packageManager: string
   pnpmVersion: string

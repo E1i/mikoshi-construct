@@ -1,0 +1,50 @@
+## Construct
+
+This repository runs on a construct materialized by `mikoshi-construct` v{{constructVersion}}:
+architecture policy in [architecture/](architecture/), a harness (`{{harnessCommand}}`) that proves
+every change, and the rules that apply to all code in
+[architecture/principles.md](architecture/principles.md). The blocks below are filled by construct
+discovery (`/construct-discover` in Claude Code, "run construct discovery" in Cursor). Where this
+document, or another one in the repository, already covers a block, discovery records a pointer to it
+rather than a copy — one source of truth per concern.
+
+Product and the flow where a defect costs the most:
+<!-- construct:discover:product -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:product -->
+
+Module map:
+<!-- construct:discover:module-map -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:module-map -->
+
+Commands beyond the harness (`{{harnessCommand}}`):
+<!-- construct:discover:commands -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:commands -->
+
+Composition roots:
+<!-- construct:discover:composition-roots -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:composition-roots -->
+
+Dependency policy, and where lint enforces it:
+<!-- construct:discover:dependency-policy -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:dependency-policy -->
+
+High-effort areas — a task touching one is classified `high` and designed before it is implemented
+(always high: the API contract, `{{compositionDir}}/`, the lint policy, every security invariant):
+<!-- construct:discover:high-effort-areas -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:high-effort-areas -->
+
+Real defects vs accepted variance, beyond what this document already lists:
+<!-- construct:discover:defects-vs-variance -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:defects-vs-variance -->
+
+Open questions — things that look like conventions but are not applied consistently:
+<!-- construct:discover:open-questions -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:open-questions -->

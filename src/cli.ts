@@ -1,6 +1,8 @@
+import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
+import { collectWorkflowRuns, printCost } from './commands/cost.js'
 import { printDoctor, runDoctor } from './commands/doctor.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
@@ -86,6 +88,26 @@ const doctor = defineCommand({
   },
 })
 
+const cost = defineCommand({
+  meta: { name: 'cost', description: 'Token usage of the /implement runs recorded for this directory (from Claude Code session data)' },
+  args: {
+    ...commonArgs,
+    last: { type: 'boolean', description: 'Only the most recent run', default: false },
+    json: { type: 'boolean', description: 'Machine-readable report', default: false },
+  },
+  run({ args }) {
+    const runs = collectWorkflowRuns(path.resolve(args.dir))
+    if (args.json) {
+      const selected = runs == null ? null : args.last ? runs.slice(-1) : runs
+      process.stdout.write(`${JSON.stringify(selected, null, 2)}\n`)
+      process.exitCode = runs == null ? 1 : 0
+      return
+    }
+    const console = ui(args)
+    process.exitCode = printCost(console, runs, args.last)
+  },
+})
+
 const main = defineCommand({
   meta: {
     name: 'construct',
@@ -98,6 +120,7 @@ const main = defineCommand({
     inspect: soulkill,
     capture: soulkill,
     doctor,
+    cost,
   },
 })
 

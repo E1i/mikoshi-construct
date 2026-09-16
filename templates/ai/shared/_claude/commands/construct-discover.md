@@ -9,10 +9,21 @@ not verify by reading code; where the codebase is inconsistent, record an open q
 inventing a rule.
 
 Scope: `$ARGUMENTS` (empty means every marker). The markers, and the file each one lives in, are
-listed under `discovery` in `construct.json`. Every marker is a block between
+listed under `discovery` in `construct.json` (the text markers in `AGENTS.md`, the composition models
+in the directory `discovery.composition` names). Every marker is a block between
 `<!-- construct:discover:<name> -->` and `<!-- /construct:discover:<name> -->`; replace the placeholder
 line inside the block and nothing outside it. `construct doctor` reports any marker still holding the
 placeholder.
+
+Two rules for a repository that already documents itself:
+
+- **One source of truth.** If a block's content already exists elsewhere — a module map in
+  `README.md`, review standards in `best_practices.md`, invariants a PR reviewer reads — the marker
+  body is a pointer to that place (path and heading), not a copy. Do not duplicate, and do not merge
+  the existing document into the construct's files unless the user asks.
+- **Move nothing.** Existing composition models, docs and scripts stay where they are; `construct.json`
+  already records where the models live. If a construct file links to a path that differs from the
+  real one, say so in the report instead of renaming directories.
 
 Work in this order:
 
@@ -23,20 +34,20 @@ Work in this order:
 2. **`product`** (AGENTS.md): what the system does, in one paragraph, and the one flow where a
    defect costs the most (money, identity, data). If the repository is empty apart from the baseline,
    say so in one line.
-3. **`module-map`** (CLAUDE.md): a table `Path | Purpose` of the top-level modules that exist. Only
+3. **`module-map`** (AGENTS.md): a table `Path | Purpose` of the top-level modules that exist. Only
    what exists.
-4. **`commands`** (CLAUDE.md): dev, build, test and operational scripts from `package.json` that the
+4. **`commands`** (AGENTS.md): dev, build, test and operational scripts from `package.json` that the
    baseline block above does not already list, one line each. Remove the placeholder if there are none.
-5. **`composition-roots`** (CLAUDE.md): the files where services are constructed and routes, jobs or
+5. **`composition-roots`** (AGENTS.md): the files where services are constructed and routes, jobs or
    handlers are mounted, and the rule for adding a new one.
-6. **`dependency-policy`** (CLAUDE.md, and `eslint.config.mjs`): which modules or packages may import
+6. **`dependency-policy`** (AGENTS.md, and `eslint.config.mjs`): which modules or packages may import
    which. Describe it in one paragraph and make sure `eslint.config.mjs` enforces it — extend the
    policy blocks there (`ALLOWED_WORKSPACE_IMPORTS`, the `restrictSyntax` rules); a declared policy
    that lint does not enforce is not a policy.
-7. **`high-effort-areas`** (CLAUDE.md): the paths where a wrong low-effort guess is expensive —
+7. **`high-effort-areas`** (AGENTS.md): the paths where a wrong low-effort guess is expensive —
    attribution, authentication, money, schema, anything a shipped client depends on. This list is what
    `/implement` uses to classify a task as `high`.
-8. **`composition`** (`architecture/composition/*.yaml`): one model per real flow the code has today
+8. **`composition`** (`<discovery.composition>/*.yaml` from `construct.json`): one model per real flow the code has today
    (the HTTP app, a worker, a sync, a CLI, the browser bootstrap) — small, one per flow, every `path`
    must exist. A baseline model, when the construct shipped one, is updated, not duplicated; a
    repository that had code before the construct starts with no model and needs at least one for its

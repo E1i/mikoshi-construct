@@ -1,7 +1,7 @@
 import type { AiTarget, PresetId } from '../src/presets/index.js'
 import type { Prompter } from '../src/ui/prompts.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -66,11 +66,11 @@ describe('construct init --yes --preset node-backend', () => {
   it('is idempotent: a second run keeps the discovered content', async () => {
     const dir = scratch()
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    const claude = readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
-    writeFileSync(path.join(dir, 'CLAUDE.md'), claude.replace('<!-- construct:discover:module-map -->\n_Not discovered yet — run `/construct-discover`._', '<!-- construct:discover:module-map -->\n| src | everything |'))
+    const agents = readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')
+    writeFileSync(path.join(dir, 'AGENTS.md'), agents.replace('<!-- construct:discover:module-map -->\n_Not discovered yet — run `/construct-discover`._', '<!-- construct:discover:module-map -->\n| src | everything |'))
     const second = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     expect(second.conflicts).toEqual([])
-    const again = readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
+    const again = readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')
     expect(again).toContain('| src | everything |')
     expect(again.match(/construct:begin/g)).toHaveLength(1)
     expect(runDoctor(dir)?.missingDiscovery).not.toContain('module-map')
@@ -183,10 +183,11 @@ describe('construct init --preset node-frontend', () => {
     for (const file of ['index.html', 'src/main.ts', 'src/styles/tokens.css', 'tests/app.test.ts', 'architecture/composition/app.yaml', '.claude/rules/css.md'])
       expect(existsSync(path.join(dir, file)), file).toBe(true)
     expect(existsSync(path.join(dir, 'contracts'))).toBe(false)
-    const claude = readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
-    expect(claude).not.toContain('## Contract')
-    expect(claude).not.toContain('contracts:types')
-    expect(claude).toContain('Always high, whatever discovery finds: `architecture/composition/`')
+    const agents = readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')
+    expect(agents).not.toContain('## Contract')
+    expect(agents).not.toContain('contracts:types')
+    expect(agents).toContain('Always high, whatever discovery finds: `architecture/composition/`')
+    expect(readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')).toContain('@AGENTS.md')
     expect(readManifest(dir)?.contracts).toBeNull()
     expect(runDoctor(dir)?.ok).toBe(true)
   })
@@ -294,5 +295,39 @@ describe('the discovery protocol', () => {
     expect(rule).not.toContain('$ARGUMENTS')
     expect(rule).toContain('11. **Prove it.**')
     expect(existsSync(path.join(dir, 'architecture/checklists.md'))).toBe(true)
+  })
+})
+
+describe('construct init on a repository that already documents itself', () => {
+  it('appends the existing-file variant without a second H1, keeps composition models where they are and adds no version', async () => {
+    const dir = scratch()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'mine', private: true, scripts: { test: 'vitest run' } }))
+    writeFileSync(path.join(dir, 'AGENTS.md'), '# Mine\n\n## Real defects vs accepted variance\n\n- ours\n')
+    writeFileSync(path.join(dir, 'CLAUDE.md'), '# Mine\n\nHand-written.\n')
+    mkdirSync(path.join(dir, 'docs/architecture/composition'), { recursive: true })
+    writeFileSync(path.join(dir, 'docs/architecture/composition/app.yaml'), 'id: app\n')
+    mkdirSync(path.join(dir, 'src'))
+    const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(result.status).toBe('done')
+
+    const agents = readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')
+    expect(agents.match(/^# /gm)).toHaveLength(1)
+    expect(agents).toContain('## Construct')
+    expect(agents).not.toContain('## Module map')
+    expect(agents).toContain('<!-- construct:discover:high-effort-areas -->')
+    expect(agents).toContain('docs/architecture/composition/')
+    const claude = readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
+    expect(claude.match(/^# /gm)).toHaveLength(1)
+    expect(claude).not.toContain('@AGENTS.md')
+    expect(claude).toContain('/construct-discover')
+
+    const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as Record<string, unknown>
+    expect(pkg.version).toBeUndefined()
+    expect(Object.keys(pkg).indexOf('scripts')).toBeGreaterThan(Object.keys(pkg).indexOf('private'))
+
+    const manifest = readManifest(dir)
+    expect(manifest?.discovery.composition).toBe('docs/architecture/composition')
+    expect(existsSync(path.join(dir, 'architecture/composition'))).toBe(false)
+    expect(runDoctor(dir)?.missingDiscovery).not.toContain('composition')
   })
 })

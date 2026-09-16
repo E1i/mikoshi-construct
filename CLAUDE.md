@@ -36,13 +36,19 @@ edits. Run it before reporting done.
 | `templates/harness` | Composition engine, contracts check scripts, eslint/tsconfig/vitest, `ci.yml`, `pnpm-workspace.yaml`, `package.json.eta` partial |
 | `templates/stacks/<name>` | Sources shared by several presets, mounted at a path: `express-api/app` (the Express app, mounted at `.` or `apps/api`), `express-api/repo` (its composition model + pre-rendered doc), `http-contract` (OpenAPI, redocly, types script, security test, oasdiff workflow) |
 | `templates/presets/<id>` | Stack-specific config. `baseline/` is always written; `sample/` (and mounted stacks marked `onlyWhenEmpty`) only into an empty directory — an existing repository gets policy and tooling, never example code |
-| `templates/ai/shared`, `ai/claude`, `ai/cursor` | `AGENTS.md` and the rules (`shared/_claude/rules/*.md`, one source for both agents); `CLAUDE.md`, `.claude/` agents + skills + commands (claude); `.cursor/rules/construct.mdc` (cursor). `src/materialize/rules.ts` renders every `.claude/rules/*.md` in the plan to `.cursor/rules/*.mdc` for a Cursor target (`paths:` → `globs`, none → `alwaysApply: true`) and drops the `.claude` copy when the target is Cursor only. The discovery protocol `shared/_claude/commands/construct-discover.md` maps the same way to `.cursor/rules/construct-discover.mdc` (agent-requested, `$ARGUMENTS` rewritten). `ai/review` is the label-triggered `claude-review.yml`, added only with `--review claude` (`--review-model` fills `{{reviewModel}}`) |
+| `templates/ai/shared`, `ai/claude`, `ai/cursor` | `AGENTS.md` and the rules (`shared/_claude/rules/*.md`, one source for both agents); `CLAUDE.md`, `.claude/` agents + skills + commands, `scripts/construct/implement.workflow.mjs` (the ladder script; it lives outside `.claude/` because Claude Code's permission classifier treats a Workflow script read from `.claude/` as self-modification, and the Workflow sandbox allows no `import()`, no filesystem and no bare `new Date()`) (claude); `.cursor/rules/construct.mdc` (cursor). `src/materialize/rules.ts` renders every `.claude/rules/*.md` in the plan to `.cursor/rules/*.mdc` for a Cursor target (`paths:` → `globs`, none → `alwaysApply: true`) and drops the `.claude` copy when the target is Cursor only. The discovery protocol `shared/_claude/commands/construct-discover.md` maps the same way to `.cursor/rules/construct-discover.mdc` (agent-requested, `$ARGUMENTS` rewritten). `ai/review` is the label-triggered `claude-review.yml`, added only with `--review claude` (`--review-model` fills `{{reviewModel}}`) |
 | `tests/` | Vitest: detect, strategies, init end to end (no install). `silentWriter` keeps stdout clean |
 
 ## Template conventions
 
 - A path segment starting with `_` becomes `.` (`_github/workflows` → `.github/workflows`), because npm
   drops or rewrites real dotfiles in published packages.
+- A file ending in `.existing.eta` is the variant used when the target already exists in the
+  repository (append-block targets only: `AGENTS.md`, `CLAUDE.md`). It carries no H1, no prose about
+  the construct's own stack and no sections a mature repo already has — only the construct pointer and
+  the discovery markers with one-line lead-ins. The default `.eta` is for a file the construct creates.
+- All ten discovery markers live in `AGENTS.md` (cross-tool) and `architecture/`; `CLAUDE.md` is a
+  thin Claude Code entry that imports it with `@AGENTS.md`. Never put a marker in CLAUDE.md.
 - A file ending in `.eta` is rendered: `{{projectName}}`, `{{scope}}`, `{{nodeMajor}}`,
   `{{contracts}}`, `{{contractPath}}`, `{{contractTypesOutput}}`, `{{harnessCommand}}`,
   `{{packageManager}}`, `{{pnpmVersion}}`, `{{constructVersion}}` plus preset-specific ones (see

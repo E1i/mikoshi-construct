@@ -1,80 +1,18 @@
 # {{projectName}}
 
-This repository runs on a construct materialized by `mikoshi-construct` v{{constructVersion}}:
-architecture policy in [architecture/](architecture/), a harness that proves every change, and the
-rules that apply to all code in [architecture/principles.md](architecture/principles.md) and
-`.claude/rules/`. What follows is what is specific to this repository. Sections marked "not discovered yet" are filled by
-`/construct-discover`, then kept current by whoever changes the thing they describe.
+@AGENTS.md
 
-## Module map
+Everything an agent needs to know about this repository — product, module map, commands, harness,
+composition roots, dependency policy, high-effort areas, defects vs accepted variance — lives in
+[AGENTS.md](AGENTS.md), imported above. Repository-wide code rules are in `.claude/rules/`; the
+architecture, security and reasoning-budget rules in
+[architecture/principles.md](architecture/principles.md).
 
-<!-- construct:discover:module-map -->
-_Not discovered yet — run `/construct-discover`._
-<!-- /construct:discover:module-map -->
+## Working here with Claude Code
 
-## Commands
-
-```bash
-pnpm dev             # run the service locally
-pnpm run quality     # the harness: contract + composition checks, lint, typecheck, tests — the CI gate and the agent gate
-{{#if contracts}}
-pnpm contracts:types # regenerate {{contractTypesOutput}} after editing the API contract
-{{/if}}
-pnpm composition:render # regenerate architecture diagrams after editing a composition model
-pnpm lint:fix        # ESLint with --fix; ESLint is the only formatter
-```
-
-Use `pnpm run quality` / `pnpm run ci` — bare `pnpm ci` is a pnpm install builtin, not this script.
-
-<!-- construct:discover:commands -->
-_Not discovered yet — run `/construct-discover`._
-<!-- /construct:discover:commands -->
-
-## Harness
-
-`{{harnessCommand}}` is the gate for any change. A change is not done until it passes; a pass is
-reported by the harness, never by the implementer. Security invariants and the check that enforces
-each one: [architecture/security-invariants.md](architecture/security-invariants.md).
-
-{{#if contracts}}
-## Contract
-
-[{{contractPath}}]({{contractPath}}) is the HTTP contract. The service validates every request against
-it (and responses outside production), consumers read the types generated into
-[{{contractTypesOutput}}]({{contractTypesOutput}}), and `oasdiff` flags breaking changes on pull
-requests. An API change edits the contract first, runs `pnpm contracts:types`, then implements.
-
-{{/if}}
-## Architecture
-
-The principles in [architecture/principles.md](architecture/principles.md) apply; this is how they map
-here.
-
-- *Composition roots.*
-  <!-- construct:discover:composition-roots -->
-  _Not discovered yet — run `/construct-discover`._
-  <!-- /construct:discover:composition-roots -->
-- *Dependency policy.*
-  <!-- construct:discover:dependency-policy -->
-  _Not discovered yet — run `/construct-discover`._
-  <!-- /construct:discover:dependency-policy -->
-- *Composition models* and their rendered diagrams: [architecture/composition/](architecture/composition/).
-
-## Reasoning budget
-
-High-effort areas — a task that touches one of these is classified `high` and designed before it is
-implemented (see `/implement`):
-
-<!-- construct:discover:high-effort-areas -->
-_Not discovered yet — run `/construct-discover`._
-<!-- /construct:discover:high-effort-areas -->
-
-{{#if contracts}}
-Always high, whatever discovery finds: [{{contractPath}}]({{contractPath}}),
-`architecture/composition/`, `eslint.config.mjs`, and every row of
-[architecture/security-invariants.md](architecture/security-invariants.md).
-{{/if}}
-{{#unless contracts}}
-Always high, whatever discovery finds: `architecture/composition/`, `eslint.config.mjs`, and every
-row of [architecture/security-invariants.md](architecture/security-invariants.md).
-{{/unless}}
+- `/construct-discover` — fill or refresh the discovery blocks in AGENTS.md and `architecture/`.
+- `/plan <feature>` — decompose a feature into tasks with acceptance criteria and an effort class.
+- `/implement <task>` — run the reasoning-budget ladder: classify, implement at the lowest rung,
+  verify with `{{harnessCommand}}`, escalate only when verification proves it was not enough.
+- `construct doctor` (or `npx mikoshi-construct doctor`) — check that the baseline and discovery are
+  intact.

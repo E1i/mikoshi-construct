@@ -91,15 +91,6 @@ let spec = null
 let feedback = null
 const attempts = []
 
-async function record(outcome) {
-  try {
-    const { appendFile, mkdir } = await import('node:fs/promises')
-    await mkdir('.construct', { recursive: true })
-    await appendFile('.construct/runs.jsonl', `${JSON.stringify({ at: new Date().toISOString(), task, effort: args.effort ?? 'low', rungs: rungs.length, ...outcome })}\n`)
-  }
-  catch {}
-  return outcome
-}
 
 if (args.effort === 'high') {
   phase('Design')
@@ -114,6 +105,8 @@ if (args.effort === 'high') {
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
+  phase('Implement')
+  log(`rung ${rung}/${rungs.length} @ ${effort}: implementing`)
   const report = await agent(implementerPrompt(spec, feedback), {
     agentType: 'implementer',
     effort,
@@ -129,7 +122,7 @@ for (const [index, effort] of rungs.entries()) {
   if (report.status === 'blocked') {
     attempts.push({ rung, effort, outcome: 'blocked', question: report.question })
     if (rung === rungs.length)
-      return record({ status: 'blocked', question: report.question, attempts })
+      return { status: 'blocked', question: report.question, attempts }
     spec = await agent(architectPrompt(`The implementer stopped on this question:\n${report.question}`), {
       agentType: 'architect',
       effort: 'xhigh',
@@ -138,9 +131,12 @@ for (const [index, effort] of rungs.entries()) {
       schema: SPEC,
     })
     feedback = null
+    log(`rung ${rung}/${rungs.length} @ ${effort}: blocked, architect answered`)
     continue
   }
 
+  phase('Verify')
+  log(`rung ${rung}/${rungs.length} @ ${effort}: running ${harness.command}`)
   const verdict = await agent(harnessPrompt(), {
     agentType: 'harness',
     effort: 'low',
@@ -153,7 +149,7 @@ for (const [index, effort] of rungs.entries()) {
   log(`rung ${rung} @ ${effort}: ${passed ? 'harness passed' : 'harness failed'}`)
 
   if (passed) {
-    return record({
+    return {
       status: 'done',
       effort,
       attempts,
@@ -162,7 +158,7 @@ for (const [index, effort] of rungs.entries()) {
       harnessTail: report.harnessTail,
       contractChanged: verdict.contractChanged,
       diffStat: verdict.diffStat,
-    })
+    }
   }
 
   feedback = verdict == null
@@ -174,6 +170,8 @@ for (const [index, effort] of rungs.entries()) {
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 
   if (rung === rungs.length - 1) {
+    phase('Design')
+    log(`rung ${rung}/${rungs.length} failed twice: architect redesigns before the last rung`)
     spec = await agent(architectPrompt(`Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`), {
       agentType: 'architect',
       effort: 'xhigh',
@@ -184,4 +182,4 @@ for (const [index, effort] of rungs.entries()) {
   }
 }
 
-return record({ status: 'failed', attempts, lastFailure: feedback })
+return { status: 'failed', attempts, lastFailure: feedback }

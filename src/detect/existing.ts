@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml']
+const COMPOSITION_CANDIDATES = ['architecture/composition', 'docs/architecture/composition', 'docs/composition', 'composition']
 const OPENAPI_CANDIDATES = ['contracts/api/openapi.yaml', 'contracts/api/openapi.yml', 'contracts/openapi.yaml', 'openapi.yaml', 'openapi.yml', 'openapi.json', 'api/openapi.yaml', 'docs/openapi.yaml']
 
 function anyExists(dir: string, candidates: string[]): boolean {
@@ -11,6 +12,13 @@ function anyExists(dir: string, candidates: string[]): boolean {
 
 function firstExisting(dir: string, candidates: string[]): string | null {
   return candidates.find(candidate => existsSync(path.join(dir, candidate))) ?? null
+}
+
+function compositionDir(dir: string): string | null {
+  return COMPOSITION_CANDIDATES.find((candidate) => {
+    const absolute = path.join(dir, candidate)
+    return existsSync(absolute) && readdirSync(absolute).some(file => file.endsWith('.yaml') || file.endsWith('.yml'))
+  }) ?? null
 }
 
 function hasWorkflows(dir: string): boolean {
@@ -28,6 +36,7 @@ export function detectExisting(dir: string): ExistingFiles {
     agentsMd: existsSync(path.join(dir, 'AGENTS.md')),
     cursorRules: existsSync(path.join(dir, '.cursor', 'rules')),
     openapi: firstExisting(dir, OPENAPI_CANDIDATES),
+    compositionDir: compositionDir(dir),
     constructJson: existsSync(path.join(dir, 'construct.json')),
   }
 }

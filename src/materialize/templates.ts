@@ -17,14 +17,19 @@ export interface TemplateFile {
   source: string
   target: string
   rendered: boolean
+  variant: 'default' | 'existing'
 }
 
-function toTargetPath(relative: string): { target: string, rendered: boolean } {
+const EXISTING_SUFFIX = '.existing.eta'
+
+function toTargetPath(relative: string): Pick<TemplateFile, 'target' | 'rendered' | 'variant'> {
   const segments = relative.split(path.sep).map(segment => (segment.startsWith('_') ? `.${segment.slice(1)}` : segment))
   const joined = segments.join('/')
+  if (joined.endsWith(EXISTING_SUFFIX))
+    return { target: joined.slice(0, -EXISTING_SUFFIX.length), rendered: true, variant: 'existing' }
   return joined.endsWith('.eta')
-    ? { target: joined.slice(0, -'.eta'.length), rendered: true }
-    : { target: joined, rendered: false }
+    ? { target: joined.slice(0, -'.eta'.length), rendered: true, variant: 'default' }
+    : { target: joined, rendered: false, variant: 'default' }
 }
 
 function walk(root: string, current: string, files: string[]): void {
@@ -44,8 +49,8 @@ export function listTemplateFiles(group: string): TemplateFile[] {
   const files: string[] = []
   walk(root, root, files)
   return files.map((relative) => {
-    const { target, rendered } = toTargetPath(relative)
-    return { group, source: path.join(root, relative), target, rendered }
+    const { target, rendered, variant } = toTargetPath(relative)
+    return { group, source: path.join(root, relative), target, rendered, variant }
   })
 }
 
