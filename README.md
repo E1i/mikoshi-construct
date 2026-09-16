@@ -3,8 +3,10 @@
 Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an
 empty repository.
 
-```
-npx mikoshi-construct init
+```bash
+mkdir my-service && cd my-service
+npx mikoshi-construct init          # interactive: preset, agent, project name
+pnpm install && pnpm run quality    # green before you write a line
 ```
 
 > **v0.1.** Presets `node-backend`, `node-frontend`, `node-library` and `monorepo`. Claude Code gets
@@ -33,6 +35,52 @@ claude → /construct-discover          the agent fills ten discovery markers fr
 An existing repository gets the policy, the harness tooling and the agent files, never example
 code; its own `AGENTS.md`, `CLAUDE.md`, `package.json` and configs are merged or left alone, and
 `init` says what still has to be wired by hand.
+
+## Usage
+
+**A new project.** Name a preset and it writes everything:
+
+```bash
+mkdir my-service && cd my-service
+npx mikoshi-construct init --yes --preset node-backend
+pnpm install && pnpm run quality
+```
+
+**An existing repository.** Look before you write:
+
+```bash
+npx mikoshi-construct init --preset monorepo --dry-run
+```
+
+```
+  ~ package.json (merge)
+  = eslint.config.mjs — exists, review manually
+  + architecture/principles.md
+  + .claude/commands/construct-discover.md
+
+  Sample sources omitted: the directory is not empty. Discovery maps what is already here.
+```
+
+`+` creates a file that is not there. `~` merges into one that is, inside a
+`construct:begin … construct:end` block or as a JSON merge where your values win. `=` leaves the file
+alone and reports it. No example code lands in a repository that already has some, and there is no
+`--force`.
+
+**Cursor, or both agents.** The rules are written once and rendered for each:
+
+```bash
+npx mikoshi-construct init --yes --preset node-frontend --ai both
+```
+
+**Check a repository at any time.**
+
+```bash
+npx mikoshi-construct doctor     # baseline intact, harness intact, markers filled
+npx mikoshi-construct soulkill   # what the detector sees; writes nothing
+npx mikoshi-construct cost --last
+```
+
+Every command, flag and exit code: [docs/cli.md](https://github.com/E1i/mikoshi-construct/blob/main/docs/cli.md).
 
 ## Three principles
 
@@ -82,7 +130,8 @@ with a named check, not a second fix.
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
 | `construct cost` | Token usage of the `/implement` runs in this directory, per agent, billable and price-weighted (`--last`, `--json`) |
 
-`--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner.
+`--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner. The full reference,
+with examples and exit codes, is in [docs/cli.md](https://github.com/E1i/mikoshi-construct/blob/main/docs/cli.md).
 
 > If you already keep a user-level `implement` skill in `~/.claude/skills/`, it shadows the one the
 > construct puts in `.claude/skills/implement/`; move yours aside to run the repository's ladder.
