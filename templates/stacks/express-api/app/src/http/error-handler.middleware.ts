@@ -1,5 +1,5 @@
 import type express from 'express'
-import type { components } from '../contracts/openapi.js'
+import type { components } from '../contracts/types.js'
 import { isAppError } from './app-error.js'
 
 type ErrorResponse = components['schemas']['ErrorResponse']

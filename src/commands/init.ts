@@ -1,15 +1,15 @@
 import type { DetectReport } from '../detect/index.js'
 import type { AiTarget, PresetId, TemplateVars } from '../presets/index.js'
 import type { Ui } from '../ui/console.js'
+import type { Prompter } from '../ui/prompts.js'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import process from 'node:process'
-import { createInterface } from 'node:readline/promises'
 import { detect } from '../detect/index.js'
 import { buildManifest, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
-import { aiGroups, defaultProjectName, getPreset, isPresetId } from '../presets/index.js'
+import { AI_TARGET_LABELS, aiGroups, defaultProjectName, getPreset, isPresetId, PRESET_LIST } from '../presets/index.js'
+import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { printDetectReport } from './soulkill.js'
 
@@ -29,37 +29,88 @@ export interface InitResult {
   conflicts: string[]
 }
 
-function resolvePreset(value: string | undefined, report: DetectReport): PresetId {
-  if (value != null) {
-    if (!isPresetId(value))
-      throw new Error(`unknown preset "${value}"`)
-    return value
-  }
+interface InitChoices {
+  presetId: PresetId
+  ai: AiTarget
+  projectName: string
+}
+
+const CANCELLED = Symbol('cancelled')
+
+function aborted(skipped: string[] = [], conflicts: string[] = []): InitResult {
+  return { status: 'aborted', written: [], skipped, conflicts }
+}
+
+function suggestedPreset(report: DetectReport): PresetId | undefined {
+  if (report.layout === 'unknown')
+    return undefined
   return report.layout === 'monorepo' ? 'monorepo' : 'node-backend'
 }
 
-function resolveAi(value: string | undefined): AiTarget {
-  if (value == null)
-    return 'claude'
+function parsePreset(value: string): PresetId {
+  if (!isPresetId(value))
+    throw new Error(`unknown preset "${value}"`)
+  return value
+}
+
+function parseAi(value: string): AiTarget {
   if (value === 'claude' || value === 'cursor' || value === 'both')
     return value
   throw new Error(`unknown AI target "${value}" (claude | cursor | both)`)
 }
 
-async function confirm(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  try {
-    const answer = (await rl.question(`${question} [Y/n] `)).trim().toLowerCase()
-    return answer === '' || answer === 'y' || answer === 'yes'
-  }
-  finally {
-    rl.close()
-  }
+function parseProjectName(value: string): string {
+  if (!isValidProjectName(value))
+    throw new Error(`invalid project name "${value}"`)
+  return value
 }
 
-export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult> {
+async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, root: string, prompter: Prompter | undefined): Promise<InitChoices | typeof CANCELLED> {
+  const suggested = suggestedPreset(report)
+
+  let presetId: PresetId | undefined = options.preset == null ? undefined : parsePreset(options.preset)
+  if (presetId == null) {
+    if (report.layout === 'unknown')
+      ui.glitch(ui.lore.unknownStructure)
+    if (prompter == null) {
+      if (suggested == null)
+        return CANCELLED
+      presetId = suggested
+    }
+    else {
+      presetId = await prompter.preset(PRESET_LIST, suggested)
+      if (presetId == null)
+        return CANCELLED
+    }
+  }
+
+  let ai: AiTarget | undefined = options.ai == null ? undefined : parseAi(options.ai)
+  if (ai == null) {
+    ai = prompter == null ? 'claude' : await prompter.aiTarget('claude')
+    if (ai == null)
+      return CANCELLED
+  }
+
+  let projectName: string | undefined = options.name == null ? undefined : parseProjectName(options.name)
+  if (projectName == null) {
+    const fallback = defaultProjectName(root)
+    projectName = prompter == null ? fallback : await prompter.projectName(fallback)
+    if (projectName == null)
+      return CANCELLED
+  }
+
+  return { presetId, ai, projectName }
+}
+
+export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
   const root = path.resolve(options.dir)
   mkdirSync(root, { recursive: true })
+
+  if (!options.yes && prompter == null) {
+    ui.glitch(ui.lore.needsTerminal)
+    return aborted()
+  }
+  const interactive = options.yes ? undefined : prompter
 
   ui.soulkiller()
   ui.line(`  ${ui.theme.dim('└─')} ${ui.theme.dim(ui.lore.soulkillerDetail)}`)
@@ -70,26 +121,22 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
   printDetectReport(ui, report)
   ui.line()
 
-  if (report.layout === 'unknown' && options.preset == null) {
-    ui.glitch(ui.lore.unknownStructure)
-    return { status: 'aborted', written: [], skipped: [], conflicts: [] }
-  }
-
-  const presetId = resolvePreset(options.preset, report)
+  ui.phase(2, 4, '🧠', ui.lore.phaseConfigure)
+  const choices = await askChoices(ui, options, report, root, interactive)
+  if (choices === CANCELLED)
+    return aborted()
+  const { presetId, ai, projectName } = choices
   const preset = getPreset(presetId)
   if (!preset.available)
     throw new Error(`preset "${presetId}" is not available yet in v${VERSION}`)
-  const ai = resolveAi(options.ai)
-  const projectName = options.name ?? defaultProjectName(root)
 
   if (report.packageManager !== 'pnpm' && report.packageManager !== 'none')
     ui.glitch(`This repository uses ${report.packageManager}; the construct harness scripts assume pnpm in v${VERSION}.`)
 
-  ui.phase(2, 4, '🧠', ui.lore.phaseConfigure)
   ui.tree([
     ['Project', projectName],
     ['Preset', `${preset.label} — ${preset.description}`],
-    ['AI Netrunners', ai === 'both' ? 'Claude Code, Cursor' : ai === 'claude' ? 'Claude Code' : 'Cursor'],
+    ['AI Netrunners', AI_TARGET_LABELS[ai]],
   ])
   ui.line()
 
@@ -97,16 +144,18 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
     projectName,
     scope: `@${projectName}`,
     nodeMajor: String(report.nodeMajor),
+    contracts: preset.contracts ? 'true' : 'false',
     contractPath: 'contracts/api/openapi.yaml',
     contractTypesOutput: 'src/contracts/openapi.ts',
     harnessCommand: 'pnpm run quality',
     packageManager: 'pnpm',
+    pnpmVersion: report.pnpmVersion ?? '',
     constructVersion: VERSION,
     ...preset.vars(report, projectName),
   }
 
   const groups = [...preset.groups, ...aiGroups(ai)]
-  const plan = planMaterialize(root, groups, vars)
+  const plan = planMaterialize(root, groups, vars, report.layout === 'empty')
 
   ui.phase(3, 4, '💾', ui.lore.phaseMaterialize)
   ui.tree([[ui.lore.materializeAi], [ui.lore.materializeContracts], [ui.lore.materializePolicies]])
@@ -115,6 +164,7 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
   const creates = plan.ops.filter(op => op.action === 'create')
   const merges = plan.ops.filter(op => op.action === 'merge' || op.action === 'append')
   const skips = plan.ops.filter(op => op.action === 'skip')
+  const skipped = skips.map(op => op.target)
 
   for (const op of creates)
     ui.line(`  ${ui.theme.ok('+')} ${op.target}`)
@@ -124,16 +174,18 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
     ui.line(`  ${ui.theme.dim('=')} ${ui.theme.dim(`${op.target} — ${op.note ?? 'exists'}`)}`)
   ui.line()
 
+  if (plan.omittedGroups.length > 0)
+    ui.line(ui.theme.dim(`  ${ui.lore.sampleOmitted}`))
   if (plan.conflicts.length > 0)
     ui.glitch('Existing values kept; review these keys by hand:', plan.conflicts)
 
   if (options.dryRun) {
     ui.line(ui.theme.dim(ui.lore.dryRun))
-    return { status: 'dry-run', written: [], skipped: skips.map(op => op.target), conflicts: plan.conflicts }
+    return { status: 'dry-run', written: [], skipped, conflicts: plan.conflicts }
   }
 
-  if (!options.yes && !(await confirm(ui.lore.confirm)))
-    return { status: 'aborted', written: [], skipped: skips.map(op => op.target), conflicts: plan.conflicts }
+  if (interactive != null && (await interactive.confirm(ui.lore.confirm)) !== true)
+    return aborted(skipped, plan.conflicts)
 
   const written = applyPlan(root, plan.ops)
   writeManifest(root, buildManifest({ version: VERSION, preset: presetId, ai, vars, written, contracts: preset.contracts }))
@@ -144,5 +196,5 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
     ['Next', `${vars.packageManager} install && ${vars.harnessCommand}`],
     ['Then', ai === 'cursor' ? 'open Cursor and ask the agent to run the construct discovery' : 'claude → /construct-discover'],
   ])
-  return { status: 'done', written: written.map(op => op.target), skipped: skips.map(op => op.target), conflicts: plan.conflicts }
+  return { status: 'done', written: written.map(op => op.target), skipped, conflicts: plan.conflicts }
 }

@@ -1,4 +1,4 @@
-import type { components } from '../contracts/openapi.js'
+import type { components } from '../contracts/types.js'
 
 export type HealthResponse = components['schemas']['HealthResponse']
 

@@ -1,4 +1,7 @@
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+
+const DEFAULT_CONTRACT_PATH = fileURLToPath(new URL('{{contractPathFromConfig}}', import.meta.url))
 
 export interface AppConfig {
   port: number
@@ -21,7 +24,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     port: integer('PORT', 3000),
     serviceName: env.SERVICE_NAME ?? '{{projectName}}',
-    apiContractPath: env.API_CONTRACT_PATH ?? 'contracts/api/openapi.yaml',
+    apiContractPath: env.API_CONTRACT_PATH ?? DEFAULT_CONTRACT_PATH,
     validateApiResponses: env.NODE_ENV !== 'production',
   }
 }

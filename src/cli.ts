@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
 import { printDoctor, runDoctor } from './commands/doctor.js'
 import { runInit } from './commands/init.js'
@@ -6,6 +7,7 @@ import { printDetectReport } from './commands/soulkill.js'
 import { detect } from './detect/index.js'
 import { PRESET_IDS } from './presets/index.js'
 import { createUi } from './ui/console.js'
+import { createClackPrompter } from './ui/prompts.js'
 import { resolveTheme } from './ui/theme.js'
 import { VERSION } from './version.js'
 
@@ -24,16 +26,17 @@ const init = defineCommand({
   args: {
     ...commonArgs,
     preset: { type: 'string', description: `Preset: ${PRESET_IDS.join(' | ')}` },
-    ai: { type: 'string', description: 'AI target: claude | cursor | both', default: 'claude' },
+    ai: { type: 'string', description: 'AI target: claude | cursor | both (default: claude)' },
     name: { type: 'string', description: 'Project name (defaults to the directory name)' },
-    yes: { type: 'boolean', alias: 'y', description: 'Skip the confirmation', default: false },
+    yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
     dryRun: { type: 'boolean', description: 'Print the plan, write nothing', default: false },
   },
   async run({ args }) {
     const console = ui(args)
     console.banner(VERSION, args.johnny)
     try {
-      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, yes: args.yes, dryRun: args.dryRun })
+      const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
+      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, yes: args.yes, dryRun: args.dryRun }, prompter)
       process.exitCode = result.status === 'aborted' ? 1 : 0
     }
     catch (error) {

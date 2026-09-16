@@ -14,12 +14,19 @@ export interface ExistingFiles {
   constructJson: boolean
 }
 
+export interface WorkspacePackage {
+  dir: string
+  name: string
+}
+
 export interface DetectReport {
   dir: string
   packageManager: PackageManager
+  pnpmVersion: string | null
   layout: Layout
   monorepoTools: MonorepoTool[]
   workspaceDirs: string[]
+  workspacePackages: WorkspacePackage[]
   hasSrc: boolean
   nodeMajor: number
   existing: ExistingFiles

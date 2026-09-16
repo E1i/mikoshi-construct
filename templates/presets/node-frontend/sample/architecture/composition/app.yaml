@@ -1,0 +1,41 @@
+id: app
+title: Application composition
+description: >-
+  `src/main.ts` is the composition root: it finds the mount point in `index.html`, loads the design
+  tokens and the component styles, and hands the root element to `createApp`. State crosses into CSS
+  as `data-*` attributes; nothing else writes styles from JavaScript.
+doc: architecture/app.md
+boundaries:
+  - id: bootstrap
+    label: Bootstrap
+  - id: ui
+    label: UI
+  - id: styles
+    label: Styles
+nodes:
+  - id: main
+    label: main.ts
+    path: src/main.ts
+    boundary: bootstrap
+  - id: app
+    label: createApp(root)
+    path: src/app.ts
+    boundary: ui
+  - id: counter
+    label: createCounter(button)
+    path: src/app.ts
+    boundary: ui
+  - id: tokens
+    label: tokens.css
+    path: src/styles/tokens.css
+    boundary: styles
+  - id: css
+    label: app.css
+    path: src/styles/app.css
+    boundary: styles
+edges:
+  - {from: main, to: tokens, kind: wires, label: imports}
+  - {from: main, to: css, kind: wires, label: imports}
+  - {from: main, to: app, kind: sequence}
+  - {from: app, to: counter, kind: sequence}
+  - {from: counter, to: css, kind: wires, label: data-tone}

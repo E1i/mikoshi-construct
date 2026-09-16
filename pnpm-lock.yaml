@@ -166,6 +166,9 @@ importers:
 
   .:
     dependencies:
+      '@clack/prompts':
+        specifier: ^1.8.0
+        version: 1.8.1
       citty:
         specifier: ^0.2.2
         version: 0.2.2

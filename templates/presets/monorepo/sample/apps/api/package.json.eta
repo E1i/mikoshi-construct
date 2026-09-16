@@ -1,0 +1,23 @@
+{
+  "name": "{{scope}}/api",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx --watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "{{scope}}/shared": "workspace:*",
+    "express": "catalog:",
+    "express-openapi-validator": "catalog:"
+  },
+  "devDependencies": {
+    "@types/express": "catalog:",
+    "@types/supertest": "catalog:",
+    "supertest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -49,11 +49,22 @@ export function listTemplateFiles(group: string): TemplateFile[] {
   })
 }
 
+const BLOCK = /^[ \t]*\{\{#(if|unless) (\w+)\}\}[ \t]*\n([\s\S]*?)^[ \t]*\{\{\/\1\}\}[ \t]*\n/gm
+const VARIABLE = /\{\{\s*(\w+)\s*\}\}/g
+
+function lookup(vars: Record<string, string>, name: string, match: string): string {
+  const value = vars[name]
+  if (value == null)
+    throw new Error(`template variable "${name}" is not defined (${match})`)
+  return value
+}
+
+function isTruthy(value: string): boolean {
+  return value !== '' && value !== 'false'
+}
+
 export function render(template: string, vars: Record<string, string>): string {
-  return template.replaceAll(/\{\{\s*(\w+)\s*\}\}/g, (match, name: string) => {
-    const value = vars[name]
-    if (value == null)
-      throw new Error(`template variable "${name}" is not defined (${match})`)
-    return value
-  })
+  const expanded = template.replaceAll(BLOCK, (match, kind: string, name: string, body: string) =>
+    (isTruthy(lookup(vars, name, match)) === (kind === 'if') ? body : ''))
+  return expanded.replaceAll(VARIABLE, (match, name: string) => lookup(vars, name, match))
 }

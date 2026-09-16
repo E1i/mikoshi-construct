@@ -1,0 +1,16 @@
+:root {
+  color-scheme: light dark;
+
+  --color-surface: light-dark(oklch(98% 0.01 250), oklch(18% 0.02 250));
+  --color-on-surface: light-dark(oklch(22% 0.02 250), oklch(94% 0.01 250));
+  --color-primary: light-dark(oklch(52% 0.2 265), oklch(78% 0.14 265));
+  --color-on-primary: light-dark(oklch(99% 0 0), oklch(18% 0.05 265));
+
+  --space-2: 0.5rem;
+  --space-4: 1rem;
+  --space-8: 2rem;
+  --radius-md: 0.5rem;
+  --duration-fast: 120ms;
+  --body-max-inline-size: 65ch;
+  --bp-cq-sm: 30rem;
+}

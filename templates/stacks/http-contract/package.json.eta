@@ -1,0 +1,13 @@
+{
+  "name": "{{projectName}}",
+  "scripts": {
+    "contracts:lint": "redocly lint",
+    "contracts:types": "node scripts/contracts/types.mjs",
+    "contracts:check": "pnpm contracts:lint && node scripts/contracts/types.mjs --check",
+    "quality": "pnpm contracts:check && pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.52.0",
+    "openapi-typescript": "^7.13.0"
+  }
+}

@@ -14,6 +14,8 @@ export interface LoadedModel {
 }
 
 export function loadCompositionModels(dir = COMPOSITION_DIR): LoadedModel[] {
+  if (!existsSync(dir))
+    return []
   return readdirSync(dir)
     .filter(file => file.endsWith('.yaml'))
     .sort()

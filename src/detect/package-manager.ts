@@ -1,4 +1,5 @@
 import type { PackageManager } from './report.js'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -33,4 +34,18 @@ export function detectPackageManager(dir: string): PackageManager {
       return manager
   }
   return existsSync(path.join(dir, 'package.json')) ? 'npm' : 'none'
+}
+
+let pnpmVersionCache: string | null | undefined
+
+export function detectPnpmVersion(): string | null {
+  if (pnpmVersionCache !== undefined)
+    return pnpmVersionCache
+  try {
+    pnpmVersionCache = execFileSync('pnpm', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null
+  }
+  catch {
+    pnpmVersionCache = null
+  }
+  return pnpmVersionCache
 }

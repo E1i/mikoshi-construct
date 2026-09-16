@@ -1,4 +1,4 @@
-import type { TemplateVars } from '../presets/index.js'
+import type { TemplateGroup, TemplateMount, TemplateVars } from '../presets/index.js'
 import type { Strategy } from './strategies.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -18,6 +18,15 @@ export interface FileOp {
 export interface MaterializePlan {
   ops: FileOp[]
   conflicts: string[]
+  omittedGroups: string[]
+}
+
+function toMount(group: TemplateGroup): TemplateMount {
+  return typeof group === 'string' ? { group } : group
+}
+
+function mountTarget(mount: TemplateMount, target: string): string {
+  return mount.into == null || mount.into === '.' ? target : `${mount.into.replace(/\/$/, '')}/${target}`
 }
 
 function readTemplate(source: string, rendered: boolean, vars: TemplateVars): string {
@@ -26,6 +35,36 @@ function readTemplate(source: string, rendered: boolean, vars: TemplateVars): st
 }
 
 const SORTED_SECTIONS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+
+const MANIFEST_KEY_ORDER = [
+  'name',
+  'type',
+  'version',
+  'private',
+  'packageManager',
+  'description',
+  'author',
+  'license',
+  'homepage',
+  'repository',
+  'bugs',
+  'keywords',
+  'sideEffects',
+  'exports',
+  'main',
+  'module',
+  'types',
+  'bin',
+  'files',
+  'engines',
+  'scripts',
+  'peerDependencies',
+  'dependencies',
+  'optionalDependencies',
+  'devDependencies',
+  'pnpm',
+  'overrides',
+]
 
 function sortSections(manifest: Record<string, unknown>): Record<string, unknown> {
   const result = { ...manifest }
@@ -37,10 +76,18 @@ function sortSections(manifest: Record<string, unknown>): Record<string, unknown
   return result
 }
 
+function orderManifestKeys(manifest: Record<string, unknown>): Record<string, unknown> {
+  const rank = (key: string): number => {
+    const index = MANIFEST_KEY_ORDER.indexOf(key)
+    return index === -1 ? MANIFEST_KEY_ORDER.length : index
+  }
+  return Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => rank(a) - rank(b)))
+}
+
 function layerJson(earlier: string, later: string): string {
   const base = JSON.parse(earlier) as Record<string, unknown>
   const override = JSON.parse(later) as Record<string, unknown>
-  return `${JSON.stringify(sortSections(mergeJson(override, base, [])), null, 2)}\n`
+  return `${JSON.stringify(orderManifestKeys(sortSections(mergeJson(override, base, []))), null, 2)}\n`
 }
 
 function planOne(root: string, target: string, content: string, conflicts: string[]): FileOp {
@@ -68,18 +115,24 @@ function planOne(root: string, target: string, content: string, conflicts: strin
   return { target, strategy, action: 'skip', content, note: 'exists, review manually' }
 }
 
-export function planMaterialize(root: string, groups: string[], vars: TemplateVars): MaterializePlan {
+export function planMaterialize(root: string, groups: TemplateGroup[], vars: TemplateVars, emptyTarget: boolean): MaterializePlan {
   const conflicts: string[] = []
+  const omittedGroups: string[] = []
   const layered = new Map<string, string>()
-  for (const group of groups) {
-    for (const file of listTemplateFiles(group)) {
+  for (const mount of groups.map(toMount)) {
+    if (mount.onlyWhenEmpty === true && !emptyTarget) {
+      omittedGroups.push(mount.group)
+      continue
+    }
+    for (const file of listTemplateFiles(mount.group)) {
+      const target = mountTarget(mount, file.target)
       const content = readTemplate(file.source, file.rendered, vars)
-      const previous = layered.get(file.target)
-      layered.set(file.target, previous == null || strategyFor(file.target) !== 'merge-json' ? content : layerJson(previous, content))
+      const previous = layered.get(target)
+      layered.set(target, previous == null || strategyFor(target) !== 'merge-json' ? content : layerJson(previous, content))
     }
   }
   const ops = [...layered.entries()]
     .map(([target, content]) => planOne(root, target, content, conflicts))
     .sort((a, b) => a.target.localeCompare(b.target))
-  return { ops, conflicts }
+  return { ops, conflicts, omittedGroups }
 }

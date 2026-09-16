@@ -1,0 +1,43 @@
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  font-family: system-ui, sans-serif;
+}
+
+#app {
+  container: app / inline-size;
+  display: grid;
+  gap: var(--space-4);
+  max-inline-size: var(--body-max-inline-size);
+  margin-inline: auto;
+  padding-block: var(--space-8);
+  padding-inline: var(--space-4);
+}
+
+.counter {
+  --_bg: var(--color-surface);
+  --_fg: var(--color-on-surface);
+  --_bd: var(--color-on-surface);
+
+  justify-self: start;
+  padding: 0.25lh 1ch;
+  border: 1px solid var(--_bd);
+  border-radius: var(--radius-md);
+  background: var(--_bg);
+  color: var(--_fg);
+  font: inherit;
+  transition: background var(--duration-fast) ease;
+
+  &[data-tone='active'] {
+    --_bg: var(--color-primary);
+    --_fg: var(--color-on-primary);
+    --_bd: transparent;
+  }
+}
+
+@container app (inline-size <= 30rem) {
+  .counter {
+    justify-self: stretch;
+  }
+}

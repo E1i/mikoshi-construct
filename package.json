@@ -48,6 +48,7 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
+    "@clack/prompts": "^1.8.0",
     "citty": "^0.2.2",
     "picocolors": "^1.1.1"
   },

@@ -1,0 +1,92 @@
+import antfu from '@antfu/eslint-config'
+
+const WORKSPACE_PACKAGES = {{workspacePackages}}
+
+const ALLOWED_WORKSPACE_IMPORTS = {{allowedWorkspaceImports}}
+
+const PROCESS_ENV = 'MemberExpression[object.name="process"][property.name="env"]'
+const PROCESS_MEMBER = 'MemberExpression[object.name="process"]'
+const RAW_REQUEST_DATA = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
+const RAW_SQL = 'CallExpression[callee.object.name="sql"][callee.property.name="raw"]'
+
+function dependencyBoundary([directory, allowed]) {
+  const forbidden = WORKSPACE_PACKAGES.filter(name => !allowed.includes(name))
+  return {
+    files: [`${directory}/**`],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: forbidden.flatMap(name => [name, `${name}/*`]),
+          message: allowed.length === 0
+            ? `${directory} imports no other workspace package`
+            : `${directory} may import only ${allowed.join(', ')}`,
+        }],
+      }],
+    },
+  }
+}
+
+const dependencyBoundaries = Object.entries(ALLOWED_WORKSPACE_IMPORTS)
+  .filter(([, allowed]) => allowed.length < WORKSPACE_PACKAGES.length)
+  .map(dependencyBoundary)
+
+const NO_PROCESS_OUTSIDE_CONFIG = {
+  selector: PROCESS_MEMBER,
+  message: 'An app touches process only in config.ts: read configuration through readConfig() and pass the value on',
+}
+const NO_PROCESS_ENV_IN_PACKAGE = {
+  selector: PROCESS_ENV,
+  message: 'A package reads the environment only in its *.config.ts',
+}
+const NO_RAW_REQUEST_DATA = {
+  selector: RAW_REQUEST_DATA,
+  message: 'External input is validated at the HTTP boundary: read req.body, req.query and req.params in a controller or middleware and pass values on',
+}
+const NO_RAW_SQL = {
+  selector: RAW_SQL,
+  message: 'SQL is never built from raw strings: interpolate tables and columns into the sql template instead of sql.raw',
+}
+
+function restrictSyntax(files, ignores, restrictions) {
+  return { files, ignores, rules: { 'no-restricted-syntax': ['error', ...restrictions] } }
+}
+
+const APP_ENVIRONMENT_READERS = ['apps/*/src/config.ts', 'apps/*/src/server.ts', 'apps/*/src/scripts/**']
+const HTTP_BOUNDARY = ['apps/*/src/**/*.controller.ts', 'apps/*/src/**/*.middleware.ts', 'apps/*/src/http/**']
+const PACKAGE_ENVIRONMENT_READERS = ['packages/*/src/*.config.ts']
+
+const restrictedSyntax = [
+  restrictSyntax(['apps/*/src/**', 'packages/*/src/**'], [], [NO_RAW_SQL]),
+  restrictSyntax(['apps/*/src/**'], APP_ENVIRONMENT_READERS, [NO_PROCESS_OUTSIDE_CONFIG]),
+  restrictSyntax(['apps/*/src/**'], [...APP_ENVIRONMENT_READERS, ...HTTP_BOUNDARY], [NO_RAW_REQUEST_DATA]),
+  restrictSyntax(['packages/*/src/**'], PACKAGE_ENVIRONMENT_READERS, [NO_PROCESS_ENV_IN_PACKAGE]),
+]
+
+export default antfu(
+  {
+    isInEditor: false,
+    typescript: {
+      tsconfigPath: './tsconfig.json',
+    },
+  },
+  {
+    ignores: ['**/dist/**', '**/node_modules/**', 'pnpm-lock.yaml', '{{contractTypesOutput}}'],
+  },
+  ...dependencyBoundaries,
+  ...restrictedSyntax,
+  {
+    files: ['apps/*/src/server.ts', 'apps/*/src/scripts/**'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
+    files: ['**/*.test.ts'],
+    rules: {
+      'ts/no-unsafe-assignment': 'off',
+      'ts/no-unsafe-call': 'off',
+      'ts/no-unsafe-member-access': 'off',
+      'ts/no-floating-promises': 'off',
+    },
+  },
+)

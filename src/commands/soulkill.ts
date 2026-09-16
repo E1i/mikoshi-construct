@@ -12,9 +12,9 @@ export function printDetectReport(ui: Ui, report: DetectReport): void {
   ui.tree([
     ['Directory', report.dir],
     ['Runtime', `Node.js ${report.nodeMajor}`],
-    ['Package manager', report.packageManager],
+    ['Package manager', report.pnpmVersion == null ? report.packageManager : `${report.packageManager} (pnpm ${report.pnpmVersion} installed)`],
     ['Layout', layout],
-    ['Workspace dirs', report.workspaceDirs.length > 0 ? report.workspaceDirs.join(', ') : 'none'],
+    ['Workspace dirs', report.workspaceDirs.length > 0 ? `${report.workspaceDirs.join(', ')} (${report.workspacePackages.length} packages)` : 'none'],
     ['Contracts', report.existing.openapi ?? 'none'],
     ['ESLint config', yesNo(report.existing.eslintConfig)],
     ['GitHub workflows', yesNo(report.existing.githubWorkflows)],

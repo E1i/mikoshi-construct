@@ -15,26 +15,26 @@ boundaries:
 nodes:
   - id: app
     label: createApp(config, dependencies)
-    path: src/app.ts
+    path: {{appRoot}}src/app.ts
     boundary: middleware
   - id: body
     label: express.json
     boundary: middleware
   - id: contract
     label: API contract validator
-    path: src/http/api-contract.middleware.ts
+    path: {{appRoot}}src/http/api-contract.middleware.ts
     boundary: middleware
   - id: errors
     label: errorHandler
-    path: src/http/error-handler.middleware.ts
+    path: {{appRoot}}src/http/error-handler.middleware.ts
     boundary: middleware
   - id: c_health
     label: GET /health
-    path: src/health/health.controller.ts
+    path: {{appRoot}}src/health/health.controller.ts
     boundary: routes
   - id: s_health
     label: HealthService
-    path: src/health/health.service.ts
+    path: {{appRoot}}src/health/health.service.ts
     boundary: services
 edges:
   - {from: app, to: body, kind: sequence}

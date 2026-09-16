@@ -1,4 +1,4 @@
-import type { Layout, MonorepoTool } from './report.js'
+import type { Layout, MonorepoTool, WorkspacePackage } from './report.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
@@ -39,6 +39,25 @@ export function detectMonorepoTools(dir: string): MonorepoTool[] {
 export function detectWorkspaceDirs(dir: string): string[] {
   return ['apps', 'packages', 'libs', 'services']
     .filter(name => existsSync(path.join(dir, name)) && statSync(path.join(dir, name)).isDirectory())
+}
+
+function packageName(dir: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name?: unknown }
+    return typeof parsed.name === 'string' && parsed.name !== '' ? parsed.name : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function detectWorkspacePackages(root: string, workspaceDirs: string[]): WorkspacePackage[] {
+  return workspaceDirs.flatMap(parent =>
+    readdirSync(path.join(root, parent))
+      .sort()
+      .map(entry => `${parent}/${entry}`)
+      .filter(dir => existsSync(path.join(root, dir, 'package.json')))
+      .map(dir => ({ dir, name: packageName(path.join(root, dir)) ?? dir.split('/').at(-1) ?? dir })))
 }
 
 export function detectLayout(dir: string, monorepoTools: MonorepoTool[], workspaceDirs: string[], hasSrc: boolean): Layout {

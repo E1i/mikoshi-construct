@@ -1,4 +1,4 @@
-import type { DiscoveryMarker } from '../manifest.js'
+import type { DiscoveryMarker, Manifest } from '../manifest.js'
 import type { Ui } from '../ui/console.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -33,7 +33,19 @@ export function isMarkerFilled(document: string, marker: string): boolean {
 
 const REQUIRED_QUALITY_STEPS = ['lint', 'typecheck', 'test']
 
-function harnessProblems(root: string, command: string): string[] {
+function contractProblems(root: string, contracts: Manifest['contracts'], scriptName: string, quality: string): string[] {
+  if (contracts == null)
+    return []
+  const problems = [contracts.path, contracts.types]
+    .filter(file => !existsSync(path.join(root, file)))
+    .map(file => `${file} is missing (construct.json → contracts)`)
+  if (!quality.includes('contracts:check'))
+    problems.push(`"${scriptName}" does not run contracts:check`)
+  return problems
+}
+
+function harnessProblems(root: string, manifest: Manifest): string[] {
+  const command = manifest.harness.command
   const manifestPath = path.join(root, 'package.json')
   if (!existsSync(manifestPath))
     return ['package.json is missing']
@@ -43,9 +55,10 @@ function harnessProblems(root: string, command: string): string[] {
   const quality = scripts[scriptName]
   if (quality == null)
     return [`package.json has no "${scriptName}" script (harness command is "${command}")`]
-  return REQUIRED_QUALITY_STEPS
-    .filter(step => !quality.includes(step))
-    .map(step => `"${scriptName}" does not run ${step}`)
+  return [
+    ...REQUIRED_QUALITY_STEPS.filter(step => !quality.includes(step)).map(step => `"${scriptName}" does not run ${step}`),
+    ...contractProblems(root, manifest.contracts, scriptName, quality),
+  ]
 }
 
 export function runDoctor(root: string): DoctorResult | null {
@@ -70,7 +83,7 @@ export function runDoctor(root: string): DoctorResult | null {
     return !existsSync(location) || !isMarkerFilled(readFileSync(location, 'utf8'), marker)
   })
 
-  const problems = harnessProblems(root, manifest.harness.command)
+  const problems = harnessProblems(root, manifest)
   return {
     ok: missingFiles.length === 0 && problems.length === 0,
     missingFiles,

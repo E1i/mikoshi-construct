@@ -3,25 +3,75 @@ import type { DetectReport } from '../detect/index.js'
 export type PresetId = 'node-backend' | 'node-frontend' | 'monorepo'
 export type AiTarget = 'claude' | 'cursor' | 'both'
 
+export const AI_TARGET_LABELS: Record<AiTarget, string> = {
+  claude: 'Claude Code',
+  cursor: 'Cursor',
+  both: 'Claude Code, Cursor',
+}
+
 export interface TemplateVars extends Record<string, string> {
   projectName: string
   scope: string
   nodeMajor: string
+  contracts: string
   contractPath: string
   contractTypesOutput: string
   harnessCommand: string
   packageManager: string
+  pnpmVersion: string
   constructVersion: string
 }
+
+export interface TemplateMount {
+  group: string
+  into?: string
+  onlyWhenEmpty?: boolean
+}
+
+export type TemplateGroup = string | TemplateMount
 
 export interface Preset {
   id: PresetId
   label: string
   description: string
-  groups: string[]
+  groups: TemplateGroup[]
   contracts: boolean
   available: boolean
   vars: (report: DetectReport, projectName: string) => Partial<TemplateVars>
+}
+
+const EXPRESS_APP = 'stacks/express-api/app'
+const EXPRESS_REPO = 'stacks/express-api/repo'
+const HTTP_CONTRACT = 'stacks/http-contract'
+
+interface WorkspacePackage {
+  dir: string
+  name: string
+}
+
+function sampleWorkspace(scope: string): WorkspacePackage[] {
+  return [
+    { dir: 'packages/shared', name: `${scope}/shared` },
+    { dir: 'apps/api', name: `${scope}/api` },
+  ]
+}
+
+function quote(value: string): string {
+  return `'${value}'`
+}
+
+export function renderWorkspacePolicy(packages: WorkspacePackage[], sample: boolean): { workspacePackages: string, allowedWorkspaceImports: string } {
+  const names = packages.map(pkg => pkg.name)
+  const allowedFor = (pkg: WorkspacePackage): string[] => {
+    if (sample)
+      return pkg.dir.startsWith('apps/') ? names.filter(name => name !== pkg.name) : []
+    return names.filter(name => name !== pkg.name)
+  }
+  const lines = packages.map(pkg => `  ${quote(pkg.dir)}: [${allowedFor(pkg).map(quote).join(', ')}],`)
+  return {
+    workspacePackages: `[${names.map(quote).join(', ')}]`,
+    allowedWorkspaceImports: `{\n${lines.join('\n')}\n}`,
+  }
 }
 
 const PRESETS: Record<PresetId, Preset> = {
@@ -29,38 +79,73 @@ const PRESETS: Record<PresetId, Preset> = {
     id: 'node-backend',
     label: 'Node.js backend',
     description: 'Express + TypeScript, contract-first HTTP API, composition root, harness',
-    groups: ['base', 'harness', 'presets/node-backend'],
+    groups: [
+      'base',
+      'harness',
+      HTTP_CONTRACT,
+      { group: EXPRESS_APP, onlyWhenEmpty: true },
+      { group: EXPRESS_REPO, onlyWhenEmpty: true },
+      'presets/node-backend',
+    ],
     contracts: true,
     available: true,
     vars: () => ({
       contractPath: 'contracts/api/openapi.yaml',
       contractTypesOutput: 'src/contracts/openapi.ts',
+      contractTypesImport: './openapi.js',
+      contractPathFromConfig: '../contracts/api/openapi.yaml',
+      appRoot: '',
     }),
   },
   'node-frontend': {
     id: 'node-frontend',
     label: 'Node.js frontend',
-    description: 'Vite + TypeScript, CSS rules, harness (v0.1: day 2)',
-    groups: ['base', 'harness', 'presets/node-frontend'],
+    description: 'Vite + TypeScript, platform CSS rules, composition root, harness; no API contract',
+    groups: [
+      'base',
+      'harness',
+      { group: 'presets/node-frontend/sample', onlyWhenEmpty: true },
+      'presets/node-frontend/baseline',
+    ],
     contracts: false,
-    available: false,
-    vars: () => ({}),
+    available: true,
+    vars: () => ({
+      contractPath: '',
+      contractTypesOutput: '',
+    }),
   },
   'monorepo': {
     id: 'monorepo',
     label: 'pnpm monorepo',
-    description: 'apps/* + packages/*, catalog:, dependency policy in lint (v0.1: day 2)',
-    groups: ['base', 'harness', 'presets/monorepo'],
+    description: 'apps/* + packages/*, catalog:, contract types in packages/shared, dependency policy in lint',
+    groups: [
+      'base',
+      'harness',
+      HTTP_CONTRACT,
+      { group: EXPRESS_APP, into: 'apps/api', onlyWhenEmpty: true },
+      { group: EXPRESS_REPO, onlyWhenEmpty: true },
+      { group: 'presets/monorepo/sample', onlyWhenEmpty: true },
+      'presets/monorepo/baseline',
+    ],
     contracts: true,
-    available: false,
-    vars: () => ({
-      contractPath: 'contracts/api/openapi.yaml',
-      contractTypesOutput: 'packages/shared/src/api/openapi.ts',
-    }),
+    available: true,
+    vars: (report, projectName) => {
+      const detected = report.workspacePackages
+      const packages = detected.length > 0 ? detected : sampleWorkspace(`@${projectName}`)
+      return {
+        contractPath: 'contracts/api/openapi.yaml',
+        contractTypesOutput: 'packages/shared/src/api/openapi.ts',
+        contractTypesImport: `@${projectName}/shared`,
+        contractPathFromConfig: '../../../contracts/api/openapi.yaml',
+        appRoot: 'apps/api/',
+        ...renderWorkspacePolicy(packages, detected.length === 0),
+      }
+    },
   },
 }
 
 export const PRESET_IDS = Object.keys(PRESETS) as PresetId[]
+export const PRESET_LIST = Object.values(PRESETS)
 
 export function isPresetId(value: string): value is PresetId {
   return value in PRESETS

@@ -3,6 +3,9 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+{{#if pnpmVersion}}
+  "packageManager": "pnpm@{{pnpmVersion}}",
+{{/if}}
   "scripts": {
     "composition:render": "tsx scripts/composition/sync-docs.ts",
     "composition:check": "tsx scripts/composition/check.ts",

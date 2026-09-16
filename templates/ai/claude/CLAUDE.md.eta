@@ -1,10 +1,9 @@
 # {{projectName}}
 
 This repository runs on a construct materialized by `mikoshi-construct` v{{constructVersion}}:
-architecture policy in [architecture/](architecture/), the API contract in
-[{{contractPath}}]({{contractPath}}), and a harness that proves every change. The rules that apply to
-all code are in [architecture/principles.md](architecture/principles.md) and `.claude/rules/`; what
-follows is what is specific to this repository. Sections marked "not discovered yet" are filled by
+architecture policy in [architecture/](architecture/), a harness that proves every change, and the
+rules that apply to all code in [architecture/principles.md](architecture/principles.md) and
+`.claude/rules/`. What follows is what is specific to this repository. Sections marked "not discovered yet" are filled by
 `/construct-discover`, then kept current by whoever changes the thing they describe.
 
 ## Module map
@@ -18,7 +17,9 @@ _Not discovered yet — run `/construct-discover`._
 ```bash
 pnpm dev             # run the service locally
 pnpm run quality     # the harness: contract + composition checks, lint, typecheck, tests — the CI gate and the agent gate
+{{#if contracts}}
 pnpm contracts:types # regenerate {{contractTypesOutput}} after editing the API contract
+{{/if}}
 pnpm composition:render # regenerate architecture diagrams after editing a composition model
 pnpm lint:fix        # ESLint with --fix; ESLint is the only formatter
 ```
@@ -35,6 +36,7 @@ _Not discovered yet — run `/construct-discover`._
 reported by the harness, never by the implementer. Security invariants and the check that enforces
 each one: [architecture/security-invariants.md](architecture/security-invariants.md).
 
+{{#if contracts}}
 ## Contract
 
 [{{contractPath}}]({{contractPath}}) is the HTTP contract. The service validates every request against
@@ -42,6 +44,7 @@ it (and responses outside production), consumers read the types generated into
 [{{contractTypesOutput}}]({{contractTypesOutput}}), and `oasdiff` flags breaking changes on pull
 requests. An API change edits the contract first, runs `pnpm contracts:types`, then implements.
 
+{{/if}}
 ## Architecture
 
 The principles in [architecture/principles.md](architecture/principles.md) apply; this is how they map
@@ -66,6 +69,12 @@ implemented (see `/implement`):
 _Not discovered yet — run `/construct-discover`._
 <!-- /construct:discover:high-effort-areas -->
 
+{{#if contracts}}
 Always high, whatever discovery finds: [{{contractPath}}]({{contractPath}}),
 `architecture/composition/`, `eslint.config.mjs`, and every row of
 [architecture/security-invariants.md](architecture/security-invariants.md).
+{{/if}}
+{{#unless contracts}}
+Always high, whatever discovery finds: `architecture/composition/`, `eslint.config.mjs`, and every
+row of [architecture/security-invariants.md](architecture/security-invariants.md).
+{{/unless}}
