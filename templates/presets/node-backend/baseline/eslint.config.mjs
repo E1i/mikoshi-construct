@@ -17,17 +17,17 @@ const NO_RAW_SQL = {
   message: 'SQL is never built from raw strings: interpolate tables and columns into the sql template instead of sql.raw',
 }
 
-function restrictSyntax(files, ignores, restrictions) {
-  return { files, ignores, rules: { 'no-restricted-syntax': ['error', ...restrictions] } }
+function restrictSyntax(files, restrictions) {
+  return { files, rules: { 'no-restricted-syntax': ['error', ...restrictions] } }
 }
 
 const ENVIRONMENT_READERS = ['src/config.ts', 'src/server.ts', 'src/scripts/**']
 const HTTP_BOUNDARY = ['src/**/*.controller.ts', 'src/**/*.middleware.ts', 'src/http/**']
 
 const dependencyPolicy = [
-  restrictSyntax(['src/**'], [], [NO_RAW_SQL]),
-  restrictSyntax(['src/**'], ENVIRONMENT_READERS, [NO_PROCESS_OUTSIDE_CONFIG]),
-  restrictSyntax(['src/**'], [...ENVIRONMENT_READERS, ...HTTP_BOUNDARY], [NO_RAW_REQUEST_DATA]),
+  restrictSyntax(['src/**'], [NO_RAW_SQL, NO_PROCESS_OUTSIDE_CONFIG, NO_RAW_REQUEST_DATA]),
+  restrictSyntax(HTTP_BOUNDARY, [NO_RAW_SQL, NO_PROCESS_OUTSIDE_CONFIG]),
+  restrictSyntax(ENVIRONMENT_READERS, [NO_RAW_SQL]),
 ]
 
 export default antfu(

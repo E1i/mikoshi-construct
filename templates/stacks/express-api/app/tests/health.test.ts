@@ -11,6 +11,7 @@ describe('health endpoint', () => {
     const response = await request(createApp(config)).get('/health')
     expect(response.status).toBe(200)
     expect(response.body).toEqual({ status: 'ok', service: config.serviceName, time: expect.any(String) })
+    expect(response.headers['x-powered-by']).toBeUndefined()
   })
 
   it('answers 503 when the probe fails', async () => {

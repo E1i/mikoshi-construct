@@ -68,13 +68,18 @@ edits. Run it before reporting done.
 - **A version bump touches three places, in this order.** The harness manifest
   `templates/harness/package.json.eta` (lint, TypeScript, Vitest, tsx, yaml), the manifests of the
   stack or preset that owns the dependency (`templates/stacks/http-contract/package.json.eta`,
-  `templates/presets/node-backend/package.json.eta`, `templates/presets/node-frontend/baseline/package.json.eta`),
+  `templates/presets/node-backend/baseline/package.json.eta`, `templates/presets/node-frontend/baseline/package.json.eta`),
   and the `catalog:` in `templates/presets/monorepo/baseline/pnpm-workspace.yaml`, which restates
   every range the monorepo's manifests reference as `catalog:`. The catalog is the only duplicate;
   grep the new range across `templates/` before reporting a bump done.
 - A rule is authored once as `.claude/rules/<name>.md` in whichever group owns it (`ai/shared` for
   stack-agnostic rules, a preset's `baseline/` for stack rules such as `css.md`). Scope it with Claude's
   `paths:` frontmatter; the Cursor `.mdc` is derived, never checked in.
+- **`no-restricted-syntax` blocks are cumulative, not additive.** In ESLint flat config the last
+  matching block replaces the rule's whole option array, so every `restrictSyntax(...)` block carries
+  the full set of restrictions for its file role, and roles go from broadest to most specific.
+  `scripts/tests/lint/syntax-policy.test.ts` in each preset asserts the resolved set per role — extend
+  it when adding a restriction or a role.
 - Every user-facing string lives in `src/ui/lore.ts` with a `PLAIN_LORE` counterpart; `--plain` must
   produce output with no lore and no emoji.
 

@@ -7,10 +7,15 @@ interface SchemaNode {
   additionalProperties?: boolean | SchemaNode
 }
 
+interface MediaTypes {
+  content?: Record<string, { schema: SchemaNode }>
+}
+
 interface Operation {
   operationId: string
   security?: Array<Record<string, unknown>>
-  requestBody?: { content?: Record<string, { schema: SchemaNode }> }
+  requestBody?: MediaTypes
+  responses?: Record<string, MediaTypes>
 }
 
 interface ContractDocument {
@@ -42,6 +47,15 @@ function jsonRequestBodies(): Array<{ route: string, method: string, schema: Sch
     }))
 }
 
+function jsonResponseBodies(): Array<{ route: string, method: string, status: string, schema: SchemaNode }> {
+  return Object.entries(contract.paths).flatMap(([route, methods]) =>
+    Object.entries(methods).flatMap(([method, operation]) =>
+      Object.entries(operation.responses ?? {}).flatMap(([status, response]) => {
+        const schema = response.content?.['application/json']?.schema
+        return schema == null ? [] : [{ route, method, status, schema: resolveSchema(schema) }]
+      })))
+}
+
 function requires(operation: Operation, scheme: string): boolean {
   const schemes = operation.security ?? []
   return schemes.length > 0 && schemes.every(entry => scheme in entry)
@@ -63,5 +77,10 @@ describe('security invariants stated by the contract', () => {
   it('closes every documented JSON request body, so no write can set a field the contract does not expose', () => {
     for (const { route, method, schema } of jsonRequestBodies())
       expect({ route, method, closed: schema.additionalProperties }).toEqual({ route, method, closed: false })
+  })
+
+  it('closes every documented JSON response body, so no response can leak a field the contract does not expose', () => {
+    for (const { route, method, status, schema } of jsonResponseBodies())
+      expect({ route, method, status, closed: schema.additionalProperties }).toEqual({ route, method, status, closed: false })
   })
 })

@@ -1,0 +1,36 @@
+import { ESLint } from 'eslint'
+import { describe, expect, it } from 'vitest'
+import { REPO_ROOT } from '../../composition/files.js'
+
+const PROCESS = 'MemberExpression[object.name="process"]'
+const PROCESS_ENV = 'MemberExpression[object.name="process"][property.name="env"]'
+const RAW_REQUEST_DATA = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
+const RAW_SQL = 'CallExpression[callee.object.name="sql"][callee.property.name="raw"]'
+const SHARED_IMPORT = ':matches(ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration)[source.value=/^{{scope}}\\/shared(\\/|$)/]'
+
+const eslint = new ESLint({ cwd: REPO_ROOT })
+
+async function restrictedSelectors(file: string): Promise<string[]> {
+  const config = await eslint.calculateConfigForFile(file)
+  const [, ...restrictions] = config.rules['no-restricted-syntax'] as [unknown, ...Array<{ selector: string }>]
+  return restrictions.map(restriction => restriction.selector).sort()
+}
+
+const ROLES: Array<{ role: string, file: string, selectors: string[] }> = [
+  { role: 'a service', file: 'apps/api/src/things/things.service.ts', selectors: [PROCESS, RAW_REQUEST_DATA, RAW_SQL, SHARED_IMPORT] },
+  { role: 'a controller', file: 'apps/api/src/things/things.controller.ts', selectors: [PROCESS, RAW_SQL, SHARED_IMPORT] },
+  { role: 'a middleware', file: 'apps/api/src/http/error-handler.middleware.ts', selectors: [PROCESS, RAW_SQL, SHARED_IMPORT] },
+  { role: 'the contract types gateway', file: 'apps/api/src/contracts/types.ts', selectors: [PROCESS, RAW_REQUEST_DATA, RAW_SQL] },
+  { role: 'the app config', file: 'apps/api/src/config.ts', selectors: [RAW_SQL, SHARED_IMPORT] },
+  { role: 'the process entry', file: 'apps/api/src/server.ts', selectors: [RAW_SQL, SHARED_IMPORT] },
+  { role: 'a package module', file: 'packages/shared/src/index.ts', selectors: [PROCESS_ENV, RAW_SQL] },
+  { role: 'a package config', file: 'packages/shared/src/shared.config.ts', selectors: [RAW_SQL] },
+]
+
+describe('syntax policy by file role', () => {
+  for (const { role, file, selectors } of ROLES) {
+    it(`keeps every restriction that applies to ${role}`, async () => {
+      expect(await restrictedSelectors(file)).toEqual([...selectors].sort())
+    })
+  }
+})

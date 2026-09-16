@@ -49,8 +49,9 @@ Work in this order:
 10. **`defects-vs-variance`** and **`open-questions`** (AGENTS.md): what a reviewer must flag here
     beyond the baseline list, and what looks like a convention but is not consistently applied.
 11. **Prove it.** Run the harness command from `construct.json`. Fix anything discovery broke (a
-    stale rendered diagram, a lint rule with no matching file). Then run `construct doctor` if the
-    CLI is installed, or check by eye that no marker still holds the placeholder.
+    stale rendered diagram, a lint rule with no matching file). Then run `construct doctor`, or
+    `npx mikoshi-construct doctor` when the CLI is not installed; it names every marker that still
+    holds the placeholder.
 
 Report: which markers you filled, which you left as open questions and why, and the harness result.
 Do not commit.

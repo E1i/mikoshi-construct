@@ -18,7 +18,7 @@ catalog:
   '@antfu/eslint-config': ^9.5.1
   '@redocly/cli': ^2.52.0
   '@types/express': ^4.17.25
-  '@types/node': ^22.18.0
+  '@types/node': ^{{nodeMajor}}.0.0
   '@types/supertest': ^7.2.1
   eslint: ^10.10.0
   express: ^4.21.2
