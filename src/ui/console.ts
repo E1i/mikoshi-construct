@@ -16,11 +16,19 @@ export interface Ui {
   flatline: (text: string) => void
 }
 
-export function createUi(theme: Theme): Ui {
+export type Writer = (text: string) => void
+
+export const stdoutWriter: Writer = (text) => {
+  process.stdout.write(text)
+}
+
+export const silentWriter: Writer = () => {}
+
+export function createUi(theme: Theme, write: Writer = stdoutWriter): Ui {
   const plain = theme.name === 'plain'
   const lore = plain ? PLAIN_LORE : LORE
   const out = (text = ''): void => {
-    process.stdout.write(`${text}\n`)
+    write(`${text}\n`)
   }
   const icon = (glyph: string, fallback: string): string => (plain ? fallback : glyph)
 

@@ -70,16 +70,16 @@ function planOne(root: string, target: string, content: string, conflicts: strin
 
 export function planMaterialize(root: string, groups: string[], vars: TemplateVars): MaterializePlan {
   const conflicts: string[] = []
-  const byTarget = new Map<string, FileOp>()
+  const layered = new Map<string, string>()
   for (const group of groups) {
     for (const file of listTemplateFiles(group)) {
       const content = readTemplate(file.source, file.rendered, vars)
-      const previous = byTarget.get(file.target)
-      const layered = previous == null || previous.strategy !== 'merge-json'
-        ? content
-        : layerJson(previous.content, content)
-      byTarget.set(file.target, planOne(root, file.target, layered, conflicts))
+      const previous = layered.get(file.target)
+      layered.set(file.target, previous == null || strategyFor(file.target) !== 'merge-json' ? content : layerJson(previous, content))
     }
   }
-  return { ops: [...byTarget.values()].sort((a, b) => a.target.localeCompare(b.target)), conflicts }
+  const ops = [...layered.entries()]
+    .map(([target, content]) => planOne(root, target, content, conflicts))
+    .sort((a, b) => a.target.localeCompare(b.target))
+  return { ops, conflicts }
 }

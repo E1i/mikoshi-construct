@@ -82,6 +82,9 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
   const ai = resolveAi(options.ai)
   const projectName = options.name ?? defaultProjectName(root)
 
+  if (report.packageManager !== 'pnpm' && report.packageManager !== 'none')
+    ui.glitch(`This repository uses ${report.packageManager}; the construct harness scripts assume pnpm in v${VERSION}.`)
+
   ui.phase(2, 4, '🧠', ui.lore.phaseConfigure)
   ui.tree([
     ['Project', projectName],
@@ -97,7 +100,7 @@ export async function runInit(ui: Ui, options: InitOptions): Promise<InitResult>
     contractPath: 'contracts/api/openapi.yaml',
     contractTypesOutput: 'src/contracts/openapi.ts',
     harnessCommand: 'pnpm run quality',
-    packageManager: report.packageManager === 'none' ? 'pnpm' : report.packageManager,
+    packageManager: 'pnpm',
     constructVersion: VERSION,
     ...preset.vars(report, projectName),
   }

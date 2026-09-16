@@ -5,10 +5,10 @@ import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor.js'
 import { runInit } from '../src/commands/init.js'
 import { readManifest } from '../src/manifest.js'
-import { createUi } from '../src/ui/console.js'
+import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
-const ui = createUi(resolveTheme({ plain: true }))
+const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 
 function scratch(): string {
   return mkdtempSync(path.join(tmpdir(), 'construct-init-'))
@@ -45,7 +45,7 @@ describe('construct init --yes --preset node-backend', () => {
     writeFileSync(path.join(dir, 'CLAUDE.md'), '# Mine\n')
     const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     expect(result.status).toBe('done')
-    expect(result.conflicts).toContain('package.json: scripts.test')
+    expect(result.conflicts).toEqual(['package.json: name', 'package.json: scripts.test'])
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name: string, scripts: Record<string, string> }
     expect(pkg.name).toBe('keep-me')
     expect(pkg.scripts.test).toBe('jest')
@@ -65,7 +65,8 @@ describe('construct init --yes --preset node-backend', () => {
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     const claude = readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
     writeFileSync(path.join(dir, 'CLAUDE.md'), claude.replace('<!-- construct:discover:module-map -->\n_Not discovered yet — run `/construct-discover`._', '<!-- construct:discover:module-map -->\n| src | everything |'))
-    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    const second = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(second.conflicts).toEqual([])
     const again = readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
     expect(again).toContain('| src | everything |')
     expect(again.match(/construct:begin/g)).toHaveLength(1)
