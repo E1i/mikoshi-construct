@@ -141,14 +141,6 @@ Built on [@antfu/eslint-config](https://github.com/antfu/eslint-config),
 [Workflow](https://code.claude.com/docs) tool, and the
 [claude-code-action](https://github.com/anthropics/claude-code-action) review plugin.
 
-## Support the project
-
-If mikoshi-construct saves you time, consider supporting its development — the Sponsor button on
-this repository lists the ways.
-
-I'm also open to sponsorships, partnerships, and opportunities to work on developer tools and
-AI-native engineering workflows.
-
 ## Development
 
 ```bash

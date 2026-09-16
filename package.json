@@ -7,7 +7,6 @@
   "description": "Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an empty repository.",
   "author": "Eli Tabrisov",
   "license": "MIT",
-  "funding": "https://github.com/e1i/mikoshi-construct?sponsor=1",
   "homepage": "https://github.com/e1i/mikoshi-construct#readme",
   "repository": {
     "type": "git",
