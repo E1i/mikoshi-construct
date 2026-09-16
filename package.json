@@ -2,7 +2,6 @@
   "name": "mikoshi-construct",
   "type": "module",
   "version": "0.1.0",
-  "private": true,
   "packageManager": "pnpm@12.4.2",
   "description": "Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an empty repository.",
   "author": "Eli Tabrisov",
@@ -26,9 +25,9 @@
     "ai-dlc"
   ],
   "bin": {
-    "construct": "./dist/cli.js",
-    "miko": "./dist/cli.js",
-    "mikoshi-construct": "./dist/cli.js"
+    "construct": "dist/cli.js",
+    "miko": "dist/cli.js",
+    "mikoshi-construct": "dist/cli.js"
   },
   "files": [
     "dist",
