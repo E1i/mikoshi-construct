@@ -1,7 +1,7 @@
 # Security
 
 Please report vulnerabilities privately through GitHub's
-[private vulnerability reporting](https://github.com/e1i/mikoshi-construct/security/advisories/new)
+[private vulnerability reporting](https://github.com/E1i/mikoshi-construct/security/advisories/new)
 rather than a public issue. You will get an acknowledgement within a few days and a fix or a
 decision before anything is disclosed.
 

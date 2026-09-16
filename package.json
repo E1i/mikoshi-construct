@@ -6,12 +6,12 @@
   "description": "Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an empty repository.",
   "author": "Eli Tabrisov",
   "license": "MIT",
-  "homepage": "https://github.com/e1i/mikoshi-construct#readme",
+  "homepage": "https://github.com/E1i/mikoshi-construct#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/e1i/mikoshi-construct.git"
+    "url": "git+https://github.com/E1i/mikoshi-construct.git"
   },
-  "bugs": "https://github.com/e1i/mikoshi-construct/issues",
+  "bugs": "https://github.com/E1i/mikoshi-construct/issues",
   "keywords": [
     "claude-code",
     "cursor",
