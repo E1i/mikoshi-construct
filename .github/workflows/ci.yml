@@ -6,6 +6,9 @@
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
 #              publish fails a user's first install (see CLAUDE.md, version ranges).
+#
+# The acceptance legs run the built CLI the way a user runs the published one: dist/cli.js keeps its
+# runtime dependencies external, so they are installed from the lockfile before it is invoked.
 
 name: CI
 
@@ -30,7 +33,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run quality
       - run: pnpm build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -56,10 +59,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-      - uses: actions/download-artifact@v4
+          cache: pnpm
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
+
+      - name: Install the runtime dependencies dist/cli.js does not bundle
+        run: pnpm install --frozen-lockfile --prod
 
       - name: construct init
         run: |
