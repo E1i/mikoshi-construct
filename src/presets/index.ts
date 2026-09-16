@@ -1,6 +1,6 @@
 import type { DetectReport } from '../detect/index.js'
 
-export type PresetId = 'node-backend' | 'node-frontend' | 'monorepo'
+export type PresetId = 'node-backend' | 'node-frontend' | 'node-library' | 'monorepo'
 export type AiTarget = 'claude' | 'cursor' | 'both'
 
 export const AI_TARGET_LABELS: Record<AiTarget, string> = {
@@ -110,6 +110,18 @@ const PRESETS: Record<PresetId, Preset> = {
       { group: 'presets/node-frontend/sample', onlyWhenEmpty: true },
       'presets/node-frontend/baseline',
     ],
+    contracts: false,
+    available: true,
+    vars: () => ({
+      contractPath: '',
+      contractTypesOutput: '',
+    }),
+  },
+  'node-library': {
+    id: 'node-library',
+    label: 'Node.js library or CLI',
+    description: 'TypeScript package with no HTTP contract: architecture policy, composition models, harness',
+    groups: ['base', 'harness'],
     contracts: false,
     available: true,
     vars: () => ({

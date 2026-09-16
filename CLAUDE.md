@@ -1,11 +1,10 @@
 # mikoshi-construct
 
 CLI that materializes a **construct** — architecture policy, API contract, quality harness and AI-agent
-instructions — into a repository, then hands the repository to the agent for discovery. The plan,
-decisions and lifecycle are in [docs/PLAN.md](docs/PLAN.md); read §1 (CLI ↔ agent contract), §3
-(commands, terminal UX, lore) and §7 (closed decisions) before changing anything. The reference
-implementation everything was extracted from is `~/projects/give-buddy` (read-only; never copy
-give-buddy-specific names, scopes, env vars or Slack hooks into templates — §4 of the plan lists them).
+instructions — into a repository, then hands the repository to the agent for discovery. This repository
+runs on its own construct (see the Construct block at the end and [AGENTS.md](AGENTS.md)); the `init`
+flow is modelled in [architecture/composition/init.yaml](architecture/composition/init.yaml). Never copy
+project-specific names, scopes, env vars or webhooks from any reference repository into templates.
 
 ## Commands
 
@@ -96,3 +95,21 @@ style with `pnpm lint:fix`, never by hand. Tests live in `tests/`, never beside 
 changed logic module ships its test in the same change. `detect` returns facts; anything that needs
 judgement is a discovery marker for the agent, not code in the CLI. Do not commit; the working tree is
 reviewed first.
+
+<!-- construct:begin -->
+## Construct
+
+This repository runs on a construct materialized by `mikoshi-construct` v0.1.0. The
+discovery blocks — product, module map, commands, composition roots, dependency policy, high-effort
+areas, defects vs accepted variance, open questions — live in [AGENTS.md](AGENTS.md); the
+architecture, security and reasoning-budget rules in
+[architecture/principles.md](architecture/principles.md); repository-wide code rules in
+`.claude/rules/`.
+
+- `/construct-discover` — fill or refresh the discovery blocks.
+- `/plan <feature>` — decompose a feature into tasks with acceptance criteria and an effort class.
+- `/implement <task>` — the reasoning-budget ladder: classify, implement at the lowest rung, verify
+  with `pnpm run quality`, escalate only when verification proves it was not enough.
+- `construct doctor` (or `npx mikoshi-construct doctor`) — check that the baseline and discovery are
+  intact.
+<!-- construct:end -->

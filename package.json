@@ -2,7 +2,8 @@
   "name": "mikoshi-construct",
   "type": "module",
   "version": "0.1.0",
-  "packageManager": "pnpm@12.4.2+sha512.08adc6613180275c7c9edada39dcf08c9c61ad4e7eaf330a4f3461f102b0f907423454d117f98e72d47fef0616070644d7bffc973a6a57f5090a6d7c368b07c9",
+  "private": true,
+  "packageManager": "pnpm@12.4.2",
   "description": "Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an empty repository.",
   "author": "Eli Tabrisov",
   "license": "MIT",
@@ -44,8 +45,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "quality": "pnpm lint && pnpm typecheck && pnpm test",
-    "prepublishOnly": "pnpm build"
+    "quality": "pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test",
+    "prepublishOnly": "pnpm build",
+    "composition:render": "tsx scripts/composition/sync-docs.ts",
+    "composition:check": "tsx scripts/composition/check.ts",
+    "ci": "pnpm run quality"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",
@@ -59,6 +63,7 @@
     "tsup": "^8.5.1",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "yaml": "^2.9.1"
   }
 }

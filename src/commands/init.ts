@@ -200,6 +200,8 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ui.line(ui.theme.dim(`  Existing composition models found at ${report.existing.compositionDir}/ — kept there, not moved.`))
   if (plan.conflicts.length > 0)
     ui.glitch('Existing values kept; review these keys by hand:', plan.conflicts)
+  if (skips.length > 0 && !report.existing.constructJson)
+    ui.glitch(ui.lore.wireHarness, ui.lore.wireHarnessSteps)
 
   if (options.dryRun) {
     ui.line(ui.theme.dim(ui.lore.dryRun))

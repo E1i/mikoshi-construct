@@ -6,6 +6,6 @@ export default antfu(
     typescript: true,
   },
   {
-    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**'],
+    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/construct/*.workflow.mjs'],
   },
 )

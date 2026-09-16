@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { billable, collectWorkflowRuns, projectKey } from '../src/commands/cost.js'
+import { billable, collectWorkflowRuns, projectKey, weighted } from '../src/commands/cost.js'
 
 function line(model: string, usage: Record<string, number>): string {
   return `${JSON.stringify({ message: { role: 'assistant', model, usage } })}\n`
@@ -25,6 +25,7 @@ describe('construct cost', () => {
     expect(only.agents.map(agent => [agent.type, agent.label, agent.usage.calls])).toEqual([['implementer', 'implement 1/4 @ low', 2], ['?', 'agent-2.jsonl', 1]])
     expect(only.total).toMatchObject({ calls: 3, input: 130, cacheRead: 400, output: 57, models: ['sonnet'] })
     expect(billable(only.total)).toBe(587)
+    expect(weighted(only.total)).toBe(455)
   })
 
   it('reports no data for a directory Claude Code has never seen', () => {

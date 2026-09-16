@@ -1,0 +1,87 @@
+id: init
+title: construct init composition
+description: >-
+  `runInit(ui, options, prompter)` in `src/commands/init.ts` is the composition root: the four
+  phases run in this order, every module is called from there, and nothing else writes to the
+  target directory. Dotted edges are wiring, solid edges are the flow.
+doc: architecture/init.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: detect
+    label: Detect · facts only
+  - id: configure
+    label: Configure
+  - id: materialize
+    label: Materialize
+nodes:
+  - id: cli
+    label: construct init (citty)
+    path: src/cli.ts
+    boundary: entry
+  - id: run
+    label: runInit
+    path: src/commands/init.ts
+    boundary: entry
+  - id: detect
+    label: detect(dir)
+    path: src/detect/index.ts
+    boundary: detect
+  - id: pm
+    label: package manager, pnpm version
+    path: src/detect/package-manager.ts
+    boundary: detect
+  - id: layout
+    label: layout, workspace packages
+    path: src/detect/layout.ts
+    boundary: detect
+  - id: existing
+    label: existing files, composition dir
+    path: src/detect/existing.ts
+    boundary: detect
+  - id: prompts
+    label: prompter (clack) or flags
+    path: src/ui/prompts.ts
+    boundary: configure
+  - id: preset
+    label: preset groups + vars
+    path: src/presets/index.ts
+    boundary: configure
+  - id: plan
+    label: planMaterialize
+    path: src/materialize/plan.ts
+    boundary: materialize
+  - id: templates
+    label: listTemplateFiles, render
+    path: src/materialize/templates.ts
+    boundary: materialize
+  - id: strategies
+    label: create / merge-json / append-block
+    path: src/materialize/strategies.ts
+    boundary: materialize
+  - id: rules
+    label: Claude rules → Cursor rules
+    path: src/materialize/rules.ts
+    boundary: materialize
+  - id: apply
+    label: applyPlan
+    path: src/materialize/apply.ts
+    boundary: materialize
+  - id: manifest
+    label: construct.json
+    path: src/manifest.ts
+    boundary: materialize
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: detect, kind: sequence}
+  - {from: detect, to: pm, kind: fan-out}
+  - {from: detect, to: layout, kind: fan-out}
+  - {from: detect, to: existing, kind: fan-out}
+  - {from: detect, to: prompts, kind: sequence, label: report}
+  - {from: prompts, to: preset, kind: sequence, label: choices}
+  - {from: preset, to: plan, kind: sequence, label: 'groups, vars'}
+  - {from: plan, to: templates, kind: wires}
+  - {from: plan, to: strategies, kind: wires}
+  - {from: plan, to: rules, kind: wires}
+  - {from: plan, to: apply, kind: sequence, label: 'FileOp[] after confirm'}
+  - {from: apply, to: manifest, kind: sequence, label: written files}

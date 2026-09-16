@@ -7,8 +7,8 @@ empty repository.
 npx mikoshi-construct init
 ```
 
-> **Status: v0.1 in progress.** The `node-backend` preset works end to end; `monorepo` and
-> `node-frontend` are next. Nothing is published to npm yet.
+> **Status: v0.1 in progress.** Presets `node-backend`, `node-frontend`, `node-library` and
+> `monorepo` work end to end; this repository runs on its own construct. Nothing is published to npm yet.
 
 ## What it does
 
@@ -46,7 +46,7 @@ Three principles, in this order:
 
 | Command | What it does |
 |---|---|
-| `construct init` | Detect, configure, materialize. `--yes --preset node-backend --ai claude\|cursor\|both --dir . --dry-run` |
+| `construct init` | Detect, configure, materialize. `--yes --preset node-backend\|node-frontend\|node-library\|monorepo --ai claude\|cursor\|both --review claude --dir . --dry-run` |
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
 | `construct cost` | Token usage of the `/implement` runs in this directory — the evidence behind "we don't pay for reasoning until we need it" (`--last`, `--json`) |

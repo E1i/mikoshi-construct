@@ -34,6 +34,8 @@ export interface Lore {
   flatlined: string
   stable: string
   discoveryIncomplete: string
+  wireHarness: string
+  wireHarnessSteps: string[]
 }
 
 export const LORE: Lore = {
@@ -64,6 +66,12 @@ export const LORE: Lore = {
   flatlined: 'FLATLINED',
   stable: 'CONSTRUCT STABLE',
   discoveryIncomplete: 'Discovery incomplete.',
+  wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
+  wireHarnessSteps: [
+    'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
+    'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
+    'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
+  ],
 }
 
 export const PLAIN_LORE: Lore = {
@@ -94,4 +102,10 @@ export const PLAIN_LORE: Lore = {
   flatlined: 'ERROR',
   stable: 'OK',
   discoveryIncomplete: 'Discovery incomplete.',
+  wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
+  wireHarnessSteps: [
+    'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
+    'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
+    'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
+  ],
 }

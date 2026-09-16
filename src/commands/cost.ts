@@ -47,6 +47,12 @@ export function billable(usage: Usage): number {
   return usage.input + usage.cacheWrite + usage.cacheRead + usage.output
 }
 
+const PRICE_RELATIVE_TO_INPUT = { cacheWrite: 1.25, cacheRead: 0.1, output: 5 }
+
+export function weighted(usage: Usage): number {
+  return Math.round(usage.input + usage.cacheWrite * PRICE_RELATIVE_TO_INPUT.cacheWrite + usage.cacheRead * PRICE_RELATIVE_TO_INPUT.cacheRead + usage.output * PRICE_RELATIVE_TO_INPUT.output)
+}
+
 function add(total: Usage, part: Usage): void {
   total.calls += part.calls
   total.input += part.input
@@ -144,11 +150,11 @@ export function printCost(ui: Ui, runs: WorkflowRun[] | null, last: boolean): nu
     for (const agent of run.agents) {
       ui.line(`  ${agent.type.padEnd(12)} ${agent.label.padEnd(28)} calls ${String(agent.usage.calls).padStart(3)}  in ${fmt(agent.usage.input).padStart(8)}  cache-w ${fmt(agent.usage.cacheWrite).padStart(9)}  cache-r ${fmt(agent.usage.cacheRead).padStart(10)}  out ${fmt(agent.usage.output).padStart(7)}`)
     }
-    ui.line(`  ${ui.theme.bold(`total ${fmt(billable(run.total))} billable tokens in ${run.total.calls} calls`)}`)
+    ui.line(`  ${ui.theme.bold(`total ${fmt(billable(run.total))} billable tokens in ${run.total.calls} calls`)} ${ui.theme.dim(`≈ ${fmt(weighted(run.total))} input-equivalent`)}`)
     ui.line()
     add(grand, run.total)
   }
   if (selected.length > 1)
-    ui.line(ui.theme.bold(`${selected.length} runs: ${fmt(billable(grand))} billable tokens in ${grand.calls} calls`))
+    ui.line(`${ui.theme.bold(`${selected.length} runs: ${fmt(billable(grand))} billable tokens in ${grand.calls} calls`)} ${ui.theme.dim(`≈ ${fmt(weighted(grand))} input-equivalent (cache-write ×${PRICE_RELATIVE_TO_INPUT.cacheWrite}, cache-read ×${PRICE_RELATIVE_TO_INPUT.cacheRead}, output ×${PRICE_RELATIVE_TO_INPUT.output})`)}`)
   return 0
 }
