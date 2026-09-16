@@ -1,6 +1,7 @@
 import type { Layout, MonorepoTool, WorkspacePackage } from './report.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { declaresNpmWorkspaces, declaresPnpmPackages } from './workspaces.js'
 
 const IGNORED_ENTRIES = new Set(['.git', '.DS_Store', '.gitignore', '.gitattributes', 'LICENSE', 'README.md', '.idea', '.vscode'])
 
@@ -10,24 +11,11 @@ export function isEmptyDir(dir: string): boolean {
   return readdirSync(dir).every(entry => IGNORED_ENTRIES.has(entry))
 }
 
-function hasWorkspacesField(dir: string): boolean {
-  const manifest = path.join(dir, 'package.json')
-  if (!existsSync(manifest))
-    return false
-  try {
-    const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as { workspaces?: unknown }
-    return parsed.workspaces != null
-  }
-  catch {
-    return false
-  }
-}
-
 export function detectMonorepoTools(dir: string): MonorepoTool[] {
   const tools: MonorepoTool[] = []
-  if (existsSync(path.join(dir, 'pnpm-workspace.yaml')))
+  if (declaresPnpmPackages(dir))
     tools.push('pnpm-workspace')
-  if (hasWorkspacesField(dir))
+  if (declaresNpmWorkspaces(dir))
     tools.push('npm-workspaces')
   if (existsSync(path.join(dir, 'turbo.json')))
     tools.push('turbo')
