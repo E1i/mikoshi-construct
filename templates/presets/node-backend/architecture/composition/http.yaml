@@ -1,0 +1,45 @@
+id: http
+title: HTTP API composition
+description: >-
+  `createApp(config, dependencies)` is the composition root: middleware runs in the order shown, every
+  service is constructed there and handed to a controller, and nothing else constructs a service.
+  Dotted edges are wiring, solid edges are the request path.
+doc: architecture/http.md
+boundaries:
+  - id: middleware
+    label: Middleware, in order
+  - id: routes
+    label: Controllers by route
+  - id: services
+    label: Services
+nodes:
+  - id: app
+    label: createApp(config, dependencies)
+    path: src/app.ts
+    boundary: middleware
+  - id: body
+    label: express.json
+    boundary: middleware
+  - id: contract
+    label: API contract validator
+    path: src/http/api-contract.middleware.ts
+    boundary: middleware
+  - id: errors
+    label: errorHandler
+    path: src/http/error-handler.middleware.ts
+    boundary: middleware
+  - id: c_health
+    label: GET /health
+    path: src/health/health.controller.ts
+    boundary: routes
+  - id: s_health
+    label: HealthService
+    path: src/health/health.service.ts
+    boundary: services
+edges:
+  - {from: app, to: body, kind: sequence}
+  - {from: body, to: contract, kind: sequence}
+  - {from: contract, to: c_health, kind: route}
+  - {from: c_health, to: s_health, kind: sequence}
+  - {from: c_health, to: errors, kind: sequence, label: on error}
+  - {from: app, to: s_health, kind: wires, label: constructs}

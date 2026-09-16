@@ -1,0 +1,46 @@
+# AGENTS.md
+
+Context for automated reviewers and coding agents working on {{projectName}}. Human-facing docs live
+in [README.md](README.md) and [architecture/](architecture/). The rules that apply everywhere are in
+[architecture/principles.md](architecture/principles.md); the harness is `{{harnessCommand}}`.
+
+## What this product does
+
+<!-- construct:discover:product -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:product -->
+
+## Conventions the harness does not enforce
+
+No comments in source (functional pragmas such as `eslint-disable*` and `@ts-expect-error` are
+compiler input and are never removed). `async`/`await` over promise chains where the enclosing context
+can be async. Tests live in `tests/**` as `*.test.ts`, never beside the source, and every new or
+changed logic module ships its test in the same change. ESLint is the only formatter.
+
+## Real defects vs accepted variance
+
+Treat as real defects:
+
+- A new or changed logic module with no test file.
+- A response shape that drifts from the API contract, or a breaking change to a `/v1` endpoint that
+  was not identified deliberately.
+- A secret, API key or connection string written into any file. Config references the environment.
+- Any row of [architecture/security-invariants.md](architecture/security-invariants.md) that a change
+  weakens.
+
+<!-- construct:discover:defects-vs-variance -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:defects-vs-variance -->
+
+Treat as accepted variance and do not report: formatting, quoting and import order (ESLint owns
+them); the `.js` suffix on relative TypeScript imports (NodeNext ESM requires it); the absence of
+comments or JSDoc.
+
+## Open questions
+
+These look like conventions but the codebase is not consistent about them. Confirm before treating
+them as rules.
+
+<!-- construct:discover:open-questions -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:open-questions -->

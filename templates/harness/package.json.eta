@@ -1,0 +1,26 @@
+{
+  "name": "{{projectName}}",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "composition:render": "tsx scripts/composition/sync-docs.ts",
+    "composition:check": "tsx scripts/composition/check.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "quality": "pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test",
+    "ci": "pnpm run quality"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.5.1",
+    "@types/node": "^22.18.0",
+    "eslint": "^10.10.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0",
+    "yaml": "^2.9.1"
+  }
+}

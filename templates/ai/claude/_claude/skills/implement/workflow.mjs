@@ -1,0 +1,187 @@
+export const meta = {
+  name: 'implement',
+  description: 'Implement a task at low effort, verify with the harness, escalate on repeated failure or ambiguity',
+  phases: [
+    { title: 'Design', detail: 'architect, only for high effort or after a blocked or failed attempt' },
+    { title: 'Implement', detail: 'implementer at the current rung' },
+    { title: 'Verify', detail: 'harness against the working tree' },
+  ],
+}
+
+const LADDERS = {
+  low: ['low', 'low', 'medium', 'high'],
+  medium: ['medium', 'medium', 'high'],
+  high: ['high', 'high', 'xhigh'],
+}
+
+const REPORT = {
+  type: 'object',
+  required: ['status', 'summary', 'files', 'harnessTail', 'question'],
+  properties: {
+    status: { type: 'string', enum: ['done', 'failed', 'blocked'] },
+    summary: { type: 'string' },
+    files: { type: 'array', items: { type: 'string' } },
+    harnessTail: { type: 'string' },
+    question: { type: 'string' },
+  },
+}
+
+const VERDICT = {
+  type: 'object',
+  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'contractChanged'],
+  properties: {
+    passed: { type: 'boolean' },
+    failureExcerpt: { type: 'string' },
+    securityFinding: { type: 'string' },
+    diffStat: { type: 'string' },
+    testsWeakened: { type: 'boolean' },
+    contractChanged: { type: 'boolean' },
+  },
+}
+
+const SPEC = {
+  type: 'object',
+  required: ['decision', 'contractChanges', 'compositionChanges', 'constraints', 'acceptance', 'files'],
+  properties: {
+    decision: { type: 'string' },
+    contractChanges: { type: 'string' },
+    compositionChanges: { type: 'string' },
+    constraints: { type: 'array', items: { type: 'string' } },
+    acceptance: { type: 'array', items: { type: 'string' } },
+    files: { type: 'array', items: { type: 'string' } },
+  },
+}
+
+const task = args.task
+const acceptance = args.acceptance ?? []
+const harness = { command: 'pnpm run quality', extra: [], ...(args.harness ?? {}) }
+const rungs = LADDERS[args.effort] ?? LADDERS.low
+
+function harnessPrompt() {
+  return [
+    `Harness command: ${harness.command}`,
+    harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
+    'Verify the current working tree and return the verdict object.',
+  ].filter(Boolean).join('\n')
+}
+
+function architectPrompt(reason) {
+  return [
+    `Task: ${task}`,
+    acceptance.length > 0 ? `Acceptance criteria so far:\n- ${acceptance.join('\n- ')}` : '',
+    reason,
+    'Return the design spec object.',
+  ].filter(Boolean).join('\n\n')
+}
+
+function implementerPrompt(spec, feedback) {
+  return [
+    `Task: ${task}`,
+    `Acceptance criteria:\n- ${(spec?.acceptance?.length ? spec.acceptance : acceptance).join('\n- ')}`,
+    `Harness: ${harness.command}${harness.extra.length > 0 ? ` (plus ${harness.extra.join(' && ')})` : ''}`,
+    spec == null
+      ? ''
+      : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
+    feedback == null ? '' : `The previous attempt failed the harness. Fix the cause of this before anything else:\n${feedback}`,
+    'Return the report object.',
+  ].filter(Boolean).join('\n\n')
+}
+
+let spec = null
+let feedback = null
+const attempts = []
+
+async function record(outcome) {
+  try {
+    const { appendFile, mkdir } = await import('node:fs/promises')
+    await mkdir('.construct', { recursive: true })
+    await appendFile('.construct/runs.jsonl', `${JSON.stringify({ at: new Date().toISOString(), task, effort: args.effort ?? 'low', rungs: rungs.length, ...outcome })}\n`)
+  }
+  catch {}
+  return outcome
+}
+
+if (args.effort === 'high') {
+  phase('Design')
+  spec = await agent(architectPrompt('The task is classified as high effort; design it before any implementation.'), {
+    agentType: 'architect',
+    effort: 'xhigh',
+    phase: 'Design',
+    label: 'design',
+    schema: SPEC,
+  })
+}
+
+for (const [index, effort] of rungs.entries()) {
+  const rung = index + 1
+  const report = await agent(implementerPrompt(spec, feedback), {
+    agentType: 'implementer',
+    effort,
+    phase: 'Implement',
+    label: `implement ${rung}/${rungs.length} @ ${effort}`,
+    schema: REPORT,
+  })
+  if (report == null) {
+    attempts.push({ rung, effort, outcome: 'no report' })
+    continue
+  }
+
+  if (report.status === 'blocked') {
+    attempts.push({ rung, effort, outcome: 'blocked', question: report.question })
+    if (rung === rungs.length)
+      return record({ status: 'blocked', question: report.question, attempts })
+    spec = await agent(architectPrompt(`The implementer stopped on this question:\n${report.question}`), {
+      agentType: 'architect',
+      effort: 'xhigh',
+      phase: 'Design',
+      label: `design after blocked ${rung}`,
+      schema: SPEC,
+    })
+    feedback = null
+    continue
+  }
+
+  const verdict = await agent(harnessPrompt(), {
+    agentType: 'harness',
+    effort: 'low',
+    phase: 'Verify',
+    label: `verify ${rung}/${rungs.length}`,
+    schema: VERDICT,
+  })
+  const passed = verdict?.passed === true && verdict.testsWeakened === false
+  attempts.push({ rung, effort, outcome: passed ? 'passed' : 'failed', securityFinding: verdict?.securityFinding ?? '' })
+  log(`rung ${rung} @ ${effort}: ${passed ? 'harness passed' : 'harness failed'}`)
+
+  if (passed) {
+    return record({
+      status: 'done',
+      effort,
+      attempts,
+      files: report.files,
+      summary: report.summary,
+      harnessTail: report.harnessTail,
+      contractChanged: verdict.contractChanged,
+      diffStat: verdict.diffStat,
+    })
+  }
+
+  feedback = verdict == null
+    ? 'The harness produced no verdict.'
+    : verdict.testsWeakened
+      ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.\n${verdict.failureExcerpt}`
+      : verdict.failureExcerpt
+  if (verdict?.securityFinding)
+    feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
+
+  if (rung === rungs.length - 1) {
+    spec = await agent(architectPrompt(`Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`), {
+      agentType: 'architect',
+      effort: 'xhigh',
+      phase: 'Design',
+      label: 'design before last rung',
+      schema: SPEC,
+    })
+  }
+}
+
+return record({ status: 'failed', attempts, lastFailure: feedback })

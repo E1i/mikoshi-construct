@@ -1,0 +1,31 @@
+# The harness on every pull request and push to main: `pnpm run quality` is the single gate,
+# for humans and for AI agents alike. Keep it green; extend it in package.json, not here.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Quality
+        run: {{harnessCommand}}

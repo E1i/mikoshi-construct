@@ -1,0 +1,19 @@
+---
+description: Construct baseline — where the rules, contract and harness live
+alwaysApply: true
+---
+
+This repository runs on a construct materialized by `mikoshi-construct`. Before changing code read, in
+this order: `architecture/principles.md` (architecture, security, reasoning budget), `AGENTS.md`
+(what the product does, defects vs accepted variance), `CLAUDE.md` (module map, commands, composition
+roots, high-effort areas), `architecture/security-invariants.md`.
+
+The harness command is in `construct.json` (`harness.command`). A change is done only when it passes.
+API changes start from the contract file named in `construct.json` (`contracts.path`); regenerate the
+types with `pnpm contracts:types` before implementing. Composition models in
+`architecture/composition/*.yaml` are the source of the diagrams; edit the model and run
+`pnpm composition:render`, never the rendered block.
+
+Discovery: when asked to "run construct discovery", follow `.claude/commands/construct-discover.md`
+step by step if it exists, otherwise fill every `<!-- construct:discover:* -->` block in CLAUDE.md,
+AGENTS.md and architecture/ with what you verified by reading code.

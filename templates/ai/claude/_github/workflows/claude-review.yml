@@ -1,0 +1,50 @@
+name: Claude Review
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'claude-review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check out the pull request branch
+        run: gh pr checkout "$PR_NUMBER"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.CODE_REVIEW_API_KEY }}
+          plugin_marketplaces: https://github.com/anthropics/claude-code.git
+          plugins: code-review@claude-code-plugins
+          prompt: /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number || inputs.pr }}
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Bash,Task,Agent,TodoWrite,WebFetch,mcp__github_inline_comment__create_inline_comment"
+
+      - name: Remove trigger label
+        if: always() && github.event_name == 'pull_request'
+        run: gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/claude-review" --silent || true

@@ -1,0 +1,71 @@
+# {{projectName}}
+
+This repository runs on a construct materialized by `mikoshi-construct` v{{constructVersion}}:
+architecture policy in [architecture/](architecture/), the API contract in
+[{{contractPath}}]({{contractPath}}), and a harness that proves every change. The rules that apply to
+all code are in [architecture/principles.md](architecture/principles.md) and `.claude/rules/`; what
+follows is what is specific to this repository. Sections marked "not discovered yet" are filled by
+`/construct-discover`, then kept current by whoever changes the thing they describe.
+
+## Module map
+
+<!-- construct:discover:module-map -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:module-map -->
+
+## Commands
+
+```bash
+pnpm dev             # run the service locally
+pnpm run quality     # the harness: contract + composition checks, lint, typecheck, tests — the CI gate and the agent gate
+pnpm contracts:types # regenerate {{contractTypesOutput}} after editing the API contract
+pnpm composition:render # regenerate architecture diagrams after editing a composition model
+pnpm lint:fix        # ESLint with --fix; ESLint is the only formatter
+```
+
+Use `pnpm run quality` / `pnpm run ci` — bare `pnpm ci` is a pnpm install builtin, not this script.
+
+<!-- construct:discover:commands -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:commands -->
+
+## Harness
+
+`{{harnessCommand}}` is the gate for any change. A change is not done until it passes; a pass is
+reported by the harness, never by the implementer. Security invariants and the check that enforces
+each one: [architecture/security-invariants.md](architecture/security-invariants.md).
+
+## Contract
+
+[{{contractPath}}]({{contractPath}}) is the HTTP contract. The service validates every request against
+it (and responses outside production), consumers read the types generated into
+[{{contractTypesOutput}}]({{contractTypesOutput}}), and `oasdiff` flags breaking changes on pull
+requests. An API change edits the contract first, runs `pnpm contracts:types`, then implements.
+
+## Architecture
+
+The principles in [architecture/principles.md](architecture/principles.md) apply; this is how they map
+here.
+
+- *Composition roots.*
+  <!-- construct:discover:composition-roots -->
+  _Not discovered yet — run `/construct-discover`._
+  <!-- /construct:discover:composition-roots -->
+- *Dependency policy.*
+  <!-- construct:discover:dependency-policy -->
+  _Not discovered yet — run `/construct-discover`._
+  <!-- /construct:discover:dependency-policy -->
+- *Composition models* and their rendered diagrams: [architecture/composition/](architecture/composition/).
+
+## Reasoning budget
+
+High-effort areas — a task that touches one of these is classified `high` and designed before it is
+implemented (see `/implement`):
+
+<!-- construct:discover:high-effort-areas -->
+_Not discovered yet — run `/construct-discover`._
+<!-- /construct:discover:high-effort-areas -->
+
+Always high, whatever discovery finds: [{{contractPath}}]({{contractPath}}),
+`architecture/composition/`, `eslint.config.mjs`, and every row of
+[architecture/security-invariants.md](architecture/security-invariants.md).

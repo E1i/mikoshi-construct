@@ -1,0 +1,63 @@
+{
+  "name": "mikoshi-construct",
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.4.2+sha512.08adc6613180275c7c9edada39dcf08c9c61ad4e7eaf330a4f3461f102b0f907423454d117f98e72d47fef0616070644d7bffc973a6a57f5090a6d7c368b07c9",
+  "description": "Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an empty repository.",
+  "author": "Eli Tabrisov",
+  "license": "MIT",
+  "homepage": "https://github.com/e1i/mikoshi-construct#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/e1i/mikoshi-construct.git"
+  },
+  "bugs": "https://github.com/e1i/mikoshi-construct/issues",
+  "keywords": [
+    "claude-code",
+    "cursor",
+    "ai-agents",
+    "scaffold",
+    "bootstrap",
+    "openapi",
+    "harness",
+    "architecture",
+    "cli",
+    "ai-dlc"
+  ],
+  "bin": {
+    "construct": "./dist/cli.js",
+    "miko": "./dist/cli.js",
+    "mikoshi-construct": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "quality": "pnpm lint && pnpm typecheck && pnpm test",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "citty": "^0.2.2",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.5.1",
+    "@types/node": "^22.18.0",
+    "eslint": "^10.10.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "{{projectName}}",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx --watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "contracts:lint": "redocly lint",
+    "contracts:types": "node scripts/contracts/types.mjs",
+    "contracts:check": "pnpm contracts:lint && node scripts/contracts/types.mjs --check",
+    "quality": "pnpm contracts:check && pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express-openapi-validator": "^5.6.2"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.53.2",
+    "@types/express": "^4.17.25",
+    "@types/supertest": "^7.2.1",
+    "openapi-typescript": "^7.13.0",
+    "supertest": "^7.2.2"
+  }
+}
