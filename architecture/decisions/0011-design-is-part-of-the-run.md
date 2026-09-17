@@ -68,3 +68,8 @@ normally drives it, so it proves the decision logic and not that the runtime cal
 The positive half of that closes cheaply — the first `high` run after this change writes a ledger
 line whose attempts must carry the design step with its outcome — while the negative half, a real
 architect failing against the real runtime, is observed when it happens and is not manufactured.
+The list of globals the test injects — `args`, `agent`, `log`, `phase` — is itself an unverified
+claim about how the runtime calls the script, and nothing checks it. While the runtime does not
+change this costs nothing; when it hands the script a new global the test will fail loudly, and the
+repair is to extend that list deliberately, having read what the new global is, rather than
+reflexively to make the suite green again.
