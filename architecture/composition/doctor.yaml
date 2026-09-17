@@ -2,10 +2,11 @@ id: doctor
 title: construct doctor composition
 description: >-
   `runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root: it reads
-  `construct.json`, gathers file evidence once, fans out to the three baseline verdicts — files,
-  discovery markers, harness — and to five pure enforcement checks, then fans the verdicts into
-  `printDoctor`, which ends with one weakest-link line. It executes nothing from the repository it
-  inspects and writes nothing.
+  `construct.json` through `upgradeManifest`, gathers file evidence once, fans out to the four
+  baseline verdicts — files, discovery markers, marker provenance, harness — and to five pure
+  enforcement checks, then fans the verdicts into `printDoctor`, which ends with one weakest-link
+  line. Provenance is reported, never gated: it sets no exit code. `doctor` executes nothing from the
+  repository it inspects and writes nothing, including the manifest it just normalised.
 doc: architecture/doctor.md
 boundaries:
   - id: entry
@@ -26,7 +27,7 @@ nodes:
     path: src/commands/doctor/index.ts
     boundary: entry
   - id: manifest
-    label: readManifest → construct.json
+    label: readManifest → construct.json · upgradeManifest normalises a 0.1.x manifest on read
     path: src/manifest.ts
     boundary: evidence
   - id: evidence
@@ -40,6 +41,10 @@ nodes:
   - id: markers
     label: discovery markers · placeholder or filled
     path: src/commands/doctor/discovery.ts
+    boundary: checks
+  - id: provenance
+    label: marker provenance · recorded sha vs the body today → construct / owner / unknown
+    path: src/commands/doctor/provenance.ts
     boundary: checks
   - id: harness
     label: quality script steps · contract paths
@@ -79,6 +84,7 @@ edges:
   - {from: manifest, to: evidence, kind: sequence}
   - {from: manifest, to: files, kind: fan-out}
   - {from: manifest, to: markers, kind: fan-out}
+  - {from: manifest, to: provenance, kind: fan-out}
   - {from: manifest, to: harness, kind: fan-out}
   - {from: evidence, to: lintPolicy, kind: fan-out}
   - {from: evidence, to: constructTests, kind: fan-out}
@@ -92,5 +98,6 @@ edges:
   - {from: redGate, to: weakest, kind: fan-in}
   - {from: files, to: print, kind: fan-in}
   - {from: markers, to: print, kind: fan-in}
+  - {from: provenance, to: print, kind: fan-in}
   - {from: harness, to: print, kind: fan-in}
   - {from: weakest, to: print, kind: fan-in}

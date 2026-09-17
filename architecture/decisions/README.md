@@ -18,3 +18,4 @@ answer, not a gap to hide.
 | [0006](0006-the-init-manifest-is-frozen.md) | What init wrote in construct.json is frozen | L3 replay test |
 | [0007](0007-doctor-executes-nothing.md) | `doctor` executes nothing from the repository it audits, and never claims L4 | L4 CI |
 | [0008](0008-a-retry-buys-a-new-exploration.md) | A retry buys a new exploration, not a new attempt | L3 test, L1 review |
+| [0009](0009-the-manifest-carries-its-own-schema-version.md) | The manifest carries its own schema version, and a manifest without provenance is unknown | L3 test |

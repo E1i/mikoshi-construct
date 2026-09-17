@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const MANIFEST_FILE = 'construct.json'
+export const MANIFEST_VERSION = 2
 
 export const DISCOVERY_MARKERS = [
   'product',
@@ -21,7 +22,22 @@ export const DISCOVERY_MARKERS = [
 
 export type DiscoveryMarker = (typeof DISCOVERY_MARKERS)[number]
 
+export type MarkerAuthor = 'construct' | 'unknown'
+
+export interface MarkerProvenance {
+  file: string
+  authoredBy: MarkerAuthor
+  sha: string | null
+}
+
+export interface DiscoveryRecord {
+  baseSha: string | null
+  filledAt: string | null
+  markers: Record<DiscoveryMarker, MarkerProvenance>
+}
+
 export interface Manifest {
+  manifestVersion: number
   construct: string
   createdAt: string
   preset: PresetId
@@ -32,7 +48,7 @@ export interface Manifest {
   contracts: { path: string, types: string } | null
   vars: Record<string, string>
   files: Record<string, string>
-  discovery: Record<DiscoveryMarker, string>
+  discovery: DiscoveryRecord
 }
 
 export function sha256(content: string): string {
@@ -62,8 +78,13 @@ export function buildManifest(input: {
   const files: Record<string, string> = {}
   for (const op of input.written)
     files[op.target] = sha256(op.content)
-  const discovery = Object.fromEntries(DISCOVERY_MARKERS.map(marker => [marker, markerFile(marker, input.vars.compositionDir)])) as Record<DiscoveryMarker, string>
+  const markers = Object.fromEntries(DISCOVERY_MARKERS.map(marker => [marker, {
+    file: markerFile(marker, input.vars.compositionDir),
+    authoredBy: 'unknown',
+    sha: null,
+  } satisfies MarkerProvenance])) as Record<DiscoveryMarker, MarkerProvenance>
   return {
+    manifestVersion: MANIFEST_VERSION,
     construct: input.version,
     createdAt: new Date().toISOString(),
     preset: input.preset,
@@ -74,7 +95,37 @@ export function buildManifest(input: {
     contracts: input.contracts ? { path: input.vars.contractPath, types: input.vars.contractTypesOutput } : null,
     vars: input.vars,
     files,
-    discovery,
+    discovery: { baseSha: null, filledAt: null, markers },
+  }
+}
+
+function upgradeMarker(recorded: unknown, file: string): MarkerProvenance {
+  if (typeof recorded === 'string')
+    return { file: recorded, authoredBy: 'unknown', sha: null }
+  const value = (recorded ?? {}) as Partial<MarkerProvenance>
+  return {
+    file: typeof value.file === 'string' ? value.file : file,
+    authoredBy: value.authoredBy === 'construct' ? 'construct' : 'unknown',
+    sha: typeof value.sha === 'string' ? value.sha : null,
+  }
+}
+
+export function upgradeManifest(raw: unknown): Manifest {
+  const manifest = raw as Manifest
+  const discovery = (manifest.discovery ?? {}) as Partial<DiscoveryRecord> & Record<string, unknown>
+  const recorded = (discovery.markers ?? discovery) as Record<string, unknown>
+  const markers = Object.fromEntries(DISCOVERY_MARKERS.map(marker => [
+    marker,
+    upgradeMarker(recorded[marker], markerFile(marker, manifest.vars?.compositionDir)),
+  ])) as Record<DiscoveryMarker, MarkerProvenance>
+  return {
+    ...manifest,
+    manifestVersion: MANIFEST_VERSION,
+    discovery: {
+      baseSha: typeof discovery.baseSha === 'string' ? discovery.baseSha : null,
+      filledAt: typeof discovery.filledAt === 'string' ? discovery.filledAt : null,
+      markers,
+    },
   }
 }
 
@@ -86,5 +137,5 @@ export function readManifest(root: string): Manifest | null {
   const file = path.join(root, MANIFEST_FILE)
   if (!existsSync(file))
     return null
-  return JSON.parse(readFileSync(file, 'utf8')) as Manifest
+  return upgradeManifest(JSON.parse(readFileSync(file, 'utf8')))
 }

@@ -152,7 +152,7 @@ describe('self-hosting: this repository replays its own materialization', () => 
     expect(manifest?.vars.projectName).toBe('mikoshi-construct')
     const list = driftList()
     expect(list.replay).toEqual({ preset: manifest?.preset, ai: manifest?.ai, projectName: manifest?.vars.projectName, vars: MANIFEST_FILE })
-    const discoveryFiles = [...new Set(Object.values(manifest?.discovery ?? {}))].filter(marker => marker.endsWith('.md'))
+    const discoveryFiles = [...new Set(Object.values(manifest?.discovery.markers ?? {}).map(provenance => provenance.file))].filter(file => file.endsWith('.md'))
     for (const file of discoveryFiles)
       expect(list.differences.some(entry => entry.path === file), `${file} carries discovery and cannot be reproduced`).toBe(true)
   })

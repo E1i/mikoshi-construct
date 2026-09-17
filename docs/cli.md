@@ -99,6 +99,51 @@ npx mikoshi-construct init --yes --preset node-backend --review claude --review-
 Adds `.github/workflows/claude-review.yml`, which runs when you put the `claude-review` label on a
 pull request. Add a `CODE_REVIEW_API_KEY` secret to the repository or the workflow will not start.
 
+### What init records in construct.json
+
+`construct.json` is the record of the run that wrote it. `manifestVersion` is an integer naming the
+shape of this file and nothing else; `construct` is the CLI version that ran. They are separate on
+purpose — a product version is bumped for reasons that have nothing to do with the file's shape, so
+branching a migration on it is a question the file cannot answer. An older manifest is normalised when
+it is read and never written back.
+
+| Key | What it holds |
+|---|---|
+| `manifestVersion` | The integer schema version of this file. |
+| `construct` | The CLI version that wrote it. |
+| `createdAt`, `preset`, `ai`, `review` | What the run was asked for. |
+| `harness`, `report`, `contracts`, `vars` | The harness command, the contract paths and the resolved template variables. |
+| `files` | One sha256 per file that run declared writing. |
+| `discovery` | Where each marker lives, and who wrote it. |
+
+```json
+{
+  "manifestVersion": 2,
+  "construct": "0.1.3",
+  "discovery": {
+    "baseSha": "9f1c0b7e1b3b9f0e2a4c6d8e0a2b4c6d8e0a2b4c",
+    "filledAt": "2026-09-17T09:12:44.118Z",
+    "markers": {
+      "product": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "a8c99232614a6bd1e6cc527a39dea9a39e093d3b24e306ac38bfa55d73294a50"
+      },
+      "composition": { "file": "architecture/composition", "authoredBy": "unknown", "sha": null }
+    }
+  }
+}
+```
+
+`init` writes every marker as `unknown` with no sha: it fills no marker, so it claims none.
+`/construct-discover` records `baseSha` — the commit the run started from — when it starts, `filledAt`
+when it finishes, and for each marker it fills the file, `authoredBy: "construct"` and the sha256 of
+the body it wrote. The body is the text between the two `construct:discover` comments, trimmed; for
+`composition` it is every `*.yaml` in the directory, sorted by name, each as its filename, a newline
+and its contents. Nothing is written into the prose of a marker: a document people read does not carry
+machine bookkeeping, and the one place an owner is most likely to edit is the worst place to keep the
+record.
+
 ## construct doctor
 
 Checks that the construct is intact: every file the manifest recorded is still present, the harness
@@ -125,6 +170,10 @@ npx mikoshi-construct doctor
 
     Run: claude → /construct-discover
 [ok] OK
+
+Discovery provenance
+  commands             AGENTS.md
+  Unchanged since discovery wrote them: 1 marker nobody has stood behind yet.
 
 Enforcement
   lint-policy      L3  present  scripts/tests/lint/syntax-policy.test.ts resolves the lint policy …
@@ -189,12 +238,31 @@ The last line names the weakest link: the lowest level among the gates the repos
 is to say the checks that came back `present`. Checks that are `absent` or `unknown` are printed on
 their own lines but do not set it, and when nothing is claimed the line says so.
 
+### Who each marker belongs to
+
+`doctor` derives authorship rather than storing it. A marker whose body still hashes to the sha
+`construct.json` records for it reads as `construct` — the repository is still quoting the tool back
+to itself. A marker whose body no longer matches reads as `owner`: someone edited it by hand, and that
+edit is the only evidence needed, so there is no command to run and nothing is written back. A marker
+with no recorded provenance reads as `unknown`, which is what every marker of a repository initialised
+before provenance existed reads as — a manifest that recorded nothing is no evidence that the tool
+wrote the prose.
+
+The report names the `construct` markers and nothing else; `provenance` in `--json` carries one
+reading per marker. This is information: provenance is not a sixth check, it has no level, and it
+never changes the exit code.
+
 ```json
 {
   "ok": true,
   "missingFiles": [],
   "modifiedFiles": [],
   "missingDiscovery": ["product", "module-map"],
+  "provenance": [
+    { "marker": "product", "file": "AGENTS.md", "authorship": "unknown" },
+    { "marker": "commands", "file": "AGENTS.md", "authorship": "construct" },
+    { "marker": "composition-roots", "file": "AGENTS.md", "authorship": "owner" }
+  ],
   "harnessProblems": [],
   "warnings": [],
   "checks": [
@@ -216,7 +284,9 @@ their own lines but do not set it, and when nothing is claimed the line says so.
 ```
 
 `ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery` and `harnessProblems` keep their names,
-types and meaning; `warnings`, `checks` and `weakestLink` are added after them. `checks` is always in
+types and meaning; `provenance`, `warnings`, `checks` and `weakestLink` are added after them.
+`provenance` has one entry per marker, in the order the markers are declared, each with `marker`,
+`file` and `authorship` (`construct`, `owner` or `unknown`). `checks` is always in
 the order above — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` — and `weakestLink` is
 `null` when no check is `present`.
 
