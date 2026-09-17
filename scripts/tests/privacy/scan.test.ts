@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ALLOWED_DOMAINS } from '../../privacy/allowlist.js'
-import { formatViolation, SCANNED_PATHS, scannedFiles, scanRepository, scanText } from '../../privacy/scan.js'
+import { BUILD_OUTPUT, formatViolation, SCANNED_PATHS, scannedFiles, scanRepository, scanText } from '../../privacy/scan.js'
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -18,6 +18,12 @@ describe('privacy guard', () => {
 
   it('never scans the bait it uses to prove itself', () => {
     expect(scannedFiles().some(file => file.startsWith('scripts/tests/privacy/fixtures'))).toBe(false)
+  })
+
+  it('scans the documentation source and not what a documentation build produced from it', () => {
+    const files = scannedFiles()
+    expect(files).toContain('docs/.vitepress/config.ts')
+    expect(files.filter(file => BUILD_OUTPUT.some(directory => file.startsWith(`${directory}/`)))).toEqual([])
   })
 
   it('scans the test fixtures, where frozen manifests from other repositories live', () => {

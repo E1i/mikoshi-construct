@@ -9,6 +9,7 @@ export const ALWAYS_ALLOWED_DOMAINS = [
 export const ALLOWED_DOMAINS = [
   ...ALWAYS_ALLOWED_DOMAINS,
   'github.com',
+  'e1i.github.io',
   'npmjs.com',
   'redocly.com',
   'openapi-ts.dev',
@@ -16,4 +17,5 @@ export const ALLOWED_DOMAINS = [
   'code.claude.com',
   'kevinpowell.co',
   'ghcr.io',
+  'w3.org',
 ]
