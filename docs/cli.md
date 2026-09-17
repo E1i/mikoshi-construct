@@ -251,6 +251,21 @@ A preset that declares no syntax policy has no policy check to run, so `lint-pol
 `absent` at `L0`: that is a true reading of the repository, not a missing file. `node-library` is such
 a preset — its harness is the shared ESLint configuration with no restriction of the construct's own.
 
+A repository that already had its own `eslint.config.mjs` keeps it: `init` never overwrites a file the
+construct did not write. The construct's syntax policy is therefore not applied there, and the test
+that proves the policy fires — `scripts/tests/lint/syntax-policy.test.ts` — is materialized only into a
+directory that was empty at `init`, because it asserts the construct's selectors and an owner's
+configuration is free to declare a narrower policy or none. `lint-policy absent` in such a repository
+is a true reading of it, not a missing file, and the report is the place that can tell the two
+situations apart.
+
+An owner who wants the policy adopts it deliberately: materialize the same preset into an empty
+directory (`npx mikoshi-construct init --yes --preset <id> --dir <tmp>`), copy the `no-restricted-syntax`
+blocks from its `eslint.config.mjs` into your own configuration keeping the roles in order from
+broadest to most specific, copy `scripts/tests/lint/syntax-policy.test.ts` next to it, make sure the
+test runner's include globs reach `scripts/tests/**`, and run the harness. `doctor` reports
+`lint-policy present` once that chain holds.
+
 Typecheck is not a check. Where a bare `tsc --noEmit` cannot carry a stack, the preset contributes a
 line to `warnings` instead — a framework matrix would grow faster than it could be closed.
 

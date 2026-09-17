@@ -21,7 +21,7 @@ describe('construct init --yes --preset node-backend', () => {
     const dir = scratch()
     const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     expect(result.status).toBe('done')
-    for (const file of ['package.json', 'CLAUDE.md', 'AGENTS.md', 'construct.json', 'architecture/principles.md', 'architecture/composition/http.yaml', 'contracts/api/openapi.yaml', 'src/app.ts', 'src/contracts/openapi.ts', '.claude/commands/construct-discover.md', '.github/workflows/ci.yml'])
+    for (const file of ['package.json', 'CLAUDE.md', 'AGENTS.md', 'construct.json', 'architecture/principles.md', 'architecture/composition/http.yaml', 'contracts/api/openapi.yaml', 'src/app.ts', 'src/contracts/openapi.ts', 'scripts/tests/lint/syntax-policy.test.ts', '.claude/commands/construct-discover.md', '.github/workflows/ci.yml'])
       expect(existsSync(path.join(dir, file)), file).toBe(true)
 
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name: string, scripts: Record<string, string> }
@@ -173,7 +173,7 @@ describe('construct init --preset monorepo', () => {
     const dir = scratch()
     const result = await runInit(ui, { dir, preset: 'monorepo', name: 'shop', yes: true, dryRun: false })
     expect(result.status).toBe('done')
-    for (const file of ['pnpm-workspace.yaml', 'apps/api/src/app.ts', 'apps/api/package.json', 'packages/shared/src/api/openapi.ts', 'packages/shared/src/index.ts', 'contracts/api/openapi.yaml', 'architecture/composition/http.yaml'])
+    for (const file of ['pnpm-workspace.yaml', 'apps/api/src/app.ts', 'apps/api/package.json', 'packages/shared/src/api/openapi.ts', 'packages/shared/src/index.ts', 'contracts/api/openapi.yaml', 'architecture/composition/http.yaml', 'scripts/tests/lint/syntax-policy.test.ts'])
       expect(existsSync(path.join(dir, file)), file).toBe(true)
     expect(readFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('catalog:')
     expect(readFileSync(path.join(dir, 'architecture/composition/http.yaml'), 'utf8')).toContain('path: apps/api/src/app.ts')
@@ -213,7 +213,7 @@ describe('construct init on a directory that is not empty', () => {
     expect(existsSync(path.join(dir, 'architecture/composition'))).toBe(false)
     expect(existsSync(path.join(dir, 'src/contracts/openapi.ts'))).toBe(true)
     expect(existsSync(path.join(dir, 'contracts/api/openapi.yaml'))).toBe(true)
-    expect(existsSync(path.join(dir, 'scripts/tests/lint/syntax-policy.test.ts'))).toBe(true)
+    expect(existsSync(path.join(dir, 'scripts/tests/lint/syntax-policy.test.ts'))).toBe(false)
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { packageManager: string }
     expect(pkg.packageManager).toBe('pnpm@11.0.0')
     expect(runDoctor(dir)?.ok).toBe(true)
@@ -250,8 +250,8 @@ describe('construct init on an existing monorepo', () => {
     const result = await runInit(ui, { dir, preset: 'monorepo', yes: true, dryRun: false })
     expect(result.status).toBe('done')
     const created = result.written.filter(file => !before.has(file))
-    expect(created.every(file => file.startsWith('.claude/') || file.startsWith('architecture/') || file.startsWith('scripts/construct/') || file.startsWith('scripts/tests/lint/') || file === 'construct.json')).toBe(true)
-    expect(created).toContain('scripts/tests/lint/syntax-policy.test.ts')
+    expect(created.every(file => file.startsWith('.claude/') || file.startsWith('architecture/') || file.startsWith('scripts/construct/') || file === 'construct.json')).toBe(true)
+    expect(created).not.toContain('scripts/tests/lint/syntax-policy.test.ts')
     const rewritten = result.written.filter(file => before.has(file))
     expect(rewritten.sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'package.json', 'packages/shared/package.json'])
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8').startsWith('# example-monorepo\n')).toBe(true)
