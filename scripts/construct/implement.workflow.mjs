@@ -2,7 +2,7 @@ export const meta = {
   name: 'implement',
   description: 'Implement a task at low effort, verify with the harness, escalate on repeated failure or ambiguity',
   phases: [
-    { title: 'Design', detail: 'architect, only for high effort or after a blocked or failed attempt' },
+    { title: 'Design', detail: 'architect inside the run, for high effort before the first rung and after a blocked or failed attempt' },
     { title: 'Implement', detail: 'implementer at the current rung' },
     { title: 'Verify', detail: 'harness against the working tree' },
   ],
@@ -53,6 +53,8 @@ const SPEC = {
 }
 
 const DEFAULT_RETRY_LIMIT = 0
+const DESIGN_EFFORT = 'xhigh'
+const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
 const acceptance = args.acceptance ?? []
@@ -125,22 +127,57 @@ function implementerPrompt(spec, feedback) {
 
 let spec = null
 let feedback = null
+let designComplete = false
+let designFailed = false
+let designError = ''
 const attempts = []
 
+function performedEffort(effort) {
+  return designComplete ? effort : (EFFORT_WITHOUT_DESIGN[effort] ?? effort)
+}
 
-if (args.effort === 'high') {
+async function design(rung, reason, label) {
   phase('Design')
-  spec = await ask(architectPrompt('The task is classified as high effort; design it before any implementation.'), {
+  const result = await ask(architectPrompt(reason), {
     agentType: 'architect',
-    effort: 'xhigh',
+    effort: DESIGN_EFFORT,
     phase: 'Design',
-    label: 'design',
+    label,
     schema: SPEC,
   })
+  if (result == null) {
+    designComplete = false
+    designFailed = true
+    designError = lastValidationError ?? ''
+    attempts.push({ rung, effort: DESIGN_EFFORT, outcome: 'design schema invalid', reason: designError })
+    log(`${label}: the design step did not complete`)
+    return false
+  }
+  spec = result
+  designComplete = true
+  return true
+}
+
+function designIncomplete(effort, question) {
+  return {
+    status: 'design incomplete',
+    effort: performedEffort(effort),
+    attempts,
+    validationError: designError,
+    question: question ?? '',
+    lastFailure: feedback ?? '',
+  }
 }
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
+
+  if (rung === 1 && args.effort === 'high') {
+    const designed = await design(rung, 'The task is classified as high effort; design it before any implementation.', 'design')
+    if (!designed)
+      return designIncomplete(effort)
+  }
+
   phase('Implement')
   log(`rung ${rung}/${rungs.length} @ ${effort}: implementing`)
   const report = await ask(implementerPrompt(spec, feedback), {
@@ -159,15 +196,11 @@ for (const [index, effort] of rungs.entries()) {
     attempts.push({ rung, effort, outcome: 'blocked', reason: report.question, question: report.question })
     if (rung === rungs.length)
       return { status: 'blocked', question: report.question, attempts }
-    spec = await ask(architectPrompt(`The implementer stopped on this question:\n${report.question}`), {
-      agentType: 'architect',
-      effort: 'xhigh',
-      phase: 'Design',
-      label: `design after blocked ${rung}`,
-      schema: SPEC,
-    })
+    const designed = await design(rung, `The implementer stopped on this question:\n${report.question}`, `design after blocked ${rung}`)
+    if (!designed && args.effort === 'high')
+      return designIncomplete(effort, report.question)
     feedback = null
-    log(`rung ${rung}/${rungs.length} @ ${effort}: blocked, architect answered`)
+    log(`rung ${rung}/${rungs.length} @ ${effort}: blocked, architect ${designed ? 'answered' : 'did not answer'}`)
     continue
   }
 
@@ -194,8 +227,8 @@ for (const [index, effort] of rungs.entries()) {
 
   if (passed) {
     return {
-      status: 'done',
-      effort,
+      status: designFailed && !designComplete ? 'degraded' : 'done',
+      effort: performedEffort(effort),
       attempts,
       files: report.files,
       summary: report.summary,
@@ -214,16 +247,11 @@ for (const [index, effort] of rungs.entries()) {
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 
   if (rung === rungs.length - 1) {
-    phase('Design')
     log(`rung ${rung}/${rungs.length} failed twice: architect redesigns before the last rung`)
-    spec = await ask(architectPrompt(`Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`), {
-      agentType: 'architect',
-      effort: 'xhigh',
-      phase: 'Design',
-      label: 'design before last rung',
-      schema: SPEC,
-    })
+    const designed = await design(rung, `Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`, 'design before last rung')
+    if (!designed && args.effort === 'high')
+      return designIncomplete(effort)
   }
 }
 
-return { status: 'failed', attempts, lastFailure: feedback }
+return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]) }

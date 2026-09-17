@@ -184,6 +184,38 @@ describe('the run ledger', () => {
     ])
   })
 
+  it('reads a line whose status and outcome this version has never heard of, because a newer CLI writes the ledger an older one reads', () => {
+    const cwd = workspace()
+    const fromTheFuture = ledgerEntry({
+      run: 'wf_future',
+      status: 'a status this version does not know',
+      attempts: [{ rung: 1, effort: 'unheard-of', outcome: 'an outcome this version does not know', reason: '' }],
+    })
+    writeLedger(cwd, [JSON.stringify(ledgerEntry()), JSON.stringify(fromTheFuture)])
+
+    const reading = readLedger(cwd)
+    expect(reading.malformed).toEqual([])
+    expect(reading.entries.map(entry => entry.status)).toEqual(['done', 'a status this version does not know'])
+    expect(reading.entries[1].attempts[0].outcome).toBe('an outcome this version does not know')
+  })
+
+  it('reads a run whose design step did not complete and leaves the lines around it readable', () => {
+    const cwd = workspace()
+    const degraded = ledgerEntry({
+      run: 'wf_design',
+      effort: 'medium',
+      status: 'design incomplete',
+      rung: 'xhigh',
+      attempts: [{ rung: 1, effort: 'xhigh', outcome: 'design schema invalid', reason: 'SPEC: decision: missing' }],
+    })
+    writeLedger(cwd, [JSON.stringify(ledgerEntry()), JSON.stringify(degraded)])
+
+    const reading = readLedger(cwd)
+    expect(reading.malformed).toEqual([])
+    expect(reading.entries.map(entry => entry.status)).toEqual(['done', 'design incomplete'])
+    expect(reading.entries[1].attempts).toEqual(degraded.attempts)
+  })
+
   it('names the attempt field that is missing, not just the attempts array', () => {
     const cwd = workspace()
     const entry = {

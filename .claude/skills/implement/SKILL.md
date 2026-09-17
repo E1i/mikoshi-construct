@@ -31,6 +31,15 @@ repository's CLAUDE.md and `construct.json`.
    only when a rejected response is expected to be a transient shape error rather than a bad brief.
    The user's `/implement` invocation is the opt-in the tool requires. Note the run identifier the
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
+   The design step runs inside the ladder, not before it, and its outcome is one of the `attempts`
+   like any other. The statuses a run can return are:
+   - `done` — a rung passed the harness and every design step the run took completed.
+   - `degraded` — a rung passed the harness, but a design step was rejected by the schema and the
+     run continued without it. The result's `effort` is the class that actually executed.
+   - `design incomplete` — a high-effort run whose architect was rejected by the schema. No
+     implementer ran without a spec; the result carries the validator's text in `validationError`.
+   - `failed` — every rung ran and the harness stayed red; `lastFailure` carries the excerpt.
+   - `blocked` — the last rung stopped on a question; `question` carries it verbatim.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
    with exactly these fields and no others:
    - `run` — the Workflow run identifier from step 3. It is the key `construct cost` joins the entry
@@ -38,13 +47,15 @@ repository's CLAUDE.md and `construct.json`.
      unjoinable, which is the truth about it.
    - `at` — the ISO timestamp.
    - `task` — the task text, first 120 characters.
-   - `effort` — the class you chose in step 1.
-   - `status` — `done`, `failed` or `blocked`, from the result.
-   - `rung` — the effort of the rung that finished: `effort` from the result when it is `done`,
+   - `effort` — the class the run performed: the result's `effort` when it carries one, and only
+     then the class you chose in step 1. A run whose design step did not complete is never written
+     down as `high`; the result has already degraded it.
+   - `status` — the result's status verbatim, one of the five in step 3.
+   - `rung` — the effort of the rung that finished: `effort` from the result when it carries one,
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
-     `outcome` and the `reason` that separates an invalid response shape from a red harness from a
-     blocked report.
+     `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
+     blocked report and from a design the schema rejected.
    - `agents`, `tokens`, `toolUses`, `seconds` — the Workflow tool's own accounting for the run,
      exactly as it reported it. Write `"unknown"` for a token figure it did not report, never `0`.
    The ledger carries counts and reasons only — never a prompt, a response or any other message
@@ -54,7 +65,10 @@ repository's CLAUDE.md and `construct.json`.
    gitignored.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
    files changed, and the harness tail. When the status is `blocked`, put the architect's or
-   implementer's question to the user verbatim. When `failed`, give the last failure excerpt.
+   implementer's question to the user verbatim. When `failed`, give the last failure excerpt. When
+   `design incomplete`, say that the design step did not complete and give `validationError` as the
+   runtime reported it; when `degraded`, say which design step was rejected and that the reported
+   class is the one that executed, not the one that was requested.
    Unless `construct.json` sets `report.usage` to `false`, end with one usage line for this run,
    from the Workflow tool's own accounting: agents, subagent tokens, tool uses, wall time — so the
    cost of the rung that succeeded is on record next to the result. When `construct` is on the PATH,
