@@ -68,7 +68,9 @@ isolated and manageable — and to treat accidental complexity as a defect.
   reconsider the decomposition, coupling or abstraction instead of pushing through.
 
 The checklists that turn these principles into questions to answer before a change are in
-[checklists.md](checklists.md).
+[checklists.md](checklists.md). A decision that shapes what this project may claim is recorded once in
+[decisions/](decisions/README.md), with the level at which it is enforced, instead of being restated in
+a plan or a commit message.
 
 ## Security
 

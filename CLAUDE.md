@@ -97,6 +97,11 @@ commit message.
 
 ## Conventions
 
+**One list, two readers.** A set of values that code uses and a document explains — the doctor's
+enforcement levels, the in-universe vocabulary, the discovery markers — lives once in `src/`, and a
+test reads it from there and asserts the document explains every member. The document is the second
+reader, never a second copy: a test that restates the list only proves the copy matches the copy.
+
 No comments in source, including JSDoc. ESLint (`@antfu/eslint-config`) is the only formatter; fix
 style with `pnpm lint:fix`, never by hand. Tests live in `tests/`, never beside source, and every
 changed logic module ships its test in the same change. `detect` returns facts; anything that needs

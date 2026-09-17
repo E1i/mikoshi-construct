@@ -27,6 +27,12 @@ differences:
     reason: >-
       Discovery is not reproducible. Init wrote the empty markers and the existing-file variant; the
       filled prose is the discovery command's output, recorded by provenance, never re-derived here.
+  - path: architecture/decisions/README.md
+    kind: skipped-at-init
+    reason: >-
+      Written by hand before the template existed, so the manifest does not record it; the template
+      ships the empty index with the enforcement scale, while this copy carries the records this
+      repository has actually taken.
   - path: architecture/security-invariants.md
     kind: content
     reason: >-
