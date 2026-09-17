@@ -58,15 +58,70 @@
     "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80"
   },
   "discovery": {
-    "product": "AGENTS.md",
-    "module-map": "AGENTS.md",
-    "commands": "AGENTS.md",
-    "composition-roots": "AGENTS.md",
-    "dependency-policy": "AGENTS.md",
-    "high-effort-areas": "AGENTS.md",
-    "composition": "architecture/composition",
-    "security-invariants": "architecture/security-invariants.md",
-    "defects-vs-variance": "AGENTS.md",
-    "open-questions": "AGENTS.md"
+    "baseSha": null,
+    "filledAt": null,
+    "markers": {
+      "product": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "module-map": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "commands": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "composition-roots": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "dependency-policy": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "high-effort-areas": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "composition": {
+        "file": "architecture/composition",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "security-invariants": {
+        "file": "architecture/security-invariants.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "defects-vs-variance": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      },
+      "open-questions": {
+        "file": "AGENTS.md",
+        "authoredBy": "unknown",
+        "sha": null
+      }
+    }
+  },
+  "manifestVersion": 4,
+  "variants": {},
+  "sync": {
+    "ranAt": "2026-09-17T13:09:09.242Z",
+    "fromVersion": "0.1.0",
+    "toVersion": "0.2.0",
+    "files": {
+      "tsconfig.base.json": "040735e3e4af80365d0b48aac9729f779a1f8d97addee940f39b85d84e0424ad"
+    },
+    "variants": {}
   }
 }
