@@ -88,6 +88,13 @@ edits. Run it before reporting done.
 - Every user-facing string lives in `src/ui/lore.ts` with a `PLAIN_LORE` counterpart; `--plain` must
   produce output with no lore and no emoji.
 
+## Decisions
+
+`architecture/decisions/` holds one record per decision that shapes what this tool may claim —
+context, decision, consequences, and the level at which it is enforced. Read it before re-opening a
+question it already answers, and add a record rather than restating a decision in a plan or a
+commit message.
+
 ## Conventions
 
 No comments in source, including JSDoc. ESLint (`@antfu/eslint-config`) is the only formatter; fix
