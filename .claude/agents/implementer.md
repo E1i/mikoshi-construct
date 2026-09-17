@@ -27,14 +27,10 @@ Constraints at this effort level:
 If the task is ambiguous about a contract, a boundary or which of two designs is meant, stop and
 report `blocked` with one precise question. Do not pick one.
 
-Your final message is data, not prose. Return exactly one JSON object:
+Return these fields; the runtime validates the shape against the schema it gives you.
 
-```json
-{
-  "status": "done | failed | blocked",
-  "summary": "one or two sentences on what changed",
-  "files": ["paths you changed"],
-  "harnessTail": "last lines of the harness output, empty when blocked",
-  "question": "the single question when blocked, otherwise empty"
-}
-```
+- `status` — `done`, `failed` or `blocked`.
+- `summary` — one or two sentences on what changed.
+- `files` — the paths you changed.
+- `harnessTail` — the last lines of the harness output, empty when blocked.
+- `question` — the single question when blocked, otherwise empty.

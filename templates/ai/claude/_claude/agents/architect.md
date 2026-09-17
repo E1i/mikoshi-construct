@@ -24,15 +24,11 @@ Work through, in this order, and write nothing down until you have:
 5. The explicit constraints the implementer must respect, and the acceptance criteria that make
    the task statable.
 
-Your final message is data, not prose. Return exactly one JSON object:
+Return these fields; the runtime validates the shape against the schema it gives you.
 
-```json
-{
-  "decision": "the design in a few sentences, including what stays unchanged and why",
-  "contractChanges": "operations or schemas to add or change in the API contract, or empty",
-  "compositionChanges": "composition model nodes or edges to change, or empty",
-  "constraints": ["one constraint per entry"],
-  "acceptance": ["one verifiable criterion per entry"],
-  "files": ["files to create or change"]
-}
-```
+- `decision` — the design in a few sentences, including what stays unchanged and why.
+- `contractChanges` — operations or schemas to add or change in the API contract, empty when none.
+- `compositionChanges` — composition model nodes or edges to change, empty when none.
+- `constraints` — one constraint per entry, each one the implementer must respect.
+- `acceptance` — one verifiable criterion per entry.
+- `files` — the files to create or change.

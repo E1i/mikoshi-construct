@@ -21,9 +21,11 @@ repository's CLAUDE.md and `construct.json`.
 3. Call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
-   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] } }`
+   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] }, "retryLimit": 1 }`
    where `harness.command` comes from `construct.json` and `harness.extra` lists any area-specific
-   commands CLAUDE.md names for the files the task touches (usually empty).
+   commands CLAUDE.md names for the files the task touches (usually empty). `retryLimit` is optional
+   and caps how often an agent whose response the schema rejects is asked again; leave it out for the
+   default of one retry, set it to `0` to spend nothing on a rejected response.
    The user's `/implement` invocation is the opt-in the tool requires.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
    with `at` (ISO time), `task` (first 120 characters), `effort` (the class you chose), `status`,

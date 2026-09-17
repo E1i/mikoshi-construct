@@ -52,10 +52,46 @@ const SPEC = {
   },
 }
 
+const DEFAULT_RETRY_LIMIT = 1
+
 const task = args.task
 const acceptance = args.acceptance ?? []
 const harness = { command: 'pnpm run quality', extra: [], ...(args.harness ?? {}) }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
+const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
+
+let lastValidationError = null
+
+function retryPrompt(prompt, validationError) {
+  return `${prompt}\n\nThe previous response did not match the shape the runtime validates. The validator reported:\n${validationError}\n\nReturn the same fields again with that corrected.`
+}
+
+async function askOnce(prompt, options) {
+  try {
+    const value = await agent(prompt, options)
+    return value == null
+      ? { value: null, validationError: 'the agent returned no object the schema could validate' }
+      : { value, validationError: null }
+  }
+  catch (error) {
+    return { value: null, validationError: String(error?.message ?? error) }
+  }
+}
+
+async function ask(prompt, options) {
+  let validationError = null
+  for (let attempt = 0; attempt <= retryLimit; attempt++) {
+    const answer = await askOnce(validationError == null ? prompt : retryPrompt(prompt, validationError), options)
+    if (answer.value != null) {
+      lastValidationError = null
+      return answer.value
+    }
+    validationError = answer.validationError
+    log(`${options.label}: response rejected by the schema — ${validationError}`)
+  }
+  lastValidationError = validationError
+  return null
+}
 
 function harnessPrompt() {
   return [
@@ -94,7 +130,7 @@ const attempts = []
 
 if (args.effort === 'high') {
   phase('Design')
-  spec = await agent(architectPrompt('The task is classified as high effort; design it before any implementation.'), {
+  spec = await ask(architectPrompt('The task is classified as high effort; design it before any implementation.'), {
     agentType: 'architect',
     effort: 'xhigh',
     phase: 'Design',
@@ -107,7 +143,7 @@ for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
   phase('Implement')
   log(`rung ${rung}/${rungs.length} @ ${effort}: implementing`)
-  const report = await agent(implementerPrompt(spec, feedback), {
+  const report = await ask(implementerPrompt(spec, feedback), {
     agentType: 'implementer',
     effort,
     phase: 'Implement',
@@ -115,15 +151,15 @@ for (const [index, effort] of rungs.entries()) {
     schema: REPORT,
   })
   if (report == null) {
-    attempts.push({ rung, effort, outcome: 'no report' })
+    attempts.push({ rung, effort, outcome: 'schema invalid', reason: lastValidationError })
     continue
   }
 
   if (report.status === 'blocked') {
-    attempts.push({ rung, effort, outcome: 'blocked', question: report.question })
+    attempts.push({ rung, effort, outcome: 'blocked', reason: report.question, question: report.question })
     if (rung === rungs.length)
       return { status: 'blocked', question: report.question, attempts }
-    spec = await agent(architectPrompt(`The implementer stopped on this question:\n${report.question}`), {
+    spec = await ask(architectPrompt(`The implementer stopped on this question:\n${report.question}`), {
       agentType: 'architect',
       effort: 'xhigh',
       phase: 'Design',
@@ -137,7 +173,7 @@ for (const [index, effort] of rungs.entries()) {
 
   phase('Verify')
   log(`rung ${rung}/${rungs.length} @ ${effort}: running ${harness.command}`)
-  const verdict = await agent(harnessPrompt(), {
+  const verdict = await ask(harnessPrompt(), {
     agentType: 'harness',
     effort: 'low',
     phase: 'Verify',
@@ -145,7 +181,15 @@ for (const [index, effort] of rungs.entries()) {
     schema: VERDICT,
   })
   const passed = verdict?.passed === true && verdict.testsWeakened === false
-  attempts.push({ rung, effort, outcome: passed ? 'passed' : 'failed', securityFinding: verdict?.securityFinding ?? '' })
+  attempts.push(verdict == null
+    ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
+    : {
+        rung,
+        effort,
+        outcome: passed ? 'passed' : 'harness failed',
+        reason: passed ? '' : (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt),
+        securityFinding: verdict.securityFinding ?? '',
+      })
   log(`rung ${rung} @ ${effort}: ${passed ? 'harness passed' : 'harness failed'}`)
 
   if (passed) {
@@ -162,7 +206,7 @@ for (const [index, effort] of rungs.entries()) {
   }
 
   feedback = verdict == null
-    ? 'The harness produced no verdict.'
+    ? `The harness produced no verdict the schema could validate: ${lastValidationError}`
     : verdict.testsWeakened
       ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.\n${verdict.failureExcerpt}`
       : verdict.failureExcerpt
@@ -172,7 +216,7 @@ for (const [index, effort] of rungs.entries()) {
   if (rung === rungs.length - 1) {
     phase('Design')
     log(`rung ${rung}/${rungs.length} failed twice: architect redesigns before the last rung`)
-    spec = await agent(architectPrompt(`Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`), {
+    spec = await ask(architectPrompt(`Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`), {
       agentType: 'architect',
       effort: 'xhigh',
       phase: 'Design',
