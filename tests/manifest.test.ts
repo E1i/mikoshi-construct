@@ -28,7 +28,7 @@ function scratch(): string {
 }
 
 function currentManifest() {
-  return buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false })
+  return buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false, previous: null })
 }
 
 function legacyRoot(): string {

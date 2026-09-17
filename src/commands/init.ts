@@ -1,11 +1,12 @@
 import type { DetectReport } from '../detect/index.js'
+import type { Manifest } from '../manifest.js'
 import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from '../presets/index.js'
 import type { Ui } from '../ui/console.js'
 import type { Prompter } from '../ui/prompts.js'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
-import { buildManifest, writeManifest } from '../manifest.js'
+import { buildManifest, readManifest, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
 import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups } from '../presets/index.js'
@@ -39,6 +40,17 @@ interface InitChoices {
 }
 
 const CANCELLED = Symbol('cancelled')
+
+const RESTATED_BY_THE_RUNNING_BINARY = ['constructVersion']
+
+function varsThisRunChanged(previous: Manifest, vars: TemplateVars): { name: string, from: string, to: string }[] {
+  return Object.entries(vars)
+    .filter(([name]) => !RESTATED_BY_THE_RUNNING_BINARY.includes(name))
+    .flatMap(([name, to]) => {
+      const from = previous.vars[name]
+      return from == null || from === to ? [] : [{ name, from, to }]
+    })
+}
 
 function aborted(skipped: string[] = [], conflicts: string[] = []): InitResult {
   return { status: 'aborted', written: [], skipped, conflicts }
@@ -212,7 +224,17 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     return aborted(skipped, plan.conflicts)
 
   const written = applyPlan(root, plan.ops)
-  writeManifest(root, buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts }))
+  const previous = readManifest(root)
+  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
+  writeManifest(root, manifest)
+  if (previous != null) {
+    const carriedOver = Object.keys(previous.files).filter(target => !written.some(op => op.target === target)).length
+    const added = written.filter(op => previous.files[op.target] == null).length
+    ui.line(ui.theme.dim(`  ${ui.lore.recordCarriedOver(carriedOver, added)}`))
+    const changed = varsThisRunChanged(previous, vars)
+    if (changed.length > 0)
+      ui.line(ui.theme.dim(`  ${ui.lore.recordVarsChanged(changed)}`))
+  }
 
   ui.phase(4, 4, '✅', ui.lore.phaseOnline)
   ui.tree([

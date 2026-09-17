@@ -43,6 +43,7 @@ flowchart LR
   plan -.-> strategies
   plan -.-> rules
   plan -->|"FileOp[] after confirm"| apply
+  run -->|"readManifest: the record already here"| manifest
   apply -->|"written files"| manifest
 ```
 <!-- /composition:init -->

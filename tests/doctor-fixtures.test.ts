@@ -100,6 +100,7 @@ function materializeFixture(name: string): string {
     vars: VARS,
     written: fileOps(root),
     contracts: false,
+    previous: null,
   })
   writeManifest(root, manifest)
   return root
