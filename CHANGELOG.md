@@ -1,5 +1,37 @@
 # mikoshi-construct
 
+## 0.3.1
+
+### Patch Changes
+
+- [`0070441`](https://github.com/E1i/mikoshi-construct/commit/00704415b443b3a590b6cf9da32fe256951f2a9d) Thanks [@E1i](https://github.com/E1i)! - **A green release run now has to mean the version is installable.**
+  
+  Publishing 0.3.0 ended green — `Successfully published`, a git tag, a GitHub release — with nothing on
+  the registry. The version had gone into npm's staged-publish state, which a stage-only trusted
+  publisher produces by design and which no CI token can approve; the next run exposed it with `409
+  Cannot publish over previously staged version`. The pipeline had reported a success the world did not
+  contain.
+  
+  A separate `Release verification` workflow now asks the registry about the version in `package.json`
+  after every release, and can be re-run on its own once a human approves a staged version — re-running
+  the release itself would only publish again and fail on the 409.
+  
+  It answers with three outcomes rather than a boolean, because the rule this release is built on
+  applies to its own guards: `installable`, `absent`, and `unreachable` for a request that could not be
+  made. A network error is never read as a missing version. And when a version is `absent` the message
+  names both worlds it could mean — a staged publish awaiting approval, or a publish that failed while
+  reporting success — because CI cannot tell them apart and picking one would be the same defect again.
+
+- [#42](https://github.com/E1i/mikoshi-construct/pull/42) [`5b20037`](https://github.com/E1i/mikoshi-construct/commit/5b2003756b3396488bacad993c5fe4f0e03d1e92) Thanks [@E1i](https://github.com/E1i)! - **The documentation link comes first, where a reader on npm actually sees it.**
+  
+  The link to the site existed but sat below the install snippet and the version note, which on the npm
+  package page is under the fold. It is now the line directly beneath the description, with the four
+  destinations worth naming: the site, getting started, the development cycle and the CLI reference.
+  
+  A test keeps it that way and keeps it true: every `e1i.github.io` link in the README must resolve to a
+  page this repository builds, and the documentation must be named before the install snippet. The
+  README travels to npm, where nothing checks it and a dead link stays dead until the next release.
+
 ## 0.3.0
 
 ### Minor Changes
