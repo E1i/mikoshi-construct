@@ -22,8 +22,9 @@ hashes — those describe construct 0.1.0's output, not today's templates.
 
 The `init` branch of the manifest — `construct`, `createdAt`, `preset`, `ai`, `review`, `harness`,
 `contracts`, `vars` and `files` — is written once, by the `init` run that created it, and is never
-rewritten retroactively. A later `init` against the same repository writes its own manifest for its
-own run; no command edits the record of a run that already happened. `files` is a record of what
+rewritten retroactively. A later `init` against the same repository adds to the record it finds
+rather than replacing it — see [0013](0013-a-second-init-adds-to-the-record.md), which supersedes the
+sentence this one used to carry; no command edits the record of a run that already happened. `files` is a record of what
 that run declared writing, not an assertion about the working tree today.
 
 The freeze covers that branch only. The `discovery` branch belongs to the discovery command: it

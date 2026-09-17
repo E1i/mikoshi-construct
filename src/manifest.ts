@@ -86,10 +86,12 @@ export function buildManifest(input: {
   vars: TemplateVars
   written: FileOp[]
   contracts: boolean
+  previous: Manifest | null
 }): Manifest {
-  const files: Record<string, string> = {}
+  const written: Record<string, string> = {}
   for (const op of input.written)
-    files[op.target] = sha256(op.content)
+    written[op.target] = sha256(op.content)
+  const files = { ...input.previous?.files, ...written }
   const markers = Object.fromEntries(DISCOVERY_MARKERS.map(marker => [marker, {
     file: markerFile(marker, input.vars.compositionDir),
     authoredBy: 'unknown',
@@ -97,8 +99,8 @@ export function buildManifest(input: {
   } satisfies MarkerProvenance])) as Record<DiscoveryMarker, MarkerProvenance>
   return {
     manifestVersion: MANIFEST_VERSION,
-    construct: input.version,
-    createdAt: new Date().toISOString(),
+    construct: input.previous?.construct ?? input.version,
+    createdAt: input.previous?.createdAt ?? new Date().toISOString(),
     preset: input.preset,
     ai: input.ai,
     review: input.review === 'none' ? null : { provider: input.review, model: input.vars.reviewModel },
@@ -107,9 +109,9 @@ export function buildManifest(input: {
     contracts: input.contracts ? { path: input.vars.contractPath, types: input.vars.contractTypesOutput } : null,
     vars: input.vars,
     files,
-    variants: variantsOf(input.written),
-    discovery: { baseSha: null, filledAt: null, markers },
-    sync: null,
+    variants: { ...input.previous?.variants, ...variantsOf(input.written) },
+    discovery: input.previous?.discovery ?? { baseSha: null, filledAt: null, markers },
+    sync: input.previous?.sync ?? null,
   }
 }
 

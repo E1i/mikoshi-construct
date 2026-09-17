@@ -84,4 +84,5 @@ edges:
   - {from: plan, to: strategies, kind: wires}
   - {from: plan, to: rules, kind: wires}
   - {from: plan, to: apply, kind: sequence, label: 'FileOp[] after confirm'}
+  - {from: run, to: manifest, kind: sequence, label: 'readManifest: the record already here'}
   - {from: apply, to: manifest, kind: sequence, label: written files}

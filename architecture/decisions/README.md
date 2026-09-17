@@ -22,3 +22,4 @@ answer, not a gap to hide.
 | [0010](0010-sync-classifies-what-the-construct-owns.md) | Sync classifies what the construct owns, and favours keep | L3 tests, L1 review |
 | [0011](0011-design-is-part-of-the-run.md) | Design is part of the run, and a run reports the class it performed | L3 tests, L1 review |
 | [0012](0012-sync-writes-what-it-compared.md) | Sync writes exactly what it compared, and only where ownership is provable | L3 tests |
+| [0013](0013-a-second-init-adds-to-the-record.md) | A second init adds to the record and crosses out nothing | L3 tests |
