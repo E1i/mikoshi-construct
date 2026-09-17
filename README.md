@@ -95,10 +95,22 @@ Every command, flag and exit code: [docs/cli.md](https://github.com/E1i/mikoshi-
    runtime, composition models render the diagrams and are checked against the code, the dependency
    policy lives in lint, and every security invariant names the check that enforces it.
 
-The second principle in numbers, from three `/implement` runs on the same small service (Claude
-Opus): two tasks classified `high` — contract change, composition-root change — cost 1.7M and 1.4M
-billable tokens with an architect design phase; the `low` task, docs only, cost 236k with none. The
-harness passed every run on the first rung. `construct cost` prints this for your own runs.
+The second principle in numbers, from thirteen `/implement` runs on this repository (Claude Opus).
+Two `low` tasks cost 557k and 740k billable tokens. Nine `medium` tasks cost between 847k and 5.9M —
+the class is a weak predictor on its own. Two `high` tasks, each with an architect designing before
+any code, cost 14.19M and 14.14M.
+
+Almost none of that is the work. It is each agent's entry into the repository: a fresh exploration,
+paid in full before anything is produced, and paid again by every agent that starts. A `low` run pays
+it twice — an implementer, and the harness that refuses to let the implementer mark its own homework.
+A `high` run pays it three times. The class mostly decides how deep each entry goes; the ladder
+decides how many entries there are, and that is what it is for.
+
+The same arithmetic prices a bad brief. One run escalated to an architect after the implementer
+stopped on a contradiction in the task, and the architect spent 3.66M without returning a valid
+answer — 4.16M for the run, for nothing. That is why a response the schema rejects is not re-asked by
+default: a second attempt buys another entry, not another answer. `construct cost` prints all of this
+for your own runs, and reconciles it against the ledger the ladder writes.
 
 ## The lifecycle
 
