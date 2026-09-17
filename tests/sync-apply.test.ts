@@ -23,7 +23,7 @@ const FIXTURE = path.join(import.meta.dirname, 'fixtures/sync/materialized-by-0.
 const MANIFEST = 'construct.json'
 const MARKER_CARRYING_FILES = ['AGENTS.md', 'architecture/security-invariants.md', 'CLAUDE.md']
 const EMOJI = /\p{Extended_Pictographic}/u
-const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'WRITE TRACE', 'WRITTEN', 'LEFT TO YOU', 'MATERIALIZED BY CONSTRUCT', 'Netrunner', 'ARASAKA']
+const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'RELIC WRITE', 'BRAINDANCE', 'ENGRAM', 'BLACKWALL', 'WRITTEN', 'LEFT TO YOU', 'REPLAYED BY', 'Netrunner', 'ARASAKA']
 
 function scratch(): string {
   return mkdtempSync(path.join(tmpdir(), 'construct-apply-'))
