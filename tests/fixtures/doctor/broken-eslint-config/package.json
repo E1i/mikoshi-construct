@@ -1,0 +1,11 @@
+{
+  "name": "broken-eslint-config",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "quality": "pnpm lint && pnpm typecheck && pnpm test"
+  }
+}
