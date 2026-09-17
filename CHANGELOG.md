@@ -1,5 +1,217 @@
 # mikoshi-construct
 
+## 0.3.0
+
+### Minor Changes
+
+- [#41](https://github.com/E1i/mikoshi-construct/pull/41) [`1a20f9e`](https://github.com/E1i/mikoshi-construct/commit/1a20f9ee33a361ac9fa497d0e699772013b8adbf) Thanks [@E1i](https://github.com/E1i)! - The construct now materializes `architecture/decisions/` — a decision-record index that names the
+  sections a record carries and the enforcement scale from L0 to L4 — so a generated repository has the
+  directory the principles point at instead of only a claim that it does.
+
+- [#30](https://github.com/E1i/mikoshi-construct/pull/30) [`5912518`](https://github.com/E1i/mikoshi-construct/commit/5912518c4a268fd4f40cf7546842755fc55757e7) Thanks [@E1i](https://github.com/E1i)! - `construct doctor` names the version that materialized the repository, the version reading it, and how many recorded paths a `sync` would add or update. The count is the sync engine's own classification — doctor replays and counts the paths classified `add` or `update` rather than asking the same question a second way, so the number it prints and the number `sync` acts on cannot drift apart. A replay it cannot run reads as "cannot be established" instead of as zero.
+  
+  It is evidence on the baseline check, not a sixth gate: no level, no part of the weakest link, no change to any exit code. A baseline that has moved on is work that became available with a release, which is also why `docs/cli.md` now says plainly that a non-zero `sync` exit after a release is not a fault and that `sync` does not belong in a quality gate.
+
+- [#28](https://github.com/E1i/mikoshi-construct/pull/28) [`533b03e`](https://github.com/E1i/mikoshi-construct/commit/533b03ea2755ba05e46271ba27628496d8553a7a) Thanks [@E1i](https://github.com/E1i)! - Two guards against things that pass green.
+  
+  An acceptance test now asserts what a generated project *is*, not only that it works: `CLAUDE.md` and `AGENTS.md` carry the project name as their heading. Earlier today a change deleted that heading from the template as a side effect of something else, and nothing went red — the acceptance matrix proves a generated project installs and passes its own harness, and says nothing about what its documents contain. Where a product makes no claim there is no violation, which is the rule that protects a repository from being scolded for an unpromised improvement, read from the other side: anything asserted nowhere can be cut in silence. Removing the heading now fails the suite.
+  
+  And the `/plan` command, here and in the copy that ships, gains one line: a criterion is verified by what the task changes itself, and if satisfying it needs an action outside the task it belongs to that task. Twice in two days a specification, not an implementation, sent work outside its own boundary — once asking a reader for fields no writer produces, once asking a task to record a state only a later manual step creates.
+
+- [#34](https://github.com/E1i/mikoshi-construct/pull/34) [`c5b63da`](https://github.com/E1i/mikoshi-construct/commit/c5b63da35092f753611d8d04426e8809da560cb3) Thanks [@E1i](https://github.com/E1i)! - A replay no longer demands a value the tool can establish for itself. The manifest records the owner's decisions; the detector establishes facts about the repository; a fact the manifest lacks is established at replay rather than asked for. Three real repositories could not run `sync` at all because their manifests, written by 0.1.0, carry no `compositionDir` — a directory the detector finds by looking for it. They were being told to hand-edit `construct.json`, the one action the tool's own decision record says destroys evidence of intent irrecoverably: forbidden in the documentation and required by the code.
+  
+  Two boundaries make the rule safe. A value the manifest already carries is never re-detected — establishing a fact fills a gap and never corrects a record, or a replay would quietly drift from what the earlier run did. And only facts about the repository are established, never facts about the machine: `nodeMajor` and `pnpmVersion` describe wherever the command happens to be running, and re-detecting them would rewrite files nobody asked to change.
+  
+  A fact is also only what the repository actually shows. Where the detector finds nothing, the replay stops and names the variable rather than borrowing the default `init` uses — in `init` that default is offered to the owner as they agree to materialise, and in a replay the same value would be a decision taken for them in silence.
+  
+  The same default was reaching `doctor` from the other side. For a manifest that never recorded the directory, the composition marker's location fell back to `architecture/composition`, so a repository keeping its models anywhere else was told that part of its discovery was not filled — an `absent` without complete scope evidence, in the release that says it no longer reports one. The marker's location is now established from the repository when the manifest did not decide it, and what the manifest did decide still wins.
+
+- [#20](https://github.com/E1i/mikoshi-construct/pull/20) [`2006455`](https://github.com/E1i/mikoshi-construct/commit/2006455f65c0765c119673aeacbf7aad30480b7a) Thanks [@E1i](https://github.com/E1i)! - The contract for a future `construct sync`, defined and tested before any command exists. `init` skips every file that already exists, so a repository materialized by an older version never receives a changed template; sync is the operation that closes that, and this is the part of it that decides what the word "changed" means.
+  
+  Classification compares only what the construct owns, chosen by the target's strategy: the whole file where it writes one, the construct block with the discovery marker bodies excluded where it edits a block — excluded because the template produces a placeholder and not a body, never because of who authored it — and per key where it merges JSON. Seven classes cover the cross product of recorded, present and produced without a gap: `add`, `update`, `keep`, `conflict`, `removed`, `orphaned` and `foreign`. Where all three exist the comparison runs in a fixed order, and the order is the contract: a file that already equals what the templates produce is `keep` whatever hand made it so, so an owner who applied a change by hand is never handed a conflict with nothing left to resolve.
+  
+  Two limits are recorded rather than worked around. A three-way comparison for `package.json` is not reconstructible from any manifest written before sync existed — the manifest stores a hash of the merged result and never stored which keys were the construct's — so merged files are reported per key and never written, and writability is derived from the strategy so a writer reading only the class cannot get that wrong. And editing `construct.json` by hand destroys evidence of intent: a file deleted from the tree and struck from the record reads afterwards as one the construct never wrote, which decision 0010 states along with the fact that the system recovers from it in a single cycle.
+
+- [#29](https://github.com/E1i/mikoshi-construct/pull/29) [`97af45a`](https://github.com/E1i/mikoshi-construct/commit/97af45a491b8bc7db7fd2da9cbb109107e44f01f) Thanks [@E1i](https://github.com/E1i)! - `sync` establishes which template variant produced a block before it will write one, and refuses when it cannot.
+  
+  A file edited by block has two possible sources: the form the construct writes when it creates the file, whose block holds the whole document, and the form it writes into a file that already existed, whose block holds one section of somebody else's. The question of which one applies is really the question of how much of that file is the construct's, and there are three sources of evidence for it. The variant `init` used, recorded in the manifest as it runs, which is exact and only helps repositories materialized from now on. Reconstruction — rendering both variants with the recorded variables and matching the recorded hash — which proves rather than guesses, and rarely matches once the templates have moved on. And the shape of the file, which is good evidence and fails silently, so it may inform what is displayed and never authorise a write.
+  
+  Where the variant is recorded, the record is taken; where it is provable, it is proved; where it is neither, it is `unknown`, and an unknown path is written in no mode. The report keeps `unknown` apart from `conflict` and says why, because "we cannot tell which variant made this" and "you changed this" lead to different actions, and merged into one line the second reading tells an owner they broke something they never touched.
+  
+  On a repository materialized before this change the variant is unknown for every block target, so `sync --apply` leaves them alone — the first live run is safe by construction rather than by care.
+
+- [#24](https://github.com/E1i/mikoshi-construct/pull/24) [`64705a3`](https://github.com/E1i/mikoshi-construct/commit/64705a33e85c73f3b4abbe7c14ed42c8d0a5cd16) Thanks [@E1i](https://github.com/E1i)! - The replay engine for `construct sync`: given a repository and its manifest, it renders the preset's current groups through the same materializer `init` uses and classifies every path against what is recorded and what is present. It writes nothing. Replaying with a second, parallel renderer would have drifted from the first one invisibly, because both would have been ours.
+  
+  It renders with the variables the manifest recorded, substituting exactly one: `constructVersion` comes from the running CLI, because a replay that stamped files with the version being replaced would write the old number into the very field the version gap is read from. Everything else stays as recorded — re-detecting the environment would rewrite files like `.nvmrc` that nobody asked to change. A variable the manifest does not carry stops the replay naming every missing one and how to supply it, so a repository materialized by an older version is never left permanently unsyncable.
+  
+  This repository's own `construct.json`, exactly as construct 0.1.0 wrote it, is frozen as a fixture — a real record from a real older version rather than a constructed one.
+  
+  Alongside it, a ladder correction the first `high` run after the previous change exposed: a design step that *completed* was recorded nowhere, so a run's attempts list and its token accounting disagreed about how many agents had worked. A completed design is now an attempt like any other.
+
+- [#26](https://github.com/E1i/mikoshi-construct/pull/26) [`a319362`](https://github.com/E1i/mikoshi-construct/commit/a319362da14859a23ad4ef5d546403ab702c5938) Thanks [@E1i](https://github.com/E1i)! - `construct sync` arrives in its reporting form: it classifies every path of a materialized repository against today's templates and prints what it found. It writes nothing — the writer is a separate change, so a person can see what would happen before anything happens.
+  
+  Each class is printed beside what it means, because the words are borrowed from merge tooling and read as alarm without them. Nine `conflict` entries on a mature repository are not nine problems; they are nine files the owner owns, which the report now says on the same line. Classes with no paths are left out entirely rather than printed as zeroes, so an empty class is never read as a finding. Where an append-block target would be written, the report states that the block is replaced whole and that edits between the delimiters do not survive while discovery bodies are carried over — printed from the classification itself rather than restated, so the two cannot drift apart.
+  
+  The report opens with the version that materialized the repository against the version reading it, and closes on what would happen. Exit code 0 when there is nothing to add or update, and a distinct code when there is; conflicts, removals and orphans never change the code by themselves, because they are not work the tool can do.
+
+- [#27](https://github.com/E1i/mikoshi-construct/pull/27) [`b57c241`](https://github.com/E1i/mikoshi-construct/commit/b57c2411ebd2e8a380c89f5b2e3b079af203a31f) Thanks [@E1i](https://github.com/E1i)! - `construct sync --apply` writes. It writes the paths the construct can prove it owns — `add` and `update` where the strategy is `create` or `append-block` — and nothing else: no conflict, no removed path put back, no file the construct never wrote adopted, no merged `package.json`, and no deletion. There is no flag that overrides that, and none will be added.
+  
+  A block target is spliced rather than replaced: the produced text between `construct:begin` and `construct:end` goes in between the markers the file already carries, every byte outside them stays where it was, and a filled `construct:discover` body is carried over. The writer deliberately does not reuse the append path `init` takes on first contact, whose second-`H1` demotion would make what is written differ from what was compared — and an apply that writes something other than what it compared reports the same path as pending forever. An apply followed by a plain sync now reports nothing to add or update, which is the proof the writer is honest.
+  
+  Each written path is recorded in `construct.json` under `sync` with the sha of its owned view, when the run happened, the version that materialized the repository and the version that wrote. The branch `init` wrote is untouched, the record accumulates across runs, and when nothing was written the manifest is not touched at all. `doctor` still reports a rewritten file as modified: the baseline is what `init` recorded, and correcting it would erase the evidence of what `init` did.
+  
+  Exit code 0 when every pending path was written, 2 when one was refused because no record can prove the construct owns it — every merge-json target, whose keys are reported for you to carry across — and 1 without a `construct.json`.
+  
+  The `CLAUDE.md` a new repository receives no longer opens with an `H1`: it opens with `@AGENTS.md`, which imports the document that carries the project's title. Inside an existing repository's `CLAUDE.md` that heading was a second title, and sync writes the same block into both kinds of file.
+
+### Patch Changes
+
+- [#25](https://github.com/E1i/mikoshi-construct/pull/25) [`f44d7ed`](https://github.com/E1i/mikoshi-construct/commit/f44d7ed3e269566523d9811d83075b5dc9ede16d) Thanks [@E1i](https://github.com/E1i)! - Ownership of an append-block target is declared by its delimiters rather than inferred from a recorded hash. Replaying a manifest written by `init` classified `AGENTS.md` and `CLAUDE.md` as `conflict` — the two files carrying the construct's own markers — because the ordered comparison asked a recorded whole-file sha whether anything in the file had changed, and discovery filling the markers, which the construct asks the owner to do, made that answer false forever. `construct:begin` and `construct:end` are ownership stated outright in a file the owner reads and can delete, so for those targets the comparison now asks only whether the owned view is what the templates produce: equal is `keep`, different is `update`. A recorded file the owner stripped the delimiters from is `conflict` and never has the block put back.
+  
+  `merge-json` is unchanged and still never written: `package.json` carries no mark of which keys are the construct's, so there is no declaration to outrank the record. A classification for a block that will be written now carries that the block is replaced whole and that edits inside the delimiters do not survive while discovery bodies are carried over, so a report and a writer state it from one source.
+
+- [#22](https://github.com/E1i/mikoshi-construct/pull/22) [`b14300b`](https://github.com/E1i/mikoshi-construct/commit/b14300bd3a4dfbe472334ac2d149fc56b407ab02) Thanks [@E1i](https://github.com/E1i)! - The ladder's design step lived outside the rung loop, and that single placement made three claims false at once: a run reported an effort class whose defining step had not executed, the attempts list claimed to record every failed attempt and did not, and the status reported success for a run that had silently degraded. Observed for real — an architect failed schema validation, returned nothing, and the run went on without a design, reported `high, done, one attempt, passed`, and delivered work in which a prohibition was left living in the prose of a decision record instead of in the code. A person found that by hand; nothing in the harness could have.
+  
+  Design is now part of a run. Its outcome is recorded in `attempts` like any other, a failed architect blocks a `high` run rather than letting it continue undesigned — `high` is chosen exactly where a green harness proves the least — a `low` or `medium` run may continue but ends as `degraded` rather than as a plain success, and the effort a run reports describes what actually executed, so a run without a design does not call itself `high`.
+  
+  Decision 0011 records that a retry limit of zero was and remains right: it saved a second full agent entry of about 2.6M tokens and worked as designed. What was missing was a described path for the case it creates, and an unspecified fallback is how a correct decision produces an incorrect run.
+  
+  The ledger reader also gains a stated invariant it previously held by accident: a line whose status or attempt outcome this version has never heard of reads as valid rather than malformed, because a newer CLI writes the ledger an older one reads.
+
+- [#40](https://github.com/E1i/mikoshi-construct/pull/40) [`649cf1a`](https://github.com/E1i/mikoshi-construct/commit/649cf1a7aa3674c78dc1edd8db4a10b6b47d80a0) Thanks [@E1i](https://github.com/E1i)! - **Three corrections to the documentation, all of the same class.**
+  
+  The guide claimed a generated repository gets `architecture/decisions/`; it now does, because the
+  directory ships. A page teaching the enforcement levels counted four of them above a table of five.
+  And the sentence that four repositories were ones *this tool did not build* was false — all four were
+  materialized by earlier versions of this same tool, by one author, in a similar style. The section
+  whose subject is the difference between *verified* and *not observed* now names its own bias first,
+  in the guide and in the release note.
+  
+  One more of the same kind, found on a third reading: the note quoted a retry's cost as a measured
+  figure, where decision 0008 records it as the difference between two different runs — an estimate of
+  order. It now says so.
+
+- [#40](https://github.com/E1i/mikoshi-construct/pull/40) [`6ca56c6`](https://github.com/E1i/mikoshi-construct/commit/6ca56c6cd7beceff956e687e3e324f2e08b6e63d) Thanks [@E1i](https://github.com/E1i)! - **The documentation has a home: [e1i.github.io/mikoshi-construct](https://e1i.github.io/mikoshi-construct/).**
+  
+  A VitePress site built from `docs/`, deployed to GitHub Pages on every push that touches it, and
+  named as the package `homepage` so npm links to it rather than to a README anchor. Five guide pages:
+  getting started (empty directory and existing repository, with the rules for what is never
+  overwritten), the development cycle end to end, the reasoning budget with the measured costs, the
+  upgrade loop, and what the tool refuses to claim — the three states, the enforcement levels, and the
+  difference between *verified* and *not observed*.
+  
+  The upgrade loop moved out of the CLI reference into its own page, so the reference stays a reference
+  and the procedure has one home. The README now links the site and says v0.3 instead of v0.1.
+  
+  One guard moved with it. The privacy scanner reads the documentation source and skips what a
+  documentation build produced from it, asserted by name rather than by ignoring the directory
+  silently — and on its first run it caught a home-directory path in the getting-started page.
+  
+  The site is built with VitePress 2 alpha rather than the 1.x line, because 1.x depends on a vite
+  release covered by GHSA-fx2h-pf6j-xcff, which this repository's dependency audit blocks at high
+  severity. The alpha depends on the same vite major the repository already has, so there is one vite
+  in the tree, no advisory, and no trust-policy exemption. It is a development dependency that produces
+  static HTML and ships in no package.
+
+- [#31](https://github.com/E1i/mikoshi-construct/pull/31) [`9c00c33`](https://github.com/E1i/mikoshi-construct/commit/9c00c33f633b09588a04fa26b215285ad43ee16f) Thanks [@E1i](https://github.com/E1i)! - The first time the tool wrote into a repository on its own judgement rather than on an explicit `init`, recorded here as the manifest's `sync` branch.
+  
+  The run had exactly one effect, and the interesting part is why. Both files carrying a construct block reported `unknown` — nothing records which template variant wrote them and no rendering matches the recorded hash — so sync refused to touch them, which is the rule working rather than a limitation being hit. What it did write was `tsconfig.base.json`: the file deleted from this repository by hand months of commits ago, whose removal was also struck from the manifest, so that the intent behind it no longer existed anywhere to be respected.
+  
+  Deleting it again closes the loop. Because the write is now recorded, the same path reads as `removed` from here on and is never offered again. The record the manual edit destroyed has been rebuilt — not the file, but the knowledge that the construct wrote it and the owner took it out.
+
+- [#33](https://github.com/E1i/mikoshi-construct/pull/33) [`90bc936`](https://github.com/E1i/mikoshi-construct/commit/90bc936a8f139cf84f42c86933b57c3681b31402) Thanks [@E1i](https://github.com/E1i)! - Four manifests written by 0.1.0 and 0.1.1 are frozen as fixtures, with every name replaced. They are valuable precisely because they cannot be generated: today's code produces today's manifests, so every fixture written here tests the replay against records the current templates could have made. In the wild there are records made by versions that no longer exist, and now four of them are covered.
+  
+  What is kept is the shape — how many packages a workspace has, what roles they play, which may import which, which variables the version of the day recorded. What is replaced is every project name, scope and package name, because a repository's own names belong to its owner and one of these carried the names of other people's companies. The recorded hashes are meaningless after that replacement and the accompanying note says so, so that nobody later compares a rendering against them or edits the fixtures toward more realism.
+  
+  The privacy guard, which scanned `templates/`, `docs/` and `README.md`, now scans `tests/fixtures/` too — the place these records live and the one place it was not looking. A test asserts that every scope inside a frozen manifest belongs to that fixture's own invented project, so a name from somewhere else fails the suite rather than waiting to be noticed in review.
+
+- [#39](https://github.com/E1i/mikoshi-construct/pull/39) [`ae89c3a`](https://github.com/E1i/mikoshi-construct/commit/ae89c3aef20c780353858120a8440da26cdf9f83) Thanks [@E1i](https://github.com/E1i)! - **The glossary explains every in-universe word the tool actually prints.**
+  
+  `sync` shipped its vocabulary — braindance, engram, relic write, blackwall — and the README table
+  that exists to translate the lore did not mention any of it; `glitch` and `flatlined` had never been
+  there either. All seven are now in the table, and a test reads the glossary section and requires it
+  to name every word in the vocabulary the lore guard already polices. The list has one home, shared by
+  both tests, so adding a word to the output makes the README fail until it is explained.
+
+- [#38](https://github.com/E1i/mikoshi-construct/pull/38) [`ffeb069`](https://github.com/E1i/mikoshi-construct/commit/ffeb0697ebcb6c433d0f87a1e1568f4bf8da6c0a) Thanks [@E1i](https://github.com/E1i)! - **ENGRAM EXTENDED — a second `construct init` adds to the record instead of replacing it.**
+  
+  `files` is the protocol of what the construct has ever written into a repository, not a snapshot of
+  the last run. A re-init rewrote it with only the paths that run wrote, so every path the first run
+  wrote and this one skipped as "exists, review manually" silently left the record. Measured on a
+  scratch tree: a manifest carrying 43 paths, re-inited, then read by `construct sync` as 4 `keep` and
+  39 `conflict`, with nothing in the tree changed. Discovery provenance went the same way — the branch
+  that exists to evidence authorship was replaced with ten `unknown` markers.
+  
+  `buildManifest` now takes `previous` as a required input. When there is one, `files` and `variants`
+  merge, `construct`, `createdAt`, the discovery record and the sync record stay the earlier run's
+  values, and only this run's configuration — preset, AI target, review, harness, contracts, vars —
+  comes from this run, because a second `init` is how a Cursor target or code review gets added.
+  
+  **Both replacements are audible.** A re-init prints how many records it carried over and how many it
+  added, and names every variable whose value changed with both values, because `vars` is the one
+  place the merge still replaces a decision: a different `--name` moves `projectName` while the
+  recorded hashes were taken with the old one. Nothing is forbidden; it is said out loud.
+  
+  Recorded as decision 0013, which supersedes the one sentence in 0006 that read the other way, and
+  states the consequence that arrives later: after a preset change the paths the old preset wrote stay
+  in `files` and read as `orphaned`, and cleaning them out would be this defect returning under a
+  tidier name.
+
+- [#32](https://github.com/E1i/mikoshi-construct/pull/32) [`3ad92ca`](https://github.com/E1i/mikoshi-construct/commit/3ad92ca05d8266df1e75b9fdb58a71fb1738d061) Thanks [@E1i](https://github.com/E1i)! - The syntax-policy test ships only where the construct wrote `eslint.config.mjs`. It had been moved into
+  each preset's `baseline` so it would reach a repository that already has code, but `eslint.config.mjs`
+  is `baseline` too and an existing one is never overwritten — so the test landed next to an owner's
+  configuration and asserted the construct's selectors against it. Against a repository whose policy is
+  deliberately narrower, every form the narrowing skips reads as a restriction that failed to fire, and
+  `pnpm run quality` fails immediately after `init` on a configuration that is not wrong. No guard fixes
+  that: a test deriving its expectations from the resolved selectors asserts that what is declared is
+  declared, and a present-but-narrower policy is neither present-as-shipped nor absent.
+  
+  The test returns to `sample` in node-backend, node-frontend and monorepo, unchanged in strength, and
+  node-backend's `sample` group entry is restored. A repository that keeps its own lint configuration
+  hears the same thing from `doctor`, which reports `lint-policy absent` with its evidence — the one
+  place that can tell the two situations apart — and `docs/cli.md` now says so and how an owner adopts
+  the policy deliberately.
+
+- [#36](https://github.com/E1i/mikoshi-construct/pull/36) [`bb85cb3`](https://github.com/E1i/mikoshi-construct/commit/bb85cb349c930e85ce9cdff3c6908339d29e3251) Thanks [@E1i](https://github.com/E1i)! - **The 0.3.0 release note is written from measurements rather than intentions.**
+  
+  What the first `sync` writes on a repository materialized by 0.1.x is counted across four
+  repositories built before it existed, not estimated: 118 paths `keep`, 24 `update`, 54 `conflict`,
+  and two offered for writing. The note names the sample's bias before its result — one author, earlier
+  versions of this same tool, a similar build style — because the independence it provides is narrow
+  and specific. All seven classes occurred there, `orphaned` and `removed` included —
+  the two that most resembled cells invented to complete a grid.
+  
+  Two passages are new beside the numbers. A check that was true, ran in CI and was still beside the
+  point, because a correct assertion aimed at someone else's configuration is a defect of aim rather
+  than of strength. And the difference between *verified* and *not observed*: the four repositories
+  ground what the note says about `sync` and cover nothing about a repository that keeps its
+  composition models off the default path — there a synthetic case holds, and the note says so.
+
+- [#35](https://github.com/E1i/mikoshi-construct/pull/35) [`7f34e2b`](https://github.com/E1i/mikoshi-construct/commit/7f34e2b80c4fd34604edd4c3fa79ec47ef2cbfd0) Thanks [@E1i](https://github.com/E1i)! - **BRAINDANCE — the sync line gets its names, and the README gets its commands.**
+  
+  `sync` and `--apply` are named in the README beside the commands that were already there, and a
+  test reads that table and requires every entry to be a command the CLI actually defines.
+  
+  The report's vocabulary is settled: the replay is a braindance, a write is a relic write, a block
+  whose template variant cannot be established is beyond the blackwall, and the version gap reads as
+  an engram cut by one version and replayed by another. Lore only — no classification, threshold or
+  exit code moves with it, `--plain` output is unchanged, and the guard for that now checks the plain
+  table against an in-universe vocabulary instead of filtering out the strings where a leak would sit.
+
+- [#37](https://github.com/E1i/mikoshi-construct/pull/37) [`6b6a80b`](https://github.com/E1i/mikoshi-construct/commit/6b6a80ba307f5e211e966ab67556641d5d46549f) Thanks [@E1i](https://github.com/E1i)! - **The docs say what a repository does when a new version lands.**
+  
+  `sync` is one step of four, and the CLI reference now writes the loop out: report, `--apply`, your
+  own harness, `doctor`. Each step answers a different question, and the note that matters most is
+  that `sync` does not answer the harness's — the construct writes what it can prove it owns, which
+  is not a claim that your project still builds.
+  
+  Also stated: a sync never erases discovery, because the filled body of every marker is carried
+  across a block replacement; what the report leaves for the owner, class by class; that the version
+  in `construct.json` is frozen by design and the pending count is the number that moves; and that
+  re-running `init` is not an upgrade path. That last one is measured, not asserted — a tree whose
+  manifest carried 43 paths was re-`init`ed, and the next `sync` read 4 `keep` and 39 `conflict`,
+  because `init` rewrites the record with only the files that run wrote.
+
 ## 0.2.0
 
 ### Minor Changes
