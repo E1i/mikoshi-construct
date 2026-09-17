@@ -1,7 +1,9 @@
 import type { DiscoveryMarker } from '../../manifest.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict, WeakestLink } from './verdict.js'
+import type { VersionGap } from './version-gap.js'
 import { readManifest } from '../../manifest.js'
+import { VERSION } from '../../version.js'
 import { baselineVerdict } from './baseline.js'
 import { ciCheck } from './checks/ci.js'
 import { constructTestsCheck } from './checks/construct-tests.js'
@@ -14,6 +16,7 @@ import { harnessProblems } from './harness.js'
 import { discoveryProvenance } from './provenance.js'
 import { typecheckWarnings } from './typecheck.js'
 import { weakestLink } from './verdict.js'
+import { versionGap } from './version-gap.js'
 
 export interface DoctorResult {
   ok: boolean
@@ -25,9 +28,10 @@ export interface DoctorResult {
   warnings: string[]
   checks: CheckVerdict[]
   weakestLink: WeakestLink | null
+  versionGap: VersionGap
 }
 
-export function runDoctor(root: string): DoctorResult | null {
+export function runDoctor(root: string, version: string = VERSION): DoctorResult | null {
   const manifest = readManifest(root)
   if (manifest == null)
     return null
@@ -53,6 +57,7 @@ export function runDoctor(root: string): DoctorResult | null {
     warnings: typecheckWarnings(manifest.preset, evidence),
     checks,
     weakestLink: weakestLink(checks),
+    versionGap: versionGap(root, manifest, version),
   }
 }
 
@@ -62,3 +67,5 @@ export { constructAuthored, discoveryProvenance, markerAuthorship } from './prov
 export { printDoctor } from './report.js'
 export type { CheckId, CheckState, CheckVerdict, Level, WeakestLink } from './verdict.js'
 export { CHECK_IDS, LEVELS, weakestLink } from './verdict.js'
+export type { VersionGap } from './version-gap.js'
+export { versionGap } from './version-gap.js'

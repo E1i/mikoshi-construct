@@ -169,6 +169,8 @@ npx mikoshi-construct doctor
       composition-roots
 
     Run: claude → /construct-discover
+  Materialized by construct 0.1.0, read by 0.2.0.
+  The baseline moved on: 3 recorded paths a sync would add or update — run `construct sync`.
 [ok] OK
 
 Discovery provenance
@@ -190,6 +192,20 @@ the harness has to stay usable before it runs. Exits `1` only when a baseline fi
 or the harness is broken. Files you have edited since `init` are expected and counted, not faulted.
 A low level is information, not a failure: levels, states and the weakest link never change the exit
 code.
+
+### The baseline's own version
+
+Beside the baseline, `doctor` names the version that materialized the repository, the version reading
+it now, and how many recorded paths a `sync` would add or update. That count is not a second opinion:
+`doctor` replays today's templates through the same classification `sync` runs and counts the paths
+classified `add` or `update`, so the number it prints and the number `sync` acts on cannot drift. A
+replay it cannot run — a manifest missing a variable today's templates render, for instance — reads
+as "cannot be established" rather than as zero.
+
+It is evidence on the baseline check, not a sixth gate: it has no level, it is not part of the
+weakest link, and it never changes the exit code. A baseline that has moved on is work that became
+available with a release, not a fault in the repository. `--json` carries it as `versionGap` with
+`materializedBy`, `readBy` and `pending`, where `pending` is `null` when the replay could not run.
 
 ### What doctor does not do
 
@@ -283,12 +299,13 @@ never changes the exit code.
       "evidence": "no .husky, lefthook, simple-git-hooks or core.hooksPath configuration and no pre-commit script in package.json"
     }
   ],
-  "weakestLink": { "id": "lint-policy", "level": "L3" }
+  "weakestLink": { "id": "lint-policy", "level": "L3" },
+  "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
 
 `ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery` and `harnessProblems` keep their names,
-types and meaning; `provenance`, `warnings`, `checks` and `weakestLink` are added after them.
+types and meaning; `provenance`, `warnings`, `checks`, `weakestLink` and `versionGap` are added after them.
 `provenance` has one entry per marker, in the order the markers are declared, each with `marker`,
 `file` and `authorship` (`construct`, `owner` or `unknown`). `checks` is always in
 the order above — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` — and `weakestLink` is
@@ -341,7 +358,7 @@ A merged target is reported by its keys and never rewritten: no merge-json file 
 Materialized by construct 0.1.0, read by 0.2.0.
 ```
 
-### The seven classes
+### The eight classes
 
 | Class | Meaning | Listed |
 |---|---|---|
@@ -349,6 +366,7 @@ Materialized by construct 0.1.0, read by 0.2.0.
 | `keep` | What the templates produce is what the tree already carries. | counted only |
 | `update` | The construct's own view of the file changed, and the tree still matches what was recorded. | yes |
 | `conflict` | The file diverged from what was recorded, or it was never recorded and is not the construct's to claim. | yes |
+| `unknown` | An `append-block` target whose template variant cannot be established: no recorded variant, and no rendering that hashes to what was recorded. | yes |
 | `removed` | The record carries it and the tree does not. | yes |
 | `orphaned` | The record carries it and today's templates no longer produce it. | yes |
 | `foreign` | The tree carries it, no record and no template does. Not the construct's to discuss. | counted only |
@@ -357,6 +375,14 @@ Materialized by construct 0.1.0, read by 0.2.0.
 listed. A `merge-json` target — `package.json` — is reported by the keys that differ, and merged
 files are not written in this version at all, which is why `package.json` never appears among the
 writable paths.
+
+`unknown` is the reading of a block whose provenance the record cannot settle. `AGENTS.md` and
+`CLAUDE.md` ship in two variants — the one `init` writes into an empty directory and the one it
+writes into a repository that already had the file — and splicing the wrong variant into a file would
+replace a block with text that was never there. When neither the recorded variant nor a rendering
+matching the recorded hash establishes which one wrote it, sync says so and writes the path in no
+mode: not with `--apply`, not without it. The report names the shape the file reads like, and says in
+the same line that a shape is a guess and never enough to write on.
 
 An `append-block` target that would be written carries its write effect on the classification itself:
 the block between `construct:begin` and `construct:end` is replaced whole, so edits made between the
@@ -419,9 +445,18 @@ evidence of what `init` actually did.
 | `1` | No `construct.json` here, or a write failed. |
 | `2` | Reporting: `add` or `update` has entries — there is something a writer could do. With `--apply`: a pending path was refused because it is a `merge-json` target. |
 
-Conflicts, removals and orphans never change the code by themselves. They are information, not work
-the tool can carry out: a conflict is a decision only an owner can make, and a removed or an orphaned
-path is a fact about the tree.
+Conflicts, removals, orphans and unestablished variants never change the code by themselves. They are
+information, not work the tool can carry out: a conflict is reported and never resolved, because it
+is a decision only an owner can make; a removed or an orphaned path is a fact about the tree; and an
+`unknown` variant is a question the record cannot answer. Nothing is ever deleted, and nothing
+classified `removed` is ever recreated.
+
+**A `2` after a release is work becoming available, not a fault.** The moment a release adds a
+template file, every repository that does not carry it yet classifies it `add`, and `sync` exits `2`
+for its owner. That is the command doing its job. It follows that `sync` does not belong in a quality
+gate: wiring it into `pnpm run quality` or a CI job that must stay green turns our next release into
+a red build in your repository, for a change you have not read yet. Run it when you want to know, and
+`--apply` when you want it written.
 
 `--json` prints one object with `fromVersion`, `toVersion`, `counts` (one entry per class) and
 `paths` — every classified path with its `class`, its `strategy`, its `keys` for a `merge-json`

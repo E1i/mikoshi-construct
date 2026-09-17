@@ -2,6 +2,7 @@ import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict, WeakestLink } from './verdict.js'
+import type { VersionGap } from './version-gap.js'
 import { constructAuthored } from './provenance.js'
 
 function checkLine(ui: Ui, check: CheckVerdict): string {
@@ -24,6 +25,17 @@ function printProvenance(ui: Ui, provenance: MarkerReading[]): void {
   for (const reading of authored)
     ui.line(`  ${reading.marker.padEnd(20)} ${ui.theme.dim(reading.file)}`)
   ui.line(ui.theme.dim(`  ${ui.lore.stillConstructAuthored(authored.length)}`))
+}
+
+function gapReading(ui: Ui, gap: VersionGap): string {
+  if (gap.pending == null)
+    return ui.lore.baselineGapUnknown
+  return gap.pending === 0 ? ui.lore.baselineCurrent : ui.lore.baselineMoved(gap.pending)
+}
+
+function printVersionGap(ui: Ui, gap: VersionGap): void {
+  ui.line(ui.theme.dim(`  ${ui.lore.syncVersionGap(gap.materializedBy, gap.readBy)}`))
+  ui.line(ui.theme.dim(`  ${gapReading(ui, gap)}`))
 }
 
 function printWeakestLink(ui: Ui, weakest: WeakestLink | null): void {
@@ -51,6 +63,7 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
     ui.glitch(ui.lore.typecheckCaveat, result.warnings)
   if (result.modifiedFiles.length > 0)
     ui.line(ui.theme.dim(`  ${result.modifiedFiles.length} baseline files modified since init (expected once the project evolves).`))
+  printVersionGap(ui, result.versionGap)
   if (result.ok)
     ui.ok(ui.lore.stable)
   printProvenance(ui, result.provenance)

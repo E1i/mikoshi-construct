@@ -26,6 +26,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
       { id: 'red-gate', level: 'L3', state: 'unknown', evidence: 'doctor executes nothing from the repository it inspects' },
     ],
     weakestLink: { id: 'hook', level: 'L2' },
+    versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
     ...overrides,
   }
 }
@@ -86,6 +87,20 @@ describe('the doctor report', () => {
     expect(render(result({ provenance })).output).not.toContain('Discovery provenance')
   })
 
+  it('names the version gap and the paths a sync would write, above the weakest-link line and without changing the exit code', () => {
+    const { output, code } = render(result({ versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 3 } }))
+    expect(output).toContain('Materialized by construct 0.1.0, read by 0.2.0.')
+    expect(output).toContain('3 recorded paths a sync would add or update')
+    expect(nonEmptyLines(output).at(-1)).toMatch(WEAKEST_LINK_LINE)
+    expect(code).toBe(0)
+  })
+
+  it('says the gap cannot be established rather than counting nothing when the replay could not run', () => {
+    const { output, code } = render(result({ versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: null } }))
+    expect(output).toContain('cannot be established')
+    expect(code).toBe(0)
+  })
+
   it('carries no emoji and no lore vocabulary with --plain', () => {
     const { output } = render(result({
       missingFiles: ['AGENTS.md'],
@@ -93,6 +108,7 @@ describe('the doctor report', () => {
       provenance: [{ marker: 'product', file: 'AGENTS.md', authorship: 'construct' }],
       modifiedFiles: ['CLAUDE.md'],
       warnings: ['node-frontend: `tsc --noEmit` does not see `.vue` components'],
+      versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 2 },
       ok: false,
     }))
     expect(output).not.toMatch(EMOJI)

@@ -38,6 +38,9 @@ export interface Lore {
   discoveryIncomplete: string
   provenance: string
   stillConstructAuthored: (count: number) => string
+  baselineCurrent: string
+  baselineMoved: (count: number) => string
+  baselineGapUnknown: string
   enforcement: string
   typecheckCaveat: string
   weakestLink: (id: string, level: string) => string
@@ -104,6 +107,9 @@ export const LORE: Lore = {
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'AUTHORSHIP TRACE',
   stillConstructAuthored: (count: number) => `Still the construct's own words: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
+  baselineCurrent: 'The baseline reads back what today\'s templates produce.',
+  baselineMoved: (count: number) => `THE BASELINE MOVED ON: ${count} recorded path${count === 1 ? '' : 's'} a sync would add or update \u2014 run \`construct sync\`.`,
+  baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'ENFORCEMENT TRACE',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   weakestLink: (id: string, level: string) => `WEAKEST LINK: ${id} at ${level}`,
@@ -191,6 +197,9 @@ export const PLAIN_LORE: Lore = {
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'Discovery provenance',
   stillConstructAuthored: (count: number) => `Unchanged since discovery wrote them: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
+  baselineCurrent: 'The baseline reads back what today\'s templates produce.',
+  baselineMoved: (count: number) => `The baseline moved on: ${count} recorded path${count === 1 ? '' : 's'} a sync would add or update \u2014 run \`construct sync\`.`,
+  baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'Enforcement',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   weakestLink: (id: string, level: string) => `Weakest link: ${id} at ${level}`,
