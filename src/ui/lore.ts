@@ -127,7 +127,7 @@ export const LORE: Lore = {
   syncClassMeaning: {
     add: 'not in the tree; the templates produce it',
     update: 'the construct owns this and the template moved on',
-    conflict: 'yours \u2014 changed here and in the templates; sync leaves it alone',
+    conflict: 'yours \u2014 you wrote or changed it; sync never touches these',
     removed: 'you deleted it; sync never puts it back',
     orphaned: 'the construct wrote it once and no longer produces it; it is yours now',
     keep: 'already what the templates produce',
@@ -205,7 +205,7 @@ export const PLAIN_LORE: Lore = {
   syncClassMeaning: {
     add: 'not in the tree; the templates produce it',
     update: 'the construct owns this and the template moved on',
-    conflict: 'yours \u2014 changed here and in the templates; sync leaves it alone',
+    conflict: 'yours \u2014 you wrote or changed it; sync never touches these',
     removed: 'you deleted it; sync never puts it back',
     orphaned: 'the construct wrote it once and no longer produces it; it is yours now',
     keep: 'already what the templates produce',
