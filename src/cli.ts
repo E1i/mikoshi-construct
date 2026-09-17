@@ -6,6 +6,7 @@ import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/inde
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
+import { printSync, runSync, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
 import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
 import { createUi } from './ui/console.js'
@@ -106,6 +107,23 @@ const cost = defineCommand({
   },
 })
 
+const sync = defineCommand({
+  meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; writes nothing' },
+  args: {
+    ...commonArgs,
+    json: { type: 'boolean', description: 'Machine-readable report', default: false },
+  },
+  run({ args }) {
+    const report = runSync(args.dir, VERSION)
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify(report == null ? null : syncJson(report), null, 2)}\n`)
+      process.exitCode = syncExit(report)
+      return
+    }
+    process.exitCode = printSync(ui(args), report)
+  },
+})
+
 const main = defineCommand({
   meta: {
     name: 'construct',
@@ -118,6 +136,7 @@ const main = defineCommand({
     inspect: soulkill,
     capture: soulkill,
     doctor,
+    sync,
     cost,
   },
 })

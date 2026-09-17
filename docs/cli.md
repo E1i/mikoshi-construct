@@ -294,6 +294,107 @@ types and meaning; `provenance`, `warnings`, `checks` and `weakestLink` are adde
 the order above — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` — and `weakestLink` is
 `null` when no check is `present`.
 
+## construct sync
+
+Replays today's templates for the preset `construct.json` recorded, with the variables it recorded,
+and classifies every path the construct owns against the tree as it is now. It prints the
+classification and writes nothing — not a file, not the manifest it read. Writing is a separate
+command in a later version, so that a person can look at what would happen before anything happens.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--json` | `false` | The classification as a JSON object, for CI. |
+
+```bash
+npx mikoshi-construct sync
+```
+
+```
+Sync report
+
+Classes
+  add       1
+  keep      24
+  update    2
+  conflict  9
+  removed   0
+  orphaned  0
+  foreign   0
+
+add
+  tsconfig.base.json
+
+update
+  AGENTS.md — the construct block is replaced whole — edits between the delimiters do not survive; …
+  CLAUDE.md — the construct block is replaced whole — edits between the delimiters do not survive; …
+
+conflict
+  eslint.config.mjs
+  package.json — keys: version (conflict), private (add), scripts.quality (conflict)
+  vitest.config.ts
+
+Merged targets are reported, never rewritten: this version writes no merge-json file.
+
+3 paths would be written. This version reports; it writes nothing.
+Materialized by construct 0.1.0, read by 0.2.0.
+```
+
+### The seven classes
+
+| Class | Meaning | Listed |
+|---|---|---|
+| `add` | Today's templates produce it; neither the record nor the tree carries it. | yes |
+| `keep` | What the templates produce is what the tree already carries. | counted only |
+| `update` | The construct's own view of the file changed, and the tree still matches what was recorded. | yes |
+| `conflict` | The file diverged from what was recorded, or it was never recorded and is not the construct's to claim. | yes |
+| `removed` | The record carries it and the tree does not. | yes |
+| `orphaned` | The record carries it and today's templates no longer produce it. | yes |
+| `foreign` | The tree carries it, no record and no template does. Not the construct's to discuss. | counted only |
+
+`keep` is the quiet majority and `foreign` is not ours to discuss, so both are counted and neither is
+listed. A `merge-json` target — `package.json` — is reported by the keys that differ, and merged
+files are not written in this version at all, which is why `package.json` never appears among the
+writable paths.
+
+An `append-block` target that would be written carries its write effect on the classification itself:
+the block between `construct:begin` and `construct:end` is replaced whole, so edits made between the
+delimiters do not survive, while the `construct:discover` marker bodies are carried over. The report
+prints that effect from the classification rather than restating it, so there is one statement of the
+fact and nothing to drift.
+
+The last line names the version that materialized the repository against the version reading it. That
+is the question an owner actually has.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Nothing to write: `add` and `update` are both empty. |
+| `1` | No `construct.json` here. |
+| `2` | `add` or `update` has entries — there is something a writer could do. |
+
+Conflicts, removals and orphans never change the code by themselves. They are information, not work
+the tool can carry out: a conflict is a decision only an owner can make, and a removed or an orphaned
+path is a fact about the tree.
+
+`--json` prints one object with `fromVersion`, `toVersion`, `counts` (one entry per class) and
+`paths` — every classified path with its `class`, its `strategy`, its `keys` for a `merge-json`
+target and its `writeEffect` where the classification carries one. A machine reader never parses the
+prose.
+
+```json
+{
+  "fromVersion": "0.1.0",
+  "toVersion": "0.2.0",
+  "counts": { "add": 1, "keep": 41, "update": 2, "conflict": 5, "removed": 0, "orphaned": 1, "foreign": 0 },
+  "paths": [
+    { "target": "AGENTS.md", "class": "update", "strategy": "append-block", "writeEffect": "block-replaced-whole-discovery-bodies-carried-over" },
+    { "target": "package.json", "class": "update", "strategy": "merge-json", "keys": [{ "key": "scripts.sync", "class": "add" }] },
+    { "target": "eslint.config.mjs", "class": "conflict", "strategy": "create" }
+  ]
+}
+```
+
 ## construct soulkill
 
 Prints what the detector sees and writes nothing. It is the same code `init` runs, so it is also how
@@ -413,7 +514,8 @@ because `0` is a number and it would be a lie.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. |
-| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json`; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `2` | `sync` classified at least one path as `add` or `update`. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 
 ## After init

@@ -1,0 +1,66 @@
+id: sync
+title: construct sync composition
+description: >-
+  `runSync(root, version)` in `src/commands/sync/index.ts` is the composition root: it reads
+  `construct.json`, replays today's template groups for the preset the manifest recorded, classifies
+  every path into one of the seven classes, counts them, and hands the report to `printSync` or to
+  `syncJson`. This version reports and writes nothing — no file, no manifest. The write effect an
+  append-block target carries travels on the classification, so the report prints it rather than
+  restating it. The last line names the version that materialized the repository against the version
+  reading it, and the exit code is set by the `add` and `update` counts alone.
+doc: architecture/sync.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: evidence
+    label: Evidence · file reads only
+  - id: classification
+    label: Classification · pure
+  - id: report
+    label: Report
+nodes:
+  - id: cli
+    label: construct sync (citty)
+    path: src/cli.ts
+    boundary: entry
+  - id: run
+    label: runSync · replay, count, report
+    path: src/commands/sync/index.ts
+    boundary: entry
+  - id: manifest
+    label: readManifest → construct.json · preset, ai, review, vars, recorded shas
+    path: src/manifest.ts
+    boundary: evidence
+  - id: replay
+    label: replay · today's groups rendered with the recorded vars, against no tree
+    path: src/sync/replay.ts
+    boundary: evidence
+  - id: plan
+    label: planMaterialize · the produced content per target
+    path: src/materialize/plan.ts
+    boundary: evidence
+  - id: ownership
+    label: owned view per strategy · construct block, merge-json keys, whole file
+    path: src/sync/ownership.ts
+    boundary: classification
+  - id: classify
+    label: classifyRepository · add / keep / update / conflict / removed / orphaned / foreign, with the write effect
+    path: src/sync/classify.ts
+    boundary: classification
+  - id: print
+    label: printSync · seven counts, the actionable paths, the version gap, the exit code
+    path: src/commands/sync/report.ts
+    boundary: report
+  - id: json
+    label: syncJson · both versions, the counts, the classified paths
+    path: src/commands/sync/report.ts
+    boundary: report
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: manifest, kind: sequence}
+  - {from: manifest, to: replay, kind: sequence}
+  - {from: replay, to: plan, kind: sequence}
+  - {from: plan, to: classify, kind: sequence}
+  - {from: ownership, to: classify, kind: wires}
+  - {from: classify, to: print, kind: route, label: report}
+  - {from: classify, to: json, kind: route, label: --json}
