@@ -1,0 +1,105 @@
+import type { PathClass, PathClassification } from '../../sync/classify.js'
+import type { Ui } from '../../ui/console.js'
+import type { SyncReport } from './index.js'
+import { PATH_CLASSES } from '../../sync/classify.js'
+
+export const SYNC_EXIT = {
+  upToDate: 0,
+  noManifest: 1,
+  pending: 2,
+} as const
+
+export const PENDING_CLASSES: PathClass[] = ['add', 'update']
+export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'conflict', 'removed', 'orphaned']
+
+const CLASS_COLUMN = Math.max(...PATH_CLASSES.map(value => value.length)) + 2
+
+function pendingCount(report: SyncReport): number {
+  return PENDING_CLASSES.reduce((total, value) => total + report.counts[value], 0)
+}
+
+export function syncExit(report: SyncReport | null): number {
+  if (report == null)
+    return SYNC_EXIT.noManifest
+  return pendingCount(report) === 0 ? SYNC_EXIT.upToDate : SYNC_EXIT.pending
+}
+
+function actionableKeys(entry: PathClassification): string[] {
+  return entry.keys.filter(key => key.class !== 'keep').map(key => `${key.key} (${key.class})`)
+}
+
+export function syncJson(report: SyncReport): Record<string, unknown> {
+  return {
+    fromVersion: report.fromVersion,
+    toVersion: report.toVersion,
+    counts: report.counts,
+    paths: report.classifications.map(entry => ({
+      target: entry.target,
+      class: entry.class,
+      strategy: entry.strategy,
+      ...(entry.keys.length === 0 ? {} : { keys: entry.keys }),
+      ...(entry.writeEffect == null ? {} : { writeEffect: entry.writeEffect }),
+    })),
+  }
+}
+
+function note(ui: Ui, entry: PathClassification): string {
+  if (entry.strategy === 'merge-json') {
+    const keys = actionableKeys(entry)
+    return keys.length === 0 ? '' : ui.lore.syncMergedKeys(keys)
+  }
+  return entry.writeEffect == null ? '' : ui.lore.syncWriteEffect[entry.writeEffect] ?? ''
+}
+
+const COUNT_ORDER: PathClass[] = ['add', 'update', 'conflict', 'removed', 'orphaned', 'keep', 'foreign']
+
+function printCounts(ui: Ui, report: SyncReport): void {
+  ui.line(ui.theme.accent(ui.lore.syncClasses))
+  for (const value of COUNT_ORDER) {
+    if (report.counts[value] === 0)
+      continue
+    const meaning = ui.lore.syncClassMeaning[value] ?? ''
+    ui.line(`  ${value.padEnd(CLASS_COLUMN)}${String(report.counts[value]).padStart(3)}  ${ui.theme.dim(meaning)}`)
+  }
+}
+
+function printPaths(ui: Ui, report: SyncReport): void {
+  for (const value of LISTED_CLASSES) {
+    const entries = report.classifications.filter(entry => entry.class === value)
+    if (entries.length === 0)
+      continue
+    ui.line()
+    ui.line(`${ui.theme.accent(value)} ${ui.theme.dim(`\u2014 ${ui.lore.syncClassMeaning[value] ?? ''}`)}`)
+    for (const entry of entries) {
+      const detail = note(ui, entry)
+      ui.line(`  ${entry.target}${detail === '' ? '' : ui.theme.dim(` — ${detail}`)}`)
+    }
+  }
+}
+
+function printMergedNote(ui: Ui, report: SyncReport): void {
+  const listed = report.classifications.filter(entry => LISTED_CLASSES.includes(entry.class))
+  if (!listed.some(entry => entry.strategy === 'merge-json'))
+    return
+  ui.line()
+  ui.line(ui.theme.dim(ui.lore.syncMergedNotWritten))
+}
+
+export function printSync(ui: Ui, report: SyncReport | null): number {
+  if (report == null) {
+    ui.flatline(ui.lore.syncNoManifest)
+    return SYNC_EXIT.noManifest
+  }
+
+  ui.line(ui.theme.accent(ui.theme.bold(ui.lore.syncTitle)))
+  ui.line(ui.theme.bold(ui.lore.syncVersionGap(report.fromVersion, report.toVersion)))
+  ui.line()
+  printCounts(ui, report)
+  printPaths(ui, report)
+  printMergedNote(ui, report)
+
+  const pending = pendingCount(report)
+  ui.line()
+  ui.line(pending === 0 ? ui.lore.syncNothingToWrite : ui.lore.syncPending(pending))
+  return syncExit(report)
+}

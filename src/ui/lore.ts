@@ -1,3 +1,5 @@
+const BLOCK_REPLACED_WHOLE = 'block-replaced-whole-discovery-bodies-carried-over'
+
 export const BANNER = String.raw`
   ███╗   ███╗██╗██╗  ██╗ ██████╗ ███████╗██╗  ██╗██╗
   ████╗ ████║██║██║ ██╔╝██╔═══██╗██╔════╝██║  ██║██║
@@ -52,6 +54,16 @@ export interface Lore {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => string
   ledgerEntryWithoutSession: string
   ledgerSessionWithoutEntry: string
+  syncTitle: string
+  syncClasses: string
+  syncClassMeaning: Record<string, string>
+  syncMergedKeys: (keys: string[]) => string
+  syncMergedNotWritten: string
+  syncWriteEffect: Record<string, string>
+  syncNothingToWrite: string
+  syncPending: (count: number) => string
+  syncVersionGap: (from: string, to: string) => string
+  syncNoManifest: string
 }
 
 export const LORE: Lore = {
@@ -110,6 +122,26 @@ export const LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the traces it claims: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
+  syncTitle: 'REPLAY TRACE',
+  syncClasses: 'PATH CLASSES',
+  syncClassMeaning: {
+    add: 'not in the tree; the templates produce it',
+    update: 'the construct owns this and the template moved on',
+    conflict: 'yours \u2014 you wrote or changed it; sync never touches these',
+    removed: 'you deleted it; sync never puts it back',
+    orphaned: 'the construct wrote it once and no longer produces it; it is yours now',
+    keep: 'already what the templates produce',
+    foreign: 'never ours',
+  },
+  syncMergedKeys: (keys: string[]) => `keys: ${keys.join(', ')}`,
+  syncMergedNotWritten: 'Merged targets are reported, never rewritten: this version writes no merge-json file.',
+  syncWriteEffect: {
+    [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
+  },
+  syncNothingToWrite: 'NOTHING TO WRITE \u2014 the replay reads back what the tree already carries.',
+  syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} would be written. This version reports; it writes nothing.`,
+  syncVersionGap: (from: string, to: string) => `MATERIALIZED BY CONSTRUCT v${from} // READ BY v${to}`,
+  syncNoManifest: 'No construct.json here. Run `construct init` first.',
 }
 
 export const PLAIN_LORE: Lore = {
@@ -168,4 +200,24 @@ export const PLAIN_LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the runtime: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
+  syncTitle: 'Sync report',
+  syncClasses: 'Classes',
+  syncClassMeaning: {
+    add: 'not in the tree; the templates produce it',
+    update: 'the construct owns this and the template moved on',
+    conflict: 'yours \u2014 you wrote or changed it; sync never touches these',
+    removed: 'you deleted it; sync never puts it back',
+    orphaned: 'the construct wrote it once and no longer produces it; it is yours now',
+    keep: 'already what the templates produce',
+    foreign: 'never ours',
+  },
+  syncMergedKeys: (keys: string[]) => `keys: ${keys.join(', ')}`,
+  syncMergedNotWritten: 'Merged targets are reported, never rewritten: this version writes no merge-json file.',
+  syncWriteEffect: {
+    [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
+  },
+  syncNothingToWrite: 'Nothing to write: the replay reads back what the tree already carries.',
+  syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} would be written. This version reports; it writes nothing.`,
+  syncVersionGap: (from: string, to: string) => `Materialized by construct ${from}, read by ${to}.`,
+  syncNoManifest: 'No construct.json here. Run `construct init` first.',
 }
