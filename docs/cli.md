@@ -278,7 +278,53 @@ never as an absence of runs.
 
 `--json` prints one object: `status` (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
 `runtime` (`claude-code` or `cursor`), `key` and `candidates` where the project key is in question,
-and `runs` when there are any.
+`runs` when there are any, and `ledger` and `reconciliation` as described below.
+
+### The run ledger
+
+`.construct/runs.jsonl` is the ladder's own journal: one JSON line per `/implement` run, appended by
+step 4 of the `implement` skill. That step is an instruction in a prompt — nothing makes it happen
+and nothing notices when it does not — so the ledger is **L0** on the scale `doctor` reports: a
+record nobody is obliged to keep. Read it as a claim to be checked, never as a complete history of
+what ran. Decision 0003 records why it stops there.
+
+Each line carries exactly these fields:
+
+| Field | Meaning |
+|---|---|
+| `run` | The Workflow run identifier the runtime reported for the run. This is the join key. |
+| `at` | ISO timestamp of the run. |
+| `task` | The task text, first 120 characters. |
+| `effort` | The effort class the caller chose before the run. |
+| `status` | `done`, `failed` or `blocked`. |
+| `rung` | The effort of the rung that finished. |
+| `attempts` | One object per attempt: `rung`, `effort`, `outcome`, and a `reason` separating an invalid response shape from a red harness from a blocked report. |
+| `agents`, `tokens`, `toolUses`, `seconds` | The Workflow tool's accounting for the whole run. `tokens` may be the string `unknown`; it is never rewritten as `0`. |
+
+The Workflow tool reports accounting per run, not per agent, so the ledger declares no per-agent
+field. It carries counts and reasons only — never a prompt or a response, which keeps the invariant
+that cost reads token counts and never message content.
+
+A line that does not parse, or that is missing a declared field, is reported as malformed with its
+line number rather than skipped: a ledger that quietly drops what it cannot read is worse than no
+ledger.
+
+### Reconciliation
+
+Where the runtime exposes session data, `cost` joins ledger entries to runtime runs on `run` and
+reports the drift in both directions — never by pairing entries to sessions chronologically, which
+would be a guess dressed as a finding:
+
+| Finding | Meaning |
+|---|---|
+| `entriesWithoutSession` | The ledger claims a run the runtime has no session for. |
+| `sessionsWithoutEntry` | A run happened and was never logged — the skipped step the ledger cannot see. |
+| `unjoinable` | Entries carrying no `run`, including every entry written before the key existed. They are counted, not matched. |
+
+These are information, not failures: they never change the `status` or the exit code. On a runtime
+that exposes no per-run usage there is nothing to join against, so the report shows the ledger's own
+counts — runs, agents, unfinished runs — with every token figure marked `unknown` rather than `0`,
+because `0` is a number and it would be a lie.
 
 | `status` | Exit | Meaning |
 |---|---|---|

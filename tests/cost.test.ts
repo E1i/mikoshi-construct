@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { billable, COST_EXIT, costJson, costReport, printCost, projectKey, weighted } from '../src/commands/cost/index.js'
+import { billable, COST_EXIT, costJson, costReport, printCost, projectKey, readLedger, weighted } from '../src/commands/cost/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
@@ -31,6 +31,28 @@ function printed(report: Parameters<typeof printCost>[1]): { exit: number, text:
   const lines: string[] = []
   const exit = printCost(createUi(resolveTheme({ plain: true }), text => lines.push(text)), report, false)
   return { exit, text: lines.join('') }
+}
+
+function ledgerEntry(fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    run: 'wf_abc',
+    at: '2026-09-17T10:00:00.000Z',
+    task: 'give the run ledger a reader',
+    effort: 'low',
+    status: 'done',
+    rung: 'low',
+    attempts: [{ rung: 1, effort: 'low', outcome: 'passed', reason: '' }],
+    agents: 2,
+    tokens: 1000,
+    toolUses: 9,
+    seconds: 120,
+    ...fields,
+  }
+}
+
+function writeLedger(cwd: string, lines: string[]): void {
+  mkdirSync(path.join(cwd, '.construct'), { recursive: true })
+  writeFileSync(path.join(cwd, '.construct', 'runs.jsonl'), `${lines.join('\n')}\n`)
 }
 
 const CLAUDE_CODE_ENV = { CLAUDECODE: '1' }
@@ -134,5 +156,113 @@ describe('construct cost', () => {
     const { exit, text } = printed(report)
     expect(exit).toBe(COST_EXIT.unknown)
     expect(text).toContain('not conclusive')
+  })
+})
+
+describe('the run ledger', () => {
+  it('reads the declared fields and reports a line it cannot read with its line number', () => {
+    const cwd = workspace()
+    writeLedger(cwd, [JSON.stringify(ledgerEntry()), 'not json', JSON.stringify({ run: 'wf_two', at: '2026-09-17T11:00:00.000Z' })])
+
+    const reading = readLedger(cwd)
+    expect(reading.entries).toEqual([{
+      run: 'wf_abc',
+      at: '2026-09-17T10:00:00.000Z',
+      task: 'give the run ledger a reader',
+      effort: 'low',
+      status: 'done',
+      rung: 'low',
+      attempts: [{ rung: 1, effort: 'low', outcome: 'passed', reason: '' }],
+      agents: 2,
+      tokens: 1000,
+      toolUses: 9,
+      seconds: 120,
+    }])
+    expect(reading.malformed).toEqual([
+      { line: 2, reason: 'not JSON' },
+      { line: 3, reason: expect.stringContaining('missing or invalid: task, effort, status, rung') },
+    ])
+  })
+
+  it('names the attempt field that is missing, not just the attempts array', () => {
+    const cwd = workspace()
+    const entry = {
+      run: 'wf_a',
+      at: '2026-09-17T00:00:00.000Z',
+      task: 't',
+      effort: 'low',
+      status: 'done',
+      rung: 'low',
+      attempts: [{ rung: 1, effort: 'low', outcome: 'passed' }],
+      agents: 1,
+      tokens: 10,
+      toolUses: 1,
+      seconds: 1,
+    }
+    mkdirSync(path.join(cwd, '.construct'), { recursive: true })
+    writeFileSync(path.join(cwd, '.construct/runs.jsonl'), `${JSON.stringify(entry)}\n`)
+
+    expect(readLedger(cwd).malformed).toEqual([{ line: 1, reason: 'missing or invalid: attempts[0].reason' }])
+  })
+
+  it('never reads a token count of unknown as zero', () => {
+    const cwd = workspace()
+    const projects = projectsRoot()
+    mkdirSync(path.join(projects, projectKey(cwd)), { recursive: true })
+    writeLedger(cwd, [JSON.stringify(ledgerEntry({ tokens: 'unknown' })), JSON.stringify(ledgerEntry({ run: 'wf_two', tokens: 5000 }))])
+
+    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(report.ledger).toMatchObject({ runs: 2, agents: 4, failures: 0, tokens: 'unknown' })
+    expect(printed(report).text).toContain('unknown tokens')
+  })
+
+  it('joins on the run identifier and reports drift in both directions without changing the status', () => {
+    const projects = projectsRoot()
+    const cwd = workspace()
+    recordRun(projects, cwd)
+    writeLedger(cwd, [JSON.stringify(ledgerEntry({ run: 'wf_gone', status: 'failed' }))])
+
+    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(report.status).toBe('ok')
+    expect(report.reconciliation).toEqual({ entriesWithoutSession: ['wf_gone'], sessionsWithoutEntry: ['wf_abc'], unjoinable: 0 })
+    expect(costJson(report, false)).toMatchObject({ status: 'ok', reconciliation: { entriesWithoutSession: ['wf_gone'], sessionsWithoutEntry: ['wf_abc'], unjoinable: 0 } })
+    const { exit, text } = printed(report)
+    expect(exit).toBe(COST_EXIT.ok)
+    expect(text).toContain('1 entries with no session, 1 sessions with no entry, 0 entries with no run id')
+    expect(text).toContain('wf_gone')
+  })
+
+  it('counts an entry without a run identifier as unjoinable rather than pairing it with a session', () => {
+    const projects = projectsRoot()
+    const cwd = workspace()
+    recordRun(projects, cwd)
+    const { run: _run, ...withoutRun } = ledgerEntry()
+    writeLedger(cwd, [JSON.stringify(withoutRun)])
+
+    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(report.reconciliation).toEqual({ entriesWithoutSession: [], sessionsWithoutEntry: ['wf_abc'], unjoinable: 1 })
+  })
+
+  it('shows the ledger counts with every token figure unknown on a runtime that exposes no usage', () => {
+    const cwd = workspace()
+    writeLedger(cwd, [JSON.stringify(ledgerEntry()), JSON.stringify(ledgerEntry({ run: 'wf_two', status: 'failed' }))])
+
+    const report = costReport(cwd, { projectsDir: projectsRoot(), env: CURSOR_ENV })
+    expect(report.status).toBe('unsupported')
+    expect(report.reconciliation).toBeUndefined()
+    expect(report.ledger).toEqual({ runs: 2, agents: 4, failures: 1, tokens: 'unknown', malformed: [] })
+    const { exit, text } = printed(report)
+    expect(exit).toBe(COST_EXIT.unsupported)
+    expect(text).toContain('2 runs, 4 agents, 1 unfinished, unknown tokens')
+    expect(text).not.toContain('0 tokens')
+  })
+
+  it('reports an unreadable line even when the runtime has nothing to reconcile it against', () => {
+    const cwd = workspace()
+    writeLedger(cwd, ['{ broken'])
+
+    const report = costReport(cwd, { projectsDir: projectsRoot(), env: CURSOR_ENV })
+    expect(report.ledger?.malformed).toEqual([{ line: 1, reason: 'not JSON' }])
+    expect(printed(report).text).toContain('line 1: not JSON')
   })
 })

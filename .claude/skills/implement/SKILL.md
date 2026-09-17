@@ -26,13 +26,29 @@ repository's CLAUDE.md and `construct.json`.
    commands CLAUDE.md names for the files the task touches (usually empty). `retryLimit` is optional
    and caps how often an agent whose response the schema rejects is asked again; leave it out for the
    default of one retry, set it to `0` to spend nothing on a rejected response.
-   The user's `/implement` invocation is the opt-in the tool requires.
+   The user's `/implement` invocation is the opt-in the tool requires. Note the run identifier the
+   Workflow tool reports when it launches the run and again when it completes; step 4 records it.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
-   with `at` (ISO time), `task` (first 120 characters), `effort` (the class you chose), `status`,
-   the rung that finished (`effort` from the result), `attempts` from the result, and the Workflow
-   tool's own accounting for the run — `agents`, `tokens`, `toolUses`, `seconds` — exactly as it
-   reported them. This log is what tunes the ladder later; workflow scripts have no filesystem
-   access, so it is written here, not by the script. `.construct/` is gitignored.
+   with exactly these fields and no others:
+   - `run` — the Workflow run identifier from step 3. It is the key `construct cost` joins the entry
+     to the runtime's session data on. Never invent one: an entry without it is reported as
+     unjoinable, which is the truth about it.
+   - `at` — the ISO timestamp.
+   - `task` — the task text, first 120 characters.
+   - `effort` — the class you chose in step 1.
+   - `status` — `done`, `failed` or `blocked`, from the result.
+   - `rung` — the effort of the rung that finished: `effort` from the result when it is `done`,
+     otherwise the `effort` of the last entry in `attempts`.
+   - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
+     `outcome` and the `reason` that separates an invalid response shape from a red harness from a
+     blocked report.
+   - `agents`, `tokens`, `toolUses`, `seconds` — the Workflow tool's own accounting for the run,
+     exactly as it reported it. Write `"unknown"` for a token figure it did not report, never `0`.
+   The ledger carries counts and reasons only — never a prompt, a response or any other message
+   content. This log is what tunes the ladder later; workflow scripts have no filesystem access, so
+   it is written here, not by the script. Nothing enforces this step: the ledger is L0, and
+   `construct cost` reconciles it against the runtime instead of trusting it. `.construct/` is
+   gitignored.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
    files changed, and the harness tail. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed`, give the last failure excerpt.
