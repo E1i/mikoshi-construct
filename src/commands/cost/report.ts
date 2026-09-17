@@ -1,4 +1,5 @@
 import type { Ui } from '../../ui/console.js'
+import type { LedgerSummary, Reconciliation, TokenCount } from './ledger.js'
 import type { CostReport, CostStatus } from './source.js'
 import type { WorkflowRun } from './usage.js'
 import { add, billable, emptyUsage, PRICE_RELATIVE_TO_INPUT, weighted } from './usage.js'
@@ -24,11 +25,34 @@ export function costJson(report: CostReport, last: boolean): Record<string, unkn
     ...(report.key == null ? {} : { key: report.key }),
     ...(report.candidates == null || report.candidates.length === 0 ? {} : { candidates: report.candidates }),
     ...(runs.length === 0 ? {} : { runs }),
+    ...(report.ledger == null ? {} : { ledger: report.ledger }),
+    ...(report.reconciliation == null ? {} : { reconciliation: report.reconciliation }),
   }
 }
 
 function fmt(value: number): string {
   return value.toLocaleString('en-US')
+}
+
+function tokens(value: TokenCount): string {
+  return value === 'unknown' ? 'unknown' : fmt(value)
+}
+
+function printLedger(ui: Ui, ledger: LedgerSummary | undefined, reconciliation: Reconciliation | undefined): void {
+  if (ledger == null && reconciliation == null)
+    return
+  if (ledger != null) {
+    ui.line(ui.theme.dim(ui.lore.ledgerCounts(ledger.runs, ledger.agents, ledger.failures, tokens(ledger.tokens))))
+    if (ledger.malformed.length > 0)
+      ui.glitch(ui.lore.ledgerMalformed(ledger.malformed.length), ledger.malformed.map(entry => `line ${entry.line}: ${entry.reason}`))
+  }
+  if (reconciliation == null)
+    return
+  ui.line(ui.theme.dim(ui.lore.ledgerDrift(reconciliation.entriesWithoutSession.length, reconciliation.sessionsWithoutEntry.length, reconciliation.unjoinable)))
+  for (const run of reconciliation.entriesWithoutSession)
+    ui.line(ui.theme.dim(`    ${run}: ${ui.lore.ledgerEntryWithoutSession}`))
+  for (const run of reconciliation.sessionsWithoutEntry)
+    ui.line(ui.theme.dim(`    ${run}: ${ui.lore.ledgerSessionWithoutEntry}`))
 }
 
 function printRuns(ui: Ui, runs: WorkflowRun[]): void {
@@ -65,5 +89,6 @@ export function printCost(ui: Ui, report: CostReport, last: boolean): number {
       printRuns(ui, selectRuns(report, last))
       break
   }
+  printLedger(ui, report.ledger, report.reconciliation)
   return COST_EXIT[report.status]
 }

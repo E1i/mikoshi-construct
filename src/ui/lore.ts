@@ -45,6 +45,11 @@ export interface Lore {
   costEmpty: string
   costKeyMismatch: (key: string) => string
   costKeyUnknown: (key: string) => string
+  ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => string
+  ledgerMalformed: (count: number) => string
+  ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => string
+  ledgerEntryWithoutSession: string
+  ledgerSessionWithoutEntry: string
 }
 
 export const LORE: Lore = {
@@ -96,6 +101,11 @@ export const LORE: Lore = {
   costEmpty: 'No /implement runs recorded here yet.',
   costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
   costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
+  ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => `Ledger, kept by hand and trusted by nobody: ${runs} runs, ${agents} agents, ${failures} unfinished, ${tokens} tokens.`,
+  ledgerMalformed: (count: number) => `${count} ledger line${count === 1 ? '' : 's'} could not be read as a run record.`,
+  ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the traces it claims: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
+  ledgerEntryWithoutSession: 'logged as a run, no session behind it',
+  ledgerSessionWithoutEntry: 'ran, never logged',
 }
 
 export const PLAIN_LORE: Lore = {
@@ -147,4 +157,9 @@ export const PLAIN_LORE: Lore = {
   costEmpty: 'No /implement runs recorded here yet.',
   costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
   costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
+  ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => `Ledger (a skill step writes it, nothing enforces it): ${runs} runs, ${agents} agents, ${failures} unfinished, ${tokens} tokens.`,
+  ledgerMalformed: (count: number) => `${count} ledger line${count === 1 ? '' : 's'} could not be read as a run record.`,
+  ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the runtime: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
+  ledgerEntryWithoutSession: 'logged as a run, no session behind it',
+  ledgerSessionWithoutEntry: 'ran, never logged',
 }

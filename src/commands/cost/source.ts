@@ -1,3 +1,4 @@
+import type { LedgerSummary, Reconciliation } from './ledger.js'
 import type { WorkflowRun } from './usage.js'
 
 export type Runtime = 'claude-code' | 'cursor'
@@ -25,4 +26,6 @@ export interface CostReport {
   runs?: WorkflowRun[]
   key?: string
   candidates?: string[]
+  ledger?: LedgerSummary
+  reconciliation?: Reconciliation
 }
