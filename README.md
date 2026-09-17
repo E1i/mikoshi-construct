@@ -3,6 +3,8 @@
 Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an
 empty repository.
 
+**[Documentation](https://e1i.github.io/mikoshi-construct/)** · [Getting started](https://e1i.github.io/mikoshi-construct/guide/getting-started) · [The development cycle](https://e1i.github.io/mikoshi-construct/guide/the-cycle) · [CLI reference](https://e1i.github.io/mikoshi-construct/cli)
+
 ```bash
 mkdir my-service && cd my-service
 npx mikoshi-construct init          # interactive: preset, agent, project name
@@ -13,10 +15,6 @@ pnpm install && pnpm run quality    # green before you write a line
 > the full lifecycle; Cursor gets the rules, the conventions and the discovery protocol.
 > `construct sync` moves a repository already carrying a construct onto newer templates.
 
-**Documentation — [e1i.github.io/mikoshi-construct](https://e1i.github.io/mikoshi-construct/)**:
-getting started, [the development cycle](https://e1i.github.io/mikoshi-construct/guide/the-cycle),
-the reasoning budget, [upgrading](https://e1i.github.io/mikoshi-construct/guide/upgrading) and the
-CLI reference.
 
 ## What it does
 
