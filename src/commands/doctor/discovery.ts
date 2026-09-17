@@ -1,6 +1,7 @@
 import type { DiscoveryMarker, Manifest } from '../../manifest.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
 import { DISCOVERY_MARKERS } from '../../manifest.js'
 
 export const DISCOVERY_PLACEHOLDER = '_Not discovered yet — run `/construct-discover`._'
@@ -44,6 +45,16 @@ export function markerBody(root: string, marker: DiscoveryMarker, file: string):
   return blockBody(readFileSync(location, 'utf8'), marker)
 }
 
+export function markerFileFor(root: string, manifest: Manifest, marker: DiscoveryMarker): string {
+  const recordedFile = manifest.discovery.markers[marker].file
+  if (marker !== 'composition')
+    return recordedFile
+  const decided = manifest.vars?.compositionDir
+  if (decided != null && decided !== '')
+    return decided
+  return factsTheRepositoryEstablishes(root).compositionDir ?? recordedFile
+}
+
 export function missingDiscovery(root: string, manifest: Manifest): DiscoveryMarker[] {
-  return DISCOVERY_MARKERS.filter(marker => markerBody(root, marker, manifest.discovery.markers[marker].file) == null)
+  return DISCOVERY_MARKERS.filter(marker => markerBody(root, marker, markerFileFor(root, manifest, marker)) == null)
 }
