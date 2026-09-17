@@ -21,11 +21,14 @@ repository's CLAUDE.md and `construct.json`.
 3. Call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
-   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] }, "retryLimit": 1 }`
+   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] } }`
    where `harness.command` comes from `construct.json` and `harness.extra` lists any area-specific
    commands CLAUDE.md names for the files the task touches (usually empty). `retryLimit` is optional
-   and caps how often an agent whose response the schema rejects is asked again; leave it out for the
-   default of one retry, set it to `0` to spend nothing on a rejected response.
+   and defaults to `0`: a rejected response is not re-asked, and the run stops with the validator's
+   error so a person reads it. Each retry is a whole new agent call that repeats the agent's
+   exploration from scratch — measured at roughly three million billable tokens for an architect —
+   and it cannot fix a contradiction in the task, because the agent may not change the task. Raise it
+   only when a rejected response is expected to be a transient shape error rather than a bad brief.
    The user's `/implement` invocation is the opt-in the tool requires. Note the run identifier the
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)

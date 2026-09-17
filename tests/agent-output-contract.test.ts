@@ -142,9 +142,9 @@ describe('the schema survives awkward values', () => {
 describe('the ladder records every failed attempt and retries with the validator complaint', () => {
   const source = read(WORKFLOW)
 
-  it('reads the retry limit from the workflow arguments', () => {
+  it('reads the retry limit from the workflow arguments and defaults to not re-asking', () => {
     expect(source).toMatch(/args\.retryLimit/)
-    expect(source).toMatch(/DEFAULT_RETRY_LIMIT = 1/)
+    expect(source).toMatch(/DEFAULT_RETRY_LIMIT = 0/)
   })
 
   it('passes the validator error text into the retry prompt', () => {
