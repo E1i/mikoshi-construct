@@ -15,3 +15,4 @@ answer, not a gap to hide.
 | [0003](0003-run-ledger-stops-at-l0.md) | The run ledger stops at L0, and says so | L0, reconciled |
 | [0004](0004-domain-allowlist-in-templates.md) | Template hygiene uses an allowlist, not a denylist | L4 CI |
 | [0005](0005-one-output-contract-per-agent.md) | One output contract per agent, declared by the schema | L4 runtime |
+| [0006](0006-the-init-manifest-is-frozen.md) | What init wrote in construct.json is frozen | L3 replay test |

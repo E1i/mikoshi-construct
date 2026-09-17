@@ -1,0 +1,57 @@
+replay:
+  preset: node-library
+  ai: claude
+  projectName: mikoshi-construct
+  vars: construct.json
+
+differences:
+  - path: .github/workflows/ci.yml
+    kind: content
+    reason: >-
+      This repository is the generator, so its own CI runs an acceptance leg per preset on top of the
+      quality gate the template ships; the template stays a single quality gate for a generated repo.
+  - path: .gitignore
+    kind: content
+    reason: >-
+      An append-block target: init edits only the construct block, and the repository keeps its own
+      ignore lines outside it.
+  - path: AGENTS.md
+    kind: content
+    reason: >-
+      Discovery is not reproducible. Init wrote the empty markers and the existing-file variant; the
+      filled prose is the discovery command's output, recorded by provenance, never re-derived here.
+  - path: architecture/security-invariants.md
+    kind: content
+    reason: >-
+      The invariants table is discovery output: the template ships the empty marker, this repository
+      states the invariants it actually enforces and the check that enforces each one.
+  - path: CLAUDE.md
+    kind: content
+    reason: >-
+      An append-block target carrying this repository's own layout, template conventions and commands
+      around the construct block init wrote.
+  - path: package.json
+    kind: content
+    reason: >-
+      Merged, not created: the published package keeps its own name, version, metadata, bin, scripts
+      and dependencies, and init only added the keys that were missing.
+  - path: eslint.config.mjs
+    kind: skipped-at-init
+    reason: >-
+      Present before init ran, so init skipped it and the manifest never recorded it; this repository's
+      config adds its own dependency-boundary and syntax-policy blocks on top of the template.
+  - path: tsconfig.json
+    kind: skipped-at-init
+    reason: >-
+      Present before init ran, so init skipped it; this repository keeps one standalone tsconfig
+      instead of the template's base-plus-extends pair.
+  - path: vitest.config.ts
+    kind: skipped-at-init
+    reason: >-
+      Present before init ran, so init skipped it; this repository excludes the template fixtures and
+      raises the test timeout for the init end-to-end suites.
+  - path: tsconfig.base.json
+    kind: absent-at-root
+    reason: >-
+      The template split tsconfig into a base and an extending file after init ran here; this
+      repository's single tsconfig.json has no base to extend, so the root has no such file.
