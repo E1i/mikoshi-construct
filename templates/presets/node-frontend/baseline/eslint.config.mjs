@@ -1,8 +1,17 @@
 import antfu from '@antfu/eslint-config'
 
-const CLASS_LIST_MUTATION = 'CallExpression[callee.object.property.name="classList"][callee.property.name=/^(add|remove|toggle|replace)$/]'
-const INLINE_STYLE_WRITE = 'AssignmentExpression[left.object.property.name="style"]'
-const INLINE_STYLE_PROPERTY = 'CallExpression[callee.object.property.name="style"][callee.property.name=/^(setProperty|removeProperty)$/]'
+const CLASS_LIST_ACCESS = ':matches([callee.object.property.name="classList"], [callee.object.property.value="classList"])'
+const CLASS_LIST_METHOD = ':matches([callee.property.name=/^(add|remove|toggle|replace)$/], [callee.property.value=/^(add|remove|toggle|replace)$/])'
+const CLASS_LIST_CALL = `CallExpression${CLASS_LIST_ACCESS}${CLASS_LIST_METHOD}`
+const CLASS_LIST_BINDING = 'VariableDeclarator:matches([init.property.name="classList"], [init.property.value="classList"])'
+const CLASS_LIST_MUTATION = `:matches(${CLASS_LIST_CALL}, ${CLASS_LIST_BINDING})`
+
+const STYLE_ACCESS = ':matches([left.object.property.name="style"], [left.object.property.value="style"])'
+const INLINE_STYLE_WRITE = `AssignmentExpression${STYLE_ACCESS}`
+const STYLE_METHOD = ':matches([callee.property.name=/^(setProperty|removeProperty)$/], [callee.property.value=/^(setProperty|removeProperty)$/])'
+const INLINE_STYLE_CALL = `CallExpression:matches([callee.object.property.name="style"], [callee.object.property.value="style"])${STYLE_METHOD}`
+const STYLE_BINDING = 'VariableDeclarator:matches([init.property.name="style"], [init.property.value="style"])'
+const INLINE_STYLE_PROPERTY = `:matches(${INLINE_STYLE_CALL}, ${STYLE_BINDING})`
 
 const NO_STATE_CLASSES = {
   selector: CLASS_LIST_MUTATION,

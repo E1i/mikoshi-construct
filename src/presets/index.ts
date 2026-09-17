@@ -87,7 +87,6 @@ const PRESETS: Record<PresetId, Preset> = {
       HTTP_CONTRACT,
       { group: EXPRESS_APP, onlyWhenEmpty: true },
       { group: EXPRESS_REPO, onlyWhenEmpty: true },
-      { group: 'presets/node-backend/sample', onlyWhenEmpty: true },
       'presets/node-backend/baseline',
     ],
     contracts: true,
