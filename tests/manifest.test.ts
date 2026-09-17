@@ -105,6 +105,7 @@ describe('the manifest records what sync wrote, beside what init wrote', () => {
       fromVersion: '0.1.0',
       toVersion: VARS.constructVersion,
       files: { 'AGENTS.md': 'sync-sha-of-agents' },
+      variants: { 'AGENTS.md': 'existing' },
     }
     return manifest
   }
@@ -146,9 +147,9 @@ describe('recording a sync run in the manifest', () => {
   it('writes the run and the owned sha of each path into the sync branch, and nothing else', () => {
     const before = currentManifest()
     before.construct = '0.1.0'
-    const after = recordSync(before, { ranAt: RAN_AT, toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' } })
+    const after = recordSync(before, { ranAt: RAN_AT, toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' }, variants: { 'AGENTS.md': 'existing' } })
 
-    expect(after.sync).toEqual({ ranAt: RAN_AT, fromVersion: '0.1.0', toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' } })
+    expect(after.sync).toEqual({ ranAt: RAN_AT, fromVersion: '0.1.0', toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' }, variants: { 'AGENTS.md': 'existing' } })
     expect({ ...after, sync: null }).toEqual({ ...before, sync: null })
     expect(before.sync).toBeNull()
   })

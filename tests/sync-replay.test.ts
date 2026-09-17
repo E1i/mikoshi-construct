@@ -6,6 +6,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
 import { readManifest, recordedShas, sha256, upgradeManifest } from '../src/manifest.js'
+import { isWritable } from '../src/sync/classify.js'
 import { replay } from '../src/sync/replay.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -90,16 +91,19 @@ describe('replaying today\'s templates against the repository construct 0.1.0 ma
       const today = readFileSync(path.join(REPOSITORY, target), 'utf8')
       expect(recorded[target], target).not.toBe(sha256(today))
       expect(at(classifications, target)?.strategy, target).toBe('append-block')
-      expect(['keep', 'update'], target).toContain(at(classifications, target)?.class)
+      expect(['keep', 'update', 'unknown'], target).toContain(at(classifications, target)?.class)
     }
     expect(readFileSync(path.join(REPOSITORY, 'AGENTS.md'), 'utf8')).not.toContain('_Not discovered yet')
   })
 
-  it('reads the files carrying the construct block as update until a sync has written them here', () => {
+  it('reads the files carrying the construct block as unknown: the 0.1.0 record names no variant and neither variant reconstructs', () => {
     const classifications = replayFrozen()
     for (const target of ['AGENTS.md', 'CLAUDE.md']) {
-      expect(at(classifications, target)?.class, target).toBe('update')
-      expect(at(classifications, target)?.writeEffect, target).not.toBeNull()
+      const entry = at(classifications, target)
+      expect(entry?.class, target).toBe('unknown')
+      expect(entry?.variant ?? null, target).toBeNull()
+      expect(entry?.writeEffect, target).toBeNull()
+      expect(isWritable(entry!), target).toBe(false)
     }
   })
 

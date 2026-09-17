@@ -1,9 +1,22 @@
 import type { PathClass, PathState } from '../src/sync/classify.js'
+import type { EstablishedVariant } from '../src/sync/variant.js'
 import { describe, expect, it } from 'vitest'
+import { BLOCK_BEGIN, BLOCK_END } from '../src/materialize/strategies.js'
 import { classifyPath, classifyRepository, isWritable, PATH_CLASSES } from '../src/sync/classify.js'
 import { ownedSha } from '../src/sync/ownership.js'
 
 const TARGET = 'architecture/principles.md'
+const BLOCK_TARGET = 'AGENTS.md'
+
+const ESTABLISHED: EstablishedVariant = { variant: 'default', evidence: 'recorded' }
+
+function block(body: string): string {
+  return `${BLOCK_BEGIN}\n# Project\n\n${body}\n${BLOCK_END}\n`
+}
+
+function ownerPage(body: string): string {
+  return `# The owner's own page\n\nProse the construct never wrote.\n\n${block(body)}`
+}
 
 const RECORDED_TEXT = 'what the last run wrote\n'
 const TEMPLATE_TEXT = 'what the templates produce today\n'
@@ -42,6 +55,11 @@ const ROWS: Row[] = [
     cell: 'recorded no, present yes, produced yes',
     state: { target: TARGET, recordedSha: null, present: OWNER_TEXT, produced: TEMPLATE_TEXT },
     expected: 'conflict',
+  },
+  {
+    cell: 'recorded yes, present yes, produced yes \u2014 a block target no evidence settles the variant of',
+    state: { target: BLOCK_TARGET, recordedSha: RECORDED_SHA, present: block('yesterday'), produced: block('today'), variant: null },
+    expected: 'unknown',
   },
   {
     cell: 'recorded yes, present no, produced yes',
@@ -140,6 +158,34 @@ describe('the ordered comparison inside recorded, present and produced', () => {
     expect(classifyPath({ target: 'package.json', recordedSha: null, present: null, produced: '{}' })?.strategy).toBe('merge-json')
     expect(classifyPath({ target: 'AGENTS.md', recordedSha: null, present: null, produced: 'x' })?.strategy).toBe('append-block')
     expect(classifyPath({ target: TARGET, recordedSha: null, present: null, produced: 'x' })?.strategy).toBe('create')
+  })
+})
+
+describe('a block target whose template variant no evidence settles', () => {
+  const state = { target: BLOCK_TARGET, recordedSha: RECORDED_SHA, present: block('yesterday'), produced: block('today') }
+
+  it('reads as unknown, never as conflict, so the owner is not told they changed it', () => {
+    const classification = classifyPath({ ...state, variant: null })
+    expect(classification?.class).toBe('unknown')
+    expect(classification?.class).not.toBe('conflict')
+  })
+
+  it('reads as keep or update the moment evidence settles the variant', () => {
+    expect(classifyPath({ ...state, variant: ESTABLISHED })?.class).toBe('update')
+    expect(classifyPath({ ...state, present: state.produced, variant: ESTABLISHED })?.class).toBe('keep')
+  })
+
+  it('is never written on the shape of the file alone, whichever variant the shape suggests', () => {
+    for (const [present, shape] of [[block('yesterday'), 'default'], [ownerPage('yesterday'), 'existing']] as const) {
+      const classification = classifyPath({ ...state, present, variant: null })
+      expect(classification?.shape, shape).toBe(shape)
+      expect(classification?.class, shape).toBe('unknown')
+      expect(isWritable(classification!), shape).toBe(false)
+    }
+  })
+
+  it('stays conflict when the owner cut the delimiters out, because that is an act and not a gap in the record', () => {
+    expect(classifyPath({ ...state, present: '# Only the owner\n', variant: null })?.class).toBe('conflict')
   })
 })
 

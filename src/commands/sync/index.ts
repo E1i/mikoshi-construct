@@ -44,8 +44,14 @@ export function applySync(root: string, version: string): SyncApplyReport | null
 
   const written = applyPlan(root, writes.map(write => ({ target: write.target, strategy: write.strategy, action: 'create' as const, content: write.content })))
   const ranAt = new Date().toISOString()
-  if (writes.length > 0)
-    writeManifest(root, recordSync(manifest, { ranAt, toVersion: version, files: Object.fromEntries(writes.map(write => [write.target, write.ownedSha])) }))
+  if (writes.length > 0) {
+    writeManifest(root, recordSync(manifest, {
+      ranAt,
+      toVersion: version,
+      files: Object.fromEntries(writes.map(write => [write.target, write.ownedSha])),
+      variants: Object.fromEntries(writes.flatMap(write => (write.variant == null ? [] : [[write.target, write.variant] as const]))),
+    }))
+  }
 
   return { report, written: written.map(op => op.target), refused, ranAt }
 }

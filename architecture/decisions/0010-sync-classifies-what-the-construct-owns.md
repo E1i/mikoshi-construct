@@ -1,6 +1,6 @@
 # 0010 — Sync classifies what the construct owns, and favours keep
 
-Status: accepted · 2026-09-17
+Status: accepted · 2026-09-17 · amended 2026-09-17 (which template variant owns an append-block target)
 
 ## Context
 
@@ -76,6 +76,43 @@ change anywhere in the file, discovery filling the markers included, made step t
 put `update` out of reach. It also deadlocked: a first sync cannot record an owned-view hash for a
 path it refuses to write, and without that record the next sync conflicts again.
 
+**Which template variant wrote an append-block target is established from evidence, in order, and an
+unestablished variant is written in no mode.** The delimiters declare *that* the construct owns a
+region; they do not say *how much of the file* it owns, and the two variants differ on exactly that.
+The default variant's block holds the whole document — `init` created the file. The `.existing.eta`
+variant's block holds one section of the owner's document — `init` found the file already there.
+Splicing the wrong one in puts a second `# {{projectName}}` heading in the middle of somebody's
+`CLAUDE.md`, or strips the heading out of one the construct wrote.
+
+Three sources of evidence, strongest first:
+
+1. **The record.** `init` knows the variant exactly, at the only moment it is known, and writes it
+   into `construct.json` as `variants`; a sync that writes a block target records the variant it used
+   in the `sync` branch beside the owned sha. This is the forward fix: it settles every repository
+   materialized from this version on, and gives nothing to one materialized before.
+2. **The templates.** Where only one variant exists for a target — `.gitignore` has no
+   `.existing.eta` — there is nothing to choose between, and the variant is settled by exhaustion.
+3. **Reconstruction.** Both variants are rendered with the variables the manifest recorded and each
+   hashed the way the writer that recorded it would have: the default form as the whole file `init`
+   creates, the existing form as `init` would write it into the document the tree carries, and both
+   as the owned view sync records. Exactly one match proves the variant. For a manifest written by an
+   older version there will rarely be a match, because the templates have moved since — this is
+   evidence about the past, and it is expected to be silent more often than not.
+
+Where none of the three settles it the variant is **unknown**: an eighth class, the path is not
+written in any mode including `--apply`, and it is reported under its own reason. **The shape of the
+file — whether the block spans the whole document or sits inside somebody's prose — may inform what
+the report displays and never authorises a write.** It is the one source that fails silently: it
+breaks precisely when an owner appended their own text below a block in a file the construct created,
+and it breaks without any sign that it did. `isWritable` consults the class and the strategy, so the
+shape cannot reach the writer at all.
+
+**`unknown` is reported apart from `conflict`, and this separation is the point of the class.** *The
+owner changed this* and *we cannot tell which variant made this* are different facts with different
+actions: the first is the owner's to resolve, the second is nothing for them to resolve until `init`
+starts recording the variant. Folded into one line, the next person reading the report concludes they
+did something wrong. `unknown` moves no exit code, because there is nothing to apply.
+
 **A recorded file that no longer carries the delimiters is `conflict`, and sync never re-inserts the
 block.** The owner removed the declaration of ownership; putting the block back is the resurrection
 already forbidden for a deleted file, at the scale of a file.
@@ -120,6 +157,13 @@ append-block path it will write, so the report and the writer state it from one 
 each deciding for itself. Turning "loses silently" into "loses with permission" while saying nothing
 would be worse than the behaviour it replaces.
 
+On this repository the variant is unknown for both block targets — the 0.1.0 manifest names none and
+today's templates reconstruct neither — so `--apply` will not touch `AGENTS.md` or `CLAUDE.md` here.
+The first live run is safe by construction rather than by care, and stays that way until an `init` or
+a sync on a newer version records the variant. `manifestVersion` rises to 4 for the additive
+`variants` key, and `upgradeManifest` reads an older manifest as carrying no variant at all rather
+than guessing one.
+
 **The system heals from the second run onward.** Once a sync writes an append-block target it
 records the owned-view sha of what it wrote, so from that run on a genuine three-way comparison is
 available for the path and the declaration and the record agree. The declaration is what carries the
@@ -141,7 +185,17 @@ though discovery filled the markers and the record is the whole file `init` wrot
 changing nothing for an append-block target, a file the owner stripped the delimiters from reading
 `conflict`, and the write effect carried on a block that will be written.
 `tests/sync-replay.test.ts` (L3): replaying the frozen 0.1.0 manifest reads `AGENTS.md` and
-`CLAUDE.md` as `update`. `tests/manifest.test.ts` (L3): the additive `sync`
+`CLAUDE.md` as `unknown`, carrying no variant and writable by nobody.
+`tests/sync-variant.test.ts` (L3): `init` records a variant for every append-block target it wrote
+and a manifest written before this change carries none; the record is taken where it exists; the
+default and the existing variant are each proven by reconstruction once the record is stripped;
+neither source settling it leaves the path unwritten, unrecorded and byte-identical after an
+`--apply`, whatever its shape suggests; and a sync that writes a block target records the variant it
+used. `tests/sync-classification.test.ts` (L3): the `unknown` row of the cross product, the class
+turning to `keep` or `update` the moment evidence settles the variant, a stripped delimiter staying
+`conflict`, and `isWritable` false for both shapes. `tests/sync-report.test.ts` and
+`tests/sync-apply.test.ts` (L3): `unknown` and `conflict` are listed under separate headings with
+separate reasons, in the report and in the apply output. `tests/manifest.test.ts` (L3): the additive `sync`
 branch, the raised `manifestVersion`, and the recorded sha read from `sync` when present and from
 `init` otherwise. `isWritable` in `src/sync/classify.ts` (L3) makes the `merge-json` ban structural rather than
 written down: writability is derived from the strategy as well as the class, so a `package.json`

@@ -3,12 +3,16 @@ title: construct sync composition
 description: >-
   Two entry points share one replay. `runSync(root, version)` in `src/commands/sync/index.ts` reads
   `construct.json`, replays today's template groups for the preset the manifest recorded, classifies
-  every path into one of the seven classes, counts them, and hands the report to `printSync` or to
+  every path into one of the eight classes, counts them, and hands the report to `printSync` or to
   `syncJson`; it writes nothing. `applySync(root, version)` replays the same evidence and writes only
   what `isWritable` allows — `add` and `update` where the strategy is `create` or `append-block`,
-  never a `merge-json` target, a `conflict`, a `removed` or a `foreign` path — then records the owned
-  view of each written path in the manifest's `sync` branch, leaving the branch `init` wrote
-  untouched. A block target is spliced between the markers the present file already carries, so every
+  never a `merge-json` target, a `conflict`, an `unknown`, a `removed` or a `foreign` path — then
+  records the owned view and the template variant of each written path in the manifest's `sync`
+  branch, leaving the branch `init` wrote untouched. Before an append-block target is classified,
+  `establishVariant` settles which template variant wrote it: the variant `init` recorded, else the
+  sole variant the templates carry, else the one whose rendering matches the recorded sha. Where
+  nothing settles it the path reads `unknown`, is written in no mode, and is reported under its own
+  reason rather than as a conflict. A block target is spliced between the markers the present file already carries, so every
   byte outside them and every filled discovery body survives. The write effect an append-block target
   carries travels on the classification, so both the report and the apply output print it rather than
   restating it. The last line names the version that materialized the repository against the version
@@ -55,8 +59,12 @@ nodes:
     label: owned view per strategy · construct block, merge-json keys, whole file
     path: src/sync/ownership.ts
     boundary: classification
+  - id: variant
+    label: establishVariant · recorded, sole, reconstructed — or unknown, which is never written
+    path: src/sync/variant.ts
+    boundary: classification
   - id: classify
-    label: classifyRepository · add / keep / update / conflict / removed / orphaned / foreign, with the write effect
+    label: classifyRepository · add / keep / update / conflict / unknown / removed / orphaned / foreign, with the write effect
     path: src/sync/classify.ts
     boundary: classification
   - id: writes
@@ -72,7 +80,7 @@ nodes:
     path: src/manifest.ts
     boundary: write
   - id: print
-    label: printSync · seven counts, the actionable paths, the version gap, the exit code
+    label: printSync · eight counts, the actionable paths, the version gap, the exit code
     path: src/commands/sync/report.ts
     boundary: report
   - id: json
@@ -80,7 +88,7 @@ nodes:
     path: src/commands/sync/report.ts
     boundary: report
   - id: printApply
-    label: printSyncApply · what was written, what was refused, the exit code
+    label: printSyncApply · what was written, whose variant is unknown, what was refused, the exit code
     path: src/commands/sync/report.ts
     boundary: report
 edges:
@@ -90,7 +98,8 @@ edges:
   - {from: apply, to: manifest, kind: sequence}
   - {from: manifest, to: replay, kind: sequence}
   - {from: replay, to: plan, kind: sequence}
-  - {from: plan, to: classify, kind: sequence}
+  - {from: plan, to: variant, kind: sequence}
+  - {from: variant, to: classify, kind: sequence}
   - {from: ownership, to: classify, kind: wires}
   - {from: classify, to: print, kind: route, label: report}
   - {from: classify, to: json, kind: route, label: --json}

@@ -12,12 +12,14 @@ export function templatesRoot(): string {
   return found
 }
 
+export type TemplateVariant = 'default' | 'existing'
+
 export interface TemplateFile {
   group: string
   source: string
   target: string
   rendered: boolean
-  variant: 'default' | 'existing'
+  variant: TemplateVariant
 }
 
 const EXISTING_SUFFIX = '.existing.eta'

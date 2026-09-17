@@ -2,13 +2,16 @@ import type { Manifest } from '../manifest.js'
 import type { FileOp } from '../materialize/plan.js'
 import type { TemplateGroup, TemplateVars } from '../presets/index.js'
 import type { PathClassification } from './classify.js'
+import type { EstablishedVariant } from './variant.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { recordedShas } from '../manifest.js'
+import { recordedShas, recordedVariants } from '../manifest.js'
 import { planMaterialize } from '../materialize/plan.js'
+import { strategyFor } from '../materialize/strategies.js'
 import { aiGroups, getPreset, reviewGroups } from '../presets/index.js'
 import { classifyRepository } from './classify.js'
+import { establishVariant, existingForm } from './variant.js'
 
 const NO_TREE_TO_PLAN_AGAINST = path.join(tmpdir(), 'mikoshi-construct-replay-renders-against-no-tree')
 
@@ -23,6 +26,7 @@ export interface ReplayReport {
   toVersion: string
   present: Record<string, string>
   produced: Record<string, string>
+  variants: Record<string, EstablishedVariant>
   classifications: PathClassification[]
 }
 
@@ -55,19 +59,63 @@ function contentByTarget(ops: FileOp[]): Record<string, string> {
   return Object.fromEntries(ops.map(op => [op.target, op.content]))
 }
 
-function producedByTemplates(manifest: Manifest, vars: TemplateVars, recorded: Record<string, string>): Record<string, string> {
+interface ReplayedTemplates {
+  produced: Record<string, string>
+  existingVariants: Record<string, string>
+}
+
+function producedByTemplates(manifest: Manifest, vars: TemplateVars, recorded: Record<string, string>): ReplayedTemplates {
   const groups = replayedGroups(manifest)
   const plan = (emptyTarget: boolean): ReturnType<typeof planMaterialize> =>
     planMaterialize(NO_TREE_TO_PLAN_AGAINST, groups, vars, { emptyTarget, ai: manifest.ai })
 
   const withoutSamples = plan(false)
-  if (withoutSamples.omittedGroups.length === 0)
-    return contentByTarget(withoutSamples.ops)
-
   const kept = contentByTarget(withoutSamples.ops)
-  const withSamples = contentByTarget(plan(true).ops)
-  const sampleWasMaterialized = Object.keys(withSamples).some(target => !(target in kept) && recorded[target] != null)
-  return sampleWasMaterialized ? withSamples : kept
+  if (withoutSamples.omittedGroups.length === 0)
+    return { produced: kept, existingVariants: withoutSamples.existingVariants }
+
+  const withSamples = plan(true)
+  const sampled = contentByTarget(withSamples.ops)
+  const sampleWasMaterialized = Object.keys(sampled).some(target => !(target in kept) && recorded[target] != null)
+  return sampleWasMaterialized
+    ? { produced: sampled, existingVariants: withSamples.existingVariants }
+    : { produced: kept, existingVariants: withoutSamples.existingVariants }
+}
+
+function establishedVariants(input: {
+  manifest: Manifest
+  recorded: Record<string, string>
+  present: Record<string, string>
+  templates: ReplayedTemplates
+}): Record<string, EstablishedVariant> {
+  const recordedVariant = recordedVariants(input.manifest)
+  const established: Record<string, EstablishedVariant> = {}
+  for (const [target, producedDefault] of Object.entries(input.templates.produced)) {
+    const present = input.present[target]
+    if (strategyFor(target) !== 'append-block' || present == null)
+      continue
+    const variant = establishVariant({
+      target,
+      recordedVariant: recordedVariant[target] ?? null,
+      recordedSha: input.recorded[target] ?? null,
+      present,
+      producedDefault,
+      existingTemplate: input.templates.existingVariants[target] ?? null,
+    })
+    if (variant != null)
+      established[target] = variant
+  }
+  return established
+}
+
+function producedInTheVariantThatWroteIt(templates: ReplayedTemplates, variants: Record<string, EstablishedVariant>): Record<string, string> {
+  const produced = { ...templates.produced }
+  for (const [target, established] of Object.entries(variants)) {
+    const template = templates.existingVariants[target]
+    if (established.variant === 'existing' && template != null)
+      produced[target] = existingForm(target, template)
+  }
+  return produced
 }
 
 function presentInTree(root: string, targets: string[]): Record<string, string> {
@@ -84,16 +132,19 @@ export function replay(input: ReplayInput): ReplayReport {
   const missed = new Set<string>()
   const vars = varsRecordingMisses(input.manifest, input.version, missed)
   const recorded = recordedShas(input.manifest)
-  const produced = producedByTemplates(input.manifest, vars, recorded)
+  const templates = producedByTemplates(input.manifest, vars, recorded)
   if (missed.size > 0)
     throw new Error(missingVariables(input.manifest, missed))
 
-  const present = presentInTree(input.root, [...Object.keys(recorded), ...Object.keys(produced)])
+  const present = presentInTree(input.root, [...Object.keys(recorded), ...Object.keys(templates.produced)])
+  const variants = establishedVariants({ manifest: input.manifest, recorded, present, templates })
+  const produced = producedInTheVariantThatWroteIt(templates, variants)
   return {
     fromVersion: input.manifest.construct,
     toVersion: input.version,
     present,
     produced,
-    classifications: classifyRepository({ recorded, present, produced }),
+    variants,
+    classifications: classifyRepository({ recorded, present, produced, variants }),
   }
 }
