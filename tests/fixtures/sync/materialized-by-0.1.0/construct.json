@@ -1,0 +1,72 @@
+{
+  "construct": "0.1.0",
+  "createdAt": "2026-09-16T13:50:36.995Z",
+  "preset": "node-library",
+  "ai": "claude",
+  "review": null,
+  "harness": {
+    "command": "pnpm run quality"
+  },
+  "report": {
+    "usage": true
+  },
+  "contracts": null,
+  "vars": {
+    "projectName": "mikoshi-construct",
+    "scope": "@mikoshi-construct",
+    "nodeMajor": "22",
+    "contracts": "false",
+    "contractPath": "",
+    "contractTypesOutput": "",
+    "compositionDir": "architecture/composition",
+    "harnessCommand": "pnpm run quality",
+    "packageManager": "pnpm",
+    "pnpmVersion": "12.4.2",
+    "reviewModel": "claude-sonnet-5",
+    "constructVersion": "0.1.0"
+  },
+  "files": {
+    ".claude/agents/architect.md": "ce148eee532a1802fe04a1517c9cd087b6060eeeaa4bc9da763ee6d321c449a5",
+    ".claude/agents/harness.md": "708656343f28c9a992fe2130f06d24c3306ed066caf5e92d2b1060e3f78d9515",
+    ".claude/agents/implementer.md": "4d89d4d8dab1fe68997e484105487663c3f49b86c226a2e36df73f5669346810",
+    ".claude/commands/construct-discover.md": "bec88636c7e3113cf95e2496c75f2db0b5b8f25d7ec3dce3a1b494c1fc329188",
+    ".claude/commands/plan.md": "904bdbe1856a0e5af167dae7845f29b9280182011c278630c263c288110d74e0",
+    ".claude/rules/conventions.md": "1df1e43e746de65fff26bba2b90f6def7bd1c1b716c65b13ca437669ef1ab7d1",
+    ".claude/rules/secrets.md": "01bb9a99baeca88b7969d116bf6a96b57527d5f38dd56bdcecf8770313f33153",
+    ".claude/rules/tests.md": "f1db64dea1193e23e61f3b5c3f50e9e1d8468968f600d329903e31e2e93a630a",
+    ".claude/skills/implement/SKILL.md": "5c6d566d79812ad1d160d1dcf49a1295d7684cffbf6a39c314cb7fe5a4e66481",
+    ".github/workflows/ci.yml": "ec3501a4b39506803f45a549344b81bf5fbbb723a1effa4b785fbcac8daffc72",
+    ".github/workflows/security.yml": "e81b04407549c5dc68b80c30fbdfe59704d4b2c7479b2af175f8f6200b0e8b39",
+    ".gitignore": "a403e0da6a8e93f8214c6a1981e288d15b1a517826bb7bb62a262916094d22e2",
+    ".gitleaks.toml": "27630a96d6c55755cc37620f3933d5cab94b1eb78a726a32e11212972525d76e",
+    ".nvmrc": "f14b4987904bcb5814e4459a057ed4d20f58a633152288a761214dcd28780b56",
+    ".vscode/settings.json": "ebe0b0a73dfb45bf5e8e07875cd4f730b884a0ec251dd77de76af4d1b7ed4e77",
+    "AGENTS.md": "1e04935b3f9cd3a7d705f404c9cde97cfc7d6f70d7396a101feaa9144479bae0",
+    "architecture/checklists.md": "8de2c0a741de5fdeda9fa10254cd17bd3df56bb143d63d27625295ce44030d39",
+    "architecture/principles.md": "3de39a2686fe0d11e53ef2ccfe5d403499c044a6dde996db19ccb043949ec599",
+    "architecture/security-invariants.md": "2f0da684a54b80d285c1b18c54b7cd7ca7aaf2df3ae851e4478490e183dd24c1",
+    "CLAUDE.md": "713136c9951f2cc21a083a8dfd09adbb3b33b16de14f8ed48323dbf0d66d53ea",
+    "package.json": "5b9eb0916a29550937a7fe5d5c380b041840f3d715317c58172b46e1c0c0faac",
+    "scripts/composition/check.ts": "e43b43089e39d13e03344170f2355a9e6a166d93f11922ac4ce5f458bbfb80f0",
+    "scripts/composition/files.ts": "d01a9045ef9f3f5bfdb8abeec062d152ea9afe903827f55d45eedc979f9bc146",
+    "scripts/composition/model.ts": "c5331c6af3527fbf71e80ec956f52c2af01ed3d7980a976bb093095d7a3dafef",
+    "scripts/composition/render.ts": "8df4b6098cbc0ee600bb930a4d9822a81d32af07b083d5a59cd54ec47f0d9eb9",
+    "scripts/composition/sync-docs.ts": "4514971c4d39b90e6080dd2057adfd5dd7cba3b6b8db2eb9af300aa5aed43c20",
+    "scripts/construct/implement.workflow.mjs": "7da112c9d2aaf31d283907988a4f1379a5b5bd627b09fbec328309b79d037c55",
+    "scripts/tests/composition/files.test.ts": "098d6026c0552598371fb6fa06bd59e603350d9628848a2d7e97642670455c06",
+    "scripts/tests/composition/model.test.ts": "65cec5b1dbe552fe65b5808156bc6a8f57ffd584e7a666d2976e66321ac846d8",
+    "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80"
+  },
+  "discovery": {
+    "product": "AGENTS.md",
+    "module-map": "AGENTS.md",
+    "commands": "AGENTS.md",
+    "composition-roots": "AGENTS.md",
+    "dependency-policy": "AGENTS.md",
+    "high-effort-areas": "AGENTS.md",
+    "composition": "architecture/composition",
+    "security-invariants": "architecture/security-invariants.md",
+    "defects-vs-variance": "AGENTS.md",
+    "open-questions": "AGENTS.md"
+  }
+}

@@ -72,7 +72,7 @@ describe('the design step is part of the run', () => {
       harness: [RED, GREEN],
     })
 
-    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['blocked', 'design schema invalid', 'harness failed', 'passed'])
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['blocked', 'design schema invalid', 'harness failed', 'designed', 'passed'])
   })
 
   it('blocks a high run when the architect fails, carrying the validator error and running no implementer', async () => {
@@ -105,6 +105,12 @@ describe('the design step is part of the run', () => {
     expect(result.attempts.at(-1)).toMatchObject({ rung: 4, effort: 'high', outcome: 'passed' })
     expect(result.effort).toBe('medium')
     expect(result.status).toBe('degraded')
+  })
+
+  it('records a design that completed, so a run cannot claim high with nothing to show for the step', async () => {
+    const { result } = await run({ task: 't', acceptance: [], effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [GREEN] })
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['designed', 'passed'])
+    expect(result.effort).toBe('high')
   })
 
   it('reports high when the design completed and the first rung is green', async () => {
