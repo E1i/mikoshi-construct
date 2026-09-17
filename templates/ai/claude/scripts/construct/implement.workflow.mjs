@@ -52,7 +52,7 @@ const SPEC = {
   },
 }
 
-const DEFAULT_RETRY_LIMIT = 1
+const DEFAULT_RETRY_LIMIT = 0
 
 const task = args.task
 const acceptance = args.acceptance ?? []
