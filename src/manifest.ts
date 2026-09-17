@@ -4,6 +4,7 @@ import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from './presets
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { DEFAULT_COMPOSITION_DIR } from './detect/existing.js'
 
 export const MANIFEST_FILE = 'construct.json'
 export const MANIFEST_VERSION = 4
@@ -66,7 +67,7 @@ export function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex')
 }
 
-export function markerFile(marker: DiscoveryMarker, compositionDir = 'architecture/composition'): string {
+export function markerFile(marker: DiscoveryMarker, compositionDir: string): string {
   switch (marker) {
     case 'composition':
       return compositionDir
@@ -155,7 +156,7 @@ export function upgradeManifest(raw: unknown): Manifest {
   const recorded = (discovery.markers ?? discovery) as Record<string, unknown>
   const markers = Object.fromEntries(DISCOVERY_MARKERS.map(marker => [
     marker,
-    upgradeMarker(recorded[marker], markerFile(marker, manifest.vars?.compositionDir)),
+    upgradeMarker(recorded[marker], markerFile(marker, manifest.vars?.compositionDir ?? DEFAULT_COMPOSITION_DIR)),
   ])) as Record<DiscoveryMarker, MarkerProvenance>
   return {
     ...manifest,
