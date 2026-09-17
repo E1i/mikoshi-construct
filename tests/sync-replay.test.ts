@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
+import { factsTheRepositoryEstablishes } from '../src/detect/facts.js'
 import { readManifest, recordedShas, sha256, upgradeManifest } from '../src/manifest.js'
 import { isWritable } from '../src/sync/classify.js'
 import { replay } from '../src/sync/replay.js'
@@ -22,7 +23,7 @@ function frozenManifest(): Manifest {
 }
 
 function replayFrozen(manifest: Manifest = frozenManifest()): PathClassification[] {
-  return replay({ root: REPOSITORY, manifest, version: VERSION }).classifications
+  return replay({ root: REPOSITORY, manifest, version: VERSION, facts: factsTheRepositoryEstablishes(REPOSITORY) }).classifications
 }
 
 function at(classifications: PathClassification[], target: string): PathClassification | undefined {
@@ -44,7 +45,7 @@ async function materialized(dir: string): Promise<Manifest> {
 
 describe('replaying today\'s templates against the repository construct 0.1.0 materialized', () => {
   it('reads the version the manifest recorded and the version of the running CLI', () => {
-    const report = replay({ root: REPOSITORY, manifest: frozenManifest(), version: VERSION })
+    const report = replay({ root: REPOSITORY, manifest: frozenManifest(), version: VERSION, facts: factsTheRepositoryEstablishes(REPOSITORY) })
     expect(report.fromVersion).toBe('0.1.0')
     expect(report.toVersion).toBe(VERSION)
     expect(report.fromVersion).not.toBe(report.toVersion)
@@ -80,7 +81,7 @@ describe('replaying today\'s templates against the repository construct 0.1.0 ma
     rmSync(path.join(dir, dropped))
     const files = { ...manifest.files }
     delete files[dropped]
-    const classifications = replay({ root: dir, manifest: { ...manifest, files }, version: VERSION }).classifications
+    const classifications = replay({ root: dir, manifest: { ...manifest, files }, version: VERSION, facts: factsTheRepositoryEstablishes(dir) }).classifications
     expect(at(classifications, dropped)?.class).toBe('add')
   })
 
@@ -157,7 +158,7 @@ describe('the replay renders with the variables the manifest recorded', () => {
     const manifest = await materialized(dir)
     expect(manifest.vars.constructVersion).toBe(VERSION)
 
-    const stamped = replay({ root: dir, manifest, version: '99.0.0' }).classifications.filter(entry => entry.class !== 'keep')
+    const stamped = replay({ root: dir, manifest, version: '99.0.0', facts: factsTheRepositoryEstablishes(dir) }).classifications.filter(entry => entry.class !== 'keep')
     expect(stamped.map(entry => entry.target)).toEqual(['AGENTS.md'])
     expect(stamped[0].class).toBe('update')
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain(`v${VERSION}`)
@@ -170,7 +171,7 @@ describe('a replay over a tree that is already what the templates produce', () =
     const manifest = await materialized(dir)
     const before = readManifest(dir)
 
-    const classifications = replay({ root: dir, manifest, version: VERSION }).classifications
+    const classifications = replay({ root: dir, manifest, version: VERSION, facts: factsTheRepositoryEstablishes(dir) }).classifications
     expect(classifications.length).toBeGreaterThan(0)
     expect(ofClass(classifications, 'keep')).toEqual(classifications.map(entry => entry.target))
     expect(at(classifications, 'src/app.ts')?.class).toBe('keep')
@@ -182,7 +183,7 @@ describe('a replay over a tree that is already what the templates produce', () =
     writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'already-a-repository' }))
     const manifest = await materialized(dir)
 
-    const classifications = replay({ root: dir, manifest, version: VERSION }).classifications
+    const classifications = replay({ root: dir, manifest, version: VERSION, facts: factsTheRepositoryEstablishes(dir) }).classifications
     expect(at(classifications, 'src/app.ts')).toBeUndefined()
     expect(ofClass(classifications, 'add')).toEqual([])
   })

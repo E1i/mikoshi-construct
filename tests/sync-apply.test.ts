@@ -7,6 +7,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
 import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
+import { factsTheRepositoryEstablishes } from '../src/detect/facts.js'
 import { DISCOVERY_MARKERS, MANIFEST_VERSION, markerFile, readManifest, sha256, writeManifest } from '../src/manifest.js'
 import { BLOCK_BEGIN, BLOCK_END } from '../src/materialize/strategies.js'
 import { isWritable, PATH_CLASSES } from '../src/sync/classify.js'
@@ -81,7 +82,7 @@ function outsideTheBlock(content: string): [string, string] {
 }
 
 function producedBy(root: string): Record<string, string> {
-  return replay({ root, manifest: readManifest(root)!, version: VERSION }).produced
+  return replay({ root, manifest: readManifest(root)!, version: VERSION, facts: factsTheRepositoryEstablishes(root) }).produced
 }
 
 function packageJsonMissingAKey(root: string): string {
@@ -176,7 +177,7 @@ describe('what sync --apply never touches', () => {
   it('leaves every keep, conflict, removed, orphaned and foreign path byte-identical, path by path', () => {
     const dir = frozenTree()
     const manifest = readManifest(dir)!
-    const evidence = replay({ root: dir, manifest, version: VERSION })
+    const evidence = replay({ root: dir, manifest, version: VERSION, facts: factsTheRepositoryEstablishes(dir) })
 
     const alreadyWhatTheTemplatesProduce = 'architecture/checklists.md'
     writeFileSync(path.join(dir, alreadyWhatTheTemplatesProduce), evidence.produced[alreadyWhatTheTemplatesProduce])

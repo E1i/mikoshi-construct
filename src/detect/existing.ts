@@ -3,7 +3,8 @@ import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml']
-const COMPOSITION_CANDIDATES = ['architecture/composition', 'docs/architecture/composition', 'docs/composition', 'composition']
+export const DEFAULT_COMPOSITION_DIR = 'architecture/composition'
+const COMPOSITION_CANDIDATES = [DEFAULT_COMPOSITION_DIR, 'docs/architecture/composition', 'docs/composition', 'composition']
 const OPENAPI_CANDIDATES = ['contracts/api/openapi.yaml', 'contracts/api/openapi.yml', 'contracts/openapi.yaml', 'openapi.yaml', 'openapi.yml', 'openapi.json', 'api/openapi.yaml', 'docs/openapi.yaml']
 
 function anyExists(dir: string, candidates: string[]): boolean {

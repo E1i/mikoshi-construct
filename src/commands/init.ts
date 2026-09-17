@@ -4,7 +4,7 @@ import type { Ui } from '../ui/console.js'
 import type { Prompter } from '../ui/prompts.js'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { detect } from '../detect/index.js'
+import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
 import { buildManifest, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
@@ -165,7 +165,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     contracts: preset.contracts ? 'true' : 'false',
     contractPath: 'contracts/api/openapi.yaml',
     contractTypesOutput: 'src/contracts/openapi.ts',
-    compositionDir: report.existing.compositionDir ?? 'architecture/composition',
+    compositionDir: report.existing.compositionDir ?? DEFAULT_COMPOSITION_DIR,
     harnessCommand: 'pnpm run quality',
     packageManager: 'pnpm',
     pnpmVersion: report.pnpmVersion ?? '',
@@ -196,7 +196,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
 
   if (plan.omittedGroups.length > 0)
     ui.line(ui.theme.dim(`  ${ui.lore.sampleOmitted}`))
-  if (report.existing.compositionDir != null && report.existing.compositionDir !== 'architecture/composition')
+  if (report.existing.compositionDir != null && report.existing.compositionDir !== DEFAULT_COMPOSITION_DIR)
     ui.line(ui.theme.dim(`  Existing composition models found at ${report.existing.compositionDir}/ — kept there, not moved.`))
   if (plan.conflicts.length > 0)
     ui.glitch('Existing values kept; review these keys by hand:', plan.conflicts)

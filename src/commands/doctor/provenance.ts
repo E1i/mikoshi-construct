@@ -1,6 +1,6 @@
 import type { DiscoveryMarker, Manifest, MarkerProvenance } from '../../manifest.js'
 import { DISCOVERY_MARKERS, sha256 } from '../../manifest.js'
-import { markerBody } from './discovery.js'
+import { markerBody, markerFileFor } from './discovery.js'
 
 export type MarkerAuthorship = 'construct' | 'owner' | 'unknown'
 
@@ -22,7 +22,7 @@ export function discoveryProvenance(root: string, manifest: Manifest): MarkerRea
     return {
       marker,
       file: recorded.file,
-      authorship: markerAuthorship(recorded, markerBody(root, marker, recorded.file)),
+      authorship: markerAuthorship(recorded, markerBody(root, marker, markerFileFor(root, manifest, marker))),
     }
   })
 }

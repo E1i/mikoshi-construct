@@ -2,10 +2,11 @@ import type { DetectReport } from './report.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { detectExisting } from './existing.js'
+import { DEFAULT_COMPOSITION_DIR, detectExisting } from './existing.js'
 import { detectLayout, detectMonorepoTools, detectWorkspaceDirs, detectWorkspacePackages } from './layout.js'
 import { detectPackageManager, detectPnpmVersion } from './package-manager.js'
 
+export { DEFAULT_COMPOSITION_DIR }
 export type { DetectReport, ExistingFiles, Layout, MonorepoTool, PackageManager, WorkspacePackage } from './report.js'
 
 export function detect(dir: string): DetectReport {
