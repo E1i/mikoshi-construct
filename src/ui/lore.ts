@@ -136,7 +136,7 @@ export const LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the traces it claims: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
-  syncTitle: 'REPLAY TRACE',
+  syncTitle: 'BRAINDANCE \u2014 ENGRAM REPLAY',
   syncClasses: 'PATH CLASSES',
   syncClassMeaning: {
     add: 'not in the tree; the templates produce it',
@@ -154,16 +154,16 @@ export const LORE: Lore = {
     [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
   },
   syncVariantUnknown: (shape: string) => `no record of the variant that wrote it and no rendering matches the recorded hash; the shape reads like the ${shape} variant, which is a guess and never enough to write on`,
-  syncApplyUnknown: 'VARIANT UNKNOWN',
+  syncApplyUnknown: 'BEYOND THE BLACKWALL',
   syncNothingToWrite: 'NOTHING TO WRITE \u2014 the replay reads back what the tree already carries.',
   syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
-  syncApplyTitle: 'WRITE TRACE',
+  syncApplyTitle: 'RELIC WRITE',
   syncApplyWritten: 'WRITTEN',
   syncApplyRefused: 'LEFT TO YOU',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'NOTHING WRITTEN \u2014 the tree already carries what the construct owns.',
   syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
-  syncVersionGap: (from: string, to: string) => `MATERIALIZED BY CONSTRUCT v${from} // READ BY v${to}`,
+  syncVersionGap: (from: string, to: string) => `ENGRAM CUT BY v${from} // REPLAYED BY v${to}`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
 }
 

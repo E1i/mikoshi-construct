@@ -76,9 +76,13 @@ npx mikoshi-construct init --yes --preset node-frontend --ai both
 
 ```bash
 npx mikoshi-construct doctor     # baseline intact, harness intact, markers filled
+npx mikoshi-construct sync       # what newer templates would change; writes nothing
 npx mikoshi-construct soulkill   # what the detector sees; writes nothing
 npx mikoshi-construct cost --last
 ```
+
+`sync` reports and changes nothing until you ask for `--apply`, and even then it writes only what
+the construct itself wrote and you have not touched.
 
 Every command, flag and exit code: [docs/cli.md](https://github.com/E1i/mikoshi-construct/blob/main/docs/cli.md).
 
@@ -139,6 +143,7 @@ with a named check, not a second fix.
 |---|---|
 | `construct init` | Detect, configure, materialize. `--yes --preset node-backend\|node-frontend\|node-library\|monorepo --ai claude\|cursor\|both --review claude --dir . --dry-run` |
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
+| `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
 | `construct cost` | Token usage of the `/implement` runs in this directory, per agent, billable and price-weighted (`--last`, `--json`) |
 
