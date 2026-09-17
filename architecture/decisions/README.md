@@ -16,3 +16,4 @@ answer, not a gap to hide.
 | [0004](0004-domain-allowlist-in-templates.md) | Template hygiene uses an allowlist, not a denylist | L4 CI |
 | [0005](0005-one-output-contract-per-agent.md) | One output contract per agent, declared by the schema | L4 runtime |
 | [0006](0006-the-init-manifest-is-frozen.md) | What init wrote in construct.json is frozen | L3 replay test |
+| [0007](0007-doctor-executes-nothing.md) | `doctor` executes nothing from the repository it audits, and never claims L4 | L4 CI |

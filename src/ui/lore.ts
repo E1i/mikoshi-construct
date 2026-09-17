@@ -34,6 +34,11 @@ export interface Lore {
   flatlined: string
   stable: string
   discoveryIncomplete: string
+  enforcement: string
+  typecheckCaveat: string
+  weakestLink: (id: string, level: string) => string
+  levelLift: Record<string, string>
+  weakestLinkNone: string
   wireHarness: string
   wireHarnessSteps: string[]
 }
@@ -66,6 +71,17 @@ export const LORE: Lore = {
   flatlined: 'FLATLINED',
   stable: 'CONSTRUCT STABLE',
   discoveryIncomplete: 'Discovery incomplete.',
+  enforcement: 'ENFORCEMENT TRACE',
+  typecheckCaveat: 'Typecheck cannot carry this stack alone.',
+  weakestLink: (id: string, level: string) => `WEAKEST LINK: ${id} at ${level}`,
+  levelLift: {
+    L0: 'wire it to a hook or a workflow step and it climbs',
+    L1: 'only a reviewer stands behind it; a hook or a workflow step raises it',
+    L2: 'a hook is bypassable with --no-verify; running it in CI too raises it',
+    L3: 'L3 is the ceiling doctor can read: branch protection is what makes it blocking, and that lives in the API',
+    L4: 'nothing above this',
+  },
+  weakestLinkNone: 'WEAKEST LINK: nothing is claimed',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
     'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
@@ -102,6 +118,17 @@ export const PLAIN_LORE: Lore = {
   flatlined: 'ERROR',
   stable: 'OK',
   discoveryIncomplete: 'Discovery incomplete.',
+  enforcement: 'Enforcement',
+  typecheckCaveat: 'Typecheck cannot carry this stack alone.',
+  weakestLink: (id: string, level: string) => `Weakest link: ${id} at ${level}`,
+  levelLift: {
+    L0: 'wire it to a hook or a workflow step and it climbs',
+    L1: 'only a reviewer stands behind it; a hook or a workflow step raises it',
+    L2: 'a hook is bypassable with --no-verify; running it in CI too raises it',
+    L3: 'L3 is the ceiling doctor can read: branch protection is what makes it blocking, and that lives in the API',
+    L4: 'nothing above this',
+  },
+  weakestLinkNone: 'Weakest link: nothing is claimed',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
     'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',

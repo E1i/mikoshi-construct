@@ -17,7 +17,7 @@ function dependencyBoundary([directory, allowed]) {
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [{
-          group: forbidden.flatMap(name => [`../${name}`, `../${name}.js`, `../${name}/*`]),
+          group: forbidden.flatMap(name => [`../${name}`, `../${name}.js`, `../${name}/*`, `../../${name}`, `../../${name}.js`, `../../${name}/*`]),
           message: allowed.length === 0
             ? `${directory} imports no other src module: it returns facts`
             : `${directory} may import only ${allowed.join(', ')}`,
@@ -32,7 +32,7 @@ const dependencyBoundaries = Object.entries(ALLOWED_INTERNAL_IMPORTS).map(depend
 const ANTFU_RESTRICTED_SYNTAX = ['TSEnumDeclaration[const=true]', 'TSExportAssignment']
 
 const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts'
-const RUNS_ONLY_SHIPPED_CODE = 'The CLI runs only the code it ships: no dynamic import, no require, no node:module'
+const RUNS_ONLY_SHIPPED_CODE = 'The CLI runs only the code it ships: doctor audits a repository it does not trust, so src/ reads file text and never loads or runs code from it'
 
 const NO_CHILD_PROCESS = [
   { selector: 'ImportDeclaration[source.value="node:child_process"]', message: SPAWNS_ONLY_THE_PNPM_PROBE },

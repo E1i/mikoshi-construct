@@ -29,7 +29,7 @@ edits. Run it before reporting done.
 | `src/presets/` | Preset = template groups (plain or mounted: `{ group, into, onlyWhenEmpty }`) + variables. `available: false` hides a preset from `init` |
 | `src/materialize/` | `templates.ts` (walk, `_`→`.`, `.eta`→`{{var}}` + `{{#if}}` blocks), `plan.ts` (mount + layer groups → FileOp, canonical `package.json` key order), `strategies.ts` (create / merge-json / append-block, `preserveDiscovery`), `apply.ts` |
 | `src/manifest.ts` | `construct.json`: preset, harness command, contract paths, file hashes, `DISCOVERY_MARKERS` |
-| `src/commands/doctor.ts` | Baseline intact, harness intact (`quality` steps, `contracts.path` / `contracts.types` from the manifest), each discovery marker filled or named as missing |
+| `src/commands/doctor/` | `index.ts` is the composition root; `baseline.ts` / `discovery.ts` / `harness.ts` keep the three verdicts (baseline intact, each discovery marker filled or named as missing, harness intact), `evidence.ts` and its readers do every read of the inspected repository, and `checks/*` turn that evidence into `{id, level, state, evidence}` — see [docs/cli.md](docs/cli.md) |
 | `src/ui/` | `theme.ts` (arasaka / johnny / plain, `NO_COLOR`), `lore.ts` (all user-facing strings), `console.ts` (`createUi(theme, writer)`), `prompts.ts` (`Prompter` + the `@clack/prompts` implementation; `init` without `--yes` asks only for what flags left open) |
 | `templates/base` | Stack-agnostic: `architecture/principles.md`, `checklists.md`, `security-invariants.md`, gitleaks, security workflow |
 | `templates/harness` | Composition engine, contracts check scripts, eslint/tsconfig/vitest, `ci.yml`, `pnpm-workspace.yaml`, `package.json.eta` partial |

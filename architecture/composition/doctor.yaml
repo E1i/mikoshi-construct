@@ -1,16 +1,19 @@
 id: doctor
 title: construct doctor composition
 description: >-
-  `runDoctor(root)` in `src/commands/doctor.ts` is the composition root: it reads `construct.json`
-  and derives three verdicts from it — baseline files, discovery markers, harness — then
-  `printDoctor` turns them into `CONSTRUCT STABLE` or a named `GLITCH` list with exit code 1.
-  Nothing is written.
+  `runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root: it reads
+  `construct.json`, gathers file evidence once, fans out to the three baseline verdicts — files,
+  discovery markers, harness — and to five pure enforcement checks, then fans the verdicts into
+  `printDoctor`, which ends with one weakest-link line. It executes nothing from the repository it
+  inspects and writes nothing.
 doc: architecture/doctor.md
 boundaries:
   - id: entry
     label: Entry
+  - id: evidence
+    label: Evidence · file reads only
   - id: checks
-    label: Checks · read only
+    label: Checks
   - id: report
     label: Report
 nodes:
@@ -20,34 +23,74 @@ nodes:
     boundary: entry
   - id: run
     label: runDoctor
-    path: src/commands/doctor.ts
+    path: src/commands/doctor/index.ts
     boundary: entry
   - id: manifest
     label: readManifest → construct.json
     path: src/manifest.ts
-    boundary: checks
+    boundary: evidence
+  - id: evidence
+    label: construct.json files + package.json, vitest include globs, workflows, hook configs · read only
+    path: src/commands/doctor/evidence.ts
+    boundary: evidence
   - id: files
     label: baseline files · missing / modified (sha256)
-    path: src/commands/doctor.ts
+    path: src/commands/doctor/baseline.ts
     boundary: checks
   - id: markers
     label: discovery markers · placeholder or filled
-    path: src/commands/doctor.ts
+    path: src/commands/doctor/discovery.ts
     boundary: checks
   - id: harness
     label: quality script steps · contract paths
-    path: src/commands/doctor.ts
+    path: src/commands/doctor/harness.ts
+    boundary: checks
+  - id: lintPolicy
+    label: lint-policy · a policy test the harness reaches
+    path: src/commands/doctor/checks/lint-policy.ts
+    boundary: checks
+  - id: constructTests
+    label: construct-tests · recorded tests inside the runner include
+    path: src/commands/doctor/checks/construct-tests.ts
+    boundary: checks
+  - id: ci
+    label: ci · a workflow step running the harness command
+    path: src/commands/doctor/checks/ci.ts
+    boundary: checks
+  - id: hook
+    label: hook · husky / lefthook / simple-git-hooks / core.hooksPath
+    path: src/commands/doctor/checks/hook.ts
+    boundary: checks
+  - id: redGate
+    label: red-gate · unknown, proving it means running it
+    path: src/commands/doctor/checks/red-gate.ts
+    boundary: checks
+  - id: weakest
+    label: weakestLink · lowest level among the claimed gates
+    path: src/commands/doctor/verdict.ts
     boundary: checks
   - id: print
-    label: printDoctor · STABLE or GLITCH, exit code
-    path: src/commands/doctor.ts
+    label: printDoctor · verdicts, levels, one weakest-link line, exit code
+    path: src/commands/doctor/report.ts
     boundary: report
 edges:
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: manifest, kind: sequence}
+  - {from: manifest, to: evidence, kind: sequence}
   - {from: manifest, to: files, kind: fan-out}
   - {from: manifest, to: markers, kind: fan-out}
   - {from: manifest, to: harness, kind: fan-out}
+  - {from: evidence, to: lintPolicy, kind: fan-out}
+  - {from: evidence, to: constructTests, kind: fan-out}
+  - {from: evidence, to: ci, kind: fan-out}
+  - {from: evidence, to: hook, kind: fan-out}
+  - {from: evidence, to: redGate, kind: fan-out}
+  - {from: lintPolicy, to: weakest, kind: fan-in}
+  - {from: constructTests, to: weakest, kind: fan-in}
+  - {from: ci, to: weakest, kind: fan-in}
+  - {from: hook, to: weakest, kind: fan-in}
+  - {from: redGate, to: weakest, kind: fan-in}
   - {from: files, to: print, kind: fan-in}
   - {from: markers, to: print, kind: fan-in}
   - {from: harness, to: print, kind: fan-in}
+  - {from: weakest, to: print, kind: fan-in}
