@@ -9,8 +9,8 @@ not verify by reading code; where the codebase is inconsistent, record an open q
 inventing a rule.
 
 Scope: `$ARGUMENTS` (empty means every marker). The markers, and the file each one lives in, are
-listed under `discovery` in `construct.json` (the text markers in `AGENTS.md`, the composition models
-in the directory `discovery.composition` names). Every marker is a block between
+listed under `discovery.markers` in `construct.json` (the text markers in `AGENTS.md`, the composition
+models in the directory `discovery.markers.composition.file` names). Every marker is a block between
 `<!-- construct:discover:<name> -->` and `<!-- /construct:discover:<name> -->`; replace the placeholder
 line inside the block and nothing outside it. `construct doctor` reports any marker still holding the
 placeholder.
@@ -37,7 +37,9 @@ Work in this order:
 2. **Inventory.** Read `construct.json`, `package.json`, the directory tree two levels deep, the entry
    points (servers, app factories, `main.ts`, CLI scripts, workers), the API contract if there is
    one, and every `*.config.ts` / `config.ts`. Note the package manager, runtime, database and clients, CI, deployment
-   and existing conventions. Do not write yet.
+   and existing conventions. Do not write yet. Record the commit this run starts from: set
+   `discovery.baseSha` in `construct.json` to the output of `git rev-parse HEAD`, or `null` where the
+   repository has no commit yet.
 3. **`product`** (AGENTS.md): what the system does, in one paragraph, and the one flow where a
    defect costs the most (money, identity, data). If the repository is empty apart from the baseline,
    say so in one line.
@@ -54,7 +56,7 @@ Work in this order:
 8. **`high-effort-areas`** (AGENTS.md): the paths where a wrong low-effort guess is expensive —
    attribution, authentication, money, schema, anything a shipped client depends on. This list is what
    `/implement` uses to classify a task as `high`.
-9. **`composition`** (`<discovery.composition>/*.yaml` from `construct.json`): one model per real flow the code has today
+9. **`composition`** (`<discovery.markers.composition.file>/*.yaml` from `construct.json`): one model per real flow the code has today
    (the HTTP app, a worker, a sync, a CLI, the browser bootstrap) — small, one per flow, every `path`
    must exist. A baseline model, when the construct shipped one, is updated, not duplicated; a
    repository that had code before the construct starts with no model and needs at least one for its
@@ -70,6 +72,25 @@ Work in this order:
     stale rendered diagram, a lint rule with no matching file). Then run `construct doctor`, or
     `npx mikoshi-construct doctor` when the CLI is not installed; it names every marker that still
     holds the placeholder.
+
+13. **Record what you wrote, in the manifest and nowhere else.** Provenance belongs in
+    `construct.json`; never add a byline, an authorship note or a hash to a marker body. Set
+    `discovery.filledAt` to the time you finished, and for each marker you filled set
+    `discovery.markers.<name>` to `{"file": "<the file it lives in>", "authoredBy": "construct",
+    "sha": "<sha256 of the body you wrote>"}`. A marker you did not fill keeps the entry it had.
+    The body is the text between `<!-- construct:discover:<name> -->` and
+    `<!-- /construct:discover:<name> -->` with leading and trailing whitespace stripped; for
+    `composition` it is every `*.yaml` in the directory, sorted by name, each as its filename, a
+    newline and its contents, joined by newlines. Compute it, never estimate it:
+
+    ```bash
+    node -e 'const{createHash}=require("node:crypto"),{readFileSync}=require("node:fs");const[f,m]=process.argv.slice(1);const d=readFileSync(f,"utf8"),o=`<!-- construct:discover:${m} -->`,c=`<!-- /construct:discover:${m} -->`;console.log(createHash("sha256").update(d.slice(d.indexOf(o)+o.length,d.indexOf(c)).trim()).digest("hex"))' AGENTS.md product
+    node -e 'const{createHash}=require("node:crypto"),{readFileSync,readdirSync}=require("node:fs"),p=require("node:path");const d=process.argv[1],b=readdirSync(d).filter(n=>n.endsWith(".yaml")).sort().map(n=>`${n}\n${readFileSync(p.join(d,n),"utf8")}`).join("\n");console.log(createHash("sha256").update(b).digest("hex"))' architecture/composition
+    ```
+
+    This is what keeps a statement the tool wrote from later reading as one the repository stands
+    behind. The moment the owner edits a marker its body stops matching the recorded sha and
+    `construct doctor` reads it as theirs — the edit is the evidence, and there is no command to run.
 
 Report: which markers you filled, which you left as open questions and why, and the harness result.
 Do not commit.

@@ -34,6 +34,8 @@ export interface Lore {
   flatlined: string
   stable: string
   discoveryIncomplete: string
+  provenance: string
+  stillConstructAuthored: (count: number) => string
   enforcement: string
   typecheckCaveat: string
   weakestLink: (id: string, level: string) => string
@@ -80,6 +82,8 @@ export const LORE: Lore = {
   flatlined: 'FLATLINED',
   stable: 'CONSTRUCT STABLE',
   discoveryIncomplete: 'Discovery incomplete.',
+  provenance: 'AUTHORSHIP TRACE',
+  stillConstructAuthored: (count: number) => `Still the construct's own words: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
   enforcement: 'ENFORCEMENT TRACE',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   weakestLink: (id: string, level: string) => `WEAKEST LINK: ${id} at ${level}`,
@@ -136,6 +140,8 @@ export const PLAIN_LORE: Lore = {
   flatlined: 'ERROR',
   stable: 'OK',
   discoveryIncomplete: 'Discovery incomplete.',
+  provenance: 'Discovery provenance',
+  stillConstructAuthored: (count: number) => `Unchanged since discovery wrote them: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
   enforcement: 'Enforcement',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   weakestLink: (id: string, level: string) => `Weakest link: ${id} at ${level}`,

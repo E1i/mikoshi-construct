@@ -327,7 +327,7 @@ describe('construct init on a repository that already documents itself', () => {
     expect(Object.keys(pkg).indexOf('scripts')).toBeGreaterThan(Object.keys(pkg).indexOf('private'))
 
     const manifest = readManifest(dir)
-    expect(manifest?.discovery.composition).toBe('docs/architecture/composition')
+    expect(manifest?.discovery.markers.composition.file).toBe('docs/architecture/composition')
     expect(existsSync(path.join(dir, 'architecture/composition'))).toBe(false)
     expect(runDoctor(dir)?.missingDiscovery).not.toContain('composition')
   })

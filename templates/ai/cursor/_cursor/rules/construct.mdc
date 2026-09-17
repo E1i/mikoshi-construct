@@ -11,7 +11,7 @@ areas, defects vs accepted variance), `architecture/security-invariants.md`.
 The harness command is in `construct.json` (`harness.command`). A change is done only when it passes.
 API changes start from the contract file named in `construct.json` (`contracts.path`); regenerate the
 types with `pnpm contracts:types` before implementing. Composition models in the directory
-`construct.json` names as `discovery.composition` are the source of the diagrams; edit the model and run
+`construct.json` names as `discovery.markers.composition.file` are the source of the diagrams; edit the model and run
 `pnpm composition:render`, never the rendered block.
 
 Discovery: when asked to "run construct discovery", follow the `construct-discover` rule in this

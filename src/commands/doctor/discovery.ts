@@ -13,20 +13,37 @@ export function markerClose(marker: string): string {
   return `<!-- /construct:discover:${marker} -->`
 }
 
-export function isMarkerFilled(document: string, marker: string): boolean {
+export function blockBody(document: string, marker: string): string | null {
   const start = document.indexOf(markerOpen(marker))
   const stop = document.indexOf(markerClose(marker))
   if (start === -1 || stop === -1 || stop < start)
-    return false
+    return null
   const body = document.slice(start + markerOpen(marker).length, stop).trim()
-  return body !== '' && body !== DISCOVERY_PLACEHOLDER
+  return body === '' || body === DISCOVERY_PLACEHOLDER ? null : body
+}
+
+export function isMarkerFilled(document: string, marker: string): boolean {
+  return blockBody(document, marker) != null
+}
+
+function compositionBody(directory: string): string | null {
+  if (!existsSync(directory))
+    return null
+  const models = readdirSync(directory).filter(file => file.endsWith('.yaml')).sort()
+  if (models.length === 0)
+    return null
+  return models.map(model => `${model}\n${readFileSync(path.join(directory, model), 'utf8')}`).join('\n')
+}
+
+export function markerBody(root: string, marker: DiscoveryMarker, file: string): string | null {
+  const location = path.join(root, file)
+  if (marker === 'composition')
+    return compositionBody(location)
+  if (!existsSync(location))
+    return null
+  return blockBody(readFileSync(location, 'utf8'), marker)
 }
 
 export function missingDiscovery(root: string, manifest: Manifest): DiscoveryMarker[] {
-  return DISCOVERY_MARKERS.filter((marker) => {
-    const location = path.join(root, manifest.discovery[marker])
-    if (marker === 'composition')
-      return !existsSync(location) || !readdirSync(location).some(file => file.endsWith('.yaml'))
-    return !existsSync(location) || !isMarkerFilled(readFileSync(location, 'utf8'), marker)
-  })
+  return DISCOVERY_MARKERS.filter(marker => markerBody(root, marker, manifest.discovery.markers[marker].file) == null)
 }

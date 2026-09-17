@@ -5,7 +5,7 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:doctor -->
-`runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root: it reads `construct.json`, gathers file evidence once, fans out to the three baseline verdicts — files, discovery markers, harness — and to five pure enforcement checks, then fans the verdicts into `printDoctor`, which ends with one weakest-link line. It executes nothing from the repository it inspects and writes nothing.
+`runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root: it reads `construct.json` through `upgradeManifest`, gathers file evidence once, fans out to the four baseline verdicts — files, discovery markers, marker provenance, harness — and to five pure enforcement checks, then fans the verdicts into `printDoctor`, which ends with one weakest-link line. Provenance is reported, never gated: it sets no exit code. `doctor` executes nothing from the repository it inspects and writes nothing, including the manifest it just normalised.
 
 ```mermaid
 flowchart LR
@@ -14,12 +14,13 @@ flowchart LR
     run["runDoctor"]
   end
   subgraph b_evidence["Evidence · file reads only"]
-    manifest["readManifest → construct.json"]
+    manifest["readManifest → construct.json · upgradeManifest normalises a 0.1.x manifest on read"]
     evidence["construct.json files + package.json, vitest include globs, workflows, hook configs · read only"]
   end
   subgraph b_checks["Checks"]
     files["baseline files · missing / modified (sha256)"]
     markers["discovery markers · placeholder or filled"]
+    provenance["marker provenance · recorded sha vs the body today → construct / owner / unknown"]
     harness["quality script steps · contract paths"]
     lintPolicy["lint-policy · a policy test the harness reaches"]
     constructTests["construct-tests · recorded tests inside the runner include"]
@@ -36,6 +37,7 @@ flowchart LR
   manifest --> evidence
   manifest -->|"fan-out"| files
   manifest -->|"fan-out"| markers
+  manifest -->|"fan-out"| provenance
   manifest -->|"fan-out"| harness
   evidence -->|"fan-out"| lintPolicy
   evidence -->|"fan-out"| constructTests
@@ -49,6 +51,7 @@ flowchart LR
   redGate -->|"fan-in"| weakest
   files -->|"fan-in"| print
   markers -->|"fan-in"| print
+  provenance -->|"fan-in"| print
   harness -->|"fan-in"| print
   weakest -->|"fan-in"| print
 ```
@@ -59,4 +62,6 @@ flowchart LR
 Only missing baseline files and harness problems make `doctor` exit 1. Modified baseline files are
 expected once a project evolves and are reported as a count. Unfilled discovery markers are named as
 `GLITCH` lines but do not fail the command: discovery is the agent's job, and the harness must stay
-usable before it runs.
+usable before it runs. Marker provenance is reported on the same terms — the markers still reading
+back word for word what discovery wrote are named, and naming them changes no exit code. It is a
+sixth thing doctor says, never a sixth gate.

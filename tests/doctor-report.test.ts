@@ -1,4 +1,4 @@
-import type { DoctorResult } from '../src/commands/doctor/index.js'
+import type { DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
 import type { ThemeName } from '../src/ui/theme.js'
 import { describe, expect, it } from 'vitest'
 import { printDoctor } from '../src/commands/doctor/index.js'
@@ -15,6 +15,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     missingFiles: [],
     modifiedFiles: [],
     missingDiscovery: [],
+    provenance: [],
     harnessProblems: [],
     warnings: [],
     checks: [
@@ -66,10 +67,30 @@ describe('the doctor report', () => {
     expect(nonEmptyLines(output).filter(line => WEAKEST_LINK_LINE.test(line))).toHaveLength(1)
   })
 
+  it('names the markers still reading back what discovery wrote, above the weakest-link line and without changing the exit code', () => {
+    const provenance: MarkerReading[] = [
+      { marker: 'product', file: 'AGENTS.md', authorship: 'construct' },
+      { marker: 'module-map', file: 'AGENTS.md', authorship: 'owner' },
+      { marker: 'composition', file: 'architecture/composition', authorship: 'unknown' },
+    ]
+    const { output, code } = render(result({ provenance }))
+    expect(output).toContain('product')
+    expect(output).not.toContain('module-map')
+    expect(output).not.toContain('architecture/composition')
+    expect(nonEmptyLines(output).at(-1)).toMatch(WEAKEST_LINK_LINE)
+    expect(code).toBe(0)
+  })
+
+  it('says nothing about provenance when no marker still reads as the construct\'s own', () => {
+    const provenance: MarkerReading[] = [{ marker: 'product', file: 'AGENTS.md', authorship: 'owner' }]
+    expect(render(result({ provenance })).output).not.toContain('Discovery provenance')
+  })
+
   it('carries no emoji and no lore vocabulary with --plain', () => {
     const { output } = render(result({
       missingFiles: ['AGENTS.md'],
       missingDiscovery: ['product'],
+      provenance: [{ marker: 'product', file: 'AGENTS.md', authorship: 'construct' }],
       modifiedFiles: ['CLAUDE.md'],
       warnings: ['node-frontend: `tsc --noEmit` does not see `.vue` components'],
       ok: false,
