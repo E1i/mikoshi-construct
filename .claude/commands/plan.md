@@ -12,6 +12,8 @@ Rules:
 - Two to six tasks. Each task is independently verifiable by the harness and leaves the tree green.
 - Each task has two to four acceptance criteria that a harness run or a test can confirm. "Works" is
   not a criterion; "GET /v1/things returns 200 with the `Thing` schema and the contract test passes" is.
+- A criterion is verified by what the task changes itself. If satisfying it needs an action outside the
+  task, it belongs to that task, not this one.
 - Order tasks so the contract and composition changes come first, then implementation, then anything
   that consumes the new behaviour.
 - Classify each task `low`, `medium` or `high` with the rules in `architecture/principles.md`

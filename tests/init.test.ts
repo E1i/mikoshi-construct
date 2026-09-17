@@ -40,6 +40,17 @@ describe('construct init --yes --preset node-backend', () => {
     expect(doctor?.missingDiscovery).not.toContain('composition')
   })
 
+  it('gives the generated project documents that are what the templates promise, not merely files that exist', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false, name: 'demo-service' })
+
+    for (const file of ['CLAUDE.md', 'AGENTS.md']) {
+      const lines = readFileSync(path.join(dir, file), 'utf8').split('\n')
+      const heading = lines.find(line => line.trim() !== '' && !line.startsWith('<!--'))
+      expect(heading, file).toBe('# demo-service')
+    }
+  })
+
   it('never overwrites existing files and merges the manifest', async () => {
     const dir = scratch()
     writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'keep-me', scripts: { test: 'jest' } }))
