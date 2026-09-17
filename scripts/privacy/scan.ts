@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { ALLOWED_DOMAINS } from './allowlist.js'
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-export const SCANNED_PATHS = ['templates', 'docs', 'README.md']
+export const SCANNED_PATHS = ['templates', 'docs', 'README.md', 'tests/fixtures']
 
 const MENTIONED_TLDS = ['com', 'org', 'net', 'io', 'dev', 'co', 'ai', 'sh', 'app', 'me', 'gg', 'cloud', 'tech', 'xyz', 'info', 'run']
 const HOST = String.raw`[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}`

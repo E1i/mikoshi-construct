@@ -1,0 +1,64 @@
+{
+  "construct": "0.1.0",
+  "createdAt": "2026-09-16T11:06:02.468Z",
+  "preset": "monorepo",
+  "ai": "claude",
+  "review": null,
+  "harness": {
+    "command": "pnpm run quality"
+  },
+  "contracts": {
+    "path": "contracts/api/openapi.yaml",
+    "types": "packages/shared/src/api/openapi.ts"
+  },
+  "vars": {
+    "projectName": "orchard-suite",
+    "scope": "@orchard-suite",
+    "nodeMajor": "24",
+    "contracts": "true",
+    "contractPath": "contracts/api/openapi.yaml",
+    "contractTypesOutput": "packages/shared/src/api/openapi.ts",
+    "harnessCommand": "pnpm run quality",
+    "packageManager": "pnpm",
+    "pnpmVersion": "12.4.2",
+    "reviewModel": "claude-sonnet-5",
+    "constructVersion": "0.1.0",
+    "contractTypesImport": "@orchard-suite/shared",
+    "contractPathFromConfig": "../../../contracts/api/openapi.yaml",
+    "appRoot": "apps/api/",
+    "workspacePackages": "['@orchard-suite/backend', '@orchard-suite/web', '@orchard-suite/first-partner-client', '@orchard-suite/db-schema', '@orchard-suite/third-partner-client', '@orchard-suite/shared', '@orchard-suite/second-partner-client']",
+    "allowedWorkspaceImports": "{\n  'apps/backend': ['@orchard-suite/web', '@orchard-suite/first-partner-client', '@orchard-suite/db-schema', '@orchard-suite/third-partner-client', '@orchard-suite/shared', '@orchard-suite/second-partner-client'],\n  'apps/web': ['@orchard-suite/backend', '@orchard-suite/first-partner-client', '@orchard-suite/db-schema', '@orchard-suite/third-partner-client', '@orchard-suite/shared', '@orchard-suite/second-partner-client'],\n  'packages/first-partner-client': ['@orchard-suite/backend', '@orchard-suite/web', '@orchard-suite/db-schema', '@orchard-suite/third-partner-client', '@orchard-suite/shared', '@orchard-suite/second-partner-client'],\n  'packages/db-schema': ['@orchard-suite/backend', '@orchard-suite/web', '@orchard-suite/first-partner-client', '@orchard-suite/third-partner-client', '@orchard-suite/shared', '@orchard-suite/second-partner-client'],\n  'packages/third-partner-client': ['@orchard-suite/backend', '@orchard-suite/web', '@orchard-suite/first-partner-client', '@orchard-suite/db-schema', '@orchard-suite/shared', '@orchard-suite/second-partner-client'],\n  'packages/shared': ['@orchard-suite/backend', '@orchard-suite/web', '@orchard-suite/first-partner-client', '@orchard-suite/db-schema', '@orchard-suite/third-partner-client', '@orchard-suite/second-partner-client'],\n  'packages/second-partner-client': ['@orchard-suite/backend', '@orchard-suite/web', '@orchard-suite/first-partner-client', '@orchard-suite/db-schema', '@orchard-suite/third-partner-client', '@orchard-suite/shared'],\n}"
+  },
+  "files": {
+    ".claude/agents/architect.md": "125101dbe6d6971bf99ff74c6837c9354f13de07b1c2eb348da3805665e3afff",
+    ".claude/agents/harness.md": "dafb4f1a6093d85ba88b68b1ed10f19ad74645f9231c5624f56ebde3d9467f6f",
+    ".claude/agents/implementer.md": "4d89d4d8dab1fe68997e484105487663c3f49b86c226a2e36df73f5669346810",
+    ".claude/commands/construct-discover.md": "4ba93e6057600c4816f6cbbae91cfb90ddda454f18438ed7041379c8fb9acbba",
+    ".claude/commands/plan.md": "904bdbe1856a0e5af167dae7845f29b9280182011c278630c263c288110d74e0",
+    ".claude/rules/conventions.md": "1df1e43e746de65fff26bba2b90f6def7bd1c1b716c65b13ca437669ef1ab7d1",
+    ".claude/rules/secrets.md": "01bb9a99baeca88b7969d116bf6a96b57527d5f38dd56bdcecf8770313f33153",
+    ".claude/rules/tests.md": "f1db64dea1193e23e61f3b5c3f50e9e1d8468968f600d329903e31e2e93a630a",
+    ".claude/skills/implement/SKILL.md": "3c2a8d0645490e4d8f327bc24e2239178d597a8daa5120d3fba519cdfe8de069",
+    ".claude/skills/implement/workflow.mjs": "1128d3d5a2e06200f4abc637196e607dd2939afbfa6e0e92f064b41b7324a114",
+    ".gitignore": "ad8106fa9964a040ef5d8a05954c551c295166971267965b2691146b516235e5",
+    "AGENTS.md": "5db6fb207d049101e266c00e0adc678236b02a0986b9918f5995d182d5cceb79",
+    "architecture/checklists.md": "8de2c0a741de5fdeda9fa10254cd17bd3df56bb143d63d27625295ce44030d39",
+    "architecture/principles.md": "3de39a2686fe0d11e53ef2ccfe5d403499c044a6dde996db19ccb043949ec599",
+    "architecture/security-invariants.md": "2f0da684a54b80d285c1b18c54b7cd7ca7aaf2df3ae851e4478490e183dd24c1",
+    "CLAUDE.md": "8d79d2d82fd53ed8af2795a000976f503f0a218d0cd398e68e359f2b4b31d0ba",
+    "package.json": "9d67616ce50ba94382831425e34b78d4c9a34a741f314997eeff992fbf71391b",
+    "packages/shared/package.json": "a2dc96f01a4cb9385fc5f8e6c4d77b4af2e31b6262a0b57b248b01aa440648b3"
+  },
+  "discovery": {
+    "product": "AGENTS.md",
+    "module-map": "CLAUDE.md",
+    "commands": "CLAUDE.md",
+    "composition-roots": "CLAUDE.md",
+    "dependency-policy": "CLAUDE.md",
+    "high-effort-areas": "CLAUDE.md",
+    "composition": "architecture/composition",
+    "security-invariants": "architecture/security-invariants.md",
+    "defects-vs-variance": "AGENTS.md",
+    "open-questions": "AGENTS.md"
+  }
+}

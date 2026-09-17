@@ -16,9 +16,13 @@ describe('privacy guard', () => {
     expect(scanRepository().map(formatViolation)).toEqual([])
   })
 
-  it('never scans its own fixtures', () => {
-    expect(SCANNED_PATHS).toEqual(['templates', 'docs', 'README.md'])
-    expect(scannedFiles().some(file => file.includes('fixtures'))).toBe(false)
+  it('never scans the bait it uses to prove itself', () => {
+    expect(scannedFiles().some(file => file.startsWith('scripts/tests/privacy/fixtures'))).toBe(false)
+  })
+
+  it('scans the test fixtures, where frozen manifests from other repositories live', () => {
+    expect(SCANNED_PATHS).toEqual(['templates', 'docs', 'README.md', 'tests/fixtures'])
+    expect(scannedFiles().some(file => file.startsWith('tests/fixtures/manifests/'))).toBe(true)
   })
 
   it('fails a fixture whose domain is not in the allowlist, naming file and domain', () => {
