@@ -155,7 +155,7 @@ npx mikoshi-construct soulkill
 ```
 >> Inspecting repository...
 
-  ├─ Directory: /home/eli/projects/my-service
+  ├─ Directory: /srv/projects/my-service
   ├─ Runtime: Node.js 24
   ├─ Package manager: pnpm (pnpm 12.4.2 installed)
   ├─ Layout: monorepo (pnpm-workspace)
