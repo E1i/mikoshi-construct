@@ -21,7 +21,7 @@ describe('construct init --yes --preset node-backend', () => {
     const dir = scratch()
     const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     expect(result.status).toBe('done')
-    for (const file of ['package.json', 'CLAUDE.md', 'AGENTS.md', 'construct.json', 'architecture/principles.md', 'architecture/composition/http.yaml', 'contracts/api/openapi.yaml', 'src/app.ts', 'src/contracts/openapi.ts', 'scripts/tests/lint/syntax-policy.test.ts', '.claude/commands/construct-discover.md', '.github/workflows/ci.yml'])
+    for (const file of ['package.json', 'CLAUDE.md', 'AGENTS.md', 'construct.json', 'architecture/principles.md', 'architecture/decisions/README.md', 'architecture/composition/http.yaml', 'contracts/api/openapi.yaml', 'src/app.ts', 'src/contracts/openapi.ts', 'scripts/tests/lint/syntax-policy.test.ts', '.claude/commands/construct-discover.md', '.github/workflows/ci.yml'])
       expect(existsSync(path.join(dir, file)), file).toBe(true)
 
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name: string, scripts: Record<string, string> }
@@ -33,6 +33,7 @@ describe('construct init --yes --preset node-backend', () => {
     expect(manifest?.preset).toBe('node-backend')
     expect(manifest?.harness.command).toBe('pnpm run quality')
     expect(Object.keys(manifest?.files ?? {})).toContain('CLAUDE.md')
+    expect(manifest?.files['architecture/decisions/README.md']).toMatch(/^[0-9a-f]{8,}$/)
 
     const doctor = runDoctor(dir)
     expect(doctor?.ok).toBe(true)
