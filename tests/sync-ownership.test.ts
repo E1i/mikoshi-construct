@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { sha256 } from '../src/manifest.js'
 import { BLOCK_BEGIN, BLOCK_END } from '../src/materialize/strategies.js'
-import { classifyPath } from '../src/sync/classify.js'
+import { BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER, classifyPath } from '../src/sync/classify.js'
 import { matchesRecordedSha, ownedKeys, ownedSha, ownedText } from '../src/sync/ownership.js'
 
 const PLACEHOLDER = '_Not discovered yet — run `/construct-discover`._'
@@ -67,6 +67,41 @@ describe('what the construct owns inside a file, by strategy', () => {
     const staleRecord = ownedSha('AGENTS.md', agents(PLACEHOLDER, 'Context written by an older template.'))
     for (const present of [agents(PLACEHOLDER), ownerPage(agents('A body somebody filled in.'))])
       expect(classifyPath({ target: 'AGENTS.md', recordedSha: staleRecord, present, produced })?.class).toBe('keep')
+  })
+
+  it('reads a block differing from what the templates produce as update, though discovery filled the markers outside the record', () => {
+    const produced = agents(PLACEHOLDER, 'Context written by today\'s template.')
+    const present = ownerPage(agents('A body discovery filled in.', 'Context written by an older template.'))
+    const recordedByInit = sha256(ownerPage(agents(PLACEHOLDER, 'Context written by an older template.')))
+    expect(matchesRecordedSha(recordedByInit, 'AGENTS.md', present)).toBe(false)
+
+    const classification = classifyPath({ target: 'AGENTS.md', recordedSha: recordedByInit, present, produced })
+    expect(classification?.class).toBe('update')
+    expect(classification?.class).not.toBe('conflict')
+  })
+
+  it('never consults the recorded sha of an append-block target, whatever the record says', () => {
+    const produced = agents(PLACEHOLDER, 'Context written by today\'s template.')
+    const present = ownerPage(agents(PLACEHOLDER, 'Context written by an older template.'))
+    for (const recordedSha of [sha256(present), ownedSha('AGENTS.md', present), 'a sha nothing hashes to'])
+      expect(classifyPath({ target: 'AGENTS.md', recordedSha, present, produced })?.class).toBe('update')
+  })
+
+  it('reads a recorded file the owner stripped the delimiters from as conflict, never as add or update', () => {
+    const produced = agents(PLACEHOLDER)
+    const declarationCutOut = '# The owner\'s own AGENTS.md\n\nProse the construct never wrote.\n'
+    const classification = classifyPath({ target: 'AGENTS.md', recordedSha: sha256(ownerPage(produced)), present: declarationCutOut, produced })
+    expect(classification?.class).toBe('conflict')
+    expect(['add', 'update']).not.toContain(classification?.class)
+  })
+
+  it('carries on a block it will write that the block is replaced whole and discovery bodies are carried over', () => {
+    const produced = agents(PLACEHOLDER, 'Context written by today\'s template.')
+    const present = ownerPage(agents('A body discovery filled in.', 'Context written by an older template.'))
+    const update = classifyPath({ target: 'AGENTS.md', recordedSha: sha256(present), present, produced })
+    expect(update?.class).toBe('update')
+    expect(update?.writeEffect).toBe(BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER)
+    expect(classifyPath({ target: 'AGENTS.md', recordedSha: sha256(produced), present: produced, produced })?.writeEffect).toBeNull()
   })
 
   it('reads a record written by sync as the owned view and a record written by init as the whole file', () => {

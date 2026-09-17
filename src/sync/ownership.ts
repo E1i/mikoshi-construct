@@ -11,12 +11,17 @@ export interface OwnedKey {
 export function ownedText(target: string, content: string): string {
   if (strategyFor(target) !== 'append-block')
     return content
+  if (!carriesConstructBlock(target, content))
+    return ''
+  const [begin, end] = blockMarkers(target)
+  return withoutDiscoveryBodies(content.slice(content.indexOf(begin) + begin.length, content.indexOf(end)))
+}
+
+export function carriesConstructBlock(target: string, content: string): boolean {
   const [begin, end] = blockMarkers(target)
   const start = content.indexOf(begin)
   const stop = content.indexOf(end)
-  if (start === -1 || stop < start)
-    return ''
-  return withoutDiscoveryBodies(content.slice(start + begin.length, stop))
+  return start !== -1 && stop > start
 }
 
 export function ownedSha(target: string, content: string): string {

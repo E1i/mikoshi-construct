@@ -146,12 +146,12 @@ describe('the ordered comparison inside recorded, present and produced', () => {
 describe('what sync may write is decided by the strategy, not by the class alone', () => {
   it('never lets a merge-json target be written, whatever class it carries', () => {
     for (const value of PATH_CLASSES)
-      expect(isWritable({ target: 'package.json', strategy: 'merge-json', class: value, keys: [] })).toBe(false)
+      expect(isWritable({ target: 'package.json', strategy: 'merge-json', class: value, keys: [], writeEffect: null })).toBe(false)
   })
 
   it('lets only add and update through for a file the construct writes whole or by block', () => {
     for (const strategy of ['create', 'append-block'] as const) {
-      const writable = PATH_CLASSES.filter(value => isWritable({ target: 'x', strategy, class: value, keys: [] }))
+      const writable = PATH_CLASSES.filter(value => isWritable({ target: 'x', strategy, class: value, keys: [], writeEffect: null }))
       expect(writable).toEqual(['add', 'update'])
     }
   })
