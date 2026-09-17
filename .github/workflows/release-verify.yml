@@ -1,0 +1,35 @@
+# Verifies that the version in package.json is actually installable from the registry.
+#
+# A trusted publisher configured stage-only turns a successful `npm publish` into a staged version that
+# nobody can install until a human approves it, so a green Release run is not evidence of a release.
+# This workflow is separate from release.yml because it must be re-runnable on its own after that
+# approval; re-running release.yml would publish again and fail with `409 Cannot publish over
+# previously staged version`.
+
+name: Release verification
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run release:verify
