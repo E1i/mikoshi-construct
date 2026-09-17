@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const MANIFEST_FILE = 'construct.json'
-export const MANIFEST_VERSION = 2
+export const MANIFEST_VERSION = 3
 
 export const DISCOVERY_MARKERS = [
   'product',
@@ -36,6 +36,13 @@ export interface DiscoveryRecord {
   markers: Record<DiscoveryMarker, MarkerProvenance>
 }
 
+export interface SyncRecord {
+  ranAt: string
+  fromVersion: string
+  toVersion: string
+  files: Record<string, string>
+}
+
 export interface Manifest {
   manifestVersion: number
   construct: string
@@ -49,6 +56,7 @@ export interface Manifest {
   vars: Record<string, string>
   files: Record<string, string>
   discovery: DiscoveryRecord
+  sync: SyncRecord | null
 }
 
 export function sha256(content: string): string {
@@ -96,6 +104,7 @@ export function buildManifest(input: {
     vars: input.vars,
     files,
     discovery: { baseSha: null, filledAt: null, markers },
+    sync: null,
   }
 }
 
@@ -107,6 +116,18 @@ function upgradeMarker(recorded: unknown, file: string): MarkerProvenance {
     file: typeof value.file === 'string' ? value.file : file,
     authoredBy: value.authoredBy === 'construct' ? 'construct' : 'unknown',
     sha: typeof value.sha === 'string' ? value.sha : null,
+  }
+}
+
+function upgradeSync(raw: unknown): SyncRecord | null {
+  const value = (raw ?? {}) as Partial<SyncRecord>
+  if (typeof value.ranAt !== 'string' || typeof value.fromVersion !== 'string' || typeof value.toVersion !== 'string')
+    return null
+  return {
+    ranAt: value.ranAt,
+    fromVersion: value.fromVersion,
+    toVersion: value.toVersion,
+    files: typeof value.files === 'object' && value.files != null ? { ...value.files } : {},
   }
 }
 
@@ -126,7 +147,12 @@ export function upgradeManifest(raw: unknown): Manifest {
       filledAt: typeof discovery.filledAt === 'string' ? discovery.filledAt : null,
       markers,
     },
+    sync: upgradeSync(manifest.sync),
   }
+}
+
+export function recordedShas(manifest: Manifest): Record<string, string> {
+  return { ...manifest.files, ...manifest.sync?.files }
 }
 
 export function writeManifest(root: string, manifest: Manifest): void {

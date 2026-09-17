@@ -19,7 +19,7 @@ export function strategyFor(target: string): Strategy {
 
 type JsonObject = Record<string, unknown>
 
-function isObject(value: unknown): value is JsonObject {
+export function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value != null && !Array.isArray(value)
 }
 
@@ -32,7 +32,7 @@ export function mergeJson(existing: JsonObject, incoming: JsonObject, conflicts:
       continue
     }
     const current = existing[key]
-    if (isObject(current) && isObject(value)) {
+    if (isJsonObject(current) && isJsonObject(value)) {
       result[key] = mergeJson(current, value, conflicts, at)
       continue
     }
@@ -42,7 +42,7 @@ export function mergeJson(existing: JsonObject, incoming: JsonObject, conflicts:
   return result
 }
 
-function markersFor(target: string): [string, string] {
+export function blockMarkers(target: string): [string, string] {
   return target.endsWith('.gitignore') ? [GITIGNORE_BEGIN, GITIGNORE_END] : [BLOCK_BEGIN, BLOCK_END]
 }
 
@@ -56,6 +56,17 @@ function discoveryBlock(document: string, marker: string): { start: number, end:
   if (start === -1 || end === -1 || end < start)
     return null
   return { start: start + open.length, end, body: document.slice(start + open.length, end) }
+}
+
+export function withoutDiscoveryBodies(document: string): string {
+  let result = document
+  for (const [, marker] of document.matchAll(DISCOVERY_OPEN)) {
+    const block = discoveryBlock(result, marker)
+    if (block == null)
+      continue
+    result = `${result.slice(0, block.start)}${result.slice(block.end)}`
+  }
+  return result
 }
 
 export function preserveDiscovery(existing: string, incoming: string): string {
@@ -77,7 +88,7 @@ function withoutSecondH1(existing: string, block: string): string {
 }
 
 export function appendBlock(existing: string, block: string, target: string): string {
-  const [begin, end] = markersFor(target)
+  const [begin, end] = blockMarkers(target)
   const wrapped = `${begin}\n${preserveDiscovery(existing, withoutSecondH1(existing, block)).trimEnd()}\n${end}\n`
   const start = existing.indexOf(begin)
   const stop = existing.indexOf(end)

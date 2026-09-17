@@ -20,6 +20,13 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/commands/probe.ts', 'import { applyPlan } from \'../materialize/apply.js\'\n\nexport const probe = applyPlan\n')).toEqual([])
   })
 
+  it('lets sync read the manifest and the materialization it classifies, and nothing that reports', async () => {
+    expect(await violations('src/sync/probe.ts', 'import { recordedShas } from \'../manifest.js\'\n\nexport const probe = recordedShas\n')).toEqual([])
+    expect(await violations('src/sync/probe.ts', 'import { strategyFor } from \'../materialize/strategies.js\'\n\nexport const probe = strategyFor\n')).toEqual([])
+    expect(await violations('src/sync/probe.ts', 'import { createUi } from \'../ui/console.js\'\n\nexport const probe = createUi\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/materialize/probe.ts', 'import { classifyPath } from \'../sync/classify.js\'\n\nexport const probe = classifyPath\n')).toEqual(['no-restricted-imports'])
+  })
+
   it('confines child processes to the pnpm version probe', async () => {
     const spawn = 'import { execFileSync } from \'node:child_process\'\n\nexport const probe = execFileSync\n'
     expect(await violations('src/commands/probe.ts', spawn)).toEqual(['no-restricted-syntax'])
