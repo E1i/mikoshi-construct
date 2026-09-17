@@ -1,11 +1,15 @@
 import type { Strategy } from '../materialize/strategies.js'
 import type { OwnedKey } from './ownership.js'
 import { strategyFor } from '../materialize/strategies.js'
-import { matchesRecordedSha, ownedKeys, ownedText } from './ownership.js'
+import { carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedText } from './ownership.js'
 
 export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'removed', 'orphaned', 'foreign'] as const
 
 export type PathClass = (typeof PATH_CLASSES)[number]
+
+export const BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER = 'block-replaced-whole-discovery-bodies-carried-over'
+
+export type WriteEffect = typeof BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER
 
 export interface PathState {
   target: string
@@ -19,6 +23,7 @@ export interface PathClassification {
   strategy: Strategy
   class: PathClass
   keys: OwnedKey[]
+  writeEffect: WriteEffect | null
 }
 
 export interface RepositoryState {
@@ -33,6 +38,12 @@ function classFromKeys(keys: OwnedKey[]): PathClass {
   return keys.some(key => key.class === 'add') ? 'update' : 'keep'
 }
 
+function compareDeclaredBlock(target: string, present: string, produced: string): PathClass {
+  if (!carriesConstructBlock(target, present))
+    return 'conflict'
+  return ownedText(target, present) === ownedText(target, produced) ? 'keep' : 'update'
+}
+
 function compareOwnedView(target: string, recordedSha: string, present: string, produced: string): PathClass {
   if (ownedText(target, present) === ownedText(target, produced))
     return 'keep'
@@ -44,7 +55,7 @@ function compareOwnedView(target: string, recordedSha: string, present: string, 
 export function classifyPath(state: PathState): PathClassification | null {
   const { target, recordedSha, present, produced } = state
   const strategy = strategyFor(target)
-  const classified = (value: PathClass, keys: OwnedKey[] = []): PathClassification => ({ target, strategy, class: value, keys })
+  const classified = (value: PathClass, keys: OwnedKey[] = []): PathClassification => ({ target, strategy, class: value, keys, writeEffect: writeEffectFor(strategy, value) })
 
   if (present == null) {
     if (recordedSha != null)
@@ -65,14 +76,25 @@ export function classifyPath(state: PathState): PathClassification | null {
   if (recordedSha == null)
     return classified('conflict')
 
+  if (strategy === 'append-block')
+    return classified(compareDeclaredBlock(target, present, produced))
+
   return classified(compareOwnedView(target, recordedSha, present, produced))
 }
 
 const WRITABLE_CLASSES = new Set<PathClass>(['add', 'update'])
 const WRITABLE_STRATEGIES = new Set<Strategy>(['create', 'append-block'])
 
+function willBeWritten(strategy: Strategy, value: PathClass): boolean {
+  return WRITABLE_CLASSES.has(value) && WRITABLE_STRATEGIES.has(strategy)
+}
+
+function writeEffectFor(strategy: Strategy, value: PathClass): WriteEffect | null {
+  return strategy === 'append-block' && willBeWritten(strategy, value) ? BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER : null
+}
+
 export function isWritable(classification: PathClassification): boolean {
-  return WRITABLE_CLASSES.has(classification.class) && WRITABLE_STRATEGIES.has(classification.strategy)
+  return willBeWritten(classification.strategy, classification.class)
 }
 
 export function classifyRepository(state: RepositoryState): PathClassification[] {
