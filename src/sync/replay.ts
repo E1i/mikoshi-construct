@@ -19,6 +19,7 @@ export interface ReplayInput {
   root: string
   manifest: Manifest
   version: string
+  facts: Record<string, string>
 }
 
 export interface ReplayReport {
@@ -35,7 +36,7 @@ function replayedGroups(manifest: Manifest): TemplateGroup[] {
   return [...preset.groups, ...aiGroups(manifest.ai), ...reviewGroups(manifest.review?.provider ?? 'none')]
 }
 
-function varsRecordingMisses(manifest: Manifest, version: string, missed: Set<string>): TemplateVars {
+function varsRecordingMisses(manifest: Manifest, version: string, facts: Record<string, string>, missed: Set<string>): TemplateVars {
   const asRecordedExceptTheRunningVersion: Record<string, string> = { ...manifest.vars, constructVersion: version }
   return new Proxy(asRecordedExceptTheRunningVersion, {
     get(target, key) {
@@ -44,6 +45,9 @@ function varsRecordingMisses(manifest: Manifest, version: string, missed: Set<st
       const value = target[key]
       if (value != null)
         return value
+      const established = facts[key]
+      if (established != null)
+        return established
       missed.add(key)
       return ''
     },
@@ -130,7 +134,7 @@ function presentInTree(root: string, targets: string[]): Record<string, string> 
 
 export function replay(input: ReplayInput): ReplayReport {
   const missed = new Set<string>()
-  const vars = varsRecordingMisses(input.manifest, input.version, missed)
+  const vars = varsRecordingMisses(input.manifest, input.version, input.facts, missed)
   const recorded = recordedShas(input.manifest)
   const templates = producedByTemplates(input.manifest, vars, recorded)
   if (missed.size > 0)

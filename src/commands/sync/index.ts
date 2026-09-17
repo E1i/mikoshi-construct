@@ -1,4 +1,5 @@
 import type { PathClass, PathClassification } from '../../sync/classify.js'
+import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
 import { readManifest, recordSync, writeManifest } from '../../manifest.js'
 import { applyPlan } from '../../materialize/apply.js'
 import { PATH_CLASSES } from '../../sync/classify.js'
@@ -30,7 +31,7 @@ export function runSync(root: string, version: string): SyncReport | null {
   const manifest = readManifest(root)
   if (manifest == null)
     return null
-  const { fromVersion, toVersion, classifications } = replay({ root, manifest, version })
+  const { fromVersion, toVersion, classifications } = replay({ root, manifest, version, facts: factsTheRepositoryEstablishes(root) })
   return { fromVersion, toVersion, counts: countByClass(classifications), classifications }
 }
 
@@ -38,7 +39,7 @@ export function applySync(root: string, version: string): SyncApplyReport | null
   const manifest = readManifest(root)
   if (manifest == null)
     return null
-  const { fromVersion, toVersion, present, produced, classifications } = replay({ root, manifest, version })
+  const { fromVersion, toVersion, present, produced, classifications } = replay({ root, manifest, version, facts: factsTheRepositoryEstablishes(root) })
   const report = { fromVersion, toVersion, counts: countByClass(classifications), classifications }
   const { writes, refused } = planWrites({ classifications, present, produced })
 
