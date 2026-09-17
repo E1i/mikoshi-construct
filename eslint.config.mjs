@@ -1,13 +1,14 @@
 import antfu from '@antfu/eslint-config'
 
-const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'presets', 'ui', 'version']
+const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'presets', 'sync', 'ui', 'version']
 
 const ALLOWED_INTERNAL_IMPORTS = {
   'src/detect': [],
   'src/presets': ['detect'],
   'src/materialize': ['presets'],
+  'src/sync': ['manifest', 'materialize', 'presets'],
   'src/ui': ['presets'],
-  'src/commands': ['detect', 'manifest', 'materialize', 'presets', 'ui', 'version'],
+  'src/commands': ['detect', 'manifest', 'materialize', 'presets', 'sync', 'ui', 'version'],
 }
 
 function dependencyBoundary([directory, allowed]) {

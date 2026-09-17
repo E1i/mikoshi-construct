@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
-import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, upgradeManifest, writeManifest } from '../src/manifest.js'
+import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, recordedShas, upgradeManifest, writeManifest } from '../src/manifest.js'
 
 const LEGACY_FIXTURE = path.join(import.meta.dirname, 'fixtures/manifest/legacy-0.1.x')
 
@@ -93,5 +93,49 @@ describe('a manifest written by 0.1.x still reads', () => {
     writeManifest(root, manifest)
     expect(readManifest(root)).toEqual(manifest)
     expect(upgradeManifest(manifest)).toEqual(manifest)
+  })
+})
+
+describe('the manifest records what sync wrote, beside what init wrote', () => {
+  function syncedManifest() {
+    const manifest = currentManifest()
+    manifest.files = { 'AGENTS.md': 'init-sha-of-agents', 'architecture/principles.md': 'init-sha-of-principles' }
+    manifest.sync = {
+      ranAt: '2026-09-17T10:00:00.000Z',
+      fromVersion: '0.1.0',
+      toVersion: VARS.constructVersion,
+      files: { 'AGENTS.md': 'sync-sha-of-agents' },
+    }
+    return manifest
+  }
+
+  it('leaves the frozen init branch alone and adds a branch of its own', () => {
+    const manifest = currentManifest()
+    expect(manifest.sync).toBeNull()
+    expect(manifest.files).toEqual({})
+    expect(manifest.construct).toBe(VARS.constructVersion)
+  })
+
+  it('reads the recorded sha from the sync branch when it has one, and from the init branch otherwise', () => {
+    const root = scratch()
+    writeManifest(root, syncedManifest())
+    const manifest = readManifest(root)
+
+    expect(manifest?.sync?.fromVersion).toBe('0.1.0')
+    expect(manifest?.sync?.toVersion).toBe(VARS.constructVersion)
+    expect(manifest?.sync?.ranAt).toBe('2026-09-17T10:00:00.000Z')
+    expect(recordedShas(manifest!)).toEqual({
+      'AGENTS.md': 'sync-sha-of-agents',
+      'architecture/principles.md': 'init-sha-of-principles',
+    })
+    expect(recordedShas(manifest!)['AGENTS.md']).not.toBe(manifest?.files['AGENTS.md'])
+  })
+
+  it('normalises both earlier shapes: a 0.1.x manifest and one written before sync existed carry no sync record', () => {
+    expect(readManifest(legacyRoot())?.sync).toBeNull()
+    expect(upgradeManifest({ ...currentManifest(), sync: undefined }).sync).toBeNull()
+    expect(upgradeManifest({ ...currentManifest(), sync: { files: { 'AGENTS.md': 'sha' } } }).sync).toBeNull()
+    expect(upgradeManifest(syncedManifest()).manifestVersion).toBe(MANIFEST_VERSION)
+    expect(upgradeManifest(syncedManifest()).sync?.files).toEqual({ 'AGENTS.md': 'sync-sha-of-agents' })
   })
 })
