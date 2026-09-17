@@ -260,7 +260,7 @@ spent, per agent. It is the evidence behind the reasoning budget: cheap tasks sh
 | Option | Default | What it does |
 |---|---|---|
 | `--last` | `false` | Only the most recent run. |
-| `--json` | `false` | The runs as JSON. |
+| `--json` | `false` | The report as a JSON object. |
 
 ```bash
 npx mikoshi-construct cost --last
@@ -269,14 +269,32 @@ npx mikoshi-construct cost --last
 Each agent line carries its call count and its input, cache-write, cache-read and output tokens. The
 run total is printed twice: billable tokens, and an input-equivalent figure that weights cache writes
 at 1.25, cache reads at 0.1 and output at 5, so a cheap run and an expensive one can be compared at a
-glance. Exits `1` when Claude Code has no session data for the directory.
+glance.
+
+The runtime is resolved first — from the environment the command runs in, otherwise from the `ai`
+target in `construct.json` — and only then asked for its usage. A runtime whose per-run usage is not
+readable (Cursor, for instance, which keeps no such session files) is reported as `unsupported`,
+never as an absence of runs.
+
+`--json` prints one object: `status` (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
+`runtime` (`claude-code` or `cursor`), `key` and `candidates` where the project key is in question,
+and `runs` when there are any.
+
+| `status` | Exit | Meaning |
+|---|---|---|
+| `ok` | `0` | Runs were read and printed. |
+| `empty` | `0` | The runtime is readable and this directory has no recorded runs. |
+| `mismatch` | `1` | No directory for the looked-up project key, but the path this directory resolves to — or the main worktree it belongs to — has one. The report names the key that was looked up. |
+| `unknown` | `1` | Sibling keys look like this repository without settling it; the report says so rather than guessing. |
+| `unsupported` | `3` | This runtime does not expose per-run token usage. |
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. |
-| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `cost` found no session data. |
+| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 
 ## After init
 

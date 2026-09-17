@@ -2,7 +2,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
-import { collectWorkflowRuns, printCost } from './commands/cost.js'
+import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
@@ -96,15 +96,13 @@ const cost = defineCommand({
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
   },
   run({ args }) {
-    const runs = collectWorkflowRuns(path.resolve(args.dir))
+    const report = costReport(path.resolve(args.dir))
     if (args.json) {
-      const selected = runs == null ? null : args.last ? runs.slice(-1) : runs
-      process.stdout.write(`${JSON.stringify(selected, null, 2)}\n`)
-      process.exitCode = runs == null ? 1 : 0
+      process.stdout.write(`${JSON.stringify(costJson(report, args.last), null, 2)}\n`)
+      process.exitCode = COST_EXIT[report.status]
       return
     }
-    const console = ui(args)
-    process.exitCode = printCost(console, runs, args.last)
+    process.exitCode = printCost(ui(args), report, args.last)
   },
 })
 

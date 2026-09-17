@@ -41,6 +41,10 @@ export interface Lore {
   weakestLinkNone: string
   wireHarness: string
   wireHarnessSteps: string[]
+  costUnsupported: (runtime: string) => string
+  costEmpty: string
+  costKeyMismatch: (key: string) => string
+  costKeyUnknown: (key: string) => string
 }
 
 export const LORE: Lore = {
@@ -88,6 +92,10 @@ export const LORE: Lore = {
     'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
     'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
   ],
+  costUnsupported: (runtime: string) => `No usage feed: the ${runtime} runtime does not expose per-run token usage.`,
+  costEmpty: 'No /implement runs recorded here yet.',
+  costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
+  costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -135,4 +143,8 @@ export const PLAIN_LORE: Lore = {
     'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
     'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
   ],
+  costUnsupported: (runtime: string) => `The ${runtime} runtime does not expose per-run token usage.`,
+  costEmpty: 'No /implement runs recorded here yet.',
+  costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
+  costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
 }

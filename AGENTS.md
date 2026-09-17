@@ -30,8 +30,8 @@ template that fails its own lint or install turns every generated project red on
 <!-- construct:discover:module-map -->
 The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map (`src/cli.ts`, `src/detect`,
 `src/presets`, `src/materialize`, `src/manifest.ts`, `src/commands`, `src/ui`, `templates/*`,
-`tests`). Not listed there: `src/commands/cost.ts` (reads `~/.claude/projects/<dir>` session files and
-sums token usage per workflow run), `scripts/composition` and `scripts/tests` (the harness this repo
+`tests`). Not listed there: `src/commands/cost/` (a `CostSource` per runtime — only Claude Code is readable —
+reading `~/.claude/projects/<dir>` session files and summing token usage per workflow run), `scripts/composition` and `scripts/tests` (the harness this repo
 materialized for itself), `scripts/construct/implement.workflow.mjs` (the `/implement` ladder),
 `architecture/` (policy and the composition models of this repo), `docs/PLAN.md` (plan, closed
 decisions, day log), `.changeset/` and `.github/workflows/release.yml` (versioning and publish).
