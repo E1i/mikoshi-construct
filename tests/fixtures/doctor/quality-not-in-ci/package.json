@@ -1,0 +1,12 @@
+{
+  "name": "quality-not-in-ci",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "quality": "pnpm lint && pnpm typecheck && pnpm test"
+  }
+}

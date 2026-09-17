@@ -1,0 +1,15 @@
+{
+  "name": "healthy",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "node --version",
+    "test": "node --version",
+    "quality": "pnpm lint && pnpm typecheck && pnpm test",
+    "precommit": "pnpm run quality"
+  },
+  "devDependencies": {
+    "lefthook": "^1.14.0"
+  }
+}

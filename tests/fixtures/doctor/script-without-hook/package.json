@@ -1,0 +1,12 @@
+{
+  "name": "script-without-hook",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "quality": "pnpm lint && pnpm typecheck && pnpm test",
+    "precommit": "pnpm run quality"
+  }
+}
