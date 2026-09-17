@@ -1,18 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
-
-const IN_UNIVERSE = [
-  'SOULKILLER',
-  'Netrunner',
-  'GLITCH',
-  'FLATLINED',
-  'BRAINDANCE',
-  'ENGRAM',
-  'RELIC',
-  'BLACKWALL',
-]
-
-const SHARED_BY_BOTH_REGISTERS = ['johnnyWakeUp']
+import { IN_UNIVERSE, SHARED_BY_BOTH_REGISTERS } from './lore-vocabulary.js'
 
 function strings(lore: typeof LORE): { key: string, value: string }[] {
   return Object.entries(lore)

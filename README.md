@@ -181,6 +181,12 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 | Soulkiller | `construct soulkill`: extracts the facts about a repository and writes nothing |
 | Netrunner | The coding agent — Claude Code, Cursor — that connects to the project through the construct |
 | Relic | The files at the root the agent reads first: `AGENTS.md`, `CLAUDE.md`, `construct.json` |
+| Engram | The record `init` cut into `construct.json`: what the construct wrote, and the version that wrote it |
+| Braindance | `construct sync`: replaying that engram against today's templates and reporting where the two disagree |
+| Relic write | `construct sync --apply`: the one write into a repository the construct did not create |
+| Blackwall | Where a construct block whose template variant cannot be established sits — not yours, not ours, and nothing is written there |
+| Glitch | A warning in the output. Something wants a human; nothing has failed |
+| Flatlined | A check that failed outright: a missing baseline file, or no `construct.json` where one was required |
 | Harness | No lore. `pnpm run quality`. The one word that must be understood without this table |
 
 Not affiliated with CD Projekt Red.
