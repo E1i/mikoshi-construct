@@ -5,6 +5,7 @@ import { ALLOWED_DOMAINS } from './allowlist.js'
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const SCANNED_PATHS = ['templates', 'docs', 'README.md', 'tests/fixtures']
+export const BUILD_OUTPUT = ['docs/.vitepress/cache', 'docs/.vitepress/dist']
 
 const MENTIONED_TLDS = ['com', 'org', 'net', 'io', 'dev', 'co', 'ai', 'sh', 'app', 'me', 'gg', 'cloud', 'tech', 'xyz', 'info', 'run']
 const HOST = String.raw`[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}`
@@ -56,6 +57,8 @@ export function scanText(text: string, file: string, allowed: string[] = ALLOWED
 export function scannedFiles(root = REPO_ROOT, targets = SCANNED_PATHS): string[] {
   const files: string[] = []
   const walk = (relative: string): void => {
+    if (BUILD_OUTPUT.includes(relative))
+      return
     const absolute = path.join(root, relative)
     if (statSync(absolute).isDirectory()) {
       for (const entry of readdirSync(absolute).sort())

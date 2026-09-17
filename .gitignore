@@ -18,3 +18,6 @@ coverage/
 !.env.example
 .construct/
 # construct:end
+
+docs/.vitepress/cache
+docs/.vitepress/dist

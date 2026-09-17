@@ -9,8 +9,14 @@ npx mikoshi-construct init          # interactive: preset, agent, project name
 pnpm install && pnpm run quality    # green before you write a line
 ```
 
-> **v0.1.** Presets `node-backend`, `node-frontend`, `node-library` and `monorepo`. Claude Code gets
+> **v0.3.** Presets `node-backend`, `node-frontend`, `node-library` and `monorepo`. Claude Code gets
 > the full lifecycle; Cursor gets the rules, the conventions and the discovery protocol.
+> `construct sync` moves a repository already carrying a construct onto newer templates.
+
+**Documentation — [e1i.github.io/mikoshi-construct](https://e1i.github.io/mikoshi-construct/)**:
+getting started, [the development cycle](https://e1i.github.io/mikoshi-construct/guide/the-cycle),
+the reasoning budget, [upgrading](https://e1i.github.io/mikoshi-construct/guide/upgrading) and the
+CLI reference.
 
 ## What it does
 

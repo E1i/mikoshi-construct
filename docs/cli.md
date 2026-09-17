@@ -493,55 +493,11 @@ prose. With `--apply` the same object carries three more fields:
 }
 ```
 
-### The upgrade loop
+### After a write
 
-`sync` is one step of four, and it is the only one that writes. A consumer repository moving onto a
-new release runs them in this order:
-
-```bash
-npx mikoshi-construct@latest sync            # read the report; nothing is written, not even the manifest
-npx mikoshi-construct@latest sync --apply    # write the paths the construct can prove it owns
-pnpm run quality                             # your harness decides whether the result is good
-npx mikoshi-construct@latest doctor          # baseline, harness, discovery, enforcement levels
-```
-
-Each step answers a different question, and none of them answers another's. `sync` says what changed
-between the record and today's templates. `--apply` writes the subset it owns and records what it
-wrote. **Your harness, not `sync`, decides whether the tree is still good** — the construct writes
-what it can prove is its own, which is not the same as proving your project still builds. `doctor`
-then reports the state of the baseline, the harness and the ten discovery markers, with the
-enforcement level of each check.
-
-**Discovery is not part of the loop, and a sync never erases it.** A construct block is replaced
-whole, but the filled body of every `construct:discover:*` block inside it is carried across —
-that is what `block-replaced-whole-discovery-bodies-carried-over` means in the report. Run
-`/construct-discover` when `doctor` names a marker as missing, which happens when a release adds a
-marker your repository has never filled, not because a sync ran.
-
-**What the report leaves for you** is everything `--apply` refuses to touch:
-
-| In the report | What to do |
-|---|---|
-| `conflict` | Nothing, unless you want to. The file diverged from what was recorded, and which version is right is your decision. Diff it against the template if you want to see what you are declining. |
-| `merge-json` keys | Apply them by hand. `package.json` is compared key by key and never written — a new script or a moved dependency range is shown as a key so you can copy it. |
-| `unknown` | Leave it. On a repository materialized before 0.3.0 nothing records which template variant wrote the construct block, so `sync` will not write it — now or later. Editing the block by hand is the way to take the new form; see below for the thing not to do. |
-| `removed` | Nothing. A path you deleted stays deleted; `sync` never puts it back. |
-| `orphaned` | Nothing is required. The construct wrote it once and no longer produces it; keeping it costs nothing and deleting it is your call. |
-
-**Do not re-run `init` to upgrade.** It is tempting — `init` does replace the construct block and it
-does record the variant that would close `unknown` — but it rewrites `construct.json` with only the
-files that run wrote, and every file the earlier `init` wrote and this one skipped disappears from
-the record. Measured on a scratch repository: a tree whose manifest carried 43 paths was re-`init`ed,
-and the next `sync` read 4 `keep` and **39 `conflict`** — the construct no longer knew it had written
-its own baseline. Nothing in the tree changed; the knowledge of who wrote it did. `sync` exists so
-that this is never the upgrade path.
-
-**The version in `construct.json` does not move, and that is deliberate.** `construct` records the
-version that materialized the repository and is frozen (ADR 0006); a `sync` adds a `sync` record
-beside it with `fromVersion`, `toVersion`, `ranAt` and the hashes it wrote. So `doctor` keeps saying
-*materialized by 0.1.0, read by 0.4.0* however many syncs run, which stays true. The number that
-moves is the count of pending paths beside it, and it reaches zero when there is nothing left to
-write.
+The full sequence a repository runs when a release lands — report, `--apply`, your own harness,
+`doctor` — and what the report leaves for you to decide, is on its own page:
+[Upgrading a repository](/guide/upgrading).
 
 ## construct soulkill
 
@@ -680,5 +636,5 @@ claude                             # then /construct-discover
 ladder and lets the harness decide when more effort is warranted. Cursor users ask the agent to run
 construct discovery instead, and it follows the same protocol.
 
-When a later release arrives, the repository moves onto it through [the upgrade loop](#the-upgrade-loop),
-never through a second `init`.
+When a later release arrives, the repository moves onto it through
+[the upgrade loop](/guide/upgrading), never through a second `init`.
