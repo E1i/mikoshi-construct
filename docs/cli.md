@@ -231,6 +231,10 @@ link.
 | `hook` | `.husky/*`, `lefthook.*`, `simple-git-hooks` (file or `package.json` key), `core.hooksPath` in `.git/config`, and the `precommit` script | `present` at `L2` for a hook manager, `present` at `L0` for a bare script nothing installs, `absent` at `L0` |
 | `red-gate` | Nothing: answering it means running the harness | Always `unknown`, with evidence saying so. CI is where a clean checkout is proven |
 
+A preset that declares no syntax policy has no policy check to run, so `lint-policy` reports
+`absent` at `L0`: that is a true reading of the repository, not a missing file. `node-library` is such
+a preset — its harness is the shared ESLint configuration with no restriction of the construct's own.
+
 Typecheck is not a check. Where a bare `tsc --noEmit` cannot carry a stack, the preset contributes a
 line to `warnings` instead — a framework matrix would grow faster than it could be closed.
 
