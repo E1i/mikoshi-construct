@@ -151,6 +151,18 @@ export function upgradeManifest(raw: unknown): Manifest {
   }
 }
 
+export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: string, files: Record<string, string> }): Manifest {
+  return {
+    ...manifest,
+    sync: {
+      ranAt: run.ranAt,
+      fromVersion: manifest.construct,
+      toVersion: run.toVersion,
+      files: { ...manifest.sync?.files, ...run.files },
+    },
+  }
+}
+
 export function recordedShas(manifest: Manifest): Record<string, string> {
   return { ...manifest.files, ...manifest.sync?.files }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendBlock, mergeJson, preserveDiscovery, strategyFor } from '../src/materialize/strategies.js'
+import { appendBlock, mergeJson, preserveDiscovery, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
 
 describe('strategyFor', () => {
   it('routes manifests, agent files and gitignore to their strategies', () => {
@@ -46,5 +46,34 @@ describe('preserveDiscovery', () => {
 
   it('leaves the placeholder when the previous block was never filled', () => {
     expect(preserveDiscovery(placeholder, placeholder)).toBe(placeholder)
+  })
+})
+
+describe('substituteBlock', () => {
+  const produced = '<!-- construct:begin -->\n# Produced\n\nnew\n<!-- construct:end -->\n'
+  const existing = '# Mine\n\nmy prose\n\n<!-- construct:begin -->\n## Produced\n\nold\n<!-- construct:end -->\n\nmy tail\n'
+
+  it('substitutes only between the present file\'s own markers and keeps every byte around them', () => {
+    expect(substituteBlock(existing, produced, 'CLAUDE.md')).toBe('# Mine\n\nmy prose\n\n<!-- construct:begin -->\n# Produced\n\nnew\n<!-- construct:end -->\n\nmy tail\n')
+  })
+
+  it('writes what was compared: the block it leaves behind reads back as the produced one, where appendBlock demotes the heading and no longer does', () => {
+    const owned = (content: string): string => content.slice(content.indexOf('<!-- construct:begin -->'), content.indexOf('<!-- construct:end -->'))
+    expect(owned(substituteBlock(existing, produced, 'CLAUDE.md'))).toBe(owned(produced))
+    expect(owned(appendBlock(existing, produced.slice(produced.indexOf('\n') + 1, produced.lastIndexOf('<!-- construct:end -->')), 'CLAUDE.md'))).not.toBe(owned(produced))
+  })
+
+  it('carries a filled discovery body over into the block it writes', () => {
+    const filled = '<!-- construct:begin -->\n<!-- construct:discover:product -->\nwhat we ship\n<!-- /construct:discover:product -->\n<!-- construct:end -->\n'
+    const placeholder = '<!-- construct:begin -->\n<!-- construct:discover:product -->\n_Not discovered yet — run `/construct-discover`._\n<!-- /construct:discover:product -->\nand a new line\n<!-- construct:end -->\n'
+    const written = substituteBlock(filled, placeholder, 'AGENTS.md')
+    expect(written).toContain('what we ship')
+    expect(written).toContain('and a new line')
+    expect(written).not.toContain('_Not discovered yet')
+  })
+
+  it('reads the gitignore markers for a gitignore target', () => {
+    expect(substituteBlock('node_modules/\n\n# construct:begin\nold\n# construct:end\n', '# construct:begin\ndist/\n# construct:end\n', '.gitignore'))
+      .toBe('node_modules/\n\n# construct:begin\ndist/\n# construct:end\n')
   })
 })

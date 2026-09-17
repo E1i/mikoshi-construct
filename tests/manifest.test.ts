@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
-import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, recordedShas, upgradeManifest, writeManifest } from '../src/manifest.js'
+import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, recordedShas, recordSync, upgradeManifest, writeManifest } from '../src/manifest.js'
 
 const LEGACY_FIXTURE = path.join(import.meta.dirname, 'fixtures/manifest/legacy-0.1.x')
 
@@ -137,5 +137,28 @@ describe('the manifest records what sync wrote, beside what init wrote', () => {
     expect(upgradeManifest({ ...currentManifest(), sync: { files: { 'AGENTS.md': 'sha' } } }).sync).toBeNull()
     expect(upgradeManifest(syncedManifest()).manifestVersion).toBe(MANIFEST_VERSION)
     expect(upgradeManifest(syncedManifest()).sync?.files).toEqual({ 'AGENTS.md': 'sync-sha-of-agents' })
+  })
+})
+
+describe('recording a sync run in the manifest', () => {
+  const RAN_AT = '2026-09-17T12:00:00.000Z'
+
+  it('writes the run and the owned sha of each path into the sync branch, and nothing else', () => {
+    const before = currentManifest()
+    before.construct = '0.1.0'
+    const after = recordSync(before, { ranAt: RAN_AT, toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' } })
+
+    expect(after.sync).toEqual({ ranAt: RAN_AT, fromVersion: '0.1.0', toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' } })
+    expect({ ...after, sync: null }).toEqual({ ...before, sync: null })
+    expect(before.sync).toBeNull()
+  })
+
+  it('accumulates, so a later run never drops what an earlier one recorded', () => {
+    const first = recordSync(currentManifest(), { ranAt: RAN_AT, toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'first' } })
+    const second = recordSync(first, { ranAt: '2026-09-18T12:00:00.000Z', toVersion: VARS.constructVersion, files: { 'CLAUDE.md': 'second' } })
+
+    expect(second.sync?.files).toEqual({ 'AGENTS.md': 'first', 'CLAUDE.md': 'second' })
+    expect(second.sync?.ranAt).toBe('2026-09-18T12:00:00.000Z')
+    expect(recordSync(second, { ranAt: RAN_AT, toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'rewritten' } }).sync?.files['AGENTS.md']).toBe('rewritten')
   })
 })

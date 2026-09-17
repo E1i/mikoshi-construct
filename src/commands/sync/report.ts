@@ -1,7 +1,8 @@
 import type { PathClass, PathClassification } from '../../sync/classify.js'
 import type { Ui } from '../../ui/console.js'
-import type { SyncReport } from './index.js'
+import type { SyncApplyReport, SyncReport } from './index.js'
 import { PATH_CLASSES } from '../../sync/classify.js'
+import { PENDING_CLASSES } from '../../sync/write.js'
 
 export const SYNC_EXIT = {
   upToDate: 0,
@@ -9,7 +10,12 @@ export const SYNC_EXIT = {
   pending: 2,
 } as const
 
-export const PENDING_CLASSES: PathClass[] = ['add', 'update']
+export const SYNC_APPLY_EXIT = {
+  written: 0,
+  noManifest: 1,
+  refused: 2,
+} as const
+
 export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'conflict', 'removed', 'orphaned']
 
 const CLASS_COLUMN = Math.max(...PATH_CLASSES.map(value => value.length)) + 2
@@ -102,4 +108,62 @@ export function printSync(ui: Ui, report: SyncReport | null): number {
   ui.line()
   ui.line(pending === 0 ? ui.lore.syncNothingToWrite : ui.lore.syncPending(pending))
   return syncExit(report)
+}
+
+export function syncApplyExit(result: SyncApplyReport | null): number {
+  if (result == null)
+    return SYNC_APPLY_EXIT.noManifest
+  return result.refused.length === 0 ? SYNC_APPLY_EXIT.written : SYNC_APPLY_EXIT.refused
+}
+
+export function syncApplyJson(result: SyncApplyReport): Record<string, unknown> {
+  return {
+    ...syncJson(result.report),
+    written: result.written,
+    pending: result.refused.map(entry => entry.target),
+    ranAt: result.ranAt,
+  }
+}
+
+function printWritten(ui: Ui, result: SyncApplyReport): void {
+  if (result.written.length === 0)
+    return
+  const byTarget = new Map(result.report.classifications.map(entry => [entry.target, entry]))
+  ui.line()
+  ui.line(ui.theme.accent(ui.lore.syncApplyWritten))
+  for (const target of result.written) {
+    const entry = byTarget.get(target)
+    const detail = entry == null ? '' : note(ui, entry)
+    ui.line(`  ${target}${detail === '' ? '' : ui.theme.dim(` — ${detail}`)}`)
+  }
+}
+
+function printRefused(ui: Ui, result: SyncApplyReport): void {
+  if (result.refused.length === 0)
+    return
+  ui.line()
+  ui.line(ui.theme.accent(ui.lore.syncApplyRefused))
+  for (const entry of result.refused) {
+    const detail = note(ui, entry)
+    ui.line(`  ${entry.target}${detail === '' ? '' : ui.theme.dim(` — ${detail}`)}`)
+  }
+  ui.line(ui.theme.dim(ui.lore.syncMergedNotWritten))
+}
+
+export function printSyncApply(ui: Ui, result: SyncApplyReport | null): number {
+  if (result == null) {
+    ui.flatline(ui.lore.syncNoManifest)
+    return SYNC_APPLY_EXIT.noManifest
+  }
+
+  ui.line(ui.theme.accent(ui.theme.bold(ui.lore.syncApplyTitle)))
+  ui.line(ui.theme.bold(ui.lore.syncVersionGap(result.report.fromVersion, result.report.toVersion)))
+  printWritten(ui, result)
+  printRefused(ui, result)
+
+  ui.line()
+  ui.line(result.written.length === 0 ? ui.lore.syncApplyNothingWritten : ui.lore.syncApplyWrote(result.written.length))
+  if (result.refused.length > 0)
+    ui.line(ui.lore.syncApplyLeftToYou(result.refused.length))
+  return syncApplyExit(result)
 }

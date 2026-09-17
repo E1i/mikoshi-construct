@@ -81,6 +81,14 @@ export function preserveDiscovery(existing: string, incoming: string): string {
   return result
 }
 
+export function substituteBlock(existing: string, produced: string, target: string): string {
+  const [begin, end] = blockMarkers(target)
+  const opening = existing.indexOf(begin) + begin.length
+  const closing = existing.indexOf(end)
+  const incoming = produced.slice(produced.indexOf(begin) + begin.length, produced.indexOf(end))
+  return `${existing.slice(0, opening)}${preserveDiscovery(existing, incoming)}${existing.slice(closing)}`
+}
+
 function withoutSecondH1(existing: string, block: string): string {
   if (existing.trim() === '' || !/^# /m.test(existing))
     return block

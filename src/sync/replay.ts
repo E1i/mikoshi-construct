@@ -21,6 +21,8 @@ export interface ReplayInput {
 export interface ReplayReport {
   fromVersion: string
   toVersion: string
+  present: Record<string, string>
+  produced: Record<string, string>
   classifications: PathClassification[]
 }
 
@@ -90,6 +92,8 @@ export function replay(input: ReplayInput): ReplayReport {
   return {
     fromVersion: input.manifest.construct,
     toVersion: input.version,
+    present,
+    produced,
     classifications: classifyRepository({ recorded, present, produced }),
   }
 }
