@@ -7,8 +7,11 @@
 #              minimumReleaseAge policy, because a template range that only matches today's
 #              publish fails a user's first install (see CLAUDE.md, version ranges).
 #
-# The acceptance legs run the built CLI the way a user runs the published one: dist/cli.js keeps its
-# runtime dependencies external, so they are installed from the lockfile before it is invoked.
+# Each acceptance leg installs the publishable tarball into a directory outside the repository and runs
+# the installed binary. That is what publishing ships: the externals tsup leaves out of dist/cli.js must
+# resolve from the installed package's own dependencies, `files` must carry templates/ or the first
+# template read fails, and the `bin` wiring must point at the built entry. Running `node dist/cli.js`
+# out of the working tree proves none of those.
 
 name: CI
 
@@ -33,10 +36,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run quality
       - run: pnpm build
+      - name: Pack the publishable tarball
+        run: pnpm pack --pack-destination "$RUNNER_TEMP/package"
       - uses: actions/upload-artifact@v7
         with:
-          name: dist
-          path: dist/
+          name: package-tarball
+          path: ${{ runner.temp }}/package/*.tgz
           retention-days: 1
 
   acceptance:
@@ -62,16 +67,21 @@ jobs:
           cache: pnpm
       - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist/
+          name: package-tarball
+          path: ${{ runner.temp }}/package/
 
-      - name: Install the runtime dependencies dist/cli.js does not bundle
-        run: pnpm install --frozen-lockfile --prod
+      - name: Install the packed CLI outside the repository
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli-host"
+          cd "$RUNNER_TEMP/cli-host"
+          npm init -y
+          npm install "$RUNNER_TEMP"/package/*.tgz
+          echo "CONSTRUCT_BIN=$RUNNER_TEMP/cli-host/node_modules/.bin/construct" >> "$GITHUB_ENV"
 
       - name: construct init
         run: |
           mkdir -p "$RUNNER_TEMP/acceptance"
-          node dist/cli.js init --yes --preset ${{ matrix.preset }} --dir "$RUNNER_TEMP/acceptance" --plain
+          "$CONSTRUCT_BIN" init --yes --preset ${{ matrix.preset }} --dir "$RUNNER_TEMP/acceptance" --plain
 
       - name: Apply the release-age policy
         if: matrix.release-age != 0
@@ -87,4 +97,5 @@ jobs:
 
       - name: construct doctor
         working-directory: ${{ runner.temp }}/acceptance
-        run: node "$GITHUB_WORKSPACE/dist/cli.js" doctor --plain
+        run: |
+          "$CONSTRUCT_BIN" doctor --plain

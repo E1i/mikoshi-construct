@@ -2,30 +2,85 @@ import { ESLint } from 'eslint'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from '../../composition/files.js'
 
-const PROCESS = 'MemberExpression[object.name="process"]'
-const RAW_REQUEST_DATA = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
-const RAW_SQL = 'CallExpression[callee.object.name="sql"][callee.property.name="raw"]'
+const SAMPLES = {
+  plainModule: 'export function label(name: string): string {\n  return name.trim()\n}\n',
+  processMember: 'export const level = process.env.LOG_LEVEL\n',
+  processDestructured: 'const { env } = process\n\nexport const level = env.LOG_LEVEL\n',
+  processViaGlobalThis: 'export const level = globalThis.process.env.LOG_LEVEL\n',
+  processAliased: 'const runtime = process\n\nexport const level = runtime.env.LOG_LEVEL\n',
+  rawRequestMember: 'export function name(req: { body: { name: string } }): string {\n  return req.body.name\n}\n',
+  rawRequestDestructured: 'export function name(req: { body: { name: string } }): string {\n  const { body } = req\n  return body.name\n}\n',
+  rawRequestAliased: 'export function name(req: { body: { name: string } }): string {\n  const request = req\n  return request.body.name\n}\n',
+  rawSqlCall: 'export const rows = sql.raw(\'select 1\')\n',
+  rawSqlTagged: 'export const rows = sql.raw`select 1`\n',
+  rawSqlComputed: 'export const rows = sql[\'raw\'](\'select 1\')\n',
+} as const
 
-const eslint = new ESLint({ cwd: REPO_ROOT })
+type SampleName = keyof typeof SAMPLES
 
-async function restrictedSelectors(file: string): Promise<string[]> {
-  const config = await eslint.calculateConfigForFile(file)
-  const [, ...restrictions] = config.rules['no-restricted-syntax'] as [unknown, ...Array<{ selector: string }>]
-  return restrictions.map(restriction => restriction.selector).sort()
-}
+const PROCESS_FORMS: SampleName[] = ['processMember', 'processDestructured', 'processViaGlobalThis', 'processAliased']
+const RAW_REQUEST_FORMS: SampleName[] = ['rawRequestMember', 'rawRequestDestructured', 'rawRequestAliased']
+const RAW_SQL_FORMS: SampleName[] = ['rawSqlCall', 'rawSqlTagged', 'rawSqlComputed']
 
-const ROLES: Array<{ role: string, file: string, selectors: string[] }> = [
-  { role: 'a service', file: 'src/things/things.service.ts', selectors: [PROCESS, RAW_REQUEST_DATA, RAW_SQL] },
-  { role: 'a controller', file: 'src/things/things.controller.ts', selectors: [PROCESS, RAW_SQL] },
-  { role: 'a middleware', file: 'src/http/error-handler.middleware.ts', selectors: [PROCESS, RAW_SQL] },
-  { role: 'the app config', file: 'src/config.ts', selectors: [RAW_SQL] },
-  { role: 'the process entry', file: 'src/server.ts', selectors: [RAW_SQL] },
+const ROLES: Array<{ role: string, file: string, reported: SampleName[], exempt: SampleName[] }> = [
+  {
+    role: 'a service',
+    file: 'src/things/things.service.ts',
+    reported: [...RAW_SQL_FORMS, ...PROCESS_FORMS, ...RAW_REQUEST_FORMS],
+    exempt: [],
+  },
+  {
+    role: 'a controller',
+    file: 'src/things/things.controller.ts',
+    reported: [...RAW_SQL_FORMS, ...PROCESS_FORMS],
+    exempt: RAW_REQUEST_FORMS,
+  },
+  {
+    role: 'a middleware',
+    file: 'src/http/error-handler.middleware.ts',
+    reported: [...RAW_SQL_FORMS, ...PROCESS_FORMS],
+    exempt: RAW_REQUEST_FORMS,
+  },
+  {
+    role: 'the app config',
+    file: 'src/config.ts',
+    reported: RAW_SQL_FORMS,
+    exempt: [...PROCESS_FORMS, ...RAW_REQUEST_FORMS],
+  },
+  {
+    role: 'the process entry',
+    file: 'src/server.ts',
+    reported: RAW_SQL_FORMS,
+    exempt: [...PROCESS_FORMS, ...RAW_REQUEST_FORMS],
+  },
 ]
 
+const eslint = new ESLint({
+  cwd: REPO_ROOT,
+  ruleFilter: ({ ruleId }) => ruleId === 'no-restricted-syntax',
+  overrideConfig: { languageOptions: { parserOptions: { projectService: false } } },
+})
+
+async function restrictionReports(file: string, sample: SampleName): Promise<string[]> {
+  const [result] = await eslint.lintText(SAMPLES[sample], { filePath: file })
+  const fatal = result.messages.find(message => message.fatal)
+  if (fatal)
+    throw new Error(`${file} (${sample}): ${fatal.message}`)
+  return result.messages
+    .filter(message => message.ruleId === 'no-restricted-syntax')
+    .map(message => message.message)
+}
+
 describe('syntax policy by file role', () => {
-  for (const { role, file, selectors } of ROLES) {
-    it(`keeps every restriction that applies to ${role}`, async () => {
-      expect(await restrictedSelectors(file)).toEqual([...selectors].sort())
+  for (const { role, file, reported, exempt } of ROLES) {
+    it(`reports every restricted form in ${role}`, async () => {
+      for (const sample of reported)
+        expect(await restrictionReports(file, sample), sample).not.toEqual([])
+    })
+
+    it(`reports nothing ${role} may legitimately write`, async () => {
+      for (const sample of ['plainModule' as SampleName, ...exempt])
+        expect(await restrictionReports(file, sample), sample).toEqual([])
     })
   }
 })
