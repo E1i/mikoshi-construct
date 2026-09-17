@@ -16,7 +16,7 @@ export const SYNC_APPLY_EXIT = {
   refused: 2,
 } as const
 
-export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'conflict', 'removed', 'orphaned']
+export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'conflict', 'unknown', 'removed', 'orphaned']
 
 const CLASS_COLUMN = Math.max(...PATH_CLASSES.map(value => value.length)) + 2
 
@@ -44,6 +44,8 @@ export function syncJson(report: SyncReport): Record<string, unknown> {
       class: entry.class,
       strategy: entry.strategy,
       ...(entry.keys.length === 0 ? {} : { keys: entry.keys }),
+      ...(entry.variant == null ? {} : { variant: entry.variant.variant, variantEvidence: entry.variant.evidence }),
+      ...(entry.shape == null ? {} : { shape: entry.shape }),
       ...(entry.writeEffect == null ? {} : { writeEffect: entry.writeEffect }),
     })),
   }
@@ -54,10 +56,12 @@ function note(ui: Ui, entry: PathClassification): string {
     const keys = actionableKeys(entry)
     return keys.length === 0 ? '' : ui.lore.syncMergedKeys(keys)
   }
+  if (entry.class === 'unknown')
+    return ui.lore.syncVariantUnknown(entry.shape ?? '')
   return entry.writeEffect == null ? '' : ui.lore.syncWriteEffect[entry.writeEffect] ?? ''
 }
 
-const COUNT_ORDER: PathClass[] = ['add', 'update', 'conflict', 'removed', 'orphaned', 'keep', 'foreign']
+const COUNT_ORDER: PathClass[] = ['add', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'keep', 'foreign']
 
 function printCounts(ui: Ui, report: SyncReport): void {
   ui.line(ui.theme.accent(ui.lore.syncClasses))
@@ -138,6 +142,16 @@ function printWritten(ui: Ui, result: SyncApplyReport): void {
   }
 }
 
+function printUnknownVariants(ui: Ui, result: SyncApplyReport): void {
+  const unknown = result.report.classifications.filter(entry => entry.class === 'unknown')
+  if (unknown.length === 0)
+    return
+  ui.line()
+  ui.line(ui.theme.accent(ui.lore.syncApplyUnknown))
+  for (const entry of unknown)
+    ui.line(`  ${entry.target}${ui.theme.dim(` — ${note(ui, entry)}`)}`)
+}
+
 function printRefused(ui: Ui, result: SyncApplyReport): void {
   if (result.refused.length === 0)
     return
@@ -159,6 +173,7 @@ export function printSyncApply(ui: Ui, result: SyncApplyReport | null): number {
   ui.line(ui.theme.accent(ui.theme.bold(ui.lore.syncApplyTitle)))
   ui.line(ui.theme.bold(ui.lore.syncVersionGap(result.report.fromVersion, result.report.toVersion)))
   printWritten(ui, result)
+  printUnknownVariants(ui, result)
   printRefused(ui, result)
 
   ui.line()

@@ -17,6 +17,13 @@ export function ownedText(target: string, content: string): string {
   return withoutDiscoveryBodies(content.slice(content.indexOf(begin) + begin.length, content.indexOf(end)))
 }
 
+export function blockSpansDocument(target: string, content: string): boolean {
+  const [begin, end] = blockMarkers(target)
+  const before = content.slice(0, content.indexOf(begin))
+  const after = content.slice(content.indexOf(end) + end.length)
+  return `${before}${after}`.trim() === ''
+}
+
 export function carriesConstructBlock(target: string, content: string): boolean {
   const [begin, end] = blockMarkers(target)
   const start = content.indexOf(begin)

@@ -5,7 +5,7 @@ run `pnpm composition:render`; `pnpm composition:check` fails when the diagram a
 apart.
 
 <!-- composition:sync -->
-Two entry points share one replay. `runSync(root, version)` in `src/commands/sync/index.ts` reads `construct.json`, replays today's template groups for the preset the manifest recorded, classifies every path into one of the seven classes, counts them, and hands the report to `printSync` or to `syncJson`; it writes nothing. `applySync(root, version)` replays the same evidence and writes only what `isWritable` allows — `add` and `update` where the strategy is `create` or `append-block`, never a `merge-json` target, a `conflict`, a `removed` or a `foreign` path — then records the owned view of each written path in the manifest's `sync` branch, leaving the branch `init` wrote untouched. A block target is spliced between the markers the present file already carries, so every byte outside them and every filled discovery body survives. The write effect an append-block target carries travels on the classification, so both the report and the apply output print it rather than restating it. The last line names the version that materialized the repository against the version reading it, and the exit code is set by the `add` and `update` counts alone — by what remained unwritten, under `--apply`.
+Two entry points share one replay. `runSync(root, version)` in `src/commands/sync/index.ts` reads `construct.json`, replays today's template groups for the preset the manifest recorded, classifies every path into one of the eight classes, counts them, and hands the report to `printSync` or to `syncJson`; it writes nothing. `applySync(root, version)` replays the same evidence and writes only what `isWritable` allows — `add` and `update` where the strategy is `create` or `append-block`, never a `merge-json` target, a `conflict`, an `unknown`, a `removed` or a `foreign` path — then records the owned view and the template variant of each written path in the manifest's `sync` branch, leaving the branch `init` wrote untouched. Before an append-block target is classified, `establishVariant` settles which template variant wrote it: the variant `init` recorded, else the sole variant the templates carry, else the one whose rendering matches the recorded sha. Where nothing settles it the path reads `unknown`, is written in no mode, and is reported under its own reason rather than as a conflict. A block target is spliced between the markers the present file already carries, so every byte outside them and every filled discovery body survives. The write effect an append-block target carries travels on the classification, so both the report and the apply output print it rather than restating it. The last line names the version that materialized the repository against the version reading it, and the exit code is set by the `add` and `update` counts alone — by what remained unwritten, under `--apply`.
 
 ```mermaid
 flowchart LR
@@ -21,7 +21,8 @@ flowchart LR
   end
   subgraph b_classification["Classification · pure"]
     ownership["owned view per strategy · construct block, merge-json keys, whole file"]
-    classify["classifyRepository · add / keep / update / conflict / removed / orphaned / foreign, with the write effect"]
+    variant["establishVariant · recorded, sole, reconstructed — or unknown, which is never written"]
+    classify["classifyRepository · add / keep / update / conflict / unknown / removed / orphaned / foreign, with the write effect"]
     writes["planWrites · add and update where isWritable allows, the block spliced, discovery bodies carried over"]
   end
   subgraph b_write["Write · the only files sync writes"]
@@ -29,9 +30,9 @@ flowchart LR
     record["writeManifest · the sync branch only, the init branch untouched"]
   end
   subgraph b_report["Report"]
-    print["printSync · seven counts, the actionable paths, the version gap, the exit code"]
+    print["printSync · eight counts, the actionable paths, the version gap, the exit code"]
     json["syncJson · both versions, the counts, the classified paths"]
-    printApply["printSyncApply · what was written, what was refused, the exit code"]
+    printApply["printSyncApply · what was written, whose variant is unknown, what was refused, the exit code"]
   end
   cli -->|"report"| run
   cli -->|"--apply"| apply
@@ -39,7 +40,8 @@ flowchart LR
   apply --> manifest
   manifest --> replay
   replay --> plan
-  plan --> classify
+  plan --> variant
+  variant --> classify
   ownership -.-> classify
   classify -->|"report"| print
   classify -->|"--json"| json

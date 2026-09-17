@@ -1,9 +1,11 @@
 import type { Strategy } from '../materialize/strategies.js'
+import type { TemplateVariant } from '../materialize/templates.js'
 import type { OwnedKey } from './ownership.js'
+import type { EstablishedVariant } from './variant.js'
 import { strategyFor } from '../materialize/strategies.js'
-import { carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedText } from './ownership.js'
+import { blockSpansDocument, carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedText } from './ownership.js'
 
-export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'removed', 'orphaned', 'foreign'] as const
+export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'foreign'] as const
 
 export type PathClass = (typeof PATH_CLASSES)[number]
 
@@ -16,6 +18,7 @@ export interface PathState {
   recordedSha: string | null
   present: string | null
   produced: string | null
+  variant?: EstablishedVariant | null
 }
 
 export interface PathClassification {
@@ -24,12 +27,15 @@ export interface PathClassification {
   class: PathClass
   keys: OwnedKey[]
   writeEffect: WriteEffect | null
+  variant?: EstablishedVariant | null
+  shape?: TemplateVariant
 }
 
 export interface RepositoryState {
   recorded: Record<string, string>
   present: Record<string, string>
   produced: Record<string, string>
+  variants?: Record<string, EstablishedVariant>
 }
 
 function classFromKeys(keys: OwnedKey[]): PathClass {
@@ -38,10 +44,16 @@ function classFromKeys(keys: OwnedKey[]): PathClass {
   return keys.some(key => key.class === 'add') ? 'update' : 'keep'
 }
 
-function compareDeclaredBlock(target: string, present: string, produced: string): PathClass {
+function compareDeclaredBlock(target: string, present: string, produced: string, variant: EstablishedVariant | null): PathClass {
   if (!carriesConstructBlock(target, present))
     return 'conflict'
+  if (variant == null)
+    return 'unknown'
   return ownedText(target, present) === ownedText(target, produced) ? 'keep' : 'update'
+}
+
+function shapeSuggests(target: string, present: string): TemplateVariant {
+  return blockSpansDocument(target, present) ? 'default' : 'existing'
 }
 
 function compareOwnedView(target: string, recordedSha: string, present: string, produced: string): PathClass {
@@ -54,8 +66,17 @@ function compareOwnedView(target: string, recordedSha: string, present: string, 
 
 export function classifyPath(state: PathState): PathClassification | null {
   const { target, recordedSha, present, produced } = state
+  const variant = state.variant ?? null
   const strategy = strategyFor(target)
-  const classified = (value: PathClass, keys: OwnedKey[] = []): PathClassification => ({ target, strategy, class: value, keys, writeEffect: writeEffectFor(strategy, value) })
+  const classified = (value: PathClass, keys: OwnedKey[] = []): PathClassification => ({
+    target,
+    strategy,
+    class: value,
+    keys,
+    writeEffect: writeEffectFor(strategy, value),
+    ...(strategy === 'append-block' ? { variant } : {}),
+    ...(value === 'unknown' && present != null ? { shape: shapeSuggests(target, present) } : {}),
+  })
 
   if (present == null) {
     if (recordedSha != null)
@@ -77,7 +98,7 @@ export function classifyPath(state: PathState): PathClassification | null {
     return classified('conflict')
 
   if (strategy === 'append-block')
-    return classified(compareDeclaredBlock(target, present, produced))
+    return classified(compareDeclaredBlock(target, present, produced, variant))
 
   return classified(compareOwnedView(target, recordedSha, present, produced))
 }
@@ -105,6 +126,7 @@ export function classifyRepository(state: RepositoryState): PathClassification[]
       recordedSha: state.recorded[target] ?? null,
       present: state.present[target] ?? null,
       produced: state.produced[target] ?? null,
+      variant: state.variants?.[target] ?? null,
     })
     return classification == null ? [] : [classification]
   })

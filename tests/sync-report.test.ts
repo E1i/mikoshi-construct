@@ -45,6 +45,7 @@ const EVERY_CLASS = report([
   classified('architecture/kept.md', 'keep'),
   classified('AGENTS.md', 'update', { strategy: 'append-block', writeEffect: BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER }),
   classified('eslint.config.mjs', 'conflict'),
+  classified('CLAUDE.md', 'unknown', { strategy: 'append-block', shape: 'existing' }),
   classified('architecture/gone.md', 'removed'),
   classified('README.md', 'orphaned'),
   classified('src/owner-wrote-this.ts', 'foreign'),
@@ -70,7 +71,7 @@ describe('the sync report', () => {
 
   it('lists the paths a person must act on and counts keep and foreign without listing them', () => {
     const { output } = render(EVERY_CLASS)
-    for (const target of ['architecture/added.md', 'AGENTS.md', 'eslint.config.mjs', 'architecture/gone.md', 'README.md', 'package.json'])
+    for (const target of ['architecture/added.md', 'AGENTS.md', 'eslint.config.mjs', 'CLAUDE.md', 'architecture/gone.md', 'README.md', 'package.json'])
       expect(output, target).toContain(target)
     expect(output).not.toContain('architecture/kept.md')
     expect(output).not.toContain('src/owner-wrote-this.ts')
@@ -89,6 +90,26 @@ describe('the sync report', () => {
     expect(LORE.syncWriteEffect[BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER]).toBeDefined()
     expect(render(EVERY_CLASS).output).toContain(effect)
     expect(render(report([classified('AGENTS.md', 'keep', { strategy: 'append-block' })])).output).not.toContain(effect)
+  })
+
+  it('keeps a path whose variant it cannot establish apart from one the owner changed, each under its own reason', () => {
+    const { output } = render(EVERY_CLASS)
+    const sections = output.split('\n').map(line => line.trim())
+    const unknownAt = sections.lastIndexOf(sections.filter(line => line.startsWith('unknown')).at(-1) ?? '')
+    const conflictAt = sections.lastIndexOf(sections.filter(line => line.startsWith('conflict')).at(-1) ?? '')
+
+    expect(unknownAt).toBeGreaterThan(0)
+    expect(conflictAt).toBeGreaterThan(0)
+    expect(unknownAt).not.toBe(conflictAt)
+    expect(output).toContain(PLAIN_LORE.syncClassMeaning.unknown)
+    expect(PLAIN_LORE.syncClassMeaning.unknown).not.toBe(PLAIN_LORE.syncClassMeaning.conflict)
+    expect(output).toContain(PLAIN_LORE.syncVariantUnknown('existing'))
+    expect(sections[unknownAt + 1]).toContain('CLAUDE.md')
+    expect(sections[conflictAt + 1]).toContain('eslint.config.mjs')
+  })
+
+  it('leaves the exit code on 0 for a path whose variant is unknown, because there is nothing to apply', () => {
+    expect(render(report([classified('CLAUDE.md', 'unknown', { strategy: 'append-block', shape: 'default' })])).code).toBe(SYNC_EXIT.upToDate)
   })
 
   it('opens with the version that materialized the repository against the version reading it, because that frames everything under it', () => {
@@ -116,7 +137,7 @@ describe('the sync report', () => {
   })
 
   it('is not moved off 0 by a conflict, a removal or an orphan', () => {
-    for (const value of ['conflict', 'removed', 'orphaned', 'foreign'] as const)
+    for (const value of ['conflict', 'unknown', 'removed', 'orphaned', 'foreign'] as const)
       expect(render(report([classified('x', value)])).code, value).toBe(SYNC_EXIT.upToDate)
   })
 

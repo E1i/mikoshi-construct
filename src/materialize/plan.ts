@@ -1,5 +1,6 @@
 import type { AiTarget, TemplateGroup, TemplateMount, TemplateVars } from '../presets/index.js'
 import type { Strategy } from './strategies.js'
+import type { TemplateVariant } from './templates.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { mapRulesForTargets } from './rules.js'
@@ -13,6 +14,7 @@ export interface FileOp {
   strategy: Strategy
   action: FileAction
   content: string
+  variant?: TemplateVariant
   note?: string
 }
 
@@ -20,6 +22,7 @@ export interface MaterializePlan {
   ops: FileOp[]
   conflicts: string[]
   omittedGroups: string[]
+  existingVariants: Record<string, string>
 }
 
 function toMount(group: TemplateGroup): TemplateMount {
@@ -98,8 +101,11 @@ function planOne(root: string, target: string, content: string, conflicts: strin
   const absolute = path.join(root, target)
   const exists = existsSync(absolute)
 
-  if (!exists)
-    return { target, strategy, action: 'create', content: strategy === 'append-block' ? appendBlock('', content, target) : content }
+  if (!exists) {
+    return strategy === 'append-block'
+      ? { target, strategy, action: 'create', content: appendBlock('', content, target), variant: 'default' }
+      : { target, strategy, action: 'create', content }
+  }
 
   if (strategy === 'merge-json') {
     const existing = JSON.parse(readFileSync(absolute, 'utf8')) as Record<string, unknown>
@@ -114,7 +120,13 @@ function planOne(root: string, target: string, content: string, conflicts: strin
 
   if (strategy === 'append-block') {
     const existing = readFileSync(absolute, 'utf8')
-    return { target, strategy, action: 'append', content: appendBlock(existing, existingVariant ?? content, target) }
+    return {
+      target,
+      strategy,
+      action: 'append',
+      content: appendBlock(existing, existingVariant ?? content, target),
+      variant: existingVariant == null ? 'default' : 'existing',
+    }
   }
 
   return { target, strategy, action: 'skip', content, note: 'exists, review manually' }
@@ -149,5 +161,5 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
   const ops = [...mapRulesForTargets(layered, options.ai).entries()]
     .map(([target, content]) => planOne(root, target, content, conflicts, existingVariants.get(target)))
     .sort((a, b) => a.target.localeCompare(b.target))
-  return { ops, conflicts, omittedGroups }
+  return { ops, conflicts, omittedGroups, existingVariants: Object.fromEntries(existingVariants) }
 }

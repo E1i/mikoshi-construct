@@ -60,6 +60,8 @@ export interface Lore {
   syncMergedKeys: (keys: string[]) => string
   syncMergedNotWritten: string
   syncWriteEffect: Record<string, string>
+  syncVariantUnknown: (shape: string) => string
+  syncApplyUnknown: string
   syncNothingToWrite: string
   syncPending: (count: number) => string
   syncApplyTitle: string
@@ -134,6 +136,7 @@ export const LORE: Lore = {
     add: 'not in the tree; the templates produce it',
     update: 'the construct owns this and the template moved on',
     conflict: 'yours \u2014 you wrote or changed it; sync never touches these',
+    unknown: 'which template variant wrote this block cannot be established; you changed nothing, and sync writes nothing here',
     removed: 'you deleted it; sync never puts it back',
     orphaned: 'the construct wrote it once and no longer produces it; it is yours now',
     keep: 'already what the templates produce',
@@ -144,6 +147,8 @@ export const LORE: Lore = {
   syncWriteEffect: {
     [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
   },
+  syncVariantUnknown: (shape: string) => `no record of the variant that wrote it and no rendering matches the recorded hash; the shape reads like the ${shape} variant, which is a guess and never enough to write on`,
+  syncApplyUnknown: 'VARIANT UNKNOWN',
   syncNothingToWrite: 'NOTHING TO WRITE \u2014 the replay reads back what the tree already carries.',
   syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
   syncApplyTitle: 'WRITE TRACE',
@@ -218,6 +223,7 @@ export const PLAIN_LORE: Lore = {
     add: 'not in the tree; the templates produce it',
     update: 'the construct owns this and the template moved on',
     conflict: 'yours \u2014 you wrote or changed it; sync never touches these',
+    unknown: 'which template variant wrote this block cannot be established; you changed nothing, and sync writes nothing here',
     removed: 'you deleted it; sync never puts it back',
     orphaned: 'the construct wrote it once and no longer produces it; it is yours now',
     keep: 'already what the templates produce',
@@ -228,6 +234,8 @@ export const PLAIN_LORE: Lore = {
   syncWriteEffect: {
     [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
   },
+  syncVariantUnknown: (shape: string) => `no record of the variant that wrote it and no rendering matches the recorded hash; the shape reads like the ${shape} variant, which is a guess and never enough to write on`,
+  syncApplyUnknown: 'Variant unknown',
   syncNothingToWrite: 'Nothing to write: the replay reads back what the tree already carries.',
   syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
   syncApplyTitle: 'Sync apply',

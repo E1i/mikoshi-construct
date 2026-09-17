@@ -1,4 +1,5 @@
 import type { Strategy } from '../materialize/strategies.js'
+import type { TemplateVariant } from '../materialize/templates.js'
 import type { PathClass, PathClassification, WriteEffect } from './classify.js'
 import { substituteBlock } from '../materialize/strategies.js'
 import { isWritable } from './classify.js'
@@ -11,6 +12,7 @@ export interface PlannedWrite {
   strategy: Strategy
   content: string
   ownedSha: string
+  variant: TemplateVariant | null
   writeEffect: WriteEffect | null
 }
 
@@ -37,6 +39,12 @@ function contentToWrite(classification: PathClassification, input: WriteInput): 
   return substituteBlock(present, produced, classification.target)
 }
 
+function variantWritten(classification: PathClassification, input: WriteInput): TemplateVariant | null {
+  if (classification.strategy !== 'append-block')
+    return null
+  return classification.variant?.variant ?? (input.present[classification.target] == null ? 'default' : null)
+}
+
 function plannedWrite(classification: PathClassification, input: WriteInput): PlannedWrite {
   const content = contentToWrite(classification, input)
   return {
@@ -44,6 +52,7 @@ function plannedWrite(classification: PathClassification, input: WriteInput): Pl
     strategy: classification.strategy,
     content,
     ownedSha: ownedSha(classification.target, content),
+    variant: variantWritten(classification, input),
     writeEffect: classification.writeEffect,
   }
 }

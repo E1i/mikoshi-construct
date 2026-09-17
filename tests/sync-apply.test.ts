@@ -38,6 +38,13 @@ function frozenTree(): string {
   return dir
 }
 
+function frozenTreeWithTheVariantRecorded(): string {
+  const dir = frozenTree()
+  const manifest = readManifest(dir)!
+  writeManifest(dir, { ...manifest, variants: { 'AGENTS.md': 'default', 'CLAUDE.md': 'existing' } })
+  return dir
+}
+
 function filesIn(root: string): string[] {
   return readdirSync(root, { recursive: true, withFileTypes: true })
     .filter(entry => entry.isFile())
@@ -88,7 +95,7 @@ function packageJsonMissingAKey(root: string): string {
 
 describe('sync --apply over a tree whose discovery markers are filled', () => {
   it('carries the body of every discovery marker through byte for byte, and moves the block itself to what the templates produce', () => {
-    const dir = frozenTree()
+    const dir = frozenTreeWithTheVariantRecorded()
     const before = markerBodies(dir)
     const blockFile = 'AGENTS.md'
     const wasInTheTree = read(dir, blockFile)
@@ -113,7 +120,7 @@ describe('sync --apply over a tree whose discovery markers are filled', () => {
   })
 
   it('writes a block target by substitution, so no byte outside the construct block moves', () => {
-    const dir = frozenTree()
+    const dir = frozenTreeWithTheVariantRecorded()
     const before = Object.fromEntries(['AGENTS.md', 'CLAUDE.md'].map(target => [target, read(dir, target)]))
     applySync(dir, VERSION)
     for (const [target, content] of Object.entries(before)) {
@@ -183,7 +190,7 @@ describe('what sync --apply never touches', () => {
     packageJsonMissingAKey(dir)
 
     const untouchable = runSync(dir, VERSION)!.classifications.filter(entry => !isWritable(entry))
-    expect(new Set(untouchable.map(entry => entry.class))).toEqual(new Set<PathClass>(['keep', 'conflict', 'removed', 'orphaned', 'update']))
+    expect(new Set(untouchable.map(entry => entry.class))).toEqual(new Set<PathClass>(['keep', 'conflict', 'unknown', 'removed', 'orphaned', 'update']))
     expect(untouchable.some(entry => entry.target === neverOurs), 'a file no record and no template carries is not a path sync considers at all').toBe(false)
     const before = Object.fromEntries([...untouchable.map(entry => entry.target), neverOurs]
       .filter(target => existsSync(path.join(dir, target)))
@@ -319,7 +326,7 @@ describe('the apply report', () => {
   })
 
   it('names what it wrote, states the write effect a block target carries, and says a merged target is left to you', () => {
-    const dir = frozenTree()
+    const dir = frozenTreeWithTheVariantRecorded()
     packageJsonMissingAKey(dir)
     const { output } = renderApply(dir)
 
@@ -328,6 +335,21 @@ describe('the apply report', () => {
     expect(output).toContain('package.json')
     expect(output).toContain(PLAIN_LORE.syncMergedNotWritten)
     expect(output).toContain(PLAIN_LORE.syncApplyLeftToYou(1))
+  })
+
+  it('shows a path whose variant it cannot establish under a heading of its own, apart from what it refused', () => {
+    const dir = frozenTree()
+    packageJsonMissingAKey(dir)
+    const lines = renderApply(dir).output.split('\n').map(line => line.trim())
+    const unknownAt = lines.indexOf(PLAIN_LORE.syncApplyUnknown)
+    const refusedAt = lines.indexOf(PLAIN_LORE.syncApplyRefused)
+
+    expect(unknownAt).toBeGreaterThan(-1)
+    expect(refusedAt).toBeGreaterThan(unknownAt)
+    expect(lines.slice(unknownAt + 1, refusedAt).join(' ')).toContain('AGENTS.md')
+    expect(lines.slice(unknownAt + 1, refusedAt).join(' ')).toContain(PLAIN_LORE.syncVariantUnknown('default'))
+    expect(lines.slice(refusedAt + 1).join(' ')).toContain('package.json')
+    expect(lines.slice(refusedAt + 1).join(' ')).not.toContain('AGENTS.md')
   })
 
   it('carries no emoji and no lore vocabulary with --plain', () => {

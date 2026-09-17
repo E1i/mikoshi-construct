@@ -1,11 +1,12 @@
 import type { FileOp } from './materialize/plan.js'
+import type { TemplateVariant } from './materialize/templates.js'
 import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from './presets/index.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const MANIFEST_FILE = 'construct.json'
-export const MANIFEST_VERSION = 3
+export const MANIFEST_VERSION = 4
 
 export const DISCOVERY_MARKERS = [
   'product',
@@ -41,6 +42,7 @@ export interface SyncRecord {
   fromVersion: string
   toVersion: string
   files: Record<string, string>
+  variants: Record<string, TemplateVariant>
 }
 
 export interface Manifest {
@@ -55,6 +57,7 @@ export interface Manifest {
   contracts: { path: string, types: string } | null
   vars: Record<string, string>
   files: Record<string, string>
+  variants: Record<string, TemplateVariant>
   discovery: DiscoveryRecord
   sync: SyncRecord | null
 }
@@ -103,9 +106,23 @@ export function buildManifest(input: {
     contracts: input.contracts ? { path: input.vars.contractPath, types: input.vars.contractTypesOutput } : null,
     vars: input.vars,
     files,
+    variants: variantsOf(input.written),
     discovery: { baseSha: null, filledAt: null, markers },
     sync: null,
   }
+}
+
+function variantsOf(written: FileOp[]): Record<string, TemplateVariant> {
+  return Object.fromEntries(written.flatMap(op => (op.variant == null ? [] : [[op.target, op.variant] as const])))
+}
+
+function isTemplateVariant(value: unknown): value is TemplateVariant {
+  return value === 'default' || value === 'existing'
+}
+
+function upgradeVariants(raw: unknown): Record<string, TemplateVariant> {
+  const value = (raw ?? {}) as Record<string, unknown>
+  return Object.fromEntries(Object.entries(value).flatMap(([target, variant]) => (isTemplateVariant(variant) ? [[target, variant] as const] : [])))
 }
 
 function upgradeMarker(recorded: unknown, file: string): MarkerProvenance {
@@ -128,6 +145,7 @@ function upgradeSync(raw: unknown): SyncRecord | null {
     fromVersion: value.fromVersion,
     toVersion: value.toVersion,
     files: typeof value.files === 'object' && value.files != null ? { ...value.files } : {},
+    variants: upgradeVariants(value.variants),
   }
 }
 
@@ -142,6 +160,7 @@ export function upgradeManifest(raw: unknown): Manifest {
   return {
     ...manifest,
     manifestVersion: MANIFEST_VERSION,
+    variants: upgradeVariants(manifest.variants),
     discovery: {
       baseSha: typeof discovery.baseSha === 'string' ? discovery.baseSha : null,
       filledAt: typeof discovery.filledAt === 'string' ? discovery.filledAt : null,
@@ -151,7 +170,7 @@ export function upgradeManifest(raw: unknown): Manifest {
   }
 }
 
-export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: string, files: Record<string, string> }): Manifest {
+export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: string, files: Record<string, string>, variants?: Record<string, TemplateVariant> }): Manifest {
   return {
     ...manifest,
     sync: {
@@ -159,12 +178,17 @@ export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: 
       fromVersion: manifest.construct,
       toVersion: run.toVersion,
       files: { ...manifest.sync?.files, ...run.files },
+      variants: { ...manifest.sync?.variants, ...run.variants },
     },
   }
 }
 
 export function recordedShas(manifest: Manifest): Record<string, string> {
   return { ...manifest.files, ...manifest.sync?.files }
+}
+
+export function recordedVariants(manifest: Manifest): Record<string, TemplateVariant> {
+  return { ...manifest.variants, ...manifest.sync?.variants }
 }
 
 export function writeManifest(root: string, manifest: Manifest): void {
