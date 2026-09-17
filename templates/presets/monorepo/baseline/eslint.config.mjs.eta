@@ -4,11 +4,27 @@ const WORKSPACE_PACKAGES = {{workspacePackages}}
 
 const ALLOWED_WORKSPACE_IMPORTS = {{allowedWorkspaceImports}}
 
-const PROCESS_ENV = 'MemberExpression[object.name="process"][property.name="env"]'
+const PROCESS_ENV_MEMBER = 'MemberExpression[object.name="process"][property.name="env"]'
+const PROCESS_ENV_VIA_GLOBAL_THIS = 'MemberExpression[object.object.name="globalThis"][object.property.name="process"][property.name="env"]'
+const PROCESS_ENV_DESTRUCTURED = 'VariableDeclarator[init.name="process"] > ObjectPattern > Property[key.name="env"]'
+const PROCESS_ENV = `:matches(${PROCESS_ENV_MEMBER}, ${PROCESS_ENV_VIA_GLOBAL_THIS}, ${PROCESS_ENV_DESTRUCTURED})`
+
 const PROCESS_MEMBER = 'MemberExpression[object.name="process"]'
-const RAW_REQUEST_DATA = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
-const RAW_SQL = 'CallExpression[callee.object.name="sql"][callee.property.name="raw"]'
-const SHARED_IMPORT = ':matches(ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration)[source.value=/^{{scope}}\\/shared(\\/|$)/]'
+const PROCESS_VIA_GLOBAL_THIS = 'MemberExpression[object.name="globalThis"]:matches([property.name="process"], [property.value="process"])'
+const PROCESS_BINDING = 'VariableDeclarator[init.name="process"]'
+const PROCESS = `:matches(${PROCESS_MEMBER}, ${PROCESS_VIA_GLOBAL_THIS}, ${PROCESS_BINDING})`
+
+const RAW_REQUEST_MEMBER = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
+const RAW_REQUEST_DESTRUCTURED = 'VariableDeclarator[init.name="req"] > ObjectPattern > Property[key.name=/^(body|query|params)$/]'
+const RAW_REQUEST_ALIASED = 'VariableDeclarator[id.type="Identifier"][init.name="req"]'
+const RAW_REQUEST_DATA = `:matches(${RAW_REQUEST_MEMBER}, ${RAW_REQUEST_DESTRUCTURED}, ${RAW_REQUEST_ALIASED})`
+
+const RAW_SQL = 'MemberExpression[object.name="sql"]:matches([property.name="raw"], [property.value="raw"])'
+
+const SHARED_SPECIFIER = '/^{{scope}}\\/shared(\\/|$)/'
+const SHARED_IMPORT = `:matches(ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration, ImportExpression)[source.value=${SHARED_SPECIFIER}]`
+const SHARED_REQUIRE = `CallExpression[callee.name="require"][arguments.0.value=${SHARED_SPECIFIER}]`
+const SHARED_MODULE = `:matches(${SHARED_IMPORT}, ${SHARED_REQUIRE})`
 
 function dependencyBoundary([directory, allowed]) {
   const forbidden = WORKSPACE_PACKAGES.filter(name => !allowed.includes(name))
@@ -32,7 +48,7 @@ const dependencyBoundaries = Object.entries(ALLOWED_WORKSPACE_IMPORTS)
   .map(dependencyBoundary)
 
 const NO_PROCESS_OUTSIDE_CONFIG = {
-  selector: PROCESS_MEMBER,
+  selector: PROCESS,
   message: 'An app touches process only in config.ts: read configuration through readConfig() and pass the value on',
 }
 const NO_PROCESS_ENV_IN_PACKAGE = {
@@ -48,7 +64,7 @@ const NO_RAW_SQL = {
   message: 'SQL is never built from raw strings: interpolate tables and columns into the sql template instead of sql.raw',
 }
 const NO_SHARED_OUTSIDE_CONTRACTS = {
-  selector: SHARED_IMPORT,
+  selector: SHARED_MODULE,
   message: 'Contract types enter an app only through src/contracts/types.ts: import them from there',
 }
 
