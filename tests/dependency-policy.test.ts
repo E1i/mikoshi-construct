@@ -25,4 +25,33 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/commands/probe.ts', spawn)).toEqual(['no-restricted-syntax'])
     expect(await violations('src/detect/package-manager.ts', spawn)).toEqual([])
   })
+
+  it('reports every form of loading code the CLI did not ship', async () => {
+    const forms = [
+      'export async function probe() {\n  return await import(\'node:child_process\')\n}\n',
+      'export async function probe(specifier: string) {\n  return await import(specifier)\n}\n',
+      'export function probe(specifier: string) {\n  return require(specifier)\n}\n',
+      'export function probe(specifier: string) {\n  return require.resolve(specifier)\n}\n',
+      'import { createRequire } from \'node:module\'\n\nexport const probe = createRequire\n',
+      'export function probe(root: string) {\n  return createRequire(root)(\'eslint\')\n}\n',
+    ]
+    for (const form of forms)
+      expect(await violations('src/commands/probe.ts', form)).toContain('no-restricted-syntax')
+
+    expect(await violations('src/commands/probe.ts', 'export function probe(value: string) {\n  return value.trim()\n}\n')).toEqual([])
+  })
+
+  it('keeps the restrictions the block carried before restating them', async () => {
+    const resolved = await eslint.calculateConfigForFile(path.join(root, 'src/commands/probe.ts'))
+    const [severity, ...entries] = resolved.rules['no-restricted-syntax'] as [number, ...(string | { selector: string })[]]
+    const selectors = entries.map(entry => typeof entry === 'string' ? entry : entry.selector)
+
+    expect(severity).toBe(2)
+    expect(selectors).toEqual(expect.arrayContaining([
+      'TSEnumDeclaration[const=true]',
+      'TSExportAssignment',
+      'ImportDeclaration[source.value="node:child_process"]',
+    ]))
+    expect(await violations('src/commands/probe.ts', 'export const enum Probe { A = 1 }\n')).toEqual(['no-restricted-syntax'])
+  })
 })

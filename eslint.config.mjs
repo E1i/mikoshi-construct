@@ -30,15 +30,28 @@ function dependencyBoundary([directory, allowed]) {
 const dependencyBoundaries = Object.entries(ALLOWED_INTERNAL_IMPORTS).map(dependencyBoundary)
 
 const ANTFU_RESTRICTED_SYNTAX = ['TSEnumDeclaration[const=true]', 'TSExportAssignment']
-const NO_CHILD_PROCESS = {
-  selector: 'ImportDeclaration[source.value="node:child_process"]',
-  message: 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts',
-}
+
+const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts'
+const RUNS_ONLY_SHIPPED_CODE = 'The CLI runs only the code it ships: no dynamic import, no require, no node:module'
+
+const NO_CHILD_PROCESS = [
+  { selector: 'ImportDeclaration[source.value="node:child_process"]', message: SPAWNS_ONLY_THE_PNPM_PROBE },
+]
+
+const NO_RUNTIME_CODE_LOADING = [
+  { selector: 'ImportExpression', message: RUNS_ONLY_SHIPPED_CODE },
+  { selector: 'CallExpression[callee.name="require"]', message: RUNS_ONLY_SHIPPED_CODE },
+  { selector: 'MemberExpression[object.name="require"]', message: RUNS_ONLY_SHIPPED_CODE },
+  { selector: 'ImportDeclaration[source.value="node:module"]', message: RUNS_ONLY_SHIPPED_CODE },
+  { selector: 'Identifier[name="createRequire"]', message: RUNS_ONLY_SHIPPED_CODE },
+]
 
 const spawnPolicy = {
   files: ['src/**'],
   ignores: ['src/detect/package-manager.ts'],
-  rules: { 'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, NO_CHILD_PROCESS] },
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING],
+  },
 }
 
 export default antfu(
