@@ -2,5 +2,5 @@
 useDefault = true
 
 [allowlist]
-description = "construct.json stores sha256 hashes of baseline files, including .claude/rules/secrets.md"
-paths = [ '''^construct\.json$''' ]
+description = "a construct manifest stores sha256 hashes of baseline files, including .claude/rules/secrets.md; frozen manifests live under tests/fixtures too"
+paths = [ '''(^|/)construct\.json$''' ]
