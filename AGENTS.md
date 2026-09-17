@@ -80,7 +80,7 @@ here.
   TTY. `runInit` in `src/commands/init.ts` is the root of the init flow — modelled in
   [architecture/composition/init.yaml](architecture/composition/init.yaml) — and the only code path that
   writes to a target directory (through `applyPlan` and `writeManifest`). `runDoctor` in
-  `src/commands/doctor.ts` is the root of the doctor flow ([doctor.yaml](architecture/composition/doctor.yaml)).
+  `src/commands/doctor/` is the root of the doctor flow ([doctor.yaml](architecture/composition/doctor.yaml)).
   `soulkill` and `cost` are a detect or collect call followed by a print. Adding a command: define it in
   `src/cli.ts`, put the logic in `src/commands/<name>.ts` as `run<Name>(...)` plus `print<Name>(ui, ...)`
   taking a `Ui`, add every string to `src/ui/lore.ts` with its `PLAIN_LORE` counterpart, and test it in

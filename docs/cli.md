@@ -103,7 +103,9 @@ pull request. Add a `CODE_REVIEW_API_KEY` secret to the repository or the workfl
 
 Checks that the construct is intact: every file the manifest recorded is still present, the harness
 command still runs lint, typecheck and tests, the contract paths in `construct.json` still resolve,
-and each discovery marker is either filled or named as missing.
+and each discovery marker is either filled or named as missing. It then answers a second question —
+at what level each gate the repository claims is actually enforced — and ends with one line naming
+the weakest of them.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -123,11 +125,69 @@ npx mikoshi-construct doctor
 
     Run: claude → /construct-discover
 [ok] OK
+
+Enforcement
+  lint-policy      L3  present  scripts/tests/lint/syntax-policy.test.ts resolves the lint policy …
+  construct-tests  L3  present  all 7 test files recorded in construct.json match the include …
+  ci               L3  present  .github/workflows/ci.yml runs "pnpm run quality"; branch protection …
+  hook             L0  absent   no .husky, lefthook, simple-git-hooks or core.hooksPath configuration …
+  red-gate         L3  unknown  doctor executes nothing from the repository it inspects …
+
+Weakest link: lint-policy at L3
 ```
 
 Unfilled markers are reported but do not fail the command, because discovery is the agent's job and
 the harness has to stay usable before it runs. Exits `1` only when a baseline file has gone missing
 or the harness is broken. Files you have edited since `init` are expected and counted, not faulted.
+A low level is information, not a failure: levels, states and the weakest link never change the exit
+code.
+
+### What doctor does not do
+
+`doctor` executes nothing from the repository it inspects: no child process, no dynamic import of a
+path inside it, no `require` into its `node_modules`, no call into its ESLint or Vitest APIs. It is
+run through `npx` in a fresh clone, before anyone has decided whether that code is trustworthy, and
+a flat ESLint config is a module — resolving it would run the audited repository's own code on the
+instruction "check whether this repository is honest". Every verdict below is derived from reading
+file text, over the files `construct.json` records plus a fixed allowlist (`package.json`, the
+vitest or vite config, `.github/workflows/*`, the hook manager configs, `.git/config`).
+
+Two consequences follow. `doctor` never reports `L4`: branch protection and organisation rulesets
+live in the GitHub API, not in the repository, so the most a file can show is `L3`. And whatever it
+cannot read literally is `unknown`, never `absent` — the red gate always, because proving a clean
+checkout is green means running it. See
+[architecture/decisions/0007-doctor-executes-nothing.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0007-doctor-executes-nothing.md).
+
+### The levels
+
+| Level | Meaning |
+|---|---|
+| `L0` | Text, or a command nobody is obliged to run. |
+| `L1` | A human in review. |
+| `L2` | Local: a git hook, bypassable with `--no-verify`. |
+| `L3` | CI that does not block a merge. |
+| `L4` | CI that blocks a merge. Never reported by `doctor`. |
+
+### The checks
+
+Each check returns `{id, level, state, evidence}`, with `state` one of `present`, `absent` or
+`unknown` and `evidence` naming the file or key it read — and, when the chain breaks, its weakest
+link.
+
+| Check | What it reads | What it can conclude |
+|---|---|---|
+| `lint-policy` | The recorded files that resolve the policy with ESLint's `calculateConfigForFile`, the runner include globs, the harness script, the workflows | `present` at the level that whole chain supports; `absent` at `L0` when no such test exists or nothing runs it; `unknown` when the include cannot be read literally |
+| `construct-tests` | Every `*.test.ts` recorded in `construct.json`, against the include list read literally from the runner config | `present` when the runner collects all of them and the harness runs the runner; `absent` at `L0` for an orphan; `unknown` for a missing, non-literal or unreadable include |
+| `ci` | `.github/workflows/*.yml`, the `run:` steps only | `present` at `L3` when a step runs the harness command, otherwise `unknown`. Never `absent`, and never `L4` |
+| `hook` | `.husky/*`, `lefthook.*`, `simple-git-hooks` (file or `package.json` key), `core.hooksPath` in `.git/config`, and the `precommit` script | `present` at `L2` for a hook manager, `present` at `L0` for a bare script nothing installs, `absent` at `L0` |
+| `red-gate` | Nothing: answering it means running the harness | Always `unknown`, with evidence saying so. CI is where a clean checkout is proven |
+
+Typecheck is not a check. Where a bare `tsc --noEmit` cannot carry a stack, the preset contributes a
+line to `warnings` instead — a framework matrix would grow faster than it could be closed.
+
+The last line names the weakest link: the lowest level among the gates the repository claims, which
+is to say the checks that came back `present`. Checks that are `absent` or `unknown` are printed on
+their own lines but do not set it, and when nothing is claimed the line says so.
 
 ```json
 {
@@ -135,9 +195,30 @@ or the harness is broken. Files you have edited since `init` are expected and co
   "missingFiles": [],
   "modifiedFiles": [],
   "missingDiscovery": ["product", "module-map"],
-  "harnessProblems": []
+  "harnessProblems": [],
+  "warnings": [],
+  "checks": [
+    {
+      "id": "lint-policy",
+      "level": "L3",
+      "state": "present",
+      "evidence": "scripts/tests/lint/syntax-policy.test.ts resolves the lint policy with calculateConfigForFile, vitest.config.ts includes \"tests/**/*.test.ts\", \"scripts/tests/**/*.test.ts\", and \"quality\" runs the test runner; .github/workflows/ci.yml runs \"pnpm run quality\""
+    },
+    {
+      "id": "hook",
+      "level": "L0",
+      "state": "absent",
+      "evidence": "no .husky, lefthook, simple-git-hooks or core.hooksPath configuration and no pre-commit script in package.json"
+    }
+  ],
+  "weakestLink": { "id": "lint-policy", "level": "L3" }
 }
 ```
+
+`ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery` and `harnessProblems` keep their names,
+types and meaning; `warnings`, `checks` and `weakestLink` are added after them. `checks` is always in
+the order above — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` — and `weakestLink` is
+`null` when no check is `present`.
 
 ## construct soulkill
 

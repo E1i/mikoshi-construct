@@ -54,4 +54,9 @@ describe('dependency policy in eslint.config.mjs', () => {
     ]))
     expect(await violations('src/commands/probe.ts', 'export const enum Probe { A = 1 }\n')).toEqual(['no-restricted-syntax'])
   })
+
+  it('covers the doctor directory, where the untrusted repository is read', async () => {
+    const dynamic = 'export const probe = async (file: string) => import(file)\n'
+    expect(await violations('src/commands/doctor/checks/lint-policy.ts', dynamic)).toContain('no-restricted-syntax')
+  })
 })

@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runDoctor } from '../src/commands/doctor.js'
+import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { readManifest } from '../src/manifest.js'
 import { createUi, silentWriter } from '../src/ui/console.js'

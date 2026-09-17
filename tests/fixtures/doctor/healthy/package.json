@@ -5,7 +5,7 @@
   "scripts": {
     "lint": "node scripts/lint.mjs",
     "typecheck": "node --version",
-    "test": "node --version",
+    "test": "vitest run",
     "quality": "pnpm lint && pnpm typecheck && pnpm test",
     "precommit": "pnpm run quality"
   },
