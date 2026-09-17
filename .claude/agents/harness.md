@@ -26,15 +26,11 @@ When git is usable, also inspect `git diff` (staged and unstaged) for:
 Report the security leg separately from the rest when a failure comes from a security lint rule,
 a contract security test or the secret scan, so the reader sees the invariant, not just the tool.
 
-Your final message is data, not prose. Return exactly one JSON object:
+Return these fields; the runtime validates the shape against the schema it gives you.
 
-```json
-{
-  "passed": true,
-  "failureExcerpt": "the failing command and its last relevant lines, empty when passed",
-  "securityFinding": "the invariant that failed, empty when none",
-  "diffStat": "output of git diff --stat",
-  "testsWeakened": false,
-  "contractChanged": false
-}
-```
+- `passed` — whether every harness command succeeded.
+- `failureExcerpt` — the failing command and its last relevant lines, empty when passed.
+- `securityFinding` — the invariant that failed, empty when none.
+- `diffStat` — the output of `git diff --stat`, or why git could not be used.
+- `testsWeakened` — whether a test was deleted, renamed away, skipped or narrowed.
+- `contractChanged` — whether a file under `contracts/` changed.
