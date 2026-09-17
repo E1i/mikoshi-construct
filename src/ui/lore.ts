@@ -62,6 +62,12 @@ export interface Lore {
   syncWriteEffect: Record<string, string>
   syncNothingToWrite: string
   syncPending: (count: number) => string
+  syncApplyTitle: string
+  syncApplyWritten: string
+  syncApplyRefused: string
+  syncApplyWrote: (count: number) => string
+  syncApplyNothingWritten: string
+  syncApplyLeftToYou: (count: number) => string
   syncVersionGap: (from: string, to: string) => string
   syncNoManifest: string
 }
@@ -134,12 +140,18 @@ export const LORE: Lore = {
     foreign: 'never ours',
   },
   syncMergedKeys: (keys: string[]) => `keys: ${keys.join(', ')}`,
-  syncMergedNotWritten: 'Merged targets are reported, never rewritten: this version writes no merge-json file.',
+  syncMergedNotWritten: 'A merged target is reported by its keys and never rewritten: no merge-json file is written in this version.',
   syncWriteEffect: {
     [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
   },
   syncNothingToWrite: 'NOTHING TO WRITE \u2014 the replay reads back what the tree already carries.',
-  syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} would be written. This version reports; it writes nothing.`,
+  syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
+  syncApplyTitle: 'WRITE TRACE',
+  syncApplyWritten: 'WRITTEN',
+  syncApplyRefused: 'LEFT TO YOU',
+  syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
+  syncApplyNothingWritten: 'NOTHING WRITTEN \u2014 the tree already carries what the construct owns.',
+  syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
   syncVersionGap: (from: string, to: string) => `MATERIALIZED BY CONSTRUCT v${from} // READ BY v${to}`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
 }
@@ -212,12 +224,18 @@ export const PLAIN_LORE: Lore = {
     foreign: 'never ours',
   },
   syncMergedKeys: (keys: string[]) => `keys: ${keys.join(', ')}`,
-  syncMergedNotWritten: 'Merged targets are reported, never rewritten: this version writes no merge-json file.',
+  syncMergedNotWritten: 'A merged target is reported by its keys and never rewritten: no merge-json file is written in this version.',
   syncWriteEffect: {
     [BLOCK_REPLACED_WHOLE]: 'the construct block is replaced whole \u2014 edits between the delimiters do not survive; the discovery marker bodies are carried over',
   },
   syncNothingToWrite: 'Nothing to write: the replay reads back what the tree already carries.',
-  syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} would be written. This version reports; it writes nothing.`,
+  syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
+  syncApplyTitle: 'Sync apply',
+  syncApplyWritten: 'Written',
+  syncApplyRefused: 'Left to you',
+  syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
+  syncApplyNothingWritten: 'Nothing written: the tree already carries what the construct owns.',
+  syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
   syncVersionGap: (from: string, to: string) => `Materialized by construct ${from}, read by ${to}.`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
 }

@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
-import { readManifest, recordedShas, upgradeManifest } from '../src/manifest.js'
-import { BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER } from '../src/sync/classify.js'
+import { readManifest, recordedShas, sha256, upgradeManifest } from '../src/manifest.js'
 import { replay } from '../src/sync/replay.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -84,12 +83,23 @@ describe('replaying today\'s templates against the repository construct 0.1.0 ma
     expect(at(classifications, dropped)?.class).toBe('add')
   })
 
-  it('reads the files carrying the construct block as update, though discovery filled their markers since', () => {
+  it('never reads a file carrying the construct block as conflict, whatever else has changed in it', () => {
+    const classifications = replayFrozen()
+    const recorded = recordedShas(frozenManifest())
+    for (const target of ['AGENTS.md', 'CLAUDE.md']) {
+      const today = readFileSync(path.join(REPOSITORY, target), 'utf8')
+      expect(recorded[target], target).not.toBe(sha256(today))
+      expect(at(classifications, target)?.strategy, target).toBe('append-block')
+      expect(['keep', 'update'], target).toContain(at(classifications, target)?.class)
+    }
+    expect(readFileSync(path.join(REPOSITORY, 'AGENTS.md'), 'utf8')).not.toContain('_Not discovered yet')
+  })
+
+  it('reads the files carrying the construct block as update until a sync has written them here', () => {
     const classifications = replayFrozen()
     for (const target of ['AGENTS.md', 'CLAUDE.md']) {
-      expect(at(classifications, target)?.strategy, target).toBe('append-block')
       expect(at(classifications, target)?.class, target).toBe('update')
-      expect(at(classifications, target)?.writeEffect, target).toBe(BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER)
+      expect(at(classifications, target)?.writeEffect, target).not.toBeNull()
     }
   })
 

@@ -147,4 +147,7 @@ branch, the raised `manifestVersion`, and the recorded sha read from `sync` when
 written down: writability is derived from the strategy as well as the class, so a `package.json`
 whose owned keys make the path `update` is still not writable, and a writer that consults only the
 class cannot get it wrong. That sync never deletes, never recreates a `removed` path and never
-adopts a `foreign` one is L1 review until the writer exists, which is the change that will enforce it.
+adopts a `foreign` one is enforced by `tests/sync-apply.test.ts` (L3) since the writer landed:
+[0012](0012-sync-writes-what-it-compared.md) records what the writer may do, and its tests compare
+every unwritable path byte for byte across an apply and prove the tree afterwards is the tree before
+plus exactly the `add` paths written.

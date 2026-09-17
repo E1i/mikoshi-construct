@@ -6,7 +6,7 @@ import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/inde
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
-import { printSync, runSync, syncExit, syncJson } from './commands/sync/index.js'
+import { applySync, printSync, printSyncApply, runSync, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
 import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
 import { createUi } from './ui/console.js'
@@ -108,19 +108,38 @@ const cost = defineCommand({
 })
 
 const sync = defineCommand({
-  meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; writes nothing' },
+  meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; --apply writes what it owns' },
   args: {
     ...commonArgs,
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
+    apply: { type: 'boolean', description: 'Write the paths the construct owns \u2014 the only way sync writes; never a conflict, a removal or a merged file', default: false },
   },
   run({ args }) {
+    const console = ui(args)
+    if (args.apply) {
+      try {
+        const result = applySync(args.dir, VERSION)
+        if (args.json) {
+          process.stdout.write(`${JSON.stringify(result == null ? null : syncApplyJson(result), null, 2)}\n`)
+          process.exitCode = syncApplyExit(result)
+          return
+        }
+        process.exitCode = printSyncApply(console, result)
+      }
+      catch (error) {
+        console.flatline(error instanceof Error ? error.message : String(error))
+        process.exitCode = 1
+      }
+      return
+    }
+
     const report = runSync(args.dir, VERSION)
     if (args.json) {
       process.stdout.write(`${JSON.stringify(report == null ? null : syncJson(report), null, 2)}\n`)
       process.exitCode = syncExit(report)
       return
     }
-    process.exitCode = printSync(ui(args), report)
+    process.exitCode = printSync(console, report)
   },
 })
 

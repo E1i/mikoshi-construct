@@ -1,13 +1,19 @@
 id: sync
 title: construct sync composition
 description: >-
-  `runSync(root, version)` in `src/commands/sync/index.ts` is the composition root: it reads
+  Two entry points share one replay. `runSync(root, version)` in `src/commands/sync/index.ts` reads
   `construct.json`, replays today's template groups for the preset the manifest recorded, classifies
   every path into one of the seven classes, counts them, and hands the report to `printSync` or to
-  `syncJson`. This version reports and writes nothing — no file, no manifest. The write effect an
-  append-block target carries travels on the classification, so the report prints it rather than
+  `syncJson`; it writes nothing. `applySync(root, version)` replays the same evidence and writes only
+  what `isWritable` allows — `add` and `update` where the strategy is `create` or `append-block`,
+  never a `merge-json` target, a `conflict`, a `removed` or a `foreign` path — then records the owned
+  view of each written path in the manifest's `sync` branch, leaving the branch `init` wrote
+  untouched. A block target is spliced between the markers the present file already carries, so every
+  byte outside them and every filled discovery body survives. The write effect an append-block target
+  carries travels on the classification, so both the report and the apply output print it rather than
   restating it. The last line names the version that materialized the repository against the version
-  reading it, and the exit code is set by the `add` and `update` counts alone.
+  reading it, and the exit code is set by the `add` and `update` counts alone — by what remained
+  unwritten, under `--apply`.
 doc: architecture/sync.md
 boundaries:
   - id: entry
@@ -16,6 +22,8 @@ boundaries:
     label: Evidence · file reads only
   - id: classification
     label: Classification · pure
+  - id: write
+    label: Write · the only files sync writes
   - id: report
     label: Report
 nodes:
@@ -25,6 +33,10 @@ nodes:
     boundary: entry
   - id: run
     label: runSync · replay, count, report
+    path: src/commands/sync/index.ts
+    boundary: entry
+  - id: apply
+    label: applySync · replay, plan the writes, write, record
     path: src/commands/sync/index.ts
     boundary: entry
   - id: manifest
@@ -47,6 +59,18 @@ nodes:
     label: classifyRepository · add / keep / update / conflict / removed / orphaned / foreign, with the write effect
     path: src/sync/classify.ts
     boundary: classification
+  - id: writes
+    label: planWrites · add and update where isWritable allows, the block spliced, discovery bodies carried over
+    path: src/sync/write.ts
+    boundary: classification
+  - id: applied
+    label: applyPlan · writes each planned file, creates, never deletes
+    path: src/materialize/apply.ts
+    boundary: write
+  - id: record
+    label: writeManifest · the sync branch only, the init branch untouched
+    path: src/manifest.ts
+    boundary: write
   - id: print
     label: printSync · seven counts, the actionable paths, the version gap, the exit code
     path: src/commands/sync/report.ts
@@ -55,12 +79,23 @@ nodes:
     label: syncJson · both versions, the counts, the classified paths
     path: src/commands/sync/report.ts
     boundary: report
+  - id: printApply
+    label: printSyncApply · what was written, what was refused, the exit code
+    path: src/commands/sync/report.ts
+    boundary: report
 edges:
-  - {from: cli, to: run, kind: sequence}
+  - {from: cli, to: run, kind: route, label: report}
+  - {from: cli, to: apply, kind: route, label: --apply}
   - {from: run, to: manifest, kind: sequence}
+  - {from: apply, to: manifest, kind: sequence}
   - {from: manifest, to: replay, kind: sequence}
   - {from: replay, to: plan, kind: sequence}
   - {from: plan, to: classify, kind: sequence}
   - {from: ownership, to: classify, kind: wires}
   - {from: classify, to: print, kind: route, label: report}
   - {from: classify, to: json, kind: route, label: --json}
+  - {from: classify, to: writes, kind: route, label: --apply}
+  - {from: ownership, to: writes, kind: wires}
+  - {from: writes, to: applied, kind: sequence}
+  - {from: applied, to: record, kind: sequence}
+  - {from: record, to: printApply, kind: sequence}

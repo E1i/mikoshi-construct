@@ -297,13 +297,15 @@ the order above — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` �
 ## construct sync
 
 Replays today's templates for the preset `construct.json` recorded, with the variables it recorded,
-and classifies every path the construct owns against the tree as it is now. It prints the
-classification and writes nothing — not a file, not the manifest it read. Writing is a separate
-command in a later version, so that a person can look at what would happen before anything happens.
+and classifies every path the construct owns against the tree as it is now. Without `--apply` it
+prints the classification and writes nothing — not a file, not the manifest it read, so a person can
+look at what would happen before anything happens. With `--apply` it writes the paths the construct
+can prove it owns, and nothing else.
 
 | Option | Default | What it does |
 |---|---|---|
 | `--json` | `false` | The classification as a JSON object, for CI. |
+| `--apply` | `false` | Write the paths the construct owns. The only way `sync` writes anything. |
 
 ```bash
 npx mikoshi-construct sync
@@ -333,9 +335,9 @@ conflict
   package.json — keys: version (conflict), private (add), scripts.quality (conflict)
   vitest.config.ts
 
-Merged targets are reported, never rewritten: this version writes no merge-json file.
+A merged target is reported by its keys and never rewritten: no merge-json file is written in this version.
 
-3 paths would be written. This version reports; it writes nothing.
+3 paths can be written: run `construct sync --apply`.
 Materialized by construct 0.1.0, read by 0.2.0.
 ```
 
@@ -365,13 +367,57 @@ fact and nothing to drift.
 The last line names the version that materialized the repository against the version reading it. That
 is the question an owner actually has.
 
+### Writing with `--apply`
+
+```bash
+npx mikoshi-construct sync --apply
+```
+
+```
+Sync apply
+Materialized by construct 0.1.0, read by 0.2.0.
+
+Written
+  AGENTS.md — the construct block is replaced whole — edits between the delimiters do not survive; …
+  CLAUDE.md — the construct block is replaced whole — edits between the delimiters do not survive; …
+  tsconfig.base.json
+
+Left to you
+  package.json — keys: scripts.quality (conflict), private (add)
+A merged target is reported by its keys and never rewritten: no merge-json file is written in this version.
+
+3 paths written. The manifest records the owned view of each of them.
+1 path the record cannot prove the construct owns. Yours to carry across.
+```
+
+**What it writes.** Every path classified `add` or `update` whose strategy is `create` or
+`append-block`. A `create` target is written as the templates produce it. An `append-block` target
+that is absent is written whole; one that is already in the tree is spliced — the produced text
+between the markers replaces the text between the markers the file carries, every byte outside them
+is kept, and a filled `construct:discover` body is carried over into the new block. Each written path
+has the sha of its owned view recorded under `sync` in `construct.json`, together with when the run
+happened, the version that materialized the repository and the version that wrote. The branch `init`
+wrote is never touched, and when nothing was written `construct.json` is not touched at all.
+
+**What it never writes.** A `keep` (there is nothing to write), a `conflict` (a decision only an owner
+can make), a `removed` path (deleted deliberately; sync never puts it back), an `orphaned` path (it
+has passed to you) and a `foreign` one (never ours). Conflicts are reported and never resolved. No
+`merge-json` target is written in this version at all — including a `package.json` whose owned keys
+read as `update`, because the record cannot say which keys were the construct's. And no file is ever
+deleted. There is no flag that overrides any of this.
+
+**`doctor` still calls a rewritten file modified.** The baseline `doctor` checks is what `init`
+recorded and decision 0006 froze; a block sync rewrote no longer hashes to it. Sync records what it
+wrote in its own branch instead of correcting the baseline, because correcting it would erase the
+evidence of what `init` actually did.
+
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Nothing to write: `add` and `update` are both empty. |
-| `1` | No `construct.json` here. |
-| `2` | `add` or `update` has entries — there is something a writer could do. |
+| `0` | Reporting: nothing to write, `add` and `update` are both empty. With `--apply`: every path classified `add` or `update` was written. |
+| `1` | No `construct.json` here, or a write failed. |
+| `2` | Reporting: `add` or `update` has entries — there is something a writer could do. With `--apply`: a pending path was refused because it is a `merge-json` target. |
 
 Conflicts, removals and orphans never change the code by themselves. They are information, not work
 the tool can carry out: a conflict is a decision only an owner can make, and a removed or an orphaned
@@ -380,7 +426,9 @@ path is a fact about the tree.
 `--json` prints one object with `fromVersion`, `toVersion`, `counts` (one entry per class) and
 `paths` — every classified path with its `class`, its `strategy`, its `keys` for a `merge-json`
 target and its `writeEffect` where the classification carries one. A machine reader never parses the
-prose.
+prose. With `--apply` the same object carries three more fields:
+`written` (the targets that were written, in write order), `pending` (the targets classified `add` or
+`update` that were refused) and `ranAt` (the ISO timestamp recorded in the manifest).
 
 ```json
 {
@@ -514,8 +562,8 @@ because `0` is a number and it would be a lie.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. |
-| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json`; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
-| `2` | `sync` classified at least one path as `add` or `update`. |
+| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 
 ## After init
