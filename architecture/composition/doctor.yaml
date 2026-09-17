@@ -4,8 +4,11 @@ description: >-
   `runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root: it reads
   `construct.json` through `upgradeManifest`, gathers file evidence once, fans out to the four
   baseline verdicts — files, discovery markers, marker provenance, harness — and to five pure
-  enforcement checks, then fans the verdicts into `printDoctor`, which ends with one weakest-link
-  line. Provenance is reported, never gated: it sets no exit code. `doctor` executes nothing from the
+  enforcement checks — plus the version gap, which replays today's templates through the sync
+  engine's own classification and counts the paths a sync would add or update — then fans the
+  verdicts into `printDoctor`, which ends with one weakest-link
+  line. Provenance and the version gap are reported, never gated: neither sets an exit
+  code, and a replay that cannot run leaves the count unestablished rather than failing the command. `doctor` executes nothing from the
   repository it inspects and writes nothing, including the manifest it just normalised.
 doc: architecture/doctor.md
 boundaries:
@@ -50,6 +53,10 @@ nodes:
     label: quality script steps · contract paths
     path: src/commands/doctor/harness.ts
     boundary: checks
+  - id: versionGap
+    label: version gap · materialized by / read by · sync classification counts add + update
+    path: src/commands/doctor/version-gap.ts
+    boundary: checks
   - id: lintPolicy
     label: lint-policy · a policy test the harness reaches
     path: src/commands/doctor/checks/lint-policy.ts
@@ -86,6 +93,7 @@ edges:
   - {from: manifest, to: markers, kind: fan-out}
   - {from: manifest, to: provenance, kind: fan-out}
   - {from: manifest, to: harness, kind: fan-out}
+  - {from: manifest, to: versionGap, kind: fan-out}
   - {from: evidence, to: lintPolicy, kind: fan-out}
   - {from: evidence, to: constructTests, kind: fan-out}
   - {from: evidence, to: ci, kind: fan-out}
@@ -100,4 +108,5 @@ edges:
   - {from: markers, to: print, kind: fan-in}
   - {from: provenance, to: print, kind: fan-in}
   - {from: harness, to: print, kind: fan-in}
+  - {from: versionGap, to: print, kind: fan-in}
   - {from: weakest, to: print, kind: fan-in}
