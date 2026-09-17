@@ -155,6 +155,7 @@ async function design(rung, reason, label) {
   }
   spec = result
   designComplete = true
+  attempts.push({ rung, effort: DESIGN_EFFORT, outcome: 'designed', reason: '' })
   return true
 }
 

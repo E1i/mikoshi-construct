@@ -10,6 +10,13 @@ differences:
     reason: >-
       This repository is the generator, so its own CI runs an acceptance leg per preset on top of the
       quality gate the template ships; the template stays a single quality gate for a generated repo.
+  - path: .gitleaks.toml
+    kind: content
+    reason: >-
+      The allowlist here exempts a construct manifest at any depth, because frozen manifests live
+      under tests/fixtures as regression fixtures; the template keeps the root-anchored form, since a
+      generated project keeps its manifest at the root and a wider exemption would silence more than
+      it must.
   - path: .gitignore
     kind: content
     reason: >-
