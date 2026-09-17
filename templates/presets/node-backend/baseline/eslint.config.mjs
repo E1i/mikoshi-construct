@@ -1,11 +1,19 @@
 import antfu from '@antfu/eslint-config'
 
 const PROCESS_MEMBER = 'MemberExpression[object.name="process"]'
-const RAW_REQUEST_DATA = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
-const RAW_SQL = 'CallExpression[callee.object.name="sql"][callee.property.name="raw"]'
+const PROCESS_VIA_GLOBAL_THIS = 'MemberExpression[object.name="globalThis"]:matches([property.name="process"], [property.value="process"])'
+const PROCESS_BINDING = 'VariableDeclarator[init.name="process"]'
+const PROCESS = `:matches(${PROCESS_MEMBER}, ${PROCESS_VIA_GLOBAL_THIS}, ${PROCESS_BINDING})`
+
+const RAW_REQUEST_MEMBER = 'MemberExpression[object.name="req"][property.name=/^(body|query|params)$/]'
+const RAW_REQUEST_DESTRUCTURED = 'VariableDeclarator[init.name="req"] > ObjectPattern > Property[key.name=/^(body|query|params)$/]'
+const RAW_REQUEST_ALIASED = 'VariableDeclarator[id.type="Identifier"][init.name="req"]'
+const RAW_REQUEST_DATA = `:matches(${RAW_REQUEST_MEMBER}, ${RAW_REQUEST_DESTRUCTURED}, ${RAW_REQUEST_ALIASED})`
+
+const RAW_SQL = 'MemberExpression[object.name="sql"]:matches([property.name="raw"], [property.value="raw"])'
 
 const NO_PROCESS_OUTSIDE_CONFIG = {
-  selector: PROCESS_MEMBER,
+  selector: PROCESS,
   message: 'src touches process only in config.ts: read configuration through readConfig() and pass the value on',
 }
 const NO_RAW_REQUEST_DATA = {
