@@ -11,7 +11,7 @@ const MENTIONED_TLDS = ['com', 'org', 'net', 'io', 'dev', 'co', 'ai', 'sh', 'app
 const HOST = String.raw`[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}`
 const URL_HOST_PATTERN = new RegExp(String.raw`[a-z][a-z0-9+.-]*://(${HOST})`, 'gi')
 const EMAIL_HOST_PATTERN = new RegExp(String.raw`[a-z0-9][\w.%+-]*@(${HOST})`, 'gi')
-const MENTIONED_HOST_PATTERN = new RegExp(String.raw`\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:${MENTIONED_TLDS.join('|')})\b`, 'gi')
+const MENTIONED_HOST_PATTERN = new RegExp(String.raw`\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:${MENTIONED_TLDS.join('|')})\b`, 'g')
 const IP_PATTERN = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g
 const HOME_PATH_PATTERN = /(?:\/Users\/|\/home\/|~\/)[a-z0-9][\w.-]*/gi
 
