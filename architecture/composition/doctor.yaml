@@ -1,23 +1,28 @@
 id: doctor
 title: construct doctor composition
 description: >-
-  `runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root: it reads
-  `construct.json` through `upgradeManifest`, gathers file evidence once, fans out to the four
-  baseline verdicts — files, discovery markers, marker provenance, harness — and to five pure
-  enforcement checks — plus the version gap, which replays today's templates through the sync
-  engine's own classification and counts the paths a sync would add or update — then fans the
-  verdicts into `printDoctor`, which ends with one weakest-link
-  line. Provenance and the version gap are reported, never gated: neither sets an exit
-  code, and a replay that cannot run leaves the count unestablished rather than failing the command. `doctor` executes nothing from the
-  repository it inspects and writes nothing, including the manifest it just normalised.
+  `runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root, and it reads two
+  separate authorities. From `construct.json`, through `upgradeManifest`, come the provenance
+  verdicts — baseline files, discovery markers, marker provenance, the harness script and contract
+  paths, the recorded tests the recorded runner config does not collect, and the version gap, which
+  replays today's templates through the sync engine's own classification and counts the paths a sync
+  would add or update. From `construct.model.json` comes the knowledge family: every verdict renders
+  a claim's enforcement, and where the chain stops is the model's own `selectPath`, so `doctor`
+  derives no state of its own and holds none. A repository with no model gets no verdicts rather than
+  an error. Both families fan into `printDoctor`, which states the boundary — nothing from the
+  inspected repository is executed, so nothing is said about whether the harness passes — and ends
+  with one you-are-here line. Provenance readings, the version gap and the knowledge family are
+  reported, never gated: none sets an exit code, and a replay that cannot run leaves the count
+  unestablished rather than failing the command. `doctor` executes nothing from the repository it
+  inspects and writes nothing, including the manifest it just normalised.
 doc: architecture/doctor.md
 boundaries:
   - id: entry
     label: Entry
   - id: evidence
-    label: Evidence · file reads only
+    label: Sources · file reads only
   - id: checks
-    label: Checks
+    label: Verdicts
   - id: report
     label: Report
 nodes:
@@ -33,9 +38,9 @@ nodes:
     label: readManifest → construct.json · upgradeManifest normalises a 0.1.x manifest on read
     path: src/manifest.ts
     boundary: evidence
-  - id: evidence
-    label: construct.json files + package.json, vitest include globs, workflows, hook configs · read only
-    path: src/commands/doctor/evidence.ts
+  - id: model
+    label: readModel → construct.model.json · the authority for repository knowledge
+    path: src/model/write.ts
     boundary: evidence
   - id: files
     label: baseline files · missing / modified (sha256)
@@ -57,56 +62,39 @@ nodes:
     label: version gap · materialized by / read by · sync classification counts add + update
     path: src/commands/doctor/version-gap.ts
     boundary: checks
-  - id: lintPolicy
-    label: lint-policy · a policy test the harness reaches
-    path: src/commands/doctor/checks/lint-policy.ts
+  - id: uncollected
+    label: uncollected tests · recorded tests outside the include of the recorded runner config
+    path: src/commands/doctor/uncollected-tests.ts
     boundary: checks
-  - id: constructTests
-    label: construct-tests · recorded tests inside the runner include
-    path: src/commands/doctor/checks/construct-tests.ts
+  - id: projection
+    label: knowledge · one verdict per rendered claim, level and state from the claim and its facts
+    path: src/commands/doctor/projection.ts
     boundary: checks
-  - id: ci
-    label: ci · a workflow step running the harness command
-    path: src/commands/doctor/checks/ci.ts
-    boundary: checks
-  - id: hook
-    label: hook · husky / lefthook / simple-git-hooks / core.hooksPath
-    path: src/commands/doctor/checks/hook.ts
-    boundary: checks
-  - id: redGate
-    label: red-gate · unknown, proving it means running it
-    path: src/commands/doctor/checks/red-gate.ts
-    boundary: checks
-  - id: weakest
-    label: weakestLink · lowest level among the claimed gates
-    path: src/commands/doctor/verdict.ts
+  - id: youAreHere
+    label: selectPath · where the chain stops, decided by the model contract
+    path: src/model/path.ts
     boundary: checks
   - id: print
-    label: printDoctor · verdicts, levels, one weakest-link line, exit code
+    label: printDoctor · verdicts, the stated boundary, one you-are-here line, exit code
     path: src/commands/doctor/report.ts
     boundary: report
 edges:
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: manifest, kind: sequence}
-  - {from: manifest, to: evidence, kind: sequence}
+  - {from: run, to: model, kind: sequence}
   - {from: manifest, to: files, kind: fan-out}
   - {from: manifest, to: markers, kind: fan-out}
   - {from: manifest, to: provenance, kind: fan-out}
   - {from: manifest, to: harness, kind: fan-out}
   - {from: manifest, to: versionGap, kind: fan-out}
-  - {from: evidence, to: lintPolicy, kind: fan-out}
-  - {from: evidence, to: constructTests, kind: fan-out}
-  - {from: evidence, to: ci, kind: fan-out}
-  - {from: evidence, to: hook, kind: fan-out}
-  - {from: evidence, to: redGate, kind: fan-out}
-  - {from: lintPolicy, to: weakest, kind: fan-in}
-  - {from: constructTests, to: weakest, kind: fan-in}
-  - {from: ci, to: weakest, kind: fan-in}
-  - {from: hook, to: weakest, kind: fan-in}
-  - {from: redGate, to: weakest, kind: fan-in}
+  - {from: manifest, to: uncollected, kind: fan-out}
+  - {from: model, to: projection, kind: fan-out}
+  - {from: model, to: youAreHere, kind: fan-out}
   - {from: files, to: print, kind: fan-in}
   - {from: markers, to: print, kind: fan-in}
   - {from: provenance, to: print, kind: fan-in}
   - {from: harness, to: print, kind: fan-in}
   - {from: versionGap, to: print, kind: fan-in}
-  - {from: weakest, to: print, kind: fan-in}
+  - {from: uncollected, to: print, kind: fan-in}
+  - {from: projection, to: print, kind: fan-in}
+  - {from: youAreHere, to: print, kind: fan-in}

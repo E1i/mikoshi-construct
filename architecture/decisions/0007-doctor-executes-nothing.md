@@ -24,9 +24,10 @@ Vitest APIs. Every verdict is derived from reading file text, over a declared re
 `construct.json` records plus a named allowlist — with no recursive walk.
 
 Because of that boundary `doctor` never reports L4. The most a file can support is L3, CI that runs
-the harness. Anything it cannot read literally is `unknown`, never `absent`: `red-gate` is always
-`unknown` because proving a clean checkout is green means running it, `ci` is never `absent` because
-doctor has no scope evidence by construction, and a non-literal include glob is `unknown`.
+the harness. Anything it cannot read literally is `unknown`, never `absent`: a fact that could not be
+read leaves the chain it stands under `unknown`, and a non-literal include glob leaves the recorded
+tests unjudged. Whether a clean checkout is green is not reported at all — proving it means running
+it, so the report states the boundary instead of manufacturing a verdict about it.
 
 ## Consequences
 
@@ -42,6 +43,6 @@ shortcut is the same vector under a different name.
 
 The `spawnPolicy` `no-restricted-syntax` block in `eslint.config.mjs` (L4 CI): `src/**` may not
 import `node:child_process` or `node:module`, use `import()`, `require`, `require.resolve` or
-`createRequire`. `tests/dependency-policy.test.ts` asserts one sample per form, and the doctor check
-tests assert that no verdict is L4, that `ci` is never `absent` and that `red-gate` is always
-`unknown`.
+`createRequire`. `tests/dependency-policy.test.ts` asserts one sample per form, `tests/doctor-fixtures.test.ts`
+asserts that no verdict is L4, and `tests/doctor-report.test.ts` asserts the report states the
+boundary rather than reporting a verdict about whether the harness passes.

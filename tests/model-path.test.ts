@@ -26,25 +26,25 @@ const STOPS: Record<string, StopExpectation> = {
     model: 'hypothesis',
     tree: 'hypothesis/unsupported',
     reads: 'enforcement is held and verification lost its supporting file',
-    stop: { claimId: 'every-change-passes-the-harness', stage: 'verification', state: 'unsupported' },
+    stop: { claimId: 'every-change-passes-the-harness', stage: 'verification', state: 'unsupported', doesNotHold: ['apps/api/package.json'] },
   },
   'hypothesis/unevaluable': {
     model: 'hypothesis',
     tree: 'hypothesis/unevaluable',
     reads: 'enforcement names a fact that could not be evaluated',
-    stop: { claimId: 'every-change-passes-the-harness', stage: 'enforcement', state: 'unknown' },
+    stop: { claimId: 'every-change-passes-the-harness', stage: 'enforcement', state: 'unknown', reason: 'unevaluable', unevaluable: ['.github/workflows/ci.yml'] },
   },
   'ambiguous-path': {
     model: 'ambiguous-path',
     tree: 'ambiguous-path/tree',
     reads: 'two chains stop at enforcement and the earlier-declared claim wins',
-    stop: { claimId: 'no-secret-reaches-a-commit', stage: 'enforcement', state: 'unsupported' },
+    stop: { claimId: 'no-secret-reaches-a-commit', stage: 'enforcement', state: 'unsupported', doesNotHold: ['.husky/pre-commit'] },
   },
   'fresh-init': {
     model: 'fresh-init',
     tree: 'fresh-init',
     reads: 'the directory holds only the model file, so every claim stops at enforcement unsupported',
-    stop: { claimId: 'no-committed-secret', stage: 'enforcement', state: 'unsupported' },
+    stop: { claimId: 'no-committed-secret', stage: 'enforcement', state: 'unsupported', doesNotHold: ['.github/workflows/security.yml'] },
   },
 }
 
@@ -80,6 +80,7 @@ describe('the path stops at the first stage that is not held', () => {
       claimId: 'imports-respect-the-dependency-policy',
       stage: 'enforcement',
       state: 'unsupported',
+      doesNotHold: ['eslint.config.mjs'],
     })
   })
 
@@ -93,6 +94,7 @@ describe('the path stops at the first stage that is not held', () => {
       claimId: 'no-secret-reaches-a-commit',
       stage: 'enforcement',
       state: 'unsupported',
+      doesNotHold: ['.husky/pre-commit'],
     })
   })
 })

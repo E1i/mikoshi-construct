@@ -149,8 +149,42 @@ record.
 Checks that the construct is intact: every file the manifest recorded is still present, the harness
 command still runs lint, typecheck and tests, the contract paths in `construct.json` still resolve,
 and each discovery marker is either filled or named as missing. It then answers a second question —
-at what level each gate the repository claims is actually enforced — and ends with one line naming
-the weakest of them.
+what this tool claims about the repository, at what level each claim is enforced, and whether the
+facts under it still hold — and ends with one line naming where the first chain stops.
+
+### Two families, two authorities
+
+The result splits in two, and the line between them is
+[decision 0016](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0016-the-model-is-the-source.md).
+The **provenance** family is read from `construct.json`, the authority for what `init` and `sync`
+wrote. The **knowledge** family is a projection of `construct.model.json`, the authority for what
+this tool holds to be true about the repository; `doctor` holds no state of its own there — a
+verdict's level is the claim's `enforcement.level`, its state is the state derived from the facts
+that claim stands on, and where you are is the model's own path selection.
+
+| Field | Family |
+|---|---|
+| `ok` | provenance |
+| `missingFiles` | provenance |
+| `modifiedFiles` | provenance |
+| `missingDiscovery` | provenance |
+| `provenance` | provenance |
+| `harnessProblems` | mixed |
+| `uncollectedTests` | provenance |
+| `warnings` | provenance |
+| `checks` | knowledge |
+| `youAreHere` | knowledge |
+| `versionGap` | provenance |
+
+`harnessProblems` is `mixed` and that is a statement about this version, not a category: half of it
+asserts enforcement — the harness command does not run lint, typecheck or tests — and half is
+provenance, a file `construct.json` points at that is missing. Nothing is asserted about a `mixed`
+field, which is why the incompleteness is written into the classification rather than left to
+memory. The classification lives in `src/commands/doctor/families.ts`; this table is its second
+reader and a test fails when the two diverge.
+
+A repository with no `construct.model.json` gets no verdicts and no `youAreHere`: the command
+completes and the provenance family is unaffected.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -178,20 +212,21 @@ Discovery provenance
   Unchanged since discovery wrote them: 1 marker nobody has stood behind yet.
 
 Enforcement
-  lint-policy      L3  present  scripts/tests/lint/syntax-policy.test.ts resolves the lint policy …
-  construct-tests  L3  present  all 7 test files recorded in construct.json match the include …
-  ci               L3  present  .github/workflows/ci.yml runs "pnpm run quality"; branch protection …
-  hook             L0  absent   no .husky, lefthook, simple-git-hooks or core.hooksPath configuration …
-  red-gate         L3  unknown  doctor executes nothing from the repository it inspects …
+  no-committed-secret                  L3  held         .github/workflows/security.yml runs gitleaks over the history …
+  vulnerable-dependencies-are-visible  L3  held         security.yml runs pnpm audit weekly and on pull requests …
+  ci                                   L3  unsupported  expects .github/workflows/ci.yml runs pnpm run quality … — no longer matching: .github/workflows/ci.yml
+  harness-steps                        L3  unsupported  expects .github/workflows/ci.yml runs pnpm run quality …, and package.json … — no longer matching: .github/workflows/ci.yml
+  lint-policy                          L3  unsupported  expects scripts/tests/lint/syntax-policy.test.ts asserts … — no longer matching: .github/workflows/ci.yml
+  doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.
 
-Weakest link: lint-policy at L3
+You are here: every-change-passes-the-harness — enforcement unsupported
 ```
 
 Unfilled markers are reported but do not fail the command, because discovery is the agent's job and
 the harness has to stay usable before it runs. Exits `1` only when a baseline file has gone missing
 or the harness is broken. Files you have edited since `init` are expected and counted, not faulted.
-A low level is information, not a failure: levels, states and the weakest link never change the exit
-code.
+A low level is information, not a failure: levels, states and the you-are-here line never change the
+exit code.
 
 ### The baseline's own version
 
@@ -202,8 +237,8 @@ classified `add` or `update`, so the number it prints and the number `sync` acts
 replay it cannot run — a manifest missing a variable today's templates render, for instance — reads
 as "cannot be established" rather than as zero.
 
-It is evidence on the baseline check, not a sixth gate: it has no level, it is not part of the
-weakest link, and it never changes the exit code. A baseline that has moved on is work that became
+It is evidence on the baseline check, not another gate: it has no level, it is not part of where you
+are, and it never changes the exit code. A baseline that has moved on is work that became
 available with a release, not a fault in the repository. `--json` carries it as `versionGap` with
 `materializedBy`, `readBy` and `pending`, where `pending` is `null` when the replay could not run.
 
@@ -214,13 +249,15 @@ path inside it, no `require` into its `node_modules`, no call into its ESLint or
 run through `npx` in a fresh clone, before anyone has decided whether that code is trustworthy, and
 a flat ESLint config is a module — resolving it would run the audited repository's own code on the
 instruction "check whether this repository is honest". Every verdict below is derived from reading
-file text, over the files `construct.json` records plus a fixed allowlist (`package.json`, the
-vitest or vite config, `.github/workflows/*`, the hook manager configs, `.git/config`).
+file text: the paths the facts in `construct.model.json` name, the files `construct.json` records,
+`package.json` and the runner config the record carries.
 
 Two consequences follow. `doctor` never reports `L4`: branch protection and organisation rulesets
-live in the GitHub API, not in the repository, so the most a file can show is `L3`. And whatever it
-cannot read literally is `unknown`, never `absent` — the red gate always, because proving a clean
-checkout is green means running it. See
+live in the GitHub API, not in the repository, so the most a file can show is `L3`. And the blind
+spot is a stated boundary rather than a synthesised verdict: the report says in one line that
+`doctor` executes nothing from the repository it inspects and therefore does not speak about whether
+the harness passes. There is no `red-gate` verdict — a claim nobody made is not `doctor`'s to
+report. See
 [architecture/decisions/0007-doctor-executes-nothing.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0007-doctor-executes-nothing.md).
 
 ### The levels
@@ -235,43 +272,83 @@ checkout is green means running it. See
 
 ### The checks
 
-Each check returns `{id, level, state, evidence}`, with `state` one of `present`, `absent` or
-`unknown` and `evidence` naming the file or key it read — and, when the chain breaks, its weakest
-link.
+Each check returns `{id, claimId, level, state, authoredBy, mechanism}`, plus what the state knows:
+`doesNotHold` where the state is `unsupported`, and `reason` — `unevaluable` with `unevaluable`, or
+`no-fact-named` — where it is `unknown`. **There is one check per claim the model carries, in the
+order the model declares them** — the section is the whole model or it is not a projection of it.
+Every one of those values is read from the claim `claimId` names: `level` is its
+`enforcement.level`, `mechanism` its `enforcement.mechanism`, `authoredBy` its author in the model —
+`construct`, `discovery` or `unknown`, and never derived from anything else — and `state` is the
+state the facts that enforcement stands on resolve to, one of `held`, `unsupported` or `unknown`.
 
-| Check | What it reads | What it can conclude |
+`mechanism` is what the claim **expects**, never a reading of what is the case, and the report
+renders it that way: beside `unsupported` it is prefixed as an expectation and followed by the fact
+paths that no longer match, so no line can name a state and a positive assertion in the same breath.
+The facts are a required argument of the call that renders a verdict that is not held, so a line
+without them cannot be built.
+
+`id` is the claim's own id, except for the two claims that carry a legacy check id in the model so
+that consumers written against the previous shape keep reading: `every-change-passes-the-harness`
+renders as `ci`, and `lint-policy` as `lint-policy`. `claimId` is always present and is the only
+identifier worth matching on.
+
+| State | Meaning | What the line names |
 |---|---|---|
-| `lint-policy` | The recorded files that resolve the policy with ESLint's `calculateConfigForFile`, the runner include globs, the harness script, the workflows | `present` at the level that whole chain supports; `absent` at `L0` when no such test exists or nothing runs it; `unknown` when the include cannot be read literally |
-| `construct-tests` | Every `*.test.ts` recorded in `construct.json`, against the include list read literally from the runner config | `present` when the runner collects all of them and the harness runs the runner; `absent` at `L0` for an orphan; `unknown` for a missing, non-literal or unreadable include |
-| `ci` | `.github/workflows/*.yml`, the `run:` steps only | `present` at `L3` when a step runs the harness command, otherwise `unknown`. Never `absent`, and never `L4` |
-| `hook` | `.husky/*`, `lefthook.*`, `simple-git-hooks` (file or `package.json` key), `core.hooksPath` in `.git/config`, and the `precommit` script | `present` at `L2` for a hook manager, `present` at `L0` for a bare script nothing installs, `absent` at `L0` |
-| `red-gate` | Nothing: answering it means running the harness | Always `unknown`, with evidence saying so. CI is where a clean checkout is proven |
+| `held` | Facts are named, every one was evaluated, and every one holds. This says the facts still match, not that the level is proven: the facts under a claim are necessary conditions, never sufficient ones. | The mechanism the claim expects. |
+| `unsupported` | Facts are named, every one was evaluated, and at least one does not hold. This says the facts no longer match, not that the enforcement is gone. | `doesNotHold`: each fact path that no longer matches, beside the mechanism the claim expects. |
+| `unknown` | No fact is named, or a named fact could not be read. Not having looked is not evidence of absence. | `reason: "unevaluable"` with the paths that could not be read, or `reason: "no-fact-named"`. There is no failing fact in this state and none is named: a fact nobody could read is never reported as one that does not hold. |
 
-A preset that declares no syntax policy has no policy check to run, so `lint-policy` reports
-`absent` at `L0`: that is a true reading of the repository, not a missing file. `node-library` is such
-a preset — its harness is the shared ESLint configuration with no restriction of the construct's own.
+| `id` | The claim it renders | When it appears |
+|---|---|---|
+| `no-committed-secret` | `no-committed-secret` | Always, since every preset makes that claim |
+| `vulnerable-dependencies-are-visible` | `vulnerable-dependencies-are-visible` | Always |
+| `ci` | `every-change-passes-the-harness` | Always |
+| `harness-steps` | `harness-steps` | Always |
+| `lint-policy` | `lint-policy` | Only where the model carries that claim, which is where the preset's sample was materialized and the construct wrote the policy test it stands on. Absent from the output otherwise, rather than reported as missing |
+| `a-breaking-api-change-is-named-before-it-ships` | the same claim | Only where the preset materializes an HTTP contract |
+
+A preset that declares no syntax policy makes no `lint-policy` claim, so no verdict is rendered for
+it: the construct required nothing there, and announcing the absence of something nobody required
+would be a finding about a task. `node-library` is such a preset — its harness is the shared ESLint
+configuration with no restriction of the construct's own.
+
+Two verdicts that existed before this version are gone rather than renamed. `hook` reported that no
+hook manager was installed, which no preset installs and no claim requires. `red-gate` reported
+`doctor`'s own limit as a verdict about the repository; that limit is now a stated boundary in the
+report, which is what a blind spot is.
+
+### The tests the runner does not collect
+
+`uncollectedTests` names the `*.test.ts` files `construct.json` recorded that fall outside the
+include globs of the runner config — read literally, never executed. It is provenance, not
+knowledge: both ends were installed by `init`, so it becomes false only when what `init` wrote
+changed. It is reported **only when the runner config itself appears in the manifest's recorded
+files**. Where a repository arrived with its own vitest or vite config the construct never wrote that
+end, and a verdict there would pronounce on a file its owner owns, so the list stays empty and says
+nothing. A non-literal or unreadable include leaves it empty for the same reason.
 
 A repository that already had its own `eslint.config.mjs` keeps it: `init` never overwrites a file the
 construct did not write. The construct's syntax policy is therefore not applied there, and the test
 that proves the policy fires — `scripts/tests/lint/syntax-policy.test.ts` — is materialized only into a
 directory that was empty at `init`, because it asserts the construct's selectors and an owner's
-configuration is free to declare a narrower policy or none. `lint-policy absent` in such a repository
-is a true reading of it, not a missing file, and the report is the place that can tell the two
-situations apart.
+configuration is free to declare a narrower policy or none. No `lint-policy` verdict in such a
+repository is a true reading of it, not a missing file, and the report is the place that can tell the
+two situations apart.
 
 An owner who wants the policy adopts it deliberately: materialize the same preset into an empty
 directory (`npx mikoshi-construct init --yes --preset <id> --dir <tmp>`), copy the `no-restricted-syntax`
 blocks from its `eslint.config.mjs` into your own configuration keeping the roles in order from
 broadest to most specific, copy `scripts/tests/lint/syntax-policy.test.ts` next to it, make sure the
 test runner's include globs reach `scripts/tests/**`, and run the harness. `doctor` reports
-`lint-policy present` once that chain holds.
+`lint-policy held` once the facts under that claim hold.
 
 Typecheck is not a check. Where a bare `tsc --noEmit` cannot carry a stack, the preset contributes a
 line to `warnings` instead — a framework matrix would grow faster than it could be closed.
 
-The last line names the weakest link: the lowest level among the gates the repository claims, which
-is to say the checks that came back `present`. Checks that are `absent` or `unknown` are printed on
-their own lines but do not set it, and when nothing is claimed the line says so.
+The last line names where you are: the first claim whose chain stops, the stage it stops at —
+`enforcement` before `verification` — and the state it stops in. `doctor` does not work that out;
+`selectPath` in the model does, so the same model always yields the same answer, tie-break included.
+When no chain stops, the line says so.
 
 ### Who each marker belongs to
 
@@ -284,7 +361,7 @@ before provenance existed reads as — a manifest that recorded nothing is no ev
 wrote the prose.
 
 The report names the `construct` markers and nothing else; `provenance` in `--json` carries one
-reading per marker. This is information: provenance is not a sixth check, it has no level, and it
+reading per marker. This is information: provenance is not a check, it has no level, and it
 never changes the exit code.
 
 ```json
@@ -299,32 +376,78 @@ never changes the exit code.
     { "marker": "composition-roots", "file": "AGENTS.md", "authorship": "owner" }
   ],
   "harnessProblems": [],
+  "uncollectedTests": [],
   "warnings": [],
   "checks": [
     {
-      "id": "lint-policy",
+      "id": "no-committed-secret",
+      "claimId": "no-committed-secret",
       "level": "L3",
-      "state": "present",
-      "evidence": "scripts/tests/lint/syntax-policy.test.ts resolves the lint policy with calculateConfigForFile, vitest.config.ts includes \"tests/**/*.test.ts\", \"scripts/tests/**/*.test.ts\", and \"quality\" runs the test runner; .github/workflows/ci.yml runs \"pnpm run quality\""
+      "state": "held",
+      "authoredBy": "construct",
+      "mechanism": ".github/workflows/security.yml runs gitleaks over the history on every push and pull request"
     },
     {
-      "id": "hook",
-      "level": "L0",
-      "state": "absent",
-      "evidence": "no .husky, lefthook, simple-git-hooks or core.hooksPath configuration and no pre-commit script in package.json"
+      "id": "vulnerable-dependencies-are-visible",
+      "claimId": "vulnerable-dependencies-are-visible",
+      "level": "L3",
+      "state": "held",
+      "authoredBy": "construct",
+      "mechanism": "security.yml runs pnpm audit weekly and on pull requests, reporting only"
+    },
+    {
+      "id": "ci",
+      "claimId": "every-change-passes-the-harness",
+      "level": "L3",
+      "state": "unsupported",
+      "authoredBy": "construct",
+      "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request and push to main",
+      "doesNotHold": [".github/workflows/ci.yml"]
+    },
+    {
+      "id": "harness-steps",
+      "claimId": "harness-steps",
+      "level": "L3",
+      "state": "unsupported",
+      "authoredBy": "construct",
+      "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm lint, pnpm typecheck and pnpm test",
+      "doesNotHold": [".github/workflows/ci.yml"]
+    },
+    {
+      "id": "lint-policy",
+      "claimId": "lint-policy",
+      "level": "L3",
+      "state": "unsupported",
+      "authoredBy": "construct",
+      "mechanism": "scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares, and .github/workflows/ci.yml runs pnpm run quality over it on every pull request",
+      "doesNotHold": [".github/workflows/ci.yml"]
     }
   ],
-  "weakestLink": { "id": "lint-policy", "level": "L3" },
+  "youAreHere": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] },
   "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
 
-`ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery` and `harnessProblems` keep their names,
-types and meaning; `provenance`, `warnings`, `checks`, `weakestLink` and `versionGap` are added after them.
-`provenance` has one entry per marker, in the order the markers are declared, each with `marker`,
-`file` and `authorship` (`construct`, `owner` or `unknown`). `checks` is always in
-the order above — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` — and `weakestLink` is
-`null` when no check is `present`.
+`ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery`, `provenance`, `harnessProblems`,
+`warnings` and `versionGap` keep their names, types and meaning. `provenance` has one entry per
+marker, in the order the markers are declared, each with `marker`, `file` and `authorship`
+(`construct`, `owner` or `unknown`).
+
+This version changes the knowledge half of the contract:
+
+- `uncollectedTests: string[]` is new, and carries what the `construct-tests` verdict used to say.
+- `checks` entries gain `claimId` and `authoredBy`; `state` is now `held`, `unsupported` or
+  `unknown` rather than `present`, `absent` or `unknown`.
+- `evidence` is renamed `mechanism`, because it is what the claim expects rather than a reading of
+  the repository, and each entry now carries what its state knows: `doesNotHold` under
+  `unsupported`, `reason` (with `unevaluable` where a fact could not be read) under `unknown`.
+- `hook` and `red-gate` are gone from `checks`, and `construct-tests` with them. `checks` now carries
+  one entry per claim in the model, in the model's declaration order — an empty list where the
+  repository has no `construct.model.json`. `id` is the claim id, except for the two legacy names
+  the model still carries as `checkId`: `ci` and `lint-policy`.
+- `weakestLink` is replaced by `youAreHere: {claimId, stage, state, …} | null`, `null` when no
+  claim's chain stops before its end. It carries the same facts the verdict for that claim carries,
+  from the same derivation: `doesNotHold` where it stops `unsupported`, `reason` where `unknown`.
 
 ## construct sync
 

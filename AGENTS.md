@@ -169,7 +169,11 @@ them as rules.
   evidence that the mechanism can actually *fail* when the invariant it protects is violated.
   Harness mutation tests are evidence of enforcement capability, and PR #57 added an observed case
   of a different kind: `testsWeakened` caught erosion in a live implementation change rather than in
-  a dedicated mutation fixture. So is enforcement capability a fact about the repository, which the
+  a dedicated mutation fixture. A second class was observed on 2026-09-21 — tests deleted alongside
+  the modules they covered, where legitimacy needed human adjudication. Both are recorded in
+  [architecture/observations.md](architecture/observations.md), which is where occurrences live so
+  that this question stays a question and the records they bear on stay unchanged; neither is offered
+  as a frequency. So is enforcement capability a fact about the repository, which the
   model should represent, or process evidence belonging to the corpus and the harness history?
   Do not resolve this before `doctor` consumes the model. Revisit it when `doctor` reads the model
   on a live repository and a useful diagnosis turns out to need a fact the model cannot provide.

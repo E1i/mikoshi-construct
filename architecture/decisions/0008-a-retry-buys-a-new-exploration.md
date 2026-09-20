@@ -92,3 +92,8 @@ carry it; both copies of the `/implement` skill document what a retry actually c
 which is the defect that produced the figures this record was first written with. The wider rule is
 L1 review: nothing mechanical stops a future escalation from restarting an agent where it could have
 continued one.
+
+
+Occurrences of this failure mode are recorded in [architecture/observations.md](../observations.md),
+not here: this record states what was decided, and a log kept inside it would eventually be tidied
+into its text, which is how a decision gains scope it never had.

@@ -1,19 +1,35 @@
+import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
 import type { MarkerReading } from './provenance.js'
-import type { CheckVerdict, WeakestLink } from './verdict.js'
+import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
 import { constructAuthored } from './provenance.js'
 
-function checkLine(ui: Ui, check: CheckVerdict): string {
-  return `  ${check.id.padEnd(16)} ${check.level}  ${check.state.padEnd(8)} ${ui.theme.dim(check.evidence)}`
+function reading(ui: Ui, check: CheckVerdict): string {
+  switch (check.state) {
+    case 'held':
+      return ui.lore.verdictHeld(check.mechanism)
+    case 'unsupported':
+      return ui.lore.verdictUnsupported(check.mechanism, check.doesNotHold)
+    case 'unknown':
+      return check.reason === 'unevaluable'
+        ? ui.lore.verdictUnevaluable(check.mechanism, check.unevaluable)
+        : ui.lore.verdictNothingNamed(check.mechanism)
+  }
+}
+
+function checkLine(ui: Ui, check: CheckVerdict, width: number): string {
+  return `  ${check.id.padEnd(width)} ${check.level}  ${check.state.padEnd(12)} ${ui.theme.dim(reading(ui, check))}`
 }
 
 function printChecks(ui: Ui, checks: CheckVerdict[]): void {
+  const width = Math.max(16, ...checks.map(check => check.id.length))
   ui.line()
   ui.line(ui.theme.accent(ui.lore.enforcement))
   for (const check of checks)
-    ui.line(checkLine(ui, check))
+    ui.line(checkLine(ui, check, width))
+  ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))
 }
 
 function printProvenance(ui: Ui, provenance: MarkerReading[]): void {
@@ -38,14 +54,13 @@ function printVersionGap(ui: Ui, gap: VersionGap): void {
   ui.line(ui.theme.dim(`  ${gapReading(ui, gap)}`))
 }
 
-function printWeakestLink(ui: Ui, weakest: WeakestLink | null): void {
+function printYouAreHere(ui: Ui, youAreHere: SelectedPath | null): void {
   ui.line()
-  if (weakest == null) {
-    ui.line(ui.theme.bold(ui.lore.weakestLinkNone))
+  if (youAreHere == null) {
+    ui.line(ui.theme.bold(ui.lore.youAreHereNone))
     return
   }
-  const lift = ui.lore.levelLift[weakest.level]
-  ui.line(`${ui.theme.bold(ui.lore.weakestLink(weakest.id, weakest.level))}${lift == null ? '' : ui.theme.dim(` — ${lift}`)}`)
+  ui.line(ui.theme.bold(ui.lore.youAreHere(youAreHere.claimId, youAreHere.stage, youAreHere.state)))
 }
 
 export function printDoctor(ui: Ui, result: DoctorResult | null): number {
@@ -55,6 +70,8 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
   }
   if (result.harnessProblems.length > 0)
     ui.glitch('Harness is broken.', result.harnessProblems)
+  if (result.uncollectedTests.length > 0)
+    ui.glitch(ui.lore.uncollectedTests, result.uncollectedTests)
   if (result.missingFiles.length > 0)
     ui.glitch('Baseline files are missing.', result.missingFiles)
   if (result.missingDiscovery.length > 0)
@@ -68,6 +85,6 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
     ui.ok(ui.lore.stable)
   printProvenance(ui, result.provenance)
   printChecks(ui, result.checks)
-  printWeakestLink(ui, result.weakestLink)
+  printYouAreHere(ui, result.youAreHere)
   return result.ok ? 0 : 1
 }

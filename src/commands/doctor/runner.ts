@@ -1,13 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs'
-import path from 'node:path'
-
-export interface RunnerFacts {
-  file: string | null
-  globs: string[] | null
-  note: string
-  invokedByHarness: boolean
-}
-
 export const RUNNER_CONFIG_FILES = [
   'vitest.config.ts',
   'vitest.config.mts',
@@ -98,28 +88,4 @@ export function globToRegExp(glob: string): RegExp {
 export function matchesAnyGlob(file: string, globs: string[]): boolean {
   const normalized = file.replace(/^\.\//, '')
   return globs.some(glob => globToRegExp(glob.replace(/^\.\//, '')).test(normalized))
-}
-
-export function readRunnerFacts(root: string, harnessText: string): RunnerFacts {
-  const invokedByHarness = harnessText.includes('vitest')
-  const file = RUNNER_CONFIG_FILES.find(candidate => existsSync(path.join(root, candidate))) ?? null
-  if (file == null) {
-    return {
-      file: null,
-      globs: null,
-      note: `no runner config file (${RUNNER_CONFIG_FILES[0]} or a sibling) exists, so the include list cannot be read`,
-      invokedByHarness,
-    }
-  }
-  let source: string
-  try {
-    source = readFileSync(path.join(root, file), 'utf8')
-  }
-  catch {
-    return { file, globs: null, note: `${file} cannot be read, so the include list is unknown`, invokedByHarness }
-  }
-  const globs = includeGlobs(source)
-  if (globs == null)
-    return { file, globs: null, note: `the include in ${file} is not a literal list of strings, so doctor cannot say what the runner collects`, invokedByHarness }
-  return { file, globs, note: `${file} includes ${globs.map(glob => `"${glob}"`).join(', ')}`, invokedByHarness }
 }

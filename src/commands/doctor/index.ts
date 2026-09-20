@@ -1,21 +1,18 @@
 import type { DiscoveryMarker } from '../../manifest.js'
+import type { SelectedPath } from '../../model/path.js'
 import type { MarkerReading } from './provenance.js'
-import type { CheckVerdict, WeakestLink } from './verdict.js'
+import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
 import { readManifest } from '../../manifest.js'
+import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
 import { baselineVerdict } from './baseline.js'
-import { ciCheck } from './checks/ci.js'
-import { constructTestsCheck } from './checks/construct-tests.js'
-import { hookCheck } from './checks/hook.js'
-import { lintPolicyCheck } from './checks/lint-policy.js'
-import { redGateCheck } from './checks/red-gate.js'
 import { missingDiscovery } from './discovery.js'
-import { gatherEvidence } from './evidence.js'
-import { harnessProblems } from './harness.js'
+import { harnessProblems, readHarnessFacts } from './harness.js'
+import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
 import { typecheckWarnings } from './typecheck.js'
-import { weakestLink } from './verdict.js'
+import { uncollectedTests } from './uncollected-tests.js'
 import { versionGap } from './version-gap.js'
 
 export interface DoctorResult {
@@ -25,9 +22,10 @@ export interface DoctorResult {
   missingDiscovery: DiscoveryMarker[]
   provenance: MarkerReading[]
   harnessProblems: string[]
+  uncollectedTests: string[]
   warnings: string[]
   checks: CheckVerdict[]
-  weakestLink: WeakestLink | null
+  youAreHere: SelectedPath | null
   versionGap: VersionGap
 }
 
@@ -36,16 +34,10 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   if (manifest == null)
     return null
 
-  const evidence = gatherEvidence(root, manifest)
+  const harness = readHarnessFacts(root, manifest.harness.command)
   const baseline = baselineVerdict(root, manifest)
-  const problems = harnessProblems(root, manifest, evidence.harness)
-  const checks = [
-    lintPolicyCheck(evidence),
-    constructTestsCheck(evidence),
-    ciCheck(evidence),
-    hookCheck(evidence),
-    redGateCheck(evidence),
-  ]
+  const problems = harnessProblems(root, manifest, harness)
+  const knowledge = projectKnowledge(readModel(root), root)
 
   return {
     ok: baseline.missingFiles.length === 0 && problems.length === 0,
@@ -54,18 +46,23 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     missingDiscovery: missingDiscovery(root, manifest),
     provenance: discoveryProvenance(root, manifest),
     harnessProblems: problems,
-    warnings: typecheckWarnings(manifest.preset, evidence),
-    checks,
-    weakestLink: weakestLink(checks),
+    uncollectedTests: uncollectedTests(root, manifest),
+    warnings: typecheckWarnings(manifest.preset, harness),
+    checks: knowledge.checks,
+    youAreHere: knowledge.youAreHere,
     versionGap: versionGap(root, manifest, version),
   }
 }
 
 export { DISCOVERY_PLACEHOLDER, isMarkerFilled, markerClose, markerOpen } from './discovery.js'
+export type { ResultFamily } from './families.js'
+export { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES } from './families.js'
+export type { KnowledgeProjection } from './projection.js'
+export { projectKnowledge } from './projection.js'
 export type { MarkerAuthorship, MarkerReading } from './provenance.js'
 export { constructAuthored, discoveryProvenance, markerAuthorship } from './provenance.js'
 export { printDoctor } from './report.js'
-export type { CheckId, CheckState, CheckVerdict, Level, WeakestLink } from './verdict.js'
-export { CHECK_IDS, LEVELS, weakestLink } from './verdict.js'
+export type { CheckState, CheckVerdict, Level } from './verdict.js'
+export { LEVELS } from './verdict.js'
 export type { VersionGap } from './version-gap.js'
 export { versionGap } from './version-gap.js'

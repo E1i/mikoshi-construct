@@ -5,6 +5,7 @@ import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
+import { readModel } from '../src/model/write.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -75,7 +76,7 @@ describe('the version gap doctor reports', () => {
     expect(moved.output).toContain(PLAIN_LORE.baselineMoved(1))
     expect(moved.code).toBe(0)
     expect(runDoctor(dir, VERSION)?.ok).toBe(true)
-    expect(runDoctor(dir, VERSION)?.checks).toHaveLength(5)
+    expect(runDoctor(dir, VERSION)?.checks).toHaveLength(readModel(dir)?.claims.length ?? 0)
   })
 
   it('says the gap cannot be established rather than failing when the replay cannot run', async () => {
