@@ -181,5 +181,15 @@ them as rules.
   separate in identity: *a command exists → the enforcement level* is rule 8, and *the enforcement
   level → the capability demonstrated* would be the new rule. Rule 8 may later point at it with a
   "see also"; its own scope stays as written.
+- **How does a repository materialized before 5.0 get a model?** `construct.model.json` is written
+  only by `init` and is not materialized from templates, so `sync` never creates one. Three options,
+  none chosen: `sync` learns to write a fresh model when none exists, which puts repository knowledge
+  in a command whose job is file provenance and blurs the line
+  [0016](architecture/decisions/0016-the-model-is-the-source.md) draws; an explicit command, which
+  keeps the two apart but adds surface for a file the tool can already write; or nothing until the
+  repository's next `init`, which is the smallest change and leaves `doctor` reporting `unknown` about
+  claims for as long as that takes. The third is only tolerable because a missing model is honestly
+  `unknown` rather than a failure — so 5.1's no-model acceptance must land before this is decided,
+  not after.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->

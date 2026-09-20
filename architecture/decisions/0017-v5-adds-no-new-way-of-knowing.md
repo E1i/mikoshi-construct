@@ -21,6 +21,14 @@ Nothing consumes the model yet.
 The rule that picks that point lives in the model ([0016](0016-the-model-is-the-source.md)) and is
 already pinned by fixture when this step starts.
 
+5.1 must be accepted against a repository carrying **no** `construct.model.json` at all. The model
+is written only by `init` and is not materialized from templates, so `sync` never creates one: every
+repository materialized before 5.0 and upgraded through `sync` reaches 5.1 without a model, which
+makes this the common state on the day it ships, not an edge case. Absent is a third state — not
+empty, not malformed — and by [rule 2](../epistemic-rules.md) it is `unknown`. `doctor` must complete
+on such a repository and say plainly that it knows nothing about claims there. A `doctor` that fails,
+or that reports claims as `absent`, turns missing data into an assertion about enforcement.
+
 5.1 also carries a deferred-question check (L1): inspect `doctor`'s output on this live repository
 and record whether a useful diagnosis needs a fact the model cannot currently provide. If one does,
 record the missing fact and return to *Where does evidence of enforcement capability belong?* in
