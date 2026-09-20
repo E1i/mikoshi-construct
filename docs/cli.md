@@ -212,8 +212,11 @@ Discovery provenance
   Unchanged since discovery wrote them: 1 marker nobody has stood behind yet.
 
 Enforcement
-  lint-policy      L3  held         scripts/tests/lint/syntax-policy.test.ts asserts the restrictions …
-  ci               L3  unsupported  .github/workflows/ci.yml runs pnpm run quality on every pull request …
+  no-committed-secret                  L3  held         .github/workflows/security.yml runs gitleaks over the history …
+  vulnerable-dependencies-are-visible  L3  held         security.yml runs pnpm audit weekly and on pull requests …
+  ci                                   L3  unsupported  .github/workflows/ci.yml runs pnpm run quality on every pull request …
+  harness-steps                        L3  unsupported  .github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json …
+  lint-policy                          L3  unsupported  scripts/tests/lint/syntax-policy.test.ts asserts the restrictions …
   doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.
 
 You are here: every-change-passes-the-harness — enforcement unsupported
@@ -269,11 +272,18 @@ report. See
 
 ### The checks
 
-Each check returns `{id, claimId, level, state, authoredBy, evidence}`. Every one of those values is
-read from the claim `claimId` names: `level` is its `enforcement.level`, `evidence` its
-`enforcement.mechanism`, `authoredBy` its author in the model — `construct`, `discovery` or
-`unknown`, and never derived from anything else — and `state` is the state the facts that
-enforcement stands on resolve to, one of `held`, `unsupported` or `unknown`.
+Each check returns `{id, claimId, level, state, authoredBy, evidence}`. **There is one check per
+claim the model carries, in the order the model declares them** — the section is the whole model or
+it is not a projection of it. Every one of those values is read from the claim `claimId` names:
+`level` is its `enforcement.level`, `evidence` its `enforcement.mechanism`, `authoredBy` its author
+in the model — `construct`, `discovery` or `unknown`, and never derived from anything else — and
+`state` is the state the facts that enforcement stands on resolve to, one of `held`, `unsupported`
+or `unknown`.
+
+`id` is the claim's own id, except for the two claims that carry a legacy check id in the model so
+that consumers written against the previous shape keep reading: `every-change-passes-the-harness`
+renders as `ci`, and `lint-policy` as `lint-policy`. `claimId` is always present and is the only
+identifier worth matching on.
 
 | State | Meaning |
 |---|---|
@@ -281,10 +291,14 @@ enforcement stands on resolve to, one of `held`, `unsupported` or `unknown`.
 | `unsupported` | Facts are named, every one was evaluated, and at least one does not hold. This says the facts no longer match, not that the enforcement is gone. |
 | `unknown` | No fact is named, or a named fact could not be read. Not having looked is not evidence of absence. |
 
-| Check | The claim it renders | When it appears |
+| `id` | The claim it renders | When it appears |
 |---|---|---|
+| `no-committed-secret` | `no-committed-secret` | Always, since every preset makes that claim |
+| `vulnerable-dependencies-are-visible` | `vulnerable-dependencies-are-visible` | Always |
+| `ci` | `every-change-passes-the-harness` | Always |
+| `harness-steps` | `harness-steps` | Always |
 | `lint-policy` | `lint-policy` | Only where the model carries that claim, which is where the preset's sample was materialized and the construct wrote the policy test it stands on. Absent from the output otherwise, rather than reported as missing |
-| `ci` | `every-change-passes-the-harness` | Always, since every preset makes that claim |
+| `a-breaking-api-change-is-named-before-it-ships` | the same claim | Only where the preset materializes an HTTP contract |
 
 A preset that declares no syntax policy makes no `lint-policy` claim, so no verdict is rendered for
 it: the construct required nothing there, and announcing the absence of something nobody required
@@ -359,12 +373,20 @@ never changes the exit code.
   "warnings": [],
   "checks": [
     {
-      "id": "lint-policy",
-      "claimId": "lint-policy",
+      "id": "no-committed-secret",
+      "claimId": "no-committed-secret",
       "level": "L3",
       "state": "held",
       "authoredBy": "construct",
-      "evidence": "scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares, and .github/workflows/ci.yml runs pnpm run quality over it on every pull request"
+      "evidence": ".github/workflows/security.yml runs gitleaks over the history on every push and pull request"
+    },
+    {
+      "id": "vulnerable-dependencies-are-visible",
+      "claimId": "vulnerable-dependencies-are-visible",
+      "level": "L3",
+      "state": "held",
+      "authoredBy": "construct",
+      "evidence": "security.yml runs pnpm audit weekly and on pull requests, reporting only"
     },
     {
       "id": "ci",
@@ -373,6 +395,22 @@ never changes the exit code.
       "state": "unsupported",
       "authoredBy": "construct",
       "evidence": ".github/workflows/ci.yml runs pnpm run quality on every pull request and push to main"
+    },
+    {
+      "id": "harness-steps",
+      "claimId": "harness-steps",
+      "level": "L3",
+      "state": "unsupported",
+      "authoredBy": "construct",
+      "evidence": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm lint, pnpm typecheck and pnpm test"
+    },
+    {
+      "id": "lint-policy",
+      "claimId": "lint-policy",
+      "level": "L3",
+      "state": "unsupported",
+      "authoredBy": "construct",
+      "evidence": "scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares, and .github/workflows/ci.yml runs pnpm run quality over it on every pull request"
     }
   ],
   "youAreHere": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported" },
@@ -390,9 +428,10 @@ This version changes the knowledge half of the contract:
 - `uncollectedTests: string[]` is new, and carries what the `construct-tests` verdict used to say.
 - `checks` entries gain `claimId` and `authoredBy`; `state` is now `held`, `unsupported` or
   `unknown` rather than `present`, `absent` or `unknown`.
-- `hook` and `red-gate` are gone from `checks`, and `construct-tests` with them. `checks` is in the
-  order `lint-policy`, `ci`, and carries only the ids whose claim the model holds — an empty list
-  where the repository has no `construct.model.json`.
+- `hook` and `red-gate` are gone from `checks`, and `construct-tests` with them. `checks` now carries
+  one entry per claim in the model, in the model's declaration order — an empty list where the
+  repository has no `construct.model.json`. `id` is the claim id, except for the two legacy names
+  the model still carries as `checkId`: `ci` and `lint-policy`.
 - `weakestLink` is replaced by `youAreHere: {claimId, stage, state} | null`, `null` when no claim's
   chain stops before its end.
 

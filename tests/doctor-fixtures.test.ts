@@ -1,12 +1,13 @@
-import type { CheckId, CheckState, CheckVerdict, Level } from '../src/commands/doctor/index.js'
+import type { CheckState, CheckVerdict, Level } from '../src/commands/doctor/index.js'
 import type { FileOp } from '../src/materialize/plan.js'
 import type { SelectedPath } from '../src/model/path.js'
+import type { Claim } from '../src/model/schema.js'
 import type { TemplateVars } from '../src/presets/index.js'
 import { cpSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CHECK_CLAIMS, CHECK_IDS, runDoctor } from '../src/commands/doctor/index.js'
+import { runDoctor } from '../src/commands/doctor/index.js'
 import { RUNNER_CONFIG_FILES } from '../src/commands/doctor/runner.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
 import { buildModel, writeModel } from '../src/model/write.js'
@@ -15,7 +16,7 @@ const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures/doctor')
 const CONTROL = 'healthy'
 
 interface CheckExpectation {
-  id: CheckId
+  id: string
   state: CheckState
   level: Level
   evidence: string
@@ -107,11 +108,19 @@ function materializeFixture(name: string, options: FixtureOptions = {}): string 
   return root
 }
 
+function modelClaims(): Claim[] {
+  return buildModel({ vars: VARS, contracts: false, sample: true }).claims
+}
+
+function claimNamed(id: string): Claim | undefined {
+  return modelClaims().find(claim => claim.id === id)
+}
+
 function fixtureDirectories(): string[] {
   return readdirSync(FIXTURES_DIR, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)
 }
 
-function verdictFor(checks: CheckVerdict[], id: CheckId): CheckVerdict {
+function verdictFor(checks: CheckVerdict[], id: string): CheckVerdict {
   const verdict = checks.find(check => check.id === id)
   if (verdict == null)
     throw new Error(`doctor reported no verdict for "${id}"`)
@@ -123,7 +132,7 @@ describe('doctor on the fixtures', () => {
     it(`${name}: ${expectation.lie}`, () => {
       const result = runDoctor(materializeFixture(name))
       expect(result?.ok).toBe(expectation.ok)
-      expect(result?.checks.map(check => check.id)).toEqual([...CHECK_IDS])
+      expect(result?.checks.map(check => check.claimId)).toEqual(modelClaims().map(claim => claim.id))
       for (const expected of expectation.checks) {
         const verdict = verdictFor(result?.checks ?? [], expected.id)
         expect({ id: verdict.id, state: verdict.state, level: verdict.level }).toEqual({ id: expected.id, state: expected.state, level: expected.level })
@@ -141,7 +150,7 @@ describe('doctor on the fixtures', () => {
       const checks = runDoctor(materializeFixture(name))?.checks ?? []
       expect(checks.map(check => check.level)).not.toContain('L4')
       for (const check of checks) {
-        expect(check.claimId).toBe(CHECK_CLAIMS[check.id])
+        expect(claimNamed(check.claimId)?.checkId ?? check.claimId).toBe(check.id)
         expect(check.authoredBy).toBe('construct')
         expect(check.evidence).not.toBe('')
       }
@@ -164,7 +173,7 @@ describe('doctor on the fixtures', () => {
     const provoked = Object.entries(FIXTURES)
       .filter(([name]) => name !== CONTROL)
       .flatMap(([, expectation]) => expectation.checks.map(check => check.id))
-    for (const id of CHECK_IDS)
+    for (const id of modelClaims().flatMap(claim => claim.checkId ?? []))
       expect(provoked).toContain(id)
   })
 })

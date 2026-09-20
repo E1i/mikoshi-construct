@@ -136,7 +136,8 @@
         "supportedBy": [
           "eslint-config"
         ]
-      }
+      },
+      "checkId": "ci"
     },
     {
       "id": "harness-steps",

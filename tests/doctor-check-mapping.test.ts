@@ -1,6 +1,5 @@
 import type { TemplateVars } from '../src/presets/index.js'
 import { describe, expect, it } from 'vitest'
-import { CHECK_IDS } from '../src/commands/doctor/verdict.js'
 import { buildModel } from '../src/model/write.js'
 
 type Decision
@@ -56,31 +55,39 @@ const VARS: TemplateVars = {
   constructVersion: '0.1.0',
 }
 
-const withSample = buildModel({ vars: VARS, contracts: false, sample: true }).claims.map(claim => claim.id)
+const sampled = buildModel({ vars: VARS, contracts: false, sample: true })
+const withSample = sampled.claims.map(claim => claim.id)
 const withoutSample = buildModel({ vars: VARS, contracts: false, sample: false }).claims.map(claim => claim.id)
+const LEGACY_CHECK_IDS = sampled.claims.flatMap(claim => claim.checkId ?? [])
+
+function claimCarrying(checkId: string): string | undefined {
+  return sampled.claims.find(claim => claim.checkId === checkId)?.id
+}
 
 describe('every doctor check has a recorded decision about where its verdict belongs', () => {
   it('leaves no check id undecided, and names the ones it would', () => {
-    expect(undecided(CHECK_IDS), undecidedMessage(CHECK_IDS)).toEqual([])
-    expect(undecided([...CHECK_IDS, 'sbom'])).toEqual(['sbom'])
-    expect(undecidedMessage([...CHECK_IDS, 'sbom'])).toContain('sbom')
+    expect(undecided(LEGACY_CHECK_IDS), undecidedMessage(LEGACY_CHECK_IDS)).toEqual([])
+    expect(undecided([...LEGACY_CHECK_IDS, 'sbom'])).toEqual(['sbom'])
+    expect(undecidedMessage([...LEGACY_CHECK_IDS, 'sbom'])).toContain('sbom')
   })
 
-  for (const id of CHECK_IDS) {
+  for (const id of LEGACY_CHECK_IDS) {
     it(`${id}: resolves to exactly one outcome, and the model agrees with it`, () => {
       const decision = DECIDED[id]
       expect(decision, undecidedMessage([id])).toBeDefined()
       if (decision.outcome === 'maps-onto-an-existing-claim') {
         expect(withoutSample).toContain(decision.claimId)
-        expect(withSample).not.toContain(id)
+        expect(claimCarrying(id)).toBe(decision.claimId)
       }
       if (decision.outcome === 'its-own-claim') {
         expect(withSample).toContain(decision.claimId)
         expect(withoutSample).not.toContain(decision.claimId)
+        expect(claimCarrying(id)).toBe(decision.claimId)
       }
       if (decision.outcome === 'provenance' || decision.outcome === 'dropped') {
         expect(decision.because.length).toBeGreaterThan(0)
         expect(withSample).not.toContain(id)
+        expect(claimCarrying(id)).toBeUndefined()
       }
     })
   }

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CHECK_CLAIMS, CHECK_IDS, DOCTOR_FIELD_FAMILY, projectKnowledge } from '../src/commands/doctor/index.js'
+import { DOCTOR_FIELD_FAMILY, projectKnowledge } from '../src/commands/doctor/index.js'
 import { deriveModelState } from '../src/model/state.js'
 import { buildModel } from '../src/model/write.js'
 
@@ -100,7 +100,7 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
     const root = scratch(HARNESS_IN_CI)
     const derived = deriveModelState(repository, root)
     for (const verdict of projectKnowledge(repository, root).checks) {
-      const claim = repository.claims.find(entry => entry.id === CHECK_CLAIMS[verdict.id])
+      const claim = repository.claims.find(entry => entry.id === verdict.claimId)
       expect(claim?.id).toBe(verdict.claimId)
       expect(verdict.level).toBe(claim?.enforcement?.level)
       expect(verdict.state).toBe(derived.claims[verdict.claimId].enforcement)
@@ -108,10 +108,26 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
     }
   })
 
-  it('renders lint-policy only where the model carries that claim, and says nothing where it does not', () => {
+  it('renders one verdict per claim, in the model\'s own declaration order', () => {
     const root = scratch(HARNESS_IN_CI)
-    expect(projectKnowledge(model(true), root).checks.map(check => check.id)).toEqual([...CHECK_IDS])
-    expect(projectKnowledge(model(false), root).checks.map(check => check.id)).toEqual(['ci'])
+    for (const sample of [true, false]) {
+      const repository = model(sample)
+      expect(projectKnowledge(repository, root).checks.map(check => check.claimId)).toEqual(repository.claims.map(claim => claim.id))
+    }
+  })
+
+  it('names a verdict by the claim\'s legacy check id where it carries one, and by the claim id otherwise', () => {
+    const repository = model(true)
+    const rendered = projectKnowledge(repository, scratch(HARNESS_IN_CI)).checks
+    expect(rendered.map(check => check.id)).toEqual(repository.claims.map(claim => claim.checkId ?? claim.id))
+    expect(rendered.find(check => check.id === 'ci')?.claimId).toBe('every-change-passes-the-harness')
+    expect(rendered.find(check => check.id === 'no-committed-secret')?.claimId).toBe('no-committed-secret')
+  })
+
+  it('renders the lint-policy claim only where the model carries it, and says nothing where it does not', () => {
+    const root = scratch(HARNESS_IN_CI)
+    expect(projectKnowledge(model(true), root).checks.map(check => check.id)).toContain('lint-policy')
+    expect(projectKnowledge(model(false), root).checks.map(check => check.id)).not.toContain('lint-policy')
   })
 
   it('takes where you are from the model\'s own path selection, and reports nothing where no chain stops', () => {
@@ -171,11 +187,58 @@ describe('the gate against state doctor synthesises', () => {
   })
 })
 
+function incomplete(doctor: DoctorResult, repository: RepositoryModel): string[] {
+  const rendered = new Set(doctor.checks.map(check => check.claimId))
+  const carried = new Set(repository.claims.map(claim => claim.id))
+  return [
+    ...[...carried].filter(id => !rendered.has(id)).map(id => `the model carries "${id}", which no verdict renders`),
+    ...[...rendered].filter(id => !carried.has(id)).map(id => `a verdict renders "${id}", which the model does not carry`),
+    ...doctor.youAreHere != null && !rendered.has(doctor.youAreHere.claimId) ? [`you are here points at "${doctor.youAreHere.claimId}", which no verdict renders`] : [],
+  ]
+}
+
+describe('the gate against an Enforcement section that is not the whole model', () => {
+  const repository = model()
+
+  it('passes on the projection as it stands, in both directions at once', () => {
+    const projection = projectKnowledge(repository, scratch(HARNESS_IN_CI))
+    expect(incomplete(result(projection), repository)).toEqual([])
+    expect(projection.checks).toHaveLength(repository.claims.length)
+  })
+
+  it('fails when the model carries a claim no verdict renders', () => {
+    const projection = projectKnowledge(repository, scratch(HARNESS_IN_CI))
+    const withheld = projection.checks[projection.checks.length - 1].claimId
+    expect(projection.youAreHere?.claimId).not.toBe(withheld)
+    expect(incomplete(result({ ...projection, checks: projection.checks.slice(0, -1) }), repository))
+      .toEqual([`the model carries "${withheld}", which no verdict renders`])
+  })
+
+  it('fails when a verdict renders a claim the model does not carry', () => {
+    const projection = projectKnowledge(repository, scratch(HARNESS_IN_CI))
+    const invented = [...projection.checks, { ...projection.checks[0], claimId: 'a-claim-nobody-wrote' }]
+    expect(incomplete(result({ ...projection, checks: invented }), repository))
+      .toEqual(['a verdict renders "a-claim-nobody-wrote", which the model does not carry'])
+  })
+
+  it('fails when you-are-here points at a claim the Enforcement section leaves out', () => {
+    const projection = projectKnowledge(repository, scratch())
+    expect(projection.youAreHere?.claimId).toBe('no-committed-secret')
+    expect(incomplete(result({ ...projection, checks: projection.checks.filter(check => check.claimId !== 'no-committed-secret') }), repository))
+      .toContain('you are here points at "no-committed-secret", which no verdict renders')
+  })
+
+  it('holds on the repository doctor actually reads, where the model and the report are built apart', () => {
+    const projection = projectKnowledge(repository, scratch())
+    expect(incomplete(result(projection), repository)).toEqual([])
+  })
+})
+
 describe('the gate against ownership derived from anything but authoredBy', () => {
   function discoveryRewrote(repository: RepositoryModel): RepositoryModel {
     return {
       ...repository,
-      claims: repository.claims.map(claim => claim.id === CHECK_CLAIMS.ci ? { ...claim, authoredBy: 'discovery' as const } : claim),
+      claims: repository.claims.map(claim => claim.id === 'every-change-passes-the-harness' ? { ...claim, authoredBy: 'discovery' as const } : claim),
     }
   }
 

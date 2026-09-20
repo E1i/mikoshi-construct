@@ -26,6 +26,20 @@ record, because there the construct never wrote that end.
 
 `harnessProblems` is classified `mixed` and splits next.
 
+`checks` becomes the whole model rather than a selection from it. The mapping of doctor check ids
+onto claims lived inside `doctor` and decided what the Enforcement section would show, so a model
+carrying four claims rendered one — while `youAreHere` selected across all four and could point at a
+claim the section did not contain. A projection that keeps its own whitelist is not a projection. The
+list is gone: one verdict per claim, in the model's declaration order, and the two names consumers
+already read — `ci` and `lint-policy` — survive as an optional `checkId` on the claim itself, so the
+identifier lives once, in the model, and `id` falls back to the claim id everywhere else.
+
+Completeness is now a property with a gate on both sides: the set of rendered claim ids is compared
+with the set the model carries, and the test proves it by constructing each direction — a claim the
+report withholds and a verdict naming a claim nobody wrote — and watching it go red. Where
+`youAreHere` names a claim, that claim is asserted to be among the rendered verdicts, so the two
+halves of the output cannot disagree again.
+
 The output is quieter on an adopted repository, and that is the point rather than a side effect.
 Today's `hook: absent` and `lint-policy: absent` read as findings about your repository and are
 findings about what the preset shipped. That substitution is the thing this tool exists to prevent,

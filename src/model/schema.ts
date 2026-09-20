@@ -35,6 +35,7 @@ export interface Claim {
   authoredBy: EntryAuthor
   enforcement: Enforcement | null
   verification: Verification | null
+  checkId?: string
 }
 
 export interface Hypothesis {
@@ -55,7 +56,7 @@ export interface RepositoryModel {
 const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle']
 const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
-const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification']
+const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification', 'checkId']
 const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'supportedBy']
 const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses']
 
@@ -180,13 +181,17 @@ function parseClaims(name: string, raw: Record<string, unknown>, facts: Set<stri
     closed(name, entry, CLAIM_PROPERTIES, where)
     const enforcementEntry = nullableRecord(name, entry, 'enforcement', where)
     const verificationEntry = nullableRecord(name, entry, 'verification', where)
-    return {
+    const claim: Claim = {
       id: text(name, entry, 'id', where),
       statement: text(name, entry, 'statement', where),
       authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
       enforcement: enforcementEntry === null ? null : parseEnforcement(name, enforcementEntry, `${where}.enforcement`, facts),
       verification: verificationEntry === null ? null : parseVerification(name, verificationEntry, `${where}.verification`, facts),
     }
+    const checkId = optionalText(name, entry, 'checkId', where)
+    if (checkId !== undefined)
+      claim.checkId = checkId
+    return claim
   })
 }
 

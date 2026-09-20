@@ -55,7 +55,8 @@
       "verification": {
         "mechanism": "eslint.config.mjs is the single source of style for that run",
         "supportedBy": ["eslint-config"]
-      }
+      },
+      "checkId": "ci"
     },
     {
       "id": "harness-steps",

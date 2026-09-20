@@ -6,15 +6,16 @@ import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
 import { constructAuthored } from './provenance.js'
 
-function checkLine(ui: Ui, check: CheckVerdict): string {
-  return `  ${check.id.padEnd(16)} ${check.level}  ${check.state.padEnd(12)} ${ui.theme.dim(check.evidence)}`
+function checkLine(ui: Ui, check: CheckVerdict, width: number): string {
+  return `  ${check.id.padEnd(width)} ${check.level}  ${check.state.padEnd(12)} ${ui.theme.dim(check.evidence)}`
 }
 
 function printChecks(ui: Ui, checks: CheckVerdict[]): void {
+  const width = Math.max(16, ...checks.map(check => check.id.length))
   ui.line()
   ui.line(ui.theme.accent(ui.lore.enforcement))
   for (const check of checks)
-    ui.line(checkLine(ui, check))
+    ui.line(checkLine(ui, check, width))
   ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))
 }
 

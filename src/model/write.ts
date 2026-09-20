@@ -78,6 +78,7 @@ function baselineClaims(harnessCommand: string): Claim[] {
         mechanism: 'eslint.config.mjs is the single source of style for that run',
         supportedBy: ['eslint-config'],
       },
+      checkId: 'ci',
     },
     {
       id: 'harness-steps',
@@ -118,6 +119,7 @@ function sampleClaims(harnessCommand: string): Claim[] {
         mechanism: `${LINT_POLICY_TEST} resolves eslint.config.mjs through the ESLint API rather than reading its text`,
         supportedBy: ['lint-policy-test-loads-eslint', 'eslint-config'],
       },
+      checkId: 'lint-policy',
     },
   ]
 }

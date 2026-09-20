@@ -92,3 +92,10 @@ carry it; both copies of the `/implement` skill document what a retry actually c
 which is the defect that produced the figures this record was first written with. The wider rule is
 L1 review: nothing mechanical stops a future escalation from restarting an agent where it could have
 continued one.
+
+## Observation · 2026-09-21
+
+Task 3 of the doctor-projection plan was run at `xhigh`. The architect failed structured-output
+validation five consecutive times and returned nothing — another occurrence of the failure mode this
+record already describes. It is recorded as an occurrence only: the population is too small to carry
+a frequency, and nothing causal is claimed from it.

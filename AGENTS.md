@@ -169,7 +169,13 @@ them as rules.
   evidence that the mechanism can actually *fail* when the invariant it protects is violated.
   Harness mutation tests are evidence of enforcement capability, and PR #57 added an observed case
   of a different kind: `testsWeakened` caught erosion in a live implementation change rather than in
-  a dedicated mutation fixture. So is enforcement capability a fact about the repository, which the
+  a dedicated mutation fixture. A second occurrence, 2026-09-21, was a different class again: tests
+  were deleted together with the feature and modules they covered. The gate detected the deletion
+  correctly but could not tell legitimate feature removal from deletion that weakens coverage; a
+  human established legitimacy by matching each removed test to a removed module or fixture, the
+  runner coverage that remained was unchanged, and the count went from 566 to 568. The gate covers
+  both observed classes; a deletion may still need human adjudication. Two observations are not a
+  frequency and neither is offered as one. So is enforcement capability a fact about the repository, which the
   model should represent, or process evidence belonging to the corpus and the harness history?
   Do not resolve this before `doctor` consumes the model. Revisit it when `doctor` reads the model
   on a live repository and a useful diagnosis turns out to need a fact the model cannot provide.

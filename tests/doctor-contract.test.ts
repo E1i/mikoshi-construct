@@ -4,8 +4,9 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CHECK_CLAIMS, CHECK_IDS, DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
+import { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
+import { buildModel } from '../src/model/write.js'
 
 const VARS: TemplateVars = {
   projectName: 'contract-fixture',
@@ -64,11 +65,14 @@ describe('doctor --json against docs/cli.md, its declared source of truth', () =
     expect(Object.keys(emittedResult())).toEqual(Object.keys(documentedResult()))
   })
 
-  it('shows every check the document promises, with the claim each one renders', () => {
+  it('shows one check per claim the model carries, in the order the model declares them', () => {
+    const claims = buildModel({ vars: VARS, contracts: false, sample: true }).claims
     const checks = documentedResult().checks as { id: string, claimId: string }[]
-    expect(checks.map(check => check.id)).toEqual([...CHECK_IDS])
-    for (const check of checks)
-      expect(check.claimId).toBe(CHECK_CLAIMS[check.id as keyof typeof CHECK_CLAIMS])
+    expect(checks.map(check => check.claimId)).toEqual(claims.map(claim => claim.id))
+    for (const check of checks) {
+      const claim = claims.find(entry => entry.id === check.claimId)
+      expect(check.id).toBe(claim?.checkId ?? check.claimId)
+    }
   })
 
   it('carries a family for every field, matching the classification the code declares', () => {
