@@ -3,11 +3,15 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const ROOT = path.resolve(import.meta.dirname, 'fixtures/architect')
-const FIELD = /^[\s,]*"([^"]+)"\s*:\s*/
+const LOG_WINDOW = 2048
 
 interface Rejection {
+  attempt: number
   outcome: 'unparsable' | 'empty'
+  stopReason: string | null
+  outputTokens: number | null
   reportedBytes: number | null
+  journaledChars: number
   payload: string
 }
 
@@ -15,68 +19,54 @@ function controlCharactersIn(text: string): string[] {
   return [...text].filter(character => character.codePointAt(0)! < 0x20)
 }
 
-function endOfValue(text: string, start: number): number | null {
-  const open = text[start]
-  if (open !== '"' && open !== '[')
-    return null
-  let depth = 0
-  let quoted = false
-  for (let index = start; index < text.length; index++) {
-    const character = text[index]
-    if (character === '\\') {
+function endOfString(text: string, start: number): number | null {
+  for (let index = start + 1; index < text.length; index++) {
+    if (text[index] === '\\') {
       index++
       continue
     }
-    if (character === '"') {
-      quoted = !quoted
-      if (!quoted && open === '"')
-        return index + 1
-      continue
-    }
-    if (quoted)
-      continue
-    if (character === '[')
-      depth++
-    else if (character === ']' && --depth === 0)
+    if (text[index] === '"')
       return index + 1
   }
   return null
 }
 
-function fieldsIn(payload: string): { complete: string[], incomplete: string | null } {
-  const complete: string[] = []
-  let index = payload.indexOf('{') + 1
-  for (;;) {
-    const key = FIELD.exec(payload.slice(index))
-    if (key == null)
-      return { complete, incomplete: null }
-    const start = index + key[0].length
-    const end = endOfValue(payload, start)
-    if (end == null)
-      return { complete, incomplete: key[1] }
-    complete.push(key[1])
-    index = end
-  }
+function firstField(payload: string): { name: string, value: string } | null {
+  const key = /^\{\s*"([^"]+)"\s*:\s*"/.exec(payload)
+  if (key == null)
+    return null
+  const start = key[0].length - 1
+  const end = endOfString(payload, start)
+  return end == null ? null : { name: key[1], value: JSON.parse(payload.slice(start, end)) }
 }
 
-function valueOf(payload: string, field: string): string {
-  const start = payload.indexOf(`"${field}":`) + `"${field}":`.length + 1
-  const end = endOfValue(payload, start)
-  expect(end, `${field} closes inside the window`).not.toBeNull()
-  return JSON.parse(payload.slice(start, end as number))
+function records(): Array<[string, Rejection]> {
+  return readdirSync(ROOT)
+    .filter(entry => entry.endsWith('.json'))
+    .sort()
+    .map(entry => [entry.replace(/\.json$/, ''), JSON.parse(readFileSync(path.join(ROOT, entry), 'utf8')) as Rejection])
 }
 
 function unparsable(): Array<[string, Rejection]> {
-  return readdirSync(ROOT)
-    .filter(entry => entry.endsWith('.json'))
-    .map(entry => [entry.replace(/\.json$/, ''), JSON.parse(readFileSync(path.join(ROOT, entry), 'utf8')) as Rejection] as [string, Rejection])
-    .filter(([, record]) => record.outcome === 'unparsable')
-    .sort(([left], [right]) => left.localeCompare(right))
+  return records().filter(([, record]) => record.outcome === 'unparsable')
 }
 
-describe('where the rejected payloads break, as far as the record can say', () => {
-  it('has a payload the runtime could not read for every size it reported', () => {
+function empty(): Array<[string, Rejection]> {
+  return records().filter(([, record]) => record.outcome === 'empty')
+}
+
+describe('the seven unreadable payloads are cut by the log, not by the model', () => {
+  it('keeps seven of them', () => {
     expect(unparsable()).toHaveLength(7)
+  })
+
+  it('cuts every one of them at the same offset, which is where the log stops', () => {
+    expect(unparsable().map(([, record]) => record.journaledChars)).toEqual(Array.from({ length: 7 }).fill(LOG_WINDOW))
+  })
+
+  it('cannot say where any of them became invalid, because each ran well past that offset', () => {
+    for (const [name, record] of unparsable())
+      expect(record.reportedBytes, `${name} reported more bytes than the log kept`).toBeGreaterThan(LOG_WINDOW)
   })
 
   for (const [name, record] of unparsable()) {
@@ -84,22 +74,49 @@ describe('where the rejected payloads break, as far as the record can say', () =
       expect(record.payload.startsWith('{"')).toBe(true)
     })
 
-    it(`${name} carries no raw control character in anything the journal kept`, () => {
+    it(`${name} opens with a decision that is long and well formed at the same time`, () => {
+      const first = firstField(record.payload)
+      expect(first?.name).toBe('decision')
+      expect(first!.value.length).toBeGreaterThan(1000)
+      expect(controlCharactersIn(first!.value)).toEqual([])
+    })
+
+    it(`${name} carries no raw control character in the part the log kept`, () => {
       expect(controlCharactersIn(record.payload)).toEqual([])
     })
 
-    it(`${name} closes decision and breaks off inside contractChanges`, () => {
-      expect(fieldsIn(record.payload)).toEqual({ complete: ['decision'], incomplete: 'contractChanges' })
+    it(`${name} stopped because the model called the tool, not because it ran out of room`, () => {
+      expect(record.stopReason == null || record.stopReason === 'tool_use').toBe(true)
+    })
+  }
+
+  it('shows no common ceiling the answers could have been cut against', () => {
+    const sizes = unparsable().map(([, record]) => record.outputTokens).filter((size): size is number => size != null)
+    expect(new Set(sizes).size).toBe(sizes.length)
+    expect(Math.max(...sizes)).toBeGreaterThan(Math.min(...sizes) * 3)
+  })
+})
+
+describe('the three empty calls are a different failure, and the only one recorded whole', () => {
+  it('keeps three of them', () => {
+    expect(empty()).toHaveLength(3)
+  })
+
+  for (const [name, record] of empty()) {
+    it(`${name} is the entire payload the runtime received, with nothing cut away`, () => {
+      expect(record.payload).toBe('{}')
+      expect(record.journaledChars).toBe(record.payload.length)
+      expect(record.reportedBytes).toBeNull()
     })
 
-    it(`${name} holds a decision that is long and well formed at the same time`, () => {
-      const decision = valueOf(record.payload, 'decision')
-      expect(decision.length).toBeGreaterThan(1000)
-      expect(controlCharactersIn(decision)).toEqual([])
+    it(`${name} spent tokens on a turn and then passed no arguments at all`, () => {
+      expect(record.outputTokens).toBeGreaterThan(200)
+      expect(record.outputTokens).toBeLessThan(500)
+      expect(record.stopReason).toBe('tool_use')
     })
 
-    it(`${name} leaves more outside the window than a bound on decision could reach`, () => {
-      expect(record.reportedBytes! - record.payload.length).toBeGreaterThan(1000)
+    it(`${name} follows attempts that were already refused`, () => {
+      expect(record.attempt).toBeGreaterThan(3)
     })
   }
 })

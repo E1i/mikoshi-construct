@@ -2,24 +2,31 @@
 "mikoshi-construct": patch
 ---
 
-The ten frozen architect rejections are read by a test that says where they break, before anything is
-changed to stop them breaking. The answer moves the target.
+The ten frozen architect rejections are read by a test that says what they can and cannot establish,
+before anything is changed to stop them happening. Most of what they looked like they established
+turns out to belong to the log they were recorded in.
 
-In all seven payloads the runtime could not parse, `decision` — the long free-prose field, 1255 to
-1809 characters of it — closes cleanly and correctly escaped, and the kept window then runs out inside
-`contractChanges`, the field after it. Not one raw control character appears anywhere in the window,
-and every payload begins at `{` with no fence and no prose wrapped around it. So the obvious remedy, a
-length bound on `decision`, would have bounded the one field every single failure got right, and
-between 1388 and 8245 bytes of each payload — the rest of `contractChanges` and the four fields after
-it — is where the malformation actually has to be.
+All seven payloads the runtime could not parse were cut at exactly 2048 characters, which is the
+length that log keeps, while the runtime reported 3436 to 10 293 bytes for the same calls. Any pattern
+at that edge is drawn by the recording, so the field the text happens to stop inside is not evidence
+about the answer, and between 1388 and 8245 bytes of every payload — the part that would name the
+cause — is gone and cannot be recovered.
 
-That part of the record is gone. The journal these came from keeps the first 2048 characters of a tool
-input and drops the rest, so what it threw away is exactly the part that would name the cause. The
-test asserts only what the window can still establish and the note beside the fixtures says plainly
-which hypotheses remain open: a raw newline in a later field, or an answer that stopped mid-object.
-This record cannot choose between them.
+What sits inside the window is evidence. Every payload begins at `{` with no fence and no prose around
+it, not one raw control character survives anywhere in what was kept, and `decision` — the long
+free-prose field that the obvious remedy would have bounded — opens the object and closes cleanly at
+1255 to 1809 characters, correctly escaped, in all seven. The malformation is therefore somewhere
+after `decision`; which of the five fields after it, and whether any of those is clean, this record
+cannot say. Every recorded completion stopped with `tool_use` rather than `max_tokens`, and the output
+sizes span more than a factor of three with no ceiling they cluster under, which counts against an
+answer that ran out of room without settling it.
 
-The consequence is an ordering rather than a fix. Any measurement of how often the design step fails
-has to capture the whole payload first, or twenty invocations will produce a rate and still not name a
-cause — and a fix chosen before that would be named after a hypothesis that one of these ten
-observations already contradicts, a 3436-byte failure being hard to explain by length.
+The three calls that passed no arguments at all are split off as their own class, because they are the
+only failure recorded whole: `{}` is the entire input the runtime received. Each spent a turn and then
+sent nothing, and each followed at least three attempts already refused, so nothing about them depends
+on how long an answer is.
+
+The consequence is an ordering. A measurement of how often the design step fails has to capture the
+whole payload, the byte offset at which parsing fails and the reason generation stopped, or it will
+reproduce the defect that cost this record its answer: twenty invocations would yield a rate and still
+not name a cause. Its first run is diagnostic, not acceptance.

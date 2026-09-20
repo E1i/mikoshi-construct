@@ -55,21 +55,32 @@ argument about the prompt, not about validation.
 
 ## Where they break
 
-`tests/architect-payload-shape.test.ts` reads every `unparsable` record and asserts what the kept
-window can still establish. In all seven: the payload begins at `{` with no fence and no prose around
-it; there is not one raw control character anywhere in the window; and `decision` — the long
-free-prose field — closes cleanly, between 1255 and 1809 characters, correctly escaped. The window
-then runs out inside `contractChanges`, the second field, in all seven.
+`tests/architect-payload-shape.test.ts` reads every record and asserts only what the kept window can
+carry. The first thing it asserts is the window itself: all seven unreadable payloads were cut at
+exactly 2048 characters, the length this log keeps. Any pattern at that edge — including which field
+the text happens to stop inside — is the log drawing it, not the model, and says nothing about the
+answer. The runtime reported 3436 to 10 293 bytes for these same calls, so between 1388 and 8245 bytes
+of every one of them is missing.
 
-So the field the obvious fix would bound is the one field every failure got right, and between 1388
-and 8245 bytes of each payload — the rest of `contractChanges` and the four fields after it — is
-where the malformation has to be. That part is gone and cannot be recovered from this record.
+What is inside the window is real. Every payload begins at `{` with no fence and no prose wrapped
+around it; there is not one raw control character in anything that was kept; and `decision`, the long
+free-prose field, opens the object and closes cleanly, 1255 to 1809 characters, correctly escaped. So
+the malformation is somewhere after `decision`, and that is the whole of what this record establishes
+about its location. Which of the five later fields holds it, and whether any of them is clean, is not
+knowable from here.
 
-What that rules out, it rules out for the visible window only: a fence, prose around the object, an
-unescaped quote before the cut, and a raw newline inside `decision`. Between a raw newline in a later
-field and an answer that stopped mid-object, this record cannot choose. Deciding that needs a new
-observation that keeps the whole payload, which is the first thing any measurement of the rate should
-be built to do — the journal that recorded these threw away the only part that mattered.
+Every recorded completion stopped with `tool_use`, never `max_tokens`, and the output token counts are
+all different, spanning more than a factor of three with no ceiling they cluster under. Both of those
+count against an answer that ran out of room mid-string, without settling it: the field that would
+settle it is one this log does not keep.
+
+## The three empty calls
+
+These are a different failure and the only one recorded whole: `{}` is the entire input the runtime
+received, with nothing cut away. Each one spent a turn — 260 to 395 output tokens — and then passed no
+arguments at all, and each came after at least three attempts that had already been refused. Nothing
+about them depends on the size of an answer, so whatever explains the seven need not explain these,
+and they may well be the cheaper of the two to stop.
 
 ## Names
 
