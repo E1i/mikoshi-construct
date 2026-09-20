@@ -1,13 +1,18 @@
 import type { DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
+import type { StoppingState } from '../src/model/path.js'
 import type { ThemeName } from '../src/ui/theme.js'
 import { describe, expect, it } from 'vitest'
 import { printDoctor } from '../src/commands/doctor/index.js'
+import { CHAIN_STAGES } from '../src/model/path.js'
+import { MODEL_STATES } from '../src/model/state.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
-const WEAKEST_LINK_LINE = /^[ \t]*(?:WEAKEST LINK|Weakest link): \S/
+const YOU_ARE_HERE_LINE = /^[ \t]*(?:YOU ARE HERE|You are here): \S/
+const STOPPING_STATES = MODEL_STATES.filter((state): state is StoppingState => state !== 'held')
+const VERDICT_WORDING = /\b(?:not enforced|unenforced|proven|proves|fail|broken|violat)/i
 const EMOJI = /[\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}]/u
-const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'CONSTRUCT STABLE', 'SOULKILLER', 'Netrunner', 'ARASAKA', 'ENFORCEMENT TRACE', 'WEAKEST LINK']
+const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'CONSTRUCT STABLE', 'SOULKILLER', 'Netrunner', 'ARASAKA', 'ENFORCEMENT TRACE', 'YOU ARE HERE', 'NOTHING HERE IS EXECUTED']
 
 function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
   return {
@@ -17,15 +22,13 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     missingDiscovery: [],
     provenance: [],
     harnessProblems: [],
+    uncollectedTests: [],
     warnings: [],
     checks: [
-      { id: 'lint-policy', level: 'L3', state: 'present', evidence: 'scripts/tests/lint/syntax-policy.test.ts resolves the lint policy' },
-      { id: 'construct-tests', level: 'L3', state: 'present', evidence: 'every recorded test matches the include in vitest.config.ts' },
-      { id: 'ci', level: 'L3', state: 'present', evidence: '.github/workflows/ci.yml runs "pnpm run quality"' },
-      { id: 'hook', level: 'L2', state: 'present', evidence: 'lefthook.yml installs a git hook' },
-      { id: 'red-gate', level: 'L3', state: 'unknown', evidence: 'doctor executes nothing from the repository it inspects' },
+      { id: 'lint-policy', claimId: 'lint-policy', level: 'L3', state: 'held', authoredBy: 'construct', evidence: 'scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares' },
+      { id: 'ci', claimId: 'every-change-passes-the-harness', level: 'L3', state: 'held', authoredBy: 'construct', evidence: '.github/workflows/ci.yml runs pnpm run quality on every pull request and push to main' },
     ],
-    weakestLink: { id: 'hook', level: 'L2' },
+    youAreHere: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported' },
     versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
     ...overrides,
   }
@@ -45,30 +48,55 @@ function nonEmptyLines(output: string): string[] {
 
 describe('the doctor report', () => {
   for (const theme of ['plain', 'arasaka', 'johnny'] as const) {
-    it(`ends with exactly one weakest-link line in the ${theme} theme`, () => {
+    it(`ends with exactly one you-are-here line in the ${theme} theme`, () => {
       const { output } = render(result(), theme)
-      expect(nonEmptyLines(output).at(-1)).toMatch(WEAKEST_LINK_LINE)
-      expect(nonEmptyLines(output).filter(line => WEAKEST_LINK_LINE.test(line))).toHaveLength(1)
+      expect(nonEmptyLines(output).at(-1)).toMatch(YOU_ARE_HERE_LINE)
+      expect(nonEmptyLines(output).filter(line => YOU_ARE_HERE_LINE.test(line))).toHaveLength(1)
     })
   }
 
-  it('names what would raise the weakest link, so a low reading reads as a state and not a verdict', () => {
-    for (const level of ['L0', 'L1', 'L2', 'L3'] as const) {
-      const line = nonEmptyLines(render(result({ weakestLink: { id: 'hook', level } })).output).at(-1) ?? ''
-      expect(line).toMatch(WEAKEST_LINK_LINE)
-      expect(line.length).toBeGreaterThan(`Weakest link: hook at ${level}`.length)
+  it('names the claim and the stage where the chain stops, taking both from the model', () => {
+    const line = nonEmptyLines(render(result()).output).at(-1) ?? ''
+    expect(line).toContain('lint-policy')
+    expect(line).toContain('verification')
+    expect(line).toContain('unsupported')
+  })
+
+  it('reads a stopped chain as a state and never as a verdict, in every stage and state it can report', () => {
+    for (const stage of CHAIN_STAGES) {
+      for (const state of STOPPING_STATES) {
+        for (const theme of ['plain', 'arasaka', 'johnny'] as const) {
+          const line = nonEmptyLines(render(result({ youAreHere: { claimId: 'lint-policy', stage, state } }), theme).output).at(-1) ?? ''
+          expect(line).toMatch(YOU_ARE_HERE_LINE)
+          expect(line).toContain(stage)
+          expect(line).toContain(state)
+          expect(line).not.toMatch(VERDICT_WORDING)
+        }
+      }
     }
   })
 
-  it('names every check and says when nothing is claimed', () => {
-    const { output } = render(result({ checks: result().checks.map(check => ({ ...check, state: 'unknown' as const })), weakestLink: null }))
+  it('names every check and says when no chain stops', () => {
+    const { output } = render(result({ youAreHere: null }))
     for (const check of result().checks)
       expect(output).toContain(check.id)
-    expect(nonEmptyLines(output).at(-1)).toContain('nothing is claimed')
-    expect(nonEmptyLines(output).filter(line => WEAKEST_LINK_LINE.test(line))).toHaveLength(1)
+    expect(nonEmptyLines(output).at(-1)).toContain('no claim stops before the end of its chain')
+    expect(nonEmptyLines(output).filter(line => YOU_ARE_HERE_LINE.test(line))).toHaveLength(1)
   })
 
-  it('names the markers still reading back what discovery wrote, above the weakest-link line and without changing the exit code', () => {
+  it('states the boundary it reports from, since it runs nothing it could prove the harness with', () => {
+    const { output } = render(result())
+    expect(output).toContain('doctor executes nothing from the repository it inspects')
+    expect(output).toContain('does not speak about whether the harness passes')
+  })
+
+  it('names the recorded tests the runner never collects, without changing the exit code', () => {
+    const { output, code } = render(result({ uncollectedTests: ['tests/harness.test.ts'] }))
+    expect(output).toContain('tests/harness.test.ts')
+    expect(code).toBe(0)
+  })
+
+  it('names the markers still reading back what discovery wrote, above the you-are-here line and without changing the exit code', () => {
     const provenance: MarkerReading[] = [
       { marker: 'product', file: 'AGENTS.md', authorship: 'construct' },
       { marker: 'module-map', file: 'AGENTS.md', authorship: 'owner' },
@@ -78,7 +106,7 @@ describe('the doctor report', () => {
     expect(output).toContain('product')
     expect(output).not.toContain('module-map')
     expect(output).not.toContain('architecture/composition')
-    expect(nonEmptyLines(output).at(-1)).toMatch(WEAKEST_LINK_LINE)
+    expect(nonEmptyLines(output).at(-1)).toMatch(YOU_ARE_HERE_LINE)
     expect(code).toBe(0)
   })
 
@@ -87,11 +115,11 @@ describe('the doctor report', () => {
     expect(render(result({ provenance })).output).not.toContain('Discovery provenance')
   })
 
-  it('names the version gap and the paths a sync would write, above the weakest-link line and without changing the exit code', () => {
+  it('names the version gap and the paths a sync would write, above the you-are-here line and without changing the exit code', () => {
     const { output, code } = render(result({ versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 3 } }))
     expect(output).toContain('Materialized by construct 0.1.0, read by 0.2.0.')
     expect(output).toContain('3 recorded paths a sync would add or update')
-    expect(nonEmptyLines(output).at(-1)).toMatch(WEAKEST_LINK_LINE)
+    expect(nonEmptyLines(output).at(-1)).toMatch(YOU_ARE_HERE_LINE)
     expect(code).toBe(0)
   })
 
@@ -105,6 +133,7 @@ describe('the doctor report', () => {
     const { output } = render(result({
       missingFiles: ['AGENTS.md'],
       missingDiscovery: ['product'],
+      uncollectedTests: ['tests/harness.test.ts'],
       provenance: [{ marker: 'product', file: 'AGENTS.md', authorship: 'construct' }],
       modifiedFiles: ['CLAUDE.md'],
       warnings: ['node-frontend: `tsc --noEmit` does not see `.vue` components'],
@@ -118,7 +147,7 @@ describe('the doctor report', () => {
 
   it('exits 1 only for a missing baseline file, a broken harness or a missing construct.json', () => {
     expect(render(result()).code).toBe(0)
-    expect(render(result({ weakestLink: { id: 'hook', level: 'L0' } })).code).toBe(0)
+    expect(render(result({ youAreHere: { claimId: 'lint-policy', stage: 'enforcement', state: 'unsupported' } })).code).toBe(0)
     expect(render(result({ missingDiscovery: ['product'], modifiedFiles: ['CLAUDE.md'] })).code).toBe(0)
     expect(render(result({ ok: false, missingFiles: ['AGENTS.md'] })).code).toBe(1)
     expect(render(result({ ok: false, harnessProblems: ['"quality" does not run test'] })).code).toBe(1)

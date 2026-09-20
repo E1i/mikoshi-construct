@@ -75,7 +75,7 @@ describe('the version gap doctor reports', () => {
     expect(moved.output).toContain(PLAIN_LORE.baselineMoved(1))
     expect(moved.code).toBe(0)
     expect(runDoctor(dir, VERSION)?.ok).toBe(true)
-    expect(runDoctor(dir, VERSION)?.checks).toHaveLength(5)
+    expect(runDoctor(dir, VERSION)?.checks).toHaveLength(2)
   })
 
   it('says the gap cannot be established rather than failing when the replay cannot run', async () => {

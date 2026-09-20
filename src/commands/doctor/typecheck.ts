@@ -1,5 +1,5 @@
 import type { PresetId } from '../../presets/index.js'
-import type { DoctorEvidence } from './evidence.js'
+import type { HarnessFacts } from './harness.js'
 
 interface TypecheckCaveat {
   checkers: string[]
@@ -13,9 +13,9 @@ const CAVEATS: Partial<Record<PresetId, TypecheckCaveat>> = {
   },
 }
 
-export function typecheckWarnings(preset: PresetId, evidence: DoctorEvidence): string[] {
+export function typecheckWarnings(preset: PresetId, harness: HarnessFacts): string[] {
   const caveat = CAVEATS[preset]
-  if (caveat == null || caveat.checkers.some(checker => evidence.harness.resolved.includes(checker)))
+  if (caveat == null || caveat.checkers.some(checker => harness.resolved.includes(checker)))
     return []
   return [caveat.text]
 }

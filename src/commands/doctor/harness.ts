@@ -5,17 +5,15 @@ import path from 'node:path'
 export interface HarnessFacts {
   command: string
   script: string
-  scripts: Record<string, string>
   body: string | null
   resolved: string
-  commandForms: string[]
   packageJson: Record<string, unknown> | null
 }
 
 const REQUIRED_QUALITY_STEPS = ['lint', 'typecheck', 'test']
 const SCRIPT_REFERENCE = /(?:^|&&|\|\||;)\s*(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)/g
 
-export function harnessScriptName(command: string): string {
+function harnessScriptName(command: string): string {
   return command.replace(/^(pnpm|npm|yarn|bun)\s+(run\s+)?/, '')
 }
 
@@ -41,16 +39,10 @@ export function readHarnessFacts(root: string, command: string): HarnessFacts {
   return {
     command,
     script,
-    scripts,
     body,
     resolved: expandScript(scripts, script, new Set()),
-    commandForms: [command, `pnpm run ${script}`, `pnpm ${script}`, `npm run ${script}`, `yarn ${script}`],
     packageJson,
   }
-}
-
-export function runsHarnessCommand(text: string, forms: string[]): boolean {
-  return forms.some(form => text.includes(form))
 }
 
 function contractProblems(root: string, contracts: Manifest['contracts'], script: string, body: string): string[] {

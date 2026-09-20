@@ -70,6 +70,6 @@ describe('dependency policy in eslint.config.mjs', () => {
 
   it('covers the doctor directory, where the untrusted repository is read', async () => {
     const dynamic = 'export const probe = async (file: string) => import(file)\n'
-    expect(await violations('src/commands/doctor/checks/lint-policy.ts', dynamic)).toContain('no-restricted-syntax')
+    expect(await violations('src/commands/doctor/projection.ts', dynamic)).toContain('no-restricted-syntax')
   })
 })

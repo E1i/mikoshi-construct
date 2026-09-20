@@ -43,9 +43,10 @@ export interface Lore {
   baselineGapUnknown: string
   enforcement: string
   typecheckCaveat: string
-  weakestLink: (id: string, level: string) => string
-  levelLift: Record<string, string>
-  weakestLinkNone: string
+  uncollectedTests: string
+  executesNothing: string
+  youAreHere: (claimId: string, stage: string, state: string) => string
+  youAreHereNone: string
   wireHarness: string
   wireHarnessSteps: string[]
   costUnsupported: (runtime: string) => string
@@ -115,15 +116,10 @@ export const LORE: Lore = {
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'ENFORCEMENT TRACE',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
-  weakestLink: (id: string, level: string) => `WEAKEST LINK: ${id} at ${level}`,
-  levelLift: {
-    L0: 'wire it to a hook or a workflow step and it climbs',
-    L1: 'only a reviewer stands behind it; a hook or a workflow step raises it',
-    L2: 'a hook is bypassable with --no-verify; running it in CI too raises it',
-    L3: 'L3 is the ceiling doctor can read: branch protection is what makes it blocking, and that lives in the API',
-    L4: 'nothing above this',
-  },
-  weakestLinkNone: 'WEAKEST LINK: nothing is claimed',
+  uncollectedTests: 'TESTS THE RECORD CARRIES AND THE RUNNER NEVER COLLECTS.',
+  executesNothing: 'NOTHING HERE IS EXECUTED: doctor reads files and runs nothing from the repository it inspects, so it does not speak about whether the harness passes.',
+  youAreHere: (claimId: string, stage: string, state: string) => `YOU ARE HERE: ${claimId} \u2014 ${stage} ${state}`,
+  youAreHereNone: 'YOU ARE HERE: no claim stops before the end of its chain',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
     'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
@@ -208,15 +204,10 @@ export const PLAIN_LORE: Lore = {
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'Enforcement',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
-  weakestLink: (id: string, level: string) => `Weakest link: ${id} at ${level}`,
-  levelLift: {
-    L0: 'wire it to a hook or a workflow step and it climbs',
-    L1: 'only a reviewer stands behind it; a hook or a workflow step raises it',
-    L2: 'a hook is bypassable with --no-verify; running it in CI too raises it',
-    L3: 'L3 is the ceiling doctor can read: branch protection is what makes it blocking, and that lives in the API',
-    L4: 'nothing above this',
-  },
-  weakestLinkNone: 'Weakest link: nothing is claimed',
+  uncollectedTests: 'Tests the record carries and the runner does not collect.',
+  executesNothing: 'doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.',
+  youAreHere: (claimId: string, stage: string, state: string) => `You are here: ${claimId} \u2014 ${stage} ${state}`,
+  youAreHereNone: 'You are here: no claim stops before the end of its chain',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
     'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',

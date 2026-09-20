@@ -1,7 +1,9 @@
 import type { TemplateVars } from '../presets/index.js'
-import type { Claim, EntryAuthor, Fact, Hypothesis, RepositoryModel } from './schema.js'
+import type { AuthoredEntry } from './ownership.js'
+import type { Claim, Fact, Hypothesis, RepositoryModel } from './schema.js'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { authoredByOwner } from './ownership.js'
 import { DanglingFactReference, MODEL_FILE, MODEL_VERSION, parseModel } from './schema.js'
 
 export interface ModelInput {
@@ -171,15 +173,10 @@ export function readModel(root: string): RepositoryModel | null {
   }
 }
 
-interface Entry {
-  id: string
-  authoredBy: EntryAuthor
-}
-
-function mergeEntries<T extends Entry>(existing: T[], fresh: T[], keepDropped: (entry: T) => boolean): T[] {
+function mergeEntries<T extends AuthoredEntry>(existing: T[], fresh: T[], keepDropped: (entry: T) => boolean): T[] {
   const rebuilt = new Map(fresh.map(entry => [entry.id, entry]))
   const survivors = existing.flatMap((entry) => {
-    if (entry.authoredBy !== 'construct')
+    if (authoredByOwner(entry) !== 'construct')
       return [entry]
     const replacement = rebuilt.get(entry.id)
     if (replacement !== undefined)
@@ -224,7 +221,7 @@ export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryMo
   const stoodOn = factsStoodOn(claims, hypotheses)
   const rebuilt = new Set(fresh.facts.map(fact => fact.id))
   const retained = existing.facts
-    .filter(fact => fact.authoredBy === 'construct' && !rebuilt.has(fact.id) && stoodOn.has(fact.id))
+    .filter(fact => authoredByOwner(fact) === 'construct' && !rebuilt.has(fact.id) && stoodOn.has(fact.id))
     .map(fact => ({ id: fact.id, stoodOnBy: stoodOn.get(fact.id) ?? [] }))
   return {
     model: {
