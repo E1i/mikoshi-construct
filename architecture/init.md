@@ -44,6 +44,7 @@ flowchart LR
   plan -.-> strategies
   plan -.-> rules
   plan -->|"FileOp[] after confirm"| apply
+  run -->|"readModel: validated before anything is written"| model
   run -->|"readManifest: the record already here"| manifest
   apply -->|"written files"| manifest
   preset -->|"claims the construct materializes"| model

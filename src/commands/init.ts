@@ -224,11 +224,17 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   if (interactive != null && (await interactive.confirm(ui.lore.confirm)) !== true)
     return aborted(skipped, plan.conflicts)
 
+  const existingModel = readModel(root)
   const written = applyPlan(root, plan.ops)
   const previous = readManifest(root)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
   writeManifest(root, manifest)
-  writeModel(root, mergeModel(readModel(root), buildModel({ vars, contracts: preset.contracts })))
+  const merged = mergeModel(existingModel, buildModel({ vars, contracts: preset.contracts }))
+  writeModel(root, merged.model)
+  if (merged.retained.length > 0) {
+    const standingOn = [...new Set(merged.retained.flatMap(fact => fact.stoodOnBy))]
+    ui.line(ui.theme.dim(`  ${ui.lore.recordFactsRetained(merged.retained.map(fact => fact.id), standingOn)}`))
+  }
   if (previous != null) {
     const carriedOver = Object.keys(previous.files).filter(target => !written.some(op => op.target === target)).length
     const added = written.filter(op => previous.files[op.target] == null).length

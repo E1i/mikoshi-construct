@@ -88,6 +88,7 @@ edges:
   - {from: plan, to: strategies, kind: wires}
   - {from: plan, to: rules, kind: wires}
   - {from: plan, to: apply, kind: sequence, label: 'FileOp[] after confirm'}
+  - {from: run, to: model, kind: sequence, label: 'readModel: validated before anything is written'}
   - {from: run, to: manifest, kind: sequence, label: 'readManifest: the record already here'}
   - {from: apply, to: manifest, kind: sequence, label: written files}
   - {from: preset, to: model, kind: sequence, label: claims the construct materializes}

@@ -2,7 +2,7 @@ import type { TemplateVars } from '../presets/index.js'
 import type { Claim, EntryAuthor, Fact, Hypothesis, RepositoryModel } from './schema.js'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { MODEL_FILE, MODEL_VERSION, parseModel } from './schema.js'
+import { DanglingFactReference, MODEL_FILE, MODEL_VERSION, parseModel } from './schema.js'
 
 export interface ModelInput {
   vars: TemplateVars
@@ -114,7 +114,14 @@ export function readModel(root: string): RepositoryModel | null {
   const file = path.join(root, MODEL_FILE)
   if (!existsSync(file))
     return null
-  return parseModel(readFileSync(file, 'utf8'), MODEL_FILE)
+  try {
+    return parseModel(readFileSync(file, 'utf8'), MODEL_FILE)
+  }
+  catch (error) {
+    if (error instanceof DanglingFactReference)
+      throw new Error(`${MODEL_FILE} stands on a fact that is not in it: ${error.entry} names "${error.factId}", which no fact declares. Nothing was written and ${MODEL_FILE} was not replaced: put the fact "${error.factId}" back, or drop it from ${error.entry}, and run this again.`)
+    throw error
+  }
 }
 
 interface Entry {
@@ -136,27 +143,55 @@ function mergeEntries<T extends Entry>(existing: T[], fresh: T[], keepDropped: (
   return [...survivors, ...fresh.filter(entry => !present.has(entry.id))]
 }
 
-function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Set<string> {
-  return new Set([
-    ...claims.flatMap(claim => [...claim.enforcement?.supportedBy ?? [], ...claim.verification?.supportedBy ?? []]),
-    ...hypotheses.flatMap(hypothesis => hypothesis.supportedBy),
-  ])
+function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Map<string, string[]> {
+  const stoodOn = new Map<string, string[]>()
+  const record = (factId: string, entryId: string): void => {
+    stoodOn.set(factId, [...stoodOn.get(factId) ?? [], entryId])
+  }
+  for (const claim of claims) {
+    for (const factId of [...claim.enforcement?.supportedBy ?? [], ...claim.verification?.supportedBy ?? []])
+      record(factId, claim.id)
+  }
+  for (const hypothesis of hypotheses) {
+    for (const factId of hypothesis.supportedBy)
+      record(factId, hypothesis.id)
+  }
+  return stoodOn
 }
 
-export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryModel): RepositoryModel {
+export interface RetainedFact {
+  id: string
+  stoodOnBy: string[]
+}
+
+export interface MergedModel {
+  model: RepositoryModel
+  retained: RetainedFact[]
+}
+
+export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryModel): MergedModel {
   if (existing == null)
-    return fresh
+    return { model: fresh, retained: [] }
   const claims = mergeEntries(existing.claims, fresh.claims, () => false)
   const hypotheses = mergeEntries(existing.hypotheses, fresh.hypotheses, () => false)
   const stoodOn = factsStoodOn(claims, hypotheses)
+  const rebuilt = new Set(fresh.facts.map(fact => fact.id))
+  const retained = existing.facts
+    .filter(fact => fact.authoredBy === 'construct' && !rebuilt.has(fact.id) && stoodOn.has(fact.id))
+    .map(fact => ({ id: fact.id, stoodOnBy: stoodOn.get(fact.id) ?? [] }))
   return {
-    modelVersion: MODEL_VERSION,
-    facts: mergeEntries(existing.facts, fresh.facts, fact => stoodOn.has(fact.id)),
-    claims,
-    hypotheses,
+    model: {
+      modelVersion: MODEL_VERSION,
+      facts: mergeEntries(existing.facts, fresh.facts, fact => stoodOn.has(fact.id)),
+      claims,
+      hypotheses,
+    },
+    retained,
   }
 }
 
 export function writeModel(root: string, model: RepositoryModel): void {
-  writeFileSync(path.join(root, MODEL_FILE), `${JSON.stringify(model, null, 2)}\n`)
+  const source = `${JSON.stringify(model, null, 2)}\n`
+  parseModel(source, MODEL_FILE)
+  writeFileSync(path.join(root, MODEL_FILE), source)
 }
