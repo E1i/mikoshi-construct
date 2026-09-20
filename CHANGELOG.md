@@ -1,5 +1,187 @@
 # mikoshi-construct
 
+## 0.4.0
+
+### Minor Changes
+
+- [#50](https://github.com/E1i/mikoshi-construct/pull/50) [`c226031`](https://github.com/E1i/mikoshi-construct/commit/c22603160ddd90cf5253f8305a5c5701a315f504) Thanks [@E1i](https://github.com/E1i)! - A run whose design step ran out now names the way out of it. The result carries a `recovery` field and
+  the log says the same thing: re-run this task one class lower with the design written into the brief.
+  
+  That is not advice, it is the measured route. Three of the three occasions it has been tried on the
+  construct's own repository produced the design the architect had failed to return — which is a better
+  record than anything the ladder does automatically, and it cost almost nothing, because the person
+  already had the design in their head when they wrote the brief.
+  
+  The message also says why the run does not simply try again, because a route offered without that
+  reads as a missing feature: a second agent entry pays for the exploration again, 385k to 1.48M tokens
+  on this repository, against one more attempt inside an entry already paid for at 57k to 100k. That is
+  decision 0008, and it stays as it is. What was missing was not a retry but a sentence, and its absence
+  left a dead end where there was a documented path with three successes behind it.
+  
+  `/implement` relays `recovery` verbatim, because a dead end that names no way out is how the next
+  person concludes the ladder is broken rather than that this run wants re-running lower.
+
+### Patch Changes
+
+- [#47](https://github.com/E1i/mikoshi-construct/pull/47) [`a4c586e`](https://github.com/E1i/mikoshi-construct/commit/a4c586e3b7ad2bbd48225b7332d3115f9e20df16) Thanks [@E1i](https://github.com/E1i)! - A capture harness for the design step, built so that it cannot repeat the defect that cost the last
+  investigation its answer. `pnpm bench:architect` runs the architect alone — one brief, one
+  invocation, no implementer and no harness agent — and records, for every call: the payload whole with
+  no cap, the byte offset at which parsing fails, the character sitting at that offset and its
+  surroundings, every control character anywhere in the payload with its offset and name, the reason
+  generation stopped, and the output token count.
+  
+  It streams with `eager_input_streaming` and accumulates the raw fragments itself rather than reading
+  the SDK's parsed input, because both of those layers would repair or silently truncate exactly the
+  bytes in question: the server validates a buffered tool parameter before emitting it, and the SDK
+  accumulates fragments with a tolerant parser that returns a shortened object instead of raising. The
+  harness holds what the model actually emitted, and the whole stream consumption is wrapped so that a
+  payload survives even when the SDK rejects it.
+  
+  The classifier separates the two things the old record could not tell apart: an escaped `\n` inside a
+  value, which is legal and parses, and a raw newline, which is not and does not. It names each refusal
+  as `control-character`, `ended-early`, `not-an-object` or `unnamed`, and a test exercises every one of
+  those names against a handwritten payload, including the pair that is the whole open question.
+  
+  The corpus is the nine real briefs from this repository's own ladder runs, frozen alongside the
+  outcomes they produced. Using our own briefs rather than another project's keeps the measurement free
+  of someone else's material and costs nothing, because the defect is in the shape of the output and not
+  in the subject of the task. The schema and the instructions come from the ladder script and the
+  architect agent file rather than being restated, so the harness measures the contract that ships.
+  
+  Its first run is diagnostic, not acceptance — the script says so before it does anything, and says
+  that no result from it may be reported as a rate. A rate is measured afterwards, against whatever
+  cause the diagnosis names. The script also refuses to spend money without `--yes`, and nothing about
+  it is wired into `pnpm run quality`.
+
+- [#48](https://github.com/E1i/mikoshi-construct/pull/48) [`4f3c840`](https://github.com/E1i/mikoshi-construct/commit/4f3c840ff88eeaed857e4efc30aca3ae0eab8a5a) Thanks [@E1i](https://github.com/E1i)! - `construct cost` counted every response two or three times, and the numbers this project has been
+  publishing and deciding with were about twice their true size.
+  
+  The reader summed the `usage` of every assistant line in an agent's journal. The journal writes one
+  line per content block of a response — thinking, text, tool call — and repeats that response's `usage`
+  on each of them. So a run's cost grew with how many blocks its answers happened to be split into. It
+  now deduplicates by request identifier, and a test fails if it stops: one response counted once
+  however many lines carry it, two responses counted twice, and a line the runtime recorded without an
+  identifier still counted, so the fallback is deliberate rather than accidental.
+  
+  Every figure this defect produced has been re-derived from the run it names and corrected where it was
+  published. The release note for 0.3.0 and the reasoning-budget guide carry the correction with the
+  method named rather than a silent swap of digits, and both say plainly that the comparisons they make
+  are unaffected: the same bias ran through every figure, so what the numbers were used to argue —
+  that the entry into the repository dominates, that it grows with the repository rather than the task,
+  that the reasoning class predicts the price poorly — stands exactly as written. What was wrong was
+  every absolute number. The four architect entries that returned nothing burned 8,312,965 tokens rather
+  than 18,580,617; the same role grew 1.19M, 2.05M, 3.16M, 3.91M across one day rather than 2.9M to 8.5M.
+  
+  Decision 0008, which chose `retryLimit: 0`, is amended rather than reopened. Its conclusion survives,
+  but the ratio under it does not: splitting five architect entries at their first structured-output call
+  measures the exploration a new entry pays at 385k to 1.48M and one further attempt inside an entry
+  already paid for at 57k to 100k, so the margin is five to twenty to one and not the thousand to one
+  the release note claimed. The amendment also records an argument against its own conclusion that the
+  evidence did not previously contain — a refused answer recovers, twice observed, and the entries that
+  died had exhausted the runtime's internal attempts — with its price attached and a note that the next
+  measurement must weigh it again.
+
+- [#49](https://github.com/E1i/mikoshi-construct/pull/49) [`942ae87`](https://github.com/E1i/mikoshi-construct/commit/942ae87de93bf0c4c5af2b274953218081bcbc3e) Thanks [@E1i](https://github.com/E1i)! - A source file that both git and eslint ignore is checked by nothing, and a test now names any that
+  exists. That is the shape behind the `bench/` pattern which hid `scripts/bench` from version control
+  and from the linter at once: each reader answered honestly about the set it was shown, and neither
+  said anything about what had fallen out of it.
+  
+  The invariant is deliberately weaker than "both readers see every file", because one-sided exemptions
+  are legitimate and declared — `templates/` is tracked and not linted on purpose, captured payloads are
+  written and not tracked on purpose. What must never happen is that a source is exempt from both at
+  once, because then nothing is left holding it.
+  
+  It is built on git's ignore decision rather than on what git tracks, which matters: `git ls-files`
+  reports an already-committed file as tracked whatever `.gitignore` says, so a check written against
+  tracking passes over the very defect it is meant to catch. The first version of this test was written
+  that way, and reintroducing the real `.gitignore` pattern left it green. It is proven the other way
+  now — the test writes a source file into a directory both readers skip and requires the check to name
+  it — and that probe, not the assertion over today's tree, is what says the check works.
+
+- [#44](https://github.com/E1i/mikoshi-construct/pull/44) [`1b95f34`](https://github.com/E1i/mikoshi-construct/commit/1b95f34c93029fed2c31356ccdbb8fd28ad0a4ee) Thanks [@E1i](https://github.com/E1i)! - Ten `StructuredOutput` calls the runtime refused are frozen as fixtures, harvested from two architect
+  entries that died in the Design phase of one `/implement` run on a repository this construct had
+  materialized: two tasks entered Design, and neither returned a design or a line of code. The
+  journals of that run live under `~/.claude/projects/` and go away with the first cleanup of that
+  directory, so this record could not have been made twice.
+  
+  They were harvested before anything was fixed, because the fix that seemed obvious is not the one the
+  record supports. Seven of the ten calls never reached schema validation at all: the runtime could
+  not read the input as JSON and said so, naming sizes from 3436 to 10 293 bytes. The other three
+  arrived as an object with no properties. A bound declared on the schema is a limit the validator
+  applies *after* an input parses, so for seven of these ten it would have changed nothing — and both
+  agents had already
+  shortened their answer twice over and been refused each time, one of them at 3436 bytes. Size alone
+  does not separate a call that works from one that does not.
+  
+  Every recorded completion stopped with `tool_use` rather than `max_tokens`, so the model considered
+  each of these calls finished. All ten ran at `xhigh`, the effort the ladder gives Design.
+  
+  The accompanying note draws the line between what the runtime reported and what the logger kept: the
+  journal stores the first 2048 characters of a tool input, so the stored payloads are prefixes that are
+  themselves cut off, and the bytes at which these answers actually became invalid are gone. A test that
+  proved one of these prefixes fails to parse would have proved something about the logger. The
+  vocabulary of the private project's product surface is replaced the way the frozen manifests were,
+  the arity and shape of each list kept, and the two task briefs are not stored at all because they
+  named a private repository and the accounts that own it.
+
+- [#46](https://github.com/E1i/mikoshi-construct/pull/46) [`1f7baa5`](https://github.com/E1i/mikoshi-construct/commit/1f7baa567f9c90916bde475d84007007bbe31d08) Thanks [@E1i](https://github.com/E1i)! - Every architect entry this repository's own `/implement` runs recorded is frozen as a fixture, and the
+  accounting it produces is worse than the one the rejected payloads showed. Nine entries: three
+  returned a design, four returned nothing, and **two returned a design in which every value is a
+  placeholder and were recorded as a success**.
+  
+  Both of those came after three payloads the runtime could not read. The answer that finally passed was
+  `decision: "test"`, `contractChanges: "test"`, `compositionChanges: "test"`, `constraints: ["a"]`,
+  `acceptance: ["a"]`, `files: ["a"]`. The schema accepted it because the schema constrains shape and
+  never content, the run moved on to the Implement phase, and the implementer was handed `Acceptance
+  criteria: - a` and `Design spec from the architect: test`. Nothing was red. Six of the nine entries
+  produced no usable design and only four of the six were visible as failures.
+  
+  The same nine runs settle the question the rejected payloads left open. The three real designs are
+  10 667, 13 963 and 17 081 bytes; the largest was accepted on the first attempt, with a
+  2481-character `decision` and 416 backticks among its values, while the smallest payload the runtime
+  is known to have refused was 3436 bytes. The size of an answer does not separate one that is accepted
+  from one that is refused, so a remedy that shortens the answer is aimed at something these runs
+  contradict — and the two placeholder designs are a recorded example of what shortening degenerates
+  into under retry pressure.
+  
+  The nine briefs are kept in full. They are real task statements from this repository, of the shape
+  that produces a long spec, and they are the corpus a measurement of the design step should run
+  against, which keeps that measurement free of any other project's material.
+  
+  Freezing them also found a false positive in the privacy guard: a bare hostname mentioned in prose was
+  matched case-insensitively, so the TypeScript property access `WorkflowRun.run` inside a recorded
+  design read as a domain on the `.run` TLD. A bare mention must now be lowercase, which is how
+  hostnames are written; a capitalised host inside a URL or an e-mail address is still reported.
+
+- [#45](https://github.com/E1i/mikoshi-construct/pull/45) [`87eac7b`](https://github.com/E1i/mikoshi-construct/commit/87eac7b835fe7ba299ac095d8042b5c79022485d) Thanks [@E1i](https://github.com/E1i)! - The ten frozen architect rejections are read by a test that says what they can and cannot establish,
+  before anything is changed to stop them happening. Most of what they looked like they established
+  turns out to belong to the log they were recorded in.
+  
+  All seven payloads the runtime could not parse were cut at exactly 2048 characters, which is the
+  length that log keeps, while the runtime reported 3436 to 10 293 bytes for the same calls. Any pattern
+  at that edge is drawn by the recording, so the field the text happens to stop inside is not evidence
+  about the answer, and between 1388 and 8245 bytes of every payload — the part that would name the
+  cause — is gone and cannot be recovered.
+  
+  What sits inside the window is evidence. Every payload begins at `{` with no fence and no prose around
+  it, not one raw control character survives anywhere in what was kept, and `decision` — the long
+  free-prose field that the obvious remedy would have bounded — opens the object and closes cleanly at
+  1255 to 1809 characters, correctly escaped, in all seven. The malformation is therefore somewhere
+  after `decision`; which of the five fields after it, and whether any of those is clean, this record
+  cannot say. Every recorded completion stopped with `tool_use` rather than `max_tokens`, and the output
+  sizes span more than a factor of three with no ceiling they cluster under, which counts against an
+  answer that ran out of room without settling it.
+  
+  The three calls that passed no arguments at all are split off as their own class, because they are the
+  only failure recorded whole: `{}` is the entire input the runtime received. Each spent a turn and then
+  sent nothing, and each followed at least three attempts already refused, so nothing about them depends
+  on how long an answer is.
+  
+  The consequence is an ordering. A measurement of how often the design step fails has to capture the
+  whole payload, the byte offset at which parsing fails and the reason generation stopped, or it will
+  reproduce the defect that cost this record its answer: twenty invocations would yield a rate and still
+  not name a cause. Its first run is diagnostic, not acceptance.
+
 ## 0.3.1
 
 ### Patch Changes
