@@ -42,3 +42,27 @@ This is another occurrence of the failure mode
 nothing about that decision.
 
 **Boundary.** Recorded as an occurrence only. No frequency and no cause is claimed from it.
+
+## 2026-09-21 · Templates inspected before 0.5.0, nothing found
+
+Before publishing 0.5.0 — the release that removes two `doctor` verdicts, renames a third and moves
+two more — `templates/` was searched for anything that would become false the moment a new
+repository was materialized from it. A stale page in the docs misleads one reader; a stale template
+ships the falsehood into every repository the tool creates, and no later edit to the website
+catches up with it.
+
+**Inspected:** every occurrence of `doctor` under `templates/`, and every occurrence of the verdict
+identifiers `red-gate`, `hook`, `lint-policy`, `construct-tests`, and of `weakestLink` and
+`harnessProblems`.
+
+**Found:** nothing. The three templates that mention `doctor` —
+`templates/ai/claude/CLAUDE.md.eta`, its `.existing.eta` variant, and
+`templates/ai/shared/_claude/commands/construct-discover.md` — describe it only as checking that the
+baseline and the discovery markers are intact, which this release does not change. No template names
+a verdict, a level or the shape of the output.
+
+**Boundary.** This was a search for identifiers and for the word `doctor`. It is not evidence that
+no template prose is stale for some other reason, and it is a search rather than a mechanism: the
+task that ties every identifier named in docs and templates to one that exists in code is deferred
+to after the release, and until it lands the next removed verdict will need this search repeating by
+hand.

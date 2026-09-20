@@ -29,6 +29,14 @@ empty, not malformed — and by [rule 2](../epistemic-rules.md) it is `unknown`.
 on such a repository and say plainly that it knows nothing about claims there. A `doctor` that fails,
 or that reports claims as `absent`, turns missing data into an assertion about enforcement.
 
+5.1 is not closed by the release that ships it. Its last acceptance criterion runs on a real adopted
+repository: sync one to the published version, run `doctor` there, and record the inspection —
+including the outcome "no gap found", with the date and the commit it was run against. An adopted
+repository brings what no fixture does, because its runner config was written by its owner rather
+than by the construct, so it is the only place `uncollectedTests` staying silent can actually be
+observed. An unexamined case and an examined one with no finding are indistinguishable unless the
+examination is written down.
+
 5.1 also carries a deferred-question check (L1): inspect `doctor`'s output on this live repository
 and record whether a useful diagnosis needs a fact the model cannot currently provide. If one does,
 record the missing fact and return to *Where does evidence of enforcement capability belong?* in
