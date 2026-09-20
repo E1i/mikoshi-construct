@@ -12,7 +12,7 @@ are legitimate and declared — `templates/` is tracked and not linted on purpos
 written and not tracked on purpose. What must never happen is that a source is exempt from both at
 once, because then nothing is left holding it.
 
-It is built on git's ignore decision rather than on what git tracks, which matters: `git ls-things`
+It is built on git's ignore decision rather than on what git tracks, which matters: `git ls-files`
 reports an already-committed file as tracked whatever `.gitignore` says, so a check written against
 tracking passes over the very defect it is meant to catch. The first version of this test was written
 that way, and reintroducing the real `.gitignore` pattern left it green. It is proven the other way
