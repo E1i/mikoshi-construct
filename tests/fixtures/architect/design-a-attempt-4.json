@@ -1,0 +1,14 @@
+{
+  "run": "wf_3ef46fa8-e99",
+  "agent": "a1a6efe61c4ecf594",
+  "attempt": 4,
+  "timestamp": "2026-09-17T20:22:17.503Z",
+  "effort": "xhigh",
+  "stopReason": "tool_use",
+  "outputTokens": 325,
+  "outcome": "empty",
+  "reportedBytes": null,
+  "journaledChars": 2,
+  "validatorError": "Output does not match required schema: root: must have required property 'decision', root: must have required property 'contractChanges', root: must have required property 'compositionChanges', root: must have required property 'constraints', root: must have required property 'acceptance', root: must have required property 'files'",
+  "payload": "{}"
+}

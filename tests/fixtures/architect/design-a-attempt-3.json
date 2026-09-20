@@ -1,0 +1,14 @@
+{
+  "run": "wf_3ef46fa8-e99",
+  "agent": "a1a6efe61c4ecf594",
+  "attempt": 3,
+  "timestamp": "2026-09-17T20:22:15.172Z",
+  "effort": "xhigh",
+  "stopReason": "tool_use",
+  "outputTokens": 1518,
+  "outcome": "unparsable",
+  "reportedBytes": 3436,
+  "journaledChars": 2048,
+  "validatorError": "<tool_use_error>InputValidationError: StructuredOutput was called with input that could not be parsed as JSON.\nYou sent (first 200 of 3436 bytes): {\"decision\": \"Add POST /lead to the HTTP contract only. This task changes four files: the contract, its generated types, the contract security test, and the security invariants table. Nothing under ap\nCommon causes: unescaped backslashes in file paths (use / or \\\\), unescaped control characters, or truncated output. Retry with valid JSON.</tool_use_error>",
+  "payload": "{\"decision\": \"Add POST /lead to the HTTP contract only. This task changes four files: the contract, its generated types, the contract security test, and the security invariants table. Nothing under apps/api and nothing under architecture/composition changes, because a composition node naming a path that does not exist fails pnpm composition:check; the controller, the service, the rate limiter and the http.yaml nodes arrive in the next task. The path stays unversioned (/lead) to match /health, which also keeps it outside the PROTECTED_PREFIXES list in the security test, so it is anonymous by construction. The value sets that are provisional product choices (budget bands, horizon, region) become named component schemas rather than inline enums, so the reviewable list lives in exactly one place and the generated union types are what a future form reads for its option lists; LeadSubject and LeadUtm are likewise named so next task's handler has named types instead of indexed inline ones. ErrorResponse is reused for 400, 429 and default, and HealthResponse, ErrorResponse and the existing four security cases are untouched. I verified the candidate mechanically before writing this: redocly lint is clean, openapi-typescript generates it without surprises, and both new test cases pass against it while still failing for the shapes they are meant to catch.\", \"contractChanges\": \"New path /lead with one operation: operationId createLead, tags [public], summary \\\"Submit a lead\\\", security: [] (anonymous), requestBody required with application/json pointing at LeadRequest. Responses: '201' LeadAccepted; '400', '429' and default all ErrorResponse; the '429' additionally declares a required Retry-After header (type integer, minimum 1) because the next task's limiter sets it and consumers must back off. New component schemas, all closed objects (type object, additionalProperties false, explicit required list) except the three enums (type string with enum): LeadRequest, required [subject, budget, horizon, region, name, contact, form"
+}
