@@ -21,6 +21,12 @@ Nothing consumes the model yet.
 The rule that picks that point lives in the model ([0016](0016-the-model-is-the-source.md)) and is
 already pinned by fixture when this step starts.
 
+5.1 also carries a deferred-question check (L1): inspect `doctor`'s output on this live repository
+and record whether a useful diagnosis needs a fact the model cannot currently provide. If one does,
+record the missing fact and return to *Where does evidence of enforcement capability belong?* in
+[AGENTS.md](../../AGENTS.md). The check is review, and is written down because the question is
+deliberately left open until a real diagnosis on a real repository shows what it needs.
+
 **5.2 — the static graph.** The existing model-to-diagram mechanism is fed the new model. No graph
 engine. If a static picture already answers *where am I and where is the hole*, the release stands
 on its own.
