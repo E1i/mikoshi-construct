@@ -58,6 +58,21 @@ The consequence is worth stating plainly: **a hand-edited entry still authored b
 overwritten by the next `init`.** Change its `authoredBy` to `discovery` or `unknown` and the edit
 survives. There is no force flag and no backup file; ownership is the only thing that decides.
 
+### When a construct-authored fact stops matching
+
+A fact the construct wrote can stop matching for more than one reason. The path it names may move —
+a workflow renamed. Or the shape of what its needle looks for may change — a script rewritten into an
+equivalent form, a command lifted into a script of its own. The derived state is `unsupported` either
+way, and it means **this fact no longer matches**, not *the enforcement is gone*. Those are different
+sentences, and only the first one is being asserted.
+
+The supported way out is the same in every such case, and does not vary with the reason: change the
+fact's `authoredBy` away from `construct` and edit it to match, accepting that `init` stops
+maintaining that fact and that later corrections shipped with a preset will not reach it. Editing the
+fact while leaving it authored by `construct` is not a fix — the next `init` overwrites it, which is
+the ownership rule above working exactly as written. Putting the file or the wording back the way the
+construct expects is the alternative, and it is the better one only where the change was accidental.
+
 ## Fact evaluations — the answer for one fact, now
 
 A fact is evaluated on every read; the answer is never stored.
