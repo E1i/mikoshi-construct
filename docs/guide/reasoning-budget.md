@@ -33,6 +33,28 @@ before the last rung. A `high` run whose design step did not complete **blocks**
 continuing undesigned, and a run that continued without a design it was supposed to have reports
 `degraded` — with the class that actually executed, not the one it was asked for.
 
+### When the design step returns nothing
+
+It still happens, and only half of why is known. The boundary is what a run actually read from disk,
+not which version materialized the repository. Where the agent definitions on disk still carry the
+duplicate output contract — `Your final message is data, not prose. Return exactly one JSON object:`
+with a fenced example — the failure is explained: that prose restates the runtime schema in a form
+that contradicts it and wins over it. Release 0.2.0 removed it from every agent definition, so the
+explanation covers a repository materialized before 0.2.0 and never synced. One such tree has been
+read: materialized by 0.1.1, its ladder script carrying a local patch whose commit message diagnoses
+this contradiction, and a `sync` against it putting all three agent definitions in `update`. The
+patch is evidence that the defect was real and independently diagnosed, not a remedy — it drops the
+schema from every `agent()` call and parses the text by hand, the side [decision
+0005](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0005-one-output-contract-per-agent.md)
+forbids; upstream deleted the prose instead.
+
+The four failures recorded on this repository are **not** explained by it. The prose was removed at
+09:59:04Z on 17 September and all four ran after it, so none of them could read a duplicate contract.
+Why they failed is still open.
+
+If your repository was materialized before 0.2.0, run `sync` before reading anything into a design
+step that returns nothing.
+
 ## What a weakened test does
 
 `testsWeakened` is not advisory. A rung whose harness returns it does not count as passed, whatever

@@ -48,6 +48,11 @@ beside it with `fromVersion`, `toVersion`, `ranAt` and the hashes it wrote. So `
 moves is the count of pending paths beside it, and it reaches zero when there is nothing left to
 write.
 
+**A defect fixed upstream reaches your repository only when you sync.** A release note describes the
+templates, not your tree: a project left on an older version goes on running defects that are already
+fixed, with nothing to tell it so. That is what the version-gap line `doctor` prints exists for — it
+is the only signal that the distance exists.
+
 ## Why `sync` and not a second `init`
 
 A second `init` is additive since 0.3.0: it carries the record it finds forward instead of replacing
