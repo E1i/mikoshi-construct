@@ -1,5 +1,459 @@
 # mikoshi-construct
 
+## 0.5.0
+
+### Minor Changes
+
+- [#52](https://github.com/E1i/mikoshi-construct/pull/52) [`a572b5a`](https://github.com/E1i/mikoshi-construct/commit/a572b5ae6098dbf58431ce8c7d4442d4c51ab177) Thanks [@E1i](https://github.com/E1i)! - `init` now writes a second file beside `construct.json`: `construct.model.json`, a single
+  machine-readable model of what this tool holds to be true about a repository. Nothing reads it yet.
+  `doctor`, `sync`, the invariants table and every report work exactly as they did.
+  
+  The two files are separate authorities and stay that way. The manifest records file provenance — what
+  `init` and `sync` wrote. The model records repository knowledge — what is claimed and how each claim
+  is held. Neither reads state from the other, and that is a lint rule running in both directions rather
+  than a sentence in a decision record: `src/model` cannot import `src/manifest.ts` and `src/manifest.ts`
+  cannot import `src/model`. The rule shipped in the same change that named the modules, because a plan
+  item promising enforcement later is itself only a promise.
+  
+  Three properties of the model are worth stating, because each one is a thing the schema refuses rather
+  than a thing it offers.
+  
+  There is no state stored anywhere in the file, and the parser rejects a `state` property at any depth.
+  A hypothesis is held by the facts named under it or it is not held at all, and that is computed on
+  every read. A hypothesis whose supporting file has been deleted reports `unsupported` without anything
+  having to notice the deletion.
+  
+  There is no confidence field under any name — not `confidence`, `strength`, `score` or `support`.
+  Epistemic rule 7 separates confidence from evidence state, and a number beside a hypothesis is read as
+  a probability. Whoever wants one has to change the schema and defend it.
+  
+  `unsupported` and `unknown` are different answers and the derivation keeps them apart. A fact that
+  could not be evaluated at all — an unreadable path, a directory where a file was expected — leaves the
+  hypothesis `unknown`. `unsupported` is reachable only when every named fact was actually evaluated and
+  at least one does not hold. Rule 2 again: not having looked is not a finding, and a negative verdict
+  needs full evidence exactly as a positive one does.
+  
+  An enforcement carries the facts that hold its level up rather than a bare level, which is rule 8 taken
+  seriously — the presence of a mechanism is not the level at which it is enforced. A claimed L3 whose
+  workflow has been deleted stops being held, where a bare `"level": "L3"` could never rot.
+  
+  The rule that picks where a chain stops being held ships here too, with the fixture that pins it, even
+  though nothing renders it until the next step. Ties are reachable, and declaration order breaks them,
+  because that is what stays stable in a diff.
+
+### Patch Changes
+
+- [#57](https://github.com/E1i/mikoshi-construct/pull/57) [`4b233d6`](https://github.com/E1i/mikoshi-construct/commit/4b233d6317e0f43e782506c3f811adb8e9fa44f2) Thanks [@E1i](https://github.com/E1i)! - The proof that a malformed model stops `init` before anything is written now runs against a repository
+  the construct has actually materialized, rather than against an empty directory.
+  
+  The distinction is the whole point. In a real repository the model becomes malformed *after* the
+  repository exists, so the invariant is that nothing was **changed** — not merely that nothing was
+  created. The test now materializes a complete repository, breaks a `supportedBy` reference, snapshots
+  every path in the tree with its bytes, and requires the tree to be identical after the failing run. The
+  only path excluded from that snapshot is `construct.model.json`, which the previous step deliberately
+  edited, and it is asserted separately so nothing is lost.
+  
+  A content snapshot alone would have proved less than it appears to, because `init` is deliberately
+  idempotent: re-running it writes byte-identical content, so the comparison would hold whether or not
+  the materialization step ran. The test therefore deletes a file `init` is known to create before the
+  failing run and requires it to still be absent afterwards, which can only be true if the run stopped
+  first. A sibling test deletes the same file with the model intact and shows `init` does bring it back,
+  so the probe is known to be live rather than a file that was never going to return.
+  
+  The error assertion now covers the whole safety contract rather than part of it: the file, the missing
+  fact, that nothing was replaced, and both ways out — putting the fact back, or dropping the reference
+  that names it. Those two clauses exist so that deleting the committed record never looks like the
+  remedy, and they are now protected against a later wording change.
+
+- [#66](https://github.com/E1i/mikoshi-construct/pull/66) [`e692a53`](https://github.com/E1i/mikoshi-construct/commit/e692a5341284b09bb3c526f67233a88c76475456) Thanks [@E1i](https://github.com/E1i)! - `doctor` no longer dies on a repository it cannot fully read, and no longer reports clean over a tree
+  it never opened. Put a directory where `construct.json` records a file and the command crashed —
+  `EISDIR` out of an unguarded `readFileSync` in the baseline verdict — while the model path one field
+  away already handled the same situation correctly, returning `unevaluable` and reporting `unknown`.
+  Auditing a repository it does not control is the whole job ([decision 0007](architecture/decisions/0007-doctor-executes-nothing.md)),
+  so dying on an odd tree is a failure at exactly that job.
+  
+  Unlike the six changes to `doctor --json` before it, this one is an **addition**: `unreadableFiles:
+  string[]` joins the provenance family, and a consumer that does not know about it reads the same
+  result it read before. Nothing is renamed, moved or removed.
+  
+  A recorded path that exists and cannot be read goes there and nowhere else. It is not `missingFiles`
+  — it exists — and not `modifiedFiles` — nothing was compared — and calling it either would be a claim
+  about a file the command never opened, which is the substitution
+  [rule 2](architecture/epistemic-rules.md) forbids. It makes `ok` false, because a part of the tree
+  `doctor` could not answer for is not a construct it can call intact.
+  
+  Catching the error and reporting it ship as one change on purpose. A read wrapped in `try` and left
+  unreported drops the file out of the inspected set in silence, and a clean report over a tree part of
+  which was never opened is [decision 0014](architecture/decisions/0014-a-check-answers-only-about-what-it-was-shown.md)
+  by our own hand — worse than the crash, because a crash is loud. Every read in the doctor path is now
+  made through one reader that records what it could not open: the baseline hashes, the discovery
+  markers and the composition models, the runner config behind `uncollectedTests`, and `package.json`
+  behind the harness verdict, which no longer reports a file it could not read as missing.
+  
+  One category serves every cause. A directory standing where a file is expected, a permission that is
+  not there, a broken link, a `package.json` that is not JSON — the reading either succeeded or it did
+  not, and which of them it was travels in the entry beside the path rather than in a second code path.
+  A new cause needs no new code.
+  
+  The defect survived a full suite because fixtures are built by people imagining a well-formed tree,
+  so the fixtures now carry a hostile one: a directory standing where a recorded file is expected,
+  asserted both ways — the file is reported unreadable, and it is absent from `missingFiles` and from
+  `modifiedFiles`.
+  
+  The line that stops the next one is a lint rule rather than a note: under `src/commands/doctor/**`
+  nothing may import `readFileSync` or `readdirSync` directly, and `readings.ts` is the single exemption.
+  A fourth unguarded read cannot be written now, rather than being noticed by somebody eventually. The
+  block restates the dependency boundary it sits on top of, because in flat config the last matching
+  block replaces a rule's whole option array — a test asserts both halves, so the guard cannot silently
+  cost the boundary it was added beside.
+  
+  **If you script on doctor's exit code, read this line.** No field was renamed and none was removed, so
+  this change is invisible in a list of field changes — but the meaning of the exit code moved. When
+  `doctor` could not read part of what it was asked about, the run is no longer reported as successful.
+  
+  `ok` collapses a three-valued world into one boolean and now collapses toward inspection rather than
+  toward confidence: it answers whether the inspection completed, not whether everything is held. The
+  opposite choice puts a quiet false calm into an exit code, which is the worst place for one.
+  
+  That splits the two origins of `unknown`, which share a name and mean different things here.
+  Obstruction — asked to read, could not — leaves the inspection incomplete and makes `ok` false.
+  Absence of a subject — no model at all, or no fact named under a claim — means there was nothing to
+  inspect and the answer is complete, so `ok` stays true. A repository that simply predates
+  `construct.model.json` is therefore not reported as broken, which matters because after this release
+  most adopted repositories will be exactly that.
+
+- [#60](https://github.com/E1i/mikoshi-construct/pull/60) [`37187c5`](https://github.com/E1i/mikoshi-construct/commit/37187c5e9580288db0a7f677d8ffc8787d7229d2) Thanks [@E1i](https://github.com/E1i)! - Two records about a state that is about to become the common one: a repository with no
+  `construct.model.json` at all.
+  
+  The model is written only by `init` and is not materialized from templates, so `sync` never creates
+  one. Every repository materialized before 5.0 and carried forward with `sync` therefore arrives at 5.1
+  — the step where `doctor` starts reading the model — without a model to read.
+  
+  5.1's acceptance now requires that case explicitly. Absent is a third state, distinct from empty and
+  from malformed, and by rule 2 it is `unknown`: `doctor` must complete on such a repository and say
+  plainly that it knows nothing about claims there. A `doctor` that fails, or one that reports claims as
+  `absent`, would turn missing data into an assertion about enforcement, which is the error the rule
+  exists to prevent.
+  
+  How such a repository eventually gets a model is recorded as an open question rather than settled:
+  `sync` could write one, an explicit command could, or nothing could until the next `init`. Each trades
+  differently against the line 0016 draws between file provenance and repository knowledge, and the
+  no-model acceptance has to land before the choice, not after — it is what makes the cheapest option
+  survivable.
+
+- [#68](https://github.com/E1i/mikoshi-construct/pull/68) [`16e7e20`](https://github.com/E1i/mikoshi-construct/commit/16e7e20d0ce68e4eaff7589336a0fa3ec22bdc51) Thanks [@E1i](https://github.com/E1i)! - A repository with no `construct.model.json` now reads as one, instead of reading as a repository in
+  perfect health. Run `doctor` on such a tree before this change and the Enforcement section was empty
+  with nothing said about why, and the last line read `You are here: no claim stops before the end of
+  its chain` — a sentence rendered from `youAreHere: null`, which `selectPath` returns both when every
+  chain is complete and when there are no chains at all. The two collapsed onto the reassuring side,
+  which is the direction nobody reports as a bug, and after 0.6.0 it is the majority of repositories:
+  the model is written only by `init` and never by `sync`.
+  
+  The distinction now lives in the data rather than in the renderer's inference from an empty list.
+  `youAreHere` is a discriminated union carrying `at`: `no-model` (there is no `construct.model.json`,
+  so nothing was read and nothing is known about what the repository claims), `no-claim` (it was read
+  and it names none), `no-stop` (it carries claims and none of their chains stops), and `stop` (the
+  first chain that stops, under `stop`). Reading `no-model` as `no-claim` is not a wording mistake the
+  next renderer can make: the shapes are different, and the case that used to be silent has to be
+  handled to compile. The Enforcement section says which of the first two it is rather than printing an
+  empty list a reader would take for a clean repository.
+  
+  None of this is a failure and none of it moves `ok`: **the exit code does not change for this case**
+  — a repository with no model still exits `0`. Absence of a subject is not obstruction, and by
+  [rule 2](architecture/epistemic-rules.md) not having looked is not a finding; saying nothing is known
+  is not saying nothing is enforced. No verdict is reported as `absent`, `doctor` writes no model and
+  repairs none, and how a repository acquires one stays the open question it was.
+  
+  `doctor --json` changes shape at one field: `youAreHere` is `{at, stop?}` and is never `null`.
+  
+  Three fixtures cover the three situations — no model, a model naming no claim, a model whose chains
+  all hold — and each asserts the **rendered line**, not only the structured value, because the defect
+  was invisible in the JSON and visible only in the text.
+
+- [#59](https://github.com/E1i/mikoshi-construct/pull/59) [`b9668e8`](https://github.com/E1i/mikoshi-construct/commit/b9668e87c67f9e7bc6784ec13d72ebefee653138) Thanks [@E1i](https://github.com/E1i)! - `architecture/epistemic-rules.md` now says that a rule's normative scope is fixed once written. New
+  scope takes a new number; an existing rule may gain a "see also" reference to it, never additional
+  scope of its own.
+  
+  The header already promised stable numbering, and that promise is easy to misread as making the rules
+  safely extensible. It is not, and the two guarantees are different. Stable numbering protects what a
+  reference points at. This protects what it means: widening an existing rule would silently change what
+  every citation of it already asserted, across decision records and commit messages nobody is going
+  back to reread. A rule that stops applying is struck through in place for the same reason.
+  
+  The open question about evidence of enforcement capability now carries the constraint concretely. If
+  it resolves towards being a repository fact it becomes a new rule, not an expansion of rule 8 — *a
+  command exists → the enforcement level* is rule 8, and *the enforcement level → the capability
+  demonstrated* would be the new one. Adjacent in meaning is the argument for two numbers rather than
+  against.
+
+- [#65](https://github.com/E1i/mikoshi-construct/pull/65) [`4d4380a`](https://github.com/E1i/mikoshi-construct/commit/4d4380a2ea391f7aab7d980221e7bf2093a80eed) Thanks [@E1i](https://github.com/E1i)! - `doctor` stops assembling its own picture of enforcement and becomes a projection of
+  `construct.model.json`. Its verdicts now take their level from the claim's `enforcement.level` and
+  their state from the chain derived on read; nothing in that family is computed from evidence any more.
+  
+  Six changes to `doctor --json`, listed together because six discoveries in six diffs is worse than
+  one list:
+  
+  `red-gate` leaves. It was always `unknown` for one reason — doctor executes nothing — which is a
+  statement about doctor's own limit rather than a fact about a repository. The report now says that
+  plainly in one line instead of manufacturing a verdict about it.
+  
+  `hook` disappears. No preset ships a hook, so reporting its absence announced the lack of something
+  nobody required: a task rather than a finding, and an implied claim nobody wrote. If a repository has
+  one, discovery records it with its facts and doctor speaks about it, because then there is a claim.
+  
+  `construct-tests` becomes `uncollectedTests`, in the provenance family. It asks whether the test files
+  `construct.json` recorded are still collected by the runner config `init` also wrote — which changes
+  only when the construct's own files change. It reports nothing where the runner config is not in the
+  record, because there the construct never wrote that end.
+  
+  `weakestLink` becomes `youAreHere`, taken from the model's own path selection rather than recomputed.
+  
+  `harnessProblems` is classified `mixed` and splits next.
+  
+  `checks` becomes the whole model rather than a selection from it. The mapping of doctor check ids
+  onto claims lived inside `doctor` and decided what the Enforcement section would show, so a model
+  carrying four claims rendered one — while `youAreHere` selected across all four and could point at a
+  claim the section did not contain. A projection that keeps its own whitelist is not a projection. The
+  list is gone: one verdict per claim, in the model's declaration order, and the two names consumers
+  already read — `ci` and `lint-policy` — survive as an optional `checkId` on the claim itself, so the
+  identifier lives once, in the model, and `id` falls back to the claim id everywhere else.
+  
+  Completeness is now a property with a gate on both sides: the set of rendered claim ids is compared
+  with the set the model carries, and the test proves it by constructing each direction — a claim the
+  report withholds and a verdict naming a claim nobody wrote — and watching it go red. Where
+  `youAreHere` names a claim, that claim is asserted to be among the rendered verdicts, so the two
+  halves of the output cannot disagree again.
+  
+  The output is quieter on an adopted repository, and that is the point rather than a side effect.
+  Today's `hook: absent` and `lint-policy: absent` read as findings about your repository and are
+  findings about what the preset shipped. That substitution is the thing this tool exists to prevent,
+  and it had been sitting in its own output.
+  
+  A verdict that is not `held` now says what it actually knows, and a line that omits it cannot be
+  built. Renaming `.github/workflows/ci.yml` used to print `unsupported` beside the claim's
+  `enforcement.mechanism` — a positive assertion, sitting next to the state that denies it, naming no
+  fact — so a reader concluded the enforcement was gone and went looking for enforcement nobody
+  removed. `evidence` is now `mechanism`, rendered as what the claim expects, and each verdict carries
+  what its state knows: `doesNotHold` with the fact paths that no longer match under `unsupported`,
+  and `reason` — `unevaluable` with the paths that could not be read, or `no-fact-named` — under
+  `unknown`. `youAreHere` carries the same facts, from the same derivation rather than a second one.
+  
+  The three states stay three. `unknown` has no failing fact by definition, so it names none and blames
+  nobody: a fact nobody could read is never reported as one that does not hold, which is the
+  substitution [rule 2](architecture/epistemic-rules.md) exists to prevent. The renderer carries that
+  structurally rather than by inspection — the facts are a required argument of the call that renders a
+  verdict which is not held, typed so a line without them does not compile, the same move as the schema
+  having no `state` key.
+  
+  The tests now build the broken repository instead of waiting for one: a fact that does not hold, a
+  fact that cannot be evaluated (a directory where a file is expected), and a stage with no fact named
+  at all, each asserted down to the rendered line, with all three re-readings held explicitly — `held`
+  is not proof, `unsupported` is not enforcement gone, `unknown` is not absence.
+
+- [#67](https://github.com/E1i/mikoshi-construct/pull/67) [`8240074`](https://github.com/E1i/mikoshi-construct/commit/8240074017e4c8387f553c05d3a648c532c7c973) Thanks [@E1i](https://github.com/E1i)! - `harnessProblems` was classified `mixed` last release, deliberately and temporarily: half of what it
+  returned asserted enforcement and half was provenance, and calling it either would have been a
+  statement known to be false. It now splits along the rule
+  [architecture/model.md](architecture/model.md) already states — a verdict is knowledge when it can
+  become false without anything `init` wrote changing, and provenance when it goes false only when
+  what `init` installed has changed.
+  
+  The step-coverage entries leave the field. *"quality" does not run lint*, *typecheck*, *test* and
+  *contracts:check* asked about a `package.json` script that belongs to the repository's owner, who can
+  rewrite it tomorrow with no construct file touched. They are read off the `harness-steps` claim
+  instead, which already carried the first three; where a preset materializes an HTTP contract, that
+  command's `contracts:check` step now stands under the same claim rather than nowhere.
+  
+  What stays in `harnessProblems` is the record around the command: `package.json` is gone, it has no
+  script under the name `construct.json` recorded, or a contract path that manifest points at is
+  absent. The field is `provenance`, and the `mixed` value is deleted rather than left as a member
+  nothing uses.
+  
+  **The exit code does change, for one case.** A repository whose harness command stopped running
+  `lint`, `typecheck` or `test` used to make `doctor` exit non-zero, because that assertion lived in
+  `harnessProblems` and `ok` consumes that field. It is now an unsupported claim instead, and `ok` no
+  longer moves for it.
+  
+  That follows from the correction rather than sitting beside it. `ok` is a provenance answer: it says
+  whether the construct's own installation is intact and fully inspectable, and it says nothing about
+  what is claimed of the repository. A step-coverage assertion was never provenance — a `package.json`
+  belonging to the repository's owner can stop calling the right command with no construct file
+  touched — so `ok` consuming it was downstream of the misclassification this release fixes.
+  
+  If you script on the exit code and relied on it catching a harness that had stopped running its
+  steps, read `checks` for the `harness-steps` claim instead. The report still says so, and says it
+  more precisely than before: it names the fact that stopped matching.
+  
+  The scope is now enforced rather than described. `ok` is computed by a function whose argument type
+  is derived from the classification and contains only the provenance fields, so reading a knowledge
+  field while computing it does not fail a test — it fails to compile. That replaces a claim about two
+  points in time, which nothing observing one point can hold, with a claim about where the value comes
+  from, which is true or false today.
+  
+  The promise the previous release made is now closed by a test rather than by memory: no field is
+  classified `mixed`, none carries a family the code does not declare, and none escapes the question.
+  Gate A covers `harnessProblems` with no edit to the gate's own source — it reads the classification,
+  which is demonstrated by reclassifying the field in the gate's input and watching the gate speak
+  about it.
+
+- [#54](https://github.com/E1i/mikoshi-construct/pull/54) [`6920510`](https://github.com/E1i/mikoshi-construct/commit/692051012ef2109509cb84d733f3e694fe13bd2d) Thanks [@E1i](https://github.com/E1i)! - A second `init` no longer replaces `construct.model.json` wholesale. The model is a committed record
+  meant to be read and edited by hand, and discovery will write hypotheses into it, so overwriting it on
+  every run was a way to lose authored content quietly. `init` now owns exactly the entries it wrote —
+  those whose `authoredBy` is `construct` — and carries everything else over untouched, which is what
+  decision 0013 already settled for the manifest.
+  
+  For that rule to be expressible, authorship had to become uniform. Facts carry an `authoredBy` like
+  claims and hypotheses already did, and all three read it from one list: `construct`, `discovery` or
+  `unknown`, the same vocabulary the manifest uses for a discovery marker. A construct-authored entry the
+  preset still makes is rebuilt in the place it already held; one the preset no longer makes is dropped,
+  unless a surviving entry still stands on it, because a dropped fact would take referential integrity
+  with it. Surviving entries keep their relative order and only new entries are appended, since
+  declaration order in `claims` is what breaks a tie when two chains stop at the same stage.
+  
+  The corollary is the thing to remember when editing the file: an entry that still says it was authored
+  by the construct is the construct's to rewrite. Change its author and the edit survives. There is no
+  force flag, no backup file and nothing that refuses to write.
+
+- [#63](https://github.com/E1i/mikoshi-construct/pull/63) [`b9083ea`](https://github.com/E1i/mikoshi-construct/commit/b9083ea574d06d25fa5db7681c0d53fdce158d40) Thanks [@E1i](https://github.com/E1i)! - The enforcement levels are now one list rather than two kept in step. `src/model/schema.ts` owns
+  `ENFORCEMENT_LEVELS` and `doctor` imports it; `LEVELS` remains exported under its own name, so nothing
+  that consumed it has to change and `doctor --json` is byte-identical.
+  
+  The audit in the previous release found the levels declared twice and tied the copies together with a
+  test, because `doctor` could not read the model at the time and a stopgap was the honest thing to ship.
+  A guard that confirms two copies agree, kept indefinitely, ends up blessing the duplication it was
+  meant to be temporary cover for — so now that `doctor` can import from the model, the second copy is
+  gone rather than supervised.
+  
+  The test changed with it, from asserting that the two lists agree to asserting there is only one. It
+  compares by identity rather than by value, which is what makes it able to catch the thing worth
+  catching: a reintroduced list with the same five entries fails, where a value comparison would have
+  passed and gone on passing until somebody widened one of them.
+
+- [#62](https://github.com/E1i/mikoshi-construct/pull/62) [`a56a3dc`](https://github.com/E1i/mikoshi-construct/commit/a56a3dc67f311368192cf02e39052a5693d35bee) Thanks [@E1i](https://github.com/E1i)! - The rule that a normative scope is fixed once written now has an audit behind it, and one gap it found
+  has a check.
+  
+  Two identifier vocabularies in this repository are cited by name and would rewrite history if their
+  meanings moved: `doctor`'s check ids, which every report already published asserts something with, and
+  the enforcement levels L0–L4, which every invariant already recorded at L3 depends on.
+  
+  The check ids are clean. Five ids in five files, each declaring its own and emitting no other, and `ci`
+  goes further by naming in a constant what it cannot see — branch protection lives in the GitHub API —
+  rather than quietly covering it.
+  
+  The levels were not. They were spelled out twice in code, once for `doctor` and once for the model,
+  with nothing tying the copies together. They agreed, so nothing was wrong; but either could have been
+  widened on its own and no check would have failed, which is precisely the silent move the scope rule
+  forbids. A test now holds the two lists to each other, verified by widening one and watching it fail.
+  
+  The audit is recorded with its date and with what it inspected, because an unexamined vocabulary and a
+  clean one look identical from the outside.
+
+- [#55](https://github.com/E1i/mikoshi-construct/pull/55) [`bc99fed`](https://github.com/E1i/mikoshi-construct/commit/bc99fed9f85001fa90b9c60744e190cfb818af50) Thanks [@E1i](https://github.com/E1i)! - `architecture/model.md` now states how ownership inside the repository model is determined:
+  `authoredBy` is the sole source of it. `init` may replace only entries authored by `construct`, and
+  entries with any other author are carried over unchanged.
+  
+  The rule was already what the writer does, but it lived in the writer's implementation and in a
+  reviewer's head, which is L0. The next consumer that needs to know who owns an entry would have
+  derived it some other way — from what references it, from whether the preset still produces it, from
+  where it sits in the file — and the model would have had two answers to one question. The document
+  names the derivations that are not permitted, rather than only the one that is.
+  
+  It also says plainly that nothing checks this mechanically: the rule is held by review. That is the
+  honest level for a sentence, and stating it is better than letting a reader assume a test stands
+  behind it.
+
+- [#64](https://github.com/E1i/mikoshi-construct/pull/64) [`43e04e5`](https://github.com/E1i/mikoshi-construct/commit/43e04e5ab937ab6d8851043c16c6a22614b8b95a) Thanks [@E1i](https://github.com/E1i)! - The model now carries two claims it was missing. `harness-steps` says that the harness command runs
+  lint, typecheck and tests rather than merely existing as a script, grounded in the script body
+  `package.json` actually holds — `pnpm lint`, `pnpm typecheck`, `pnpm test`, as the harness template
+  writes them — never a bare word like `test`, which matches half a manifest by accident. `lint-policy`
+  says the declared lint policy is itself checked by a test, and exists only where the preset's sample
+  group was materialized, because only there did `init` write the test it stands on. A claim with no
+  materialized file behind it is worse than no claim at all, so the condition is part of the claim, not
+  a caveat beside it.
+  
+  `doctor` still computes its own verdicts; nothing under `src/commands/doctor` changed and
+  `doctor --json` is byte-identical. What changed is that every one of its check ids now has a recorded
+  decision about where its verdict belongs, asserted over an enumeration derived from `CHECK_IDS` rather
+  than from a list retyped in the test. The mapping is not one-to-one — `ci` maps onto a claim that
+  already existed, `construct-tests` is provenance, `hook` and `red-gate` are dropped with their reasons
+  — and that is the hazard the test closes: a check with no claim of its own is indistinguishable from a
+  forgotten one unless somebody wrote the decision down. A new member of `CHECK_IDS` with no entry now
+  fails the suite by name.
+  
+  `architecture/model.md` gains the two rules behind that. Why a `Claim` carries exactly one enforcement,
+  so that CI and a local hook are two claims about two mechanisms and not one claim read as a duplicate;
+  and the test for where a verdict belongs — knowledge if it can become false without anything `init`
+  wrote changing, provenance if it becomes false only when what `init` installed has changed, with
+  `harness-steps` and `construct-tests` worked through as the two sides.
+
+- [#69](https://github.com/E1i/mikoshi-construct/pull/69) [`68ec7c3`](https://github.com/E1i/mikoshi-construct/commit/68ec7c36210ed89b56e09cbbfa1f48e02bec08c1) Thanks [@E1i](https://github.com/E1i)! - The you-are-here line now names the fact that stopped matching, instead of stopping at the claim and
+  the stage.
+  
+  It is the one line a reader sees if they see one line, and it is the line most often read apart from
+  everything around it — torn into a CI log, a grep result, a forwarded snippet. A line that pointed at
+  the verdict above it would say nothing in exactly the places it actually gets read, so it says the
+  fact itself. The verdict and the line are two projections of one value rendered in one run; they
+  cannot drift, and a second store is what the no-duplication rule forbids.
+  
+  Length is bounded by form rather than by truncation: a stage with several failing facts names one and
+  counts the rest — `package.json, and 2 more` — with the full list staying in the verdict. A stage that
+  could not be read names no fact, because nothing was established about it. The facts are a required
+  argument of the call that renders the stopped line, so a line claiming a stop without naming one
+  cannot be written.
+  
+  The three situations with no path — no model, a model carrying no claim, a model whose every chain
+  holds — read exactly as before.
+  
+  A stage that could not be read names the path it could not read, and still blames nothing. Naming
+  what was unreadable is information; naming a fact as failing when none did would be the substitution
+  this release exists to remove, and the two are easy to confuse. Without the path the line said that
+  *something* could not be read — true, and useless to anyone reading it out of a CI log, which is the
+  one thing this line is for.
+  
+  Where several facts stopped matching the count says what it is counting — "and 2 more facts" rather
+  than "and 2 more" — because the line is read where nothing around it explains the number.
+
+- [#56](https://github.com/E1i/mikoshi-construct/pull/56) [`b54a4bc`](https://github.com/E1i/mikoshi-construct/commit/b54a4bcf66a97f268cf805dba0d29ff59ee62161) Thanks [@E1i](https://github.com/E1i)! - The rule that a construct-authored fact survives while an entry the construct does not own still
+  stands on it, and the rule that a model naming a fact nobody declares does not parse, are the same
+  invariant read from two sides: `init` cannot produce a model the next `init` cannot read. That was
+  true and untested. It is now proved through `runInit` itself, for both ways an entry reaches a fact —
+  a discovery-authored hypothesis, and a claim standing on one fact through its enforcement and another
+  through its verification — and it is proved against the file on disk rather than against the merge
+  function, so it still holds if the set of facts stood on is computed differently tomorrow. The
+  opposite direction is asserted by the same run: a construct-authored fact nobody stands on is still
+  dropped.
+  
+  `writeModel` now parses the bytes it is about to commit and refuses to write them if they would not
+  parse, which turns a retention regression into a failure at the moment it would create the unreadable
+  record instead of a puzzle on the next run. The one remaining way to reach a model that cannot be read
+  is by hand, so a dangling `supportedBy` gets an error of its own that names `construct.model.json`,
+  names the missing fact, and says the model was neither written nor replaced — the safe recovery is
+  putting the fact back, not deleting the committed record. The existing model is read and validated
+  before anything is materialized, so that failure leaves the directory exactly as it found it.
+  
+  When the merge does keep a fact for an entry it does not own, `init` says so, next to the lines that
+  already report what it carried over.
+
+- [#58](https://github.com/E1i/mikoshi-construct/pull/58) [`199b8eb`](https://github.com/E1i/mikoshi-construct/commit/199b8eb48b96d53178a4e9037997461c04836231) Thanks [@E1i](https://github.com/E1i)! - A question this line of work opened is now recorded as open rather than carried in a thread.
+  
+  The model represents the declared enforcement mechanism and evidence that the mechanism exists and
+  runs. It does not represent evidence that the mechanism can actually fail when the invariant it
+  protects is violated — and those are different facts. A workflow that runs is not the same as a
+  workflow that would catch anything.
+  
+  Two kinds of evidence for that capability have now been seen. Harness mutation tests are the
+  deliberate kind. The atomicity work added an observed one: the ladder's `testsWeakened` guard caught a
+  narrowed assertion inside a live implementation change, not in a fixture built to be caught. Whether
+  enforcement capability is therefore a fact about a repository that the model should carry, or process
+  evidence belonging to the corpus and the harness history, is genuinely undecided.
+  
+  It stays undecided on purpose. The question is not resolvable before `doctor` reads the model on a
+  real repository and a real diagnosis shows what it actually needs, so 5.1 carries a review-level check
+  that looks for exactly that and returns here if it finds one.
+  
+  Until then the blind spot is represented by the absence of a question the model can answer. It is not
+  represented by an `unknown` value or any derived equivalent, because `unknown` asserts that something
+  was asked and came back empty, and nothing has been asked.
+
 ## 0.4.0
 
 ### Minor Changes
