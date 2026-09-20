@@ -1,5 +1,5 @@
-import type { CheckVerdict, DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
-import type { StoppingFinding } from '../src/model/path.js'
+import type { CheckVerdict, ClaimPlacement, DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
+import type { SelectedPath, StoppingFinding } from '../src/model/path.js'
 import type { ThemeName } from '../src/ui/theme.js'
 import { describe, expect, it } from 'vitest'
 import { printDoctor } from '../src/commands/doctor/index.js'
@@ -197,4 +197,71 @@ describe('a verdict that is not held cannot be rendered without what it knows', 
 
     expect(render(result({ checks: [withFacts], youAreHere: { at: 'no-stop' } })).output).toContain('.github/workflows/ci.yml')
   })
+})
+
+interface StoppedLineExpectation {
+  stop: SelectedPath
+  says: string[]
+  omits: string[]
+}
+
+const STOPPED_LINES: Record<string, StoppedLineExpectation> = {
+  'one fact that stopped matching': {
+    stop: { claimId: 'harness-steps', stage: 'enforcement', state: 'unsupported', doesNotHold: ['package.json'] },
+    says: ['harness-steps', 'enforcement', 'unsupported', 'package.json', 'no longer matches'],
+    omits: ['more'],
+  },
+  'several facts, one named and the rest counted': {
+    stop: { claimId: 'harness-steps', stage: 'enforcement', state: 'unsupported', doesNotHold: ['package.json', '.github/workflows/ci.yml', 'eslint.config.mjs'] },
+    says: ['package.json', 'no longer matches', 'and 2 more'],
+    omits: ['.github/workflows/ci.yml', 'eslint.config.mjs'],
+  },
+  'a stage that could not be read, which names no culprit': {
+    stop: { claimId: 'harness-steps', stage: 'verification', state: 'unknown', reason: 'unevaluable', unevaluable: ['.github/workflows/ci.yml'] },
+    says: ['harness-steps', 'verification', 'unknown', 'could not be read'],
+    omits: ['.github/workflows/ci.yml', 'no longer matches'],
+  },
+  'a stage with no fact named under it': {
+    stop: { claimId: 'harness-steps', stage: 'verification', state: 'unknown', reason: 'no-fact-named' },
+    says: ['harness-steps', 'verification', 'unknown', 'no fact is named under it'],
+    omits: ['no longer matches'],
+  },
+}
+
+const NO_PATH_LINES: Record<string, { placement: ClaimPlacement, line: string }> = {
+  'no model at all': { placement: { at: 'no-model' }, line: 'You are here: nowhere to place you — there is no construct.model.json, so nothing is known about claims' },
+  'a model carrying no claim': { placement: { at: 'no-claim' }, line: 'You are here: construct.model.json carries no claim, so there is none to place' },
+  'a model whose every chain holds': { placement: { at: 'no-stop' }, line: 'You are here: no claim stops before the end of its chain' },
+}
+
+describe('the you-are-here line names the fact that stopped matching', () => {
+  for (const [situation, expectation] of Object.entries(STOPPED_LINES)) {
+    it(`names ${situation}, in the line itself and not only in the verdict above it`, () => {
+      const line = nonEmptyLines(render(result({ youAreHere: { at: 'stop', stop: expectation.stop } })).output).at(-1) ?? ''
+      for (const said of expectation.says)
+        expect(line, said).toContain(said)
+      for (const omitted of expectation.omits)
+        expect(line, omitted).not.toContain(omitted)
+      expect(line).not.toMatch(VERDICT_WORDING)
+    })
+  }
+
+  for (const [situation, expectation] of Object.entries(NO_PATH_LINES)) {
+    it(`leaves the line for ${situation} exactly as it reads`, () => {
+      expect(nonEmptyLines(render(result({ youAreHere: expectation.placement })).output).at(-1)).toBe(expectation.line)
+    })
+  }
+
+  for (const [theme, lore] of [['arasaka', LORE], ['plain', PLAIN_LORE]] as const) {
+    it(`takes the facts as a required argument of the stopped ${theme} line, so a stop without one cannot be written`, () => {
+      expect(lore.youAreHereUnsupported).toHaveLength(3)
+      expect(lore.youAreHereUnevaluable).toHaveLength(2)
+      expect(lore.youAreHereNothingNamed).toHaveLength(2)
+
+      // @ts-expect-error a stopped line reading unsupported without the facts that no longer match does not compile
+      expect(() => lore.youAreHereUnsupported('harness-steps', 'enforcement')).toThrow()
+      // @ts-expect-error a stopped line over no fact at all does not compile
+      expect(() => lore.youAreHereUnsupported('harness-steps', 'enforcement', [])).not.toThrow()
+    })
+  }
 })

@@ -33,6 +33,7 @@ interface FixtureExpectation {
   uncollectedTests?: string[]
   harnessProblems?: string[]
   youAreHere?: ClaimPlacement
+  youAreHereLine?: string
 }
 
 const FIXTURES: Record<string, FixtureExpectation> = {
@@ -64,6 +65,7 @@ const FIXTURES: Record<string, FixtureExpectation> = {
     checks: [{ id: 'harness-steps', state: 'unsupported', level: 'L3', mechanism: 'package.json spells that command out', doesNotHold: ['package.json'] }],
     harnessProblems: [],
     youAreHere: { at: 'stop', stop: { claimId: 'harness-steps', stage: 'enforcement', state: 'unsupported', doesNotHold: ['package.json'] } },
+    youAreHereLine: 'You are here: harness-steps \u2014 enforcement unsupported: package.json no longer matches',
   },
   'healthy': {
     lie: 'reports a construct whose every claim is held on the control, where the facts under them all hold',
@@ -189,6 +191,8 @@ describe('doctor on the fixtures', () => {
         expect(result?.uncollectedTests).toEqual(expectation.uncollectedTests)
       if (expectation.youAreHere !== undefined)
         expect(result?.youAreHere).toEqual(expectation.youAreHere)
+      if (expectation.youAreHereLine !== undefined)
+        expect(lastLine(rendered(result as DoctorResult).output)).toBe(expectation.youAreHereLine)
     })
   }
 

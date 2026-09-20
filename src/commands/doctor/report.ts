@@ -1,3 +1,4 @@
+import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
 import type { ClaimPlacement } from './projection.js'
@@ -68,10 +69,21 @@ function printVersionGap(ui: Ui, gap: VersionGap): void {
   ui.line(ui.theme.dim(`  ${gapReading(ui, gap)}`))
 }
 
+function stoppedLine(ui: Ui, stop: SelectedPath): string {
+  switch (stop.state) {
+    case 'unsupported':
+      return ui.lore.youAreHereUnsupported(stop.claimId, stop.stage, stop.doesNotHold)
+    case 'unknown':
+      return stop.reason === 'unevaluable'
+        ? ui.lore.youAreHereUnevaluable(stop.claimId, stop.stage)
+        : ui.lore.youAreHereNothingNamed(stop.claimId, stop.stage)
+  }
+}
+
 function placementLine(ui: Ui, placement: ClaimPlacement): string {
   switch (placement.at) {
     case 'stop':
-      return ui.lore.youAreHere(placement.stop.claimId, placement.stop.stage, placement.stop.state)
+      return stoppedLine(ui, placement.stop)
     case 'no-stop':
       return ui.lore.youAreHereNone
     case 'no-claim':
