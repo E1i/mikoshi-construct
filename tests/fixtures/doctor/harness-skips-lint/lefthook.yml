@@ -1,0 +1,4 @@
+pre-commit:
+  commands:
+    quality:
+      run: pnpm run quality

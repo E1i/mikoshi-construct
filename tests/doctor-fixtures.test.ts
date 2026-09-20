@@ -20,6 +20,7 @@ interface CheckExpectation {
   state: CheckState
   level: Level
   mechanism: string
+  doesNotHold?: string[]
 }
 
 interface FixtureExpectation {
@@ -28,6 +29,7 @@ interface FixtureExpectation {
   checks: CheckExpectation[]
   unreadableFiles?: string[]
   uncollectedTests?: string[]
+  harnessProblems?: string[]
   youAreHere?: SelectedPath | null
 }
 
@@ -54,14 +56,23 @@ const FIXTURES: Record<string, FixtureExpectation> = {
     ok: true,
     checks: [{ id: 'ci', state: 'unsupported', level: 'L3', mechanism: '.github/workflows/ci.yml' }],
   },
+  'harness-skips-lint': {
+    lie: 'reports a harness command that dropped lint as an unsupported claim, and not as a problem with the construct',
+    ok: true,
+    checks: [{ id: 'harness-steps', state: 'unsupported', level: 'L3', mechanism: 'package.json spells that command out', doesNotHold: ['package.json'] }],
+    harnessProblems: [],
+    youAreHere: { claimId: 'harness-steps', stage: 'enforcement', state: 'unsupported', doesNotHold: ['package.json'] },
+  },
   'healthy': {
     lie: 'reports a construct whose every claim is held on the control, where the facts under them all hold',
     ok: true,
     checks: [
       { id: 'lint-policy', state: 'held', level: 'L3', mechanism: 'scripts/tests/lint/syntax-policy.test.ts' },
       { id: 'ci', state: 'held', level: 'L3', mechanism: '.github/workflows/ci.yml' },
+      { id: 'harness-steps', state: 'held', level: 'L3', mechanism: 'package.json spells that command out' },
     ],
     uncollectedTests: [],
+    harnessProblems: [],
     youAreHere: null,
   },
 }
@@ -155,7 +166,11 @@ describe('doctor on the fixtures', () => {
         const verdict = verdictFor(result?.checks ?? [], expected.id)
         expect({ id: verdict.id, state: verdict.state, level: verdict.level }).toEqual({ id: expected.id, state: expected.state, level: expected.level })
         expect(verdict.mechanism).toContain(expected.mechanism)
+        if (expected.doesNotHold != null)
+          expect(verdict).toMatchObject({ doesNotHold: expected.doesNotHold })
       }
+      if (expectation.harnessProblems != null)
+        expect(result?.harnessProblems).toEqual(expectation.harnessProblems)
       if (expectation.unreadableFiles != null) {
         expect(result?.unreadableFiles.map(unreadablePath)).toEqual(expectation.unreadableFiles)
         for (const file of expectation.unreadableFiles) {
@@ -186,6 +201,15 @@ describe('doctor on the fixtures', () => {
         expect(check.mechanism).not.toBe('')
       }
     }
+  })
+
+  it('renders a harness that stopped running lint as a claim rather than a problem, so it lands where the control does rather than failing the run', () => {
+    const skipping = runDoctor(materializeFixture('harness-skips-lint'))
+    const control = runDoctor(materializeFixture(CONTROL))
+    expect(skipping?.harnessProblems).toEqual([])
+    expect(skipping?.ok).toBe(control?.ok)
+    expect(verdictFor(skipping?.checks ?? [], 'harness-steps').state).toBe('unsupported')
+    expect(verdictFor(control?.checks ?? [], 'harness-steps').state).toBe('held')
   })
 
   it('completes with no verdict at all on a repository carrying no construct.model.json', () => {

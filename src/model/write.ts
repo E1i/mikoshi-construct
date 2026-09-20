@@ -35,7 +35,36 @@ function baselineFacts(harnessCommand: string): Fact[] {
   ]
 }
 
-function baselineClaims(harnessCommand: string): Claim[] {
+function listed(items: string[]): string {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+function harnessStepsClaim(harnessCommand: string, contracts: boolean): Claim {
+  const steps = [...contracts ? ['contracts:check'] : [], 'lint', 'typecheck', 'tests']
+  const spelled = [...contracts ? ['pnpm contracts:check'] : [], 'pnpm lint', 'pnpm typecheck', 'pnpm test']
+  return {
+    id: 'harness-steps',
+    statement: `${harnessCommand} runs ${listed(steps)}, rather than merely existing as a script`,
+    authoredBy: 'construct',
+    enforcement: {
+      mechanism: `${CI_WORKFLOW} runs ${harnessCommand} on every pull request, and ${MANIFEST} spells that command out as ${listed(spelled)}`,
+      level: 'L3',
+      supportedBy: [
+        'ci-workflow-runs-the-harness',
+        ...contracts ? ['harness-script-runs-contracts-check'] : [],
+        'harness-script-runs-lint',
+        'harness-script-runs-typecheck',
+        'harness-script-runs-tests',
+      ],
+    },
+    verification: {
+      mechanism: `${MANIFEST} is the file that command resolves against, so a step dropped from it is visible there`,
+      supportedBy: ['harness-manifest'],
+    },
+  }
+}
+
+function baselineClaims(harnessCommand: string, contracts: boolean): Claim[] {
   return [
     {
       id: 'no-committed-secret',
@@ -80,20 +109,7 @@ function baselineClaims(harnessCommand: string): Claim[] {
       },
       checkId: 'ci',
     },
-    {
-      id: 'harness-steps',
-      statement: `${harnessCommand} runs lint, typecheck and tests, rather than merely existing as a script`,
-      authoredBy: 'construct',
-      enforcement: {
-        mechanism: `${CI_WORKFLOW} runs ${harnessCommand} on every pull request, and ${MANIFEST} spells that command out as pnpm lint, pnpm typecheck and pnpm test`,
-        level: 'L3',
-        supportedBy: ['ci-workflow-runs-the-harness', 'harness-script-runs-lint', 'harness-script-runs-typecheck', 'harness-script-runs-tests'],
-      },
-      verification: {
-        mechanism: `${MANIFEST} is the file that command resolves against, so a step dropped from it is visible there`,
-        supportedBy: ['harness-manifest'],
-      },
-    },
+    harnessStepsClaim(harnessCommand, contracts),
   ]
 }
 
@@ -129,6 +145,7 @@ function contractFacts(contractPath: string): Fact[] {
     { id: 'contract-workflow', kind: 'file-exists', path: CONTRACT_WORKFLOW, authoredBy: 'construct' },
     { id: 'contract-workflow-fails-on-a-breaking-change', kind: 'file-contains', path: CONTRACT_WORKFLOW, authoredBy: 'construct', needle: 'fail-on: ERR' },
     { id: 'api-contract', kind: 'file-exists', path: contractPath, authoredBy: 'construct' },
+    { id: 'harness-script-runs-contracts-check', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm contracts:check' },
   ]
 }
 
@@ -156,7 +173,7 @@ export function buildModel(input: ModelInput): RepositoryModel {
   return {
     modelVersion: MODEL_VERSION,
     facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : [], ...input.sample ? sampleFacts() : []],
-    claims: [...baselineClaims(harnessCommand), ...input.contracts ? contractClaims(contractPath) : [], ...input.sample ? sampleClaims(harnessCommand) : []],
+    claims: [...baselineClaims(harnessCommand, input.contracts), ...input.contracts ? contractClaims(contractPath) : [], ...input.sample ? sampleClaims(harnessCommand) : []],
     hypotheses: [],
   }
 }

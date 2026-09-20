@@ -156,7 +156,11 @@ A verdict is **knowledge** if it can become false without anything `init` wrote 
 `harness-steps` is knowledge. It asks whether the harness command really runs lint, typecheck and
 tests; the `package.json` it reads belongs to the repository's owner, who can rewrite the script
 tomorrow without touching a construct file. The claim can go from held to unsupported with the
-construct untouched, which is what makes it worth holding.
+construct untouched, which is what makes it worth holding. Where the preset materializes an HTTP
+contract, the `contracts:check` step of that same command stands under the same claim, for the same
+reason. What stays provenance is the record around the command: that `package.json` is there, that
+it carries the script `construct.json` named, and that the contract paths that manifest records
+resolve.
 
 `construct-tests` is provenance. It asks whether the test files `construct.json` recorded are still
 collected by the runner config `init` also wrote: both ends were installed by the construct, so the

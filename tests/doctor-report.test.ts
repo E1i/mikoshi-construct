@@ -166,7 +166,7 @@ describe('the doctor report', () => {
     expect(render(result({ youAreHere: { claimId: 'lint-policy', stage: 'enforcement', state: 'unsupported', doesNotHold: ['eslint.config.mjs'] } })).code).toBe(0)
     expect(render(result({ missingDiscovery: ['product'], modifiedFiles: ['CLAUDE.md'] })).code).toBe(0)
     expect(render(result({ ok: false, missingFiles: ['AGENTS.md'] })).code).toBe(1)
-    expect(render(result({ ok: false, harnessProblems: ['"quality" does not run test'] })).code).toBe(1)
+    expect(render(result({ ok: false, harnessProblems: ['package.json has no "quality" script (harness command is "pnpm run quality")'] })).code).toBe(1)
     expect(render(null).code).toBe(1)
   })
 })

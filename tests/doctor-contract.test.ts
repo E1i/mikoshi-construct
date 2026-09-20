@@ -56,7 +56,7 @@ function documentedResult(): Record<string, unknown> {
 }
 
 function documentedFamilies(): Record<string, string> {
-  const rows = [...doc().matchAll(/^\| `(\w+)` \| (knowledge|provenance|mixed) \|$/gm)]
+  const rows = [...doc().matchAll(new RegExp(`^\\| \`(\\w+)\` \\| (${RESULT_FAMILIES.join('|')}) \\|$`, 'gm'))]
   return Object.fromEntries(rows.map(row => [row[1], row[2]]))
 }
 
@@ -78,6 +78,12 @@ describe('doctor --json against docs/cli.md, its declared source of truth', () =
   it('carries a family for every field, matching the classification the code declares', () => {
     expect(documentedFamilies()).toEqual(DOCTOR_FIELD_FAMILY)
     expect(new Set(Object.values(DOCTOR_FIELD_FAMILY) as ResultFamily[]).size).toBeLessThanOrEqual(RESULT_FAMILIES.length)
+  })
+
+  it('states that a harness which stopped running lint is a claim and not a problem, and does not move ok', () => {
+    const prose = doc().replaceAll(/\s+/g, ' ')
+    expect(prose).toContain('a harness that no longer runs lint is an unsupported claim, not a problem')
+    expect(prose).toContain('No repository changes which side of `ok` it falls on')
   })
 
   it('states the boundary doctor reports from, so the blind spot is named and not synthesised', () => {
