@@ -35,6 +35,12 @@ If you script on the exit code and relied on it catching a harness that had stop
 steps, read `checks` for the `harness-steps` claim instead. The report still says so, and says it
 more precisely than before: it names the fact that stopped matching.
 
+The scope is now enforced rather than described. `ok` is computed by a function whose argument type
+is derived from the classification and contains only the provenance fields, so reading a knowledge
+field while computing it does not fail a test — it fails to compile. That replaces a claim about two
+points in time, which nothing observing one point can hold, with a claim about where the value comes
+from, which is true or false today.
+
 The promise the previous release made is now closed by a test rather than by memory: no field is
 classified `mixed`, none carries a family the code does not declare, and none escapes the question.
 Gate A covers `harnessProblems` with no edit to the gate's own source — it reads the classification,

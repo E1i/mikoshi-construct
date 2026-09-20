@@ -1,5 +1,6 @@
 import type { DiscoveryMarker } from '../../manifest.js'
 import type { SelectedPath } from '../../model/path.js'
+import type { ProvenanceEvidence } from './families.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
@@ -8,6 +9,7 @@ import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
 import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
+import { isIntact } from './families.js'
 import { harnessProblems, readHarnessFacts } from './harness.js'
 import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
@@ -45,9 +47,20 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   const uncollected = uncollectedTests(root, manifest, readings)
   const knowledge = projectKnowledge(readModel(root), root)
   const unreadableFiles = readings.files
+  const intact: ProvenanceEvidence = {
+    missingFiles: baseline.missingFiles,
+    modifiedFiles: baseline.modifiedFiles,
+    unreadableFiles,
+    missingDiscovery: markers,
+    provenance,
+    harnessProblems: problems,
+    uncollectedTests: uncollected,
+    warnings: typecheckWarnings(manifest.preset, harness),
+    versionGap: versionGap(root, manifest, version),
+  }
 
   return {
-    ok: baseline.missingFiles.length === 0 && problems.length === 0 && unreadableFiles.length === 0,
+    ok: isIntact(intact),
     missingFiles: baseline.missingFiles,
     modifiedFiles: baseline.modifiedFiles,
     unreadableFiles,
