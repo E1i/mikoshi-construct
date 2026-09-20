@@ -1,7 +1,7 @@
 {
   "name": "mikoshi-construct",
   "type": "module",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "packageManager": "pnpm@12.4.2",
   "description": "Bootstrap for AI-native software projects. Start with a proven engineering workflow instead of an empty repository.",
   "author": "Eli Tabrisov",
