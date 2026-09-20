@@ -93,9 +93,7 @@ which is the defect that produced the figures this record was first written with
 L1 review: nothing mechanical stops a future escalation from restarting an agent where it could have
 continued one.
 
-## Observation · 2026-09-21
 
-Task 3 of the doctor-projection plan was run at `xhigh`. The architect failed structured-output
-validation five consecutive times and returned nothing — another occurrence of the failure mode this
-record already describes. It is recorded as an occurrence only: the population is too small to carry
-a frequency, and nothing causal is claimed from it.
+Occurrences of this failure mode are recorded in [architecture/observations.md](../observations.md),
+not here: this record states what was decided, and a log kept inside it would eventually be tidied
+into its text, which is how a decision gains scope it never had.

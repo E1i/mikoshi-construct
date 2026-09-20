@@ -4,6 +4,11 @@ One file per decision that shapes what this tool is allowed to claim. A decision
 reversing it would cost more than making it did, or when a later reader would otherwise re-open it
 from scratch.
 
+Occurrences of something a record already describes belong in
+[observations.md](../observations.md), not in the record. A decision is stable and an observation
+accumulates, and a log kept inside a decision is eventually tidied into its text — which gives it
+scope it never had.
+
 Each record names how it is enforced and at what level: L0 text only, L1 review, L2 a local hook,
 L3 CI, L4 CI that blocks merge. A decision enforced only by review says so; that is the honest
 answer, not a gap to hide.
