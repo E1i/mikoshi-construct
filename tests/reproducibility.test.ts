@@ -11,7 +11,7 @@ import { buildManifest, MANIFEST_FILE, readManifest, sha256, writeManifest } fro
 import { applyPlan } from '../src/materialize/apply.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { buildModel, writeModel } from '../src/model/write.js'
-import { aiGroups, getPreset, PRESET_IDS } from '../src/presets/index.js'
+import { aiGroups, getPreset, PRESET_IDS, sampleGroups } from '../src/presets/index.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const DRIFT_FILE = 'architecture/self-hosting-drift.yaml'
@@ -57,7 +57,7 @@ function runPinnedInit(presetId: PresetId, ai: AiTarget): string {
   const vars = presetVars(dir, presetId)
   const written = materialize(dir, presetId, ai, vars)
   writeManifest(dir, buildManifest({ version: PINNED_VARS.constructVersion, preset: presetId, ai, review: 'none', vars, written, contracts: getPreset(presetId).contracts, previous: null }))
-  writeModel(dir, buildModel({ vars, contracts: getPreset(presetId).contracts }))
+  writeModel(dir, buildModel({ vars, contracts: getPreset(presetId).contracts, sample: sampleGroups(getPreset(presetId)).length > 0 }))
   return dir
 }
 

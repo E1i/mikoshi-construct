@@ -10,7 +10,7 @@ import { buildManifest, readManifest, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
-import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups } from '../presets/index.js'
+import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups, sampleGroups } from '../presets/index.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { printDetectReport } from './soulkill.js'
@@ -229,7 +229,9 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const previous = readManifest(root)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
   writeManifest(root, manifest)
-  const merged = mergeModel(existingModel, buildModel({ vars, contracts: preset.contracts }))
+  const samples = sampleGroups(preset)
+  const sample = samples.length > 0 && samples.every(group => !plan.omittedGroups.includes(group))
+  const merged = mergeModel(existingModel, buildModel({ vars, contracts: preset.contracts, sample }))
   writeModel(root, merged.model)
   if (merged.retained.length > 0) {
     const standingOn = [...new Set(merged.retained.flatMap(fact => fact.stoodOnBy))]
