@@ -1,12 +1,12 @@
 {
   "modelVersion": 1,
   "facts": [
-    { "id": "ci-workflow", "kind": "file-exists", "path": ".github/workflows/ci.yml" },
-    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality" },
-    { "id": "commit-hook", "kind": "file-exists", "path": ".husky/pre-commit" },
-    { "id": "eslint-config", "kind": "file-exists", "path": "eslint.config.mjs" },
-    { "id": "eslint-restricts-imports", "kind": "file-contains", "path": "eslint.config.mjs", "needle": "no-restricted-imports" },
-    { "id": "security-invariants", "kind": "file-exists", "path": "architecture/security-invariants.md" }
+    { "id": "ci-workflow", "kind": "file-exists", "path": ".github/workflows/ci.yml", "authoredBy": "construct" },
+    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality", "authoredBy": "construct" },
+    { "id": "commit-hook", "kind": "file-exists", "path": ".husky/pre-commit", "authoredBy": "construct" },
+    { "id": "eslint-config", "kind": "file-exists", "path": "eslint.config.mjs", "authoredBy": "construct" },
+    { "id": "eslint-restricts-imports", "kind": "file-contains", "path": "eslint.config.mjs", "needle": "no-restricted-imports", "authoredBy": "construct" },
+    { "id": "security-invariants", "kind": "file-exists", "path": "architecture/security-invariants.md", "authoredBy": "construct" }
   ],
   "claims": [
     {

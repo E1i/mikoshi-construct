@@ -4,45 +4,53 @@
     {
       "id": "security-workflow",
       "kind": "file-exists",
-      "path": ".github/workflows/security.yml"
+      "path": ".github/workflows/security.yml",
+      "authoredBy": "construct"
     },
     {
       "id": "security-workflow-runs-gitleaks",
       "kind": "file-contains",
       "path": ".github/workflows/security.yml",
+      "authoredBy": "construct",
       "needle": "gitleaks"
     },
     {
       "id": "gitleaks-config",
       "kind": "file-exists",
-      "path": ".gitleaks.toml"
+      "path": ".gitleaks.toml",
+      "authoredBy": "construct"
     },
     {
       "id": "security-workflow-audits-dependencies",
       "kind": "file-contains",
       "path": ".github/workflows/security.yml",
+      "authoredBy": "construct",
       "needle": "pnpm audit --audit-level=high"
     },
     {
       "id": "ci-workflow",
       "kind": "file-exists",
-      "path": ".github/workflows/ci.yml"
+      "path": ".github/workflows/ci.yml",
+      "authoredBy": "construct"
     },
     {
       "id": "ci-workflow-runs-the-harness",
       "kind": "file-contains",
       "path": ".github/workflows/ci.yml",
+      "authoredBy": "construct",
       "needle": "pnpm run quality"
     },
     {
       "id": "eslint-config",
       "kind": "file-exists",
-      "path": "eslint.config.mjs"
+      "path": "eslint.config.mjs",
+      "authoredBy": "construct"
     },
     {
       "id": "security-invariants",
       "kind": "file-exists",
-      "path": "architecture/security-invariants.md"
+      "path": "architecture/security-invariants.md",
+      "authoredBy": "construct"
     }
   ],
   "claims": [
