@@ -59,6 +59,18 @@ const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verif
 const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'supportedBy']
 const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses']
 
+export class DanglingFactReference extends Error {
+  readonly factId: string
+  readonly entry: string
+
+  constructor(name: string, entry: string, factId: string) {
+    super(`${name}: ${entry} supportedBy refers to unknown fact "${factId}"`)
+    this.name = 'DanglingFactReference'
+    this.factId = factId
+    this.entry = entry
+  }
+}
+
 function fail(name: string, message: string): never {
   throw new Error(`${name}: ${message}`)
 }
@@ -133,7 +145,7 @@ function supportedBy(name: string, record: Record<string, unknown>, where: strin
   const ids = value as string[]
   for (const id of ids) {
     if (!facts.has(id))
-      fail(name, `${where} supportedBy refers to unknown fact "${id}"`)
+      throw new DanglingFactReference(name, where, id)
   }
   return ids
 }

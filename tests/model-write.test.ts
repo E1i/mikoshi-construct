@@ -1,6 +1,6 @@
 import type { Claim, Fact, Hypothesis, RepositoryModel } from '../src/model/schema.js'
 import type { PresetId, TemplateVars } from '../src/presets/index.js'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -13,6 +13,7 @@ import { deriveModelState } from '../src/model/state.js'
 import { buildModel, mergeModel, writeModel } from '../src/model/write.js'
 import { aiGroups, getPreset, PRESET_IDS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
+import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -110,8 +111,9 @@ describe('the model init writes', () => {
 
 const AMBIGUOUS = path.resolve(import.meta.dirname, 'fixtures/model/ambiguous-path')
 
-async function initInto(dir: string): Promise<void> {
-  await runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset: 'node-backend', name: 'scratch', yes: true, dryRun: false })
+async function initInto(dir: string, write = silentWriter): Promise<string> {
+  const result = await runInit(createUi(resolveTheme({ plain: true }), write), { dir, preset: 'node-backend', name: 'scratch', yes: true, dryRun: false })
+  return result.status
 }
 
 function readModelAt(dir: string): RepositoryModel {
@@ -184,7 +186,7 @@ describe('merging the model preserves the declaration order selectPath reads', (
 
   it('keeps a surviving claim where it was declared, so the tie still breaks the same way', () => {
     const fresh: RepositoryModel = { ...existing, claims: [...existing.claims].reverse() }
-    const merged = mergeModel(existing, fresh)
+    const merged = mergeModel(existing, fresh).model
     expect(merged.claims.map(claim => claim.id)).toEqual(existing.claims.map(claim => claim.id))
     expect(stopOf(merged)).toBe('no-secret-reaches-a-commit')
     expect(stopOf(fresh)).toBe('imports-respect-the-dependency-policy')
@@ -198,7 +200,7 @@ describe('merging the model preserves the declaration order selectPath reads', (
       enforcement: { mechanism: 'security.yml runs pnpm audit weekly', level: 'L3', supportedBy: ['eslint-config'] },
       verification: null,
     }
-    const merged = mergeModel(existing, { ...existing, claims: [newcomer, ...existing.claims] })
+    const merged = mergeModel(existing, { ...existing, claims: [newcomer, ...existing.claims] }).model
     expect(merged.claims.map(claim => claim.id)).toEqual([...existing.claims.map(claim => claim.id), newcomer.id])
   })
 
@@ -216,13 +218,120 @@ describe('merging the model preserves the declaration order selectPath reads', (
       facts: existing.facts.filter(fact => fact.id !== 'commit-hook'),
       claims: existing.claims.filter(claim => claim.id !== 'no-secret-reaches-a-commit'),
     }
-    const merged = mergeModel(seeded, fresh)
+    const merged = mergeModel(seeded, fresh).model
     expect(merged.facts.map(fact => fact.id)).toContain('commit-hook')
     expect(merged.claims.map(claim => claim.id)).not.toContain('no-secret-reaches-a-commit')
     expect(() => parseModel(JSON.stringify(merged), 'merged')).not.toThrow()
   })
 
   it('is the fresh model itself when nothing is on disk yet', () => {
-    expect(mergeModel(null, existing)).toBe(existing)
+    expect(mergeModel(null, existing).model).toBe(existing)
+  })
+})
+
+const ABANDONED_FACTS: Fact[] = [
+  { id: 'abandoned-hook', kind: 'file-exists', path: '.husky/pre-commit', authoredBy: 'construct' },
+  { id: 'abandoned-hook-runs-the-harness', kind: 'file-contains', path: '.husky/pre-commit', authoredBy: 'construct', needle: 'pnpm run quality' },
+  { id: 'abandoned-hook-documented', kind: 'file-exists', path: 'docs/hooks.md', authoredBy: 'construct' },
+]
+
+const STOOD_ON_BY_A_HYPOTHESIS: Hypothesis = {
+  id: 'the-hook-is-what-guards-commits',
+  statement: 'A local hook is what runs the harness before a commit here',
+  authoredBy: 'discovery',
+  baseSha: null,
+  supportedBy: ['abandoned-hook'],
+}
+
+const STOOD_ON_BY_A_CLAIM: Claim = {
+  id: 'the-harness-runs-before-a-commit',
+  statement: 'The harness runs before a commit lands, not only in CI',
+  authoredBy: 'unknown',
+  enforcement: { mechanism: '.husky/pre-commit runs the harness', level: 'L2', supportedBy: ['abandoned-hook-runs-the-harness'] },
+  verification: { mechanism: 'docs/hooks.md names the hook that does it', supportedBy: ['abandoned-hook-documented'] },
+}
+
+async function seedAndReinit(dir: string, seed: (model: RepositoryModel) => RepositoryModel): Promise<RepositoryModel> {
+  await initInto(dir)
+  const base = readModelAt(dir)
+  writeModel(dir, seed({ ...base, facts: [...base.facts, ...ABANDONED_FACTS] }))
+  expect(await initInto(dir)).toBe('done')
+  expect(await initInto(dir)).toBe('done')
+  return readModelAt(dir)
+}
+
+describe('every entry the model keeps still stands on a fact the model declares', () => {
+  it('keeps the fact a discovery-authored hypothesis stands on, so the next init can read what this one wrote', async () => {
+    const dir = scratch()
+    const model = await seedAndReinit(dir, base => ({ ...base, hypotheses: [STOOD_ON_BY_A_HYPOTHESIS] }))
+
+    expect(model.hypotheses).toEqual([STOOD_ON_BY_A_HYPOTHESIS])
+    expect(model.facts).toContainEqual(ABANDONED_FACTS[0])
+    expect(model.facts.map(fact => fact.id)).not.toContain('abandoned-hook-documented')
+  })
+
+  it('keeps both facts a claim the construct does not own stands on, one through enforcement and one through verification', async () => {
+    const dir = scratch()
+    const model = await seedAndReinit(dir, base => ({ ...base, claims: [...base.claims, STOOD_ON_BY_A_CLAIM] }))
+
+    expect(model.claims).toContainEqual(STOOD_ON_BY_A_CLAIM)
+    expect(model.facts).toContainEqual(ABANDONED_FACTS[1])
+    expect(model.facts).toContainEqual(ABANDONED_FACTS[2])
+    expect(model.facts.map(fact => fact.id)).not.toContain('abandoned-hook')
+  })
+})
+
+describe('the model is checked against its own schema before it is committed', () => {
+  it('refuses to write a merge result that would not parse, and leaves no file behind', () => {
+    const dir = scratch()
+    const fresh = buildModel({ vars: VARS, contracts: false })
+    const stoodOn: RepositoryModel = { ...fresh, hypotheses: [STOOD_ON_BY_A_HYPOTHESIS] }
+    const { model } = mergeModel({ ...stoodOn, facts: [...fresh.facts, ABANDONED_FACTS[0]] }, fresh)
+    const withoutRetention: RepositoryModel = { ...model, facts: model.facts.filter(fact => fact.id !== 'abandoned-hook') }
+
+    expect(() => writeModel(dir, withoutRetention)).toThrow('abandoned-hook')
+    expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
+  })
+})
+
+describe('a model naming a fact it does not carry stops the run before anything is written', () => {
+  const dangling = {
+    modelVersion: MODEL_VERSION,
+    facts: [],
+    claims: [],
+    hypotheses: [{ ...STOOD_ON_BY_A_HYPOTHESIS, supportedBy: ['a-fact-somebody-deleted'] }],
+  }
+
+  it('names the file, the missing fact and the fact that nothing was replaced, and writes nothing at all', async () => {
+    const dir = scratch()
+    const source = `${JSON.stringify(dangling, null, 2)}\n`
+    writeFileSync(path.join(dir, MODEL_FILE), source)
+
+    await expect(initInto(dir)).rejects.toThrow(/construct\.model\.json[\s\S]*a-fact-somebody-deleted[\s\S]*not replaced/)
+
+    expect(readdirSync(dir)).toEqual([MODEL_FILE])
+    expect(readFileSync(path.join(dir, MODEL_FILE), 'utf8')).toBe(source)
+  })
+})
+
+describe('a second init says which facts it kept for an entry it does not own', () => {
+  it('names how many facts were retained and the entry standing on them, and stays quiet when none were', async () => {
+    const dir = scratch()
+    const spoken: string[] = []
+    await initInto(dir)
+    const base = readModelAt(dir)
+    writeModel(dir, { ...base, facts: [...base.facts, ABANDONED_FACTS[0]], hypotheses: [STOOD_ON_BY_A_HYPOTHESIS] })
+
+    await initInto(dir, text => spoken.push(text))
+    const line = spoken.join('').split('\n').find(text => text.includes(STOOD_ON_BY_A_HYPOTHESIS.id))
+    expect(line).toBeDefined()
+    expect(line).toContain(PLAIN_LORE.recordFactsRetained(['abandoned-hook'], [STOOD_ON_BY_A_HYPOTHESIS.id]))
+
+    const untouched = scratch()
+    const quiet: string[] = []
+    await initInto(untouched)
+    await initInto(untouched, text => quiet.push(text))
+    expect(quiet.join('').toLowerCase()).not.toContain('kept 0')
+    expect(quiet.join('')).not.toContain('still stands on')
   })
 })
