@@ -11,7 +11,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'CLI', link: '/cli' },
-      { text: 'Releases', link: '/release-notes/0.3.0' },
+      { text: 'Releases', link: '/release-notes/0.4.0' },
     ],
     sidebar: [
       {
@@ -33,6 +33,7 @@ export default defineConfig({
       {
         text: 'Releases',
         items: [
+          { text: '0.4.0', link: '/release-notes/0.4.0' },
           { text: '0.3.0', link: '/release-notes/0.3.0' },
         ],
       },

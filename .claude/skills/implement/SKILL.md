@@ -37,7 +37,10 @@ repository's CLAUDE.md and `construct.json`.
    - `degraded` — a rung passed the harness, but a design step was rejected by the schema and the
      run continued without it. The result's `effort` is the class that actually executed.
    - `design incomplete` — a high-effort run whose architect was rejected by the schema. No
-     implementer ran without a spec; the result carries the validator's text in `validationError`.
+     implementer ran without a spec; the result carries the validator's text in `validationError` and
+     the way out in `recovery`, which is a measured route rather than advice: re-running one class
+     lower with the design written into the brief produced the design on three of the three occasions
+     it has been tried on the construct's own repository.
    - `failed` — every rung ran and the harness stayed red; `lastFailure` carries the excerpt.
    - `blocked` — the last rung stopped on a question; `question` carries it verbatim.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
@@ -66,8 +69,9 @@ repository's CLAUDE.md and `construct.json`.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
    files changed, and the harness tail. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed`, give the last failure excerpt. When
-   `design incomplete`, say that the design step did not complete and give `validationError` as the
-   runtime reported it; when `degraded`, say which design step was rejected and that the reported
+   `design incomplete`, say that the design step did not complete, give `validationError` as the
+   runtime reported it, and relay `recovery` verbatim — a dead end that names no way out is how the
+   next person decides the ladder is broken rather than that this run needs re-running lower; when `degraded`, say which design step was rejected and that the reported
    class is the one that executed, not the one that was requested.
    Unless `construct.json` sets `report.usage` to `false`, end with one usage line for this run,
    from the Workflow tool's own accounting: agents, subagent tokens, tool uses, wall time — so the
