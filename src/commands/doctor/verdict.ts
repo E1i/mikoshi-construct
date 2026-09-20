@@ -1,8 +1,11 @@
+import type { EnforcementLevel } from '../../model/schema.js'
+import { ENFORCEMENT_LEVELS } from '../../model/schema.js'
+
 export const CHECK_IDS = ['lint-policy', 'construct-tests', 'ci', 'hook', 'red-gate'] as const
-export const LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
+export const LEVELS = ENFORCEMENT_LEVELS
 
 export type CheckId = (typeof CHECK_IDS)[number]
-export type Level = (typeof LEVELS)[number]
+export type Level = EnforcementLevel
 export type CheckState = 'present' | 'absent' | 'unknown'
 
 export interface CheckVerdict {
