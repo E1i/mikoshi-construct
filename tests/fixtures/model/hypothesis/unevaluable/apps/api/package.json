@@ -1,0 +1,4 @@
+{
+  "name": "api",
+  "scripts": { "quality": "pnpm run lint && pnpm run typecheck && pnpm run test" }
+}
