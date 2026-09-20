@@ -1,8 +1,26 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import type { TemplateVars } from '../src/presets/index.js'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { runDoctor } from '../src/commands/doctor/index.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
+import { buildManifest, writeManifest } from '../src/manifest.js'
+
+const MANIFEST_VARS: TemplateVars = {
+  projectName: 'readings-fixture',
+  scope: '@readings-fixture',
+  nodeMajor: '22',
+  contracts: 'false',
+  contractPath: '',
+  contractTypesOutput: '',
+  compositionDir: 'architecture/composition',
+  harnessCommand: 'pnpm run quality',
+  packageManager: 'pnpm',
+  pnpmVersion: '12.4.2',
+  reviewModel: '',
+  constructVersion: '0.0.0-fixture',
+}
 
 function scratch(): string {
   return mkdtempSync(path.join(tmpdir(), 'construct-readings-'))
@@ -57,5 +75,43 @@ describe('the files doctor could not read', () => {
     expect(readings.entries('architecture/composition')).toEqual(['init.yaml'])
     expect(readings.entries('architecture/models')).toBeNull()
     expect(pathsOf(readings)).toEqual(['architecture/models'])
+  })
+})
+
+function materialized(): string {
+  const root = scratch()
+  const content = '{ "scripts": { "quality": "pnpm lint && pnpm typecheck && pnpm test" } }'
+  writeFileSync(path.join(root, 'package.json'), content)
+  writeManifest(root, buildManifest({
+    version: '0.0.0-fixture',
+    preset: 'node-backend',
+    ai: 'claude',
+    review: 'none',
+    vars: MANIFEST_VARS,
+    written: [{ target: 'package.json', strategy: 'create', action: 'create', content }],
+    contracts: false,
+    previous: null,
+  }))
+  return root
+}
+
+describe('ok collapses toward inspection, so the two kinds of unknown part company', () => {
+  it('stays true where there was nothing to inspect: no model means no verdicts and no gap in the run', () => {
+    const root = materialized()
+    const verdict = runDoctor(root)
+    expect(verdict?.checks).toEqual([])
+    expect(verdict?.unreadableFiles).toEqual([])
+    expect(verdict?.ok).toBe(true)
+  })
+
+  it('goes false where inspection was obstructed, because a file it could not open is one it cannot answer for', () => {
+    const root = materialized()
+    rmSync(path.join(root, 'package.json'))
+    mkdirSync(path.join(root, 'package.json'), { recursive: true })
+    const verdict = runDoctor(root)
+    expect(verdict?.unreadableFiles.map(entry => entry.split(' (')[0])).toContain('package.json')
+    expect(verdict?.unreadableFiles.join('')).toContain('EISDIR')
+    expect(verdict?.missingFiles).not.toContain('package.json')
+    expect(verdict?.ok).toBe(false)
   })
 })

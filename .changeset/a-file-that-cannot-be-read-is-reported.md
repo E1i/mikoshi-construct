@@ -43,3 +43,18 @@ A fourth unguarded read cannot be written now, rather than being noticed by some
 block restates the dependency boundary it sits on top of, because in flat config the last matching
 block replaces a rule's whole option array — a test asserts both halves, so the guard cannot silently
 cost the boundary it was added beside.
+
+**If you script on doctor's exit code, read this line.** No field was renamed and none was removed, so
+this change is invisible in a list of field changes — but the meaning of the exit code moved. When
+`doctor` could not read part of what it was asked about, the run is no longer reported as successful.
+
+`ok` collapses a three-valued world into one boolean and now collapses toward inspection rather than
+toward confidence: it answers whether the inspection completed, not whether everything is held. The
+opposite choice puts a quiet false calm into an exit code, which is the worst place for one.
+
+That splits the two origins of `unknown`, which share a name and mean different things here.
+Obstruction — asked to read, could not — leaves the inspection incomplete and makes `ok` false.
+Absence of a subject — no model at all, or no fact named under a claim — means there was nothing to
+inspect and the answer is complete, so `ok` stays true. A repository that simply predates
+`construct.model.json` is therefore not reported as broken, which matters because after this release
+most adopted repositories will be exactly that.

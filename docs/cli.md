@@ -198,6 +198,27 @@ question `ok` answers is whether the construct is intact, and a file the command
 part of the tree it cannot answer for. Catching the error without reporting it would be worse than
 crashing, because the file would leave the inspected set in silence.
 
+### Two kinds of `unknown`, and which one moves `ok`
+
+`ok` collapses a three-valued world into one boolean, and it collapses toward inspection rather than
+toward confidence: it answers **whether the inspection completed**, not whether everything is held.
+A repository part of which the command could not open is not one it can call intact, and the
+opposite choice would put a quiet false calm into an exit code, which is where it would do the most
+damage.
+
+That makes the two origins of `unknown` behave differently, and the difference is deliberate rather
+than incidental:
+
+| Origin | Meaning | `ok` |
+|---|---|---|
+| Obstruction — asked to read, could not | the inspection is incomplete | **false** |
+| No subject — no model, or no fact named under a claim | there was nothing to inspect, and the answer is complete | **true** |
+
+The first says *I could not*; the second says *I have nothing to say*. Only the first is a gap in the
+run. A repository carrying no `construct.model.json` therefore gets no verdicts and no `youAreHere`,
+and `ok` is unaffected — the command completes, the provenance family answers as it always did, and
+a repository that simply predates the model is not reported as broken.
+
 A repository with no `construct.model.json` gets no verdicts and no `youAreHere`: the command
 completes and the provenance family is unaffected.
 
