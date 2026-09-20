@@ -52,6 +52,8 @@ const SPEC = {
   },
 }
 
+const DESIGN_RECOVERY = 'Re-run this task one class lower with the design written into the brief. That is the measured route out: three of three such re-runs on the construct\'s own repository produced the design the architect had failed to return. The run does not retry the design step itself, because a second agent entry pays for the exploration again.'
+
 const DEFAULT_RETRY_LIMIT = 0
 const DESIGN_EFFORT = 'xhigh'
 const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
@@ -150,7 +152,7 @@ async function design(rung, reason, label) {
     designFailed = true
     designError = lastValidationError ?? ''
     attempts.push({ rung, effort: DESIGN_EFFORT, outcome: 'design schema invalid', reason: designError })
-    log(`${label}: the design step did not complete`)
+    log(`${label}: the design step did not complete. ${DESIGN_RECOVERY}`)
     return false
   }
   spec = result
@@ -165,6 +167,7 @@ function designIncomplete(effort, question) {
     effort: performedEffort(effort),
     attempts,
     validationError: designError,
+    recovery: DESIGN_RECOVERY,
     question: question ?? '',
     lastFailure: feedback ?? '',
   }

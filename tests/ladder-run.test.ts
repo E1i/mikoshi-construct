@@ -7,6 +7,7 @@ const WORKFLOW = 'scripts/construct/implement.workflow.mjs'
 
 interface LadderResult {
   status: string
+  recovery?: string
   effort?: string
   attempts: { rung: number, effort: string, outcome: string, reason: string }[]
   validationError?: string
@@ -123,5 +124,29 @@ describe('the design step is part of the run', () => {
     expect(result.status).toBe('done')
     expect(result.effort).toBe('high')
     expect(calls[1].prompt).toContain(SPEC.decision)
+  })
+})
+
+describe('a design step that ran out names the way out of it', () => {
+  it('carries the measured recovery route on the result, not only in the log', async () => {
+    const { result } = await run({ task: 'redesign the contract', effort: 'high' }, { architect: [REJECTED] })
+
+    expect(result.status).toBe('design incomplete')
+    expect(result.recovery).toContain('one class lower')
+    expect(result.recovery).toContain('design written into the brief')
+  })
+
+  it('says why the run does not simply try again, so the route is not read as a missing feature', async () => {
+    const { result } = await run({ task: 'redesign the contract', effort: 'high' }, { architect: [REJECTED] })
+
+    expect(result.recovery).toContain('does not retry the design step')
+    expect(result.recovery).toContain('pays for the exploration again')
+  })
+
+  it('leaves a run that completed its design with no recovery to relay', async () => {
+    const { result } = await run({ task: 'redesign the contract', effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.status).toBe('done')
+    expect(result.recovery).toBeUndefined()
   })
 })
