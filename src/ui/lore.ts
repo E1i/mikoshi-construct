@@ -44,6 +44,7 @@ export interface Lore {
   enforcement: string
   typecheckCaveat: string
   uncollectedTests: string
+  unreadableFiles: string
   executesNothing: string
   verdictHeld: (mechanism: string) => string
   verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => string
@@ -121,6 +122,7 @@ export const LORE: Lore = {
   enforcement: 'ENFORCEMENT TRACE',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   uncollectedTests: 'TESTS THE RECORD CARRIES AND THE RUNNER NEVER COLLECTS.',
+  unreadableFiles: 'FILES THE RECORD NAMES AND THIS PROBE COULD NOT OPEN: they are neither missing nor modified, and nothing is said about them.',
   executesNothing: 'NOTHING HERE IS EXECUTED: doctor reads files and runs nothing from the repository it inspects, so it does not speak about whether the harness passes.',
   verdictHeld: (mechanism: string) => mechanism,
   verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => `EXPECTS ${mechanism} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
@@ -213,6 +215,7 @@ export const PLAIN_LORE: Lore = {
   enforcement: 'Enforcement',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   uncollectedTests: 'Tests the record carries and the runner does not collect.',
+  unreadableFiles: 'Files the record names that could not be read: they are neither missing nor modified, and nothing is said about them.',
   executesNothing: 'doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.',
   verdictHeld: (mechanism: string) => mechanism,
   verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => `expects ${mechanism} \u2014 no longer matching: ${doesNotHold.join(', ')}`,

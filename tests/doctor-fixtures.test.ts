@@ -26,6 +26,7 @@ interface FixtureExpectation {
   lie: string
   ok: boolean
   checks: CheckExpectation[]
+  unreadableFiles?: string[]
   uncollectedTests?: string[]
   youAreHere?: SelectedPath | null
 }
@@ -41,6 +42,12 @@ const FIXTURES: Record<string, FixtureExpectation> = {
     ok: true,
     checks: [],
     uncollectedTests: ['tests/harness.test.ts'],
+  },
+  'unreadable-recorded-file': {
+    lie: 'names a recorded file a directory now stands in the place of as unreadable, rather than crashing on it or calling it missing',
+    ok: false,
+    checks: [],
+    unreadableFiles: ['tests/harness.test.ts'],
   },
   'quality-not-in-ci': {
     lie: 'reports the harness claim as unsupported where no workflow step runs the harness command',
@@ -79,11 +86,18 @@ interface FixtureOptions {
   recordRunnerConfig?: boolean
 }
 
+function standsWhereAFileIsExpected(root: string, directory: string): boolean {
+  return readdirSync(path.join(root, directory)).join() === '.gitkeep'
+}
+
 function fileOps(root: string, directory = ''): FileOp[] {
   return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
     const target = directory === '' ? entry.name : `${directory}/${entry.name}`
-    if (entry.isDirectory())
+    if (entry.isDirectory()) {
+      if (standsWhereAFileIsExpected(root, target))
+        return [{ target, strategy: 'create', action: 'create', content: '' } satisfies FileOp]
       return fileOps(root, target)
+    }
     return [{ target, strategy: 'create', action: 'create', content: readFileSync(path.join(root, target), 'utf8') } satisfies FileOp]
   })
 }
@@ -120,6 +134,10 @@ function fixtureDirectories(): string[] {
   return readdirSync(FIXTURES_DIR, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)
 }
 
+function unreadablePath(entry: string): string {
+  return entry.slice(0, entry.indexOf(' ('))
+}
+
 function verdictFor(checks: CheckVerdict[], id: string): CheckVerdict {
   const verdict = checks.find(check => check.id === id)
   if (verdict == null)
@@ -138,12 +156,25 @@ describe('doctor on the fixtures', () => {
         expect({ id: verdict.id, state: verdict.state, level: verdict.level }).toEqual({ id: expected.id, state: expected.state, level: expected.level })
         expect(verdict.mechanism).toContain(expected.mechanism)
       }
+      if (expectation.unreadableFiles != null) {
+        expect(result?.unreadableFiles.map(unreadablePath)).toEqual(expectation.unreadableFiles)
+        for (const file of expectation.unreadableFiles) {
+          expect(result?.missingFiles).not.toContain(file)
+          expect(result?.modifiedFiles).not.toContain(file)
+        }
+      }
       if (expectation.uncollectedTests != null)
         expect(result?.uncollectedTests).toEqual(expectation.uncollectedTests)
       if (expectation.youAreHere !== undefined)
         expect(result?.youAreHere).toEqual(expectation.youAreHere)
     })
   }
+
+  it('carries the cause beside the file it could not read, so a second cause needs no second reading', () => {
+    const result = runDoctor(materializeFixture('unreadable-recorded-file'))
+    expect(result?.unreadableFiles).toHaveLength(1)
+    expect(result?.unreadableFiles[0]).toMatch(/^tests\/harness\.test\.ts \(.+\)$/)
+  })
 
   it('never claims L4, and renders every verdict from a claim the model carries', () => {
     for (const name of Object.keys(FIXTURES)) {

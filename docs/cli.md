@@ -167,6 +167,7 @@ that claim stands on, and where you are is the model's own path selection.
 | `ok` | provenance |
 | `missingFiles` | provenance |
 | `modifiedFiles` | provenance |
+| `unreadableFiles` | provenance |
 | `missingDiscovery` | provenance |
 | `provenance` | provenance |
 | `harnessProblems` | mixed |
@@ -182,6 +183,20 @@ provenance, a file `construct.json` points at that is missing. Nothing is assert
 field, which is why the incompleteness is written into the classification rather than left to
 memory. The classification lives in `src/commands/doctor/families.ts`; this table is its second
 reader and a test fails when the two diverge.
+
+### A file that exists and cannot be read
+
+`unreadableFiles` names each recorded path that is there and that `doctor` could not read, with the
+cause the operating system gave in parentheses — a directory standing where a file is expected, a
+permission it does not have, a broken link, malformed JSON where a manifest is recorded. There is one
+category and no branch per cause: the reading either succeeded or it did not, and which of them it
+was travels in the entry rather than in a second code path.
+
+Such a path is not `missingFiles` — it exists — and not `modifiedFiles` — nothing was compared — and
+reporting it as either would be a claim about a file `doctor` never opened. It makes `ok` false: the
+question `ok` answers is whether the construct is intact, and a file the command could not read is a
+part of the tree it cannot answer for. Catching the error without reporting it would be worse than
+crashing, because the file would leave the inspected set in silence.
 
 A repository with no `construct.model.json` gets no verdicts and no `youAreHere`: the command
 completes and the provenance family is unaffected.
@@ -325,7 +340,8 @@ knowledge: both ends were installed by `init`, so it becomes false only when wha
 changed. It is reported **only when the runner config itself appears in the manifest's recorded
 files**. Where a repository arrived with its own vitest or vite config the construct never wrote that
 end, and a verdict there would pronounce on a file its owner owns, so the list stays empty and says
-nothing. A non-literal or unreadable include leaves it empty for the same reason.
+nothing. A non-literal include leaves it empty for the same reason, and a runner config that cannot be read
+leaves it empty and is named in `unreadableFiles`.
 
 A repository that already had its own `eslint.config.mjs` keeps it: `init` never overwrites a file the
 construct did not write. The construct's syntax policy is therefore not applied there, and the test
@@ -369,6 +385,7 @@ never changes the exit code.
   "ok": true,
   "missingFiles": [],
   "modifiedFiles": [],
+  "unreadableFiles": [],
   "missingDiscovery": ["product", "module-map"],
   "provenance": [
     { "marker": "product", "file": "AGENTS.md", "authorship": "unknown" },

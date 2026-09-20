@@ -23,6 +23,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     ok: true,
     missingFiles: [],
     modifiedFiles: [],
+    unreadableFiles: [],
     missingDiscovery: [],
     provenance: [],
     harnessProblems: [],
@@ -98,6 +99,17 @@ describe('the doctor report', () => {
     const { output, code } = render(result({ uncollectedTests: ['tests/harness.test.ts'] }))
     expect(output).toContain('tests/harness.test.ts')
     expect(code).toBe(0)
+  })
+
+  it('names a file it could not read with the cause beside it, and separately from the missing ones', () => {
+    const { output, code } = render(result({
+      ok: false,
+      unreadableFiles: ['tests/harness.test.ts (EISDIR: illegal operation on a directory, read)'],
+      missingFiles: ['AGENTS.md'],
+    }))
+    expect(output).toContain('tests/harness.test.ts (EISDIR: illegal operation on a directory, read)')
+    expect(output).toContain('neither missing nor modified')
+    expect(code).toBe(1)
   })
 
   it('names the markers still reading back what discovery wrote, above the you-are-here line and without changing the exit code', () => {

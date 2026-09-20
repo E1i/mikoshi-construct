@@ -72,6 +72,8 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
     ui.glitch('Harness is broken.', result.harnessProblems)
   if (result.uncollectedTests.length > 0)
     ui.glitch(ui.lore.uncollectedTests, result.uncollectedTests)
+  if (result.unreadableFiles.length > 0)
+    ui.glitch(ui.lore.unreadableFiles, result.unreadableFiles)
   if (result.missingFiles.length > 0)
     ui.glitch('Baseline files are missing.', result.missingFiles)
   if (result.missingDiscovery.length > 0)

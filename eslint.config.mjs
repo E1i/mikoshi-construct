@@ -33,6 +33,19 @@ function dependencyBoundary([target, allowed]) {
 
 const dependencyBoundaries = Object.entries(ALLOWED_INTERNAL_IMPORTS).map(dependencyBoundary)
 
+const READS_GO_THROUGH_ONE_READER = 'doctor audits a repository it does not trust: every read goes through FileReadings in src/commands/doctor/readings.ts, which reports a path it cannot read instead of dropping it from the set it inspected'
+
+const doctorReadsThroughOneReader = {
+  files: ['src/commands/doctor/**'],
+  ignores: ['src/commands/doctor/readings.ts'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      patterns: dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns,
+      paths: [{ name: 'node:fs', importNames: ['readFileSync', 'readdirSync'], message: READS_GO_THROUGH_ONE_READER }],
+    }],
+  },
+}
+
 const ANTFU_RESTRICTED_SYNTAX = ['TSEnumDeclaration[const=true]', 'TSExportAssignment']
 
 const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts'
@@ -67,5 +80,6 @@ export default antfu(
     ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/**/*.workflow.mjs'],
   },
   ...dependencyBoundaries,
+  doctorReadsThroughOneReader,
   spawnPolicy,
 )

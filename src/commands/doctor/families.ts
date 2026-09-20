@@ -7,6 +7,7 @@ export const DOCTOR_FIELD_FAMILY: Record<keyof DoctorResult, ResultFamily> = {
   ok: 'provenance',
   missingFiles: 'provenance',
   modifiedFiles: 'provenance',
+  unreadableFiles: 'provenance',
   missingDiscovery: 'provenance',
   provenance: 'provenance',
   harnessProblems: 'mixed',

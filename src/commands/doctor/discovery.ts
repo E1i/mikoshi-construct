@@ -1,8 +1,8 @@
 import type { DiscoveryMarker, Manifest } from '../../manifest.js'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
 import { DISCOVERY_MARKERS } from '../../manifest.js'
+import { FileReadings } from './readings.js'
 
 export const DISCOVERY_PLACEHOLDER = '_Not discovered yet — run `/construct-discover`._'
 
@@ -27,22 +27,20 @@ export function isMarkerFilled(document: string, marker: string): boolean {
   return blockBody(document, marker) != null
 }
 
-function compositionBody(directory: string): string | null {
-  if (!existsSync(directory))
-    return null
-  const models = readdirSync(directory).filter(file => file.endsWith('.yaml')).sort()
-  if (models.length === 0)
-    return null
-  return models.map(model => `${model}\n${readFileSync(path.join(directory, model), 'utf8')}`).join('\n')
+function compositionBody(directory: string, readings: FileReadings): string | null {
+  const models = (readings.entries(directory) ?? []).filter(file => file.endsWith('.yaml')).sort()
+  const bodies = models.flatMap((model) => {
+    const source = readings.read(path.posix.join(directory, model))
+    return source == null ? [] : [`${model}\n${source}`]
+  })
+  return bodies.length === 0 ? null : bodies.join('\n')
 }
 
-export function markerBody(root: string, marker: DiscoveryMarker, file: string): string | null {
-  const location = path.join(root, file)
+export function markerBody(root: string, marker: DiscoveryMarker, file: string, readings: FileReadings = new FileReadings(root)): string | null {
   if (marker === 'composition')
-    return compositionBody(location)
-  if (!existsSync(location))
-    return null
-  return blockBody(readFileSync(location, 'utf8'), marker)
+    return compositionBody(file, readings)
+  const source = readings.read(file)
+  return source == null ? null : blockBody(source, marker)
 }
 
 export function markerFileFor(root: string, manifest: Manifest, marker: DiscoveryMarker): string {
@@ -55,6 +53,6 @@ export function markerFileFor(root: string, manifest: Manifest, marker: Discover
   return factsTheRepositoryEstablishes(root).compositionDir ?? recordedFile
 }
 
-export function missingDiscovery(root: string, manifest: Manifest): DiscoveryMarker[] {
-  return DISCOVERY_MARKERS.filter(marker => markerBody(root, marker, markerFileFor(root, manifest, marker)) == null)
+export function missingDiscovery(root: string, manifest: Manifest, readings: FileReadings = new FileReadings(root)): DiscoveryMarker[] {
+  return DISCOVERY_MARKERS.filter(marker => markerBody(root, marker, markerFileFor(root, manifest, marker), readings) == null)
 }

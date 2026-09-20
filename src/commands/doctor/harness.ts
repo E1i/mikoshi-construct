@@ -1,6 +1,7 @@
 import type { Manifest } from '../../manifest.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
+import { FileReadings } from './readings.js'
 
 export interface HarnessFacts {
   command: string
@@ -28,12 +29,11 @@ function expandScript(scripts: Record<string, string>, name: string, seen: Set<s
   return [body, ...referenced.map(reference => expandScript(scripts, reference, seen))].join(' && ')
 }
 
-export function readHarnessFacts(root: string, command: string): HarnessFacts {
+export const HARNESS_MANIFEST = 'package.json'
+
+export function readHarnessFacts(root: string, command: string, readings: FileReadings = new FileReadings(root)): HarnessFacts {
   const script = harnessScriptName(command)
-  const manifestPath = path.join(root, 'package.json')
-  const packageJson = existsSync(manifestPath)
-    ? JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
-    : null
+  const packageJson = readings.readJson(HARNESS_MANIFEST)
   const scripts = (packageJson?.scripts ?? {}) as Record<string, string>
   const body = scripts[script] ?? null
   return {
@@ -56,9 +56,9 @@ function contractProblems(root: string, contracts: Manifest['contracts'], script
   return problems
 }
 
-export function harnessProblems(root: string, manifest: Manifest, facts: HarnessFacts): string[] {
+export function harnessProblems(root: string, manifest: Manifest, facts: HarnessFacts, readings: FileReadings = new FileReadings(root)): string[] {
   if (facts.packageJson == null)
-    return ['package.json is missing']
+    return readings.unreadable(HARNESS_MANIFEST) ? [] : [`${HARNESS_MANIFEST} is missing`]
   const body = facts.body
   if (body == null)
     return [`package.json has no "${facts.script}" script (harness command is "${facts.command}")`]

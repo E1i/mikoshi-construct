@@ -73,3 +73,17 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/commands/doctor/projection.ts', dynamic)).toContain('no-restricted-syntax')
   })
 })
+
+describe('doctor reads a repository it does not trust through one reader', () => {
+  it('reports a bare file read anywhere under doctor, so the next unguarded read cannot arrive quietly', async () => {
+    const read = 'import { readFileSync } from \'node:fs\'\n\nexport const probe = readFileSync\n'
+    expect(await violations('src/commands/doctor/probe.ts', read)).toEqual(['no-restricted-imports'])
+    expect(await violations('src/commands/doctor/checks/probe.ts', read)).toEqual(['no-restricted-imports'])
+    expect(await violations('src/commands/doctor/readings.ts', read)).toEqual([])
+  })
+
+  it('keeps the dependency boundary the block carried before restating it, because the last block replaces the whole rule', async () => {
+    expect(await violations('src/commands/doctor/probe.ts', 'import { run } from \'../../cli.js\'\n\nexport const probe = run\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/commands/doctor/probe.ts', 'import { readManifest } from \'../../manifest.js\'\n\nexport const probe = readManifest\n')).toEqual([])
+  })
+})
