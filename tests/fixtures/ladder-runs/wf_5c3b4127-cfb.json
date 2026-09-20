@@ -1,0 +1,31 @@
+{
+  "run": "wf_5c3b4127-cfb",
+  "agent": "a1031c23e237ff2ad",
+  "returnedADesign": false,
+  "everyValueIsAPlaceholder": false,
+  "acceptedBytes": null,
+  "attempts": [
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    }
+  ],
+  "accepted": null,
+  "brief": "Task: `construct sync` does not know which template variant produced an append-block target, and it must never write one it cannot establish. Decide the variant from evidence, and where there is none, say so and write nothing.\n\nThe defect. For a target edited by block, the templates carry two variants: the default, used when the construct creates the file, and the `.existing.eta` form, used when the file was already there. The replay plans against a directory that does not exist, so every op is the create form, and the writer would splice that into an existing document. On this repository that means the default variant's `# {{projectName}}` heading landing in the middle of a `CLAUDE.md` that already has its own. A narrow fix — use the existing variant whenever the file exists — is wrong the other way: a `CLAUDE.md` the construct itself created holds the whole document inside its block, and swapping in the existing variant would strip its heading. It was tried; three tests refused it.\n\nThe framing, because the question is not about rendering. The two variants differ in how much of the file the construct owns: the create form's block holds the entire document, the existing form's block holds one section of somebody else's. So \"which variant is authoritative\" is \"how much of this file is ours\", and there are three sources of evidence for it, of different strength.\n\nStrongest: the variant `init` used, recorded in the manifest when it runs. It is known exactly at that moment and nowhere else. Recording it works for every repository materialized from now on and gives nothing to one materialized before.\n\nSecond: the shape of the file. A block that spans the whole document means the create form; content living outside the block means the existing form. This is good evidence and not proof — it breaks precisely when an owner has appended their own text below a block in a file the construct created.\n\nThird: reconstruction. Render both variants with the recorded variables and compare each against the sha the manifest recorded for that path. Where one matches, the variant is proven rather than guessed. For a manifest written by an older version there will rarely be a match, because the templates have moved since.\n\nThe rule to implement, which is this project's second epistemic rule applied to the last place that has not had it: where the variant is recorded, take the record. Where it is provable by reconstruction, prove it. Where it is neither, the variant is unknown — and an unknown path is not written at all, in any mode, and is shown to the owner with the reason. Shape-based inference may inform what is displayed but must not by itself authorise a write, because it is the one source that fails silently.\n\nThe report must keep unknown apart from conflict, and this matters more than it looks. \"The owner changed this\" and \"we cannot tell which variant made this\" are different facts leading to different actions: in the first the owner decides, in the second there is nothing for them to decide until `init` starts recording the variant. Merged into one line, the next person reading the report concludes they did something wrong.\n\nA consequence worth stating in the record rather than discovering later: on this repository the variant is unknown for both block targets, so `--apply` will not touch them, and the first live run is safe by construction rather than by care.\n\nAmend decision 0010, which already governs what the construct owns per strategy, rather than opening a new record, and note there that recording the variant at `init` is the forward fix while everything else is evidence about the past. Repository conventions: no comments in source including JSDoc, every user-facing string lives in src/ui/lore.ts with its PLAIN_LORE counterpart, tests live in tests/ and never beside source, style is fixed by running lint:fix rather than by hand, no dependency is added, and no existing test is weakened or skipped.\n\nAcceptance criteria so far:\n- init records which template variant it used for every append-block target it writes, and a test proves a freshly materialized repository carries that record while a manifest written before this change does not.\n- The variant is taken from the record when it exists and otherwise proven by rendering both variants with the recorded variables and matching the recorded sha; a test covers a path proven by reconstruction and a path where neither source settles it, and shape-based inference never by itself authorises a write.\n- A path whose variant is unknown is written in no mode, including --apply, and the report shows it with its own reason distinct from conflict, so that the owner is never told they changed something they did not; a test asserts the two appear separately.\n- Replaying this repository's frozen 0.1.0 manifest leaves AGENTS.md and CLAUDE.md unwritten with the variant unknown, and a generated project's CLAUDE.md and AGENTS.md still begin with the project heading, which the acceptance test added earlier pins.\n- Decision 0010 is amended with the three sources of evidence, their order, and that recording the variant at init is the forward fix while the rest is evidence about the past; pnpm run quality is green.\n\nThe task is classified as high effort; design it before any implementation.\n\nReturn the design spec object."
+}

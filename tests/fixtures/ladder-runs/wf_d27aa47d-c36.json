@@ -1,0 +1,31 @@
+{
+  "run": "wf_d27aa47d-c36",
+  "agent": "a0b1ee7c2fcaad6bf",
+  "returnedADesign": false,
+  "everyValueIsAPlaceholder": false,
+  "acceptedBytes": null,
+  "attempts": [
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "empty",
+      "journaledChars": 2
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    }
+  ],
+  "accepted": null,
+  "brief": "Task: Ownership of an append-block target is declared by its delimiters, not inferred from a recorded hash. Amend the classification contract accordingly, and amend decision 0010 to say why.\n\nWhat was measured. Replaying this repository's frozen 0.1.0 manifest classified `.gitignore` as `keep` but `AGENTS.md` and `CLAUDE.md` as `conflict` — the two files that carry the construct's own markers, the ones a construct most wants to update between versions. The discovery-body exclusion works and `matchesRecordedSha` correctly accepts either an owned-view hash or a whole-file hash. The fault is an asymmetry between the two comparison steps: step one compares an owned view against an owned view, while step two compares an owned view against the whole-file hash that `init` recorded. Any change anywhere in `AGENTS.md` — including discovery filling the markers, which the construct asks the owner to do — makes step two false forever, so `update` is unreachable for an append-block target read from a pre-sync manifest. Worse, it deadlocks: the first sync cannot record an owned-view hash because it does not write conflicts, and without that record the next sync conflicts again.\n\nThe decision, and its reason. A recorded hash is circumstantial evidence of ownership: we infer that nobody touched a file from a checksum matching. `construct:begin` and `construct:end` are ownership declared outright, in a file the owner reads and can delete. A declaration outranks circumstantial evidence, and where a declaration exists the inference is unnecessary. For an append-block target, therefore, step two is not consulted: a block that differs from what the templates produce is `update`, because the template moved on, not because somebody touched something. The discovery bodies stay excluded and are carried over, exactly as `init` already carries them.\n\nThis does not extend to `merge-json` and the contrast is the point, not an accident of luck. `package.json` carries no mark of which keys are the construct's, so there is nothing to declare ownership with and nothing to derive it from; its limit stands. `AGENTS.md` carries the mark. Say that difference in a paragraph of the record rather than leaving it to be rediscovered.\n\nThree conditions, and without them this decision becomes a silent loss.\n\nFirst: a differing block means the block is replaced whole. Edits made inside `begin` and `end` do not survive, discovery bodies aside. `init` already discards them and does so silently; now that this is sanctioned semantics rather than an accident, the classification must carry that fact so the report and the writer can state it. Turning \"loses silently\" into \"loses with permission\" and saying nothing would be worse than the original.\n\nSecond: if a file the manifest recorded no longer contains the delimiters, the owner removed the declaration of ownership. That is `conflict`, and never a re-insertion of the block. Sync putting its block back into a file somebody deliberately cut it out of is the same resurrection already forbidden for deleted files, at the scale of a file rather than a tree. Verify the current classification and pin it: measured before this task, that case already yields `conflict` because the missing block reads as an empty owned view, which means the behaviour is right today but holds by accident and nothing would catch a change.\n\nThird: the system heals itself from the second run onward, and the record should say so. Once a sync writes an append-block target it records an owned-view hash for it, and from then on a genuine three-way comparison is available for that path.\n\nAmend decision 0010 rather than adding a new one: the operation is the same, and what changes is how one strategy establishes ownership. Repository conventions: no comments in source including JSDoc, tests live in tests/ and never beside source, style is fixed by running lint:fix rather than by hand, no dependency is added, and no existing test is weakened or skipped.\n\nAcceptance criteria so far:\n- For an append-block target the ordered comparison consults only whether the owned view equals what the templates produce: equal is keep and different is update, with the recorded hash not consulted, proven by a test where the file has changed outside the construct block — discovery having filled its markers — and the block still classifies update rather than conflict; replaying this repository's frozen 0.1.0 manifest now yields update for AGENTS.md and CLAUDE.md.\n- A file the manifest recorded that no longer contains the construct delimiters classifies conflict and never add or update, pinned by a test so the behaviour stops holding by accident.\n- The classification carries, for an append-block target that will be written, the fact that the block is replaced whole and that edits inside the delimiters do not survive while discovery bodies are carried over, so a report and a writer can state it rather than each deciding for itself.\n- merge-json is unchanged and still never reaches update, and decision 0010 is amended to say that ownership of an append-block target is declared by its delimiters rather than inferred from a recorded hash, that a declaration outranks circumstantial evidence, why package.json cannot have the same treatment, and that a written sync records an owned-view hash so a real three-way comparison is available from the second run; pnpm run quality is green.\n\nThe task is classified as high effort; design it before any implementation.\n\nReturn the design spec object."
+}

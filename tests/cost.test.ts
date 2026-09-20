@@ -298,3 +298,50 @@ describe('the run ledger', () => {
     expect(printed(report).text).toContain('line 1: not JSON')
   })
 })
+
+describe('one response is one response, however many blocks the journal splits it into', () => {
+  function block(requestId: string, usage: Record<string, number>): string {
+    return `${JSON.stringify({ requestId, message: { role: 'assistant', model: 'sonnet', usage } })}\n`
+  }
+
+  it('counts a response once when the journal repeats its usage on every content block', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/blocks'
+    const run = path.join(projects, projectKey(cwd), 'session-1', 'subagents', 'workflows', 'wf_blocks')
+    mkdirSync(run, { recursive: true })
+    const usage = { input_tokens: 2, cache_creation_input_tokens: 1000, cache_read_input_tokens: 50000, output_tokens: 300 }
+    writeFileSync(path.join(run, 'agent-1.jsonl'), block('req_1', usage) + block('req_1', usage) + block('req_1', usage))
+    writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'design', agentType: 'architect' }))
+
+    const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
+    expect(recorded.total.calls).toBe(1)
+    expect(billable(recorded.total)).toBe(51302)
+  })
+
+  it('counts separate responses separately, so deduplication never hides a real call', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/two'
+    const run = path.join(projects, projectKey(cwd), 'session-1', 'subagents', 'workflows', 'wf_two')
+    mkdirSync(run, { recursive: true })
+    const usage = { input_tokens: 1, output_tokens: 10 }
+    writeFileSync(path.join(run, 'agent-1.jsonl'), block('req_1', usage) + block('req_1', usage) + block('req_2', usage))
+    writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'design', agentType: 'architect' }))
+
+    const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
+    expect(recorded.total.calls).toBe(2)
+    expect(billable(recorded.total)).toBe(22)
+  })
+
+  it('still counts a line the runtime recorded without a request identifier', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/plain'
+    const run = path.join(projects, projectKey(cwd), 'session-1', 'subagents', 'workflows', 'wf_plain')
+    mkdirSync(run, { recursive: true })
+    writeFileSync(path.join(run, 'agent-1.jsonl'), line('sonnet', { input_tokens: 5, output_tokens: 5 }) + line('sonnet', { input_tokens: 5, output_tokens: 5 }))
+    writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'design', agentType: 'architect' }))
+
+    const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
+    expect(recorded.total.calls).toBe(2)
+    expect(billable(recorded.total)).toBe(20)
+  })
+})

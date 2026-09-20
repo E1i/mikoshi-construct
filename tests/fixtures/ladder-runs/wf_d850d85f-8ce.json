@@ -1,0 +1,40 @@
+{
+  "run": "wf_d850d85f-8ce",
+  "agent": "a673079f5e7d1dd28",
+  "returnedADesign": true,
+  "everyValueIsAPlaceholder": true,
+  "acceptedBytes": 141,
+  "attempts": [
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "accepted",
+      "journaledChars": 141
+    }
+  ],
+  "accepted": {
+    "decision": "test",
+    "contractChanges": "test",
+    "compositionChanges": "test",
+    "constraints": [
+      "a"
+    ],
+    "acceptance": [
+      "a"
+    ],
+    "files": [
+      "/tmp/a"
+    ]
+  },
+  "brief": "Task: Discovery fills the markers in AGENTS.md and the invariants table, and once filled nothing distinguishes what the tool wrote from what the repository's owner stands behind. A statement Mikoshi authored must not later be passed off as the repository's own. Record where each marker came from.\n\nProvenance lives in construct.json, not in the prose of the marker. The marker stays a document a person reads; adding authorship annotations to it would make the document worse to read and would put the record in the one place a person is most likely to edit.\n\nThe shape. Today `discovery` is a flat map from marker name to the file that holds it, and every consumer treats the values as strings. It becomes a record carrying `baseSha`, `filledAt`, and a `markers` map from marker name to that marker's file, who authored it, and the sha256 of the body discovery wrote. Add an integer `manifestVersion` at the top level, distinct from `construct`, which is the CLI version — conflating a schema version with a product version is what makes a migration undecidable later.\n\nBackwards compatibility is not optional here. `readManifest` is a bare JSON.parse cast today, so a manifest written by 0.1.x makes `path.join(root, ...)` receive an object and doctor throws on every repository initialised before this change. A pure `upgradeManifest` normalises a legacy manifest on read. Nothing writes it back: doctor writes nothing, and a migration command is not part of this.\n\nThe sharp edge in that upgrade: a legacy manifest carries no provenance at all, so `authoredBy` for its markers is `unknown`, never `construct`. A repository where discovery genuinely ran and whose owner has since rewritten every marker would otherwise be told the tool is still talking to itself — this feature producing exactly the lie it exists to prevent.\n\nWhat discovery records. At the start of a discovery run, capture the repository's current commit sha as `baseSha`, and `filledAt` when it finishes. For each marker it fills, record the sha256 of the body it wrote and mark it as authored by discovery. This is the `/construct-discover` command's job, in this repository's copy and in the one that ships to users, kept in step.\n\nWhat makes a marker the owner's. If a marker's current body no longer matches the sha recorded for it, its authorship reads as the owner's — derived on read, with no command to run and nothing written back. The owner edited it by hand, and that is the only evidence needed. A marker whose body still matches reads as discovery's, and doctor reports which markers those are: they are the ones where the repository is still quoting the tool back to itself.\n\nWhere an owner has recorded that a variance is accepted, that record is what makes intent known; a marker with no such record leaves intent unknown rather than assumed.\n\nDoctor must keep every behaviour the previous change established: five checks each returning id, level, state and evidence, the weakest-link line, unchanged exit codes, and a freshly initialised repository still exiting 0. Provenance is reported, not enforced; it does not become a sixth gate and does not change an exit code.\n\nTwo interactions to verify before you finish, both of which will bite otherwise.\n\nFirst, tests/reproducibility.test.ts replays materialization and compares the produced tree against the repository root, failing on any undeclared difference and on any declared difference that no longer exists. This task changes the shape of construct.json, which that test handles. Check how the test treats construct.json and the drift list in architecture/self-hosting-drift.yaml, and make sure the new discovery branch is covered by whatever exclusion already applies. If that test goes red, the fix is to understand what changed — never to weaken, skip or narrow the test. Weakening it would be the defect this entire body of work exists to remove, and the harness watches for exactly that.\n\nSecond, the doctor fixtures under tests/fixtures/doctor/ build their manifests by calling buildManifest in the test rather than embedding literal JSON, precisely so a change to the manifest's shape edits one call. Keep it that way. Add exactly one literal fixture, a frozen 0.1.x manifest, as the regression that upgradeManifest keeps working — it is the only hand-written construct.json that belongs in the fixtures.\n\nRecord the schema versioning as a decision numbered 0009 and append its row to architecture/decisions/README.md in number order. Numbers 0006 through 0008 are taken. Say in it why the schema version is separate from the CLI version, and why a legacy manifest reads as unknown rather than as construct. Note that decision 0006 froze what init wrote while leaving the discovery branch to the discovery command, and that this is that branch — do not contradict it.\n\nUpdate architecture/composition/doctor.yaml for the provenance reporting and regenerate architecture/doctor.md with `pnpm composition:render`; composition:check runs inside quality, so a hand-edited rendered doc fails the gate. Document the manifest shape and what doctor reports in docs/cli.md.\n\nRepository conventions: no comments in source including JSDoc, every user-facing string lives in src/ui/lore.ts with its PLAIN_LORE counterpart and --plain output carries no lore and no emoji, tests live in tests/ and never beside source, the spawn policy in eslint.config.mjs fails the build if src/ reaches for a child process, a dynamic import, require or createRequire, style is fixed by running lint:fix rather than by hand, no dependency is added, and no existing test is weakened or skipped.\n\nAcceptance criteria so far:\n- construct.json carries an integer manifestVersion distinct from the CLI version and a discovery record of baseSha, filledAt and a markers map of file, authoredBy and sha; a pure upgradeManifest normalises a 0.1.x manifest on read so a frozen legacy fixture makes doctor produce a report rather than throwing, and legacy markers read as unknown, never as construct.\n- /construct-discover records the base commit sha at the start of a run, the time it finished, and the sha256 of each marker body it wrote, in this repository's copy and in the copy that ships to users; a marker whose current body no longer matches its recorded sha reads as the owner's with no command run and nothing written back, and doctor names the markers still authored by discovery.\n- Doctor keeps its five checks with id, level, state and evidence, its single weakest-link line and its exit codes; provenance is reported and never becomes a gate, and a freshly initialised repository still exits 0 from doctor --plain on every preset.\n- tests/reproducibility.test.ts is green without being weakened, skipped or narrowed, and the doctor fixtures still build their manifests through buildManifest with exactly one literal legacy manifest added as the upgrade regression.\n- Decision 0009 records the schema versioning, why it is separate from the CLI version, and why a legacy manifest reads as unknown, and is listed in architecture/decisions/README.md; architecture/composition/doctor.yaml is updated and architecture/doctor.md regenerated so composition:check passes; docs/cli.md documents the manifest shape and what doctor reports; pnpm run quality is green.\n\nThe task is classified as high effort; design it before any implementation.\n\nReturn the design spec object."
+}

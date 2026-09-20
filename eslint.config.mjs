@@ -61,7 +61,7 @@ export default antfu(
     typescript: true,
   },
   {
-    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/construct/*.workflow.mjs'],
+    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/**/*.workflow.mjs'],
   },
   ...dependencyBoundaries,
   spawnPolicy,

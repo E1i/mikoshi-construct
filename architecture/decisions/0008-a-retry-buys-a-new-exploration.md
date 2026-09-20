@@ -46,9 +46,49 @@ a fix, and the run that follows starts from a corrected task rather than repeati
 The cost is that a genuinely transient shape error is no longer absorbed silently; it surfaces as a
 stopped run. `retryLimit` remains a parameter for callers who expect that case and accept its price.
 
+## Amendment · 2026-09-20 — the figures were counted wrong, the decision was not
+
+Every number in the Context above came from `construct cost`, which summed the `usage` of every
+assistant line in an agent's journal. The journal writes one line per content block of a response and
+repeats that response's `usage` on each of them, so each multi-block response was counted two or three
+times. The command now deduplicates by request identifier, and `tests/cost.test.ts` fails if it stops.
+
+Restated with the corrected count: the architect that failed validation five times and returned
+nothing cost **1,528,014** tokens, not 3,658,281. The subtraction of two different runs that produced
+the 135k estimate is superseded below and should not be quoted again.
+
+**The split, measured directly.** Dividing five architect entries at the point of their first
+`StructuredOutput` call separates the exploration from the answering:
+
+| entry | attempts | exploration | answering | per attempt |
+|-------|---------:|------------:|----------:|------------:|
+| `wf_6592af6d-376` | 4 | 1,481,496 | 398,506 | 99,626 |
+| `wf_f1d74f7a-3cd` | 3 | 557,751 | 222,756 | 74,252 |
+| `wf_3ef46fa8-e99` (a) | 5 | 727,969 | 297,728 | 59,545 |
+| `wf_3ef46fa8-e99` (b) | 5 | 385,309 | 283,687 | 56,737 |
+| `wf_f910421e-fe0` | 1 | 1,185,408 | 118,455 | 118,455 |
+
+An internal attempt costs 57k to 100k; the exploration a new entry pays before it answers anything
+costs 385k to 1.48M. The ratio is between five and twenty to one, not the thousand to one that the
+0.3.0 release note claimed. **The decision stands: `retryLimit` defaults to `0`.** What changes is that
+the margin is narrower than the Context implied, so the reasoning is worth re-reading rather than
+cited as settled.
+
+**An argument the other way, which does not win today.** The record now shows that a refused answer
+recovers. Two stand runs against this repository were refused twice and three times and then returned
+a usable design on the attempt after; in the run that produced these figures both architects exhausted
+all five of the runtime's internal attempts and stopped at the edge, where one further entry would
+have bought five more attempts. That is a real argument for a non-zero `retryLimit` — not a
+possibility considered and dismissed, but a live counter-argument with a price on it: 385k to 1.48M
+for the entry, against a chance of recovery this record does not yet quantify. It loses today because
+the price is paid every time and the recovery is not guaranteed. **It must be weighed again at the
+next measurement, and a measurement that establishes how often an entry recovers would decide it.**
+
 ## Enforced by
 
 `tests/agent-output-contract.test.ts` (L3) pins the default and that both copies of the ladder script
-carry it; both copies of the `/implement` skill document what a retry actually costs. The wider rule is
+carry it; both copies of the `/implement` skill document what a retry actually costs.
+`tests/cost.test.ts` (L3) pins that one response is counted once however many journal lines carry it,
+which is the defect that produced the figures this record was first written with. The wider rule is
 L1 review: nothing mechanical stops a future escalation from restarting an agent where it could have
 continued one.

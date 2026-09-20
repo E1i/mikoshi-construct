@@ -1,0 +1,40 @@
+{
+  "run": "wf_c7fe977a-3d9",
+  "agent": "ab6d2c76688f45777",
+  "returnedADesign": true,
+  "everyValueIsAPlaceholder": true,
+  "acceptedBytes": 136,
+  "attempts": [
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "accepted",
+      "journaledChars": 136
+    }
+  ],
+  "accepted": {
+    "decision": "test",
+    "contractChanges": "test",
+    "compositionChanges": "test",
+    "constraints": [
+      "a"
+    ],
+    "acceptance": [
+      "a"
+    ],
+    "files": [
+      "a"
+    ]
+  },
+  "brief": "Task: Replay today's templates against a repository that was materialized by an older version, and classify every path. The contract this consumes already exists in src/sync/: the owned view per strategy, the seven classes, the ordered comparison and isWritable, all defined and tested by the previous change. Consume it; do not restate it.\n\nWhat the engine does. Given a repository root and its manifest, it produces a classification for every path by rendering the preset's current groups and comparing what the templates produce against what is recorded and what is present. Reuse planMaterialize rather than building a parallel materializer — a second path that renders templates would drift from the first one, and the drift would be invisible because both would be ours. The engine writes nothing; writing is a later change.\n\nVariables. The replay renders with the variables the manifest recorded, with exactly one exception: constructVersion comes from the running CLI. A replay that stamped files with the version being replaced would write the old number into the very field the version gap is later read from. Every other recorded variable is used as recorded — re-detecting the environment would rewrite files such as .nvmrc that the owner never asked to change, and if the owner wants that it is their decision and not a side effect of syncing.\n\nA variable the manifest does not carry stops the replay. render() throws on an unknown variable, and a manifest written by an older version may simply lack a variable today's templates require. Stopping is right; stopping without a way forward is not, because it leaves an old repository permanently unsyncable. The failure names every missing variable and how to supply it.\n\nFixtures, and one of them matters more than the rest. Freeze this repository's own construct.json exactly as construct 0.1.0 wrote it as a test fixture — it is a real record from a real older version, and it carries a group, presets/node-backend/sample, that no longer exists in any preset. Replaying it must yield orphaned for the paths that group once wrote, a genuine version gap between the recorded version and the running one, and conflict for the paths that existed in the tree before init ran and were therefore skipped and never recorded.\n\nThe add class needs exercising and the honest way to do it is conditional. Measured today, replaying that 0.1.0 manifest yields exactly one add, tsconfig.base.json, because the templates split the TypeScript config after that manifest was written. Assert add on the real replay when the delta still produces one, and otherwise on a synthetic fixture built by removing one recorded path from a manifest. Both routes prove the same property, and stating both now means a future template change can never turn this criterion into pressure to weaken a test.\n\nRepeating a replay over an already-synced tree must report nothing to do: a path whose owned view equals what the templates produce is keep, and that is what makes sync idempotent before the writer exists.\n\nRepository conventions: no comments in source including JSDoc, every user-facing string lives in src/ui/lore.ts with its PLAIN_LORE counterpart, tests live in tests/ and never beside source, the spawn policy in eslint.config.mjs fails the build if src/ reaches for a child process, a dynamic import, require or createRequire, style is fixed by running lint:fix rather than by hand, no dependency is added, and no existing test is weakened or skipped.\n\nAcceptance criteria so far:\n- The engine classifies every path of a materialized repository by rendering the preset's current groups through planMaterialize with the manifest's recorded variables, writes nothing, and substitutes constructVersion from the running CLI and no other variable, which a test asserts by name.\n- A manifest lacking a variable today's templates require stops the replay naming every missing variable and how to supply it, proven by a fixture, so an old repository is never left permanently unsyncable.\n- This repository's construct.json as written by 0.1.0 is frozen as a fixture; replaying it yields orphaned for the paths of the node-backend sample group that no longer exists, conflict for the paths that were present before init and never recorded, and a version gap between the recorded and running versions.\n- The add class is proven on that replay while the delta still produces one — today it produces exactly tsconfig.base.json — and otherwise on a synthetic fixture with one recorded path removed, with both routes present so no future template change turns this into pressure on a test.\n- A replay over a tree that already equals what the templates produce classifies every such path keep and reports nothing to do, and pnpm run quality is green.\n\nThe task is classified as high effort; design it before any implementation.\n\nReturn the design spec object."
+}

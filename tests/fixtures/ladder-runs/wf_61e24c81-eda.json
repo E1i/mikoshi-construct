@@ -1,0 +1,31 @@
+{
+  "run": "wf_61e24c81-eda",
+  "agent": "a5424b620a08289c9",
+  "returnedADesign": false,
+  "everyValueIsAPlaceholder": false,
+  "acceptedBytes": null,
+  "attempts": [
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "empty",
+      "journaledChars": 2
+    },
+    {
+      "outcome": "unparsable",
+      "journaledChars": 2048
+    },
+    {
+      "outcome": "empty",
+      "journaledChars": 2
+    }
+  ],
+  "accepted": null,
+  "brief": "Task: Give the run ledger a reader, and be honest about what it is.\n\nThe /implement skill already appends one JSON line per run to .construct/runs.jsonl. Nothing reads it, nothing validates it, and nothing says what it is worth. Decision 0003 in architecture/decisions/ already records the honest frame: the workflow script has no filesystem access, and the runtime we do not control will not write our journal, so a runtime-independent ledger is unreachable. What is reachable is checkability. The ledger is written by a step of a skill, which makes it L0 on the scale doctor now reports — a record nobody is obliged to keep — and the documentation must say exactly that rather than presenting it as a guarantee.\n\nWhat to build.\n\nRead the ledger where it lives, .construct/ in the project root, with each line carrying role, task_id, attempt, effort, outcome, duration, tokens or the string unknown, and failure_reason. A line that does not parse, or that is missing fields, is reported as a malformed line naming the line number — never silently skipped, because a ledger that quietly drops what it cannot read is worse than no ledger.\n\nReconcile it against what the runtime actually exposes, in both directions. A ledger entry with no matching session is one finding; a session run with no ledger entry is the other. Both are shown, both are counted, and neither is presented as an error — they are the two ways a record and a reality drift apart, and the point is to see the drift, not to hide it.\n\nWhen the runtime does not expose usage, which the previous change made a first-class status, the ledger is still worth reading: show the counts it carries — how many runs, how many agents, how many failures — and mark every token figure as unknown rather than zero. Zero is a number and it would be a lie; unknown is the truth.\n\nUse what the cost command already has. src/commands/cost/ now holds a CostSource interface, a Claude Code implementation, runtime resolution and a report with statuses and exit codes. The ledger is a second source of facts about the same runs, not a second command and not a second interface: extend the report rather than building a parallel path, and keep the abstraction to what these two sources require. A registry for two things is ceremony.\n\nThe existing statuses and exit codes must keep their meanings — ok, empty, unsupported, mismatch and unknown are already documented in docs/cli.md and a consumer may rely on them. Reconciliation findings are additional information in the report and in --json, not a new failure mode; a drift between ledger and sessions does not turn a successful read into an error.\n\nCheck rather than assume: .construct/ should already be ignored by git in the base templates. Confirm it, and if it is missing anywhere it ships, add it.\n\nDocument in docs/cli.md what the ledger is, that it is written by a skill step and is therefore L0, what each field means, and how reconciliation reads. A reader must come away knowing they cannot rely on it being complete.\n\nRepository conventions: no comments in source including JSDoc, every user-facing string lives in src/ui/lore.ts with its PLAIN_LORE counterpart and --plain output carries no lore and no emoji, tests live in tests/ and never beside source, the spawn policy in eslint.config.mjs fails the build if src/ reaches for a child process, a dynamic import, require or createRequire, style is fixed by running lint:fix rather than by hand, no dependency is added, and no existing test is weakened or skipped. The security invariant that cost reads token counts and never message content must still be true when you are done, and the ledger must not become a way around it: it carries counts and reasons, never prompts or outputs.\n\nAcceptance criteria so far:\n- The ledger at .construct/runs.jsonl is read with its declared fields, a malformed or incomplete line is reported as such naming its line number rather than skipped, and every token value may be the string unknown without that being treated as zero.\n- Reconciliation reports both directions — a ledger entry with no session and a session with no ledger entry — as counted findings in both text and --json, without changing the status or the exit code the previous change established for ok, empty, unsupported, mismatch and unknown.\n- On an unsupported runtime the report still shows the ledger's own counts with every token figure marked unknown, so the command remains useful where the runtime exposes nothing.\n- docs/cli.md states that the ledger is written by a skill step and is therefore L0, names every field, and describes reconciliation; .construct/ is ignored by git wherever the templates ship it; pnpm run quality is green.\n\nThe implementer stopped on this question:\nWhat joins a ledger entry to a runtime workflow run — should the /implement skill step (both .claude/skills/implement/SKILL.md and templates/ai/claude/_claude/skills/implement/SKILL.md) be rewritten to append the declared schema plus an explicit session/run identifier the reader joins on, or must the reader work with entries that carry no identifier and reconcile by pairing ledger entries against session runs chronologically?\n\nReturn the design spec object."
+}
