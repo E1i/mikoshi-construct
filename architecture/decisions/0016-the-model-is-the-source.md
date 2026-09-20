@@ -55,3 +55,10 @@ Schema validation over fixtures (L3). The no-second-source assertion: a claim pl
 `construct.json`, or a file hash placed in the model, must fail validation (L3). A fixture with two
 chains stopping at equal depth, pinning the tie-break (L3). A check that `doctor` computes no state
 absent from the model (L3, lands with 5.1, when `doctor` first reads the model).
+
+Ownership inside the model is `authoredBy` and nothing else, as
+[architecture/model.md](../model.md) states. While `init` is its only consumer that rule is L1,
+review — there is one decider, so there is nothing to diverge from. When `doctor` becomes the second
+consumer in 5.1 it gains a real surface, and 5.1 acceptance carries the mutation gate that raises it
+to L3: make `doctor` derive ownership from anything other than `authoredBy` — from what references
+an entry, from preset membership, from position — and the gate must fail.
