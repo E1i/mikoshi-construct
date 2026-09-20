@@ -176,5 +176,10 @@ them as rules.
   Until then the blind spot is represented by the absence of a question the model can answer — not
   by synthesising an `unknown` value or any equivalent derived status, which would assert that the
   question was asked and came back empty.
+  If it resolves towards "a repository fact", it becomes a **new rule number**, never an expansion
+  of [rule 8](architecture/epistemic-rules.md). The two are adjacent in meaning and must stay
+  separate in identity: *a command exists → the enforcement level* is rule 8, and *the enforcement
+  level → the capability demonstrated* would be the new rule. Rule 8 may later point at it with a
+  "see also"; its own scope stays as written.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->

@@ -5,6 +5,11 @@ audits and to this repository itself. Decisions in [decisions/](decisions/) cite
 the numbering is stable: a rule is never renumbered, and a rule that stops applying is struck
 through in place rather than removed.
 
+A rule's normative scope is fixed once written. New scope takes a new number; an existing rule may
+gain a "see also" reference to it, never additional scope of its own. Stable numbering protects what
+a reference points at, and this protects what it means — widening a rule would silently change what
+every citation of it already made, in records nobody is going back to reread.
+
 Enforcement levels referenced below (L0 text only, L1 review, L2 local hook, L3 CI, L4 CI blocking
 merge) are defined in [decisions/README.md](decisions/README.md).
 
