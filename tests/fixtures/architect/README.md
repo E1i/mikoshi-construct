@@ -53,6 +53,24 @@ applies after the input parses; seven of these ten never parsed, and no length t
 change that. A bound may still be worth having for what it tells the model to aim at, which is an
 argument about the prompt, not about validation.
 
+## Where they break
+
+`tests/architect-payload-shape.test.ts` reads every `unparsable` record and asserts what the kept
+window can still establish. In all seven: the payload begins at `{` with no fence and no prose around
+it; there is not one raw control character anywhere in the window; and `decision` — the long
+free-prose field — closes cleanly, between 1255 and 1809 characters, correctly escaped. The window
+then runs out inside `contractChanges`, the second field, in all seven.
+
+So the field the obvious fix would bound is the one field every failure got right, and between 1388
+and 8245 bytes of each payload — the rest of `contractChanges` and the four fields after it — is
+where the malformation has to be. That part is gone and cannot be recovered from this record.
+
+What that rules out, it rules out for the visible window only: a fence, prose around the object, an
+unescaped quote before the cut, and a raw newline inside `decision`. Between a raw newline in a later
+field and an answer that stopped mid-object, this record cannot choose. Deciding that needs a new
+observation that keeps the whole payload, which is the first thing any measurement of the rate should
+be built to do — the journal that recorded these threw away the only part that mattered.
+
 ## Names
 
 The vocabulary of the private project's product surface has been replaced: the geographic list, the
