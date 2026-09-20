@@ -10,6 +10,14 @@ gain a "see also" reference to it, never additional scope of its own. Stable num
 a reference points at, and this protects what it means — widening a rule would silently change what
 every citation of it already made, in records nobody is going back to reread.
 
+The same holds for any identifier this repository publishes and others cite. Audited 2026-09-21 over
+the two that exist: `doctor`'s check ids, and the enforcement levels L0–L4. Each check id has one
+home and one scope — five ids, five files, each declaring its own and emitting no other, with `ci`
+naming in a `SCOPE` constant what it cannot see rather than quietly covering it. The levels were
+spelled out twice in code, in `src/commands/doctor/verdict.ts` and `src/model/schema.ts`, with
+nothing tying the copies together; they agreed, but one could have been widened without the other
+noticing. `tests/identifier-scope.test.ts` now holds them to each other.
+
 Enforcement levels referenced below (L0 text only, L1 review, L2 local hook, L3 CI, L4 CI blocking
 merge) are defined in [decisions/README.md](decisions/README.md).
 
