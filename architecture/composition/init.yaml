@@ -71,6 +71,10 @@ nodes:
     label: construct.json
     path: src/manifest.ts
     boundary: materialize
+  - id: model
+    label: construct.model.json
+    path: src/model/write.ts
+    boundary: materialize
 edges:
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: detect, kind: sequence}
@@ -86,3 +90,4 @@ edges:
   - {from: plan, to: apply, kind: sequence, label: 'FileOp[] after confirm'}
   - {from: run, to: manifest, kind: sequence, label: 'readManifest: the record already here'}
   - {from: apply, to: manifest, kind: sequence, label: written files}
+  - {from: preset, to: model, kind: sequence, label: claims the construct materializes}

@@ -27,6 +27,12 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/materialize/probe.ts', 'import { classifyPath } from \'../sync/classify.js\'\n\nexport const probe = classifyPath\n')).toEqual(['no-restricted-imports'])
   })
 
+  it('keeps the model and the manifest apart in both directions', async () => {
+    expect(await violations('src/model/probe.ts', 'import { readManifest } from \'../manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/manifest.ts', 'import { parseModel } from \'./model/schema.js\'\n\nexport const probe = parseModel\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/model/probe.ts', 'import { detect } from \'../detect/index.js\'\n\nexport const probe = detect\n')).toEqual([])
+  })
+
   it('confines child processes to the pnpm version probe', async () => {
     const spawn = 'import { execFileSync } from \'node:child_process\'\n\nexport const probe = execFileSync\n'
     expect(await violations('src/commands/probe.ts', spawn)).toEqual(['no-restricted-syntax'])

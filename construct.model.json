@@ -1,0 +1,108 @@
+{
+  "modelVersion": 1,
+  "facts": [
+    {
+      "id": "security-workflow",
+      "kind": "file-exists",
+      "path": ".github/workflows/security.yml"
+    },
+    {
+      "id": "security-workflow-runs-gitleaks",
+      "kind": "file-contains",
+      "path": ".github/workflows/security.yml",
+      "needle": "gitleaks"
+    },
+    {
+      "id": "gitleaks-config",
+      "kind": "file-exists",
+      "path": ".gitleaks.toml"
+    },
+    {
+      "id": "security-workflow-audits-dependencies",
+      "kind": "file-contains",
+      "path": ".github/workflows/security.yml",
+      "needle": "pnpm audit --audit-level=high"
+    },
+    {
+      "id": "ci-workflow",
+      "kind": "file-exists",
+      "path": ".github/workflows/ci.yml"
+    },
+    {
+      "id": "ci-workflow-runs-the-harness",
+      "kind": "file-contains",
+      "path": ".github/workflows/ci.yml",
+      "needle": "pnpm run quality"
+    },
+    {
+      "id": "eslint-config",
+      "kind": "file-exists",
+      "path": "eslint.config.mjs"
+    },
+    {
+      "id": "security-invariants",
+      "kind": "file-exists",
+      "path": "architecture/security-invariants.md"
+    }
+  ],
+  "claims": [
+    {
+      "id": "no-committed-secret",
+      "statement": "No secret, token or connection string is committed to this repository, including into gitignored files",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/security.yml runs gitleaks over the history on every push and pull request",
+        "level": "L3",
+        "supportedBy": [
+          "security-workflow",
+          "security-workflow-runs-gitleaks"
+        ]
+      },
+      "verification": {
+        "mechanism": ".gitleaks.toml keeps the default ruleset live for that scan",
+        "supportedBy": [
+          "gitleaks-config"
+        ]
+      }
+    },
+    {
+      "id": "vulnerable-dependencies-are-visible",
+      "statement": "Dependencies with known high-severity vulnerabilities are visible",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": "security.yml runs pnpm audit weekly and on pull requests, reporting only",
+        "level": "L3",
+        "supportedBy": [
+          "security-workflow",
+          "security-workflow-audits-dependencies"
+        ]
+      },
+      "verification": {
+        "mechanism": "architecture/security-invariants.md names the mechanism behind each invariant",
+        "supportedBy": [
+          "security-invariants"
+        ]
+      }
+    },
+    {
+      "id": "every-change-passes-the-harness",
+      "statement": "Lint, typecheck and tests pass on every change, as one command",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request and push to main",
+        "level": "L3",
+        "supportedBy": [
+          "ci-workflow",
+          "ci-workflow-runs-the-harness"
+        ]
+      },
+      "verification": {
+        "mechanism": "eslint.config.mjs is the single source of style for that run",
+        "supportedBy": [
+          "eslint-config"
+        ]
+      }
+    }
+  ],
+  "hypotheses": []
+}

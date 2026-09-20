@@ -1,0 +1,7 @@
+name: ci
+on: [pull_request]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pnpm run quality

@@ -1,0 +1,56 @@
+{
+  "modelVersion": 1,
+  "facts": [
+    { "id": "ci-workflow", "kind": "file-exists", "path": ".github/workflows/ci.yml" },
+    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality" },
+    { "id": "commit-hook", "kind": "file-exists", "path": ".husky/pre-commit" },
+    { "id": "eslint-config", "kind": "file-exists", "path": "eslint.config.mjs" },
+    { "id": "eslint-restricts-imports", "kind": "file-contains", "path": "eslint.config.mjs", "needle": "no-restricted-imports" },
+    { "id": "security-invariants", "kind": "file-exists", "path": "architecture/security-invariants.md" }
+  ],
+  "claims": [
+    {
+      "id": "no-secret-reaches-a-commit",
+      "statement": "No secret, token or connection string reaches a commit in this repository",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".husky/pre-commit scans the staged diff before the commit is written",
+        "level": "L4",
+        "supportedBy": ["commit-hook"]
+      },
+      "verification": {
+        "mechanism": "architecture/security-invariants.md names the mechanism behind the invariant",
+        "supportedBy": ["security-invariants"]
+      }
+    },
+    {
+      "id": "imports-respect-the-dependency-policy",
+      "statement": "No module imports across a boundary the dependency policy forbids",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": "eslint.config.mjs restricts imports per boundary",
+        "level": "L3",
+        "supportedBy": ["eslint-config", "eslint-restricts-imports"]
+      },
+      "verification": {
+        "mechanism": "architecture/security-invariants.md names the mechanism behind the invariant",
+        "supportedBy": ["security-invariants"]
+      }
+    },
+    {
+      "id": "every-change-passes-the-harness",
+      "statement": "Lint, typecheck and tests pass on every change, as one command",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request",
+        "level": "L3",
+        "supportedBy": ["ci-workflow", "ci-runs-the-harness"]
+      },
+      "verification": {
+        "mechanism": "architecture/security-invariants.md names the mechanism behind the invariant",
+        "supportedBy": ["security-invariants"]
+      }
+    }
+  ],
+  "hypotheses": []
+}

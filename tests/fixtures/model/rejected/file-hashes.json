@@ -1,0 +1,39 @@
+{
+  "modelVersion": 1,
+  "facts": [
+    {
+      "id": "eslint-config",
+      "kind": "file-exists",
+      "path": "eslint.config.mjs"
+    }
+  ],
+  "claims": [
+    {
+      "id": "every-change-passes-the-harness",
+      "statement": "Lint, typecheck and tests pass on every change, as one command",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": "ci.yml runs pnpm run quality",
+        "level": "L3",
+        "supportedBy": [
+          "eslint-config"
+        ]
+      },
+      "verification": null
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "single-service",
+      "statement": "This repository is a single deployable service",
+      "authoredBy": "discovery",
+      "baseSha": "9f1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "supportedBy": [
+        "eslint-config"
+      ]
+    }
+  ],
+  "files": {
+    "AGENTS.md": "3b1f0d5c8a2e47b69c0d1e2f3a4b5c6d7e8f90112233445566778899aabbccdd"
+  }
+}

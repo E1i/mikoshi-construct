@@ -30,6 +30,7 @@ flowchart LR
     rules["Claude rules → Cursor rules"]
     apply["applyPlan"]
     manifest["construct.json"]
+    model["construct.model.json"]
   end
   cli --> run
   run --> detect
@@ -45,6 +46,7 @@ flowchart LR
   plan -->|"FileOp[] after confirm"| apply
   run -->|"readManifest: the record already here"| manifest
   apply -->|"written files"| manifest
+  preset -->|"claims the construct materializes"| model
 ```
 <!-- /composition:init -->
 

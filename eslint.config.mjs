@@ -1,24 +1,27 @@
 import antfu from '@antfu/eslint-config'
 
-const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'presets', 'sync', 'ui', 'version']
+const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version']
 
 const ALLOWED_INTERNAL_IMPORTS = {
   'src/detect': [],
+  'src/manifest.ts': ['detect', 'materialize', 'presets'],
+  'src/model': ['detect', 'presets'],
   'src/presets': ['detect'],
   'src/materialize': ['presets'],
   'src/sync': ['manifest', 'materialize', 'presets'],
   'src/ui': ['presets'],
-  'src/commands': ['detect', 'manifest', 'materialize', 'presets', 'sync', 'ui', 'version'],
+  'src/commands': ['detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
 }
 
-function dependencyBoundary([directory, allowed]) {
+function dependencyBoundary([target, allowed]) {
   const forbidden = INTERNAL_MODULES.filter(name => !allowed.includes(name))
+  const directory = target.replace(/\.ts$/, '')
   return {
-    files: [`${directory}/**`],
+    files: [target.endsWith('.ts') ? target : `${target}/**`],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [{
-          group: forbidden.flatMap(name => [`../${name}`, `../${name}.js`, `../${name}/*`, `../../${name}`, `../../${name}.js`, `../../${name}/*`]),
+          group: forbidden.flatMap(name => ['.', '..', '../..'].flatMap(base => [`${base}/${name}`, `${base}/${name}.js`, `${base}/${name}/*`])),
           message: allowed.length === 0
             ? `${directory} imports no other src module: it returns facts`
             : `${directory} may import only ${allowed.join(', ')}`,

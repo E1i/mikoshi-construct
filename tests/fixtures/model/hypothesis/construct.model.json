@@ -1,0 +1,42 @@
+{
+  "modelVersion": 1,
+  "facts": [
+    { "id": "workspace-file", "kind": "file-exists", "path": "pnpm-workspace.yaml" },
+    { "id": "api-app", "kind": "file-exists", "path": "apps/api/package.json" },
+    { "id": "api-app-runs-the-harness", "kind": "file-contains", "path": "apps/api/package.json", "needle": "\"quality\"" },
+    { "id": "ci-workflow", "kind": "file-exists", "path": ".github/workflows/ci.yml" },
+    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality" }
+  ],
+  "claims": [
+    {
+      "id": "every-change-passes-the-harness",
+      "statement": "Lint, typecheck and tests pass on every change, as one command",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request",
+        "level": "L3",
+        "supportedBy": ["ci-workflow", "ci-runs-the-harness"]
+      },
+      "verification": {
+        "mechanism": "apps/api declares the same harness script the workflow calls",
+        "supportedBy": ["api-app-runs-the-harness"]
+      }
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "workspace-with-one-deployable",
+      "statement": "This repository is a pnpm workspace whose single deployable is apps/api, and CI runs the harness over it",
+      "authoredBy": "discovery",
+      "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
+      "supportedBy": ["workspace-file", "api-app", "ci-runs-the-harness"]
+    },
+    {
+      "id": "nothing-is-named-under-this-one",
+      "statement": "This repository is deployed as a single container",
+      "authoredBy": "unknown",
+      "baseSha": null,
+      "supportedBy": []
+    }
+  ]
+}
