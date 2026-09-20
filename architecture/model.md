@@ -37,6 +37,14 @@ Every fact, claim and hypothesis carries an `authoredBy`, from one list shared b
 | `discovery` | The discovery protocol wrote the entry from what it found in the repository. |
 | `unknown` | The entry was not written by the construct and its author was not recorded. |
 
+`authoredBy` is the sole source of ownership for model entries. `init` may replace only entries
+authored by `construct`; entries with any other author are carried over unchanged. No other way of
+deriving ownership is permitted — not from what references an entry, not from whether the preset
+still produces it, not from where it sits in the file. A second derivation would give one question
+two answers, and [decision 0016](decisions/0016-the-model-is-the-source.md) exists so that the model
+gives one. Nothing checks this rule mechanically: it is held by review, and it is written here so
+that the next consumer reads it rather than inventing its own answer.
+
 `init` is additive, exactly as it is for the manifest
 ([decision 0013](decisions/0013-a-second-init-adds-to-the-record.md)). A second run rewrites only the
 entries whose author is `construct`: one the preset still makes is replaced with the freshly built
