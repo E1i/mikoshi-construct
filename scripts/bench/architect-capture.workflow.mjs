@@ -22,12 +22,23 @@ const DESIGN_EFFORT = 'xhigh'
 const briefs = args.briefs ?? []
 const stopAfterTokens = args.stopAfterTokens ?? null
 
+function spentTokens() {
+  try {
+    const spent = Number(budget?.spent)
+    return Number.isFinite(spent) ? spent : null
+  }
+  catch {
+    return null
+  }
+}
+
 const results = []
-let spentBefore = budget.spent ?? 0
+let spentBefore = spentTokens()
 
 for (const brief of briefs) {
-  if (stopAfterTokens != null && (budget.spent ?? 0) >= stopAfterTokens) {
-    log(`stopping before ${brief.name}: ${budget.spent} tokens spent, limit ${stopAfterTokens}`)
+  const spentNow = spentTokens()
+  if (stopAfterTokens != null && spentNow != null && spentNow >= stopAfterTokens) {
+    log(`stopping before ${brief.name}: ${spentNow} tokens spent, limit ${stopAfterTokens}`)
     break
   }
 
@@ -47,16 +58,16 @@ for (const brief of briefs) {
     validationError = String(error?.message ?? error)
   }
 
-  const spentAfter = budget.spent ?? 0
+  const spentAfter = spentTokens()
   results.push({
     brief: brief.name,
     returned: design != null,
     validationError,
-    tokens: spentAfter - spentBefore,
+    tokens: spentAfter != null && spentBefore != null ? spentAfter - spentBefore : null,
     design,
   })
   spentBefore = spentAfter
   log(`${brief.name}: ${design == null ? `returned nothing — ${validationError}` : 'returned a design'}`)
 }
 
-return { effort: DESIGN_EFFORT, spent: budget.spent ?? null, results }
+return { effort: DESIGN_EFFORT, spent: spentTokens(), results }
