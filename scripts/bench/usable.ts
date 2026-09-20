@@ -1,7 +1,8 @@
 export const REQUIREMENTS = {
   decisionCharacters: 200,
-  entryCharacters: 30,
-  pathCharacters: 7,
+  constraintsCharacters: 200,
+  acceptanceCharacters: 200,
+  filesCharacters: 60,
   entries: 2,
 } as const
 
@@ -12,28 +13,20 @@ export interface Usability {
 
 interface Spec {
   decision?: unknown
-  contractChanges?: unknown
-  compositionChanges?: unknown
   constraints?: unknown
   acceptance?: unknown
   files?: unknown
 }
 
-function listOf(value: unknown): string[] | null {
-  return Array.isArray(value) && value.every(entry => typeof entry === 'string') ? value as string[] : null
-}
-
 function shortfallsOfList(field: string, value: unknown, minimumCharacters: number): string[] {
-  const entries = listOf(value)
-  if (entries == null)
+  if (!Array.isArray(value) || value.some(entry => typeof entry !== 'string'))
     return [`${field} is not a list of strings`]
-  const shortfalls = entries.length < REQUIREMENTS.entries
-    ? [`${field} names ${entries.length} of ${REQUIREMENTS.entries} entries`]
-    : []
-  const shortest = Math.min(...entries.map(entry => entry.trim().length))
-  return entries.length > 0 && shortest < minimumCharacters
-    ? [...shortfalls, `the shortest entry of ${field} is ${shortest} characters, under ${minimumCharacters}`]
-    : shortfalls
+  const entries = value as string[]
+  const written = entries.reduce((total, entry) => total + entry.trim().length, 0)
+  return [
+    ...(entries.length < REQUIREMENTS.entries ? [`${field} names ${entries.length} of ${REQUIREMENTS.entries} entries`] : []),
+    ...(written < minimumCharacters ? [`${field} carries ${written} characters in all, under ${minimumCharacters}`] : []),
+  ]
 }
 
 export function usability(value: unknown): Usability {
@@ -46,9 +39,9 @@ export function usability(value: unknown): Usability {
     ...(decision.length < REQUIREMENTS.decisionCharacters
       ? [`decision is ${decision.length} characters, under ${REQUIREMENTS.decisionCharacters}`]
       : []),
-    ...shortfallsOfList('constraints', spec.constraints, REQUIREMENTS.entryCharacters),
-    ...shortfallsOfList('acceptance', spec.acceptance, REQUIREMENTS.entryCharacters),
-    ...shortfallsOfList('files', spec.files, REQUIREMENTS.pathCharacters),
+    ...shortfallsOfList('constraints', spec.constraints, REQUIREMENTS.constraintsCharacters),
+    ...shortfallsOfList('acceptance', spec.acceptance, REQUIREMENTS.acceptanceCharacters),
+    ...shortfallsOfList('files', spec.files, REQUIREMENTS.filesCharacters),
   ]
   return { usable: shortfalls.length === 0, shortfalls }
 }

@@ -39,14 +39,23 @@ describe('a design is usable or it is not, judged against the runs that were rec
 
   it('sets every requirement inside the gap, far from both sides of it', () => {
     const real = accepted().filter(run => !run.everyValueIsAPlaceholder).map(run => run.accepted!)
+    const written = (design: Record<string, string | string[]>, field: string): number =>
+      (design[field] as string[]).reduce((total, entry) => total + entry.length, 0)
     const smallest = {
       decisionCharacters: Math.min(...real.map(design => (design.decision as string).length)),
-      entryCharacters: Math.min(...real.flatMap(design => (design.acceptance as string[]).concat(design.constraints as string[]).map(entry => entry.length))),
-      pathCharacters: Math.min(...real.flatMap(design => (design.files as string[]).map(entry => entry.length))),
+      constraintsCharacters: Math.min(...real.map(design => written(design, 'constraints'))),
+      acceptanceCharacters: Math.min(...real.map(design => written(design, 'acceptance'))),
+      filesCharacters: Math.min(...real.map(design => written(design, 'files'))),
       entries: Math.min(...real.map(design => (design.acceptance as string[]).length)),
     }
     for (const [requirement, value] of Object.entries(REQUIREMENTS))
       expect(smallest[requirement as keyof typeof smallest], `${requirement} leaves room above`).toBeGreaterThan(value)
+  })
+
+  it('does not sink a real design over one terse entry, as the stand run of wf_5c3b4127-cfb did', () => {
+    const real = accepted().find(run => !run.everyValueIsAPlaceholder)!.accepted!
+    const withATerseConstraint = { ...real, constraints: [...(real.constraints as string[]), 'Ship a minor changeset.'] }
+    expect(usability(withATerseConstraint)).toEqual({ usable: true, shortfalls: [] })
   })
 
   it('refuses anything that is not a design at all', () => {
