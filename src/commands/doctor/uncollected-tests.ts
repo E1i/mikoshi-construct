@@ -1,21 +1,16 @@
 import type { Manifest } from '../../manifest.js'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
+import { FileReadings } from './readings.js'
 import { includeGlobs, matchesAnyGlob, RUNNER_CONFIG_FILES } from './runner.js'
 
 const TEST_FILE = /\.test\.[cm]?[jt]s$/
 
-export function uncollectedTests(root: string, manifest: Manifest): string[] {
+export function uncollectedTests(root: string, manifest: Manifest, readings: FileReadings = new FileReadings(root)): string[] {
   const config = RUNNER_CONFIG_FILES.find(candidate => manifest.files[candidate] != null)
   if (config == null)
     return []
-  let source: string
-  try {
-    source = readFileSync(path.join(root, config), 'utf8')
-  }
-  catch {
+  const source = readings.read(config)
+  if (source == null)
     return []
-  }
   const globs = includeGlobs(source)
   if (globs == null)
     return []

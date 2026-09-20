@@ -1,21 +1,24 @@
 import type { Manifest } from '../../manifest.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { sha256 } from '../../manifest.js'
+import { FileReadings } from './readings.js'
 
 export interface BaselineVerdict {
   missingFiles: string[]
   modifiedFiles: string[]
 }
 
-export function baselineVerdict(root: string, manifest: Manifest): BaselineVerdict {
+export function baselineVerdict(root: string, manifest: Manifest, readings: FileReadings = new FileReadings(root)): BaselineVerdict {
   const missingFiles: string[] = []
   const modifiedFiles: string[] = []
   for (const [file, hash] of Object.entries(manifest.files)) {
-    const absolute = path.join(root, file)
-    if (!existsSync(absolute))
+    if (!existsSync(path.join(root, file))) {
       missingFiles.push(file)
-    else if (sha256(readFileSync(absolute, 'utf8')) !== hash)
+      continue
+    }
+    const content = readings.read(file)
+    if (content != null && sha256(content) !== hash)
       modifiedFiles.push(file)
   }
   return { missingFiles, modifiedFiles }
