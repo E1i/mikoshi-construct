@@ -21,4 +21,4 @@ coverage/
 
 docs/.vitepress/cache
 docs/.vitepress/dist
-bench/
+/bench/
