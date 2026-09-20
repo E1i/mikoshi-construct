@@ -3,8 +3,8 @@ import { CHECK_IDS, LEVELS } from '../src/commands/doctor/verdict.js'
 import { ENFORCEMENT_LEVELS } from '../src/model/schema.js'
 
 describe('an identifier others cite carries one scope, and only one', () => {
-  it('spells the enforcement levels the same way in the model as in doctor, so widening one cannot leave the other behind', () => {
-    expect([...ENFORCEMENT_LEVELS]).toEqual([...LEVELS])
+  it('reads the enforcement levels from one list rather than two kept in step, so there is no second copy to widen', () => {
+    expect(LEVELS).toBe(ENFORCEMENT_LEVELS)
   })
 
   it('gives every check id exactly one home, so no id can come to mean two things', () => {
