@@ -95,7 +95,7 @@ function synthesisedState(
 }
 
 describe('doctor\'s knowledge family is a projection of the model', () => {
-  it('takes every verdict\'s level, state and evidence from the claim it renders', () => {
+  it('takes every verdict\'s level, state and mechanism from the claim it renders', () => {
     const repository = model()
     const root = scratch(HARNESS_IN_CI)
     const derived = deriveModelState(repository, root)
@@ -103,8 +103,8 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
       const claim = repository.claims.find(entry => entry.id === verdict.claimId)
       expect(claim?.id).toBe(verdict.claimId)
       expect(verdict.level).toBe(claim?.enforcement?.level)
-      expect(verdict.state).toBe(derived.claims[verdict.claimId].enforcement)
-      expect(verdict.evidence).toBe(claim?.enforcement?.mechanism)
+      expect(verdict.state).toBe(derived.claims[verdict.claimId].enforcement.state)
+      expect(verdict.mechanism).toBe(claim?.enforcement?.mechanism)
     }
   })
 
@@ -132,7 +132,8 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
 
   it('takes where you are from the model\'s own path selection, and reports nothing where no chain stops', () => {
     const repository = model(false)
-    expect(projectKnowledge(repository, scratch()).youAreHere).toEqual({ claimId: 'no-committed-secret', stage: 'enforcement', state: 'unsupported' })
+    expect(projectKnowledge(repository, scratch()).youAreHere)
+      .toEqual({ claimId: 'no-committed-secret', stage: 'enforcement', state: 'unsupported', doesNotHold: ['.github/workflows/security.yml'] })
     const held = scratch({
       ...HARNESS_IN_CI,
       '.github/workflows/security.yml': 'gitleaks\npnpm audit --audit-level=high\n',
@@ -169,7 +170,7 @@ describe('the gate against state doctor synthesises', () => {
 
   it('fails when a knowledge-family field carries a value that traces to no claim at all', () => {
     const repository = model()
-    expect(synthesisedState(result({ youAreHere: { claimId: '', stage: 'enforcement', state: 'unknown' } }), repository))
+    expect(synthesisedState(result({ youAreHere: { claimId: '', stage: 'enforcement', state: 'unknown', reason: 'no-fact-named' } }), repository))
       .toContain('youAreHere names "", which the model does not carry')
   })
 

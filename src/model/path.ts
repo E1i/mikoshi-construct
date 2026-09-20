@@ -1,22 +1,19 @@
 import type { RepositoryModel } from './schema.js'
-import type { ClaimStages, ModelState, ModelStateReport } from './state.js'
+import type { ClaimStages, ModelState, ModelStateReport, StageFinding } from './state.js'
 
 export const CHAIN_STAGES = ['enforcement', 'verification'] as const
 export type ChainStage = (typeof CHAIN_STAGES)[number]
 
 export type StoppingState = Exclude<ModelState, 'held'>
+export type StoppingFinding = Exclude<StageFinding, { state: 'held' }>
 
-export interface SelectedPath {
-  claimId: string
-  stage: ChainStage
-  state: StoppingState
-}
+export type SelectedPath = { claimId: string, stage: ChainStage } & StoppingFinding
 
 function firstStop(claimId: string, stages: ClaimStages): SelectedPath | null {
   for (const stage of CHAIN_STAGES) {
-    const state = stages[stage]
-    if (state !== 'held')
-      return { claimId, stage, state }
+    const finding = stages[stage]
+    if (finding.state !== 'held')
+      return { claimId, stage, ...finding }
   }
   return null
 }

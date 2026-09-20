@@ -6,7 +6,7 @@
 `construct.model.json`. Its verdicts now take their level from the claim's `enforcement.level` and
 their state from the chain derived on read; nothing in that family is computed from evidence any more.
 
-Five changes to `doctor --json`, listed together because five discoveries in five diffs is worse than
+Six changes to `doctor --json`, listed together because six discoveries in six diffs is worse than
 one list:
 
 `red-gate` leaves. It was always `unknown` for one reason — doctor executes nothing — which is a
@@ -44,3 +44,25 @@ The output is quieter on an adopted repository, and that is the point rather tha
 Today's `hook: absent` and `lint-policy: absent` read as findings about your repository and are
 findings about what the preset shipped. That substitution is the thing this tool exists to prevent,
 and it had been sitting in its own output.
+
+A verdict that is not `held` now says what it actually knows, and a line that omits it cannot be
+built. Renaming `.github/workflows/ci.yml` used to print `unsupported` beside the claim's
+`enforcement.mechanism` — a positive assertion, sitting next to the state that denies it, naming no
+fact — so a reader concluded the enforcement was gone and went looking for enforcement nobody
+removed. `evidence` is now `mechanism`, rendered as what the claim expects, and each verdict carries
+what its state knows: `doesNotHold` with the fact paths that no longer match under `unsupported`,
+and `reason` — `unevaluable` with the paths that could not be read, or `no-fact-named` — under
+`unknown`. `youAreHere` carries the same facts, from the same derivation rather than a second one.
+
+The three states stay three. `unknown` has no failing fact by definition, so it names none and blames
+nobody: a fact nobody could read is never reported as one that does not hold, which is the
+substitution [rule 2](architecture/epistemic-rules.md) exists to prevent. The renderer carries that
+structurally rather than by inspection — the facts are a required argument of the call that renders a
+verdict which is not held, typed so a line without them does not compile, the same move as the schema
+having no `state` key.
+
+The tests now build the broken repository instead of waiting for one: a fact that does not hold, a
+fact that cannot be evaluated (a directory where a file is expected), and a stage with no fact named
+at all, each asserted down to the rendered line, with all three re-readings held explicitly — `held`
+is not proof, `unsupported` is not enforcement gone, `unknown` is not absence.
+

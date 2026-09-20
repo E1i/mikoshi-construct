@@ -19,7 +19,7 @@ interface CheckExpectation {
   id: string
   state: CheckState
   level: Level
-  evidence: string
+  mechanism: string
 }
 
 interface FixtureExpectation {
@@ -34,7 +34,7 @@ const FIXTURES: Record<string, FixtureExpectation> = {
   'broken-eslint-config': {
     lie: 'reports the lint-policy claim as unsupported on a repository carrying no test that resolves the policy',
     ok: true,
-    checks: [{ id: 'lint-policy', state: 'unsupported', level: 'L3', evidence: 'scripts/tests/lint/syntax-policy.test.ts' }],
+    checks: [{ id: 'lint-policy', state: 'unsupported', level: 'L3', mechanism: 'scripts/tests/lint/syntax-policy.test.ts' }],
   },
   'orphaned-construct-tests': {
     lie: 'names the recorded test the runner config it also recorded never collects',
@@ -45,14 +45,14 @@ const FIXTURES: Record<string, FixtureExpectation> = {
   'quality-not-in-ci': {
     lie: 'reports the harness claim as unsupported where no workflow step runs the harness command',
     ok: true,
-    checks: [{ id: 'ci', state: 'unsupported', level: 'L3', evidence: '.github/workflows/ci.yml' }],
+    checks: [{ id: 'ci', state: 'unsupported', level: 'L3', mechanism: '.github/workflows/ci.yml' }],
   },
   'healthy': {
     lie: 'reports a construct whose every claim is held on the control, where the facts under them all hold',
     ok: true,
     checks: [
-      { id: 'lint-policy', state: 'held', level: 'L3', evidence: 'scripts/tests/lint/syntax-policy.test.ts' },
-      { id: 'ci', state: 'held', level: 'L3', evidence: '.github/workflows/ci.yml' },
+      { id: 'lint-policy', state: 'held', level: 'L3', mechanism: 'scripts/tests/lint/syntax-policy.test.ts' },
+      { id: 'ci', state: 'held', level: 'L3', mechanism: '.github/workflows/ci.yml' },
     ],
     uncollectedTests: [],
     youAreHere: null,
@@ -136,7 +136,7 @@ describe('doctor on the fixtures', () => {
       for (const expected of expectation.checks) {
         const verdict = verdictFor(result?.checks ?? [], expected.id)
         expect({ id: verdict.id, state: verdict.state, level: verdict.level }).toEqual({ id: expected.id, state: expected.state, level: expected.level })
-        expect(verdict.evidence).toContain(expected.evidence)
+        expect(verdict.mechanism).toContain(expected.mechanism)
       }
       if (expectation.uncollectedTests != null)
         expect(result?.uncollectedTests).toEqual(expectation.uncollectedTests)
@@ -152,7 +152,7 @@ describe('doctor on the fixtures', () => {
       for (const check of checks) {
         expect(claimNamed(check.claimId)?.checkId ?? check.claimId).toBe(check.id)
         expect(check.authoredBy).toBe('construct')
-        expect(check.evidence).not.toBe('')
+        expect(check.mechanism).not.toBe('')
       }
     }
   })

@@ -45,6 +45,10 @@ export interface Lore {
   typecheckCaveat: string
   uncollectedTests: string
   executesNothing: string
+  verdictHeld: (mechanism: string) => string
+  verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => string
+  verdictUnevaluable: (mechanism: string, unevaluable: readonly [string, ...string[]]) => string
+  verdictNothingNamed: (mechanism: string) => string
   youAreHere: (claimId: string, stage: string, state: string) => string
   youAreHereNone: string
   wireHarness: string
@@ -118,6 +122,10 @@ export const LORE: Lore = {
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   uncollectedTests: 'TESTS THE RECORD CARRIES AND THE RUNNER NEVER COLLECTS.',
   executesNothing: 'NOTHING HERE IS EXECUTED: doctor reads files and runs nothing from the repository it inspects, so it does not speak about whether the harness passes.',
+  verdictHeld: (mechanism: string) => mechanism,
+  verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => `EXPECTS ${mechanism} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
+  verdictUnevaluable: (mechanism: string, unevaluable: readonly [string, ...string[]]) => `EXPECTS ${mechanism} \u2014 could not be read here, so nothing is said about it: ${unevaluable.join(', ')}`,
+  verdictNothingNamed: (mechanism: string) => `EXPECTS ${mechanism} \u2014 no fact is named under it, so nothing was read`,
   youAreHere: (claimId: string, stage: string, state: string) => `YOU ARE HERE: ${claimId} \u2014 ${stage} ${state}`,
   youAreHereNone: 'YOU ARE HERE: no claim stops before the end of its chain',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
@@ -206,6 +214,10 @@ export const PLAIN_LORE: Lore = {
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
   uncollectedTests: 'Tests the record carries and the runner does not collect.',
   executesNothing: 'doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.',
+  verdictHeld: (mechanism: string) => mechanism,
+  verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => `expects ${mechanism} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
+  verdictUnevaluable: (mechanism: string, unevaluable: readonly [string, ...string[]]) => `expects ${mechanism} \u2014 could not be read here, so nothing is said about it: ${unevaluable.join(', ')}`,
+  verdictNothingNamed: (mechanism: string) => `expects ${mechanism} \u2014 no fact is named under it, so nothing was read`,
   youAreHere: (claimId: string, stage: string, state: string) => `You are here: ${claimId} \u2014 ${stage} ${state}`,
   youAreHereNone: 'You are here: no claim stops before the end of its chain',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',

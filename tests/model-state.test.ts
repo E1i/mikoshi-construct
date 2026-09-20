@@ -1,9 +1,9 @@
-import type { FactEvaluation, ModelState } from '../src/model/state.js'
+import type { FactEvaluation, ModelState, StageFinding } from '../src/model/state.js'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseModel } from '../src/model/schema.js'
-import { deriveModelState, resolveState } from '../src/model/state.js'
+import { deriveModelState, resolveFinding, resolveState } from '../src/model/state.js'
 
 const FIXTURES = path.resolve(import.meta.dirname, 'fixtures/model/hypothesis')
 const MODEL_FILE = path.join(FIXTURES, 'construct.model.json')
@@ -15,8 +15,8 @@ const CLAIM = 'every-change-passes-the-harness'
 interface TreeExpectation {
   reads: string
   hypothesis: ModelState
-  enforcement: ModelState
-  verification: ModelState
+  enforcement: StageFinding
+  verification: StageFinding
   facts: Record<string, FactEvaluation>
 }
 
@@ -24,22 +24,22 @@ const TREES: Record<string, TreeExpectation> = {
   held: {
     reads: 'every named fact was evaluated and holds',
     hypothesis: 'held',
-    enforcement: 'held',
-    verification: 'held',
+    enforcement: { state: 'held' },
+    verification: { state: 'held' },
     facts: { 'api-app': 'holds', 'api-app-runs-the-harness': 'holds', 'ci-runs-the-harness': 'holds' },
   },
   unsupported: {
     reads: 'the same model against a tree missing one supporting file',
     hypothesis: 'unsupported',
-    enforcement: 'held',
-    verification: 'unsupported',
+    enforcement: { state: 'held' },
+    verification: { state: 'unsupported', doesNotHold: ['apps/api/package.json'] },
     facts: { 'api-app': 'does-not-hold', 'api-app-runs-the-harness': 'does-not-hold', 'ci-runs-the-harness': 'holds' },
   },
   unevaluable: {
     reads: 'the same model where a file-contains fact points at a directory',
     hypothesis: 'unknown',
-    enforcement: 'unknown',
-    verification: 'held',
+    enforcement: { state: 'unknown', reason: 'unevaluable', unevaluable: ['.github/workflows/ci.yml'] },
+    verification: { state: 'held' },
     facts: { 'api-app': 'holds', 'api-app-runs-the-harness': 'holds', 'ci-runs-the-harness': 'unevaluable' },
   },
 }
@@ -81,6 +81,20 @@ describe('state is derived from the tree on every read', () => {
     expect(resolveState(['a', 'b'], evaluations)).toBe('unsupported')
     expect(resolveState(['b', 'c'], evaluations)).toBe('unknown')
     expect(resolveState(['missing'], evaluations)).toBe('unknown')
+  })
+
+  it('names the facts behind a stage that is not held, and blames nobody for one it could not evaluate', () => {
+    const evaluations: Record<string, FactEvaluation> = { a: 'holds', b: 'does-not-hold', c: 'unevaluable' }
+    const facts = [
+      { id: 'a', kind: 'file-exists', path: 'a.md', authoredBy: 'construct' },
+      { id: 'b', kind: 'file-exists', path: 'b.md', authoredBy: 'construct' },
+      { id: 'c', kind: 'file-exists', path: 'c.md', authoredBy: 'construct' },
+    ] as const
+
+    expect(resolveFinding(facts, [], evaluations)).toEqual({ state: 'unknown', reason: 'no-fact-named' })
+    expect(resolveFinding(facts, ['a'], evaluations)).toEqual({ state: 'held' })
+    expect(resolveFinding(facts, ['a', 'b'], evaluations)).toEqual({ state: 'unsupported', doesNotHold: ['b.md'] })
+    expect(resolveFinding(facts, ['b', 'c'], evaluations)).toEqual({ state: 'unknown', reason: 'unevaluable', unevaluable: ['c.md'] })
   })
 
   it('leaves a hypothesis with no facts named under it unknown in every tree', () => {

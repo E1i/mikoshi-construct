@@ -6,8 +6,21 @@ import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
 import { constructAuthored } from './provenance.js'
 
+function reading(ui: Ui, check: CheckVerdict): string {
+  switch (check.state) {
+    case 'held':
+      return ui.lore.verdictHeld(check.mechanism)
+    case 'unsupported':
+      return ui.lore.verdictUnsupported(check.mechanism, check.doesNotHold)
+    case 'unknown':
+      return check.reason === 'unevaluable'
+        ? ui.lore.verdictUnevaluable(check.mechanism, check.unevaluable)
+        : ui.lore.verdictNothingNamed(check.mechanism)
+  }
+}
+
 function checkLine(ui: Ui, check: CheckVerdict, width: number): string {
-  return `  ${check.id.padEnd(width)} ${check.level}  ${check.state.padEnd(12)} ${ui.theme.dim(check.evidence)}`
+  return `  ${check.id.padEnd(width)} ${check.level}  ${check.state.padEnd(12)} ${ui.theme.dim(reading(ui, check))}`
 }
 
 function printChecks(ui: Ui, checks: CheckVerdict[]): void {

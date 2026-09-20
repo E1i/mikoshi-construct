@@ -214,9 +214,9 @@ Discovery provenance
 Enforcement
   no-committed-secret                  L3  held         .github/workflows/security.yml runs gitleaks over the history …
   vulnerable-dependencies-are-visible  L3  held         security.yml runs pnpm audit weekly and on pull requests …
-  ci                                   L3  unsupported  .github/workflows/ci.yml runs pnpm run quality on every pull request …
-  harness-steps                        L3  unsupported  .github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json …
-  lint-policy                          L3  unsupported  scripts/tests/lint/syntax-policy.test.ts asserts the restrictions …
+  ci                                   L3  unsupported  expects .github/workflows/ci.yml runs pnpm run quality … — no longer matching: .github/workflows/ci.yml
+  harness-steps                        L3  unsupported  expects .github/workflows/ci.yml runs pnpm run quality …, and package.json … — no longer matching: .github/workflows/ci.yml
+  lint-policy                          L3  unsupported  expects scripts/tests/lint/syntax-policy.test.ts asserts … — no longer matching: .github/workflows/ci.yml
   doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.
 
 You are here: every-change-passes-the-harness — enforcement unsupported
@@ -272,24 +272,31 @@ report. See
 
 ### The checks
 
-Each check returns `{id, claimId, level, state, authoredBy, evidence}`. **There is one check per
-claim the model carries, in the order the model declares them** — the section is the whole model or
-it is not a projection of it. Every one of those values is read from the claim `claimId` names:
-`level` is its `enforcement.level`, `evidence` its `enforcement.mechanism`, `authoredBy` its author
-in the model — `construct`, `discovery` or `unknown`, and never derived from anything else — and
-`state` is the state the facts that enforcement stands on resolve to, one of `held`, `unsupported`
-or `unknown`.
+Each check returns `{id, claimId, level, state, authoredBy, mechanism}`, plus what the state knows:
+`doesNotHold` where the state is `unsupported`, and `reason` — `unevaluable` with `unevaluable`, or
+`no-fact-named` — where it is `unknown`. **There is one check per claim the model carries, in the
+order the model declares them** — the section is the whole model or it is not a projection of it.
+Every one of those values is read from the claim `claimId` names: `level` is its
+`enforcement.level`, `mechanism` its `enforcement.mechanism`, `authoredBy` its author in the model —
+`construct`, `discovery` or `unknown`, and never derived from anything else — and `state` is the
+state the facts that enforcement stands on resolve to, one of `held`, `unsupported` or `unknown`.
+
+`mechanism` is what the claim **expects**, never a reading of what is the case, and the report
+renders it that way: beside `unsupported` it is prefixed as an expectation and followed by the fact
+paths that no longer match, so no line can name a state and a positive assertion in the same breath.
+The facts are a required argument of the call that renders a verdict that is not held, so a line
+without them cannot be built.
 
 `id` is the claim's own id, except for the two claims that carry a legacy check id in the model so
 that consumers written against the previous shape keep reading: `every-change-passes-the-harness`
 renders as `ci`, and `lint-policy` as `lint-policy`. `claimId` is always present and is the only
 identifier worth matching on.
 
-| State | Meaning |
-|---|---|
-| `held` | Facts are named, every one was evaluated, and every one holds. |
-| `unsupported` | Facts are named, every one was evaluated, and at least one does not hold. This says the facts no longer match, not that the enforcement is gone. |
-| `unknown` | No fact is named, or a named fact could not be read. Not having looked is not evidence of absence. |
+| State | Meaning | What the line names |
+|---|---|---|
+| `held` | Facts are named, every one was evaluated, and every one holds. This says the facts still match, not that the level is proven: the facts under a claim are necessary conditions, never sufficient ones. | The mechanism the claim expects. |
+| `unsupported` | Facts are named, every one was evaluated, and at least one does not hold. This says the facts no longer match, not that the enforcement is gone. | `doesNotHold`: each fact path that no longer matches, beside the mechanism the claim expects. |
+| `unknown` | No fact is named, or a named fact could not be read. Not having looked is not evidence of absence. | `reason: "unevaluable"` with the paths that could not be read, or `reason: "no-fact-named"`. There is no failing fact in this state and none is named: a fact nobody could read is never reported as one that does not hold. |
 
 | `id` | The claim it renders | When it appears |
 |---|---|---|
@@ -378,7 +385,7 @@ never changes the exit code.
       "level": "L3",
       "state": "held",
       "authoredBy": "construct",
-      "evidence": ".github/workflows/security.yml runs gitleaks over the history on every push and pull request"
+      "mechanism": ".github/workflows/security.yml runs gitleaks over the history on every push and pull request"
     },
     {
       "id": "vulnerable-dependencies-are-visible",
@@ -386,7 +393,7 @@ never changes the exit code.
       "level": "L3",
       "state": "held",
       "authoredBy": "construct",
-      "evidence": "security.yml runs pnpm audit weekly and on pull requests, reporting only"
+      "mechanism": "security.yml runs pnpm audit weekly and on pull requests, reporting only"
     },
     {
       "id": "ci",
@@ -394,7 +401,8 @@ never changes the exit code.
       "level": "L3",
       "state": "unsupported",
       "authoredBy": "construct",
-      "evidence": ".github/workflows/ci.yml runs pnpm run quality on every pull request and push to main"
+      "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request and push to main",
+      "doesNotHold": [".github/workflows/ci.yml"]
     },
     {
       "id": "harness-steps",
@@ -402,7 +410,8 @@ never changes the exit code.
       "level": "L3",
       "state": "unsupported",
       "authoredBy": "construct",
-      "evidence": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm lint, pnpm typecheck and pnpm test"
+      "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm lint, pnpm typecheck and pnpm test",
+      "doesNotHold": [".github/workflows/ci.yml"]
     },
     {
       "id": "lint-policy",
@@ -410,10 +419,11 @@ never changes the exit code.
       "level": "L3",
       "state": "unsupported",
       "authoredBy": "construct",
-      "evidence": "scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares, and .github/workflows/ci.yml runs pnpm run quality over it on every pull request"
+      "mechanism": "scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares, and .github/workflows/ci.yml runs pnpm run quality over it on every pull request",
+      "doesNotHold": [".github/workflows/ci.yml"]
     }
   ],
-  "youAreHere": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported" },
+  "youAreHere": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] },
   "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
@@ -428,12 +438,16 @@ This version changes the knowledge half of the contract:
 - `uncollectedTests: string[]` is new, and carries what the `construct-tests` verdict used to say.
 - `checks` entries gain `claimId` and `authoredBy`; `state` is now `held`, `unsupported` or
   `unknown` rather than `present`, `absent` or `unknown`.
+- `evidence` is renamed `mechanism`, because it is what the claim expects rather than a reading of
+  the repository, and each entry now carries what its state knows: `doesNotHold` under
+  `unsupported`, `reason` (with `unevaluable` where a fact could not be read) under `unknown`.
 - `hook` and `red-gate` are gone from `checks`, and `construct-tests` with them. `checks` now carries
   one entry per claim in the model, in the model's declaration order — an empty list where the
   repository has no `construct.model.json`. `id` is the claim id, except for the two legacy names
   the model still carries as `checkId`: `ci` and `lint-policy`.
-- `weakestLink` is replaced by `youAreHere: {claimId, stage, state} | null`, `null` when no claim's
-  chain stops before its end.
+- `weakestLink` is replaced by `youAreHere: {claimId, stage, state, …} | null`, `null` when no
+  claim's chain stops before its end. It carries the same facts the verdict for that claim carries,
+  from the same derivation: `doesNotHold` where it stops `unsupported`, `reason` where `unknown`.
 
 ## construct sync
 

@@ -1,15 +1,19 @@
-import type { DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
-import type { StoppingState } from '../src/model/path.js'
+import type { CheckVerdict, DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
+import type { StoppingFinding } from '../src/model/path.js'
 import type { ThemeName } from '../src/ui/theme.js'
 import { describe, expect, it } from 'vitest'
 import { printDoctor } from '../src/commands/doctor/index.js'
 import { CHAIN_STAGES } from '../src/model/path.js'
-import { MODEL_STATES } from '../src/model/state.js'
 import { createUi } from '../src/ui/console.js'
+import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const YOU_ARE_HERE_LINE = /^[ \t]*(?:YOU ARE HERE|You are here): \S/
-const STOPPING_STATES = MODEL_STATES.filter((state): state is StoppingState => state !== 'held')
+const STOPPING_FINDINGS: StoppingFinding[] = [
+  { state: 'unsupported', doesNotHold: ['.github/workflows/ci.yml'] },
+  { state: 'unknown', reason: 'unevaluable', unevaluable: ['.github/workflows/ci.yml'] },
+  { state: 'unknown', reason: 'no-fact-named' },
+]
 const VERDICT_WORDING = /\b(?:not enforced|unenforced|proven|proves|fail|broken|violat)/i
 const EMOJI = /[\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}]/u
 const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'CONSTRUCT STABLE', 'SOULKILLER', 'Netrunner', 'ARASAKA', 'ENFORCEMENT TRACE', 'YOU ARE HERE', 'NOTHING HERE IS EXECUTED']
@@ -25,10 +29,10 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     uncollectedTests: [],
     warnings: [],
     checks: [
-      { id: 'lint-policy', claimId: 'lint-policy', level: 'L3', state: 'held', authoredBy: 'construct', evidence: 'scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares' },
-      { id: 'ci', claimId: 'every-change-passes-the-harness', level: 'L3', state: 'held', authoredBy: 'construct', evidence: '.github/workflows/ci.yml runs pnpm run quality on every pull request and push to main' },
+      { id: 'lint-policy', claimId: 'lint-policy', level: 'L3', state: 'held', authoredBy: 'construct', mechanism: 'scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares' },
+      { id: 'ci', claimId: 'every-change-passes-the-harness', level: 'L3', state: 'held', authoredBy: 'construct', mechanism: '.github/workflows/ci.yml runs pnpm run quality on every pull request and push to main' },
     ],
-    youAreHere: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported' },
+    youAreHere: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported', doesNotHold: ['scripts/tests/lint/syntax-policy.test.ts'] },
     versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
     ...overrides,
   }
@@ -64,12 +68,12 @@ describe('the doctor report', () => {
 
   it('reads a stopped chain as a state and never as a verdict, in every stage and state it can report', () => {
     for (const stage of CHAIN_STAGES) {
-      for (const state of STOPPING_STATES) {
+      for (const finding of STOPPING_FINDINGS) {
         for (const theme of ['plain', 'arasaka', 'johnny'] as const) {
-          const line = nonEmptyLines(render(result({ youAreHere: { claimId: 'lint-policy', stage, state } }), theme).output).at(-1) ?? ''
+          const line = nonEmptyLines(render(result({ youAreHere: { claimId: 'lint-policy', stage, ...finding } }), theme).output).at(-1) ?? ''
           expect(line).toMatch(YOU_ARE_HERE_LINE)
           expect(line).toContain(stage)
-          expect(line).toContain(state)
+          expect(line).toContain(finding.state)
           expect(line).not.toMatch(VERDICT_WORDING)
         }
       }
@@ -147,10 +151,38 @@ describe('the doctor report', () => {
 
   it('exits 1 only for a missing baseline file, a broken harness or a missing construct.json', () => {
     expect(render(result()).code).toBe(0)
-    expect(render(result({ youAreHere: { claimId: 'lint-policy', stage: 'enforcement', state: 'unsupported' } })).code).toBe(0)
+    expect(render(result({ youAreHere: { claimId: 'lint-policy', stage: 'enforcement', state: 'unsupported', doesNotHold: ['eslint.config.mjs'] } })).code).toBe(0)
     expect(render(result({ missingDiscovery: ['product'], modifiedFiles: ['CLAUDE.md'] })).code).toBe(0)
     expect(render(result({ ok: false, missingFiles: ['AGENTS.md'] })).code).toBe(1)
     expect(render(result({ ok: false, harnessProblems: ['"quality" does not run test'] })).code).toBe(1)
     expect(render(null).code).toBe(1)
+  })
+})
+
+describe('a verdict that is not held cannot be rendered without what it knows', () => {
+  const MECHANISM = 'the mechanism the claim expects'
+
+  for (const [theme, lore] of [['arasaka', LORE], ['plain', PLAIN_LORE]] as const) {
+    it(`takes the facts as a required argument of the ${theme} readings that have them`, () => {
+      expect(lore.verdictUnsupported).toHaveLength(2)
+      expect(lore.verdictUnevaluable).toHaveLength(2)
+      expect(lore.verdictHeld).toHaveLength(1)
+      expect(lore.verdictNothingNamed).toHaveLength(1)
+
+      // @ts-expect-error an unsupported reading without the facts that no longer match does not compile
+      expect(() => lore.verdictUnsupported(MECHANISM)).toThrow()
+      // @ts-expect-error an unsupported reading over no fact at all does not compile
+      expect(() => lore.verdictUnsupported(MECHANISM, [])).not.toThrow()
+      // @ts-expect-error a reading of what could not be evaluated names the fact it could not read
+      expect(() => lore.verdictUnevaluable(MECHANISM)).toThrow()
+    })
+  }
+
+  it('cannot describe an unsupported verdict without those facts in the verdict\'s own type', () => {
+    // @ts-expect-error a verdict claims unsupported only with the facts that justify it
+    const withoutFacts: CheckVerdict = { id: 'ci', claimId: 'ci', level: 'L3', authoredBy: 'construct', mechanism: MECHANISM, state: 'unsupported' }
+    const withFacts: CheckVerdict = { ...withoutFacts, state: 'unsupported', doesNotHold: ['.github/workflows/ci.yml'] }
+
+    expect(render(result({ checks: [withFacts], youAreHere: null })).output).toContain('.github/workflows/ci.yml')
   })
 })

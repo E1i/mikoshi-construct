@@ -8,9 +8,20 @@ export type FactEvaluation = (typeof FACT_EVALUATIONS)[number]
 export const MODEL_STATES = ['held', 'unsupported', 'unknown'] as const
 export type ModelState = (typeof MODEL_STATES)[number]
 
+export interface FactOutcome {
+  path: string
+  evaluation: Exclude<FactEvaluation, 'holds'>
+}
+
+export type StageFinding
+  = | { state: 'held' }
+    | { state: 'unsupported', doesNotHold: [string, ...string[]] }
+    | { state: 'unknown', reason: 'unevaluable', unevaluable: [string, ...string[]] }
+    | { state: 'unknown', reason: 'no-fact-named' }
+
 export interface ClaimStages {
-  enforcement: ModelState
-  verification: ModelState
+  enforcement: StageFinding
+  verification: StageFinding
 }
 
 export interface ModelStateReport {
@@ -37,13 +48,34 @@ export function evaluateFacts(model: RepositoryModel, root: string): Record<stri
   return Object.fromEntries(model.facts.map(fact => [fact.id, evaluateFact(fact, root)]))
 }
 
-export function resolveState(supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): ModelState {
+function pathsOf(outcomes: readonly FactOutcome[], evaluation: Exclude<FactEvaluation, 'holds'>): string[] {
+  return [...new Set(outcomes.filter(fact => fact.evaluation === evaluation).map(fact => fact.path))]
+}
+
+export function resolveFinding(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): StageFinding {
   if (supportedBy.length === 0)
-    return 'unknown'
-  const states = supportedBy.map(id => evaluations[id] ?? 'unevaluable')
-  if (states.includes('unevaluable'))
-    return 'unknown'
-  return states.includes('does-not-hold') ? 'unsupported' : 'held'
+    return { state: 'unknown', reason: 'no-fact-named' }
+  const outcomes = factOutcomes(facts, supportedBy, evaluations)
+  const [firstUnevaluable, ...restUnevaluable] = pathsOf(outcomes, 'unevaluable')
+  if (firstUnevaluable !== undefined)
+    return { state: 'unknown', reason: 'unevaluable', unevaluable: [firstUnevaluable, ...restUnevaluable] }
+  const [firstDoesNotHold, ...restDoesNotHold] = pathsOf(outcomes, 'does-not-hold')
+  if (firstDoesNotHold === undefined)
+    return { state: 'held' }
+  return { state: 'unsupported', doesNotHold: [firstDoesNotHold, ...restDoesNotHold] }
+}
+
+export function resolveState(supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): ModelState {
+  return resolveFinding([], supportedBy, evaluations).state
+}
+
+export function factOutcomes(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): FactOutcome[] {
+  return supportedBy.flatMap((id) => {
+    const evaluation = evaluations[id] ?? 'unevaluable'
+    if (evaluation === 'holds')
+      return []
+    return [{ path: facts.find(fact => fact.id === id)?.path ?? id, evaluation }]
+  })
 }
 
 export function deriveModelState(model: RepositoryModel, root: string): ModelStateReport {
@@ -52,8 +84,8 @@ export function deriveModelState(model: RepositoryModel, root: string): ModelSta
     facts,
     hypotheses: Object.fromEntries(model.hypotheses.map(hypothesis => [hypothesis.id, resolveState(hypothesis.supportedBy, facts)])),
     claims: Object.fromEntries(model.claims.map(claim => [claim.id, {
-      enforcement: resolveState(claim.enforcement?.supportedBy ?? [], facts),
-      verification: resolveState(claim.verification?.supportedBy ?? [], facts),
+      enforcement: resolveFinding(model.facts, claim.enforcement?.supportedBy ?? [], facts),
+      verification: resolveFinding(model.facts, claim.verification?.supportedBy ?? [], facts),
     }])),
   }
 }
