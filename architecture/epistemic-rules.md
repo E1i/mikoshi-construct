@@ -1,0 +1,28 @@
+# Epistemic rules
+
+Nine rules about what may be asserted and on what grounds. They apply to the repository this tool
+audits and to this repository itself. Decisions in [decisions/](decisions/) cite them by number, so
+the numbering is stable: a rule is never renumbered, and a rule that stops applying is struck
+through in place rather than removed.
+
+Enforcement levels referenced below (L0 text only, L1 review, L2 local hook, L3 CI, L4 CI blocking
+merge) are defined in [decisions/README.md](decisions/README.md).
+
+1. **Claim ≠ enforcement ≠ enforcement strength.** That something is required, that something checks
+   it, and how strongly it is checked are three separate facts. A table with one column conflates
+   them.
+2. **`unknown` ≠ `absent`.** Absence is asserted only with full scope evidence. Not having looked is
+   not a finding.
+3. **Explicit ≠ implied claim.** A convention nobody wrote down is not a claim the repository makes,
+   and cannot be violated.
+4. **`wontfix` requires evidence of intent.** Without it, `intent.state = unknown`.
+5. **Ground truth ≠ an agent's opinion.** Every finding records the base SHA it was made against and
+   the evidence it rests on.
+6. **A task ≠ a finding.** An improvement with no prior claim is not a violation of anything.
+7. **Confidence does not replace an evidence state.** A number expressing how sure something is says
+   nothing about whether the thing is known, and must not be read as though it did.
+8. **The presence of a command ≠ the level at which it is enforced.** A script in `package.json`
+   with no hook and no CI is L0, not L2.
+9. **An output contract is declared once, by the runtime schema.** Describing the same contract
+   again in prose does not reinforce it — it breaks it: the agent starts formatting its answer as
+   text for a human. See [decision 0005](decisions/0005-one-output-contract-per-agent.md).

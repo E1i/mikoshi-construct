@@ -24,3 +24,6 @@ answer, not a gap to hide.
 | [0012](0012-sync-writes-what-it-compared.md) | Sync writes exactly what it compared, and only where ownership is provable | L3 tests |
 | [0013](0013-a-second-init-adds-to-the-record.md) | A second init adds to the record and crosses out nothing | L3 tests |
 | [0014](0014-a-check-answers-only-about-what-it-was-shown.md) | A check answers only about the set it was shown | L3 test, L1 review |
+| [0015](0015-interpretation-stays-with-the-agent.md) | Interpretation stays with the agent; the CLI records facts and checks them | L3 test |
+| [0016](0016-the-model-is-the-source.md) | The model is the source; doctor, the graph and reports are projections | L1 review, L3 tests |
+| [0017](0017-v5-adds-no-new-way-of-knowing.md) | v5 adds no new way of knowing | L1 review |
