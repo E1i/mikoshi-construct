@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
+import { CLAIM_PLACEMENTS, DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
 import { buildModel } from '../src/model/write.js'
 
@@ -84,6 +84,18 @@ describe('doctor --json against docs/cli.md, its declared source of truth', () =
     const prose = doc().replaceAll(/\s+/g, ' ')
     expect(prose).toContain('a harness that no longer runs lint is an unsupported claim, not a problem')
     expect(prose).toContain('No repository changes which side of `ok` it falls on')
+  })
+
+  it('explains every placement youAreHere can report, so none of the readings is undocumented', () => {
+    const prose = doc()
+    for (const placement of CLAIM_PLACEMENTS)
+      expect(prose, placement).toContain(`| \`${placement}\` |`)
+  })
+
+  it('states that a repository with no model is an absent subject and not an obstruction, so it does not move the exit code', () => {
+    const prose = doc().replaceAll(/\s+/g, ' ')
+    expect(prose).toContain('nothing is known about what this repository claims')
+    expect(prose).toContain('a repository with no model exits `0`, because absence of a subject is not obstruction')
   })
 
   it('states the boundary doctor reports from, so the blind spot is named and not synthesised', () => {

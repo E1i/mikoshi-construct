@@ -185,7 +185,7 @@ describe('doctor on a repository built broken on purpose', () => {
     for (const name of Object.keys(REPOSITORIES)) {
       const result = runDoctor(repository(name)) as DoctorResult
       const verdict = verdictFor(result, BROKEN_CHECK)
-      const { claimId, stage, ...finding } = result.youAreHere ?? { claimId: '', stage: 'enforcement' as const }
+      const { claimId, stage, ...finding } = result.youAreHere.at === 'stop' ? result.youAreHere.stop : { claimId: '', stage: 'enforcement' as const }
       const { id, claimId: rendered, level, authoredBy, mechanism, ...verdictFinding } = verdict
 
       expect(claimId, name).toBe(BROKEN_CLAIM)

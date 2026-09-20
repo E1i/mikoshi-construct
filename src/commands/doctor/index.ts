@@ -1,6 +1,6 @@
 import type { DiscoveryMarker } from '../../manifest.js'
-import type { SelectedPath } from '../../model/path.js'
 import type { ProvenanceEvidence } from './families.js'
+import type { ClaimPlacement } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
@@ -29,7 +29,7 @@ export interface DoctorResult {
   uncollectedTests: string[]
   warnings: string[]
   checks: CheckVerdict[]
-  youAreHere: SelectedPath | null
+  youAreHere: ClaimPlacement
   versionGap: VersionGap
 }
 
@@ -78,8 +78,8 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
 export { DISCOVERY_PLACEHOLDER, isMarkerFilled, markerClose, markerOpen } from './discovery.js'
 export type { ResultFamily } from './families.js'
 export { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES } from './families.js'
-export type { KnowledgeProjection } from './projection.js'
-export { projectKnowledge } from './projection.js'
+export type { ClaimPlacement, KnowledgeProjection, PlacementName } from './projection.js'
+export { CLAIM_PLACEMENTS, projectKnowledge } from './projection.js'
 export type { MarkerAuthorship, MarkerReading } from './provenance.js'
 export { constructAuthored, discoveryProvenance, markerAuthorship } from './provenance.js'
 export { FileReadings } from './readings.js'

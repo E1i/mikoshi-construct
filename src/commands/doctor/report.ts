@@ -1,6 +1,6 @@
-import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
+import type { ClaimPlacement } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
@@ -23,10 +23,24 @@ function checkLine(ui: Ui, check: CheckVerdict, width: number): string {
   return `  ${check.id.padEnd(width)} ${check.level}  ${check.state.padEnd(12)} ${ui.theme.dim(reading(ui, check))}`
 }
 
-function printChecks(ui: Ui, checks: CheckVerdict[]): void {
+function claimsRead(ui: Ui, placement: ClaimPlacement): string | null {
+  switch (placement.at) {
+    case 'no-model':
+      return ui.lore.enforcementNoModel
+    case 'no-claim':
+      return ui.lore.enforcementNoClaim
+    default:
+      return null
+  }
+}
+
+function printChecks(ui: Ui, checks: CheckVerdict[], placement: ClaimPlacement): void {
   const width = Math.max(16, ...checks.map(check => check.id.length))
   ui.line()
   ui.line(ui.theme.accent(ui.lore.enforcement))
+  const read = claimsRead(ui, placement)
+  if (read != null)
+    ui.line(ui.theme.dim(`  ${read}`))
   for (const check of checks)
     ui.line(checkLine(ui, check, width))
   ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))
@@ -54,13 +68,22 @@ function printVersionGap(ui: Ui, gap: VersionGap): void {
   ui.line(ui.theme.dim(`  ${gapReading(ui, gap)}`))
 }
 
-function printYouAreHere(ui: Ui, youAreHere: SelectedPath | null): void {
-  ui.line()
-  if (youAreHere == null) {
-    ui.line(ui.theme.bold(ui.lore.youAreHereNone))
-    return
+function placementLine(ui: Ui, placement: ClaimPlacement): string {
+  switch (placement.at) {
+    case 'stop':
+      return ui.lore.youAreHere(placement.stop.claimId, placement.stop.stage, placement.stop.state)
+    case 'no-stop':
+      return ui.lore.youAreHereNone
+    case 'no-claim':
+      return ui.lore.youAreHereNoClaim
+    case 'no-model':
+      return ui.lore.youAreHereNoModel
   }
-  ui.line(ui.theme.bold(ui.lore.youAreHere(youAreHere.claimId, youAreHere.stage, youAreHere.state)))
+}
+
+function printYouAreHere(ui: Ui, placement: ClaimPlacement): void {
+  ui.line()
+  ui.line(ui.theme.bold(placementLine(ui, placement)))
 }
 
 export function printDoctor(ui: Ui, result: DoctorResult | null): number {
@@ -86,7 +109,7 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
   if (result.ok)
     ui.ok(ui.lore.stable)
   printProvenance(ui, result.provenance)
-  printChecks(ui, result.checks)
+  printChecks(ui, result.checks, result.youAreHere)
   printYouAreHere(ui, result.youAreHere)
   return result.ok ? 0 : 1
 }

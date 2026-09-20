@@ -33,7 +33,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
       { id: 'lint-policy', claimId: 'lint-policy', level: 'L3', state: 'held', authoredBy: 'construct', mechanism: 'scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares' },
       { id: 'ci', claimId: 'every-change-passes-the-harness', level: 'L3', state: 'held', authoredBy: 'construct', mechanism: '.github/workflows/ci.yml runs pnpm run quality on every pull request and push to main' },
     ],
-    youAreHere: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported', doesNotHold: ['scripts/tests/lint/syntax-policy.test.ts'] },
+    youAreHere: { at: 'stop', stop: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported', doesNotHold: ['scripts/tests/lint/syntax-policy.test.ts'] } },
     versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
     ...overrides,
   }
@@ -71,7 +71,7 @@ describe('the doctor report', () => {
     for (const stage of CHAIN_STAGES) {
       for (const finding of STOPPING_FINDINGS) {
         for (const theme of ['plain', 'arasaka', 'johnny'] as const) {
-          const line = nonEmptyLines(render(result({ youAreHere: { claimId: 'lint-policy', stage, ...finding } }), theme).output).at(-1) ?? ''
+          const line = nonEmptyLines(render(result({ youAreHere: { at: 'stop', stop: { claimId: 'lint-policy', stage, ...finding } } }), theme).output).at(-1) ?? ''
           expect(line).toMatch(YOU_ARE_HERE_LINE)
           expect(line).toContain(stage)
           expect(line).toContain(finding.state)
@@ -82,7 +82,7 @@ describe('the doctor report', () => {
   })
 
   it('names every check and says when no chain stops', () => {
-    const { output } = render(result({ youAreHere: null }))
+    const { output } = render(result({ youAreHere: { at: 'no-stop' } }))
     for (const check of result().checks)
       expect(output).toContain(check.id)
     expect(nonEmptyLines(output).at(-1)).toContain('no claim stops before the end of its chain')
@@ -163,7 +163,7 @@ describe('the doctor report', () => {
 
   it('exits 1 only for a missing baseline file, a broken harness or a missing construct.json', () => {
     expect(render(result()).code).toBe(0)
-    expect(render(result({ youAreHere: { claimId: 'lint-policy', stage: 'enforcement', state: 'unsupported', doesNotHold: ['eslint.config.mjs'] } })).code).toBe(0)
+    expect(render(result({ youAreHere: { at: 'stop', stop: { claimId: 'lint-policy', stage: 'enforcement', state: 'unsupported', doesNotHold: ['eslint.config.mjs'] } } })).code).toBe(0)
     expect(render(result({ missingDiscovery: ['product'], modifiedFiles: ['CLAUDE.md'] })).code).toBe(0)
     expect(render(result({ ok: false, missingFiles: ['AGENTS.md'] })).code).toBe(1)
     expect(render(result({ ok: false, harnessProblems: ['package.json has no "quality" script (harness command is "pnpm run quality")'] })).code).toBe(1)
@@ -195,6 +195,6 @@ describe('a verdict that is not held cannot be rendered without what it knows', 
     const withoutFacts: CheckVerdict = { id: 'ci', claimId: 'ci', level: 'L3', authoredBy: 'construct', mechanism: MECHANISM, state: 'unsupported' }
     const withFacts: CheckVerdict = { ...withoutFacts, state: 'unsupported', doesNotHold: ['.github/workflows/ci.yml'] }
 
-    expect(render(result({ checks: [withFacts], youAreHere: null })).output).toContain('.github/workflows/ci.yml')
+    expect(render(result({ checks: [withFacts], youAreHere: { at: 'no-stop' } })).output).toContain('.github/workflows/ci.yml')
   })
 })
