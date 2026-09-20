@@ -20,14 +20,22 @@ const SPEC = {
 const DESIGN_EFFORT = 'xhigh'
 
 const briefs = args.briefs ?? []
+const stopAfterTokens = args.stopAfterTokens ?? null
 
 const results = []
+let spentBefore = budget.spent ?? 0
+
 for (const brief of briefs) {
+  if (stopAfterTokens != null && (budget.spent ?? 0) >= stopAfterTokens) {
+    log(`stopping before ${brief.name}: ${budget.spent} tokens spent, limit ${stopAfterTokens}`)
+    break
+  }
+
   phase('Design')
   let design = null
   let validationError = ''
   try {
-    design = await agent(`${brief.text}\n\nReturn the design spec object.`, {
+    design = await agent(brief.text, {
       agentType: 'architect',
       effort: DESIGN_EFFORT,
       phase: 'Design',
@@ -38,8 +46,17 @@ for (const brief of briefs) {
   catch (error) {
     validationError = String(error?.message ?? error)
   }
-  results.push({ brief: brief.name, returned: design != null, validationError, design })
+
+  const spentAfter = budget.spent ?? 0
+  results.push({
+    brief: brief.name,
+    returned: design != null,
+    validationError,
+    tokens: spentAfter - spentBefore,
+    design,
+  })
+  spentBefore = spentAfter
   log(`${brief.name}: ${design == null ? `returned nothing — ${validationError}` : 'returned a design'}`)
 }
 
-return { effort: DESIGN_EFFORT, results }
+return { effort: DESIGN_EFFORT, spent: budget.spent ?? null, results }

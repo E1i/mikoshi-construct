@@ -15,8 +15,10 @@ function literal(file: string, name: string): string {
   return found?.[1] ?? ''
 }
 
+const SPEC_LITERAL = /^const SPEC = (\{[\s\S]+?^\})$/m
+
 function specOf(file: string): string {
-  return new RegExp('^const SPEC = (\\{[\\s\\S]*?^\\})$', 'm').exec(read(file))?.[1] ?? ''
+  return SPEC_LITERAL.exec(read(file))?.[1] ?? ''
 }
 
 describe('the stand calls the architect the way the ladder calls it', () => {

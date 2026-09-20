@@ -15,7 +15,7 @@ export interface JsonSchema {
 
 export function specSchema(): JsonSchema {
   const source = readFileSync(path.join(REPO_ROOT, LADDER), 'utf8')
-  const literal = /^const SPEC = (\{[\s\S]*?^\})$/m.exec(source)?.[1]
+  const literal = /^const SPEC = (\{[\s\S]+?^\})$/m.exec(source)?.[1]
   if (literal == null)
     throw new Error(`SPEC is not declared in ${LADDER}`)
   // eslint-disable-next-line no-new-func

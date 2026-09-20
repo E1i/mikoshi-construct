@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { classifyPayload } from '../../bench/classify.js'
-
-const SOURCE = path.resolve(import.meta.dirname, '../../bench/classify.ts')
+import { classifyPayload, PARSE_FAILURES } from '../../bench/classify.js'
 
 const WELL_FORMED = '{"decision": "keep it here", "files": ["a.ts", "b.ts"]}'
 
@@ -32,11 +28,9 @@ describe('what a captured payload is, told apart from why it was refused', () =>
   }
 
   it('exercises every failure the classifier can name', () => {
-    const declared = /export type ParseFailure =([\s\S]*?)\n\n/.exec(readFileSync(SOURCE, 'utf8'))?.[1] ?? ''
-    const names = [...declared.matchAll(/'([a-z-]+)'/g)].map(match => match[1])
-    expect(names.length).toBeGreaterThan(3)
     const covered = new Set(Object.values(CASES).map(entry => entry.failure))
-    expect(names.filter(name => !covered.has(name))).toEqual([])
+    expect(PARSE_FAILURES.length).toBeGreaterThan(3)
+    expect(PARSE_FAILURES.filter(name => !covered.has(name))).toEqual([])
   })
 
   it('names the control character, its offset and the character sitting there', () => {

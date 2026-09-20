@@ -1,8 +1,8 @@
-export type ParseFailure =
-  | 'control-character'
-  | 'ended-early'
-  | 'not-an-object'
-  | 'unnamed'
+import { Buffer } from 'node:buffer'
+
+export const PARSE_FAILURES = ['control-character', 'ended-early', 'not-an-object', 'unnamed'] as const
+
+export type ParseFailure = typeof PARSE_FAILURES[number]
 
 export interface ControlCharacter {
   offset: number
