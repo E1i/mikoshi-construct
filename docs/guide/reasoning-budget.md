@@ -48,22 +48,27 @@ within a minute. The only difference was whether an assertion existed.
 ## What it costs
 
 Measured on this project's own repository with `construct cost`, in billable tokens (input, cache
-writes, cache reads and output summed):
+writes, cache reads and output summed). These figures were corrected on 2026-09-20: the command had
+been summing every journal line, and the journal repeats one response's usage on each of its content
+blocks, so everything published before was roughly twice its true size. The comparisons are
+unaffected — the same bias ran through all of them — and the absolute numbers below are the
+deduplicated ones:
 
-- Two `low` tasks: **557k** and **740k**.
-- Nine `medium` tasks: between **847k** and **5.9M**.
-- Two `high` tasks that returned nothing usable: **14.19M** and **14.14M**.
+- Two `low` tasks: **312k** and **366k**.
+- Nine `medium` tasks: between **437k** and **2.83M**.
+- Two `high` tasks that returned nothing usable: **7.56M** and **7.06M**.
 
 The class predicts the price poorly. What dominates is each agent's **entry into the repository** — a
 fresh exploration paid in full before anything is produced, and paid again by every agent that
 starts. It scales with the size of the repository, not the size of the task: over one day the same
-role cost 2.9M, then 4.9M, then 6.6M, then 8.5M, as `src/` grew beneath it.
+role cost 1.19M, then 2.05M, then 3.16M, then 3.91M, as `src/` grew beneath it.
 
 Two consequences are built into the ladder. A `low` run pays that entry twice — the implementer and
 the verifier — and a `high` run three times, which is the real reason not to reach for `high` by
 reflex. And a response rejected by the output schema is **not** re-asked by default: a retry buys
-another exploration rather than another answer, at roughly three million tokens against the hundred
-and thirty thousand a retry inside the runtime costs.
+another exploration rather than another answer, at 385k to 1.48M for the exploration against the 57k
+to 100k one more attempt inside an entry already paid for costs — five to twenty times, measured by
+splitting five architect entries at their first structured-output call.
 
 `construct cost --last` prints the accounting for a run; `construct cost` reconciles the ledger the
 skill writes against the runtime's own numbers and shows the drift in both directions.

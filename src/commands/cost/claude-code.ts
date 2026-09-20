@@ -6,6 +6,7 @@ import path from 'node:path'
 import { add, emptyUsage } from './usage.js'
 
 interface SessionLine {
+  requestId?: string
   message?: {
     role?: string
     model?: string
@@ -28,6 +29,7 @@ export function claudeProjectsDir(): string {
 
 function readUsage(file: string): Usage {
   const totals = emptyUsage()
+  const counted = new Set<string>()
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     if (!line.startsWith('{'))
       continue
@@ -41,6 +43,11 @@ function readUsage(file: string): Usage {
     const message = entry.message
     if (message?.role !== 'assistant' || message.usage == null)
       continue
+    if (entry.requestId != null) {
+      if (counted.has(entry.requestId))
+        continue
+      counted.add(entry.requestId)
+    }
     totals.calls += 1
     totals.input += message.usage.input_tokens ?? 0
     totals.cacheWrite += message.usage.cache_creation_input_tokens ?? 0
