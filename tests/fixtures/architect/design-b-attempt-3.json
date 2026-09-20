@@ -1,0 +1,14 @@
+{
+  "run": "wf_3ef46fa8-e99",
+  "agent": "a465360f4e6aa4769",
+  "attempt": 3,
+  "timestamp": "2026-09-17T20:24:51.836Z",
+  "effort": "xhigh",
+  "stopReason": "tool_use",
+  "outputTokens": 2686,
+  "outcome": "unparsable",
+  "reportedBytes": 7396,
+  "journaledChars": 2048,
+  "validatorError": "<tool_use_error>InputValidationError: StructuredOutput was called with input that could not be parsed as JSON.\nYou sent (first 200 of 7396 bytes): {\"decision\": \"Add one anonymous write operation, POST /lead, to contracts/api/openapi.yaml, and let the contract carry every rule it can enforce - a closed LeadRequest with bounded strings, closed Lea\nCommon causes: unescaped backslashes in file paths (use / or \\\\), unescaped control characters, or truncated output. Retry with valid JSON.</tool_use_error>",
+  "payload": "{\"decision\": \"Add one anonymous write operation, POST /lead, to contracts/api/openapi.yaml, and let the contract carry every rule it can enforce - a closed LeadRequest with bounded strings, closed LeadSubject and LeadUtm, and a honeypot property whose maxLength of 0 makes the contract validator reject a filled honeypot with 400 so no duplicate check is needed in the handler later. Product lists (budget bands, horizon, service regions) become named component schemas so they are reviewable in one place and reach consumers as named union types. The path stays unversioned like /health, and the operation declares no security block because the document level security of one empty requirement already makes it anonymous - restating it would duplicate a fact. Nothing in apps/api changes and architecture/composition/http.yaml stays untouched, because the route and its wiring arrive in the next task and the composition check rejects a node whose path does not exist. The two new mechanical cases in scripts/tests/contracts/security.test.ts turn two promises into checks - a public write must document back pressure, and no documented response may reach a lead personal field - and each gets a row in architecture/security-invariants.md naming that test as the check.\", \"contractChanges\": \"Add path /lead with a single post operation - operationId createLead, tag public, summary Submit an enquiry, no operation level security, requestBody required with application/json schema ref LeadRequest, responses 201 ref LeadAccepted, 400, 429 and default all ref ErrorResponse. Add components.schemas - LeadBudgetBand, a string enum of under_5k, from_5k_to_10k, from_10k_to_25k, from_25k_to_50k, from_50k_to_100k, over_100k. LeadHorizon, a string enum of now, within_six_months, later. LeadRegion, a string enum of west_europe, east_europe, central_europe, northern_europe, north_america, central_asia, southeast_asia, other. LeadSubject, an object with additionalProperties false, required kind, slug, label, where kind is an enum of model and pres"
+}

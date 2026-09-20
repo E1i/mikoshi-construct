@@ -1,0 +1,14 @@
+{
+  "run": "wf_3ef46fa8-e99",
+  "agent": "a1a6efe61c4ecf594",
+  "attempt": 1,
+  "timestamp": "2026-09-17T20:22:00.698Z",
+  "effort": "xhigh",
+  "stopReason": "tool_use",
+  "outputTokens": 4786,
+  "outcome": "unparsable",
+  "reportedBytes": 4564,
+  "journaledChars": 2048,
+  "validatorError": "<tool_use_error>InputValidationError: StructuredOutput was called with input that could not be parsed as JSON.\nYou sent (first 200 of 4564 bytes): {\"decision\": \"Add POST /lead to the HTTP contract only — the contract, its generated types, the contract security test and the invariants table. Nothing in apps/api and nothing in architecture/composi\nCommon causes: unescaped backslashes in file paths (use / or \\\\), unescaped control characters, or truncated output. Retry with valid JSON.</tool_use_error>",
+  "payload": "{\"decision\": \"Add POST /lead to the HTTP contract only — the contract, its generated types, the contract security test and the invariants table. Nothing in apps/api and nothing in architecture/composition/http.yaml changes: `scripts/composition/check.ts` fails on a node whose `path` does not exist, so the `c_lead` node and its `constructs` edge belong to the next task together with the controller, the service and the rate limiter. The lead value sets (budget bands, horizon, service regions) become named component schemas — LeadBudgetBand, LeadHorizon, LeadRegion, plus LeadSubject and LeadUtm — rather than inline enums, so the provisional product choice is reviewable in exactly one place and the next task's handler and the future form both read it as a generated union type instead of restating it. The honeypot `website` is declared as a plain bounded string with a documented \\\"must be empty\\\" meaning and deliberately carries no contract-level emptiness constraint: `maxLength: 0` or `enum: ['']` would make the request validator answer 400 for the trap field and 201 for everything else, turning the honeypot into an oracle a bot can read; the silent-accept-and-drop behaviour is handler behaviour and lands next task. 429 is documented now (with a required Retry-After header) because it is external behaviour the form must handle, and documenting it is what makes the new mechanical check statable; the limiter that produces it arrives with the endpoint. `/health`, ErrorResponse, the four existing security cases, redocly.yaml, eslint.config.mjs and every apps/api file stay exactly as they are — verified: the candidate contract lints clean under the repo's redocly config, generates 200 lines of types with no surprises, and all six security cases (4 existing + 2 new) pass against it.\", \"contractChanges\": \"contracts/api/openapi.yaml — one new path `/lead` (unversioned, matching `/health`; `/v1/*` prefixes are reserved for the authenticated surface the security test guards) with a single `post`: operationId `createLead`, `ta"
+}
