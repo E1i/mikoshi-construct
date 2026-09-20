@@ -1,11 +1,12 @@
-import type { Claim, Fact, Hypothesis, RepositoryModel } from '../src/model/schema.js'
+import type { Claim, Enforcement, Fact, Hypothesis, RepositoryModel } from '../src/model/schema.js'
 import type { PresetId, TemplateVars } from '../src/presets/index.js'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
 import { detect } from '../src/detect/index.js'
+import { sha256 } from '../src/manifest.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { selectPath } from '../src/model/path.js'
 import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
@@ -302,7 +303,7 @@ describe('a model naming a fact it does not carry stops the run before anything 
     hypotheses: [{ ...STOOD_ON_BY_A_HYPOTHESIS, supportedBy: ['a-fact-somebody-deleted'] }],
   }
 
-  it('names the file, the missing fact and the fact that nothing was replaced, and writes nothing at all', async () => {
+  it('raises the dangling-reference error in a directory carrying nothing but the model, and leaves that model as it was', async () => {
     const dir = scratch()
     const source = `${JSON.stringify(dangling, null, 2)}\n`
     writeFileSync(path.join(dir, MODEL_FILE), source)
@@ -311,6 +312,71 @@ describe('a model naming a fact it does not carry stops the run before anything 
 
     expect(readdirSync(dir)).toEqual([MODEL_FILE])
     expect(readFileSync(path.join(dir, MODEL_FILE), 'utf8')).toBe(source)
+  })
+})
+
+const PROBE_FILE = '.gitleaks.toml'
+
+function treeHashes(dir: string): Record<string, string> {
+  const files = readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => path.relative(dir, path.join(entry.parentPath, entry.name)))
+    .filter(file => file !== MODEL_FILE)
+    .sort()
+  return Object.fromEntries(files.map(file => [file, sha256(readFileSync(path.join(dir, file), 'utf8'))]))
+}
+
+function breakSupportedBy(dir: string, factId: string): string {
+  const model = JSON.parse(readFileSync(path.join(dir, MODEL_FILE), 'utf8')) as RepositoryModel
+  const enforcement = model.claims[0].enforcement as Enforcement
+  enforcement.supportedBy = [factId]
+  const source = `${JSON.stringify(model, null, 2)}\n`
+  writeFileSync(path.join(dir, MODEL_FILE), source)
+  return source
+}
+
+async function messageOf(run: Promise<unknown>): Promise<string> {
+  try {
+    await run
+  }
+  catch (error) {
+    return (error as Error).message
+  }
+  return ''
+}
+
+describe('a malformed model changes nothing in a repository the construct has already materialized', () => {
+  it('leaves every file byte for byte as it was, and does not bring back a file deleted before the run', async () => {
+    const dir = scratch()
+    expect(await initInto(dir)).toBe('done')
+    const broken = breakSupportedBy(dir, 'a-fact-somebody-deleted')
+    rmSync(path.join(dir, PROBE_FILE))
+    const before = treeHashes(dir)
+    expect(Object.keys(before)).toContain('.github/workflows/ci.yml')
+    expect(Object.keys(before)).not.toContain(MODEL_FILE)
+    expect(Object.keys(before).length).toBeGreaterThan(10)
+
+    const message = await messageOf(initInto(dir))
+
+    expect(message).toContain(MODEL_FILE)
+    expect(message).toContain('claims[0].enforcement')
+    expect(message).toContain('a-fact-somebody-deleted')
+    expect(message).toContain('not replaced')
+    expect(message).toContain('put the fact "a-fact-somebody-deleted" back')
+    expect(message).toContain('drop it from claims[0].enforcement')
+    expect(existsSync(path.join(dir, PROBE_FILE))).toBe(false)
+    expect(treeHashes(dir)).toEqual(before)
+    expect(readFileSync(path.join(dir, MODEL_FILE), 'utf8')).toBe(broken)
+  })
+
+  it('would have brought that file back had the model parsed, so its absence is the run stopping and not a file the construct never writes', async () => {
+    const dir = scratch()
+    expect(await initInto(dir)).toBe('done')
+    rmSync(path.join(dir, PROBE_FILE))
+
+    expect(await initInto(dir)).toBe('done')
+
+    expect(existsSync(path.join(dir, PROBE_FILE))).toBe(true)
   })
 })
 
