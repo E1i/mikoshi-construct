@@ -170,6 +170,10 @@ export function getPreset(id: PresetId): Preset {
   return PRESETS[id]
 }
 
+export function sampleGroups(preset: Preset): string[] {
+  return preset.groups.map(group => (typeof group === 'string' ? group : group.group)).filter(group => group.endsWith('/sample'))
+}
+
 export function aiGroups(target: AiTarget): string[] {
   return target === 'both' ? ['ai/shared', 'ai/claude', 'ai/cursor'] : ['ai/shared', `ai/${target}`]
 }

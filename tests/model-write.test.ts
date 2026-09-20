@@ -12,7 +12,7 @@ import { selectPath } from '../src/model/path.js'
 import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
 import { buildModel, mergeModel, writeModel } from '../src/model/write.js'
-import { aiGroups, getPreset, PRESET_IDS } from '../src/presets/index.js'
+import { aiGroups, getPreset, PRESET_IDS, sampleGroups } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -54,7 +54,7 @@ function materializedContent(presetId: PresetId): Record<string, string> {
 
 describe('the model init writes', () => {
   it('restates what a fresh materialization already carries, with no hypothesis and both stages of every claim supported', () => {
-    const model = buildModel({ vars: VARS, contracts: false })
+    const model = buildModel({ vars: VARS, contracts: false, sample: false })
     expect(model).toEqual(parseModel(readFileSync(FRESH_INIT, 'utf8'), 'fresh-init'))
     expect(model.modelVersion).toBe(MODEL_VERSION)
     expect(model.hypotheses).toEqual([])
@@ -65,13 +65,13 @@ describe('the model init writes', () => {
   })
 
   it('takes no wall clock and no ambient read: the same input builds the same model', () => {
-    expect(buildModel({ vars: VARS, contracts: false })).toEqual(buildModel({ vars: VARS, contracts: false }))
-    expect(JSON.stringify(buildModel({ vars: { ...VARS, contractPath: 'contracts/api/openapi.yaml' }, contracts: true }))).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
+    expect(buildModel({ vars: VARS, contracts: false, sample: false })).toEqual(buildModel({ vars: VARS, contracts: false, sample: false }))
+    expect(JSON.stringify(buildModel({ vars: { ...VARS, contractPath: 'contracts/api/openapi.yaml' }, contracts: true, sample: false }))).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
   })
 
   it('adds the contract claim only where the construct materializes a contract', () => {
-    const without = buildModel({ vars: VARS, contracts: false })
-    const with_ = buildModel({ vars: { ...VARS, contractPath: 'contracts/api/openapi.yaml' }, contracts: true })
+    const without = buildModel({ vars: VARS, contracts: false, sample: false })
+    const with_ = buildModel({ vars: { ...VARS, contractPath: 'contracts/api/openapi.yaml' }, contracts: true, sample: false })
     expect(without.claims.map(claim => claim.id)).not.toContain('a-breaking-api-change-is-named-before-it-ships')
     expect(with_.claims.map(claim => claim.id)).toContain('a-breaking-api-change-is-named-before-it-ships')
     expect(with_.facts.some(fact => fact.path === 'contracts/api/openapi.yaml')).toBe(true)
@@ -82,7 +82,7 @@ describe('the model init writes', () => {
       const preset = getPreset(presetId)
       const content = materializedContent(presetId)
       const dir = scratch()
-      const model = buildModel({ vars: presetVars(dir, presetId), contracts: preset.contracts })
+      const model = buildModel({ vars: presetVars(dir, presetId), contracts: preset.contracts, sample: sampleGroups(preset).length > 0 })
       expect(model.facts.length).toBeGreaterThan(0)
       for (const fact of model.facts) {
         expect(Object.keys(content), `${fact.id} names a file the construct does not write`).toContain(fact.path)
@@ -94,7 +94,7 @@ describe('the model init writes', () => {
 
   it('writes construct.model.json the way the manifest is written: two-space JSON and a trailing newline', () => {
     const dir = scratch()
-    const model = buildModel({ vars: VARS, contracts: false })
+    const model = buildModel({ vars: VARS, contracts: false, sample: false })
     writeModel(dir, model)
     const source = readFileSync(path.join(dir, MODEL_FILE), 'utf8')
     expect(source).toBe(`${JSON.stringify(model, null, 2)}\n`)
@@ -102,9 +102,9 @@ describe('the model init writes', () => {
   })
 
   it('is the model this repository commits, built from its own manifest rather than by hand', () => {
-    const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'construct.json'), 'utf8')) as { vars: TemplateVars, contracts: unknown }
+    const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'construct.json'), 'utf8')) as { preset: PresetId, vars: TemplateVars, contracts: unknown }
     const committed = readFileSync(path.join(REPO_ROOT, MODEL_FILE), 'utf8')
-    const model = buildModel({ vars: manifest.vars, contracts: manifest.contracts != null })
+    const model = buildModel({ vars: manifest.vars, contracts: manifest.contracts != null, sample: sampleGroups(getPreset(manifest.preset)).length > 0 })
     expect(parseModel(committed, MODEL_FILE)).toEqual(model)
     expect(committed).toBe(`${JSON.stringify(model, null, 2)}\n`)
   })
@@ -285,7 +285,7 @@ describe('every entry the model keeps still stands on a fact the model declares'
 describe('the model is checked against its own schema before it is committed', () => {
   it('refuses to write a merge result that would not parse, and leaves no file behind', () => {
     const dir = scratch()
-    const fresh = buildModel({ vars: VARS, contracts: false })
+    const fresh = buildModel({ vars: VARS, contracts: false, sample: false })
     const stoodOn: RepositoryModel = { ...fresh, hypotheses: [STOOD_ON_BY_A_HYPOTHESIS] }
     const { model } = mergeModel({ ...stoodOn, facts: [...fresh.facts, ABANDONED_FACTS[0]] }, fresh)
     const withoutRetention: RepositoryModel = { ...model, facts: model.facts.filter(fact => fact.id !== 'abandoned-hook') }

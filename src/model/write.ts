@@ -7,11 +7,14 @@ import { DanglingFactReference, MODEL_FILE, MODEL_VERSION, parseModel } from './
 export interface ModelInput {
   vars: TemplateVars
   contracts: boolean
+  sample: boolean
 }
 
 const SECURITY_WORKFLOW = '.github/workflows/security.yml'
 const CI_WORKFLOW = '.github/workflows/ci.yml'
 const CONTRACT_WORKFLOW = '.github/workflows/api-contract.yml'
+const MANIFEST = 'package.json'
+const LINT_POLICY_TEST = 'scripts/tests/lint/syntax-policy.test.ts'
 
 function baselineFacts(harnessCommand: string): Fact[] {
   return [
@@ -23,6 +26,10 @@ function baselineFacts(harnessCommand: string): Fact[] {
     { id: 'ci-workflow-runs-the-harness', kind: 'file-contains', path: CI_WORKFLOW, authoredBy: 'construct', needle: harnessCommand },
     { id: 'eslint-config', kind: 'file-exists', path: 'eslint.config.mjs', authoredBy: 'construct' },
     { id: 'security-invariants', kind: 'file-exists', path: 'architecture/security-invariants.md', authoredBy: 'construct' },
+    { id: 'harness-manifest', kind: 'file-exists', path: MANIFEST, authoredBy: 'construct' },
+    { id: 'harness-script-runs-lint', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm lint' },
+    { id: 'harness-script-runs-typecheck', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm typecheck' },
+    { id: 'harness-script-runs-tests', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm test' },
   ]
 }
 
@@ -70,6 +77,46 @@ function baselineClaims(harnessCommand: string): Claim[] {
         supportedBy: ['eslint-config'],
       },
     },
+    {
+      id: 'harness-steps',
+      statement: `${harnessCommand} runs lint, typecheck and tests, rather than merely existing as a script`,
+      authoredBy: 'construct',
+      enforcement: {
+        mechanism: `${CI_WORKFLOW} runs ${harnessCommand} on every pull request, and ${MANIFEST} spells that command out as pnpm lint, pnpm typecheck and pnpm test`,
+        level: 'L3',
+        supportedBy: ['ci-workflow-runs-the-harness', 'harness-script-runs-lint', 'harness-script-runs-typecheck', 'harness-script-runs-tests'],
+      },
+      verification: {
+        mechanism: `${MANIFEST} is the file that command resolves against, so a step dropped from it is visible there`,
+        supportedBy: ['harness-manifest'],
+      },
+    },
+  ]
+}
+
+function sampleFacts(): Fact[] {
+  return [
+    { id: 'lint-policy-test', kind: 'file-exists', path: LINT_POLICY_TEST, authoredBy: 'construct' },
+    { id: 'lint-policy-test-loads-eslint', kind: 'file-contains', path: LINT_POLICY_TEST, authoredBy: 'construct', needle: 'import { ESLint } from \'eslint\'' },
+  ]
+}
+
+function sampleClaims(harnessCommand: string): Claim[] {
+  return [
+    {
+      id: 'lint-policy',
+      statement: 'The lint policy this repository declares is itself checked by a test, not only applied by the linter',
+      authoredBy: 'construct',
+      enforcement: {
+        mechanism: `${LINT_POLICY_TEST} asserts the restrictions the lint policy declares, and ${CI_WORKFLOW} runs ${harnessCommand} over it on every pull request`,
+        level: 'L3',
+        supportedBy: ['lint-policy-test', 'ci-workflow-runs-the-harness'],
+      },
+      verification: {
+        mechanism: `${LINT_POLICY_TEST} resolves eslint.config.mjs through the ESLint API rather than reading its text`,
+        supportedBy: ['lint-policy-test-loads-eslint', 'eslint-config'],
+      },
+    },
   ]
 }
 
@@ -104,8 +151,8 @@ export function buildModel(input: ModelInput): RepositoryModel {
   const { harnessCommand, contractPath } = input.vars
   return {
     modelVersion: MODEL_VERSION,
-    facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : []],
-    claims: [...baselineClaims(harnessCommand), ...input.contracts ? contractClaims(contractPath) : []],
+    facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : [], ...input.sample ? sampleFacts() : []],
+    claims: [...baselineClaims(harnessCommand), ...input.contracts ? contractClaims(contractPath) : [], ...input.sample ? sampleClaims(harnessCommand) : []],
     hypotheses: [],
   }
 }

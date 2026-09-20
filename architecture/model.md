@@ -115,6 +115,43 @@ level whose facts stop holding therefore becomes `unsupported` rather than stayi
 can check. [Rule 1](epistemic-rules.md) is the same separation one step earlier — the claim, the
 thing that checks it, and how strongly it is checked are three facts, not one column.
 
+## Claims are about mechanisms, not goals
+
+A claim carries exactly one `enforcement`, and that is deliberate. [Rule 1](epistemic-rules.md)
+separates three facts — that something is required, that something checks it, and how strongly it is
+checked — and the schema keeps them apart by giving one claim one checker at one level. "Every change
+passes the harness through CI" and "every change passes the harness through a local hook" therefore
+say the same *goal* but name two different mechanisms, so they are two claims, not one claim with two
+enforcers.
+
+Read as goals they look like duplicates, and merging them looks like tidying. Read as mechanisms they
+are not: CI holds at L3 and a hook at L2, they stand on different files, and either can stop holding
+while the other still does. A single claim with two enforcers would have to answer "is this held?"
+with one state for two independent mechanisms — which is exactly the one-column table rule 1 exists to
+prevent. Keeping them apart is what lets `doctor` say *which* mechanism stopped holding, and lets a
+repository that has one and not the other be described honestly rather than half-credited.
+
+## Where a verdict belongs — knowledge or provenance
+
+A verdict is **knowledge** if it can become false without anything `init` wrote changing. It is
+**provenance** if it becomes false only when what `init` installed has changed — and provenance is
+`construct.json`'s question, not the model's
+([decision 0016](decisions/0016-the-model-is-the-source.md)).
+
+`harness-steps` is knowledge. It asks whether the harness command really runs lint, typecheck and
+tests; the `package.json` it reads belongs to the repository's owner, who can rewrite the script
+tomorrow without touching a construct file. The claim can go from held to unsupported with the
+construct untouched, which is what makes it worth holding.
+
+`construct-tests` is provenance. It asks whether the test files `construct.json` recorded are still
+collected by the runner config `init` also wrote: both ends were installed by the construct, so the
+answer changes only when the construct's own files changed. That reasoning holds only while the
+construct owns both ends. Where a repository arrived with its own runner config, the construct never
+wrote that end, and a verdict there would pronounce on a file its owner owns — so the check must stay
+silent instead. That makes `construct-tests` conditional in the same way `lint-policy` is: the same
+rule, a different condition. `lint-policy` exists only where the preset's sample was materialized,
+because only then did the construct write the policy test it stands on.
+
 ## Chain stages — where a claim stops being held
 
 A claim is read as a chain, in this order.
