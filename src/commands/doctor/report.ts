@@ -75,7 +75,7 @@ function stoppedLine(ui: Ui, stop: SelectedPath): string {
       return ui.lore.youAreHereUnsupported(stop.claimId, stop.stage, stop.doesNotHold)
     case 'unknown':
       return stop.reason === 'unevaluable'
-        ? ui.lore.youAreHereUnevaluable(stop.claimId, stop.stage)
+        ? ui.lore.youAreHereUnevaluable(stop.claimId, stop.stage, stop.unevaluable)
         : ui.lore.youAreHereNothingNamed(stop.claimId, stop.stage)
   }
 }

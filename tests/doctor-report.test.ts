@@ -216,10 +216,10 @@ const STOPPED_LINES: Record<string, StoppedLineExpectation> = {
     says: ['package.json', 'no longer matches', 'and 2 more'],
     omits: ['.github/workflows/ci.yml', 'eslint.config.mjs'],
   },
-  'a stage that could not be read, which names no culprit': {
+  'a stage that could not be read, which names what it could not read and blames nothing': {
     stop: { claimId: 'harness-steps', stage: 'verification', state: 'unknown', reason: 'unevaluable', unevaluable: ['.github/workflows/ci.yml'] },
-    says: ['harness-steps', 'verification', 'unknown', 'could not be read'],
-    omits: ['.github/workflows/ci.yml', 'no longer matches'],
+    says: ['harness-steps', 'verification', 'unknown', 'could not be read', '.github/workflows/ci.yml'],
+    omits: ['no longer matches', 'unsupported'],
   },
   'a stage with no fact named under it': {
     stop: { claimId: 'harness-steps', stage: 'verification', state: 'unknown', reason: 'no-fact-named' },
@@ -255,7 +255,7 @@ describe('the you-are-here line names the fact that stopped matching', () => {
   for (const [theme, lore] of [['arasaka', LORE], ['plain', PLAIN_LORE]] as const) {
     it(`takes the facts as a required argument of the stopped ${theme} line, so a stop without one cannot be written`, () => {
       expect(lore.youAreHereUnsupported).toHaveLength(3)
-      expect(lore.youAreHereUnevaluable).toHaveLength(2)
+      expect(lore.youAreHereUnevaluable).toHaveLength(3)
       expect(lore.youAreHereNothingNamed).toHaveLength(2)
 
       // @ts-expect-error a stopped line reading unsupported without the facts that no longer match does not compile

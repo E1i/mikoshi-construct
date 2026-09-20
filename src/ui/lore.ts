@@ -53,7 +53,7 @@ export interface Lore {
   enforcementNoModel: string
   enforcementNoClaim: string
   youAreHereUnsupported: (claimId: string, stage: string, doesNotHold: readonly [string, ...string[]]) => string
-  youAreHereUnevaluable: (claimId: string, stage: string) => string
+  youAreHereUnevaluable: (claimId: string, stage: string, unevaluable: readonly [string, ...string[]]) => string
   youAreHereNothingNamed: (claimId: string, stage: string) => string
   youAreHereNone: string
   youAreHereNoClaim: string
@@ -93,7 +93,7 @@ export interface Lore {
 }
 
 function andMore(rest: readonly string[]): string {
-  return rest.length === 0 ? '' : `, and ${rest.length} more`
+  return rest.length === 0 ? '' : `, and ${rest.length} more ${rest.length === 1 ? 'fact' : 'facts'}`
 }
 
 export const LORE: Lore = {
@@ -141,7 +141,7 @@ export const LORE: Lore = {
   enforcementNoModel: 'THERE IS NO construct.model.json HERE: nothing was read, so nothing is known about what this repository claims \u2014 which is not a reading that nothing is enforced.',
   enforcementNoClaim: 'construct.model.json NAMES NO CLAIM: it was read and it asserts nothing about this repository \u2014 which is not a reading that nothing is enforced.',
   youAreHereUnsupported: (claimId: string, stage: string, [first, ...rest]: readonly [string, ...string[]]) => `YOU ARE HERE: ${claimId} \u2014 ${stage} unsupported: ${first} no longer matches${andMore(rest)}`,
-  youAreHereUnevaluable: (claimId: string, stage: string) => `YOU ARE HERE: ${claimId} \u2014 ${stage} unknown: a fact named under it could not be read, so nothing is said about it`,
+  youAreHereUnevaluable: (claimId: string, stage: string, [first, ...rest]: readonly [string, ...string[]]) => `YOU ARE HERE: ${claimId} \u2014 ${stage} unknown: ${first} could not be read${andMore(rest)}, so nothing is said about it`,
   youAreHereNothingNamed: (claimId: string, stage: string) => `YOU ARE HERE: ${claimId} \u2014 ${stage} unknown: no fact is named under it, so nothing was read`,
   youAreHereNone: 'YOU ARE HERE: no claim stops before the end of its chain',
   youAreHereNoClaim: 'YOU ARE HERE: construct.model.json carries no claim, so there is none to place',
@@ -240,7 +240,7 @@ export const PLAIN_LORE: Lore = {
   enforcementNoModel: 'There is no construct.model.json here: nothing was read, so nothing is known about what this repository claims \u2014 which is not a reading that nothing is enforced.',
   enforcementNoClaim: 'construct.model.json names no claim: it was read and it asserts nothing about this repository \u2014 which is not a reading that nothing is enforced.',
   youAreHereUnsupported: (claimId: string, stage: string, [first, ...rest]: readonly [string, ...string[]]) => `You are here: ${claimId} \u2014 ${stage} unsupported: ${first} no longer matches${andMore(rest)}`,
-  youAreHereUnevaluable: (claimId: string, stage: string) => `You are here: ${claimId} \u2014 ${stage} unknown: a fact named under it could not be read, so nothing is said about it`,
+  youAreHereUnevaluable: (claimId: string, stage: string, [first, ...rest]: readonly [string, ...string[]]) => `You are here: ${claimId} \u2014 ${stage} unknown: ${first} could not be read${andMore(rest)}, so nothing is said about it`,
   youAreHereNothingNamed: (claimId: string, stage: string) => `You are here: ${claimId} \u2014 ${stage} unknown: no fact is named under it, so nothing was read`,
   youAreHereNone: 'You are here: no claim stops before the end of its chain',
   youAreHereNoClaim: 'You are here: construct.model.json carries no claim, so there is none to place',

@@ -19,3 +19,12 @@ cannot be written.
 
 The three situations with no path — no model, a model carrying no claim, a model whose every chain
 holds — read exactly as before.
+
+A stage that could not be read names the path it could not read, and still blames nothing. Naming
+what was unreadable is information; naming a fact as failing when none did would be the substitution
+this release exists to remove, and the two are easy to confuse. Without the path the line said that
+*something* could not be read — true, and useless to anyone reading it out of a CI log, which is the
+one thing this line is for.
+
+Where several facts stopped matching the count says what it is counting — "and 2 more facts" rather
+than "and 2 more" — because the line is read where nothing around it explains the number.
