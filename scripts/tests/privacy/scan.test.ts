@@ -69,3 +69,20 @@ describe('privacy guard', () => {
     expect(scanText(text, 'allowlist.md')).toEqual([])
   })
 })
+
+describe('a bare mention is a hostname, not an identifier', () => {
+  it('leaves a capitalised property access alone', () => {
+    expect(scanText('the run field of WorkflowRun.run is recorded', 'probe.md')).toEqual([])
+  })
+
+  it('still reports a hostname written in prose', () => {
+    expect(scanText('mail acme-internal.dev for access', 'probe.md').map(formatViolation).join('\n'))
+      .toContain('acme-internal.dev')
+  })
+
+  it('still reports a capitalised hostname inside a URL or an address', () => {
+    const messages = scanText('see https://Acme-Internal.DEV/x or write to a@Corp.De', 'probe.md').map(formatViolation)
+    expect(messages.join('\n')).toContain('Acme-Internal.DEV')
+    expect(messages.join('\n')).toContain('Corp.De')
+  })
+})
