@@ -147,8 +147,8 @@ record.
 ## construct doctor
 
 Checks that the construct is intact: every file the manifest recorded is still present, the harness
-command still runs lint, typecheck and tests, the contract paths in `construct.json` still resolve,
-and each discovery marker is either filled or named as missing. It then answers a second question —
+script `construct.json` names is still there, the contract paths it records still resolve, and each
+discovery marker is either filled or named as missing. It then answers a second question —
 what this tool claims about the repository, at what level each claim is enforced, and whether the
 facts under it still hold — and ends with one line naming where the first chain stops.
 
@@ -170,19 +170,25 @@ that claim stands on, and where you are is the model's own path selection.
 | `unreadableFiles` | provenance |
 | `missingDiscovery` | provenance |
 | `provenance` | provenance |
-| `harnessProblems` | mixed |
+| `harnessProblems` | provenance |
 | `uncollectedTests` | provenance |
 | `warnings` | provenance |
 | `checks` | knowledge |
 | `youAreHere` | knowledge |
 | `versionGap` | provenance |
 
-`harnessProblems` is `mixed` and that is a statement about this version, not a category: half of it
-asserts enforcement — the harness command does not run lint, typecheck or tests — and half is
-provenance, a file `construct.json` points at that is missing. Nothing is asserted about a `mixed`
-field, which is why the incompleteness is written into the classification rather than left to
-memory. The classification lives in `src/commands/doctor/families.ts`; this table is its second
-reader and a test fails when the two diverge.
+`harnessProblems` carries provenance only: `package.json` is gone, it has no script under the name
+`construct.json` recorded, or a contract path that manifest points at is absent. Each of those goes
+false only when what `init` installed changed. Whether the harness command really runs its steps is
+knowledge — the owner's `package.json` can drop `pnpm lint` with no construct file touched — so it
+is the `harness-steps` claim, rendered as a verdict like any other.
+
+That move changes what is rendered and not what is exited on: **a harness that no longer runs lint
+is an unsupported claim, not a problem**, and it leaves `ok` exactly where it was, because `ok`
+answers whether the inspection completed. No repository changes which side of `ok` it falls on.
+
+The classification lives in `src/commands/doctor/families.ts`; this table is its second reader and a
+test fails when the two diverge.
 
 ### A file that exists and cannot be read
 
@@ -200,11 +206,13 @@ crashing, because the file would leave the inspected set in silence.
 
 ### Two kinds of `unknown`, and which one moves `ok`
 
-`ok` collapses a three-valued world into one boolean, and it collapses toward inspection rather than
-toward confidence: it answers **whether the inspection completed**, not whether everything is held.
-A repository part of which the command could not open is not one it can call intact, and the
-opposite choice would put a quiet false calm into an exit code, which is where it would do the most
-damage.
+`ok` is a **provenance** answer, and only that: it says whether the construct's own installation is
+intact and fully inspectable. It says nothing about what is claimed of the repository — a claim that
+stops being held is reported in `checks` and never moves the exit code.
+
+Within that scope it collapses a three-valued world toward inspection rather than toward confidence.
+A part of the tree the command could not open is one it cannot answer for, and the opposite choice
+would put a quiet false calm into an exit code, which is where it would do the most damage.
 
 That makes the two origins of `unknown` behave differently, and the difference is deliberate rather
 than incidental:
@@ -466,8 +474,11 @@ never changes the exit code.
 }
 ```
 
-`ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery`, `provenance`, `harnessProblems`,
-`warnings` and `versionGap` keep their names, types and meaning. `provenance` has one entry per
+`ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery`, `provenance`, `warnings` and
+`versionGap` keep their names, types and meaning. `harnessProblems` keeps its name and its type and
+narrows to provenance: the step-coverage entries — `"quality" does not run lint`, `typecheck`,
+`test`, `contracts:check` — are gone from it and are read off the `harness-steps` claim instead,
+which leaves `ok` unchanged for every repository. `provenance` has one entry per
 marker, in the order the markers are declared, each with `marker`, `file` and `authorship`
 (`construct`, `owner` or `unknown`).
 

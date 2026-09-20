@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DOCTOR_FIELD_FAMILY, projectKnowledge } from '../src/commands/doctor/index.js'
+import { DOCTOR_FIELD_FAMILY, projectKnowledge, RESULT_FAMILIES } from '../src/commands/doctor/index.js'
 import { deriveModelState } from '../src/model/state.js'
 import { buildModel } from '../src/model/write.js'
 
@@ -175,10 +175,10 @@ describe('the gate against state doctor synthesises', () => {
       .toContain('youAreHere names "", which the model does not carry')
   })
 
-  it('asserts nothing about a mixed field, and covers one the moment it is reclassified', () => {
+  it('covers harnessProblems by its classification alone, and says so the moment that classification changes', () => {
     const repository = model()
-    const doctor = result({ harnessProblems: ['"quality" does not run test'] })
-    expect(DOCTOR_FIELD_FAMILY.harnessProblems).toBe('mixed')
+    const doctor = result({ harnessProblems: ['package.json is missing'] })
+    expect(DOCTOR_FIELD_FAMILY.harnessProblems).toBe('provenance')
     expect(synthesisedState(doctor, repository)).toEqual([])
     expect(synthesisedState(doctor, repository, { ...DOCTOR_FIELD_FAMILY, harnessProblems: 'knowledge' }))
       .toEqual(['harnessProblems carries a value that names no claim'])
@@ -186,6 +186,12 @@ describe('the gate against state doctor synthesises', () => {
 
   it('classifies every field of the doctor result, so no field escapes the question', () => {
     expect(Object.keys(DOCTOR_FIELD_FAMILY).sort()).toEqual(Object.keys(result()).sort())
+  })
+
+  it('leaves no field in a family the code does not declare, so none abstains from the question', () => {
+    expect(RESULT_FAMILIES).toEqual(['knowledge', 'provenance'])
+    for (const [field, family] of Object.entries(DOCTOR_FIELD_FAMILY))
+      expect(RESULT_FAMILIES, field).toContain(family)
   })
 })
 

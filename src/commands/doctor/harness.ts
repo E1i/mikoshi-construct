@@ -11,7 +11,6 @@ export interface HarnessFacts {
   packageJson: Record<string, unknown> | null
 }
 
-const REQUIRED_QUALITY_STEPS = ['lint', 'typecheck', 'test']
 const SCRIPT_REFERENCE = /(?:^|&&|\|\||;)\s*(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)/g
 
 function harnessScriptName(command: string): string {
@@ -45,25 +44,18 @@ export function readHarnessFacts(root: string, command: string, readings: FileRe
   }
 }
 
-function contractProblems(root: string, contracts: Manifest['contracts'], script: string, body: string): string[] {
+function missingContractFiles(root: string, contracts: Manifest['contracts']): string[] {
   if (contracts == null)
     return []
-  const problems = [contracts.path, contracts.types]
+  return [contracts.path, contracts.types]
     .filter(file => !existsSync(path.join(root, file)))
     .map(file => `${file} is missing (construct.json → contracts)`)
-  if (!body.includes('contracts:check'))
-    problems.push(`"${script}" does not run contracts:check`)
-  return problems
 }
 
 export function harnessProblems(root: string, manifest: Manifest, facts: HarnessFacts, readings: FileReadings = new FileReadings(root)): string[] {
   if (facts.packageJson == null)
     return readings.unreadable(HARNESS_MANIFEST) ? [] : [`${HARNESS_MANIFEST} is missing`]
-  const body = facts.body
-  if (body == null)
+  if (facts.body == null)
     return [`package.json has no "${facts.script}" script (harness command is "${facts.command}")`]
-  return [
-    ...REQUIRED_QUALITY_STEPS.filter(step => !body.includes(step)).map(step => `"${facts.script}" does not run ${step}`),
-    ...contractProblems(root, manifest.contracts, facts.script, body),
-  ]
+  return missingContractFiles(root, manifest.contracts)
 }
