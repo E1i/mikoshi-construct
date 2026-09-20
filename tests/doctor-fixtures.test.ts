@@ -1,16 +1,18 @@
-import type { CheckState, CheckVerdict, Level } from '../src/commands/doctor/index.js'
+import type { CheckState, CheckVerdict, ClaimPlacement, DoctorResult, Level } from '../src/commands/doctor/index.js'
 import type { FileOp } from '../src/materialize/plan.js'
-import type { SelectedPath } from '../src/model/path.js'
 import type { Claim } from '../src/model/schema.js'
 import type { TemplateVars } from '../src/presets/index.js'
 import { cpSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runDoctor } from '../src/commands/doctor/index.js'
+import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { RUNNER_CONFIG_FILES } from '../src/commands/doctor/runner.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
+import { MODEL_VERSION } from '../src/model/schema.js'
 import { buildModel, writeModel } from '../src/model/write.js'
+import { createUi } from '../src/ui/console.js'
+import { resolveTheme } from '../src/ui/theme.js'
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures/doctor')
 const CONTROL = 'healthy'
@@ -30,7 +32,7 @@ interface FixtureExpectation {
   unreadableFiles?: string[]
   uncollectedTests?: string[]
   harnessProblems?: string[]
-  youAreHere?: SelectedPath | null
+  youAreHere?: ClaimPlacement
 }
 
 const FIXTURES: Record<string, FixtureExpectation> = {
@@ -61,7 +63,7 @@ const FIXTURES: Record<string, FixtureExpectation> = {
     ok: true,
     checks: [{ id: 'harness-steps', state: 'unsupported', level: 'L3', mechanism: 'package.json spells that command out', doesNotHold: ['package.json'] }],
     harnessProblems: [],
-    youAreHere: { claimId: 'harness-steps', stage: 'enforcement', state: 'unsupported', doesNotHold: ['package.json'] },
+    youAreHere: { at: 'stop', stop: { claimId: 'harness-steps', stage: 'enforcement', state: 'unsupported', doesNotHold: ['package.json'] } },
   },
   'healthy': {
     lie: 'reports a construct whose every claim is held on the control, where the facts under them all hold',
@@ -73,7 +75,7 @@ const FIXTURES: Record<string, FixtureExpectation> = {
     ],
     uncollectedTests: [],
     harnessProblems: [],
-    youAreHere: null,
+    youAreHere: { at: 'no-stop' },
   },
 }
 
@@ -92,8 +94,10 @@ const VARS: TemplateVars = {
   constructVersion: '0.0.0-fixture',
 }
 
+type ModelCarried = 'built' | 'no-claim' | 'absent'
+
 interface FixtureOptions {
-  model?: boolean
+  model?: ModelCarried
   recordRunnerConfig?: boolean
 }
 
@@ -128,8 +132,11 @@ function materializeFixture(name: string, options: FixtureOptions = {}): string 
     previous: null,
   })
   writeManifest(root, manifest)
-  if (options.model !== false)
+  const carried = options.model ?? 'built'
+  if (carried === 'built')
     writeModel(root, buildModel({ vars: VARS, contracts: false, sample: true }))
+  if (carried === 'no-claim')
+    writeModel(root, { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] })
   return root
 }
 
@@ -213,9 +220,9 @@ describe('doctor on the fixtures', () => {
   })
 
   it('completes with no verdict at all on a repository carrying no construct.model.json', () => {
-    const result = runDoctor(materializeFixture(CONTROL, { model: false }))
+    const result = runDoctor(materializeFixture(CONTROL, { model: 'absent' }))
     expect(result?.checks).toEqual([])
-    expect(result?.youAreHere).toBeNull()
+    expect(result?.youAreHere).toEqual({ at: 'no-model' })
     expect(result?.ok).toBe(true)
   })
 
@@ -230,5 +237,67 @@ describe('doctor on the fixtures', () => {
       .flatMap(([, expectation]) => expectation.checks.map(check => check.id))
     for (const id of modelClaims().flatMap(claim => claim.checkId ?? []))
       expect(provoked).toContain(id)
+  })
+})
+
+interface PlacementExpectation {
+  model: ModelCarried
+  placement: ClaimPlacement
+  line: string
+  says: string[]
+}
+
+const CLAIMS_CARRIED: Record<string, PlacementExpectation> = {
+  'no model at all': {
+    model: 'absent',
+    placement: { at: 'no-model' },
+    line: 'nowhere to place you',
+    says: ['there is no construct.model.json', 'nothing is known about what this repository claims', 'not a reading that nothing is enforced'],
+  },
+  'a model carrying no claim': {
+    model: 'no-claim',
+    placement: { at: 'no-claim' },
+    line: 'construct.model.json carries no claim, so there is none to place',
+    says: ['construct.model.json names no claim', 'it asserts nothing about this repository'],
+  },
+  'a model whose every chain holds': {
+    model: 'built',
+    placement: { at: 'no-stop' },
+    line: 'no claim stops before the end of its chain',
+    says: ['no-committed-secret'],
+  },
+}
+
+function rendered(result: DoctorResult): { output: string, code: number } {
+  const lines: string[] = []
+  const ui = createUi(resolveTheme({ plain: true, johnny: false }), text => lines.push(text))
+  const code = printDoctor(ui, result)
+  return { output: lines.join(''), code }
+}
+
+function lastLine(output: string): string {
+  return output.split('\n').filter(line => line.trim() !== '').at(-1) ?? ''
+}
+
+describe('what doctor says about claims, where the repository carries none to say it of', () => {
+  for (const [situation, expectation] of Object.entries(CLAIMS_CARRIED)) {
+    it(`reads ${situation} as itself, in the line it prints and not only in the JSON`, () => {
+      const result = runDoctor(materializeFixture(CONTROL, { model: expectation.model })) as DoctorResult
+      const { output, code } = rendered(result)
+
+      expect(result.youAreHere).toEqual(expectation.placement)
+      expect(result.ok).toBe(true)
+      expect(code).toBe(0)
+      expect(result.checks.map(check => check.state as string)).not.toContain('absent')
+      expect(lastLine(output)).toContain(expectation.line)
+      for (const said of expectation.says)
+        expect(output).toContain(said)
+    })
+  }
+
+  it('renders a different line for each of the three, so no one of them reads as another', () => {
+    const lines = Object.values(CLAIMS_CARRIED)
+      .map(expectation => lastLine(rendered(runDoctor(materializeFixture(CONTROL, { model: expectation.model })) as DoctorResult).output))
+    expect(new Set(lines).size).toBe(Object.keys(CLAIMS_CARRIED).length)
   })
 })

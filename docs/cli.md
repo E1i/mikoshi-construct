@@ -223,12 +223,27 @@ than incidental:
 | No subject — no model, or no fact named under a claim | there was nothing to inspect, and the answer is complete | **true** |
 
 The first says *I could not*; the second says *I have nothing to say*. Only the first is a gap in the
-run. A repository carrying no `construct.model.json` therefore gets no verdicts and no `youAreHere`,
-and `ok` is unaffected — the command completes, the provenance family answers as it always did, and
-a repository that simply predates the model is not reported as broken.
+run. A repository carrying no `construct.model.json` therefore gets no verdicts, and `ok` is
+unaffected — the command completes, the provenance family answers as it always did, and a repository
+that simply predates the model is not reported as broken.
 
-A repository with no `construct.model.json` gets no verdicts and no `youAreHere`: the command
-completes and the provenance family is unaffected.
+### Three ways to carry no claim, and a line for each
+
+Having no model at all, carrying a model that names no claim, and carrying claims whose chains all
+hold are three different readings. `youAreHere` says which one it is rather than leaving that to be
+inferred from an empty `checks` list: `at` is the discriminant, and `stop` is carried only under
+`at: "stop"`.
+
+| `at` | What it says | The line it prints |
+|---|---|---|
+| `no-model` | There is no `construct.model.json` here: nothing was read, so nothing is known about what this repository claims. This is not a reading that nothing is enforced. | `You are here: nowhere to place you — there is no construct.model.json, so nothing is known about claims` |
+| `no-claim` | `construct.model.json` was read and names no claim: it asserts nothing about this repository. | `You are here: construct.model.json carries no claim, so there is none to place` |
+| `no-stop` | The model carries claims and none of their chains stops before its end. | `You are here: no claim stops before the end of its chain` |
+| `stop` | The first claim whose chain stops, carried under `stop` with the stage and the facts behind it. | `You are here: <claim> — <stage> <state>` |
+
+Under the first two the Enforcement section says why it lists nothing, instead of an empty list a
+reader would take for a repository that was looked at and found clean. None of the four moves the
+exit code: a repository with no model exits `0`, because absence of a subject is not obstruction.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -393,7 +408,8 @@ line to `warnings` instead — a framework matrix would grow faster than it coul
 The last line names where you are: the first claim whose chain stops, the stage it stops at —
 `enforcement` before `verification` — and the state it stops in. `doctor` does not work that out;
 `selectPath` in the model does, so the same model always yields the same answer, tie-break included.
-When no chain stops, the line says so.
+Where there is no chain to stop — no model, or a model naming no claim — the line says which of the
+two it is rather than reading as a repository whose every claim holds.
 
 ### Who each marker belongs to
 
@@ -469,7 +485,7 @@ never changes the exit code.
       "doesNotHold": [".github/workflows/ci.yml"]
     }
   ],
-  "youAreHere": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] },
+  "youAreHere": { "at": "stop", "stop": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] } },
   "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
@@ -494,9 +510,11 @@ This version changes the knowledge half of the contract:
   one entry per claim in the model, in the model's declaration order — an empty list where the
   repository has no `construct.model.json`. `id` is the claim id, except for the two legacy names
   the model still carries as `checkId`: `ci` and `lint-policy`.
-- `weakestLink` is replaced by `youAreHere: {claimId, stage, state, …} | null`, `null` when no
-  claim's chain stops before its end. It carries the same facts the verdict for that claim carries,
-  from the same derivation: `doesNotHold` where it stops `unsupported`, `reason` where `unknown`.
+- `weakestLink` is replaced by `youAreHere: {at, stop?}`, where `at` is one of `stop`, `no-stop`,
+  `no-claim` and `no-model`, and `stop` is carried only under `at: "stop"`. That stop carries the
+  same facts the verdict for that claim carries, from the same derivation: `doesNotHold` where it
+  stops `unsupported`, `reason` where `unknown`. It is never `null`: no model, a model naming no
+  claim and a model whose chains all hold are three readings and not one.
 
 ## construct sync
 

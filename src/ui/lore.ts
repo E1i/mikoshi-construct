@@ -50,8 +50,12 @@ export interface Lore {
   verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => string
   verdictUnevaluable: (mechanism: string, unevaluable: readonly [string, ...string[]]) => string
   verdictNothingNamed: (mechanism: string) => string
+  enforcementNoModel: string
+  enforcementNoClaim: string
   youAreHere: (claimId: string, stage: string, state: string) => string
   youAreHereNone: string
+  youAreHereNoClaim: string
+  youAreHereNoModel: string
   wireHarness: string
   wireHarnessSteps: string[]
   costUnsupported: (runtime: string) => string
@@ -128,8 +132,12 @@ export const LORE: Lore = {
   verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => `EXPECTS ${mechanism} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
   verdictUnevaluable: (mechanism: string, unevaluable: readonly [string, ...string[]]) => `EXPECTS ${mechanism} \u2014 could not be read here, so nothing is said about it: ${unevaluable.join(', ')}`,
   verdictNothingNamed: (mechanism: string) => `EXPECTS ${mechanism} \u2014 no fact is named under it, so nothing was read`,
+  enforcementNoModel: 'THERE IS NO construct.model.json HERE: nothing was read, so nothing is known about what this repository claims \u2014 which is not a reading that nothing is enforced.',
+  enforcementNoClaim: 'construct.model.json NAMES NO CLAIM: it was read and it asserts nothing about this repository \u2014 which is not a reading that nothing is enforced.',
   youAreHere: (claimId: string, stage: string, state: string) => `YOU ARE HERE: ${claimId} \u2014 ${stage} ${state}`,
   youAreHereNone: 'YOU ARE HERE: no claim stops before the end of its chain',
+  youAreHereNoClaim: 'YOU ARE HERE: construct.model.json carries no claim, so there is none to place',
+  youAreHereNoModel: 'YOU ARE HERE: nowhere to place you \u2014 there is no construct.model.json, so nothing is known about claims',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
     'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
@@ -221,8 +229,12 @@ export const PLAIN_LORE: Lore = {
   verdictUnsupported: (mechanism: string, doesNotHold: readonly [string, ...string[]]) => `expects ${mechanism} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
   verdictUnevaluable: (mechanism: string, unevaluable: readonly [string, ...string[]]) => `expects ${mechanism} \u2014 could not be read here, so nothing is said about it: ${unevaluable.join(', ')}`,
   verdictNothingNamed: (mechanism: string) => `expects ${mechanism} \u2014 no fact is named under it, so nothing was read`,
+  enforcementNoModel: 'There is no construct.model.json here: nothing was read, so nothing is known about what this repository claims \u2014 which is not a reading that nothing is enforced.',
+  enforcementNoClaim: 'construct.model.json names no claim: it was read and it asserts nothing about this repository \u2014 which is not a reading that nothing is enforced.',
   youAreHere: (claimId: string, stage: string, state: string) => `You are here: ${claimId} \u2014 ${stage} ${state}`,
   youAreHereNone: 'You are here: no claim stops before the end of its chain',
+  youAreHereNoClaim: 'You are here: construct.model.json carries no claim, so there is none to place',
+  youAreHereNoModel: 'You are here: nowhere to place you \u2014 there is no construct.model.json, so nothing is known about claims',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
     'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',

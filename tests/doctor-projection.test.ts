@@ -1,4 +1,4 @@
-import type { DoctorResult, ResultFamily } from '../src/commands/doctor/index.js'
+import type { ClaimPlacement, DoctorResult, ResultFamily } from '../src/commands/doctor/index.js'
 import type { OwnerReader } from '../src/model/ownership.js'
 import type { RepositoryModel } from '../src/model/schema.js'
 import type { TemplateVars } from '../src/presets/index.js'
@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DOCTOR_FIELD_FAMILY, projectKnowledge, RESULT_FAMILIES } from '../src/commands/doctor/index.js'
+import { MODEL_VERSION } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
 import { buildModel } from '../src/model/write.js'
 
@@ -55,7 +56,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     uncollectedTests: [],
     warnings: [],
     checks: [],
-    youAreHere: null,
+    youAreHere: { at: 'no-stop' },
     versionGap: { materializedBy: '0.1.0', readBy: '0.1.0', pending: 0 },
     ...overrides,
   }
@@ -73,8 +74,14 @@ function claimIdsNamedBy(value: unknown): string[] {
   ]
 }
 
+function placesNoClaim(value: unknown): boolean {
+  return typeof value === 'object' && value != null && 'at' in value && (value as { at: unknown }).at !== 'stop'
+}
+
 function carriesAValue(value: unknown): boolean {
-  return Array.isArray(value) ? value.length > 0 : value != null
+  if (Array.isArray(value))
+    return value.length > 0
+  return value != null && !placesNoClaim(value)
 }
 
 function synthesisedState(
@@ -134,7 +141,7 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
   it('takes where you are from the model\'s own path selection, and reports nothing where no chain stops', () => {
     const repository = model(false)
     expect(projectKnowledge(repository, scratch()).youAreHere)
-      .toEqual({ claimId: 'no-committed-secret', stage: 'enforcement', state: 'unsupported', doesNotHold: ['.github/workflows/security.yml'] })
+      .toEqual({ at: 'stop', stop: { claimId: 'no-committed-secret', stage: 'enforcement', state: 'unsupported', doesNotHold: ['.github/workflows/security.yml'] } })
     const held = scratch({
       ...HARNESS_IN_CI,
       '.github/workflows/security.yml': 'gitleaks\npnpm audit --audit-level=high\n',
@@ -143,11 +150,29 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
       'eslint.config.mjs': '',
       'package.json': '{ "scripts": { "quality": "pnpm lint && pnpm typecheck && pnpm test" } }',
     })
-    expect(projectKnowledge(repository, held).youAreHere).toBeNull()
+    expect(projectKnowledge(repository, held).youAreHere).toEqual({ at: 'no-stop' })
   })
 
-  it('holds no knowledge of its own where the repository carries no model', () => {
-    expect(projectKnowledge(null, scratch())).toEqual({ checks: [], youAreHere: null })
+  it('holds no knowledge of its own where the repository carries no model, and says that is why', () => {
+    expect(projectKnowledge(null, scratch())).toEqual({ checks: [], youAreHere: { at: 'no-model' } })
+  })
+
+  it('separates a model that carries no claim from no model at all, rather than leaving both an empty list', () => {
+    const empty: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] }
+    expect(projectKnowledge(empty, scratch())).toEqual({ checks: [], youAreHere: { at: 'no-claim' } })
+    expect(projectKnowledge(null, scratch()).youAreHere).not.toEqual(projectKnowledge(empty, scratch()).youAreHere)
+  })
+
+  it('separates a model whose every chain holds from one that carries no chain to hold', () => {
+    const held = scratch({
+      ...HARNESS_IN_CI,
+      '.github/workflows/security.yml': 'gitleaks\npnpm audit --audit-level=high\n',
+      '.gitleaks.toml': '',
+      'architecture/security-invariants.md': '',
+      'eslint.config.mjs': '',
+      'package.json': '{ "scripts": { "quality": "pnpm lint && pnpm typecheck && pnpm test" } }',
+    })
+    expect(projectKnowledge(model(false), held).youAreHere).toEqual({ at: 'no-stop' })
   })
 })
 
@@ -171,7 +196,7 @@ describe('the gate against state doctor synthesises', () => {
 
   it('fails when a knowledge-family field carries a value that traces to no claim at all', () => {
     const repository = model()
-    expect(synthesisedState(result({ youAreHere: { claimId: '', stage: 'enforcement', state: 'unknown', reason: 'no-fact-named' } }), repository))
+    expect(synthesisedState(result({ youAreHere: { at: 'stop', stop: { claimId: '', stage: 'enforcement', state: 'unknown', reason: 'no-fact-named' } } }), repository))
       .toContain('youAreHere names "", which the model does not carry')
   })
 
@@ -195,13 +220,17 @@ describe('the gate against state doctor synthesises', () => {
   })
 })
 
+function stopAt(placement: ClaimPlacement): string | null {
+  return placement.at === 'stop' ? placement.stop.claimId : null
+}
+
 function incomplete(doctor: DoctorResult, repository: RepositoryModel): string[] {
   const rendered = new Set(doctor.checks.map(check => check.claimId))
   const carried = new Set(repository.claims.map(claim => claim.id))
   return [
     ...[...carried].filter(id => !rendered.has(id)).map(id => `the model carries "${id}", which no verdict renders`),
     ...[...rendered].filter(id => !carried.has(id)).map(id => `a verdict renders "${id}", which the model does not carry`),
-    ...doctor.youAreHere != null && !rendered.has(doctor.youAreHere.claimId) ? [`you are here points at "${doctor.youAreHere.claimId}", which no verdict renders`] : [],
+    ...doctor.youAreHere.at === 'stop' && !rendered.has(doctor.youAreHere.stop.claimId) ? [`you are here points at "${doctor.youAreHere.stop.claimId}", which no verdict renders`] : [],
   ]
 }
 
@@ -217,7 +246,7 @@ describe('the gate against an Enforcement section that is not the whole model', 
   it('fails when the model carries a claim no verdict renders', () => {
     const projection = projectKnowledge(repository, scratch(HARNESS_IN_CI))
     const withheld = projection.checks[projection.checks.length - 1].claimId
-    expect(projection.youAreHere?.claimId).not.toBe(withheld)
+    expect(stopAt(projection.youAreHere)).not.toBe(withheld)
     expect(incomplete(result({ ...projection, checks: projection.checks.slice(0, -1) }), repository))
       .toEqual([`the model carries "${withheld}", which no verdict renders`])
   })
@@ -231,7 +260,7 @@ describe('the gate against an Enforcement section that is not the whole model', 
 
   it('fails when you-are-here points at a claim the Enforcement section leaves out', () => {
     const projection = projectKnowledge(repository, scratch())
-    expect(projection.youAreHere?.claimId).toBe('no-committed-secret')
+    expect(stopAt(projection.youAreHere)).toBe('no-committed-secret')
     expect(incomplete(result({ ...projection, checks: projection.checks.filter(check => check.claimId !== 'no-committed-secret') }), repository))
       .toContain('you are here points at "no-committed-secret", which no verdict renders')
   })
