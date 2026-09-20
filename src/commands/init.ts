@@ -9,7 +9,7 @@ import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
 import { buildManifest, readManifest, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
-import { buildModel, writeModel } from '../model/write.js'
+import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
 import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups } from '../presets/index.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
@@ -228,7 +228,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const previous = readManifest(root)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
   writeManifest(root, manifest)
-  writeModel(root, buildModel({ vars, contracts: preset.contracts }))
+  writeModel(root, mergeModel(readModel(root), buildModel({ vars, contracts: preset.contracts })))
   if (previous != null) {
     const carriedOver = Object.keys(previous.files).filter(target => !written.some(op => op.target === target)).length
     const added = written.filter(op => previous.files[op.target] == null).length

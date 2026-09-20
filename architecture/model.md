@@ -27,6 +27,29 @@ A fact is something deterministic code can look at without judgement
 Everything else in the model — a claim, a hypothesis, an enforcement — stands on facts by naming
 their ids in `supportedBy`. Nothing stands on prose.
 
+## Authorship — who wrote an entry, and what `init` may rewrite
+
+Every fact, claim and hypothesis carries an `authoredBy`, from one list shared by all three.
+
+| Author | Meaning |
+|---|---|
+| `construct` | `init` wrote the entry from the preset, and `init` owns it. |
+| `discovery` | The discovery protocol wrote the entry from what it found in the repository. |
+| `unknown` | The entry was not written by the construct and its author was not recorded. |
+
+`init` is additive, exactly as it is for the manifest
+([decision 0013](decisions/0013-a-second-init-adds-to-the-record.md)). A second run rewrites only the
+entries whose author is `construct`: one the preset still makes is replaced with the freshly built
+version in the place it already held, one the preset no longer makes is dropped, and everything
+authored by anyone else is carried over untouched. Entries that survive keep their relative order,
+because declaration order in `claims` breaks ties; only genuinely new entries are appended. A
+construct-authored fact another surviving entry still stands on is kept, so the merged model always
+parses.
+
+The consequence is worth stating plainly: **a hand-edited entry still authored by `construct` is
+overwritten by the next `init`.** Change its `authoredBy` to `discovery` or `unknown` and the edit
+survives. There is no force flag and no backup file; ownership is the only thing that decides.
+
 ## Fact evaluations — the answer for one fact, now
 
 A fact is evaluated on every read; the answer is never stored.

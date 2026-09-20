@@ -50,12 +50,12 @@ describe('the repository model schema', () => {
 
   it('requires a needle exactly where the fact kind reads one', () => {
     const model = (facts: unknown): string => JSON.stringify({ modelVersion: 1, facts, claims: [], hypotheses: [] })
-    expect(() => parseModel(model([{ id: 'a', kind: 'file-contains', path: 'ci.yml' }]), 'M')).toThrow('facts[0] of kind "file-contains" needs a non-empty "needle"')
-    expect(() => parseModel(model([{ id: 'a', kind: 'file-exists', path: 'ci.yml', needle: 'x' }]), 'M')).toThrow('facts[0] of kind "file-exists" must not carry a "needle"')
+    expect(() => parseModel(model([{ id: 'a', kind: 'file-contains', path: 'ci.yml', authoredBy: 'construct' }]), 'M')).toThrow('facts[0] of kind "file-contains" needs a non-empty "needle"')
+    expect(() => parseModel(model([{ id: 'a', kind: 'file-exists', path: 'ci.yml', authoredBy: 'construct', needle: 'x' }]), 'M')).toThrow('facts[0] of kind "file-exists" must not carry a "needle"')
   })
 
   it('requires every supportedBy entry to name a fact that exists, and every id to be unique', () => {
-    const fact = { id: 'a', kind: 'file-exists', path: 'ci.yml' }
+    const fact = { id: 'a', kind: 'file-exists', path: 'ci.yml', authoredBy: 'construct' }
     const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha: null, supportedBy: ['missing'] }
     expect(() => parseModel(JSON.stringify({ modelVersion: 1, facts: [fact], claims: [], hypotheses: [hypothesis] }), 'M')).toThrow('hypotheses[0] supportedBy refers to unknown fact "missing"')
     expect(() => parseModel(JSON.stringify({ modelVersion: 1, facts: [fact, fact], claims: [], hypotheses: [] }), 'M')).toThrow('fact ids must be unique')

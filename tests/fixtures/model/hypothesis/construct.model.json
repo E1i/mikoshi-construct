@@ -1,11 +1,11 @@
 {
   "modelVersion": 1,
   "facts": [
-    { "id": "workspace-file", "kind": "file-exists", "path": "pnpm-workspace.yaml" },
-    { "id": "api-app", "kind": "file-exists", "path": "apps/api/package.json" },
-    { "id": "api-app-runs-the-harness", "kind": "file-contains", "path": "apps/api/package.json", "needle": "\"quality\"" },
-    { "id": "ci-workflow", "kind": "file-exists", "path": ".github/workflows/ci.yml" },
-    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality" }
+    { "id": "workspace-file", "kind": "file-exists", "path": "pnpm-workspace.yaml", "authoredBy": "discovery" },
+    { "id": "api-app", "kind": "file-exists", "path": "apps/api/package.json", "authoredBy": "discovery" },
+    { "id": "api-app-runs-the-harness", "kind": "file-contains", "path": "apps/api/package.json", "needle": "\"quality\"", "authoredBy": "construct" },
+    { "id": "ci-workflow", "kind": "file-exists", "path": ".github/workflows/ci.yml", "authoredBy": "construct" },
+    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality", "authoredBy": "construct" }
   ],
   "claims": [
     {

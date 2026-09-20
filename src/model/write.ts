@@ -1,8 +1,8 @@
 import type { TemplateVars } from '../presets/index.js'
-import type { Claim, Fact, RepositoryModel } from './schema.js'
-import { writeFileSync } from 'node:fs'
+import type { Claim, EntryAuthor, Fact, Hypothesis, RepositoryModel } from './schema.js'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { MODEL_FILE, MODEL_VERSION } from './schema.js'
+import { MODEL_FILE, MODEL_VERSION, parseModel } from './schema.js'
 
 export interface ModelInput {
   vars: TemplateVars
@@ -15,14 +15,14 @@ const CONTRACT_WORKFLOW = '.github/workflows/api-contract.yml'
 
 function baselineFacts(harnessCommand: string): Fact[] {
   return [
-    { id: 'security-workflow', kind: 'file-exists', path: SECURITY_WORKFLOW },
-    { id: 'security-workflow-runs-gitleaks', kind: 'file-contains', path: SECURITY_WORKFLOW, needle: 'gitleaks' },
-    { id: 'gitleaks-config', kind: 'file-exists', path: '.gitleaks.toml' },
-    { id: 'security-workflow-audits-dependencies', kind: 'file-contains', path: SECURITY_WORKFLOW, needle: 'pnpm audit --audit-level=high' },
-    { id: 'ci-workflow', kind: 'file-exists', path: CI_WORKFLOW },
-    { id: 'ci-workflow-runs-the-harness', kind: 'file-contains', path: CI_WORKFLOW, needle: harnessCommand },
-    { id: 'eslint-config', kind: 'file-exists', path: 'eslint.config.mjs' },
-    { id: 'security-invariants', kind: 'file-exists', path: 'architecture/security-invariants.md' },
+    { id: 'security-workflow', kind: 'file-exists', path: SECURITY_WORKFLOW, authoredBy: 'construct' },
+    { id: 'security-workflow-runs-gitleaks', kind: 'file-contains', path: SECURITY_WORKFLOW, authoredBy: 'construct', needle: 'gitleaks' },
+    { id: 'gitleaks-config', kind: 'file-exists', path: '.gitleaks.toml', authoredBy: 'construct' },
+    { id: 'security-workflow-audits-dependencies', kind: 'file-contains', path: SECURITY_WORKFLOW, authoredBy: 'construct', needle: 'pnpm audit --audit-level=high' },
+    { id: 'ci-workflow', kind: 'file-exists', path: CI_WORKFLOW, authoredBy: 'construct' },
+    { id: 'ci-workflow-runs-the-harness', kind: 'file-contains', path: CI_WORKFLOW, authoredBy: 'construct', needle: harnessCommand },
+    { id: 'eslint-config', kind: 'file-exists', path: 'eslint.config.mjs', authoredBy: 'construct' },
+    { id: 'security-invariants', kind: 'file-exists', path: 'architecture/security-invariants.md', authoredBy: 'construct' },
   ]
 }
 
@@ -75,9 +75,9 @@ function baselineClaims(harnessCommand: string): Claim[] {
 
 function contractFacts(contractPath: string): Fact[] {
   return [
-    { id: 'contract-workflow', kind: 'file-exists', path: CONTRACT_WORKFLOW },
-    { id: 'contract-workflow-fails-on-a-breaking-change', kind: 'file-contains', path: CONTRACT_WORKFLOW, needle: 'fail-on: ERR' },
-    { id: 'api-contract', kind: 'file-exists', path: contractPath },
+    { id: 'contract-workflow', kind: 'file-exists', path: CONTRACT_WORKFLOW, authoredBy: 'construct' },
+    { id: 'contract-workflow-fails-on-a-breaking-change', kind: 'file-contains', path: CONTRACT_WORKFLOW, authoredBy: 'construct', needle: 'fail-on: ERR' },
+    { id: 'api-contract', kind: 'file-exists', path: contractPath, authoredBy: 'construct' },
   ]
 }
 
@@ -107,6 +107,53 @@ export function buildModel(input: ModelInput): RepositoryModel {
     facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : []],
     claims: [...baselineClaims(harnessCommand), ...input.contracts ? contractClaims(contractPath) : []],
     hypotheses: [],
+  }
+}
+
+export function readModel(root: string): RepositoryModel | null {
+  const file = path.join(root, MODEL_FILE)
+  if (!existsSync(file))
+    return null
+  return parseModel(readFileSync(file, 'utf8'), MODEL_FILE)
+}
+
+interface Entry {
+  id: string
+  authoredBy: EntryAuthor
+}
+
+function mergeEntries<T extends Entry>(existing: T[], fresh: T[], keepDropped: (entry: T) => boolean): T[] {
+  const rebuilt = new Map(fresh.map(entry => [entry.id, entry]))
+  const survivors = existing.flatMap((entry) => {
+    if (entry.authoredBy !== 'construct')
+      return [entry]
+    const replacement = rebuilt.get(entry.id)
+    if (replacement !== undefined)
+      return [replacement]
+    return keepDropped(entry) ? [entry] : []
+  })
+  const present = new Set(survivors.map(entry => entry.id))
+  return [...survivors, ...fresh.filter(entry => !present.has(entry.id))]
+}
+
+function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Set<string> {
+  return new Set([
+    ...claims.flatMap(claim => [...claim.enforcement?.supportedBy ?? [], ...claim.verification?.supportedBy ?? []]),
+    ...hypotheses.flatMap(hypothesis => hypothesis.supportedBy),
+  ])
+}
+
+export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryModel): RepositoryModel {
+  if (existing == null)
+    return fresh
+  const claims = mergeEntries(existing.claims, fresh.claims, () => false)
+  const hypotheses = mergeEntries(existing.hypotheses, fresh.hypotheses, () => false)
+  const stoodOn = factsStoodOn(claims, hypotheses)
+  return {
+    modelVersion: MODEL_VERSION,
+    facts: mergeEntries(existing.facts, fresh.facts, fact => stoodOn.has(fact.id)),
+    claims,
+    hypotheses,
   }
 }
 

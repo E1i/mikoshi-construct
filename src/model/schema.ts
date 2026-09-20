@@ -7,16 +7,14 @@ export type FactKind = (typeof FACT_KINDS)[number]
 export const ENFORCEMENT_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
 export type EnforcementLevel = (typeof ENFORCEMENT_LEVELS)[number]
 
-export const CLAIM_AUTHORS = ['construct'] as const
-export type ClaimAuthor = (typeof CLAIM_AUTHORS)[number]
-
-export const HYPOTHESIS_AUTHORS = ['discovery', 'unknown'] as const
-export type HypothesisAuthor = (typeof HYPOTHESIS_AUTHORS)[number]
+export const ENTRY_AUTHORS = ['construct', 'discovery', 'unknown'] as const
+export type EntryAuthor = (typeof ENTRY_AUTHORS)[number]
 
 export interface Fact {
   id: string
   kind: FactKind
   path: string
+  authoredBy: EntryAuthor
   needle?: string
 }
 
@@ -34,7 +32,7 @@ export interface Verification {
 export interface Claim {
   id: string
   statement: string
-  authoredBy: ClaimAuthor
+  authoredBy: EntryAuthor
   enforcement: Enforcement | null
   verification: Verification | null
 }
@@ -42,7 +40,7 @@ export interface Claim {
 export interface Hypothesis {
   id: string
   statement: string
-  authoredBy: HypothesisAuthor
+  authoredBy: EntryAuthor
   baseSha: string | null
   supportedBy: string[]
 }
@@ -54,7 +52,7 @@ export interface RepositoryModel {
   hypotheses: Hypothesis[]
 }
 
-const FACT_PROPERTIES = ['id', 'kind', 'path', 'needle']
+const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle']
 const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
 const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification']
@@ -149,6 +147,7 @@ function parseFacts(name: string, raw: Record<string, unknown>): Fact[] {
       id: text(name, entry, 'id', where),
       kind,
       path: text(name, entry, 'path', where),
+      authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
     }
     const needle = optionalText(name, entry, 'needle', where)
     if (kind === 'file-contains') {
@@ -172,7 +171,7 @@ function parseClaims(name: string, raw: Record<string, unknown>, facts: Set<stri
     return {
       id: text(name, entry, 'id', where),
       statement: text(name, entry, 'statement', where),
-      authoredBy: member(name, text(name, entry, 'authoredBy', where), CLAIM_AUTHORS, 'authoredBy', where),
+      authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
       enforcement: enforcementEntry === null ? null : parseEnforcement(name, enforcementEntry, `${where}.enforcement`, facts),
       verification: verificationEntry === null ? null : parseVerification(name, verificationEntry, `${where}.verification`, facts),
     }
@@ -203,7 +202,7 @@ function parseHypotheses(name: string, raw: Record<string, unknown>, facts: Set<
     return {
       id: text(name, entry, 'id', where),
       statement: text(name, entry, 'statement', where),
-      authoredBy: member(name, text(name, entry, 'authoredBy', where), HYPOTHESIS_AUTHORS, 'authoredBy', where),
+      authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
       baseSha: nullableText(name, entry, 'baseSha', where),
       supportedBy: supportedBy(name, entry, where, facts),
     }
