@@ -164,5 +164,17 @@ them as rules.
   node-frontend's styling policy has no test that asserts the resolved lint restrictions per role.
 - Commands are listed in three places: README, CLAUDE.md § Commands and AGENTS.md. Which one the
   other two should point at is not settled.
+- **Where does evidence of enforcement capability belong?** The model records the declared
+  enforcement mechanism and evidence that the mechanism exists and runs. It does not represent
+  evidence that the mechanism can actually *fail* when the invariant it protects is violated.
+  Harness mutation tests are evidence of enforcement capability, and PR #57 added an observed case
+  of a different kind: `testsWeakened` caught erosion in a live implementation change rather than in
+  a dedicated mutation fixture. So is enforcement capability a fact about the repository, which the
+  model should represent, or process evidence belonging to the corpus and the harness history?
+  Do not resolve this before `doctor` consumes the model. Revisit it when `doctor` reads the model
+  on a live repository and a useful diagnosis turns out to need a fact the model cannot provide.
+  Until then the blind spot is represented by the absence of a question the model can answer — not
+  by synthesising an `unknown` value or any equivalent derived status, which would assert that the
+  question was asked and came back empty.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->
