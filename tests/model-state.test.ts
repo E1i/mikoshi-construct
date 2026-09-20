@@ -112,3 +112,24 @@ describe('state is derived from the tree on every read', () => {
     expect(readFileSync(MODEL_FILE, 'utf8')).not.toContain('"state"')
   })
 })
+
+describe('which fact a stage names first, when more than one stopped matching', () => {
+  const FACTS = [
+    { id: 'first-declared', kind: 'file-exists' as const, path: 'alpha.yml', authoredBy: 'construct' as const },
+    { id: 'second-declared', kind: 'file-exists' as const, path: 'beta.yml', authoredBy: 'construct' as const },
+  ]
+  const NEITHER_HOLDS: Record<string, FactEvaluation> = { 'first-declared': 'does-not-hold', 'second-declared': 'does-not-hold' }
+
+  function doesNotHold(supportedBy: string[]): string[] {
+    const finding = resolveFinding(FACTS, supportedBy, NEITHER_HOLDS)
+    return finding.state === 'unsupported' ? finding.doesNotHold : []
+  }
+
+  it('follows the order the stage declares them in, which is the key selectPath already breaks ties by', () => {
+    expect(doesNotHold(['first-declared', 'second-declared'])).toEqual(['alpha.yml', 'beta.yml'])
+  })
+
+  it('names the other one when the same two are declared the other way round, so the choice is the declared key and not the order they were walked in', () => {
+    expect(doesNotHold(['second-declared', 'first-declared'])).toEqual(['beta.yml', 'alpha.yml'])
+  })
+})

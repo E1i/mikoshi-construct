@@ -239,7 +239,7 @@ inferred from an empty `checks` list: `at` is the discriminant, and `stop` is ca
 | `no-model` | There is no `construct.model.json` here: nothing was read, so nothing is known about what this repository claims. This is not a reading that nothing is enforced. | `You are here: nowhere to place you — there is no construct.model.json, so nothing is known about claims` |
 | `no-claim` | `construct.model.json` was read and names no claim: it asserts nothing about this repository. | `You are here: construct.model.json carries no claim, so there is none to place` |
 | `no-stop` | The model carries claims and none of their chains stops before its end. | `You are here: no claim stops before the end of its chain` |
-| `stop` | The first claim whose chain stops, carried under `stop` with the stage and the facts behind it. | `You are here: <claim> — <stage> <state>` |
+| `stop` | The first claim whose chain stops, carried under `stop` with the stage and the facts behind it. The line names the **first** fact the stage declares in its `supportedBy` — the same declared-order key that breaks a tie between claims, so the line is stable between runs and diffs — and counts the rest, so it stands on its own where it is read apart from the section above; the full list stays in the verdict. A stage that could not be read names no fact: nothing was established about it, so there is nothing that stopped matching to name. | `You are here: <claim> — <stage> unsupported: <fact> no longer matches, and 2 more` |
 
 Under the first two the Enforcement section says why it lists nothing, instead of an empty list a
 reader would take for a repository that was looked at and found clean. None of the four moves the
@@ -278,7 +278,7 @@ Enforcement
   lint-policy                          L3  unsupported  expects scripts/tests/lint/syntax-policy.test.ts asserts … — no longer matching: .github/workflows/ci.yml
   doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.
 
-You are here: every-change-passes-the-harness — enforcement unsupported
+You are here: every-change-passes-the-harness — enforcement unsupported: .github/workflows/ci.yml no longer matches
 ```
 
 Unfilled markers are reported but do not fail the command, because discovery is the agent's job and
