@@ -197,6 +197,27 @@ them as rules.
   separate in identity: *a command exists → the enforcement level* is rule 8, and *the enforcement
   level → the capability demonstrated* would be the new rule. Rule 8 may later point at it with a
   "see also"; its own scope stays as written.
+- **Has an interpretation been reconsidered since the tree around its facts changed?** The model has
+  no way to say, and this is an absence of means rather than a suspicion about any entry. All seven
+  hypotheses here hold every fact under them and each records `baseSha` `906f554`, while `HEAD` is
+  four commits further on. **Facts holding is not the same as an interpretation still being apt**: a
+  file can go on containing what a fact names while the reason that mattered has moved underneath it.
+  The model neither asserts nor denies that today, and nothing in it is claimed to have gone stale —
+  saying "may have gone stale" would be a weak claim that it has. What is `unknown` is whether a
+  reconsideration is owed, which is [rule 2](architecture/epistemic-rules.md) applied to the model's
+  own interpretations rather than to a repository's enforcement.
+
+  This sits beside the enforcement-capability question above and answers something different. That
+  one asks whether a declared mechanism can actually enforce the claim it names; this one asks
+  whether an interpretation has been looked at again since the ground under it moved. They share a
+  genre and must not be merged.
+
+  The obstacle is what makes it a question rather than a task. Answering it means reading what
+  changed under a hypothesis's facts since its `baseSha`, which means `git` — and `doctor` executes
+  nothing from the repository it inspects
+  ([0007](architecture/decisions/0007-doctor-executes-nothing.md)). Whether that boundary covers
+  `git`, which is not the inspected repository's code but is still execution, is part of what this
+  question asks. It is not resolved here and no mechanism is proposed.
 - **How does a repository materialized before 0.5.0 get a model?** **Settled by practice, not by
   decision: option three shipped.** That the upgrade guide names `init` as the step that writes a
   model is carried by the hypothesis `the-upgrade-guide-names-init-as-what-writes-a-model` — the
