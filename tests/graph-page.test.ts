@@ -7,7 +7,7 @@ import { modelGraph, pageOfGraph, writeGraphPage } from '../src/commands/graph.j
 import { graphOfModel, mermaidFromGraph, PICTURE_STATES } from '../src/model/graph.js'
 import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
-import { svgFromGraph } from '../src/model/svg.js'
+import { COLOUR_IS_NOT_STRENGTH, svgFromGraph } from '../src/model/svg.js'
 import { writeModel } from '../src/model/write.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -136,6 +136,23 @@ describe('the page a person opens', () => {
     expect(page).not.toMatch(/\ssrc=/i)
     expect(page).not.toMatch(/@import|url\(/i)
     expect(page).not.toMatch(/\shref=/i)
+  })
+
+  it('says beside the legend that colour is the derived state and not the enforcement level', () => {
+    const page = pageOfGraph(graphOf(repositoryModel(), REPO_ROOT), 'fixture')
+
+    expect(page).toContain(COLOUR_IS_NOT_STRENGTH)
+    expect(page.indexOf(COLOUR_IS_NOT_STRENGTH)).toBeGreaterThan(page.indexOf('class="legend"'))
+  })
+
+  it('corrects a reading this repository can actually produce: two levels, one colour', () => {
+    const model = repositoryModel()
+    const graph = graphOf(model, REPO_ROOT)
+    const levels = new Set(model.claims.flatMap(claim => (claim.enforcement == null ? [] : [claim.enforcement.level])))
+    const statesOfClaims = new Set(graph.nodes.filter(node => node.kind === 'claim').map(node => node.state))
+
+    expect(levels.size).toBeGreaterThan(1)
+    expect(statesOfClaims.size).toBe(1)
   })
 
   it('escapes what the model puts in a label, so a needle cannot close a tag', () => {

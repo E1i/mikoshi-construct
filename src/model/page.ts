@@ -1,6 +1,6 @@
 import type { ModelGraph, PictureState } from './graph.js'
 import { PICTURE_STATES } from './graph.js'
-import { STATE_LEGEND, svgFromGraph } from './svg.js'
+import { COLOUR_IS_NOT_STRENGTH, STATE_LEGEND, svgFromGraph } from './svg.js'
 
 export interface PageMeta {
   title: string
@@ -54,6 +54,7 @@ ul.legend b { font-weight: 600; }
 ul.legend li[data-state='held'] b { color: var(--held); }
 ul.legend li[data-state='unsupported'] b { color: var(--unsupported); }
 ul.legend li[data-state='unknown'] b { color: var(--unknown); }
+p.legend-caveat { margin: 0.6rem 0 0; color: var(--ink-dim); font-size: 0.85rem; max-inline-size: 72ch; }
 footer { margin-block-start: 1.5rem; color: var(--ink-dim); font-size: 0.8rem; }
 `
 
@@ -92,6 +93,7 @@ ${svgFromGraph(graph).split('\n').map(line => `      ${line}`).join('\n')}
     <ul class="legend">
 ${legend(states)}
     </ul>
+    <p class="legend-caveat">${escaped(COLOUR_IS_NOT_STRENGTH)}</p>
     <footer>Every state is derived on read, never stored. Rendered from ${escaped(meta.generatedFrom)} by construct graph; nothing here is fetched when you open it.</footer>
   </main>
 </body>

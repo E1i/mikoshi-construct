@@ -196,6 +196,8 @@ export function svgFromGraph(graph: ModelGraph): string {
   ].join('\n')
 }
 
+export const COLOUR_IS_NOT_STRENGTH = 'Colour carries the derived state and not the enforcement level: the same green covers an L0 claim nobody is obliged to read and an L3 claim that fails the build, and each claim\u2019s level is written inside it.'
+
 export const STATE_LEGEND: Record<PictureState, string> = {
   held: 'every fact named under it was read and holds',
   unsupported: 'every fact was read and at least one does not hold',
