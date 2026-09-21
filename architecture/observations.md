@@ -727,7 +727,14 @@ every change; people will keep hanging new gates off the artifact they watch.
 the workflow that happened to be nearby. Nothing here says the rate is one in six; it says the sweep
 is one extra line of reading per gate and found something on the first gate it looked at.
 
-## 2026-09-21 · Half the ladder runs were never recorded, in every session alike
+## 2026-09-21 · The first measurement of what an L0 step is worth
+
+Recorded as a ledger finding and it is not one. The ledger is the instrument; the subject is the
+enforcement level. This repository has graded controls L0 to L4 all month and labelled them honestly,
+L0 meaning *nothing enforces this*. Underneath every such label sat an unexamined assumption: that an
+L0 step is performed unless somebody is careless. One has now been measured.
+
+### 2026-09-21 · Half the ladder runs were never recorded, in every session alike
 
 The ledger holds 29 readable entries against 65 runs the runtime knows about. The 36 without an entry
 were measured rather than guessed at, and the result is not what the phrasing *runs that were never
@@ -775,7 +782,25 @@ it names them. Until today that reconciliation existed and printed nothing, for 
 Now that it prints, the number is visible on every run of the tool — which is a compensating control
 for an L0 step, not a replacement for it, and it is worth nothing unless somebody reads it.
 
-**Boundary.** Sixty-five runs across three sessions and five days, one repository, one operator style.
-This measures how often this step was kept here; it is not a rate for L0 steps in general, and nothing
-in it says whether a prompt, a checklist or a different placement would move the number, because none
+### What this calibrates, and what it does not
+
+**Every past label of the form *L0, held by review* now reads differently than it was written.** Not
+*performed unless forgotten*, but *performed about half the time*. The ownership rule in
+[model.md](model.md), the discovery protocol's steps, the deferred-question check in
+[0017](decisions/0017-v5-adds-no-new-way-of-knowing.md) — none of them changes, and all of them now
+carry a calibration they did not have this morning. That is not an argument against labelling honestly:
+it is what the honest label was always worth.
+
+**The remedy is not a louder instruction.** The step is L0 **by construction rather than by oversight**:
+the workflow sandbox has no filesystem, so the component that knows the outcome cannot record it, and
+the knowledge must travel by hand to something that can write. The solution space is therefore moving
+the write to where knowledge of the outcome and the ability to persist it meet — not instructing more
+emphatically, which is an L0 control stacked on an L0 control. This repository refused that three times
+today in code; it is no better in a process. The question for an unenforced step is not *how do we
+remember it* but *why can the thing that knows not record it*.
+
+**Boundary, and it is narrow.** One step of one shape — append a line by hand after reading a result —
+thirty-six missed runs, two operators, three sessions, five days, one repository. **Not a rate for L0 in
+general.** It is the first number of any kind where there had previously been an assumption, and
+nothing in it says whether a prompt, a checklist or a different placement would move it, because none
 of those was tried.
