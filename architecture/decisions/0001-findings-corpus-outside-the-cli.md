@@ -32,6 +32,9 @@ is still moving, and a schema that ships is a schema that cannot move.
 Revisit when the corpus is large enough to say what the CLI must emit. Until then, anything beyond
 the task id is out of scope here.
 
+See also [0019](0019-a-specimen-is-described-by-structure.md), which governs how a specimen may be
+described in the records that do ship here.
+
 ## Enforced by
 
 Review (L1). Nothing mechanical prevents a findings schema from landing in this repository.
