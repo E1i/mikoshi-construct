@@ -477,3 +477,29 @@ of the six were `false`. The rule this is an instance of is already written down
 never names its cause — and the instance is worth keeping because the reading was *plausible*: a clean
 tree is exactly what an adopted repository looks like a moment before `init` runs. The guard that
 worked was not a check but a prediction made before the measurement.
+
+### Two experiments, named, with their candidates
+
+Recorded so they stay experiments with addresses rather than turning back into *someday we will find
+a suitable model*.
+
+**The fan-in specimen is not missing — it is the boats repository.** Fan-in appears where several
+deployable things share one set of infrastructure, and that is structural: a library with one package,
+one config and one workflow has nothing to fan into, however many hypotheses are written about it.
+The boats tree is a pnpm workspace carrying `apps/api` and `apps/web` over `packages/catalog`,
+`packages/paths` and `packages/shared`, with three workflows (`ci.yml`, `security.yml`,
+`api-contract.yml`), one `eslint.config.mjs` and a contract at `contracts/api/openapi.yaml`. One
+`ci.yml` stands under the harness claim and under whatever discovery concludes about each deployable;
+one eslint config stands under the dependency policy and under the same. So the question closes with
+one discovery run on a copy, the same way the adopted-repository question closed: by finding the
+specimen, not by reasoning from the ones at hand.
+
+It carries no `construct.model.json` — it was materialized at 0.1.1 and reached the current baseline
+through `sync` — so the run begins with a first `init`. That makes it simultaneously the first case of
+a pre-0.5.0 tree acquiring a model, which is the open question recorded in AGENTS.md, and the two meet
+in one tree rather than needing two.
+
+**The blind run is parked with its price.** A fresh copy plus discovery, twice, so that neither run
+can read the other's model. It costs two runs and returns `n = 2` whichever way it falls: weak
+evidence of convergence, or evidence of sensitivity to something. Both are worth having and neither
+blocks anything, so it waits for a reason rather than being done because it has been formulated.
