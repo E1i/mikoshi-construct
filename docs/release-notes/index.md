@@ -4,6 +4,210 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.11.0
+
+### Minor Changes
+
+- [#118](https://github.com/E1i/mikoshi-construct/pull/118) [`3ef5abf`](https://github.com/E1i/mikoshi-construct/commit/3ef5abffe53edace3b3b03e36fa8035529590134) Thanks [@E1i](https://github.com/E1i)! - A construct.json from a later build is reported, not silently normalised
+  
+  `upgradeManifest` read any `manifestVersion` whatever its value: a manifest from a later build was
+  treated as one from an earlier build, its unfamiliar branches discarded and `manifestVersion`
+  rewritten down. Decision 0009 settled the backward direction and left this one open.
+  
+  Now a `manifestVersion` above what the binary understands throws a named error carrying both
+  numbers, and every command that reads the manifest — `doctor`, `sync`, `init`, and `cost` where the
+  environment does not already name the runtime — reports one line naming the version found, the
+  version understood, and that a newer CLI is needed. Nothing is read and nothing is written.
+  
+  **This does not help anyone already running an older binary.** A published 0.1.1 will keep throwing
+  on a v4 manifest; nothing here reaches it. The change is prospective: it makes the next shape change
+  a reportable state instead of a second stack trace, and decision 0022 says so rather than reading as
+  a repair of the crash that prompted it.
+
+- [#122](https://github.com/E1i/mikoshi-construct/pull/122) [`cb8683c`](https://github.com/E1i/mikoshi-construct/commit/cb8683c4ed6393ee81272ddacdc54582dd038b43) Thanks [@E1i](https://github.com/E1i)! - construct graph --out writes a picture you can open
+  
+  `graph` put Mermaid on stdout, which is the right machine-readable artifact and is not something a
+  person can open: it needs a viewer that lives somewhere else. `--out <path>` now also writes one
+  self-contained HTML file — inline SVG, inline styles, a few kilobytes, and **nothing fetched when you
+  open it**: no CDN, no script, no network from a `file://` URL or anywhere else.
+  
+  stdout is untouched and stays the default. The Mermaid comes out byte for byte as before, pinned by a
+  fixture captured from the renderer as it stood before this change.
+  
+  The renderer is ours rather than an inlined Mermaid, on numbers taken before any code was written:
+  the published package is 0.28 MB and Mermaid's minified bundle alone is 3.4 MB, so inlining it would
+  grow the package roughly thirteenfold, weigh every rendered file at 3.4 MB, and make a tool whose
+  invariant is that it executes no code it did not ship start shipping 3.4 MB of third-party
+  JavaScript. Paying that before any person has read the picture inverts the order decision 0017 sets.
+  
+  Both outputs are serialized from one structure, so they can differ in layout and cannot differ about
+  what is in the picture — a test holds them to each other. Decision 0023 records that, and records
+  before the fact what would count as evidence the picture is used: one observable signal, and a plain
+  statement that the others cannot be measured by a CLI that emits no telemetry.
+
+- [#116](https://github.com/E1i/mikoshi-construct/pull/116) [`165fd6a`](https://github.com/E1i/mikoshi-construct/commit/165fd6a4491742f3b29ef8dd9eec090d3da45f69) Thanks [@E1i](https://github.com/E1i)! - harness-steps names every step of the quality script the construct writes
+  
+  The templates have always written `pnpm composition:check` into the `quality` script, and no fact
+  named it. The claim said the harness runs lint, typecheck and tests, and stood on three needles — so
+  it under-reported the script it was standing on, and a composition check silently dropped from that
+  script would not have moved the claim.
+  
+  A `file-contains` fact for `pnpm composition:check` now sits under the claim, and its statement and
+  mechanism name the step alongside the others.
+  
+  The needles are deliberately not widened to also match `pnpm run …`. A literal substring cannot tell
+  one invocation from the other, and one that tried would be guessing at a script the construct did
+  not write. The needle is the construct's signature on its own script; decision 0020 is what keeps it
+  honest, by checking the facts before the claim is made.
+  
+  `tests/harness-steps-facts.test.ts` holds the template and the facts to each other in both
+  directions: every needle must be a substring of the quality script each preset renders, and every
+  step of that script must be named by a needle. The second direction is what the missing fact failed.
+
+- [#115](https://github.com/E1i/mikoshi-construct/pull/115) [`4d74a48`](https://github.com/E1i/mikoshi-construct/commit/4d74a48c425df729be851e6831796075ce9a5ff6) Thanks [@E1i](https://github.com/E1i)! - A construct claim is written only where its evidence holds on the tree init just wrote
+  
+  `init` used to write facts it never evaluated. On a repository whose owner had written their own
+  `quality` script, the `harness-steps` claim was grounded in needles looking for the construct's
+  spelling of the harness steps — false at the moment they were written, and reported by `doctor` as
+  `unsupported` from the first run. That is a finding about what the preset shipped dressed as a
+  finding about the repository, which is the defect `hook` was removed for.
+  
+  Now a construct-authored claim is made only when every fact it declares holds on the tree, the facts
+  nothing else stands on are not written, and `init` names each withheld claim with the evidence that
+  failed. A claim already in the record is kept whatever its state, so drift still reads `unsupported`
+  instead of disappearing; a claim whose evidence is merely unknown is still written, because not
+  having looked is not evidence of absence.
+  
+  **On an adopted repository this withdraws four claims, not one.** A tree already carrying its own
+  `ci.yml` and `security.yml` keeps only the claims standing on files the construct wrote. The report
+  is shorter than it was — not because less is checked, but because less of it was pretending, which
+  is the sentence 0.5.0 shipped under and now covers a larger set. Decision 0020 records what the
+  construct stops asserting, that discovery is what may legitimately claim over the owner's own files,
+  and the asymmetry this accepts: a withheld security claim and an absent security practice both read
+  as silence.
+
+### Patch Changes
+
+- [#117](https://github.com/E1i/mikoshi-construct/pull/117) [`b1a634a`](https://github.com/E1i/mikoshi-construct/commit/b1a634a30e47fa3050d8d1163a9496745d03581c) Thanks [@E1i](https://github.com/E1i)! - Decision 0021: a record of what a past version said is not edited
+  
+  0019 exempted a frozen fixture from the rewriting it otherwise requires, and gave the reason: the
+  fixture states what a past version wrote. That reason was written as a property of one kind of file,
+  and it is not one. A published release note listing an older version's harness steps was left alone
+  for the same reason, and that file carries no specimen and no address — so the case cannot be a
+  carve-out from a rule about how specimens are described.
+  
+  0021 states the class. A frozen fixture, a published release note, a dated entry in
+  `observations.md`: the test is not the file's location but its tense. If an artifact's job is to
+  state what was true then, it is not corrected when that stops being true, and what replaces the
+  correction is a new dated record saying what changed.
+  
+  0019 keeps its fixture paragraph and gains a pointer, with no scope of its own — what may be named
+  and what may be rewritten are two axes, and by this repository's own convention new scope takes a
+  new number rather than widening an existing entry. The record reopens nothing: it states the rule
+  those decisions were already following.
+
+- [#112](https://github.com/E1i/mikoshi-construct/pull/112) [`e39ee77`](https://github.com/E1i/mikoshi-construct/commit/e39ee770c78ad051a735eb5b7e3878f90605a148) Thanks [@E1i](https://github.com/E1i)! - Records describe a specimen by structure, never by address
+  
+  `architecture/decisions/0019` promotes a rule that had been living as a clause inside one
+  observation, where it governed nothing: a repository used as a specimen is described by its layout,
+  role, package manager, relation to this tool and the artifacts the finding turns on — never by name,
+  npm scope, owner, URL, identifying commit or problem domain. Where the address sits inside quoted tool
+  output, the quotation is either dropped for a description or marked redacted, never silently edited.
+  
+  Nine sites that named specimens by address were corrected and one stale citation to a test that does
+  not exist was fixed. Frozen fixtures under `tests/fixtures/` are exempt by the record: they are what a
+  past version wrote, not what this repository is still authoring.
+  
+  The record also states the cost rather than softening it. The three runs those entries describe are no
+  longer reproducible: their addresses are not held anywhere this repository can cite, and 0001's
+  findings corpus is a decision rather than a repository that exists. Addresses already published remain
+  in git history and in pull request bodies; the rule governs records written from now on.
+
+- [#119](https://github.com/E1i/mikoshi-construct/pull/119) [`2899345`](https://github.com/E1i/mikoshi-construct/commit/2899345042e478ae18d5e266587068c36c04d247) Thanks [@E1i](https://github.com/E1i)! - doctor says what writes a construct.model.json
+  
+  On a repository without one, `doctor` reported the absence three times — in Enforcement, in
+  Hypotheses and in `YOU ARE HERE` — and never named the command that creates the file. All three
+  readings were correct and together they were a dead end: the sentence that resolves it existed only
+  in the 0.5.0 release note, which is not where a person meets this.
+  
+  The Enforcement section now carries one further line, once, saying the file is written by
+  `construct init`, that `init` is additive and overwrites nothing it does not own, and that nothing
+  forces you to have one. The three existing readings are unchanged and the sentence is added beside
+  them: an absent model is a state to explain, not a fault to repair, and it still does not move the
+  exit code.
+
+- [#123](https://github.com/E1i/mikoshi-construct/pull/123) [`56e289f`](https://github.com/E1i/mikoshi-construct/commit/56e289f973ce9df3567c51f35456ac1462b58575) Thanks [@E1i](https://github.com/E1i)! - Edge labels in the rendered picture cannot sit on top of each other
+  
+  The picture's stage labels were separated only where two edges ran between the same pair of nodes.
+  Labels belonging to different claims were not touched, and on this repository's own model they stood
+  9 pixels apart in one column — the same illegible overprint the parallel-edge fix was meant to end,
+  arriving by a route that fix did not cover.
+  
+  Label placement now excludes the collision by construction rather than detecting it: an anchor that
+  would land within one line height of an already-placed one is pushed clear before it is written, so
+  no rendered file can contain the forbidden state.
+  
+  `tests/edge-labels-do-not-collide.test.ts` holds the property, taking the threshold from the
+  renderer's own constant rather than repeating a number, and its own description says what it holds:
+  **distance, not readability**. Readability was found by a person opening the file, and a green suite
+  here is not a claim that the picture reads well — only that no two labels are closer than a line.
+
+- [#120](https://github.com/E1i/mikoshi-construct/pull/120) [`7114467`](https://github.com/E1i/mikoshi-construct/commit/71144671b1b3e15c7a532b78466c6d0ca6c0d382) Thanks [@E1i](https://github.com/E1i)! - The add population is named, before anything is done about it
+  
+  A live run against an adopted repository left two construct-written artifacts that do not fit it.
+  Neither is a conflict — the construct added them and the owner never touched them — so they read as
+  ours and sit there inert or wrong.
+  
+  `architecture/observations.md` now records what `add` actually tests: a path absent from the tree,
+  with no recorded sha, that the template groups produced. There is no notion of applicability in the
+  classification at all. The only two conditionalities in the tool are `onlyWhenEmpty` mounts and the
+  `omittedGroups` they produce, and both key on the tree being empty rather than on what the tree is.
+  
+  Every path the four presets produce is partitioned rather than sampled: 87 distinct paths, 37 reached
+  only in an empty directory, and the remaining 50 across four kinds. Of the five kinds two are already
+  conditional and one cannot misfit, so the population where a misfit can occur is exactly 23 paths
+  plus the keys merged into `package.json` — and the observed pair fell one in each of the two.
+  
+  `tests/add-population.test.ts` checks the partition in both directions, so a new template either
+  moves the record or fails the build. No fix ships here: nothing under `templates/`, `src/sync/` or
+  `src/materialize/` changes.
+
+- [#113](https://github.com/E1i/mikoshi-construct/pull/113) [`2ce9dcf`](https://github.com/E1i/mikoshi-construct/commit/2ce9dcf229d532c515e1d9ea900ca87214b574c6) Thanks [@E1i](https://github.com/E1i)! - Epistemic rule 10: true when written is not true when merged
+  
+  A sentence whose truth-maker is changed by the same diff that contains it is false on arrival. The
+  rule names where such sentences concentrate — the passages that explain the change, and the
+  artifact's own account of itself — and requires both to be reread against the finished diff before
+  the change is done.
+  
+  It caught its own introduction. This file's first line counted the rules; adding rule 10 falsified
+  that count, inside rule 10's own diff. Fixed in the same change, which is the rule's first
+  application and its acceptance test.
+  
+  Evidence is two sentences written an hour apart in one afternoon, each inside a passage explaining
+  the change it sat in. Two occurrences, one author, one file: a shape, not a rate. No mechanical
+  check is proposed — the set of such sentences is given by meaning rather than form.
+
+- [#121](https://github.com/E1i/mikoshi-construct/pull/121) [`c4140ee`](https://github.com/E1i/mikoshi-construct/commit/c4140eef662bd22fed481b16d03c40f5d874cea2) Thanks [@E1i](https://github.com/E1i)! - The upgrading guide knows about the model, and about a manifest it cannot read
+  
+  `docs/guide/upgrading.md` described a four-step loop that has never written a `construct.model.json`,
+  so a repository carried forward from before 0.5.0 followed the page exactly and still had none. The
+  page now carries the one upgrade case that needs `init`, why it is safe — the record is additive, and
+  a construct claim is written only where its evidence holds, so the run cannot invent enforcement the
+  tree does not have — and the fact that `doctor` says all of this itself.
+  
+  It also warns that the list of claims will be **shorter** than before rather than longer, in 0.5.0's
+  own words: shorter not because less is checked, but because less of it was pretending. And it carries
+  the one failure upgrading produces on its own, a stale CLI meeting a manifest from a later build,
+  which now stops with a named line instead of a stack trace.
+  
+  Written from a run of the sequence, in order, against a tree materialized by an early 0.1.x release
+  and carried forward with no model — structurally that tree and no other. `sync`, `sync --apply`,
+  `doctor` before and after, `init`, and the later-manifest case were each run and their output is what
+  the page quotes. `pnpm run quality` is the one step in the page not exercised there, because that
+  tree has no installed toolchain; it is unchanged from before.
+  
+  No change to `sync`, `init` or any template.
+
 ## 0.10.2
 
 ### Patch Changes
