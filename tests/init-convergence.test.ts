@@ -1,5 +1,5 @@
 import type { Manifest } from '../src/manifest.js'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -24,6 +24,16 @@ function manifestOf(dir: string): Manifest {
 
 function contents(dir: string): Record<string, string> {
   return Object.fromEntries(APPEND_TARGETS.map(target => [target, readFileSync(path.join(dir, target), 'utf8')]))
+}
+
+const POLICY_TEST = 'scripts/tests/lint/syntax-policy.test.ts'
+
+function modelTextOf(dir: string): string {
+  return readFileSync(path.join(dir, 'construct.model.json'), 'utf8')
+}
+
+function claimIdsIn(dir: string): string[] {
+  return (JSON.parse(modelTextOf(dir)) as { claims: { id: string }[] }).claims.map(claim => claim.id)
 }
 
 function recordedVariantsOf(dir: string): Record<string, string> {
@@ -63,5 +73,35 @@ describe('a re-run keeps the form the construct wrote, because the record says w
 
     for (const target of APPEND_TARGETS)
       expect(contents(dir)[target], target).toContain('their prose')
+  })
+})
+
+describe('a re-run keeps the claims the record says this repository carries', () => {
+  it('keeps the sample claim on the second and third run of a tree it materialized from empty, and the model converges', async () => {
+    const dir = scratch()
+    await init(dir)
+    const afterFirst = claimIdsIn(dir)
+    expect(afterFirst).toContain('lint-policy')
+
+    await init(dir)
+    const afterSecond = modelTextOf(dir)
+    expect(claimIdsIn(dir)).toEqual(afterFirst)
+
+    await init(dir)
+    expect(modelTextOf(dir)).toBe(afterSecond)
+    expect(claimIdsIn(dir)).toEqual(afterFirst)
+  })
+
+  it('does not make the claim on a repository the construct never wrote the sample into, however the policy test got there', async () => {
+    const dir = scratch()
+    writeFileSync(path.join(dir, 'package.json'), '{ "name": "theirs" }')
+    await init(dir)
+    expect(claimIdsIn(dir)).not.toContain('lint-policy')
+
+    mkdirSync(path.join(dir, path.dirname(POLICY_TEST)), { recursive: true })
+    writeFileSync(path.join(dir, POLICY_TEST), 'import { ESLint } from \'eslint\'\n')
+    await init(dir)
+
+    expect(claimIdsIn(dir)).not.toContain('lint-policy')
   })
 })

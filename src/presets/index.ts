@@ -170,8 +170,16 @@ export function getPreset(id: PresetId): Preset {
   return PRESETS[id]
 }
 
+export function sampleMounts(preset: Preset): TemplateGroup[] {
+  return preset.groups.filter(group => (typeof group === 'string' ? group : group.group).endsWith('/sample'))
+}
+
 export function sampleGroups(preset: Preset): string[] {
-  return preset.groups.map(group => (typeof group === 'string' ? group : group.group)).filter(group => group.endsWith('/sample'))
+  return sampleMounts(preset).map(group => (typeof group === 'string' ? group : group.group))
+}
+
+export function groupsFor(preset: Preset, ai: AiTarget, review: ReviewProvider): TemplateGroup[] {
+  return [...preset.groups, ...aiGroups(ai), ...reviewGroups(review)]
 }
 
 export function aiGroups(target: AiTarget): string[] {

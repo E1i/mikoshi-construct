@@ -4,16 +4,14 @@ import type { TemplateGroup, TemplateVars } from '../presets/index.js'
 import type { PathClassification } from './classify.js'
 import type { EstablishedVariant } from './variant.js'
 import { existsSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { recordedShas, recordedVariants } from '../manifest.js'
-import { planMaterialize } from '../materialize/plan.js'
+import { NO_TREE_TO_PLAN_AGAINST, planMaterialize } from '../materialize/plan.js'
+import { sampleWasMaterialized } from '../materialize/sample.js'
 import { strategyFor } from '../materialize/strategies.js'
-import { aiGroups, getPreset, reviewGroups } from '../presets/index.js'
+import { getPreset, groupsFor } from '../presets/index.js'
 import { classifyRepository } from './classify.js'
 import { establishVariant, existingForm } from './variant.js'
-
-const NO_TREE_TO_PLAN_AGAINST = path.join(tmpdir(), 'mikoshi-construct-replay-renders-against-no-tree')
 
 export interface ReplayInput {
   root: string
@@ -32,8 +30,7 @@ export interface ReplayReport {
 }
 
 function replayedGroups(manifest: Manifest): TemplateGroup[] {
-  const preset = getPreset(manifest.preset)
-  return [...preset.groups, ...aiGroups(manifest.ai), ...reviewGroups(manifest.review?.provider ?? 'none')]
+  return groupsFor(getPreset(manifest.preset), manifest.ai, manifest.review?.provider ?? 'none')
 }
 
 function varsRecordingMisses(manifest: Manifest, version: string, facts: Record<string, string>, missed: Set<string>): TemplateVars {
@@ -80,8 +77,7 @@ function producedByTemplates(manifest: Manifest, vars: TemplateVars, recorded: R
 
   const withSamples = plan(true)
   const sampled = contentByTarget(withSamples.ops)
-  const sampleWasMaterialized = Object.keys(sampled).some(target => !(target in kept) && recorded[target] != null)
-  return sampleWasMaterialized
+  return sampleWasMaterialized(Object.keys(sampled), Object.keys(kept), recorded)
     ? { produced: sampled, existingVariants: withSamples.existingVariants }
     : { produced: kept, existingVariants: withoutSamples.existingVariants }
 }
