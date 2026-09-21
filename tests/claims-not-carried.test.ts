@@ -142,6 +142,17 @@ describe('doctor names the claims this preset can make and this repository does 
     expect(absent.get('lint-policy')).toEqual({ claimId: 'lint-policy', reading: 'sources-omitted' })
   })
 
+  it('10: says init would record it again where the sample is here and the owner deleted the claim, because a run here would write it', async () => {
+    const dir = await initialized(scratch(), 'node-backend')
+    expect(modelOf(dir).claims.map(claim => claim.id)).toContain('lint-policy')
+
+    const model = modelOf(dir)
+    writeFileSync(path.join(dir, MODEL_FILE), `${JSON.stringify({ ...model, claims: model.claims.filter(claim => claim.id !== 'lint-policy') }, null, 2)}\n`)
+
+    expect(absentIn(dir).get('lint-policy')).toEqual({ claimId: 'lint-policy', reading: 'every-fact-holds' })
+    expect(report(dir).some(line => line.includes('would record it'))).toBe(true)
+  })
+
   it('names all five withheld on an adopted owner-authored tree \u2014 four for the workflows, one for the sample it never took \u2014 one line each, none carrying a level', async () => {
     const dir = scratch()
     ownerWroteTheirOwnWorkflows(dir)

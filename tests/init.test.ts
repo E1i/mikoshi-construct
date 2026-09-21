@@ -129,6 +129,38 @@ describe('construct init (interactive)', () => {
     expect(readManifest(dir)?.ai).toBe('both')
   })
 
+  it('asks nothing the construct.json already answers, leaving only the confirmation that authorises the write', async () => {
+    const dir = scratch()
+    const first = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', review: true, confirm: true })
+    await runInit(ui, { dir, yes: false, dryRun: false }, first.prompter)
+    expect(first.asked).toEqual(['preset', 'ai', 'name', 'review', 'confirm'])
+
+    const lines: string[] = []
+    const second = scripted({ confirm: true })
+    const result = await runInit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), { dir, yes: false, dryRun: false }, second.prompter)
+
+    expect(result.status).toBe('done')
+    expect(second.asked).toEqual(['confirm'])
+    const manifest = readManifest(dir)
+    expect(manifest?.preset).toBe('node-backend')
+    expect(manifest?.ai).toBe('both')
+    expect(manifest?.vars.projectName).toBe('custom-name')
+    expect(manifest?.review).toEqual({ provider: 'claude', model: 'claude-sonnet-5' })
+    expect(lines.join('')).toContain('came from the construct.json already here')
+  })
+
+  it('lets a flag override what the record answers, and records the value the flag named', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', ai: 'claude', name: 'first-name', review: 'none', yes: true, dryRun: false })
+
+    const { prompter, asked } = scripted({ confirm: true })
+    await runInit(ui, { dir, name: 'renamed', yes: false, dryRun: false }, prompter)
+
+    expect(asked).toEqual(['confirm'])
+    expect(readManifest(dir)?.vars.projectName).toBe('renamed')
+    expect(readManifest(dir)?.ai).toBe('claude')
+  })
+
   it('lets flags answer questions so only the confirmation is asked', async () => {
     const dir = scratch()
     const { prompter, asked } = scripted({ confirm: true })

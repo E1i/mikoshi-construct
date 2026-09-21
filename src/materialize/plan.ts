@@ -2,10 +2,13 @@ import type { AiTarget, TemplateGroup, TemplateMount, TemplateVars } from '../pr
 import type { Strategy } from './strategies.js'
 import type { TemplateVariant } from './templates.js'
 import { existsSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { mapRulesForTargets } from './rules.js'
 import { appendBlock, mergeJson, strategyFor } from './strategies.js'
 import { listTemplateFiles, render } from './templates.js'
+
+export const NO_TREE_TO_PLAN_AGAINST = path.join(tmpdir(), 'mikoshi-construct-renders-against-no-tree')
 
 export type FileAction = 'create' | 'merge' | 'append' | 'skip'
 

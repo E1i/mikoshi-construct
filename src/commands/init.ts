@@ -1,7 +1,7 @@
 import type { DetectReport } from '../detect/index.js'
 import type { Manifest } from '../manifest.js'
 import type { FileOp } from '../materialize/plan.js'
-import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from '../presets/index.js'
+import type { AiTarget, Preset, PresetId, ReviewProvider, TemplateVars } from '../presets/index.js'
 import type { Ui } from '../ui/console.js'
 import type { Prompter } from '../ui/prompts.js'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
@@ -10,9 +10,10 @@ import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
 import { buildManifest, readManifest, recordedShas, recordedVariants, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
+import { repositoryCarriesTheSample } from '../materialize/sample.js'
 import { withoutStillbornClaims } from '../model/birth.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
-import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups, sampleGroups } from '../presets/index.js'
+import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, PRESET_LIST, sampleGroups, sampleMounts } from '../presets/index.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { printDetectReport } from './soulkill.js'
@@ -40,6 +41,29 @@ interface InitChoices {
   ai: AiTarget
   projectName: string
   review: ReviewProvider
+  reviewModel: string
+  answeredByTheRecord: string[]
+}
+
+interface RecordedChoices {
+  presetId?: PresetId
+  ai?: AiTarget
+  projectName?: string
+  review?: ReviewProvider
+  reviewModel?: string
+}
+
+function choicesAlreadyRecorded(previous: Manifest | null): RecordedChoices {
+  if (previous == null)
+    return {}
+  const name = previous.vars?.projectName
+  return {
+    presetId: isPresetId(previous.preset) ? previous.preset : undefined,
+    ai: isAiTarget(previous.ai) ? previous.ai : undefined,
+    projectName: typeof name === 'string' && isValidProjectName(name) ? name : undefined,
+    review: previous.review == null ? 'none' : previous.review.provider,
+    reviewModel: previous.review?.model,
+  }
 }
 
 const CANCELLED = Symbol('cancelled')
@@ -91,6 +115,34 @@ function nextStep(root: string, applied: FileOp[], vars: TemplateVars): string |
     : vars.harnessCommand
 }
 
+interface SampleReading {
+  preset: Preset
+  vars: TemplateVars
+  ai: AiTarget
+  review: ReviewProvider
+  omittedGroups: string[]
+  previous: Manifest | null
+}
+
+function sampleMaterializedByThisRun(preset: Preset, omittedGroups: string[]): boolean {
+  const groups = sampleGroups(preset)
+  return groups.length > 0 && groups.every(group => !omittedGroups.includes(group))
+}
+
+function sampleIsHere(reading: SampleReading): boolean {
+  if (sampleMaterializedByThisRun(reading.preset, reading.omittedGroups))
+    return true
+  if (reading.previous == null)
+    return false
+  return repositoryCarriesTheSample({
+    groups: groupsFor(reading.preset, reading.ai, reading.review),
+    sampleMounts: sampleMounts(reading.preset),
+    vars: reading.vars,
+    ai: reading.ai,
+    recorded: recordedShas(reading.previous),
+  })
+}
+
 function aborted(skipped: string[] = [], conflicts: string[] = []): InitResult {
   return { status: 'aborted', written: [], skipped, conflicts }
 }
@@ -107,8 +159,12 @@ function parsePreset(value: string): PresetId {
   return value
 }
 
+function isAiTarget(value: string): value is AiTarget {
+  return value === 'claude' || value === 'cursor' || value === 'both'
+}
+
 function parseAi(value: string): AiTarget {
-  if (value === 'claude' || value === 'cursor' || value === 'both')
+  if (isAiTarget(value))
     return value
   throw new Error(`unknown AI target "${value}" (claude | cursor | both)`)
 }
@@ -125,10 +181,18 @@ function parseProjectName(value: string): string {
   return value
 }
 
-async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, root: string, prompter: Prompter | undefined): Promise<InitChoices | typeof CANCELLED> {
+async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, root: string, prompter: Prompter | undefined, previous: Manifest | null): Promise<InitChoices | typeof CANCELLED> {
   const suggested = suggestedPreset(report)
+  const recorded = choicesAlreadyRecorded(previous)
+  const answeredByTheRecord: string[] = []
+  const fromTheRecord = <T>(name: string, value: T | undefined): T | undefined => {
+    if (value !== undefined)
+      answeredByTheRecord.push(name)
+    return value
+  }
 
   let presetId: PresetId | undefined = options.preset == null ? undefined : parsePreset(options.preset)
+  presetId ??= fromTheRecord('preset', recorded.presetId)
   if (presetId == null) {
     if (report.layout === 'unknown')
       ui.glitch(ui.lore.unknownStructure)
@@ -145,6 +209,7 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
   }
 
   let ai: AiTarget | undefined = options.ai == null ? undefined : parseAi(options.ai)
+  ai ??= fromTheRecord('agents', recorded.ai)
   if (ai == null) {
     ai = prompter == null ? 'claude' : await prompter.aiTarget('claude')
     if (ai == null)
@@ -152,6 +217,7 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
   }
 
   let projectName: string | undefined = options.name == null ? undefined : parseProjectName(options.name)
+  projectName ??= fromTheRecord('project name', recorded.projectName)
   if (projectName == null) {
     const fallback = defaultProjectName(root)
     projectName = prompter == null ? fallback : await prompter.projectName(fallback)
@@ -160,6 +226,7 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
   }
 
   let review: ReviewProvider | undefined = options.review == null ? undefined : parseReview(options.review)
+  review ??= fromTheRecord('code review', recorded.review)
   if (review == null) {
     const wanted = prompter == null ? false : await prompter.review(false)
     if (wanted == null)
@@ -167,7 +234,9 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
     review = wanted ? 'claude' : 'none'
   }
 
-  return { presetId, ai, projectName, review }
+  const reviewModel = options.reviewModel ?? recorded.reviewModel ?? DEFAULT_REVIEW_MODEL
+
+  return { presetId, ai, projectName, review, reviewModel, answeredByTheRecord }
 }
 
 export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
@@ -189,11 +258,13 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   printDetectReport(ui, report)
   ui.line()
 
+  const previous = readManifest(root)
+
   ui.phase(2, 4, '🧠', ui.lore.phaseConfigure)
-  const choices = await askChoices(ui, options, report, root, interactive)
+  const choices = await askChoices(ui, options, report, root, interactive, previous)
   if (choices === CANCELLED)
     return aborted()
-  const { presetId, ai, projectName, review } = choices
+  const { presetId, ai, projectName, review, reviewModel, answeredByTheRecord } = choices
   const preset = getPreset(presetId)
   if (!preset.available)
     throw new Error(`preset "${presetId}" is not available yet in v${VERSION}`)
@@ -205,8 +276,10 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ['Project', projectName],
     ['Preset', `${preset.label} — ${preset.description}`],
     ['AI Netrunners', AI_TARGET_LABELS[ai]],
-    ['Code review', review === 'claude' ? `Claude on pull requests (${options.reviewModel ?? DEFAULT_REVIEW_MODEL})` : 'none'],
+    ['Code review', review === 'claude' ? `Claude on pull requests (${reviewModel})` : 'none'],
   ])
+  if (answeredByTheRecord.length > 0)
+    ui.line(ui.theme.dim(`  ${ui.lore.recordAnswered(answeredByTheRecord)}`))
   ui.line()
 
   const vars: TemplateVars = {
@@ -220,13 +293,12 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     harnessCommand: 'pnpm run quality',
     packageManager: 'pnpm',
     pnpmVersion: report.pnpmVersion ?? '',
-    reviewModel: options.reviewModel ?? DEFAULT_REVIEW_MODEL,
+    reviewModel,
     constructVersion: VERSION,
     ...preset.vars(report, projectName),
   }
 
-  const previous = readManifest(root)
-  const groups = [...preset.groups, ...aiGroups(ai), ...reviewGroups(review)]
+  const groups = groupsFor(preset, ai, review)
   const plan = planMaterialize(root, groups, vars, {
     emptyTarget: report.layout === 'empty',
     ai,
@@ -282,8 +354,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const written = applyPlan(root, plan.ops)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
   writeManifest(root, manifest)
-  const samples = sampleGroups(preset)
-  const sample = samples.length > 0 && samples.every(group => !plan.omittedGroups.includes(group))
+  const sample = sampleIsHere({ preset, vars, ai, review, omittedGroups: plan.omittedGroups, previous })
   const born = withoutStillbornClaims(buildModel({ vars, contracts: preset.contracts, sample }), existingModel, root)
   const merged = mergeModel(existingModel, born.model)
   writeModel(root, merged.model)

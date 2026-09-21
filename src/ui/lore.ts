@@ -97,6 +97,7 @@ export interface Lore {
   syncApplyLeftToYou: (count: number) => string
   syncVersionGap: (from: string, to: string) => string
   syncNoManifest: string
+  recordAnswered: (names: string[]) => string
   recordCarriedOver: (carried: number, added: number) => string
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => string
   recordFactsRetained: (facts: string[], entries: string[]) => string
@@ -219,6 +220,7 @@ export const LORE: Lore = {
   syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
   syncVersionGap: (from: string, to: string) => `ENGRAM CUT BY v${from} // REPLAYED BY v${to}`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
+  recordAnswered: (names: string[]) => `ENGRAM READ: ${names.join(', ')} came from the construct.json already here, so ${names.length === 1 ? 'it was' : 'they were'} not asked again. A flag overrides ${names.length === 1 ? 'it' : 'them'}.`,
   recordCarriedOver: (carried: number, added: number) => `ENGRAM EXTENDED: ${carried} record${carried === 1 ? '' : 's'} carried over from the construct.json already here, ${added} added.`,
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => `ENGRAM REWRITTEN: this run changed ${changed.map(entry => `${entry.name} (${entry.from} \u2192 ${entry.to})`).join(', ')} in the record; the recorded hashes were taken with the old value${changed.length === 1 ? '' : 's'}.`,
   recordFactsRetained: (facts: string[], entries: string[]) => `ENGRAM HELD: ${facts.length} construct-authored fact${facts.length === 1 ? '' : 's'} this preset no longer makes ${facts.length === 1 ? 'was' : 'were'} kept, because ${entries.join(', ')} still ${entries.length === 1 ? 'stands' : 'stand'} on ${facts.length === 1 ? 'it' : 'them'}.`,
@@ -230,7 +232,7 @@ export const LORE: Lore = {
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
-  notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but it stands on sample sources, which \`construct init\` writes only into an empty directory; no run here records it.`,
+  notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but the construct never wrote the sample sources it stands on into this repository, and it writes those only into an empty directory; no run here records it.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -337,6 +339,7 @@ export const PLAIN_LORE: Lore = {
   syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
   syncVersionGap: (from: string, to: string) => `Materialized by construct ${from}, read by ${to}.`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
+  recordAnswered: (names: string[]) => `${names.join(', ')} came from the construct.json already here, so ${names.length === 1 ? 'it was' : 'they were'} not asked again. A flag overrides ${names.length === 1 ? 'it' : 'them'}.`,
   recordCarriedOver: (carried: number, added: number) => `Carried over ${carried} record${carried === 1 ? '' : 's'} from the construct.json already here; added ${added}.`,
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => `This run changed ${changed.map(entry => `${entry.name} (${entry.from} -> ${entry.to})`).join(', ')} in the record; the recorded hashes were taken with the old value${changed.length === 1 ? '' : 's'}.`,
   recordFactsRetained: (facts: string[], entries: string[]) => `Kept ${facts.length} construct-authored fact${facts.length === 1 ? '' : 's'} this preset no longer makes, because ${entries.join(', ')} still ${entries.length === 1 ? 'stands' : 'stand'} on ${facts.length === 1 ? 'it' : 'them'}.`,
@@ -348,5 +351,5 @@ export const PLAIN_LORE: Lore = {
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
-  notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but it stands on sample sources, which \`construct init\` writes only into an empty directory; no run here records it.`,
+  notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but the construct never wrote the sample sources it stands on into this repository, and it writes those only into an empty directory; no run here records it.`,
 }

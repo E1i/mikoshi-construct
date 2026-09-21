@@ -42,7 +42,8 @@ repository cannot damage it.
 
 ## construct init
 
-Detects the repository, asks what it cannot detect, then writes the construct: architecture policy,
+Detects the repository, asks what neither a flag nor an existing `construct.json` answers, then
+writes the construct: architecture policy,
 the harness, an API contract where the preset has one, and the agent instructions. It ends by naming
 what to run next — install and the harness where it wrote a package manifest, the harness alone where
 it changed other files, and nothing at all where it changed none.
@@ -57,8 +58,8 @@ it changed other files, and nothing at all where it changed none.
 | `--yes`, `-y` | `false` | Ask nothing. Take the defaults and skip the confirmation. |
 | `--dry-run` | `false` | Print the plan and write nothing. |
 
-Without `--yes` and with a terminal attached, `init` asks only for what the flags left open. Piping
-input without `--yes` is refused rather than guessed at.
+Without `--yes` and with a terminal attached, `init` asks only for what the flags and the record leave
+open. Piping input without `--yes` is refused rather than guessed at.
 
 Exits `0` when it writes or when `--dry-run` finishes, `1` when you decline the confirmation or when
 the target cannot be read.
@@ -99,6 +100,18 @@ values win. `=` leaves the file alone and reports it. An existing repository nev
 code, and there is no `--force`.
 
 ### Running init again
+
+A second `init` asks nothing `construct.json` already answers. The preset, the agent target, the
+project name and the code-review provider are all recorded there, so a re-run reads them and names
+them in the configuration block instead of putting the same four questions again. A flag still
+overrides any of them, and the change is reported like any other change to a recorded value. The one
+question that survives is the confirmation before writing — it authorises this run, which no record
+can do on its behalf.
+
+The claims the model carries are read the same way. Whether the preset's sample belongs to this
+repository is answered by whether the construct ever materialized it here, which `construct.json`
+records, rather than by whether the directory is empty — which is false from the second run onward,
+and used to delete the `lint-policy` claim from `construct.model.json` on every re-run.
 
 `AGENTS.md` and `CLAUDE.md` ship in two forms: the full document the construct writes when it creates
 the file, and the shorter block it writes into a file that was already there. A second `init` keeps
@@ -459,13 +472,15 @@ Each line carries one of four readings, which `--json` names under `reading`:
 | `does-not-hold` | A fact the claim would stand on was read and does not hold. | `path`: the first such fact's path. |
 | `unevaluable` | A fact the claim would stand on could not be read, so whether it would stand cannot be determined. | `path`: the first such fact's path. |
 | `every-fact-holds` | Every fact holds and a run here would write the claim, so running `init` again records it. | Nothing further: no fact is outstanding. |
-| `sources-omitted` | Every fact holds and **no** run here writes the claim: it comes with the preset's sample sources, and `init` materializes those only into an empty directory. | Nothing further: no fact is outstanding. |
+| `sources-omitted` | Every fact holds and **no** run here writes the claim: it stands on the preset's sample sources, which the construct never materialized into this repository and materializes only into an empty directory. | Nothing further: no fact is outstanding. |
 
 The last two are kept apart because the promise in the first is a promise about a run. `lint-policy`
 is today the only claim a preset makes from its sample, so it is the only one that reads
 `sources-omitted`; a repository that writes its own `scripts/tests/lint/syntax-policy.test.ts` makes
-every fact under it hold and still carries no such claim, because `doctor` runs where `construct.json`
-already is and a directory holding one is never the empty directory the sample is written into.
+every fact under it hold and still carries no such claim, because the construct never wrote the sample
+there and `init` writes it only into an empty directory. Where the construct *did* materialize the
+sample, a run here would record the claim — so a tree whose owner deleted it from the model reads
+`every-fact-holds`, and running `init` again puts it back.
 
 An absent claim **carries no level and is not a verdict**: nothing is enforced by a claim that was
 never made, and it changes no exit code. Where the tree carries every claim its preset can make, the

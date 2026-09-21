@@ -2,9 +2,11 @@ import type { Manifest } from '../../manifest.js'
 import type { Claim, RepositoryModel } from '../../model/schema.js'
 import type { FactEvaluation } from '../../model/state.js'
 import type { TemplateVars } from '../../presets/index.js'
+import { recordedShas } from '../../manifest.js'
+import { repositoryCarriesTheSample } from '../../materialize/sample.js'
 import { deriveModelState } from '../../model/state.js'
 import { buildModel } from '../../model/write.js'
-import { getPreset, isPresetId, sampleGroups } from '../../presets/index.js'
+import { getPreset, groupsFor, isPresetId, sampleGroups, sampleMounts } from '../../presets/index.js'
 
 export const NOT_CARRIED_READINGS = ['does-not-hold', 'unevaluable', 'every-fact-holds', 'sources-omitted'] as const
 export type NotCarriedReading = (typeof NOT_CARRIED_READINGS)[number]
@@ -32,7 +34,14 @@ function modelThisPresetCanWrite(manifest: Manifest): RepositoryModel {
 }
 
 function modelARunHereWouldWrite(manifest: Manifest): RepositoryModel {
-  return builtWith(manifest, false)
+  const preset = getPreset(manifest.preset)
+  return builtWith(manifest, repositoryCarriesTheSample({
+    groups: groupsFor(preset, manifest.ai, manifest.review?.provider ?? 'none'),
+    sampleMounts: sampleMounts(preset),
+    vars: manifest.vars as TemplateVars,
+    ai: manifest.ai,
+    recorded: recordedShas(manifest),
+  }))
 }
 
 function firstPathEvaluating(claim: Claim, expected: RepositoryModel, evaluations: Record<string, FactEvaluation>, to: FactEvaluation): string | null {

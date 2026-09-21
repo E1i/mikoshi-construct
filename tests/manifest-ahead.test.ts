@@ -1,15 +1,16 @@
 import type { Ui } from '../src/ui/console.js'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { costReport } from '../src/commands/cost/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { modelPicture } from '../src/commands/graph.js'
+import { runInit } from '../src/commands/init.js'
 import { runSync } from '../src/commands/sync/index.js'
 import { flatlineFor, reported } from '../src/failure.js'
 import { MANIFEST_FILE, MANIFEST_VERSION, ManifestAheadOfReader, readManifest, upgradeManifest } from '../src/manifest.js'
-import { createUi } from '../src/ui/console.js'
+import { createUi, silentWriter } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
@@ -64,6 +65,18 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
     expect(() => runDoctor(dir)).toThrow(ManifestAheadOfReader)
     expect(() => runSync(dir, VERSION)).toThrow(ManifestAheadOfReader)
     expect(() => costReport(dir, { env: {} })).toThrow(ManifestAheadOfReader)
+  })
+
+  it('leaves every file where it found it when init reads a manifest from a later build, so an older CLI cannot damage a newer repository', async () => {
+    const dir = treeAheadOfThisBinary()
+    const before = Object.fromEntries(readdirSync(dir).map(entry => [entry, readFileSync(path.join(dir, entry), 'utf8')]))
+    expect(Object.keys(before)).toEqual([MANIFEST_FILE])
+
+    await expect(runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset: 'node-backend', name: 'ahead', yes: true, dryRun: false }))
+      .rejects
+      .toThrow(ManifestAheadOfReader)
+
+    expect(Object.fromEntries(readdirSync(dir).map(entry => [entry, readFileSync(path.join(dir, entry), 'utf8')]))).toEqual(before)
   })
 
   it('reads the manifest for cost only where the runtime is not already named by the environment', () => {
