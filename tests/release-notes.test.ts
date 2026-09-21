@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import config from '../docs/.vitepress/config.js'
-import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog } from '../scripts/release-notes/changelog.js'
+import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor } from '../scripts/release-notes/changelog.js'
 import { renderIndex } from '../scripts/release-notes/render.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -124,5 +124,32 @@ describe('the step that writes the changelog regenerates the page rendered from 
   it('goes red when the version script stops reaching the renderer, which is how every release turned red before', () => {
     const withoutRender = { ...scripts(), [versionScript()]: 'changeset version' }
     expect(resolved(versionScript(), withoutRender)).not.toContain(RENDERER)
+  })
+})
+
+describe('the releases sublist names the latest releases, not only the hand-written ones', () => {
+  function sublist(): { text: string, link: string }[] {
+    const theme = config.themeConfig as { sidebar?: { text?: string, items?: { text: string, link: string }[] }[] }
+    return (theme.sidebar ?? []).find(group => group.text === 'Releases')?.items ?? []
+  }
+
+  it('names the newest version the changelog carries, so a release cannot leave the navigation on an older one', () => {
+    const newest = parseChangelog(CHANGELOG)[0].version
+    expect(sublist().some(item => item.text.startsWith(newest))).toBe(true)
+  })
+
+  it('keeps every hand-written note named, because it is the better artifact where it exists', () => {
+    for (const version of handWrittenNotes().keys())
+      expect(sublist().map(item => item.link), version).toContain(`/release-notes/${version}`)
+  })
+
+  it('points a version without a note at its own section, and names only versions the changelog carries', () => {
+    const versions = parseChangelog(CHANGELOG).map(entry => entry.version)
+    const anchored = sublist().filter(item => item.link.includes('#'))
+    expect(anchored.length).toBeGreaterThan(0)
+    for (const item of anchored) {
+      expect(versions, item.link).toContain(item.text)
+      expect(item.link, item.link).toBe(releaseAnchor(item.text))
+    }
   })
 })

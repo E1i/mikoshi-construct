@@ -46,3 +46,22 @@ export function handWrittenNotes(dir = RELEASE_NOTES_DIR): Map<string, string> {
     })
   return new Map(pages)
 }
+
+export const SIDEBAR_LATEST = 5
+
+export function releaseAnchor(version: string): string {
+  return `/release-notes/#_${version.replaceAll('.', '-')}`
+}
+
+export function releaseSidebarItems(
+  versions = changelogVersions(),
+  notes = handWrittenNotes(),
+): { text: string, link: string }[] {
+  const named = new Set([...versions.slice(0, SIDEBAR_LATEST), ...[...notes.keys()].filter(version => versions.includes(version))])
+  return versions
+    .filter(version => named.has(version))
+    .map(version => ({
+      text: notes.has(version) ? `${version} — notes` : version,
+      link: notes.has(version) ? `/release-notes/${version}` : releaseAnchor(version),
+    }))
+}

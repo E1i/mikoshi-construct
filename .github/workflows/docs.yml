@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - docs/**
+      - scripts/**
       - .github/workflows/docs.yml
       - package.json
   workflow_dispatch:
@@ -30,6 +31,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run docs:build
+      - run: pnpm run docs:anchors
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

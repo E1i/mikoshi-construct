@@ -53,14 +53,15 @@
     "lint:fix": "eslint --fix .",
     "prepublishOnly": "pnpm build",
     "privacy:check": "tsx scripts/privacy/check.ts",
-    "quality": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test",
+    "quality": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:anchors",
     "release": "pnpm build && changeset publish",
     "release-notes:render": "tsx scripts/release-notes/sync-docs.ts",
     "release:verify": "tsx scripts/release/verify-published.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "version-packages": "changeset version && pnpm release-notes:render"
+    "version-packages": "changeset version && pnpm release-notes:render",
+    "docs:anchors": "tsx scripts/docs/anchors.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",
