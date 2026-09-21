@@ -388,10 +388,10 @@ identifier worth matching on.
 
 | `id` | The claim it renders | When it appears |
 |---|---|---|
-| `no-committed-secret` | `no-committed-secret` | Always, since every preset makes that claim |
-| `vulnerable-dependencies-are-visible` | `vulnerable-dependencies-are-visible` | Always |
-| `ci` | `every-change-passes-the-harness` | Always |
-| `harness-steps` | `harness-steps` | Always |
+| `no-committed-secret` | `no-committed-secret` | Only where the construct wrote `.github/workflows/security.yml`, the workflow its facts name, and the facts it names hold when the model is written. Absent from the output otherwise, rather than reported as missing |
+| `vulnerable-dependencies-are-visible` | `vulnerable-dependencies-are-visible` | Only where the construct wrote `.github/workflows/security.yml` and the facts it names hold when the model is written |
+| `ci` | `every-change-passes-the-harness` | Only where the construct wrote `.github/workflows/ci.yml` and the facts it names hold when the model is written. A repository whose CI its owner wrote carries no such claim: the construct never read that workflow and cannot say it runs the harness |
+| `harness-steps` | `harness-steps` | Only where the construct wrote both `.github/workflows/ci.yml` and the `quality` script in `package.json` that its facts name, and those facts hold when the model is written |
 | `lint-policy` | `lint-policy` | Only where the model carries that claim, which is where the preset's sample was materialized and the construct wrote the policy test it stands on. Absent from the output otherwise, rather than reported as missing |
 | `a-breaking-api-change-is-named-before-it-ships` | the same claim | Only where the preset materializes an HTTP contract |
 

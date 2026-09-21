@@ -206,7 +206,7 @@ function mergeEntries<T extends AuthoredEntry>(existing: T[], fresh: T[], keepDr
   return [...survivors, ...fresh.filter(entry => !present.has(entry.id))]
 }
 
-function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Map<string, string[]> {
+export function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Map<string, string[]> {
   const stoodOn = new Map<string, string[]>()
   const record = (factId: string, entryId: string): void => {
     stoodOn.set(factId, [...stoodOn.get(factId) ?? [], entryId])
