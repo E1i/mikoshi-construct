@@ -664,3 +664,65 @@ happen to be looking at.
 **Boundary.** Two corpora, both measured at one moment with two instruments over identical identifier
 sets. Nothing here establishes a factor for any third corpus, and the reconciliation's exactness is
 evidence about these token streams rather than about the counting of token streams in general.
+
+## 2026-09-21 · A gate can sit outside the path the change travels
+
+A fourth way for a gate to be present and useless, independent of the three already recorded here. It
+is not that it cannot fail — it can. It is not that its set excludes the defect — the set is right.
+And it is not that it has never been shown firing — it fires when run. **It simply does not run on the
+change that would trip it.**
+
+`docs:anchors` verifies that every anchored link in the navigation resolves to a heading in the
+rendered page. It was wired into the documentation deployment, which runs on pushes to the default
+branch and never on a pull request, under a path filter of `docs/**`, the workflow and `package.json`.
+The anchors are produced by `scripts/release-notes/`, which matches none of those paths. So a change to
+the code that generates the anchors would not have triggered the check at all, and a change that broke
+them would have been checked only after it had already merged.
+
+**The tell: the gate's trigger condition does not cover the inputs of the artifact it guards.**
+
+**The column this adds to the writers audit.** That sweep asked who writes the source. This one asks
+when the gate runs and whether that covers them.
+
+| Gate | Source and its writers | When the gate runs | Trigger covers the writers |
+|---|---|---|---|
+| `docs:anchors` | the rendered page, from `scripts/release-notes/` | was: push to default branch, `docs/**` | **no — found** |
+| release index checks | `CHANGELOG.md`, written by `changeset version` | `pnpm run quality` | yes |
+| `model:check` | `construct.model.json`, written by `init` and by discovery | `pnpm run quality` | yes |
+| `composition:check` | `architecture/composition/*.yaml`, written by a person and by discovery | `pnpm run quality` | yes |
+| secret scan, dependency audit | the tree | pull request, push, weekly | yes |
+| release verification | what the release workflow published | on that workflow completing | yes |
+
+**The three that live in the harness are clean for a reason, not by construction.** `ci.yml` triggers
+on `pull_request:` with **no path filter at all**, and on pushes to the default branch. That single
+absent line is what puts every gate inside `pnpm run quality` on the route of every change — and it is
+one line somebody could add later while tidying CI, which would move all of them off the route at once
+without touching a gate. A test now asserts the harness trigger carries no path filter, and reads the
+block first to confirm it is looking at a real trigger rather than at nothing.
+
+The remedy for the one that was found was to move it onto the route rather than widen the route to it:
+the documentation build costs 0.82 seconds, so the check now runs inside the harness. The path filter
+was widened as well, so the deployed build is still checked when its inputs move.
+
+**The property rests on two conditions and only one of them was asserted.** *The harness runs on every
+change* is now held by the no-path-filter test above. *Every gate lives inside the harness* was held by
+nothing — and it is the one that was actually broken, because `docs:anchors` existed, was correct, and
+sat outside. A test about the trigger would not have caught it: it inspects the route, not the
+membership.
+
+So membership is now a partition of the same kind used for identifiers: every script in the manifest is
+either on the harness route — reached from `quality`, or reaching it — or declared outside it **with a
+reason**. A script that is neither fails the check, so adding a gate and wiring it somewhere else is no
+longer a silent act. The mutation lifts `docs:anchors` back out of `quality` and the script becomes
+unclassified. The declaration also made one honest exemption visible that had never been written down:
+`release:verify` is a gate and belongs outside, because it inspects what was published and that does
+not exist while the harness runs.
+
+**This is the condition that will keep breaking, and the reflex says why.** A gate gets attached to the
+thing it inspects rather than to the path changes travel — `docs:anchors` went into the documentation
+workflow because that is where documentation is built. Nobody will remove the harness's coverage of
+every change; people will keep hanging new gates off the artifact they watch.
+
+**Boundary.** Six gates, one hit, and the hit was the newest of them — written the same day, wired into
+the workflow that happened to be nearby. Nothing here says the rate is one in six; it says the sweep
+is one extra line of reading per gate and found something on the first gate it looked at.
