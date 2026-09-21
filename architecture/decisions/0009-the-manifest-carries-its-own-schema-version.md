@@ -50,6 +50,9 @@ and nothing to write back.
 unknown rather than accusing them. A future shape change gets a decidable branch: read
 `manifestVersion`, or its absence, and normalise.
 
+See also [0022](0022-a-manifest-ahead-of-the-reader-is-a-state.md), which settles the other direction:
+a manifest declaring a version higher than this binary understands.
+
 The cost is that a repository initialised before this change never gains provenance until discovery
 runs again there. That is the intended reading — the tool cannot prove what it wrote before it kept a
 record — and not a reason to backfill one.
