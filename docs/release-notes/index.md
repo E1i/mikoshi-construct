@@ -4,6 +4,66 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.14.0
+
+### Minor Changes
+
+- [#140](https://github.com/E1i/mikoshi-construct/pull/140) [`f1b1728`](https://github.com/E1i/mikoshi-construct/commit/f1b17286a6670f7acd425afb73dbb6a00dba797b) Thanks [@E1i](https://github.com/E1i)! - The workspace policy is recorded, not derived again on every run
+  
+  Decision 0026, implemented. `allowedWorkspaceImports` answered two questions at once: which packages
+  exist, which is a fact about the tree, and what each may import, which is a decision. A second `init`
+  re-derived both, so a leaf recorded as importing nothing came back allowed to import the app, and
+  `sync --apply` then wrote that looser policy into `eslint.config.mjs` — a dependency policy loosening
+  on a repository nobody edited.
+  
+  Which packages exist is still derived on every run, so a package added since the last one becomes a
+  new key. What each may import is now kept once recorded. A new key is given the preset's default for
+  a package of its kind: a package under `apps/` may import every other workspace package, anything
+  else may import nothing. The run names the keys it added, what each may import, and that
+  `eslint.config.mjs` is not rewritten there so a later `sync --apply` would write the new policy into
+  it — the consequence, not only the delta.
+  
+  **Adopting a monorepo whose packages already import each other will now fail lint until you widen the
+  policy deliberately.** The default for a first `init` on a monorepo that already carries packages
+  used to be permissive — every package allowed to import every other — because the packages were
+  detected rather than created. It is now the same narrow default as everywhere else: `packages/*`
+  starts at importing nothing. Widening it is a one-line edit to `eslint.config.mjs`, and from then on
+  the record keeps what you chose. The old default blessed whatever the repository already did without
+  anyone deciding to, and under this release that unchosen policy would have been recorded and kept.
+  
+  `construct.json` carries the policy as structure under `policy` and declares `manifestVersion` 5. The
+  rendered form is derived from the structure and is never read back to recover it, so a formatting
+  function is not the authority on what was decided. The rendered entries are sorted by package
+  directory, so the policy no longer depends on the order the packages were enumerated in.
+
+### Patch Changes
+
+- [#142](https://github.com/E1i/mikoshi-construct/pull/142) [`341ff2c`](https://github.com/E1i/mikoshi-construct/commit/341ff2cdd41af28459142f564bbfb04fff907965) Thanks [@E1i](https://github.com/E1i)! - The CLI reference carries the line the picture has carried since 0.11.1
+  
+  `docs/cli.md` describes the picture's legend and the state on each entry, and stopped before the
+  sentence the page prints under that legend — that colour carries the derived state and not the
+  enforcement level, so the same green covers an L0 claim nobody is obliged to read and an L3 claim
+  that fails the build. Nothing in the reference was false; it was incomplete about the one thing the
+  page goes out of its way to say.
+  
+  The reference now repeats that line rather than restating it, and a test holds both against the same
+  constant in `src/model/svg.ts`, so a change to the sentence cannot leave the document behind.
+
+- [#139](https://github.com/E1i/mikoshi-construct/pull/139) [`c4b8c6a`](https://github.com/E1i/mikoshi-construct/commit/c4b8c6a9e83e1a418679921553ff4989946ddd69) Thanks [@E1i](https://github.com/E1i)! - The written count says which of two questions it answers
+  
+  `init` printed "Written: 4 files" and no next step in the same run. Both were right and they counted
+  different things: the count was applied write operations, the next step was derived from the
+  operations whose content actually differed from what was on disk. On a second run the merges and
+  appends reproduce what is already there, so four operations are applied and nothing changes — and the
+  reader was left reconciling two numbers that answer different questions under one word.
+  
+  The row now names both: `59 files, 59 changed` on a first run, `4 files, 0 changed` on a second, `5
+  files, 1 changed` where one file was restored. The count is not removed, because the four operations
+  did happen. The changed set is now computed once and read by both the count and the next step, so
+  they cannot drift apart again.
+  
+  The three cases of the closing line are unchanged.
+
 ## 0.13.0
 
 ### Minor Changes
