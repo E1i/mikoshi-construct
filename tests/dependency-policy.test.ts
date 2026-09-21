@@ -87,3 +87,26 @@ describe('doctor reads a repository it does not trust through one reader', () =>
     expect(await violations('src/commands/doctor/probe.ts', 'import { readManifest } from \'../../manifest.js\'\n\nexport const probe = readManifest\n')).toEqual([])
   })
 })
+
+describe('the frozen init record is never read as the latest state', () => {
+  it('reports a bare manifest.files anywhere under src, because it omits everything sync recorded', async () => {
+    const bare = 'import type { Manifest } from \'../manifest.js\'\n\nexport function probe(manifest: Manifest): string[] {\n  return Object.keys(manifest.files)\n}\n'
+    expect(await violations('src/commands/probe.ts', bare)).toEqual(['no-restricted-syntax'])
+    expect(await violations('src/sync/probe.ts', bare)).toEqual(['no-restricted-syntax'])
+    const withoutImporting = 'export function probe(manifest: { files: Record<string, string> }): string[] {\n  return Object.keys(manifest.files)\n}\n'
+    expect(await violations('src/commands/probe.ts', withoutImporting)).toEqual(['no-restricted-syntax'])
+    expect(await violations('src/manifest.ts', withoutImporting)).toEqual([])
+  })
+
+  it('keeps the spawn and code-loading restrictions the block carried before this one was added to it', async () => {
+    const resolved = await eslint.calculateConfigForFile(path.join(root, 'src/commands/probe.ts'))
+    const [, ...entries] = resolved.rules['no-restricted-syntax'] as [number, ...(string | { selector: string })[]]
+    const selectors = entries.map(entry => typeof entry === 'string' ? entry : entry.selector)
+    expect(selectors).toEqual(expect.arrayContaining([
+      'TSEnumDeclaration[const=true]',
+      'ImportDeclaration[source.value="node:child_process"]',
+      'ImportExpression',
+      'MemberExpression[property.name="files"][object.name=/^(manifest|previous)$/]',
+    ]))
+  })
+})
