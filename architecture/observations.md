@@ -530,10 +530,12 @@ every version pull request failed the gate on its own changes.
 
 **Both mutations were performed by one actor**, the renderer, driven by hand. Exercising one writer in
 two directions is still one writer. *Both directions* establishes that the gate has the right
-polarity; it says nothing about **who else can put the artifact into the state the gate forbids.** The
-writer that is remembered is the one just added, and that one always calls the regeneration, because
-it was wired deliberately. The dangerous writer is the one that was already there, touching the source
-for its own reasons, with no idea the derived artifact exists.
+polarity; it says nothing about **who else can put the artifact into the state the gate forbids.** In
+both cases observed here the writer that was missed already existed, touching the source for its own
+reasons with no idea the derived artifact exists, while the writer added alongside the gate called the
+regeneration because it was wired deliberately. Two cases do not make that a rule, and stating it as
+one would act in the wrong direction: believing it, a reviewer stops enumerating the writers
+introduced in the same change as the gate, which is precisely where the next one would come from.
 
 **The sweep, in the shape of the identifier-vocabulary audit.** For every gate over a generated
 artifact: the artifact, its source, and every process that writes that source.
@@ -545,12 +547,14 @@ artifact: the artifact, its source, and every process that writes that source.
 | `composition:check` | the blocks in `architecture/<flow>.md` | `architecture/composition/*.yaml` | a person; the discovery protocol's composition step | yes — that step says to run `composition:render` |
 | `doctor` | none | `construct.json` | `init`, `sync` | not this shape: `doctor` reads a source, nothing is derived from it |
 
-**The second row is the same defect, undetonated.** The discovery protocol writes hypotheses into
+**The second row is the same defect, found by sweeping before it fired rather than after.** The discovery protocol writes hypotheses into
 `construct.model.json` and said nothing about re-rendering, while the instruction to run
 `composition:render` sat nine lines above it for the neighbouring artifact. It had not fired because
 the picture is not materialized into user projects — a repository that `init` sets up has no rendered
-model to go stale — so the only tree where it can bite is this one, which renders its own model and
-commits it. The protocol's step now carries the instruction, and a test requires it to.
+model to go stale — so the only tree where it can bite today is this one, which renders its own model
+and commits it. **That radius grows the day the picture is materialized into user projects**, and the
+instruction will already be in the protocol when it does. The step now carries it, and a test requires
+it to.
 
 **Boundary.** One defect that fired, one found by sweeping, and two rows that came back clean. That is
 an audit, not a rate: nothing here says how many gates in general carry a second writer. What it does
