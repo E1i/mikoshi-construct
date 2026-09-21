@@ -48,6 +48,8 @@ is named in the record that makes it, not left to the reader to infer.
 is to be the content some past version wrote is a record of what was written then, not a record this
 repository is still authoring. Rewriting it would make the repository's own history say something it
 did not say, which is the same defect as rewriting a quoted capture. The exemption is categorical.
+See also [0021](0021-a-record-of-the-past-is-not-edited.md), which states the class this fixture is
+one instance of; the reasoning there governs records that carry no address at all.
 
 It is worth stating what the exemption does *not* rest on, because the plausible mechanical reason is
 false and would otherwise be reinvented. For
