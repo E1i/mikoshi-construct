@@ -1,7 +1,7 @@
 import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
-import type { ClaimPlacement } from './projection.js'
+import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
@@ -45,6 +45,41 @@ function printChecks(ui: Ui, checks: CheckVerdict[], placement: ClaimPlacement):
   for (const check of checks)
     ui.line(checkLine(ui, check, width))
   ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))
+}
+
+function hypothesisReading(ui: Ui, hypothesis: HypothesisReading): string {
+  switch (hypothesis.state) {
+    case 'held':
+      return ui.lore.hypothesisHeld(hypothesis.statement)
+    case 'unsupported':
+      return ui.lore.hypothesisUnsupported(hypothesis.statement, hypothesis.doesNotHold)
+    case 'unknown':
+      return hypothesis.reason === 'unevaluable'
+        ? ui.lore.hypothesisUnevaluable(hypothesis.statement, hypothesis.unevaluable)
+        : ui.lore.hypothesisNothingNamed(hypothesis.statement)
+  }
+}
+
+function hypothesisLine(ui: Ui, hypothesis: HypothesisReading, width: number): string {
+  const base = hypothesis.baseClean ? '' : ` ${ui.lore.hypothesisUncleanBase}`
+  return `  ${hypothesis.hypothesisId.padEnd(width)} ${hypothesis.state.padEnd(12)} ${ui.theme.dim(`${hypothesisReading(ui, hypothesis)}${base}`)}`
+}
+
+function hypothesesRead(ui: Ui, hypotheses: HypothesisReading[], placement: ClaimPlacement): string | null {
+  if (hypotheses.length > 0)
+    return null
+  return placement.at === 'no-model' ? ui.lore.hypothesesNoModel : ui.lore.hypothesesNoneNamed
+}
+
+function printHypotheses(ui: Ui, hypotheses: HypothesisReading[], placement: ClaimPlacement): void {
+  const width = Math.max(16, ...hypotheses.map(hypothesis => hypothesis.hypothesisId.length))
+  ui.line()
+  ui.line(ui.theme.accent(ui.lore.hypotheses))
+  const read = hypothesesRead(ui, hypotheses, placement)
+  if (read != null)
+    ui.line(ui.theme.dim(`  ${read}`))
+  for (const hypothesis of hypotheses)
+    ui.line(hypothesisLine(ui, hypothesis, width))
 }
 
 function printProvenance(ui: Ui, provenance: MarkerReading[]): void {
@@ -122,6 +157,7 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
     ui.ok(ui.lore.stable)
   printProvenance(ui, result.provenance)
   printChecks(ui, result.checks, result.youAreHere)
+  printHypotheses(ui, result.hypotheses, result.youAreHere)
   printYouAreHere(ui, result.youAreHere)
   return result.ok ? 0 : 1
 }

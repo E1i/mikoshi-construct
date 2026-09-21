@@ -1,6 +1,6 @@
 import type { OwnerReader } from '../../model/ownership.js'
 import type { SelectedPath } from '../../model/path.js'
-import type { Claim, RepositoryModel } from '../../model/schema.js'
+import type { Claim, Hypothesis, RepositoryModel } from '../../model/schema.js'
 import type { ModelStateReport, StageFinding } from '../../model/state.js'
 import type { CheckVerdict } from './verdict.js'
 import { authoredByOwner } from '../../model/ownership.js'
@@ -14,8 +14,16 @@ export type ClaimPlacement
   = | { at: 'stop', stop: SelectedPath }
     | { at: Exclude<PlacementName, 'stop'> }
 
+export type HypothesisReading = {
+  hypothesisId: string
+  statement: string
+  baseSha: string | null
+  baseClean: boolean
+} & StageFinding
+
 export interface KnowledgeProjection {
   checks: CheckVerdict[]
+  hypotheses: HypothesisReading[]
   youAreHere: ClaimPlacement
 }
 
@@ -26,6 +34,16 @@ function verdict(claim: Claim, finding: StageFinding, owner: OwnerReader): Check
     level: claim.enforcement?.level ?? 'L0',
     authoredBy: owner(claim),
     mechanism: claim.enforcement?.mechanism ?? claim.statement,
+    ...finding,
+  }
+}
+
+function reading(hypothesis: Hypothesis, finding: StageFinding): HypothesisReading {
+  return {
+    hypothesisId: hypothesis.id,
+    statement: hypothesis.statement,
+    baseSha: hypothesis.baseSha,
+    baseClean: hypothesis.baseClean,
     ...finding,
   }
 }
@@ -41,8 +59,9 @@ function placeClaim(model: RepositoryModel, derived: ModelStateReport): ClaimPla
 
 export function projectKnowledge(model: RepositoryModel | null, root: string, owner: OwnerReader = authoredByOwner): KnowledgeProjection {
   if (model == null)
-    return { checks: [], youAreHere: { at: 'no-model' } }
+    return { checks: [], hypotheses: [], youAreHere: { at: 'no-model' } }
   const derived = deriveModelState(model, root)
   const checks = model.claims.map(claim => verdict(claim, derived.claims[claim.id]?.enforcement ?? NOTHING_NAMED, owner))
-  return { checks, youAreHere: placeClaim(model, derived) }
+  const hypotheses = model.hypotheses.map(hypothesis => reading(hypothesis, derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED))
+  return { checks, hypotheses, youAreHere: placeClaim(model, derived) }
 }
