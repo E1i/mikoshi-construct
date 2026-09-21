@@ -165,8 +165,14 @@ unreadable files, and **all five claims held**.
 
 That was not the prediction. It held because the repository already satisfied the preset's claims —
 it has gitleaks in a security workflow, a `ci.yml` running the harness command, oasdiff on the API
-contract — having been built by the same author to the same standards. It is an adopted repository
-and it is not a *foreign* one, and the difference matters when reading a green result.
+contract — having been built by the same author to the same standards.
+
+**This is a correction to the criterion, not a caveat on the result.** 0017 asked for a repository
+the construct never materialized and silently assumed such a tree would be foreign in its
+conventions. Specimen A shows those are different properties: the construct never made it, and five
+claims hold anyway — not because the construct is universal, but because the repository was written
+by someone who thinks the way it does. What tests generality is **written to other conventions**, not
+**not materialized by us**, and the criterion should be read that way from here.
 
 **Specimen B — a repository built to other conventions.** jest rather than vitest, npm rather than
 pnpm, its own CI. `init` wrote 40 files. `doctor` reported **two claims `unsupported`**, both standing
@@ -185,13 +191,32 @@ first time `YOU ARE HERE` has shown the thing it was written for.
 
 **0017's 5.1 criterion is met.** Both trees were ones the construct never materialized.
 
-**The `uncollectedTests` conditional is still unverified, and this route cannot verify it.** It
-returned `[]` on specimen A, and the runner config is indeed absent from the manifest — but the
-manifest also records **zero** test files, because the sample group is omitted when the target
-directory is not empty. Two sufficient causes produce the same empty list and the output cannot
-separate them. On an adopted repository the construct records no tests at all, so the condition
-cannot be exercised this way; a specimen where the construct owns test files and does not own the
-runner config is what is needed.
+**The `uncollectedTests` conditional is verified, on a third specimen, with its counterfactual.**
+Getting there took retracting a wrong conclusion, which is the more useful half of this entry.
+
+On specimen A the list was `[]` and the runner config was indeed absent from the manifest — but the
+manifest also recorded **zero** test files, because the harness tests already existed there and were
+skipped. Two sufficient causes, one empty list. From that and specimen B I concluded that *no*
+adopted repository could exercise the branch. That was a negative universal drawn from two samples,
+and it was wrong.
+
+The branch needs a repository that **has** a runner config the construct would otherwise write, so
+the construct's is skipped and unrecorded, and **lacks** the harness tests, so those are written and
+recorded. Specimen C — vitest with its own config, no `scripts/tests/` — is exactly that: no recorded
+runner config, four recorded test files.
+
+There the empty list still had a second cause, because that owner's config declared no literal
+`include`. Only after giving it one that excludes the construct's tests did the causes separate:
+
+    with the guard     uncollectedTests: []
+    without the guard  four entries, every one of them a statement about a config its owner wrote
+
+That contrast is the evidence. The empty list never was.
+
+**Three times in this one investigation an empty result had two sufficient causes**, and each time
+only a constructed counterfactual told them apart. The general form is worth more than the finding:
+an empty result never names its cause, so where emptiness is meant to prove something, build the case
+in which it would be non-empty.
 
 ### First evidence on whether 5.2 needs a picture
 
@@ -200,6 +225,11 @@ hole* better than a line does. On the first real case with holes in it, the line
 two unsupported claims, one underlying fact, and the line names that fact. A diagram would have drawn
 two red nodes where the line names one cause — more marks, less insight.
 
-**Boundary.** One specimen, a model of five claims, and both holes at the same stage sharing one
-fact. It is evidence that the line suffices at this size, not that a picture is never warranted; a
-larger model with holes at different stages has not been seen.
+**Boundary, and it decides how this reads.** One specimen, a model of five claims, both holes at the
+same stage sharing one fact. So the honest statement is **not** that the graph is unnecessary: it is
+that there is no evidence for it and one piece against. The case the graph was proposed for — many
+facts with overlapping support, where enumerating in words runs longer than a picture — has not been
+seen by anybody yet.
+
+The burden therefore sits with whoever wants to build it, which is the bar 0017 set: a picture must
+earn its place on top of a model people already read.

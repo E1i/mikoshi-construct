@@ -42,8 +42,11 @@ and since diverged on 16 paths — which found the baseline defect fixed in #71 
 candidate evidence on the enforcement-capability question. That run did not discharge this criterion,
 because the tree was one the construct itself materialized.
 
-**Discharged the same day** against two repositories the construct never materialized, adopted by
-running `init` into copies of them. One, built to conventions close to the construct's, held every
+**Discharged the same day** against repositories the construct never materialized, adopted by running
+`init` into copies of them. The criterion is better stated as *written to other conventions* than as
+*not materialized by us*: the first specimen was never touched by the construct and held every claim
+anyway, because its author works to the same standards, so "we did not build it" turned out not to be
+what tests generality. One, built to conventions close to the construct's, held every
 claim; the other, built to different ones, produced the first chain on any real repository that stops
 in the middle, and the first `YOU ARE HERE` pointing at a fact that stopped matching. Both are
 recorded in [architecture/observations.md](../observations.md), along with what they still do not
