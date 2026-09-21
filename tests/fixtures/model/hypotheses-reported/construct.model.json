@@ -1,0 +1,43 @@
+{
+  "modelVersion": 1,
+  "facts": [
+    { "id": "workspace-file", "kind": "file-exists", "path": "pnpm-workspace.yaml", "authoredBy": "discovery" },
+    { "id": "api-app", "kind": "file-exists", "path": "apps/api/package.json", "authoredBy": "discovery" },
+    { "id": "ci-runs-the-harness", "kind": "file-contains", "path": ".github/workflows/ci.yml", "needle": "pnpm run quality", "authoredBy": "construct" }
+  ],
+  "claims": [],
+  "hypotheses": [
+    {
+      "id": "a-pnpm-workspace",
+      "statement": "This repository is a pnpm workspace",
+      "authoredBy": "discovery",
+      "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
+      "baseClean": false,
+      "supportedBy": ["workspace-file"]
+    },
+    {
+      "id": "one-deployable-under-apps",
+      "statement": "The single deployable is apps/api",
+      "authoredBy": "discovery",
+      "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
+      "baseClean": true,
+      "supportedBy": ["api-app"]
+    },
+    {
+      "id": "ci-runs-the-harness-on-every-change",
+      "statement": "CI runs the harness over every change",
+      "authoredBy": "discovery",
+      "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
+      "baseClean": true,
+      "supportedBy": ["ci-runs-the-harness"]
+    },
+    {
+      "id": "deployed-as-a-single-container",
+      "statement": "This repository is deployed as a single container",
+      "authoredBy": "unknown",
+      "baseSha": null,
+      "baseClean": true,
+      "supportedBy": []
+    }
+  ]
+}

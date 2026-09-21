@@ -174,6 +174,7 @@ that claim stands on, and where you are is the model's own path selection.
 | `uncollectedTests` | provenance |
 | `warnings` | provenance |
 | `checks` | knowledge |
+| `hypotheses` | knowledge |
 | `youAreHere` | knowledge |
 | `versionGap` | provenance |
 
@@ -244,6 +245,26 @@ inferred from an empty `checks` list: `at` is the discriminant, and `stop` is ca
 Under the first two the Enforcement section says why it lists nothing, instead of an empty list a
 reader would take for a repository that was looked at and found clean. None of the four moves the
 exit code: a repository with no model exits `0`, because absence of a subject is not obstruction.
+
+### What the model holds open
+
+`hypotheses` carries one entry per hypothesis in `construct.model.json`, in the model's declaration
+order, each with the `statement` discovery wrote, the base it was read from (`baseSha` and
+`baseClean`) and the state derived from the facts named under it — the same derivation the claims
+use, so a hypothesis reads `held`, `unsupported` with the paths that no longer match, or `unknown`.
+
+`unknown` keeps its two origins apart here as everywhere else. A hypothesis whose facts could not be
+read carries `reason: "unevaluable"` and the paths it could not read; a hypothesis with nothing named
+under it carries `reason: "no-fact-named"`, and the report says so in as many words rather than
+letting it read like a fact that failed. Neither moves the exit code: a hypothesis is what the
+repository was taken to be, not something it promises.
+
+An empty list is not a repository whose readings all stand. The section names which of the two it is
+— there is no model at all, or the model was read and holds nothing open — the same way `youAreHere`
+does for claims.
+
+`baseClean: false` says the hypothesis was read from a tree carrying uncommitted changes, so it was
+never read from the commit it records, and the line for it says that beside the reading.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -488,6 +509,24 @@ never changes the exit code.
       "authoredBy": "construct",
       "mechanism": "scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares, and .github/workflows/ci.yml runs pnpm run quality over it on every pull request",
       "doesNotHold": [".github/workflows/ci.yml"]
+    }
+  ],
+  "hypotheses": [
+    {
+      "hypothesisId": "one-deployable-under-apps",
+      "statement": "The single deployable is apps/api",
+      "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
+      "baseClean": false,
+      "state": "unsupported",
+      "doesNotHold": ["apps/api/package.json"]
+    },
+    {
+      "hypothesisId": "deployed-as-a-single-container",
+      "statement": "This repository is deployed as a single container",
+      "baseSha": null,
+      "baseClean": true,
+      "state": "unknown",
+      "reason": "no-fact-named"
     }
   ],
   "youAreHere": { "at": "stop", "stop": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] } },

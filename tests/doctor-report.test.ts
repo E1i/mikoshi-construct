@@ -7,6 +7,7 @@ import { CHAIN_STAGES } from '../src/model/path.js'
 import { createUi } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { READS_AS_A_VERDICT } from './lore-vocabulary.js'
 
 const YOU_ARE_HERE_LINE = /^[ \t]*(?:YOU ARE HERE|You are here): \S/
 const STOPPING_FINDINGS: StoppingFinding[] = [
@@ -14,9 +15,8 @@ const STOPPING_FINDINGS: StoppingFinding[] = [
   { state: 'unknown', reason: 'unevaluable', unevaluable: ['.github/workflows/ci.yml'] },
   { state: 'unknown', reason: 'no-fact-named' },
 ]
-const VERDICT_WORDING = /\b(?:not enforced|unenforced|proven|proves|fail|broken|violat)/i
 const EMOJI = /[\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}]/u
-const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'CONSTRUCT STABLE', 'SOULKILLER', 'Netrunner', 'ARASAKA', 'ENFORCEMENT TRACE', 'YOU ARE HERE', 'NOTHING HERE IS EXECUTED']
+const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'CONSTRUCT STABLE', 'SOULKILLER', 'Netrunner', 'ARASAKA', 'ENFORCEMENT TRACE', 'STANDING HYPOTHESES', 'YOU ARE HERE', 'NOTHING HERE IS EXECUTED']
 
 function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
   return {
@@ -32,6 +32,9 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     checks: [
       { id: 'lint-policy', claimId: 'lint-policy', level: 'L3', state: 'held', authoredBy: 'construct', mechanism: 'scripts/tests/lint/syntax-policy.test.ts asserts the restrictions the lint policy declares' },
       { id: 'ci', claimId: 'every-change-passes-the-harness', level: 'L3', state: 'held', authoredBy: 'construct', mechanism: '.github/workflows/ci.yml runs pnpm run quality on every pull request and push to main' },
+    ],
+    hypotheses: [
+      { hypothesisId: 'a-pnpm-workspace', statement: 'This repository is a pnpm workspace', baseSha: '9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a', baseClean: true, state: 'held' },
     ],
     youAreHere: { at: 'stop', stop: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported', doesNotHold: ['scripts/tests/lint/syntax-policy.test.ts'] } },
     versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
@@ -75,7 +78,7 @@ describe('the doctor report', () => {
           expect(line).toMatch(YOU_ARE_HERE_LINE)
           expect(line).toContain(stage)
           expect(line).toContain(finding.state)
-          expect(line).not.toMatch(VERDICT_WORDING)
+          expect(line).not.toMatch(READS_AS_A_VERDICT)
         }
       }
     }
@@ -242,7 +245,7 @@ describe('the you-are-here line names the fact that stopped matching', () => {
         expect(line, said).toContain(said)
       for (const omitted of expectation.omits)
         expect(line, omitted).not.toContain(omitted)
-      expect(line).not.toMatch(VERDICT_WORDING)
+      expect(line).not.toMatch(READS_AS_A_VERDICT)
     })
   }
 

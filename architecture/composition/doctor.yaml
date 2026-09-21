@@ -7,9 +7,9 @@ description: >-
   paths, the recorded tests the recorded runner config does not collect, and the version gap, which
   replays today's templates through the sync engine's own classification and counts the paths a sync
   would add or update. From `construct.model.json` comes the knowledge family: every verdict renders
-  a claim's enforcement, and where the chain stops is the model's own `selectPath`, so `doctor`
-  derives no state of its own and holds none. A repository with no model gets no verdicts rather than
-  an error. Both families fan into `printDoctor`, which states the boundary — nothing from the
+  a claim's enforcement, every hypothesis is read back against the facts named under it, and where
+  the chain stops is the model's own `selectPath`, so `doctor` derives no state of its own and holds
+  none. A repository with no model gets no verdicts rather than an error. Both families fan into `printDoctor`, which states the boundary — nothing from the
   inspected repository is executed, so nothing is said about whether the harness passes — and ends
   with one you-are-here line. Provenance readings, the version gap and the knowledge family are
   reported, never gated: none sets an exit code, and a replay that cannot run leaves the count
@@ -67,7 +67,7 @@ nodes:
     path: src/commands/doctor/uncollected-tests.ts
     boundary: checks
   - id: projection
-    label: knowledge · one verdict per rendered claim, level and state from the claim and its facts
+    label: knowledge · one verdict per rendered claim and one reading per hypothesis, state from the facts each stands on
     path: src/commands/doctor/projection.ts
     boundary: checks
   - id: youAreHere

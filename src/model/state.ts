@@ -26,7 +26,7 @@ export interface ClaimStages {
 
 export interface ModelStateReport {
   facts: Record<string, FactEvaluation>
-  hypotheses: Record<string, ModelState>
+  hypotheses: Record<string, StageFinding>
   claims: Record<string, ClaimStages>
 }
 
@@ -65,10 +65,6 @@ export function resolveFinding(facts: readonly Fact[], supportedBy: readonly str
   return { state: 'unsupported', doesNotHold: [firstDoesNotHold, ...restDoesNotHold] }
 }
 
-export function resolveState(supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): ModelState {
-  return resolveFinding([], supportedBy, evaluations).state
-}
-
 export function factOutcomes(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): FactOutcome[] {
   return supportedBy.flatMap((id) => {
     const evaluation = evaluations[id] ?? 'unevaluable'
@@ -82,7 +78,7 @@ export function deriveModelState(model: RepositoryModel, root: string): ModelSta
   const facts = evaluateFacts(model, root)
   return {
     facts,
-    hypotheses: Object.fromEntries(model.hypotheses.map(hypothesis => [hypothesis.id, resolveState(hypothesis.supportedBy, facts)])),
+    hypotheses: Object.fromEntries(model.hypotheses.map(hypothesis => [hypothesis.id, resolveFinding(model.facts, hypothesis.supportedBy, facts)])),
     claims: Object.fromEntries(model.claims.map(claim => [claim.id, {
       enforcement: resolveFinding(model.facts, claim.enforcement?.supportedBy ?? [], facts),
       verification: resolveFinding(model.facts, claim.verification?.supportedBy ?? [], facts),

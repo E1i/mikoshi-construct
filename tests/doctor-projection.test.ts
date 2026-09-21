@@ -56,21 +56,23 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     uncollectedTests: [],
     warnings: [],
     checks: [],
+    hypotheses: [],
     youAreHere: { at: 'no-stop' },
     versionGap: { materializedBy: '0.1.0', readBy: '0.1.0', pending: 0 },
     ...overrides,
   }
 }
 
-function claimIdsNamedBy(value: unknown): string[] {
+function entryIdsNamedBy(value: unknown): string[] {
   if (Array.isArray(value))
-    return value.flatMap(claimIdsNamedBy)
+    return value.flatMap(entryIdsNamedBy)
   if (typeof value !== 'object' || value == null)
     return []
   const record = value as Record<string, unknown>
   return [
     ...typeof record.claimId === 'string' ? [record.claimId] : [],
-    ...Object.values(record).flatMap(claimIdsNamedBy),
+    ...typeof record.hypothesisId === 'string' ? [record.hypothesisId] : [],
+    ...Object.values(record).flatMap(entryIdsNamedBy),
   ]
 }
 
@@ -89,14 +91,14 @@ function synthesisedState(
   repository: RepositoryModel,
   families: Record<string, ResultFamily> = DOCTOR_FIELD_FAMILY,
 ): string[] {
-  const known = new Set(repository.claims.map(claim => claim.id))
+  const known = new Set([...repository.claims.map(claim => claim.id), ...repository.hypotheses.map(hypothesis => hypothesis.id)])
   return Object.entries(families).flatMap(([field, family]) => {
     if (family !== 'knowledge')
       return []
     const value = (doctor as unknown as Record<string, unknown>)[field]
-    const named = claimIdsNamedBy(value)
+    const named = entryIdsNamedBy(value)
     return [
-      ...carriesAValue(value) && named.length === 0 ? [`${field} carries a value that names no claim`] : [],
+      ...carriesAValue(value) && named.length === 0 ? [`${field} carries a value that names no entry of the model`] : [],
       ...named.filter(id => !known.has(id)).map(id => `${field} names "${id}", which the model does not carry`),
     ]
   })
@@ -154,12 +156,12 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
   })
 
   it('holds no knowledge of its own where the repository carries no model, and says that is why', () => {
-    expect(projectKnowledge(null, scratch())).toEqual({ checks: [], youAreHere: { at: 'no-model' } })
+    expect(projectKnowledge(null, scratch())).toEqual({ checks: [], hypotheses: [], youAreHere: { at: 'no-model' } })
   })
 
   it('separates a model that carries no claim from no model at all, rather than leaving both an empty list', () => {
     const empty: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] }
-    expect(projectKnowledge(empty, scratch())).toEqual({ checks: [], youAreHere: { at: 'no-claim' } })
+    expect(projectKnowledge(empty, scratch())).toEqual({ checks: [], hypotheses: [], youAreHere: { at: 'no-claim' } })
     expect(projectKnowledge(null, scratch()).youAreHere).not.toEqual(projectKnowledge(empty, scratch()).youAreHere)
   })
 
@@ -194,7 +196,7 @@ describe('the gate against state doctor synthesises', () => {
     expect(synthesisedState(invented, repository)).toEqual(['checks names "a-claim-nobody-wrote", which the model does not carry'])
   })
 
-  it('fails when a knowledge-family field carries a value that traces to no claim at all', () => {
+  it('fails when a knowledge-family field carries a value that traces to no entry of the model at all', () => {
     const repository = model()
     expect(synthesisedState(result({ youAreHere: { at: 'stop', stop: { claimId: '', stage: 'enforcement', state: 'unknown', reason: 'no-fact-named' } } }), repository))
       .toContain('youAreHere names "", which the model does not carry')
@@ -206,7 +208,7 @@ describe('the gate against state doctor synthesises', () => {
     expect(DOCTOR_FIELD_FAMILY.harnessProblems).toBe('provenance')
     expect(synthesisedState(doctor, repository)).toEqual([])
     expect(synthesisedState(doctor, repository, { ...DOCTOR_FIELD_FAMILY, harnessProblems: 'knowledge' }))
-      .toEqual(['harnessProblems carries a value that names no claim'])
+      .toEqual(['harnessProblems carries a value that names no entry of the model'])
   })
 
   it('classifies every field of the doctor result, so no field escapes the question', () => {
