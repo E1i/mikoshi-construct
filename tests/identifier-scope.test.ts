@@ -125,10 +125,23 @@ function tableIdentifiers(source: string): string[] {
   })
 }
 
+const MODEL_ENTRY_KEYS = ['facts', 'claims', 'hypotheses']
+
+function entriesTheCodeMustOwn(block: Record<string, unknown>): unknown[] {
+  return MODEL_ENTRY_KEYS.flatMap((key) => {
+    const entries = block[key]
+    return Array.isArray(entries)
+      ? entries.filter(entry => typeof entry === 'object' && entry != null && (entry as Record<string, unknown>).authoredBy !== 'discovery')
+      : []
+  })
+}
+
 function identifiersNamed(source: string): string[] {
   const blocks = scannedBlocks(source)
   const keys = blocks.flatMap(block => (kindOf(block) === 'doctor-result' ? Object.keys(block) : []))
-  return [...keys, ...blocks.flatMap(block => namedIdentifiers(block)), ...tableIdentifiers(source)]
+  const named = blocks.flatMap(block =>
+    (kindOf(block) === 'repository-model' ? namedIdentifiers(entriesTheCodeMustOwn(block)) : namedIdentifiers(block)))
+  return [...keys, ...named, ...tableIdentifiers(source)]
 }
 
 function reused(current: string[], retired: readonly string[]): string[] {
@@ -158,6 +171,8 @@ function scanned(): { file: string, source: string }[] {
 }
 
 const DOCTOR_RESULT_BLOCK = '```json\n{ "ok": true, "checks": [{ "id": "ci", "claimId": "every-change-passes-the-harness" }] }\n```\n'
+
+const MODEL_BLOCK = '```json\n{ "modelVersion": 1, "facts": [], "claims": [{ "id": "no-committed-secret", "authoredBy": "construct", "checkId": "ci" }], "hypotheses": [] }\n```\n'
 
 const FIELD_TABLE = '| Field | Family |\n|---|---|\n| `weakestLink` | knowledge |\n'
 
@@ -216,11 +231,19 @@ describe('an identifier the documentation names is one the code owns or has reti
   })
 
   it('scans a model block for the claim ids it names and not for the keys that hold them', () => {
-    const model = '```json\n{ "modelVersion": 1, "facts": [], "claims": [{ "id": "no-committed-secret", "checkId": "ci" }], "hypotheses": [] }\n```\n'
-    expect(unclassifiedBlocks(model)).toEqual([])
-    expect(identifiersNamed(model)).toContain('no-committed-secret')
-    expect(identifiersNamed(model)).not.toContain('modelVersion')
-    expect(unowned(identifiersNamed(model.replace('"no-committed-secret"', '"no-such-claim"')))).toEqual(['no-such-claim'])
+    expect(unclassifiedBlocks(MODEL_BLOCK)).toEqual([])
+    expect(identifiersNamed(MODEL_BLOCK)).toContain('no-committed-secret')
+    expect(identifiersNamed(MODEL_BLOCK)).not.toContain('modelVersion')
+    expect(unowned(identifiersNamed(MODEL_BLOCK.replace('"no-committed-secret"', '"no-such-claim"')))).toEqual(['no-such-claim'])
+  })
+
+  it('requires an id the construct authored to be one the code owns, and leaves an id discovery authored to discovery', () => {
+    const invented = MODEL_BLOCK.replace('"no-committed-secret"', '"no-such-claim"')
+    expect(unowned(identifiersNamed(invented))).toEqual(['no-such-claim'])
+    expect(unowned(identifiersNamed(invented.replace('"authoredBy": "construct"', '"authoredBy": "discovery"')))).toEqual([])
+    expect(identifiersNamed(invented.replace('"authoredBy": "construct"', '"authoredBy": "discovery"'))).not.toContain('no-such-claim')
+    expect(unowned(identifiersNamed(invented.replace('"authoredBy": "construct", ', '')))).toEqual(['no-such-claim'])
+    expect(identifiersNamed(MODEL_BLOCK)).toContain('no-committed-secret')
   })
 
   it('keeps a retired name out of the current list, so no identifier can come back meaning something else', () => {
