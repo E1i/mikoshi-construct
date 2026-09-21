@@ -108,6 +108,7 @@ export interface Lore {
   notCarriedDoesNotHold: (claimId: string, target: string) => string
   notCarriedUnevaluable: (claimId: string, target: string) => string
   notCarriedEveryFactHolds: (claimId: string) => string
+  notCarriedSourcesOmitted: (claimId: string) => string
 }
 
 function andMore(rest: readonly string[]): string {
@@ -229,6 +230,7 @@ export const LORE: Lore = {
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
+  notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but it stands on sample sources, which \`construct init\` writes only into an empty directory; no run here records it.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -346,4 +348,5 @@ export const PLAIN_LORE: Lore = {
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
+  notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but it stands on sample sources, which \`construct init\` writes only into an empty directory; no run here records it.`,
 }

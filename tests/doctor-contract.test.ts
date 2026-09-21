@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CLAIM_PLACEMENTS, DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
+import { CLAIM_PLACEMENTS, DOCTOR_FIELD_FAMILY, NOT_CARRIED_READINGS, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
 import { buildModel } from '../src/model/write.js'
 
@@ -84,6 +84,12 @@ describe('doctor --json against docs/cli.md, its declared source of truth', () =
     const prose = doc().replaceAll(/\s+/g, ' ')
     expect(prose).toContain('a harness that no longer runs lint is an unsupported claim, not a problem')
     expect(prose).toContain('No repository changes which side of `ok` it falls on')
+  })
+
+  it('explains every reading notCarried can report, so none of them is undocumented', () => {
+    const prose = doc()
+    for (const reading of NOT_CARRIED_READINGS)
+      expect(prose, reading).toContain(`| \`${reading}\` |`)
   })
 
   it('explains every placement youAreHere can report, so none of the readings is undocumented', () => {

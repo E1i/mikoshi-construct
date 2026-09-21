@@ -1,12 +1,13 @@
 import type { DetectReport } from '../detect/index.js'
 import type { Manifest } from '../manifest.js'
+import type { FileOp } from '../materialize/plan.js'
 import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from '../presets/index.js'
 import type { Ui } from '../ui/console.js'
 import type { Prompter } from '../ui/prompts.js'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
-import { buildManifest, readManifest, recordedShas, writeManifest } from '../manifest.js'
+import { buildManifest, readManifest, recordedShas, recordedVariants, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
 import { withoutStillbornClaims } from '../model/birth.js'
@@ -52,6 +53,42 @@ function varsThisRunChanged(previous: Manifest, vars: TemplateVars): { name: str
       const from = previous.vars[name]
       return from == null || from === to ? [] : [{ name, from, to }]
     })
+}
+
+interface RecordDelta {
+  carriedOver: number
+  added: number
+}
+
+function recordDelta(previous: Manifest, applied: FileOp[]): RecordDelta {
+  const recorded = recordedShas(previous)
+  const targets = new Set(applied.map(op => op.target))
+  return {
+    carriedOver: Object.keys(recorded).filter(target => !targets.has(target)).length,
+    added: applied.filter(op => recorded[op.target] == null).length,
+  }
+}
+
+const DEPENDENCY_MANIFESTS = ['package.json', 'pnpm-workspace.yaml']
+
+function declaresDependencies(target: string): boolean {
+  return DEPENDENCY_MANIFESTS.includes(path.basename(target))
+}
+
+function changesTheTree(root: string, op: FileOp): boolean {
+  if (op.action === 'create')
+    return true
+  const absolute = path.join(root, op.target)
+  return !existsSync(absolute) || readFileSync(absolute, 'utf8') !== op.content
+}
+
+function nextStep(root: string, applied: FileOp[], vars: TemplateVars): string | null {
+  const changing = applied.filter(op => changesTheTree(root, op))
+  if (changing.length === 0)
+    return null
+  return changing.some(op => declaresDependencies(op.target))
+    ? `${vars.packageManager} install && ${vars.harnessCommand}`
+    : vars.harnessCommand
 }
 
 function aborted(skipped: string[] = [], conflicts: string[] = []): InitResult {
@@ -188,8 +225,13 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ...preset.vars(report, projectName),
   }
 
+  const previous = readManifest(root)
   const groups = [...preset.groups, ...aiGroups(ai), ...reviewGroups(review)]
-  const plan = planMaterialize(root, groups, vars, { emptyTarget: report.layout === 'empty', ai })
+  const plan = planMaterialize(root, groups, vars, {
+    emptyTarget: report.layout === 'empty',
+    ai,
+    recordedVariants: previous == null ? undefined : recordedVariants(previous),
+  })
 
   ui.phase(3, 4, '💾', ui.lore.phaseMaterialize)
   ui.tree([[ui.lore.materializeAi], [ui.lore.materializeContracts], [ui.lore.materializePolicies]])
@@ -199,6 +241,16 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const merges = plan.ops.filter(op => op.action === 'merge' || op.action === 'append')
   const skips = plan.ops.filter(op => op.action === 'skip')
   const skipped = skips.map(op => op.target)
+  const applied = plan.ops.filter(op => op.action !== 'skip')
+
+  if (previous != null) {
+    const delta = recordDelta(previous, applied)
+    ui.line(ui.theme.dim(`  ${ui.lore.recordCarriedOver(delta.carriedOver, delta.added)}`))
+    const changed = varsThisRunChanged(previous, vars)
+    if (changed.length > 0)
+      ui.line(ui.theme.dim(`  ${ui.lore.recordVarsChanged(changed)}`))
+    ui.line()
+  }
 
   for (const op of creates)
     ui.line(`  ${ui.theme.ok('+')} ${op.target}`)
@@ -226,8 +278,8 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     return aborted(skipped, plan.conflicts)
 
   const existingModel = readModel(root)
+  const next = nextStep(root, applied, vars)
   const written = applyPlan(root, plan.ops)
-  const previous = readManifest(root)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
   writeManifest(root, manifest)
   const samples = sampleGroups(preset)
@@ -241,20 +293,10 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     const standingOn = [...new Set(merged.retained.flatMap(fact => fact.stoodOnBy))]
     ui.line(ui.theme.dim(`  ${ui.lore.recordFactsRetained(merged.retained.map(fact => fact.id), standingOn)}`))
   }
-  if (previous != null) {
-    const recorded = recordedShas(previous)
-    const carriedOver = Object.keys(recorded).filter(target => !written.some(op => op.target === target)).length
-    const added = written.filter(op => recorded[op.target] == null).length
-    ui.line(ui.theme.dim(`  ${ui.lore.recordCarriedOver(carriedOver, added)}`))
-    const changed = varsThisRunChanged(previous, vars)
-    if (changed.length > 0)
-      ui.line(ui.theme.dim(`  ${ui.lore.recordVarsChanged(changed)}`))
-  }
-
   ui.phase(4, 4, '✅', ui.lore.phaseOnline)
   ui.tree([
     ['Written', `${written.length} files`],
-    ['Next', `${vars.packageManager} install && ${vars.harnessCommand}`],
+    ...next == null ? [] : [['Next', next] as [string, string]],
     ['Then', ai === 'cursor' ? 'open Cursor and ask the agent to run the construct discovery' : 'claude → /construct-discover'],
   ])
   return { status: 'done', written: written.map(op => op.target), skipped, conflicts: plan.conflicts }

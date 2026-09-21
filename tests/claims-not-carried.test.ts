@@ -115,6 +115,33 @@ describe('doctor names the claims this preset can make and this repository does 
     expect(report(dir).some(line => line.includes('every fact it would stand on holds'))).toBe(true)
   })
 
+  it('8: says the sample sources are omitted, rather than that init would record it, where the claim stands on sources no run here writes', async () => {
+    const dir = scratch()
+    alreadyARepository(dir)
+    await initialized(dir, 'node-backend')
+    mkdirSync(path.join(dir, path.dirname(POLICY_TEST)), { recursive: true })
+    writeFileSync(path.join(dir, POLICY_TEST), 'import { ESLint } from \'eslint\'\n')
+
+    expect(absentIn(dir).get('lint-policy')).toEqual({ claimId: 'lint-policy', reading: 'sources-omitted' })
+    const printed = report(dir).filter(line => line.includes('lint-policy \u2014'))
+    expect(printed).toHaveLength(1)
+    expect(printed[0]).toContain('every fact it would stand on holds')
+    expect(printed[0]).not.toContain('would record it')
+  })
+
+  it('9: keeps saying init would record it for a claim a run here does write, so the two readings are not one', async () => {
+    const dir = scratch()
+    ownerWroteTheirOwnWorkflows(dir)
+    await initialized(dir, 'node-backend')
+    writeFileSync(path.join(dir, CI_WORKFLOW), 'name: ci\njobs:\n  quality:\n    steps:\n      - run: pnpm run quality\n')
+    mkdirSync(path.join(dir, path.dirname(POLICY_TEST)), { recursive: true })
+    writeFileSync(path.join(dir, POLICY_TEST), 'import { ESLint } from \'eslint\'\n')
+
+    const absent = absentIn(dir)
+    expect(absent.get('every-change-passes-the-harness')).toEqual({ claimId: 'every-change-passes-the-harness', reading: 'every-fact-holds' })
+    expect(absent.get('lint-policy')).toEqual({ claimId: 'lint-policy', reading: 'sources-omitted' })
+  })
+
   it('names all five withheld on an adopted owner-authored tree \u2014 four for the workflows, one for the sample it never took \u2014 one line each, none carrying a level', async () => {
     const dir = scratch()
     ownerWroteTheirOwnWorkflows(dir)

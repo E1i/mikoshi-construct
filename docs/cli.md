@@ -43,8 +43,9 @@ repository cannot damage it.
 ## construct init
 
 Detects the repository, asks what it cannot detect, then writes the construct: architecture policy,
-the harness, an API contract where the preset has one, and the agent instructions. It ends by
-printing what to run next.
+the harness, an API contract where the preset has one, and the agent instructions. It ends by naming
+what to run next — install and the harness where it wrote a package manifest, the harness alone where
+it changed other files, and nothing at all where it changed none.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -97,6 +98,16 @@ that is, and only inside a `construct:begin … construct:end` block or as a JSO
 values win. `=` leaves the file alone and reports it. An existing repository never receives example
 code, and there is no `--force`.
 
+### Running init again
+
+`AGENTS.md` and `CLAUDE.md` ship in two forms: the full document the construct writes when it creates
+the file, and the shorter block it writes into a file that was already there. A second `init` keeps
+the form recorded for that path under `variants` in `construct.json` rather than choosing again from
+whether the file exists — by the second run it always exists, and choosing on that alone replaced a
+document the construct had written with the form meant for someone else's. Where no run ever recorded
+a form — a `construct.json` older than the `variants` record and never synced — the shorter form is
+still chosen, as before, because nothing on disk settles which one wrote the block.
+
 ### Choosing the agent
 
 ```bash
@@ -132,6 +143,7 @@ it is read and never written back.
 | `createdAt`, `preset`, `ai`, `review` | What the run was asked for. |
 | `harness`, `report`, `contracts`, `vars` | The harness command, the contract paths and the resolved template variables. |
 | `files` | One sha256 per file that run declared writing. |
+| `variants` | For each `append-block` target, which template form wrote it: `default` where the construct created the file, `existing` where the file was already there. |
 | `discovery` | Where each marker lives, and who wrote it. |
 
 ```json
@@ -436,9 +448,24 @@ level, because nothing is enforced by a claim that was never made.
 
 The set is **derived on every read** and stored nowhere: `construct.json` records the preset and the
 vars, the claims that preset can make are rebuilt from them, and whatever the model does not carry is
-compared against the tree by the same machinery that evaluates the claims it does. So the line
-disappears the moment the file appears, rather than repeating what was true at `init`
+compared against the tree by the same machinery that evaluates the claims it does. So the reading
+follows the tree the moment the tree changes, rather than repeating what was true at `init`
 ([decision 0024](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0024-an-absent-claim-is-derived-not-recorded.md)).
+
+Each line carries one of four readings, which `--json` names under `reading`:
+
+| `reading` | What it says | What the line carries |
+|---|---|---|
+| `does-not-hold` | A fact the claim would stand on was read and does not hold. | `path`: the first such fact's path. |
+| `unevaluable` | A fact the claim would stand on could not be read, so whether it would stand cannot be determined. | `path`: the first such fact's path. |
+| `every-fact-holds` | Every fact holds and a run here would write the claim, so running `init` again records it. | Nothing further: no fact is outstanding. |
+| `sources-omitted` | Every fact holds and **no** run here writes the claim: it comes with the preset's sample sources, and `init` materializes those only into an empty directory. | Nothing further: no fact is outstanding. |
+
+The last two are kept apart because the promise in the first is a promise about a run. `lint-policy`
+is today the only claim a preset makes from its sample, so it is the only one that reads
+`sources-omitted`; a repository that writes its own `scripts/tests/lint/syntax-policy.test.ts` makes
+every fact under it hold and still carries no such claim, because `doctor` runs where `construct.json`
+already is and a directory holding one is never the empty directory the sample is written into.
 
 An absent claim **carries no level and is not a verdict**: nothing is enforced by a claim that was
 never made, and it changes no exit code. Where the tree carries every claim its preset can make, the
@@ -446,9 +473,11 @@ block is not printed at all. A claim the preset cannot make is never named — `
 `lint-policy` above — because that would be a statement about the preset dressed as one about the
 repository.
 
-On a repository whose owner wrote their own `ci.yml` and `security.yml`, or one adopted without the
-preset's sample, these lines appear on **every** run until the files appear. That is intended: the
-statement is true while it is true.
+On a repository whose owner wrote their own `ci.yml` and `security.yml`, these lines appear on
+**every** run until the facts under them hold, at which point the reading becomes `every-fact-holds`
+and a second `init` records the claim. On one adopted without the preset's sample, `lint-policy`
+never leaves the block at all: the reading moves from `does-not-hold` to `sources-omitted` when the
+policy test appears, and no further. That is intended: the statement is true while it is true.
 
 Two verdicts that existed before this version are gone rather than renamed. `hook` reported that no
 hook manager was installed, which no preset installs and no claim requires. `red-gate` reported
@@ -583,7 +612,7 @@ never changes the exit code.
     }
   ],
   "youAreHere": { "at": "stop", "stop": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] } },
-  "notCarried": [{ "claimId": "lint-policy", "doesNotHold": "scripts/tests/lint/syntax-policy.test.ts" }],
+  "notCarried": [{ "claimId": "lint-policy", "reading": "does-not-hold", "path": "scripts/tests/lint/syntax-policy.test.ts" }],
   "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
@@ -680,7 +709,7 @@ files are not written in this version at all, which is why `package.json` never 
 writable paths.
 
 `unknown` is the reading of a block whose provenance the record cannot settle. `AGENTS.md` and
-`CLAUDE.md` ship in two variants — the one `init` writes into an empty directory and the one it
+`CLAUDE.md` ship in two variants — the one `init` writes when it creates the file and the one it
 writes into a repository that already had the file — and splicing the wrong variant into a file would
 replace a block with text that was never there. When neither the recorded variant nor a rendering
 matching the recorded hash establishes which one wrote it, sync says so and writes the path in no

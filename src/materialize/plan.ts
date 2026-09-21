@@ -96,7 +96,13 @@ function layerJson(earlier: string, later: string): string {
 
 const NOT_ADDED_TO_EXISTING_MANIFEST = ['version']
 
-function planOne(root: string, target: string, content: string, conflicts: string[], existingVariant?: string): FileOp {
+function variantForAnExistingFile(recorded: TemplateVariant | undefined, existingTemplate: string | undefined): TemplateVariant {
+  if (existingTemplate == null)
+    return 'default'
+  return recorded ?? 'existing'
+}
+
+function planOne(root: string, target: string, content: string, conflicts: string[], existingVariant?: string, recordedVariant?: TemplateVariant): FileOp {
   const strategy = strategyFor(target)
   const absolute = path.join(root, target)
   const exists = existsSync(absolute)
@@ -120,12 +126,13 @@ function planOne(root: string, target: string, content: string, conflicts: strin
 
   if (strategy === 'append-block') {
     const existing = readFileSync(absolute, 'utf8')
+    const variant = variantForAnExistingFile(recordedVariant, existingVariant)
     return {
       target,
       strategy,
       action: 'append',
-      content: appendBlock(existing, existingVariant ?? content, target),
-      variant: existingVariant == null ? 'default' : 'existing',
+      content: appendBlock(existing, variant === 'existing' && existingVariant != null ? existingVariant : content, target),
+      variant,
     }
   }
 
@@ -135,6 +142,7 @@ function planOne(root: string, target: string, content: string, conflicts: strin
 export interface PlanOptions {
   emptyTarget: boolean
   ai: AiTarget
+  recordedVariants?: Record<string, TemplateVariant>
 }
 
 export function planMaterialize(root: string, groups: TemplateGroup[], vars: TemplateVars, options: PlanOptions): MaterializePlan {
@@ -159,7 +167,7 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
     }
   }
   const ops = [...mapRulesForTargets(layered, options.ai).entries()]
-    .map(([target, content]) => planOne(root, target, content, conflicts, existingVariants.get(target)))
+    .map(([target, content]) => planOne(root, target, content, conflicts, existingVariants.get(target), options.recordedVariants?.[target]))
     .sort((a, b) => a.target.localeCompare(b.target))
   return { ops, conflicts, omittedGroups, existingVariants: Object.fromEntries(existingVariants) }
 }

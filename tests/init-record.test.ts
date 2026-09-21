@@ -1,5 +1,5 @@
 import type { Manifest } from '../src/manifest.js'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -27,6 +27,10 @@ function manifestOf(dir: string): Manifest {
 function classificationMap(dir: string): Record<string, string> {
   const report = replay({ root: dir, manifest: manifestOf(dir), version: VERSION, facts: factsTheRepositoryEstablishes(dir) })
   return Object.fromEntries(report.classifications.map(entry => [entry.target, entry.class]))
+}
+
+function nextStepIn(lines: string[]): string | undefined {
+  return lines.join('').split('\n').find(text => text.includes('Next: '))
 }
 
 describe('a second construct init adds to the record it found', () => {
@@ -88,6 +92,21 @@ describe('a second construct init adds to the record it found', () => {
     expect(line).toContain(`added ${added}`)
     expect(firstRun.join('').toLowerCase()).not.toContain('carried over')
   })
+  it('reports the count before the list of paths, so a second run is readable as a no-op before the wall of text', async () => {
+    const dir = scratch()
+    await init(dir)
+
+    const rerun: string[] = []
+    await init(dir, text => rerun.push(text))
+    const lines = rerun.join('').split('\n')
+    const count = lines.findIndex(text => text.toLowerCase().includes('carried over'))
+    const firstPath = lines.findIndex(text => /^\s+[+~=] /.test(text))
+
+    expect(count).toBeGreaterThanOrEqual(0)
+    expect(firstPath).toBeGreaterThanOrEqual(0)
+    expect(count).toBeLessThan(firstPath)
+  })
+
   it('names every variable whose value this run changed, with both values, and stays quiet when none did', async () => {
     const dir = scratch()
     await init(dir)
@@ -103,5 +122,23 @@ describe('a second construct init adds to the record it found', () => {
     const unchanged: string[] = []
     await init(dir, text => unchanged.push(text), 'renamed')
     expect(unchanged.join('')).not.toContain('projectName')
+  })
+
+  it('names install and the harness where it wrote a manifest, nothing at all where the run changed no file, and the harness alone where it changed one that declares no dependency', async () => {
+    const dir = scratch()
+
+    const first: string[] = []
+    await init(dir, text => first.push(text))
+    expect(nextStepIn(first)).toContain('pnpm install && pnpm run quality')
+
+    const unchanged: string[] = []
+    await init(dir, text => unchanged.push(text))
+    expect(nextStepIn(unchanged)).toBeUndefined()
+
+    rmSync(path.join(dir, '.gitleaks.toml'), { force: true })
+    const restored: string[] = []
+    await init(dir, text => restored.push(text))
+    expect(nextStepIn(restored)).toContain('pnpm run quality')
+    expect(nextStepIn(restored)).not.toContain('install')
   })
 })
