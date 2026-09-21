@@ -7,6 +7,6 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "quality": "pnpm lint && pnpm typecheck && pnpm test"
+    "quality": "pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test"
   }
 }

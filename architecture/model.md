@@ -210,8 +210,9 @@ A verdict is **knowledge** if it can become false without anything `init` wrote 
 `construct.json`'s question, not the model's
 ([decision 0016](decisions/0016-the-model-is-the-source.md)).
 
-`harness-steps` is knowledge. It asks whether the harness command really runs lint, typecheck and
-tests; the `package.json` it reads belongs to the repository's owner, who can rewrite the script
+`harness-steps` is knowledge. It asks whether the harness command really runs every step the preset
+wrote into it — `composition:check`, lint, typecheck and tests; the `package.json` it reads belongs
+to the repository's owner, who can rewrite the script
 tomorrow without touching a construct file. The claim can go from held to unsupported with the
 construct untouched, which is what makes it worth holding. Where the preset materializes an HTTP
 contract, the `contracts:check` step of that same command stands under the same claim, for the same
@@ -282,6 +283,7 @@ flowchart LR
     f_eslint_config[/"eslint.config.mjs<br/>holds"/]
     f_security_invariants[/"architecture/security-invariants.md<br/>holds"/]
     f_harness_manifest[/"package.json<br/>holds"/]
+    f_harness_script_runs_composition_check[/"package.json contains #quot;pnpm composition:check#quot;<br/>holds"/]
     f_harness_script_runs_lint[/"package.json contains #quot;pnpm lint#quot;<br/>holds"/]
     f_harness_script_runs_typecheck[/"package.json contains #quot;pnpm typecheck#quot;<br/>holds"/]
     f_harness_script_runs_tests[/"package.json contains #quot;pnpm test#quot;<br/>holds"/]
@@ -296,6 +298,7 @@ flowchart LR
   e_every_change_passes_the_harness -->|"enforcement"| f_ci_workflow_runs_the_harness
   e_every_change_passes_the_harness -->|"verification"| f_eslint_config
   e_harness_steps -->|"enforcement"| f_ci_workflow_runs_the_harness
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_composition_check
   e_harness_steps -->|"enforcement"| f_harness_script_runs_lint
   e_harness_steps -->|"enforcement"| f_harness_script_runs_typecheck
   e_harness_steps -->|"enforcement"| f_harness_script_runs_tests
