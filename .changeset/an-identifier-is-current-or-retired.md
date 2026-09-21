@@ -24,6 +24,7 @@ field and verdict tables. The manifest and sync-report examples are left alone: 
 scanning them would have forced exactly the allowlist this design exists to avoid. A test states that
 exclusion rather than leaving it to be inferred from a regex.
 
-The gap that leaves is worth naming: no example of `construct.model.json` appears in the docs today,
-and if one is added its claim ids will not be scanned. The scan-set assertion catches a scan that
-*narrows* — a reworded heading fails — but not one that never widened.
+The gap that leaves is tracked rather than merely named. The scan *selects* the blocks it reads, and
+selection catches narrowing — a reworded heading fails — while being blind to a block of a new shape
+never joining the set at all. Replacing the selection with a partition, so that every JSON block must
+be classified and an unclassified one fails, is issue #79.
