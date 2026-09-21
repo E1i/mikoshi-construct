@@ -120,6 +120,10 @@ cited as though it had been decided.
 
 **It does not claim to be enforced.** See below, and read it as written.
 
+See also the observation *An acceptance played a second role at 0027's first use, and the rule
+describes only the first* in [observations.md](../observations.md), which records a role an
+acceptance plays that the single mechanical test above does not describe.
+
 ## Enforced by
 
 **L1 review — and by memory, which is the weaker half.** Nothing today can report a violation: an

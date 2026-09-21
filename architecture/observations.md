@@ -104,6 +104,65 @@ presets produce today and is checked by `tests/add-population.test.ts` in both d
 nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
 backend or library presets.
 
+## 2026-09-22 · An acceptance played a second role at 0027's first use, and the rule describes only the first
+
+[Decision 0027](decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md) requires an
+acceptance to be **red on the current tree before the implementation exists**. Its first application
+carried two axes, and only one of them behaved that way.
+
+**The window, so the word *first* carries what would falsify it.** 0027 merged as `71ff5d2`. The only
+commit between that and the branch of its first application is `c5373a1`, the automated
+version-packages commit that released v0.14.1 and performs no task. Every commit in the repository
+made after 0027, taken by commit time rather than by ancestry, is those three.
+
+**What happened.** The task was
+[decision 0028](decisions/0028-a-model-ahead-of-the-reader-is-a-state.md), naming a record from a
+later build as a state. Axis one — the state is distinguishable from a corrupt or invalid model — was
+red on the tree, as 0027 requires. Axis two was green before the change **and could not have been
+red**: the defect it describes does not exist there, because the reader already threw rather than
+collapsing an unreadable record into absence. It becomes red only when a specifically named wrong
+implementation is introduced and the guard is run against it, which is what was done.
+
+Stated in the form the record uses:
+
+> Axis 2 is a regression guard against collapsing an unreadable record into absence; the current
+> implementation already preserves that distinction.
+
+**So an acceptance has two legitimate roles, and 0027's test describes one of them:**
+
+| the role | when it is red |
+|---|---|
+| detect an existing defect | red on the current tree |
+| forbid a named wrong fix | never red on the current tree — red only against the named wrong implementation |
+
+**The second role needs a clause the first does not, or it is satisfiable by construction.** Any guard
+can be made red against a sufficiently absurd implementation, and doing so proves nothing about what
+the guard holds. So: **the named wrong implementation must be one a reasonable implementer would
+actually reach for.**
+
+**The plausibility evidence for this case is in the record rather than argued from taste.** The
+forbidden implementation — catching the version error in the reader and returning `null` — is what
+the task brief itself described as the current state, and the reviewing session predicted axis two
+would be red precisely because it believed that collapse already existed. A wrong fix that was
+reached for while the task was being written is as plausible as one gets.
+
+**How the gap was found is why this is an occurrence and not a note about improving a rule.** It came
+out of 0027's own procedure at its first use: the forbidden path was run and the actual outcome read,
+rather than the axis being reasoned about. Reasoning about it produced the opposite answer twice —
+once in the brief and once in the implementer's own expectation — and the run settled it.
+
+**This does not extend 0027.** The question it raises — whether *red on the current tree* should
+become *red on the current tree, or against a plausible named wrong implementation* — is named here
+and left open. One application, one gap; extending a rule on a single instance is what this
+repository declined four times the day before, recorded in the entry *Three plans that ended in not
+building*, and the basis here is no stronger. **The trigger** is a second acceptance that turns out to
+be a guard against a wrong fix, in a task unrelated to this one.
+
+**Boundary.** One application of one rule, one gap, one project. A form, not a rate, and not evidence
+about how often acceptances fall into the second role. The specimen is this repository, so
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) costs nothing here — there is
+no address to withhold — and it is said rather than left unstated.
+
 ## 2026-09-22 · A rule with no independently checkable carrier is carried by memory
 
 Two rules in this repository were stated clearly, meant seriously, and observed by whoever happened
