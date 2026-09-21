@@ -4,7 +4,7 @@ const COLUMN_OF: Record<PictureNodeKind, number> = { claim: 0, hypothesis: 0, fa
 const COLUMN_TITLES = ['Claims and hypotheses', 'Evidence']
 
 const CHAR_WIDTH = 7.1
-const LINE_HEIGHT = 18
+export const LINE_HEIGHT = 18
 const NODE_PADDING = 12
 const NODE_GAP = 16
 const COLUMN_GAP = 220
@@ -97,7 +97,10 @@ interface Curve {
   midY: number
 }
 
-const PARALLEL_SPREAD = 22
+export const LABEL_SEPARATION = LINE_HEIGHT
+
+const MIDPOINT_MOVES_BY_THIS_SHARE_OF_THE_CONTROL_OFFSET = 0.75
+const PARALLEL_SPREAD = LABEL_SEPARATION / MIDPOINT_MOVES_BY_THIS_SHARE_OF_THE_CONTROL_OFFSET
 
 function curve(from: PlacedNode, to: PlacedNode, spread: number): Curve {
   const x1 = from.x + from.width
@@ -132,21 +135,45 @@ function spreadOfParallelEdges(edges: readonly { from: string, to: string }[]): 
   })
 }
 
+interface LabelAnchor {
+  x: number
+  y: number
+}
+
+function noCloserThanOneLine(anchors: LabelAnchor[]): LabelAnchor[] {
+  const placed: LabelAnchor[] = []
+  return anchors.map((anchor) => {
+    let candidate = anchor
+    while (placed.some(other => Math.hypot(candidate.x - other.x, candidate.y - other.y) < LABEL_SEPARATION))
+      candidate = { x: candidate.x, y: candidate.y + LABEL_SEPARATION }
+    placed.push(candidate)
+    return candidate
+  })
+}
+
 export function svgFromGraph(graph: ModelGraph): string {
   const { placed, width, height } = layout(graph)
   const byId = new Map(placed.map(entry => [entry.node.id, entry]))
 
   const spreads = spreadOfParallelEdges(graph.edges)
-  const edges = graph.edges.flatMap((edge, index) => {
+  const drawn = graph.edges.map((edge, index) => {
     const from = byId.get(edge.from)
     const to = byId.get(edge.to)
-    if (from == null || to == null)
+    return from == null || to == null ? null : { edge, from, curve: curve(from, to, spreads[index] ?? 0) }
+  })
+  const anchors = noCloserThanOneLine(
+    drawn.flatMap(entry => (entry == null || entry.edge.stage == null ? [] : [{ x: entry.curve.midX, y: entry.curve.midY - 6 }])),
+  )
+  let anchorIndex = 0
+  const edges = drawn.flatMap((entry) => {
+    if (entry == null)
       return []
-    const drawn = curve(from, to, spreads[index] ?? 0)
-    const label = edge.stage == null
-      ? ''
-      : `\n    <text x="${drawn.midX}" y="${drawn.midY - 6}" class="stage" text-anchor="middle">${escaped(edge.stage)}</text>`
-    return [`<path d="${drawn.path}" class="edge ${from.node.state}"/>${label}`]
+    if (entry.edge.stage == null)
+      return [`<path d="${entry.curve.path}" class="edge ${entry.from.node.state}"/>`]
+    const anchor = anchors[anchorIndex]
+    anchorIndex += 1
+    const label = `\n    <text x="${anchor?.x ?? entry.curve.midX}" y="${anchor?.y ?? entry.curve.midY}" class="stage" text-anchor="middle">${escaped(entry.edge.stage)}</text>`
+    return [`<path d="${entry.curve.path}" class="edge ${entry.from.node.state}"/>${label}`]
   })
 
   const headings = COLUMN_TITLES.map((title, index) => {
