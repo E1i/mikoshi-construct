@@ -97,6 +97,52 @@ presets produce today and is checked by `tests/add-population.test.ts` in both d
 nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
 backend or library presets.
 
+## 2026-09-21 · A command that did not run, read as a measurement that did
+
+Two cases on one machine in one day, both with the same broken `xcrun` shim beneath them: a scan
+reported pull request bodies clean from a run in which `gh` was never found, and an `evidenceClean`
+computation would have written `true` for five hypotheses from a `git` that never executed —
+`returncode 1`, empty stdout, the failure on stderr where nothing was reading.
+
+**The shape, which is what this records:**
+
+    a command fails  →  an empty or zero result  →  read as a successful measurement
+
+It is not a property of `git` or of `gh`. Either would have served; the shim was under both, and any
+tool invoked the same way would have produced the same reading. Two occurrences of one form on one
+day, with one cause beneath them. That is a form, not a rate, and nothing here says how often it
+happens.
+
+**Catching it was luck, and the record would be a success story without this paragraph.** The failed
+measurement was visible only because an unrelated expectation happened to contradict it: the working
+tree was dirty at that moment, so `evidenceClean: true` was obviously wrong on its face. Had the tree
+been clean, the failed measurement and the correct answer would have coincided exactly, and five
+hypotheses would carry a value nothing in them records as unmeasured. **The defect is invisible
+precisely when it is harmless and visible only by accident** — so an accident is what caught it, and
+nobody should plan on one.
+
+**Why no test catches it.** A test asserts the shape of a value, and the value has the right shape: an
+empty string is what a clean tree returns. What catches it is an expectation named *before* the
+reading — say what the result must contain, then read, and a command that did not run fails the
+comparison instead of supplying a plausible answer.
+
+**The requirement this leaves:** a result is not a measurement merely because it has the expected
+shape; the measurement must also evidence that it was performed.
+
+**What this does not ask for.** Not a check that `git` or `gh` is present: that repairs one tool and
+leaves the shape standing behind it. Not a third value for `evidenceClean`, which would be a schema
+change and a `MODEL_VERSION` bump to represent a state that should forbid the write rather than be
+written. And no change to anything shipped in this pass. The remedy named here is procedural: where a
+hypothesis depends on a measurement, a measurement that cannot show it ran means **no hypothesis is
+written at all**.
+
+**Boundary, and where it sits.** The `gh` case is recorded as reported by the maintainer; what this
+session verified first-hand is the shim breaking `gh` during a pull request creation, and the `git`
+case in full. This belongs beside two readings already here — [rule 2](epistemic-rules.md), that
+`unknown` is not absence, and the finding above that an empty result never names its cause. It is the
+same family one level further down: not a reading whose cause is unnamed, but a reading that never
+happened, wearing the shape of one that did.
+
 ## 2026-09-21 · `testsWeakened` fired on a second class of change
 
 The ladder's `testsWeakened` guard rejected a change in which tests were deleted **together with the
