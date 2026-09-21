@@ -9,6 +9,7 @@ import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
 import { buildManifest, readManifest, recordedShas, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
+import { withoutStillbornClaims } from '../model/birth.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
 import { AI_TARGET_LABELS, aiGroups, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, isPresetId, PRESET_LIST, reviewGroups, sampleGroups } from '../presets/index.js'
 import { isValidProjectName } from '../ui/prompts.js'
@@ -231,8 +232,11 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   writeManifest(root, manifest)
   const samples = sampleGroups(preset)
   const sample = samples.length > 0 && samples.every(group => !plan.omittedGroups.includes(group))
-  const merged = mergeModel(existingModel, buildModel({ vars, contracts: preset.contracts, sample }))
+  const born = withoutStillbornClaims(buildModel({ vars, contracts: preset.contracts, sample }), existingModel, root)
+  const merged = mergeModel(existingModel, born.model)
   writeModel(root, merged.model)
+  for (const claim of born.stillborn)
+    ui.line(ui.theme.dim(`  ${ui.lore.recordClaimNotBorn(claim.claimId, claim.doesNotHold)}`))
   if (merged.retained.length > 0) {
     const standingOn = [...new Set(merged.retained.flatMap(fact => fact.stoodOnBy))]
     ui.line(ui.theme.dim(`  ${ui.lore.recordFactsRetained(merged.retained.map(fact => fact.id), standingOn)}`))
