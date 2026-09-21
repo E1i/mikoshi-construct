@@ -1,5 +1,6 @@
 import type { Manifest } from '../src/manifest.js'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import type { PresetId } from '../src/presets/index.js'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -14,8 +15,28 @@ function scratch(): string {
   return mkdtempSync(path.join(tmpdir(), 'construct-convergence-'))
 }
 
-async function init(dir: string): Promise<void> {
-  await runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset: 'node-backend', name: 'convergence', yes: true, dryRun: false })
+const PRESETS: PresetId[] = ['node-backend', 'monorepo', 'node-frontend', 'node-library']
+
+const EVERY_INIT_WRITES = ['package.json', 'construct.json', 'construct.model.json', 'AGENTS.md', 'CLAUDE.md']
+
+async function init(dir: string, preset: PresetId = 'node-backend'): Promise<void> {
+  await runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset, name: 'convergence', yes: true, dryRun: false })
+}
+
+function treeOf(dir: string, prefix = ''): Record<string, string> {
+  return Object.fromEntries(readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const here = path.join(dir, entry.name)
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+    return entry.isDirectory() ? Object.entries(treeOf(here, relative)) : [[relative, readFileSync(here, 'utf8')]]
+  }))
+}
+
+function pathsThatDiffer(before: Record<string, string>, after: Record<string, string>): string[] {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(file => before[file] !== after[file]).sort()
+}
+
+function varsRecordedIn(manifest: string): Record<string, string> {
+  return (JSON.parse(manifest) as { vars: Record<string, string> }).vars
 }
 
 function manifestOf(dir: string): Manifest {
@@ -103,5 +124,54 @@ describe('a re-run keeps the claims the record says this repository carries', ()
     await init(dir)
 
     expect(claimIdsIn(dir)).not.toContain('lint-policy')
+  })
+})
+
+describe('a third init changes nothing the second one wrote, in any file', () => {
+  it('leaves every file of every preset byte-identical between the second and third run, the merged package.json and the record among them', async () => {
+    const sets: Record<string, string[]> = {}
+
+    for (const preset of PRESETS) {
+      const dir = scratch()
+      await init(dir, preset)
+      await init(dir, preset)
+      const afterSecond = treeOf(dir)
+      await init(dir, preset)
+
+      expect(pathsThatDiffer(afterSecond, treeOf(dir)), preset).toEqual([])
+      for (const file of EVERY_INIT_WRITES)
+        expect(Object.keys(afterSecond), `${preset}: ${file}`).toContain(file)
+      sets[preset] = Object.keys(afterSecond).sort()
+    }
+
+    for (const preset of PRESETS) {
+      for (const other of PRESETS.filter(id => id !== preset))
+        expect(sets[preset], `${preset} vs ${other}`).not.toEqual(sets[other])
+    }
+  })
+
+  it('differs between the first and second run in one file of one preset only: the monorepo record, and only in the two workspace variables the second run re-derives from the packages the first run created', async () => {
+    const differences: Record<string, string[]> = {}
+
+    for (const preset of PRESETS) {
+      const dir = scratch()
+      await init(dir, preset)
+      const afterFirst = treeOf(dir)
+      await init(dir, preset)
+      differences[preset] = pathsThatDiffer(afterFirst, treeOf(dir))
+
+      if (preset !== 'monorepo')
+        continue
+      const before = varsRecordedIn(afterFirst['construct.json'])
+      const after = varsRecordedIn(treeOf(dir)['construct.json'])
+      expect(Object.keys(after).filter(name => after[name] !== before[name])).toEqual(['workspacePackages', 'allowedWorkspaceImports'])
+    }
+
+    expect(differences).toEqual({
+      'node-backend': [],
+      'monorepo': ['construct.json'],
+      'node-frontend': [],
+      'node-library': [],
+    })
   })
 })
