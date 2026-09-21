@@ -885,9 +885,24 @@ Mermaid flowchart on **stdout**, so it pipes:
 npx mikoshi-construct graph > model.mmd
 ```
 
-It takes no options of its own beyond [the common ones](#options-every-command-takes). It writes no
-file: the Mermaid is already the machine-readable artifact, so there is no `--json` and no
-`--output`.
+The Mermaid on stdout is the machine-readable artifact and is the default, so there is no `--json`:
+a diagram a program reads is already the JSON of this command.
+
+**`--out <path>` also writes one self-contained HTML file**, so the same graph can be opened rather
+than piped:
+
+```bash
+npx mikoshi-construct graph --out picture.html
+```
+
+That file is the whole picture. The graph is an inline SVG drawn from the same structure the Mermaid
+is serialized from, the styling is inline, and **nothing is fetched when you open it** — no CDN, no
+script, no network of any kind, from a `file://` URL or anywhere else. It is a few kilobytes, and it
+carries a legend for the three states and the state of each entry in the entry itself, in its colour
+and in its own words.
+
+`--out` adds to stdout and never replaces it: the Mermaid is written exactly as it was before, and
+the file is written afterwards. Where a reading draws nothing, no file is written either.
 
 The states in the labels are the ones `doctor` reports, derived on read by the same code and stored
 nowhere. A claim carries its declared enforcement level and the state of each stage, a hypothesis
@@ -900,13 +915,18 @@ Three readings, and only the first draws anything:
 
 | Reading | Where it goes | Exit |
 |---|---|---|
-| The model carries entries | the diagram, on stdout | `0` |
-| `construct.model.json` is here and names no fact, claim or hypothesis | a line on stderr, nothing on stdout | `0` |
-| There is no `construct.model.json` here | a line on stderr, nothing on stdout | `0` |
+| The model carries entries | the diagram, on stdout — and the page, where `--out` names one | `0` |
+| `construct.model.json` is here and names no fact, claim or hypothesis | a line on stderr, nothing on stdout, and no file written | `0` |
+| There is no `construct.model.json` here | a line on stderr, nothing on stdout, and no file written | `0` |
 
 Absence is not obstruction, so all three exit `0`, and the two messages go to stderr rather than into
 the diagram: `construct graph > picture.mmd` on a repository with no model leaves an empty file and
 says why on the terminal, never prose inside the file.
+
+The picture renders the model and does not interpret it. Opening the file is not reading it, and a
+file on disk is no evidence that anyone looked at it — which is the condition
+[decision 0017](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0017-v5-adds-no-new-way-of-knowing.md)
+puts on anything interactive being built on top.
 
 This repository renders its own picture into
 [architecture/model.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/model.md)

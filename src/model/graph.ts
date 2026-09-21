@@ -26,6 +26,37 @@ const FACT_WORDS: Record<FactEvaluation, string> = {
 
 const NOTHING_NAMED: StageFinding = { state: 'unknown', reason: 'no-fact-named' }
 
+export const PICTURE_NODE_KINDS = ['claim', 'hypothesis', 'fact'] as const
+export type PictureNodeKind = (typeof PICTURE_NODE_KINDS)[number]
+
+export const PICTURE_STATES = ['held', 'unsupported', 'unknown'] as const
+export type PictureState = (typeof PICTURE_STATES)[number]
+
+export interface PictureNode {
+  id: string
+  entryId: string
+  kind: PictureNodeKind
+  lines: [string, ...string[]]
+  state: PictureState
+}
+
+export interface PictureEdge {
+  from: string
+  to: string
+  stage: string | null
+}
+
+export interface ModelGraph {
+  nodes: PictureNode[]
+  edges: PictureEdge[]
+}
+
+const FACT_STATES: Record<FactEvaluation, PictureState> = {
+  'holds': 'held',
+  'does-not-hold': 'unsupported',
+  'unevaluable': 'unknown',
+}
+
 function quoted(label: string): string {
   return `"${label.replaceAll('"', '#quot;')}"`
 }
@@ -51,45 +82,99 @@ function stageWord(finding: StageFinding): string {
   return finding.state
 }
 
-function claimLabel(claim: Claim, stages: ClaimStages): string {
+function claimLines(claim: Claim, stages: ClaimStages): [string, ...string[]] {
   const level = claim.enforcement == null ? '' : `${claim.enforcement.level} `
-  return `${claim.id}<br/>enforcement ${level}${stageWord(stages.enforcement)}<br/>verification ${stageWord(stages.verification)}`
+  return [claim.id, `enforcement ${level}${stageWord(stages.enforcement)}`, `verification ${stageWord(stages.verification)}`]
 }
 
-function hypothesisLabel(hypothesis: Hypothesis, finding: StageFinding): string {
-  return `${hypothesis.id}<br/>${stageWord(finding)}`
+function hypothesisLines(hypothesis: Hypothesis, finding: StageFinding): [string, ...string[]] {
+  return [hypothesis.id, stageWord(finding)]
 }
 
-function factLabel(fact: Fact, evaluation: FactEvaluation): string {
+function factLines(fact: Fact, evaluation: FactEvaluation): [string, ...string[]] {
   const needle = fact.needle == null ? '' : ` contains "${fact.needle}"`
-  return `${fact.path}${needle}<br/>${FACT_WORDS[evaluation]}`
+  return [`${fact.path}${needle}`, FACT_WORDS[evaluation]]
 }
+
+function worstOf(states: PictureState[]): PictureState {
+  if (states.includes('unsupported'))
+    return 'unsupported'
+  return states.includes('unknown') ? 'unknown' : 'held'
+}
+
+export function graphOfModel(model: RepositoryModel, derived: ModelStateReport): ModelGraph {
+  const entries = mermaidIds('e', [...model.claims.map(claim => claim.id), ...model.hypotheses.map(hypothesis => hypothesis.id)])
+  const facts = mermaidIds('f', model.facts.map(fact => fact.id))
+  const stagesOf = (claim: Claim): ClaimStages => derived.claims[claim.id] ?? { enforcement: NOTHING_NAMED, verification: NOTHING_NAMED }
+
+  const nodes: PictureNode[] = [
+    ...model.claims.map((claim): PictureNode => ({
+      id: entries.get(claim.id) ?? claim.id,
+      entryId: claim.id,
+      kind: 'claim',
+      lines: claimLines(claim, stagesOf(claim)),
+      state: worstOf([stagesOf(claim).enforcement.state, stagesOf(claim).verification.state]),
+    })),
+    ...model.hypotheses.map((hypothesis): PictureNode => ({
+      id: entries.get(hypothesis.id) ?? hypothesis.id,
+      entryId: hypothesis.id,
+      kind: 'hypothesis',
+      lines: hypothesisLines(hypothesis, derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED),
+      state: (derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED).state,
+    })),
+    ...model.facts.map((fact): PictureNode => ({
+      id: facts.get(fact.id) ?? fact.id,
+      entryId: fact.id,
+      kind: 'fact',
+      lines: factLines(fact, derived.facts[fact.id] ?? 'unevaluable'),
+      state: FACT_STATES[derived.facts[fact.id] ?? 'unevaluable'],
+    })),
+  ]
+
+  const edges: PictureEdge[] = [
+    ...model.claims.flatMap(claim => CHAIN_STAGES.flatMap(stage => (claim[stage]?.supportedBy ?? []).map(
+      (factId): PictureEdge => ({ from: entries.get(claim.id) ?? claim.id, to: facts.get(factId) ?? factId, stage }),
+    ))),
+    ...model.hypotheses.flatMap(hypothesis => hypothesis.supportedBy.map(
+      (factId): PictureEdge => ({ from: entries.get(hypothesis.id) ?? hypothesis.id, to: facts.get(factId) ?? factId, stage: null }),
+    )),
+  ]
+
+  return { nodes, edges }
+}
+
+const MERMAID_SHAPES: Record<PictureNodeKind, [string, string]> = {
+  claim: ['[', ']'],
+  hypothesis: ['(', ')'],
+  fact: ['[/', '/]'],
+}
+
+const MERMAID_GROUPS: [PictureNodeKind, string][] = [['claim', 'Claims'], ['hypothesis', 'Hypotheses'], ['fact', 'Evidence']]
 
 function group(title: string, lines: string[]): string[] {
   return lines.length === 0 ? [] : [`  subgraph ${title.toLowerCase()}[${quoted(title)}]`, ...lines, '  end']
 }
 
-export function renderModelGraph(model: RepositoryModel, derived: ModelStateReport): string {
-  const entries = mermaidIds('e', [...model.claims.map(claim => claim.id), ...model.hypotheses.map(hypothesis => hypothesis.id)])
-  const facts = mermaidIds('f', model.facts.map(fact => fact.id))
-  const claimNodes = model.claims.map(claim => `    ${entries.get(claim.id)}[${quoted(claimLabel(claim, derived.claims[claim.id] ?? { enforcement: NOTHING_NAMED, verification: NOTHING_NAMED }))}]`)
-  const hypothesisNodes = model.hypotheses.map(hypothesis => `    ${entries.get(hypothesis.id)}(${quoted(hypothesisLabel(hypothesis, derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED))})`)
-  const factNodes = model.facts.map(fact => `    ${facts.get(fact.id)}[/${quoted(factLabel(fact, derived.facts[fact.id] ?? 'unevaluable'))}/]`)
-  const edges = [
-    ...model.claims.flatMap(claim => CHAIN_STAGES.flatMap(stage => (claim[stage]?.supportedBy ?? []).map(
-      factId => `  ${entries.get(claim.id)} -->|${quoted(stage)}| ${facts.get(factId)}`,
-    ))),
-    ...model.hypotheses.flatMap(hypothesis => hypothesis.supportedBy.map(
-      factId => `  ${entries.get(hypothesis.id)} --> ${facts.get(factId)}`,
-    )),
-  ]
+function mermaidNode(node: PictureNode): string {
+  const [open, close] = MERMAID_SHAPES[node.kind]
+  return `    ${node.id}${open}${quoted(node.lines.join('<br/>'))}${close}`
+}
+
+function mermaidEdge(edge: PictureEdge): string {
+  const arrow = edge.stage == null ? '-->' : `-->|${quoted(edge.stage)}|`
+  return `  ${edge.from} ${arrow} ${edge.to}`
+}
+
+export function mermaidFromGraph(graph: ModelGraph): string {
   return `${[
     'flowchart LR',
-    ...group('Claims', claimNodes),
-    ...group('Hypotheses', hypothesisNodes),
-    ...group('Evidence', factNodes),
-    ...edges,
+    ...MERMAID_GROUPS.flatMap(([kind, title]) => group(title, graph.nodes.filter(node => node.kind === kind).map(mermaidNode))),
+    ...graph.edges.map(mermaidEdge),
   ].join('\n')}\n`
+}
+
+export function renderModelGraph(model: RepositoryModel, derived: ModelStateReport): string {
+  return mermaidFromGraph(graphOfModel(model, derived))
 }
 
 export function pictureOfModel(model: RepositoryModel | null, root: string, states: StateSource = deriveModelState): ModelPicture {
