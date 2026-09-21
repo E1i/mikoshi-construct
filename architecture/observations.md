@@ -560,3 +560,107 @@ it to.
 an audit, not a rate: nothing here says how many gates in general carry a second writer. What it does
 support is that the sweep is cheap — four rows, read off the harness — and that it found something on
 its first run.
+
+## 2026-09-21 · Figures measured by a superseded instrument, and the radius drawn round them
+
+A session's worth of cost figures was quoted from the `construct` on PATH, a bundle that reports
+`0.1.1` and, on inspection of the bundle itself, predates the response-deduplication fix. The sources
+it was quoted against were at 0.8.0. Nothing in any of those numbers said which instrument produced
+them, which is the asymmetry [0018](decisions/0018-evidence-clean-scopes-to-the-evidence.md)'s
+neighbour now closes for the cost report.
+
+**The methods were reconciled by reading, not by re-measuring.** Two versions of one tool are two
+points in one history, so the diffs that touched the counting path are the primary source. Exactly one
+commit had changed the arithmetic; one other created the counting and a third touched only the ledger.
+Disabling that single guard in the current source made it reproduce the old binary **to the digit** —
+265,209,419 billable tokens in 4102 calls, and the same input-equivalent — over an identical set of run
+identifiers. **The exactness is the finding**: it confirms deduplication as the cause *and excludes a
+second one*. A close match would have done neither, and would have been the more tempting to accept
+because a ratio had already been computed. The difference in run counts seen earlier, 59 against 60,
+was one run occurring between two invocations, established by diffing the sorted identifier lists
+rather than by assuming it was trivial.
+
+**The multiplier is per corpus and there is no general correction.** The share of duplicated responses
+depends on how many content blocks the answers in that set happened to carry.
+
+| Corpus | Published, pre-deduplication | Deduplicated | Its own factor |
+|---|---|---|---|
+| this repository | 265,209,419 billable, 4102 calls | 139,467,665 billable, 2072 calls | 1.9016 billable, 1.9797 calls |
+| the workspace monorepo | 149,760,377 billable, 33,331,657 input-equivalent | 76,748,664 billable, 13,254,183 input-equivalent | 1.9513 billable, **2.5148 input-equivalent** |
+
+Two things follow that are easy to get wrong. The input-equivalent factor is not the billable factor,
+because the weights differ — so a figure derived from the money-facing number corrects further than
+one derived from billable, and which of the two a published figure came from decides its correction.
+And **a corpus factor must never be applied to an individual run**: it is an aggregate property of a
+set, not a per-run constant.
+
+**The radius over committed records.** The fix that introduced deduplication also corrected the figures
+published at that time, in [0008](decisions/0008-a-retry-buys-a-new-exploration.md) and in the
+reasoning-budget guide. It did not touch
+[0011](decisions/0011-design-is-part-of-the-run.md), which predates it by three days and carries
+`2,648,458 billable tokens` and *roughly 2.6M* — **pre-deduplication figures that the correction pass
+missed.** The entry is left standing and flagged here rather than edited, and **no corrected value is
+stated for it**, because 0011 names no run identifier: two ledger entries match its description, one
+of which carries no run id at all and therefore cannot be joined to any measurement. Correcting it is
+a bounded task — identify the run, read its deduplicated total — and not one that may be done by
+multiplying.
+
+**A figure derived from prices cannot be corrected by any single factor.** The inflation is not
+uniform across token classes, and the spread is wide:
+
+| Class | Pre-deduplication | Deduplicated | Factor |
+|---|---|---|---|
+| input | 5,068 | 2,448 | 2.0703 |
+| cache write | 10,589,790 | 4,265,051 | 2.4829 |
+| cache read | 137,905,764 | 72,343,960 | 1.9063 |
+| output | 1,259,755 | 137,205 | **9.1816** |
+
+Output was counted **more than nine times over**, because a response split across many content blocks
+contributed its output once per block, and output is the class that costs the most per token. So a
+money figure built from classes at prices is inflated far more than the billable factor of 1.9513
+suggests, and by a different amount again than the input-equivalent factor of 2.5148. **The most-cited
+figure from this corpus — a cost of a little over two hundred dollars — is therefore recomputed from
+the deduplicated class totals above at the prices it used, not divided by anything.**
+
+The rates were never recorded beside the figure; they were stated in conversation on 2026-09-20 when
+it was first computed, taken from the price list rather than from memory: **$5 per million input, $25
+output, $10 hourly cache write, $0.50 cache read.** They are fixed here from that conversation, not
+read off the price list today — substituting current prices would silently swap one input for another
+and produce a new number dressed as a corrected old one. They can be checked rather than trusted: at
+those rates the *pre-deduplication* classes come to **$206.37**, which is the figure as published, so
+the rates reproduce their own output.
+
+**Read the classes before the totals**, because the totals invite division and the classes are what
+forbid it:
+
+| Class | Pre-deduplication | Deduplicated | Its own factor |
+|---|---|---|---|
+| input | $0.03 | $0.01 | 2.0703 |
+| cache write | $105.90 | $42.65 | 2.4829 |
+| cache read | $68.95 | $36.17 | 1.9063 |
+| output | $31.49 | $3.43 | **9.1816** |
+| **total** | **$206.37** | **$82.26** | — |
+
+Output fell by more than nine while cache reads fell by less than two. **No scalar exists** that takes
+the published figure to the corrected one; the total's apparent ratio of 2.5086 is an artefact of this
+particular mix of classes and would be wrong for any other run.
+
+**The corrected figure inherits the caveat the original carried, and it must travel in the same
+sentence.** The published two hundred dollars was a **lower bound**: it counted the ladder's subagents
+only, with no orchestration and no architect calls made outside the ladder. So does $82.26. Small
+numbers travel further than large ones, and a figure that sheds its qualification while shrinking will
+be quoted more confidently than the one it replaced.
+
+**A money figure is computed from three inputs — the data, the instrument and the rates.** The data was
+identified in the ledger, the instrument is what this entry adds, and the rates had been written
+nowhere. Constants are the input most reliably lost, because at the moment of calculation they are
+obvious.
+
+**The missed file is a symptom-driven repair covering the symptom's population.** The commit that
+corrected the published figures fixed the places it had been shown, and its subject line — *correct
+every figure that defect published* — reads as exhaustive. It was not, and `0011` is what it did not
+happen to be looking at.
+
+**Boundary.** Two corpora, both measured at one moment with two instruments over identical identifier
+sets. Nothing here establishes a factor for any third corpus, and the reconciliation's exactness is
+evidence about these token streams rather than about the counting of token streams in general.
