@@ -630,13 +630,26 @@ and produce a new number dressed as a corrected old one. They can be checked rat
 those rates the *pre-deduplication* classes come to **$206.37**, which is the figure as published, so
 the rates reproduce their own output.
 
-| | Pre-deduplication | Deduplicated |
-|---|---|---|
-| input | $0.03 | $0.01 |
-| cache write | $105.90 | $42.65 |
-| cache read | $68.95 | $36.17 |
-| output | $31.49 | $3.43 |
-| **total** | **$206.37** | **$82.26** |
+**Read the classes before the totals**, because the totals invite division and the classes are what
+forbid it:
+
+| Class | Pre-deduplication | Deduplicated | Its own factor |
+|---|---|---|---|
+| input | $0.03 | $0.01 | 2.0703 |
+| cache write | $105.90 | $42.65 | 2.4829 |
+| cache read | $68.95 | $36.17 | 1.9063 |
+| output | $31.49 | $3.43 | **9.1816** |
+| **total** | **$206.37** | **$82.26** | — |
+
+Output fell by more than nine while cache reads fell by less than two. **No scalar exists** that takes
+the published figure to the corrected one; the total's apparent ratio of 2.5086 is an artefact of this
+particular mix of classes and would be wrong for any other run.
+
+**The corrected figure inherits the caveat the original carried, and it must travel in the same
+sentence.** The published two hundred dollars was a **lower bound**: it counted the ladder's subagents
+only, with no orchestration and no architect calls made outside the ladder. So does $82.26. Small
+numbers travel further than large ones, and a figure that sheds its qualification while shrinking will
+be quoted more confidently than the one it replaced.
 
 **A money figure is computed from three inputs — the data, the instrument and the rates.** The data was
 identified in the ledger, the instrument is what this entry adds, and the rates had been written
