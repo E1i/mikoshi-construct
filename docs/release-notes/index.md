@@ -4,6 +4,55 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.15.0
+
+### Minor Changes
+
+- [#146](https://github.com/E1i/mikoshi-construct/pull/146) [`4dd1b57`](https://github.com/E1i/mikoshi-construct/commit/4dd1b57e35605358a5e315c1bdc9d4ae7108a41e) Thanks [@E1i](https://github.com/E1i)! - A construct.model.json from a later build is a named state, not a schema failure
+  
+  A model declaring a `modelVersion` this binary does not understand produced a generic parse failure —
+  the same path as a missing field or a malformed array. It is now reported as what it is, with the
+  record, the field and both versions, and the command exits `1` without reading or writing anything.
+  `doctor`, `graph`, `sync` and `init` all inherit it, because all four read the model.
+  
+  **The state was not built twice.** One already existed for `construct.json` and everything about it
+  fitted except that the error and its line named that file and that field in their own text. The
+  carrier now takes the record and the field as values and both readers raise it, so there is one
+  mechanism rather than two of the same shape. A manifest from a later build reports exactly the text it
+  reported before.
+  
+  The check also runs before the unknown-property check, since a model from a later build will usually
+  carry fields this binary has never seen and the symptom would otherwise be reported instead of the
+  cause.
+  
+  **What it closes.** `readModel` returns `null` when the file is absent, and `null` already means *no
+  model*, which `doctor` explains by saying `construct init` writes one. Had a version-ahead model
+  collapsed into that reading, `doctor` would have told someone holding a newer model to run `init` —
+  proposing to overwrite the file it had just failed to read.
+  
+  Nothing migrates an older model, no fact kind is added, and `MODEL_VERSION` does not move.
+
+### Patch Changes
+
+- [#148](https://github.com/E1i/mikoshi-construct/pull/148) [`70f8c07`](https://github.com/E1i/mikoshi-construct/commit/70f8c0796a40ab1a879f2ad5a650410e9d6df155) Thanks [@E1i](https://github.com/E1i)! - An observation: an acceptance played a second role at 0027's first use
+  
+  Decision 0027 requires an acceptance to be red on the current tree before the implementation exists.
+  Its first application — decision 0028 — carried two axes, and only one behaved that way. The second
+  was green and could not have been red, because the defect it describes does not exist on that tree;
+  it becomes red only against a specifically named wrong implementation, which is what it was run
+  against.
+  
+  So an acceptance has two legitimate roles and the rule describes one: detecting an existing defect,
+  which is red on the current tree, and forbidding a named wrong fix, which never is. The second needs
+  a clause the first does not, or it is satisfiable by construction — the named wrong implementation
+  must be one a reasonable implementer would actually reach for. Here it was the one the task brief
+  itself described as the current state.
+  
+  The entry does not extend 0027. Whether "red on the current tree" should become "red on the current
+  tree, or against a plausible named wrong implementation" is named and left open on one application
+  and one gap, with the trigger stated: a second acceptance that turns out to be a guard against a
+  wrong fix, in an unrelated task.
+
 ## 0.14.1
 
 ### Patch Changes
