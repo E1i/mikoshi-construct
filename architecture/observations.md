@@ -97,6 +97,123 @@ presets produce today and is checked by `tests/add-population.test.ts` in both d
 nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
 backend or library presets.
 
+## 2026-09-22 · A rule with no independently checkable carrier is carried by memory
+
+Two rules in this repository were stated clearly, meant seriously, and observed by whoever happened
+to remember them. Both are already recorded; this entry is about what they have in common rather
+than about either.
+
+**The documentation claim.** The entry *A claim with a complete lifespan* records a sentence that stood through ten minor versions
+and twenty-one releases while being wider than what had been measured. Its record layer had a
+carrier and that carrier held; the claim the sentence made about the rendered document had none. No
+check could have gone red, so nothing did.
+
+**The ladder.** How much reasoning a task gets, and when to escalate, lives in prose in a skill and a
+guide. The only artifact a run leaves is a ledger line, which
+[decision 0003](decisions/0003-run-ledger-stops-at-l0.md) places at L0 by construction, and which
+the measurement under *Half the ladder runs were never recorded* found written for 29 of 65 runs — evenly across sessions,
+including the session of the operator writing that entry, who was watching for it.
+
+**What they share is not that they were broken. It is that breaking them produces nothing.** A rule
+observed by memory and a rule observed perfectly are indistinguishable from outside, because neither
+emits anything. The absence of complaints about a rule is evidence about the reporting, not about the
+rule.
+
+So the form:
+
+> **A rule whose observance cannot be checked by anyone other than the person observing it is carried
+> by memory, and memory is not a carrier.** The test is mechanical: name the artifact that would
+> exist if the rule were broken, and name who could read it without taking the actor's word.
+
+**This rule was considered for promotion to a numbered rule in
+[epistemic-rules.md](epistemic-rules.md) and was not promoted, because it fails its own requirement.**
+Nothing would exist if it were broken. There is no artifact that reads *this rule was stated with no
+carrier*, and no reviewer who could find one without going looking. Promoting it would have put into
+the numbered list the only member of that list which cannot be observed to fail — and the numbered
+rules are cited by decisions precisely because a citation can be checked.
+
+It could have gone the other way, and that is what makes the refusal a finding rather than a
+flourish: had a carrier existed — a check over records that names a normative sentence with nothing
+behind it — the rule would have been promoted and this paragraph would not exist.
+
+**Boundary.** Two instances, one project, one span of work. A form, not a rate. Nothing here counts
+how many rules in this repository lack carriers; no survey was run, and the two above were found by
+tripping over them rather than by looking. The specimen is this repository, so
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) costs nothing and is said
+rather than left unstated.
+
+## 2026-09-22 · Three plans that ended in not building, each with its reason recorded
+
+Planning in this repository has ended three times in a decision not to build the thing that was
+planned. Each is recorded where it belongs; what is recorded here is that they are one shape.
+
+**The skill.** The entry *The discovery plan skill was not built, and the empty plan is why*: the plan was written by hand first,
+came out empty, and the emptiness was the result rather than a missing one — the skill as scoped
+would have been a second rendering of what the report already carries.
+
+**The trace.** [Decision 0020](decisions/0020-a-claim-is-written-only-where-its-evidence-holds.md)
+left an open question about how `doctor` could say why the set of claims is short, and treated the
+model keeping no trace of an unmade claim as the obstacle.
+[Decision 0024](decisions/0024-an-absent-claim-is-derived-not-recorded.md) answered it by refusing to
+record one: the absence is recomputed from `construct.json` on every read, and a stored absence would
+have gone stale silently where a derivation stops being reported the moment it stops being true.
+
+**The rule not promoted.** The entry *A rule with no independently checkable carrier is carried by memory* proposes a rule and declines to promote it, on the
+standard that entry itself proposes. The self-reference is the point rather than an awkwardness to
+smooth over: a rule about carriers was refused a number because it has no carrier. It could have gone
+the other way — had one existed, there would be two instances here and not three.
+
+**What the three have in common**, which is the whole of this entry:
+
+| | the plan | why it was not built |
+|---|---|---|
+| the skill | a renderer over the model | the report already carries the reading |
+| the trace | a recorded absence | a stored absence goes stale where a derivation does not |
+| the rule | a numbered epistemic rule | it does not satisfy its own requirement |
+
+None was dropped quietly. Each reason is specific to the thing rather than a general appeal to scope,
+each is written where a later reader will meet it before re-opening the question, and in each case
+what was learned went into a record instead of into the artifact that was not built. That last part
+is what distinguishes this from deciding against work: the output was a record, so the plan produced
+something either way.
+
+**Boundary.** Three, one project, one span. A form, not a rate. Nothing here says how often planning
+ends this way, and nothing claims these three would have been bad builds — only that each was decided
+against for a reason that was written down and can be argued with.
+
+## 2026-09-22 · Six stops on a false premise, in one night
+
+Six times in one session, work stopped because a stated premise turned out to be false when measured.
+They are recorded here rather than inside the decision written from them, so that the occurrences
+stay citable on their own and the decision does not carry its own evidential base.
+
+| | the premise, as stated | what measurement showed |
+|---|---|---|
+| 1 | a pull request was merged and a branch could be cut from it | `origin/main` did not contain it; the pull request read `merged: false`, and it merged some forty minutes later |
+| 2 | a file's modification time was "approximately" a recorded timestamp | the recorded time was 54 seconds earlier; the approximation was replaced by ten recorded hashes, which depend on no timing at all |
+| 3 | a defect had been invisible in the output | the output had named the change, with both values in full, since the release that introduced the record |
+| 4 | an acceptance comparing two later runs would guard two known defects | it passed under both: each defect settles on a wrong value by the second run, so a later comparison sees a stable system |
+| 5 | new keys legitimately appear between the first and second run of one preset | they do not — the sample directories are exactly the ones the first run creates |
+| 6 | a derivation was strictly stronger than the record it replaced | it was, until the same change made the record able to answer; the argument outlived its own ground by one commit |
+
+**Five of the six were the reviewing session's premise; the sixth was the implementing session's.**
+That distribution is worth stating because it is not the flattering one for either party, and because
+the mechanism does not depend on it.
+
+**The condition that makes it work, and the part easiest to lose.** In all six the party who wrote
+the criterion was not the party who measured it. The criterion arrived as a statement about the
+system, and the session holding the code checked it before building to it. A stage where the same
+party writes and tests its own acceptance is a much weaker thing, because the premise and the
+measurement then come from the same reading, and nothing new is consulted.
+
+**Boundary.** Six stops, one operator, one project, one reviewing session, one night. A form, not a
+rate. It does not say how often such a stage stops anything. It does not establish that a session
+without it would have shipped the falsified premises — five of the six would have produced a green
+test or a correct-looking record either way, which is the reason they were worth stopping on, not
+evidence about what would have happened. What it records is that in six observed cases the premise
+was false and the measurement is what showed it. The specimen throughout is this repository, so
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) costs nothing here.
+
 ## 2026-09-22 · A claim with a complete lifespan: the record was made additive, the document was not
 
 Every other entry here records something observed once. This one records a claim through its whole
