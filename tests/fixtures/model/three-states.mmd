@@ -1,0 +1,22 @@
+flowchart LR
+  subgraph claims["Claims"]
+    e_holds_everywhere["holds-everywhere<br/>enforcement L3 held<br/>verification held"]
+    e_stands_on_what_is_gone["stands-on-what-is-gone<br/>enforcement L0 unsupported<br/>verification held"]
+    e_names_nothing["names-nothing<br/>enforcement unknown, no fact named<br/>verification unknown, no fact named"]
+  end
+  subgraph hypotheses["Hypotheses"]
+    e_a_held_hypothesis("a-held-hypothesis<br/>held")
+    e_an_unsupported_hypothesis("an-unsupported-hypothesis<br/>unsupported")
+  end
+  subgraph evidence["Evidence"]
+    f_present[/"there.md<br/>holds"/]
+    f_absent[/"gone.md<br/>does not hold"/]
+    f_needle[/"there.md contains #quot;a #quot;quoted#quot; needle#quot;<br/>does not hold"/]
+  end
+  e_holds_everywhere -->|"enforcement"| f_present
+  e_holds_everywhere -->|"verification"| f_present
+  e_stands_on_what_is_gone -->|"enforcement"| f_absent
+  e_stands_on_what_is_gone -->|"verification"| f_present
+  e_a_held_hypothesis --> f_present
+  e_an_unsupported_hypothesis --> f_absent
+  e_an_unsupported_hypothesis --> f_needle

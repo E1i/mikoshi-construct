@@ -4,7 +4,7 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
-import { modelPicture, printGraph } from './commands/graph.js'
+import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
@@ -121,11 +121,19 @@ const cost = defineCommand({
 
 const graph = defineCommand({
   meta: { name: 'graph', description: 'Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout' },
-  args: { ...commonArgs },
+  args: {
+    ...commonArgs,
+    out: { type: 'string', description: 'Also write one self-contained HTML file rendering the same graph' },
+  },
   run({ args }) {
     const console = ui(args, stderrWriter)
     const failed = reported(console, () => {
       process.exitCode = printGraph(console, modelPicture(args.dir), stdoutWriter)
+      if (args.out == null)
+        return
+      const written = writeGraphPage(args.dir, args.out)
+      if (written != null)
+        console.line(console.lore.graphPageWritten(written))
     })
     if (failed !== 0)
       process.exitCode = failed

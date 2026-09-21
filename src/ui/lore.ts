@@ -103,6 +103,7 @@ export interface Lore {
   recordClaimNotBorn: (claimId: string, doesNotHold: readonly [string, ...string[]]) => string
   manifestAhead: (found: number, understood: number) => string
   modelIsWrittenByInit: string
+  graphPageWritten: (target: string) => string
 }
 
 function andMore(rest: readonly string[]): string {
@@ -219,6 +220,7 @@ export const LORE: Lore = {
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `ENGRAM WITHHELD: ${claimId} was not recorded \u2014 ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
   manifestAhead: (found: number, understood: number) => `RELIC FROM A LATER BUILD: construct.json declares manifestVersion ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
+  graphPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -331,4 +333,5 @@ export const PLAIN_LORE: Lore = {
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `Did not record the claim ${claimId}: ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
   manifestAhead: (found: number, understood: number) => `construct.json declares manifestVersion ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
+  graphPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
 }
