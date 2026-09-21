@@ -18,6 +18,11 @@ Enforcement is named on a scale, so the strength of a decision is visible rather
 | L3 | CI — it runs on every push |
 | L4 | CI that blocks the merge |
 
+Every level above L0 presumes a mechanism that **can report a failure**. L3 and L4 differ over
+whether a failure blocks a merge; L0 and L3 differ over whether a failure can be raised at all. A
+check that is green whether or not the invariant holds reports nothing and is L0, however much
+machinery stands behind it.
+
 A decision enforced only by review says so; that is the honest answer, not a gap to hide.
 
 Records are named `NNNN-a-short-title.md` and numbered in the order they were taken.

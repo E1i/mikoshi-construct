@@ -329,6 +329,11 @@ report. See
 | `L3` | CI that does not block a merge. |
 | `L4` | CI that blocks a merge. Never reported by `doctor`. |
 
+Every level above L0 presumes a mechanism that **can report a failure**. L3 and L4 differ over
+whether a failure blocks a merge; L0 and L3 differ over whether a failure can be raised at all. A
+check that is green whether or not the invariant holds reports nothing and is L0, however much
+machinery stands behind it.
+
 ### The checks
 
 Each check returns `{id, claimId, level, state, authoredBy, mechanism}`, plus what the state knows:
