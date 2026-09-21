@@ -17,6 +17,19 @@ what it can prove is its own, which is not the same as proving your project stil
 then reports the state of the baseline, the harness and the ten discovery markers, with the
 enforcement level of each check.
 
+**A repository newer than your CLI stops every command, and says so.** `construct.json` declares the
+shape it was written in, and a binary that does not understand that shape reads nothing rather than
+guessing at it:
+
+```
+ERROR: construct.json declares manifestVersion 5, and this binary understands 4. Nothing was read
+and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.
+```
+
+Upgrading is exactly when this happens — a stale global install meeting a manifest a newer release
+wrote. Nothing is written in that state, so an old CLI cannot damage a newer repository; take the
+line at its word and upgrade the CLI.
+
 **Discovery is not part of the loop, and a sync never erases it.** A construct block is replaced
 whole, but the filled body of every `construct:discover:*` block inside it is carried across —
 that is what `block-replaced-whole-discovery-bodies-carried-over` means in the report. Run
@@ -39,7 +52,8 @@ this one skipped left the record. Measured on a scratch tree carrying 43 recorde
 `sync` read 4 `keep` and **39 `conflict`** — nothing in the tree had changed, only the knowledge of
 who wrote it. That is fixed: the record is additive now, and a re-`init` carries forward every line
 it did not write. It is still the wrong command for an upgrade, for the reason at the bottom of this
-page.
+page — with the single exception above, where the repository has no model and nothing else writes
+one.
 
 **The version in `construct.json` does not move, and that is deliberate.** `construct` records the
 version that materialized the repository and is frozen (ADR 0006); a `sync` adds a `sync` record
@@ -47,6 +61,40 @@ beside it with `fromVersion`, `toVersion`, `ranAt` and the hashes it wrote. So `
 *materialized by 0.1.0, read by 0.4.0* however many syncs run, which stays true. The number that
 moves is the count of pending paths beside it, and it reaches zero when there is nothing left to
 write.
+
+## The one upgrade that needs `init`
+
+A repository materialized before 0.5.0 carries no `construct.model.json`, and `sync` has never
+written one — so the file stays absent however many syncs run. You do not have to go looking for
+this: `doctor` reports it once and names what writes it.
+
+```
+Enforcement
+  There is no construct.model.json here: nothing was read, so nothing is known about what this
+  repository claims — which is not a reading that nothing is enforced.
+  One is written by `construct init`, which is additive and overwrites nothing it does not own.
+  Nothing forces you to have one.
+```
+
+So there is a fifth step, run once and only in that case:
+
+```bash
+npx mikoshi-construct@latest init            # only where doctor reports no construct.model.json
+```
+
+Two things make it safe, and both are worth knowing first. The record is additive, so the run
+carries forward every line it did not write ([decision
+0013](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0013-a-second-init-adds-to-the-record.md)).
+And a construct claim is written **only where its evidence holds on the tree it is written for**
+([decision
+0020](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0020-a-claim-is-written-only-where-its-evidence-holds.md)),
+so the run cannot invent enforcement your repository does not have: a claim whose facts do not match
+is not written at all, and `init` names each one it withheld and the evidence that failed.
+
+**Expect fewer claims than you may remember, not more.** Where the construct did not write the
+file a claim stands on — your own `ci.yml`, your own `security.yml` — that claim is not made. On a tree
+carrying both of those, four are withheld. The list is shorter **not because less is checked, but
+because less of it was pretending**, which is the same reading 0.5.0 shipped under.
 
 ## Why `sync` and not a second `init`
 
@@ -56,4 +104,5 @@ it, and prints what it carried over and every variable whose value changed ([dec
 It is still the wrong tool for an upgrade: `init` writes what it writes, reports what it skipped and
 stops, while `sync` compares the record against today's templates and tells you, path by path, what
 would change and why it may or may not touch it. Use `init` to bring the construct to a repository,
-and `sync` to move a repository that already has one.
+and `sync` to move a repository that already has one — and `init` once more, on a repository that
+predates `construct.model.json`, because `sync` has never written that file and never will.
