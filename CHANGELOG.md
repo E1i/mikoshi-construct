@@ -1,5 +1,97 @@
 # mikoshi-construct
 
+## 0.9.0
+
+### Minor Changes
+
+- [#95](https://github.com/E1i/mikoshi-construct/pull/95) [`905533b`](https://github.com/E1i/mikoshi-construct/commit/905533b95cd18a504bbd568188219fc5c979ad34) Thanks [@E1i](https://github.com/E1i)! - cli+templates: Every `construct cost` report names the version of the CLI that produced it — before
+  the numbers in the text register, as `version` in `--json` — and the `/implement` instructions now
+  require every figure in the closing usage line to name what measured it: the Workflow tool's own
+  accounting, or `construct cost` at the version that command reports. A whole session of published
+  cost figures came from a binary that reported `0.1.1` and, on inspection of the bundle itself,
+  predates the response-deduplication fix — while the sources they were quoted against are at `0.8.0`.
+  Nothing in any of those numbers said so, and the version the binary reports turned out not to be
+  enough on its own to place it. A hypothesis already records what tree it was read from; a cost figure
+  recorded nothing, and that asymmetry is what this closes.
+  
+  No figure changes: the arithmetic is untouched and pinned by a test, and the two counting methods
+  that are known to disagree remain unreconciled — while they are, provenance is what lets a reader see
+  which of them a number came from.
+
+- [#93](https://github.com/E1i/mikoshi-construct/pull/93) [`c727686`](https://github.com/E1i/mikoshi-construct/commit/c727686f287a6f5d6345a024bf476fda157a03d8) Thanks [@E1i](https://github.com/E1i)! - templates: A hypothesis records whether its own evidence was committed, not whether the tree was clean.
+  `baseClean` becomes `evidenceClean` and speaks only of the files the facts under that hypothesis name.
+  The first live discovery run on an adopted repository recorded `false` on every hypothesis and could
+  not have recorded anything else — `init` writes forty-two files into the repository it adopts before
+  discovery reads a line — so a required field had one reachable value and distinguished nothing. Scoped
+  to the evidence it answers both ways on that same path: a hypothesis standing on the repository's own
+  committed files reads `true`, one standing on a file `init` just wrote reads `false`. The discovery
+  protocol now carries the command that computes it, `git status --porcelain --` over the paths of that
+  hypothesis's facts, under the same compute-it-never-estimate-it instruction as the sha256 one-liners.
+  `doctor`'s annotation says the evidence under the hypothesis was not committed when it was read, which
+  is neither a doubt about the hypothesis nor a refutation of it. The schema is closed, so a model
+  written with `baseClean` is rejected by name rather than ignored; nothing in the wild carries a
+  hypothesis yet. The reasoning is in
+  [architecture/decisions/0018-evidence-clean-scopes-to-the-evidence.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0018-evidence-clean-scopes-to-the-evidence.md).
+
+- [#97](https://github.com/E1i/mikoshi-construct/pull/97) [`50f7978`](https://github.com/E1i/mikoshi-construct/commit/50f797816c2e29388a3f0bbd1391733a1ebb7c5b) Thanks [@E1i](https://github.com/E1i)! - cli: `construct.model.json` gets its third projection — a Mermaid picture, rendered through the same
+  mechanism that already renders `architecture/composition/*.yaml`. `pnpm model:render` writes the
+  graph into `architecture/model.md`, and `pnpm model:check` — wired into `pnpm run quality` — reports
+  the committed block as stale when the model moves without it. Claims and hypotheses are nodes, the
+  facts under them are nodes, and **a fact several entries stand on is drawn once with one edge from
+  each of them**: that fan-in is the shape a list cannot show and the reason the projection exists. A
+  claim's edges carry the stage they come from, so its two `supportedBy` lists stay apart.
+  
+  The renderer holds nothing of its own. Every state in it comes from `deriveModelState`, and the gate
+  that guards `doctor` is repeated here: a renderer that decides a state from the model — from how many
+  dependents a fact carries, from the level a claim declares — fails the test. A repository with no
+  `construct.model.json` renders a sentence saying so rather than an empty diagram, and a model that
+  parses and names nothing renders a different one: absence is a third reading, not emptiness.
+
+### Patch Changes
+
+- [#96](https://github.com/E1i/mikoshi-construct/pull/96) [`a9a4674`](https://github.com/E1i/mikoshi-construct/commit/a9a467428adfd994f98ae6a6f13874db52d2ce57) Thanks [@E1i](https://github.com/E1i)! - The documentation site stops at a version that no longer exists. `docs/release-notes/` carried three
+  hand-written pages and the `Releases` nav link pointed at 0.5.0, while the changelog had already
+  recorded nine more releases — the content existed and was simply never rendered, on the page a reader
+  lands on when the tool did not work for them.
+  
+  A generated index at `docs/release-notes/` now lists every version `CHANGELOG.md` carries, newest
+  first, rendered by `pnpm release-notes:render` and committed the way the composition diagrams are. A
+  release with a hand-written note — 0.5.0 and its upgrade sequence, which no changeset roll-up would
+  produce — is linked rather than repeated, so hand-written notes stay the better thing where a release
+  needs one.
+  
+  The floor is held by two tests rather than by remembering: one fails when the committed index drifts
+  from the changelog, the other reads the versions from `CHANGELOG.md` and the wiring from the real
+  VitePress config and fails in both directions — a version added to the changelog and wired nowhere,
+  and wiring removed for a version that exists.
+
+- [#99](https://github.com/E1i/mikoshi-construct/pull/99) [`fd8c76f`](https://github.com/E1i/mikoshi-construct/commit/fd8c76f5319bbffb8427e931e8e0ca4d2c58eaaf) Thanks [@E1i](https://github.com/E1i)! - templates: The discovery protocol's hypothesis step now tells the run to regenerate a rendered model
+  where the repository has one, the way its composition step already says to run `composition:render`.
+  Writing `construct.model.json` and leaving the artifact rendered from it behind turns the next harness
+  run red for a reason nobody connects to the step that caused it.
+  
+  Found by sweeping every gate over a generated artifact for all the writers of its source, after a gate
+  tested in both directions still shipped a release-blocking defect: both of its mutations had been
+  performed by one writer, and a second one — the version bot — wrote the source and called no renderer.
+
+- [#100](https://github.com/E1i/mikoshi-construct/pull/100) [`c103628`](https://github.com/E1i/mikoshi-construct/commit/c103628c801951822b2861822d83a2a0f74d7541) Thanks [@E1i](https://github.com/E1i)! - A test guarding the generated release index asserted `order[0]` was `0.8.0` — the newest version on
+  the day it was written. Every release moves that value, so the check failed on the release after it
+  shipped, for a reason that had nothing to do with what it was guarding. It now asserts the property it
+  meant: the list is in descending version order, with more than one entry and a guard against the
+  assertion holding vacuously.
+  
+  The same defect the repository keeps recording in other forms — a statement true of the present
+  standing in for the property — this time inside a test written to enforce a property.
+
+- [#98](https://github.com/E1i/mikoshi-construct/pull/98) [`c407022`](https://github.com/E1i/mikoshi-construct/commit/c40702233312bbacb1f42696dd25c91fb989d839) Thanks [@E1i](https://github.com/E1i)! - The release index is generated from `CHANGELOG.md`, and `changeset version` writes `CHANGELOG.md` —
+  so every version pull request bumped the changelog, left the generated page behind, and failed its own
+  harness on the gate added to keep that page current. The gate was right and the pipeline was missing a
+  step: `version-packages` now runs the renderer after `changeset version`, so the page is regenerated
+  by the same step that invalidates it.
+  
+  A test resolves the version script the release workflow names, follows it through `package.json`, and
+  fails when that chain no longer reaches the renderer — the state every release was in until now.
+
 ## 0.8.0
 
 ### Minor Changes
