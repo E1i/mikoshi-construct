@@ -53,6 +53,7 @@
     "privacy:check": "tsx scripts/privacy/check.ts",
     "quality": "pnpm composition:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test",
     "release": "pnpm build && changeset publish",
+    "release-notes:render": "tsx scripts/release-notes/sync-docs.ts",
     "release:verify": "tsx scripts/release/verify-published.ts",
     "test": "vitest run",
     "test:watch": "vitest",
