@@ -14,6 +14,9 @@ Rules:
   not a criterion; "GET /v1/things returns 200 with the `Thing` schema and the contract test passes" is.
 - A criterion is verified by what the task changes itself. If satisfying it needs an action outside the
   task, it belongs to that task, not this one.
+- Where a criterion can fail against the repository as it stands, show it failing before the change
+  is made. A criterion first run after the implementation cannot tell a change that worked from one
+  that was never needed.
 - Order tasks so the contract and composition changes come first, then implementation, then anything
   that consumes the new behaviour.
 - Classify each task `low`, `medium` or `high` with the rules in `architecture/principles.md`
