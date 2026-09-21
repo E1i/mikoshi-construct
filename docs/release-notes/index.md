@@ -1,0 +1,347 @@
+# Releases
+
+Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mikoshi-construct/blob/main/CHANGELOG.md).
+Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
+changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
+
+## 0.8.0
+
+### Minor Changes
+
+- [#89](https://github.com/E1i/mikoshi-construct/pull/89) [`dfd6598`](https://github.com/E1i/mikoshi-construct/commit/dfd6598df48eb29cb30bf6cbb3c346a538072e8a) Thanks [@E1i](https://github.com/E1i)! - templates: discovery writes hypotheses into `construct.model.json`. The protocol gains a step of its
+  own after the markers — not a reading of them: a marker is prose answering *what is where*, a
+  hypothesis is a structural record answering *what this is*, standing on the same two fact kinds and no
+  third, carrying the commit the run read from and whether that tree was clean. Everything it writes is
+  authored by `discovery`, so the next `init` leaves it alone. An interpretation those two fact kinds
+  cannot support stays prose in a marker, and one that looks as though it needs a third kind is recorded
+  as an open question rather than inventing a way of knowing. The step where the run records what it
+  wrote now names both addressees: provenance goes to `construct.json` and nowhere else, interpretation
+  to `construct.model.json` and nowhere else.
+  
+  The step is instructions to an agent, which nothing enforces — L0. What ships proven is that the
+  template materializes, that its worked example parses against the schema, and that a discovery-written
+  hypothesis survives a second `init` while the construct's own half is rewritten byte for byte. That
+  the netrunner actually comes back from the model with something written in it is shown by a live run
+  on a real repository, and that run has not happened yet.
+
+## 0.7.0
+
+### Minor Changes
+
+- [#86](https://github.com/E1i/mikoshi-construct/pull/86) [`cb99c0c`](https://github.com/E1i/mikoshi-construct/commit/cb99c0c25c779ab70a4c463b42f109decb080ba6) Thanks [@E1i](https://github.com/E1i)! - `doctor` reads back what the construct was taken to be. The result gains a knowledge-family
+  `hypotheses` field: one entry per hypothesis in `construct.model.json`, carrying its statement, the
+  base it was read from, and the state derived from the facts named under it — held, unsupported with
+  the paths that no longer match, or unknown. The two ways of being unknown stay apart on the wire and
+  in the report: a hypothesis whose facts could not be read says so and names them, and a hypothesis
+  with nothing named under it says that instead of reading like a reading that failed. An empty list
+  never passes for a repository that was looked at and found standing, and a hypothesis recorded
+  against a tree with uncommitted changes is reported as one.
+  
+  Two defects on the hypothesis path go with it: the derivation kept only the state and dropped the
+  reason, and it resolved with no facts in hand, so a fact that stopped holding was named by its id
+  instead of the path it points at.
+  
+  The rule that a reading may not be worded as a verdict now covers hypotheses as well as claims, and
+  lives in one place both read from rather than in the test beside one renderer. It matters more here
+  than it did for claims: `unsupported` on a claim is a statement about a mechanism, while on a
+  hypothesis it is a statement about what the repository is, so the false reading — *you are not that*
+  — sounds more confident than the true one, which is only that the ground under the interpretation
+  stopped matching. Both registers are held to it at the strings, because a rendered line in a test
+  resolves to the plain register whatever theme it asks for.
+
+## 0.6.0
+
+### Minor Changes
+
+- [#85](https://github.com/E1i/mikoshi-construct/pull/85) [`6e56f8a`](https://github.com/E1i/mikoshi-construct/commit/6e56f8aa669033b63c414cef975e9c46b2c5966a) Thanks [@E1i](https://github.com/E1i)! - A hypothesis now records the tree it was read from, not just the commit. Beside `baseSha`,
+  `construct.model.json` requires `baseClean`: whether the working tree the run began reading carried
+  no uncommitted change, before the run had written anything of its own. A construct that engrams an
+  interpretation off a dirty deck should say so on the record, so a SHA in the model can no longer
+  stand for bytes the interpretation was never formed from.
+  
+  Both fields are required and neither constrains the other — a repository with files and no commit is
+  `baseSha: null` with `baseClean: false`. `baseClean` is a claim discovery writes about its own run,
+  never a measurement anything can confirm later, and hypotheses carrying different bases coexist by
+  design: the base is how a fresh interpretation is told from a stale one.
+
+## 0.5.4
+
+### Patch Changes
+
+- [#81](https://github.com/E1i/mikoshi-construct/pull/81) [`5916b79`](https://github.com/E1i/mikoshi-construct/commit/5916b7906afe1b1e20a24fa34945d9b9ba09858c) Thanks [@E1i](https://github.com/E1i)! - The identifier scan classifies every JSON block in the documentation instead of selecting the ones it
+  recognises.
+  
+  Selection caught the set narrowing — rename a table heading and it failed — and was blind to a block
+  of a new shape never joining the scan at all. Nothing was missing, so nothing could be missed. A
+  `construct.model.json` example added to the guide would have gone unscanned in silence, and its claim
+  ids are exactly the identifiers at issue.
+  
+  Every block is now one of four kinds: a doctor result and a repository model, both scanned; a
+  manifest and a sync report, both deliberately not, because their keys belong to other vocabularies.
+  **A block of any other shape fails the test and is named.** Adding one forces a decision rather than
+  slipping past.
+  
+  A model block has its claim ids and `checkId`s read while its structural keys — `modelVersion`,
+  `facts` — are not treated as identifiers, so the second scanned kind needed no allowlist either.
+  
+  This is the same move as the field classification that admits a `mixed` value and the type that makes
+  an unclassified field a compile error: name the forbidden state so it can be prohibited, rather than
+  arranging for it not to arise.
+
+## 0.5.3
+
+### Patch Changes
+
+- [#78](https://github.com/E1i/mikoshi-construct/pull/78) [`62a317b`](https://github.com/E1i/mikoshi-construct/commit/62a317b0a25eba890cb1717dfc7077f21aebd97c) Thanks [@E1i](https://github.com/E1i)! - cli: When `red-gate`, `hook`, `construct-tests` and `weakestLink` left `doctor`, the documentation went
+  on naming them and nothing failed; a reader would have found out before the build did.
+  
+  The code now owns two lists instead of one. **Current** is derived and never written by hand — the
+  keys of `DOCTOR_FIELD_FAMILY` plus every claim id and check id the model builder produces. **Retired**
+  is the new exported list of identifiers this tool has published and no longer uses. Every identifier
+  the docs and templates name must sit in one of them, so a removal can be described freely while a name
+  in neither list fails the build. The two are asserted disjoint, which is the list's second and larger
+  job: a retired name may never come back meaning something else, or every past mention would
+  retroactively start saying something false.
+  
+  A mention is a token in code formatting — a key or an `id` value in a fenced JSON result, a
+  single-backticked cell in the tables that list fields and verdicts — never a word in prose. The English
+  word "hook" in the L2 level description is not an identifier, and a rule that flagged it would be
+  demanding edits that make the documentation worse.
+  
+  **What the scan deliberately does not read.** Only blocks whose shape is a doctor result, and the
+  field and verdict tables. The manifest and sync-report examples are left alone: their keys —
+  `manifestVersion`, `strategy`, `counts` — belong to other vocabularies and are in neither list, so
+  scanning them would have forced exactly the allowlist this design exists to avoid. A test states that
+  exclusion rather than leaving it to be inferred from a regex.
+  
+  The gap that leaves is tracked rather than merely named. The scan *selects* the blocks it reads, and
+  selection catches narrowing — a reworded heading fails — while being blind to a block of a new shape
+  never joining the set at all. Replacing the selection with a partition, so that every JSON block must
+  be classified and an unclassified one fails, is issue [#79](https://github.com/E1i/mikoshi-construct/issues/79).
+
+- [#77](https://github.com/E1i/mikoshi-construct/pull/77) [`8084a24`](https://github.com/E1i/mikoshi-construct/commit/8084a24e5265497f84053781bca6ce065b40903b) Thanks [@E1i](https://github.com/E1i)! - `What it refuses to claim` described a version that no longer exists, which is an uncomfortable thing
+  for a page about not overstating.
+  
+  It taught the old three states — `present`, `absent`, `unknown` — which were the check vocabulary
+  before verdicts became projections of the model. The states are `held`, `unsupported` and `unknown`
+  now, and the page gives each one the reading it is **not**: `held` is not *proven*, because the facts
+  under a claim are necessary and never sufficient; `unsupported` is not *not enforced*, because a
+  named fact stopped matching and the report says which; `unknown` is not *absent*.
+  
+  It also still said the harness question is "always `unknown`, because proving it means running it".
+  That verdict is gone. A blind spot is represented by a stated boundary now, not by a verdict
+  manufactured to fill the space — an answer nobody can act on is not a smaller finding than no answer,
+  it is a worse one, because it looks like a finding.
+  
+  The levels table carries the precondition every level above `L0` was already assuming: the mechanism
+  must be able to report a failure. And a new refusal joins the list — that a level it reports is
+  proven — with the note that whether a mechanism could fail at all is an open question rather than
+  something assumed either way.
+  
+  `getting-started` lists `construct.model.json` among the files a new repository gets, since it is
+  committed and a reader meets it in their tree on the first run.
+
+## 0.5.2
+
+### Patch Changes
+
+- [#75](https://github.com/E1i/mikoshi-construct/pull/75) [`1d04d5b`](https://github.com/E1i/mikoshi-construct/commit/1d04d5be2ca05567892832073583e72b6933e33b) Thanks [@E1i](https://github.com/E1i)! - The baseline fix in 0.5.1 repaired two things and only one was tested. Files compared against stale
+  `init` hashes were reported modified, which is what prompted the work; a path recorded **only** by
+  `sync` was never examined at all, which produced no symptom and so appeared in no test. It shipped
+  repaired and unheld, free to regress as quietly as it arrived.
+  
+  It is held now: a path the `init` record never contained is reported missing when it is deleted and
+  modified when it is edited. Reverting the fix fails all three cases.
+  
+  The case that asserts silence while the path matches passes under the defect as well, because never
+  looking is also silent. Only the cases demanding a positive report tell the two apart — which is why
+  they are the ones that matter here.
+
+## 0.5.1
+
+### Patch Changes
+
+- [#71](https://github.com/E1i/mikoshi-construct/pull/71) [`211da72`](https://github.com/E1i/mikoshi-construct/commit/211da72236db1817fe9f00c2721381a861311407) Thanks [@E1i](https://github.com/E1i)! - `doctor` compared every path against the frozen `init` record and ignored everything `sync` had
+  recorded since, so on any repository that has run `sync --apply` it reported the files sync had just
+  written as modified. Found on a real tree, not a fixture: seven fabricated entries sitting beside
+  nineteen genuine ones, with nothing in the output telling them apart, and one more added by every
+  future sync.
+  
+  `construct.json` holds two records on purpose — the `init` record is frozen by decision 0006, and the
+  sync record carries what has been written since. The latest recorded state for a path is the first
+  overlaid by the second, which is what `recordedShas` has always returned and what `sync` itself
+  reads. `doctor` simply did not use it. That was visible in the output before it was visible in the
+  code: `versionGap` reached the sync record through `replay` while `modifiedFiles` did not, one
+  sibling backed and the other bare.
+  
+  The same defect was in two more places. `uncollectedTests` looked for the runner config and
+  enumerated recorded test files in the init record alone, so anything sync added was invisible to it.
+  And `init` counted the records it carried over from an existing `construct.json` without the sync
+  half, under-reporting what it kept and over-reporting what it added.
+  
+  Three occurrences make it structural rather than a bug to fix again, so the shared boundary is now
+  enforced: reading `manifest.files` directly anywhere under `src/` fails lint, with `src/manifest.ts`
+  the single exemption, since it is the file that defines what the two records mean.
+
+- [#71](https://github.com/E1i/mikoshi-construct/pull/71) [`211da72`](https://github.com/E1i/mikoshi-construct/commit/211da72236db1817fe9f00c2721381a861311407) Thanks [@E1i](https://github.com/E1i)! - The model every repository gets from `init` claimed `vulnerable-dependencies-are-visible` at **L3**,
+  and the job behind it ships with `continue-on-error: true` in `templates/base`. A job with that flag
+  is marked successful even when its step fails, so the check is green whether or not a vulnerability
+  was found. The claim asserted a level the mechanism cannot reach, in the release that shipped the
+  model, in every repository materialized by it.
+  
+  The level is now `L0` and the mechanism says why: the audit runs on a schedule and on pull requests,
+  reports into the log, and can never fail a check, so nobody is obliged to act on it.
+  
+  The scale reads `L3` as "CI that does not block a merge", which superficially fits — but that wording
+  presumes a check able to report a failure at all, and distinguishes `L3` from `L4` by whether the
+  failure blocks. A check that is green in both worlds carries no information and sits below the scale.
+  
+  The mechanism was left as it is rather than made to fail. A dependency audit reads an external
+  advisory database, so making it block would fail on news rather than on the change, which is
+  presumably why the flag was set. Lowering the claim to the truth is the repair; raising the mechanism
+  is a separate question with its own costs.
+  
+  This is rule 8 applied to the tool itself — the presence of a command is not the level at which it is
+  enforced — and the first case where a claim was `held` on facts that were all true while the
+  mechanism it named could not fail. `supportedBy` gives necessary conditions, never sufficient ones.
+
+- [#73](https://github.com/E1i/mikoshi-construct/pull/73) [`73f4d54`](https://github.com/E1i/mikoshi-construct/commit/73f4d540c1e6ce89af5235171c52b37e69b74cd4) Thanks [@E1i](https://github.com/E1i)! - The enforcement scale now states the assumption every level above L0 was already making: the
+  mechanism must be able to **report a failure**.
+  
+  L3 read as "CI that does not block a merge", which literally describes a job carrying
+  `continue-on-error` — it is CI, and it does not block. The wording presumed a check capable of
+  failing and distinguished L3 from L4 by whether the failure blocks, without ever saying so. The
+  distinction between L0 and L3 is whether a failure can be raised at all, and that half was never
+  written down.
+  
+  A check that is green whether or not the invariant holds reports nothing and is L0, however much
+  machinery stands behind it.
+  
+  This is a precondition being written out, not scope being added: it is what the levels already
+  assumed, and exactly one record was affected by the gap — the dependency-audit claim corrected in
+  this same release. Writing it now, while that single case is known and already repaired, means the
+  sentence reclassifies nothing retroactively. Left for later it would silently move an unknown number
+  of past records, and nobody would be able to tell a clarification from a change of scope.
+
+## 0.5.0
+
+[0.5.0 — the tool stops asserting what it cannot show](/release-notes/0.5.0)
+
+## 0.4.0
+
+[0.4.0 — a number is worth what its counting method is worth](/release-notes/0.4.0)
+
+## 0.3.1
+
+### Patch Changes
+
+- [`0070441`](https://github.com/E1i/mikoshi-construct/commit/00704415b443b3a590b6cf9da32fe256951f2a9d) Thanks [@E1i](https://github.com/E1i)! - **A green release run now has to mean the version is installable.**
+  
+  Publishing 0.3.0 ended green — `Successfully published`, a git tag, a GitHub release — with nothing on
+  the registry. The version had gone into npm's staged-publish state, which a stage-only trusted
+  publisher produces by design and which no CI token can approve; the next run exposed it with `409
+  Cannot publish over previously staged version`. The pipeline had reported a success the world did not
+  contain.
+  
+  A separate `Release verification` workflow now asks the registry about the version in `package.json`
+  after every release, and can be re-run on its own once a human approves a staged version — re-running
+  the release itself would only publish again and fail on the 409.
+  
+  It answers with three outcomes rather than a boolean, because the rule this release is built on
+  applies to its own guards: `installable`, `absent`, and `unreachable` for a request that could not be
+  made. A network error is never read as a missing version. And when a version is `absent` the message
+  names both worlds it could mean — a staged publish awaiting approval, or a publish that failed while
+  reporting success — because CI cannot tell them apart and picking one would be the same defect again.
+
+- [#42](https://github.com/E1i/mikoshi-construct/pull/42) [`5b20037`](https://github.com/E1i/mikoshi-construct/commit/5b2003756b3396488bacad993c5fe4f0e03d1e92) Thanks [@E1i](https://github.com/E1i)! - **The documentation link comes first, where a reader on npm actually sees it.**
+  
+  The link to the site existed but sat below the install snippet and the version note, which on the npm
+  package page is under the fold. It is now the line directly beneath the description, with the four
+  destinations worth naming: the site, getting started, the development cycle and the CLI reference.
+  
+  A test keeps it that way and keeps it true: every `e1i.github.io` link in the README must resolve to a
+  page this repository builds, and the documentation must be named before the install snippet. The
+  README travels to npm, where nothing checks it and a dead link stays dead until the next release.
+
+## 0.3.0
+
+[0.3.0 — a claim is worth what its enforcement is worth](/release-notes/0.3.0)
+
+## 0.2.0
+
+### Minor Changes
+
+- [#13](https://github.com/E1i/mikoshi-construct/pull/13) [`04ba003`](https://github.com/E1i/mikoshi-construct/commit/04ba0036c3f556d25ae36b3e4c78ce2720b44bdb) Thanks [@E1i](https://github.com/E1i)! - `construct cost` stops reporting two different facts as one. A missing project directory meant both "this runtime does not expose per-run usage" and "nothing has been run here yet", and the command printed the more damning reading of the two — so a Cursor user was told nothing was recorded when the truth was that their runtime never records it. Behind a `CostSource` interface, the command now resolves the runtime it is actually running under and answers `ok`, `empty`, `unsupported`, `mismatch` or `unknown`, each with its own exit code and its own line. `--json` is an object carrying the status, the runtime and the project key that was looked up. A key that misses because the repository was reached through a worktree, a symlink or another path is named as such instead of being reported as absence, and where the evidence does not settle it the answer is `unknown` rather than a guess.
+
+- [#17](https://github.com/E1i/mikoshi-construct/pull/17) [`7e8ca83`](https://github.com/E1i/mikoshi-construct/commit/7e8ca83275f67c6362abc1d61d2cb7fffea0f561) Thanks [@E1i](https://github.com/E1i)! - Discovery fills the markers in `AGENTS.md` and the invariants table, and once filled nothing distinguished what the tool wrote from what the repository's owner stands behind. `construct.json` now records it: `discovery.baseSha`, `discovery.filledAt`, and per marker the file it lives in, who authored it and the sha256 of the body discovery wrote. The marker itself stays a document a person reads — provenance in the prose would spoil the document and would put the record in the one place most likely to be edited.
+  
+  Authorship by the owner is never declared, only derived: a marker whose body no longer matches its recorded sha reads as theirs, with no command to run and nothing written back. Editing it by hand is the only evidence needed. `doctor` names the markers that still read back, word for word, what the tool wrote — the places where the repository is quoting the construct at itself — and reports it without making it a gate or changing an exit code.
+  
+  `construct.json` also carries an integer `manifestVersion`, separate from `construct`, which is the CLI version; conflating a schema version with a product version is what makes a later migration undecidable. Manifests written by 0.1.x are normalised on read by a pure upgrade, so a repository initialised before this change gets a report instead of a crash. Their markers read as `unknown`, never as the construct's: a legacy manifest carries no provenance, and claiming otherwise would have this feature produce exactly the lie it exists to prevent.
+
+- [#12](https://github.com/E1i/mikoshi-construct/pull/12) [`39f8569`](https://github.com/E1i/mikoshi-construct/commit/39f8569b1e3ed1c85853e71358b253a9401f90b0) Thanks [@E1i](https://github.com/E1i)! - cli: `doctor` reports an enforcement level instead of matching substrings. Five checks — `lint-policy`, `construct-tests`, `ci`, `hook`, `red-gate` — each return `{id, level, state, evidence}`, with `level` from `L0` (text, or a command nobody is obliged to run) to `L3` (CI), `state` one of `present`, `absent` or `unknown`, and evidence naming the file or key that was read. The report ends with one line naming the weakest link: the lowest level among the gates the repository claims. `--json` gains `warnings`, `checks` and `weakestLink` after the fields it already emitted, which keep their names and meaning; the exit code is unchanged, so a low level is information, not a failure.
+  
+  `doctor` executes nothing from the repository it inspects — no child process, no dynamic import of a path inside it, no `require` into its `node_modules`, no call into its ESLint or Vitest APIs — because it is run through `npx` in a clone nobody has decided to trust yet, and a flat ESLint config is a module. The lint policy forbids those forms under `src/**` and `tests/dependency-policy.test.ts` lints one sample per form. Because branch protection lives in the GitHub API and not in a file, `doctor` never claims `L4`, `ci` is never `absent`, and the red gate is always `unknown` and says so.
+
+- [#15](https://github.com/E1i/mikoshi-construct/pull/15) [`26e449a`](https://github.com/E1i/mikoshi-construct/commit/26e449acbff3825c48e54a289356b7e7a06412b9) Thanks [@E1i](https://github.com/E1i)! - `construct cost` now reads the run ledger and reconciles it against what the runtime exposes, joining on the runtime's own run identifier — which the `/implement` skill step records from here on. Both directions are reported and counted: an entry whose run has no session, and a session with no entry. Neither is an error; they are the two ways a record and a reality drift apart, and seeing the drift is the point. Pairing entries to sessions by time is deliberately not done — that is a guess presented as a finding. Entries written before the key existed are counted as unjoinable, lines that do not parse or lack a declared field are reported with their line number and the exact field path, and a token value of `unknown` is never read as zero, because zero is a number and it would be a lie.
+  
+  The ledger's declared schema is what the writer can actually produce and no more: the workflow returns aggregate accounting for a run, never a row per agent, so no per-agent field is declared. Declaring a field nobody writes is the same defect as claiming an enforcement nobody performs. `docs/cli.md` says plainly that the ledger is written by a step of a skill and is therefore L0 — a record nobody is obliged to keep.
+
+- [#19](https://github.com/E1i/mikoshi-construct/pull/19) [`7664355`](https://github.com/E1i/mikoshi-construct/commit/76643555bd73f9da960bf4dbabd6208ba48af2b2) Thanks [@E1i](https://github.com/E1i)! - The lint policy checks never reached a real repository. They lived in each preset's `sample` group, and a sample is materialized only into an empty directory — so `init` against a repository that already has code, the case this tool exists for, wrote the policy and skipped the test that proves it fires. `doctor` had been reporting `lint-policy L0 absent` and was right. The tests now ship in `baseline`, and arrive whether the directory is empty or not.
+  
+  `node-frontend` declared three restrictions and shipped no test that any of them fires; it now has one, and the restrictions cover their class — a computed member reaches the same method, and binding an element's `classList` or `style` to a local name steps around a selector matched on the member expression. Reverting any of them to its narrow form fails the new tests.
+  
+  `node-library` is deliberately untouched and still reports `lint-policy L0 absent`. It declares no syntax policy — its groups are the base and the harness, and the harness config carries no restriction of the construct's — so `absent` is a true reading rather than a missing file, and `docs/cli.md` now says so where the check is documented. Manufacturing a policy so that a report turns green is the defect this tool exists to find.
+
+- [#7](https://github.com/E1i/mikoshi-construct/pull/7) [`f22bcdf`](https://github.com/E1i/mikoshi-construct/commit/f22bcdf9e2b2e62a7c68978c4e8bcc479e5bb218) Thanks [@E1i](https://github.com/E1i)! - The policies the presets ship were shape matches on one spelling each, and the same operation written another way walked past: `await import('@scope/shared')`, `const { env } = process`, `globalThis.process.env`, `const { body } = req`, and — worst of the set — ``sql.raw`select 1` ``, the tagged form that `NO_RAW_SQL`'s own message tells you to use. Each restriction in the monorepo and node-backend presets now covers its class, including binding `process` or `req` to a local name, while keeping every role's exemptions exactly as they were.
+  
+  The durable half is the test. `syntax-policy.test.ts` compared resolved selector strings against the same strings restated in the test — proof that a restriction is attached, never that it fires. Both presets now lint real source per role from a single per-role table: one sample per restricted form expecting a report, each role's exempt forms expecting none.
+  
+  Named limit: in the monorepo, a package that binds `process` to a local name and reads `.env` off it is still not reported. That restriction is env-specific by design, and widening it would change what the rule means rather than what it catches.
+
+### Patch Changes
+
+- [#8](https://github.com/E1i/mikoshi-construct/pull/8) [`7f07169`](https://github.com/E1i/mikoshi-construct/commit/7f07169ece912615b56fb8efe6ab8a9a915ffcbf) Thanks [@E1i](https://github.com/E1i)! - Acceptance now runs the artifact that actually ships. Each leg installs the packed tarball into a directory outside the repository and invokes the installed `construct` binary for `init` and `doctor`, instead of `node dist/cli.js` out of the working tree. That is what publishing exercises: externals tsup leaves out must resolve from the installed package's own dependencies, `files` must carry `templates/` or the first template read fails, and `bin` must point at the built entry — running from the workspace proves none of the three, which is why nine legs went red at once. A drift guard asserts no bare import under `src/` resolves to a devDependency; it is green today and stays that way on purpose.
+
+- [#18](https://github.com/E1i/mikoshi-construct/pull/18) [`045efca`](https://github.com/E1i/mikoshi-construct/commit/045efca3f098aa81080870eb4eb619f980a5a3af) Thanks [@E1i](https://github.com/E1i)! - The README's cost paragraph is rewritten from thirteen measured runs instead of three, and it now says something different. The old text argued that the reasoning class predicts the price. It does not: nine `medium` runs spanned 847k to 5.9M. What the measurements show is that almost the entire cost of a run is each agent's entry into the repository — a fresh exploration, paid in full before anything is produced and paid again by every agent that starts. Two `low` runs cost 557k and 740k with two agents each; two `high` runs cost 14.19M and 14.14M with three. The class decides how deep an entry goes; the ladder decides how many entries there are, which is the claim the tool should be making.
+
+- [#10](https://github.com/E1i/mikoshi-construct/pull/10) [`728efc7`](https://github.com/E1i/mikoshi-construct/commit/728efc738224845fc10bcb219ee05d7d01b109e2) Thanks [@E1i](https://github.com/E1i)! - Six fixtures for `doctor` under `tests/fixtures/doctor/`, written before the checks that will read them and asserting the wrong answer on purpose. Five repositories are objectively broken — an eslint config that never loads the construct policy, construct tests outside the runner's globs, a quality script that is red on a clean checkout, a quality script no workflow runs, a command with no hook to run it — and today `doctor` calls all five healthy. Each test says so in its title. A fixture written after the check can only confirm what the check already does; a fixture written first has to reproduce the lie. The expectations sit in one table keyed by the fixture directory, and a cross-check fails when a fixture has no row or a row has no fixture, so a check can never arrive without something that proves it can fail.
+
+- [#14](https://github.com/E1i/mikoshi-construct/pull/14) [`21b65d3`](https://github.com/E1i/mikoshi-construct/commit/21b65d3fe277e1b5ec9f52bbb43b04ecf52b177d) Thanks [@E1i](https://github.com/E1i)! - The ladder's output contract was declared twice and the duplicate was the weaker of the two. The runtime validates against a schema; the agent files then restated the same contract in prose and closed with a fenced JSON example, which reads to an agent as "format your answer as text that looks like this" — the likely cause of a run where five answers in a row came back invalid, and a contradiction of decision 0005, which this repository had already taken. The fenced block is gone from the agent files here and in the templates; what remains is a list of the fields and what each one means. Alongside it: a schema-rejected response now retries with the validator's complaint in the prompt instead of a bare "the previous attempt failed", the retry limit is a parameter rather than a literal, and every failed attempt is recorded with a reason that tells a bad shape apart from a red harness and from a blocked report.
+
+- [#5](https://github.com/E1i/mikoshi-construct/pull/5) [`3116836`](https://github.com/E1i/mikoshi-construct/commit/31168365a71acf32a70c7f3c2d32711540f00927) Thanks [@E1i](https://github.com/E1i)! - Black ICE on the package boundary: `pnpm run quality` now runs a privacy guard over `templates/`, `docs/` and `README.md`. Domains are permitted by an explicit allowlist — a denylist in a public repository names the very thing it hides — and any host in a URL or an email address is checked whatever its top-level domain. Home directory paths (`/Users/<name>`, `/home/<name>`, `~/<name>`) are refused outright, one such path is gone from the sample transcript in `docs/cli.md`, and a test asserts the published file list carries nothing under `.construct/`, `findings/` or `runs/`.
+
+- [#16](https://github.com/E1i/mikoshi-construct/pull/16) [`27cf209`](https://github.com/E1i/mikoshi-construct/commit/27cf209d6d4cd6331b6a3faaac67e7ccc2712fd5) Thanks [@E1i](https://github.com/E1i)! - The ladder no longer re-asks an agent whose response the schema rejected: `retryLimit` defaults to `0`, and the run stops with the validator's error where a person can read it. This default has a measured price tag, which is rarer than it should be.
+  
+  A run was killed when the architect failed structured-output validation five times and hit the runtime's own retry cap. Re-running the identical task after the duplicated output contract was removed produced a valid spec on the first attempt. Comparing the two: the failed architect cost 3,658,281 billable tokens for nothing, the successful one 3,118,576 — so the four extra schema attempts inside a single call were worth about 135k each, not the millions they looked like. That cap belongs to the runtime and is not ours to set.
+  
+  What *is* ours is `retryLimit`, and it counts whole additional agent calls. Each one repeats the agent's exploration of the repository from scratch — about three million tokens for an architect — and it cannot fix a contradiction in the brief, because the agent is not allowed to change the brief. The first attempt already carries the runtime's five internal tries; a second full call buys a rerun of the same misunderstanding at a thousand times the price of one schema retry. Stopping and showing a human the validator's complaint costs nothing and took about a minute to act on when it happened.
+
+- [#9](https://github.com/E1i/mikoshi-construct/pull/9) [`51921a5`](https://github.com/E1i/mikoshi-construct/commit/51921a56ed2700f928d0b8f45b50a38ef653cc5a) Thanks [@E1i](https://github.com/E1i)! - Two claims that were made but never checked are now tests. Materialization is deterministic: for every preset and every AI target, two `init` runs into empty directories with fully pinned variables produce identical file lists and identical hashes, so a future template that reaches for a `Date`, an unordered `Set` or an unsorted walk fails the gate instead of shipping. And the claim that this repository runs on its own construct is now a replay compared against the repository root, with every difference declared in `architecture/self-hosting-drift.yaml` with a reason — ten of them, measured, not assumed — failing in both directions so the list cannot rot into decoration.
+  
+  Deliberately not done: the replay is never compared against the sha256 map in `construct.json`. That manifest was written by 0.1.0; comparing today's templates to it compares two versions and calls the result reproducibility. Decision 0006 freezes what `init` wrote and scopes the freeze to that branch only, since provenance will write the discovery branch later. The boundary is stated in the test itself: what reproduces is materialization; discovery does not, and pretending otherwise would be the defect this work exists to catch.
+
+- [#6](https://github.com/E1i/mikoshi-construct/pull/6) [`7cbf62d`](https://github.com/E1i/mikoshi-construct/commit/7cbf62d888f360c124accafe02a55369c09dd86d) Thanks [@E1i](https://github.com/E1i)! - The ICE was painted on, not wired: the invariant "the CLI spawns exactly one child process" was enforced by a single selector matching a static `import` of `node:child_process`, so `await import('node:child_process')` and `createRequire(target)('eslint')` walked straight through. The `spawnPolicy` block now fails the build on the whole class — any dynamic `import()` whatever its specifier, `require` calls and `require.*` access, `node:module` and `createRequire` — anywhere under `src/` except the pnpm version probe, and `tests/dependency-policy.test.ts` lints one real source sample per form instead of comparing selector strings. The invariants table now names the mechanism rather than the word `lint`.
+
+## 0.1.3
+
+### Patch Changes
+
+- [#3](https://github.com/E1i/mikoshi-construct/pull/3) [`b3051b6`](https://github.com/E1i/mikoshi-construct/commit/b3051b6981139a9972b938126bcc464ce7a05b2c) Thanks [@E1i](https://github.com/E1i)! - cli: a `pnpm-workspace.yaml` or `workspaces` field counts as a monorepo only when it lists packages.
+  Since pnpm 10 that file also carries settings such as `minimumReleaseAge` and `allowBuilds`, and the
+  construct ships one in every preset, so a generated single-package project reported itself as a
+  monorepo and a second `init` suggested the wrong preset.
+
+## 0.1.2
+
+### Patch Changes
+
+- [`1cf5709`](https://github.com/E1i/mikoshi-construct/commit/1cf57095fd314087a11ec537bd4da298df09f68f) Thanks [@E1i](https://github.com/E1i)! - cli: document the commands. The README now opens with a real first run and a Usage section covering a
+  new project, an existing repository, agent targets and the read-only commands; docs/cli.md is the
+  full reference with every flag, worked examples and exit codes.
+
+## 0.1.1
+
+### Patch Changes
+
+- [`b34f3a8`](https://github.com/E1i/mikoshi-construct/commit/b34f3a89a489764e8272e1a34d252ff36ad202f2) Thanks [@E1i](https://github.com/E1i)! - templates: gitleaks allowlists construct.json

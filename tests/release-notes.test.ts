@@ -1,0 +1,86 @@
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
+import config from '../docs/.vitepress/config.js'
+import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog } from '../scripts/release-notes/changelog.js'
+import { renderIndex } from '../scripts/release-notes/render.js'
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '..')
+const CHANGELOG = readFileSync(CHANGELOG_PATH, 'utf8')
+
+interface NavItem {
+  link?: string
+  items?: NavItem[]
+}
+
+function links(items: NavItem[]): string[] {
+  return items.flatMap(item => [...(item.link == null ? [] : [item.link]), ...links(item.items ?? [])])
+}
+
+function wiredLinks(): string[] {
+  const theme = config.themeConfig as { nav?: NavItem[], sidebar?: NavItem[] }
+  return [...links(theme.nav ?? []), ...links(theme.sidebar ?? [])]
+}
+
+function pageSource(link: string): string | null {
+  const file = path.join(REPO_ROOT, 'docs', link.endsWith('/') ? `${link}index.md` : `${link}.md`)
+  return existsSync(file) ? readFileSync(file, 'utf8') : null
+}
+
+function versionsOn(link: string): string[] {
+  const source = pageSource(link)
+  if (source == null)
+    return []
+  const own = /\/release-notes\/(\d+\.\d+\.\d+)$/.exec(link)
+  const headings = [...source.matchAll(/^#{1,2} (\d+\.\d+\.\d+)\b/gm)].map(match => match[1])
+  return [...(own == null ? [] : [own[1]]), ...headings]
+}
+
+function unreachableVersions(versions: string[], wired: string[]): string[] {
+  const reachable = new Set(wired.flatMap(link => versionsOn(link)))
+  return versions.filter(version => !reachable.has(version))
+}
+
+describe('every released version is reachable from the documentation site', () => {
+  const versions = parseChangelog(CHANGELOG).map(entry => entry.version)
+
+  it('reads more than one version out of the changelog, so an empty list cannot pass for a site that carries them all', () => {
+    expect(versions.length).toBeGreaterThan(5)
+    expect(versions).toContain('0.8.0')
+  })
+
+  it('finds every version the changelog carries on a page the nav or the sidebar links', () => {
+    expect(unreachableVersions(versions, wiredLinks())).toEqual([])
+  })
+
+  it('goes red for a version added to the changelog and wired nowhere', () => {
+    expect(unreachableVersions([...versions, '9.9.9'], wiredLinks())).toEqual(['9.9.9'])
+  })
+
+  it('goes red when the wiring for an existing version is removed', () => {
+    const withoutIndex = wiredLinks().filter(link => link !== '/release-notes/')
+    expect(unreachableVersions(versions, withoutIndex)).toContain('0.8.0')
+    expect(unreachableVersions(versions, withoutIndex)).not.toContain('0.5.0')
+    const withoutPage = withoutIndex.filter(link => link !== '/release-notes/0.5.0')
+    expect(unreachableVersions(versions, withoutPage)).toContain('0.5.0')
+  })
+})
+
+describe('the release index is rendered from the changelog, not maintained by hand', () => {
+  it('matches what the renderer produces from the current changelog, so a release landing without regeneration fails', () => {
+    expect(readFileSync(INDEX_PATH, 'utf8')).toBe(renderIndex(parseChangelog(CHANGELOG), handWrittenNotes()))
+  })
+
+  it('links a version with a hand-written note instead of repeating it, and carries the changelog entry for the rest', () => {
+    const rendered = renderIndex(parseChangelog(CHANGELOG), handWrittenNotes())
+    expect(rendered).toContain('](/release-notes/0.5.0)')
+    expect(rendered).not.toContain('If you are upgrading, do this first')
+    expect(rendered).toContain('## 0.8.0')
+  })
+
+  it('lists the versions newest first, in the order the changelog carries them', () => {
+    const order = [...renderIndex(parseChangelog(CHANGELOG), handWrittenNotes()).matchAll(/^## (\d+\.\d+\.\d+)$/gm)].map(match => match[1])
+    expect(order).toEqual(parseChangelog(CHANGELOG).map(entry => entry.version))
+    expect(order[0]).toBe('0.8.0')
+  })
+})
