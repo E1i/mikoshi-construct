@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR } from './detect/existing.js'
+import { RecordAheadOfReader } from './record-ahead.js'
 
 export const MANIFEST_FILE = 'construct.json'
 export const MANIFEST_VERSION = 5
@@ -168,18 +169,6 @@ function upgradeSync(raw: unknown): SyncRecord | null {
   }
 }
 
-export class ManifestAheadOfReader extends Error {
-  readonly found: number
-  readonly understood: number
-
-  constructor(found: number) {
-    super(`${MANIFEST_FILE} declares manifestVersion ${found}; this binary understands ${MANIFEST_VERSION}`)
-    this.name = 'ManifestAheadOfReader'
-    this.found = found
-    this.understood = MANIFEST_VERSION
-  }
-}
-
 function declaredVersion(raw: unknown): number {
   const value = (raw as { manifestVersion?: unknown }).manifestVersion
   return typeof value === 'number' && Number.isInteger(value) ? value : 0
@@ -188,7 +177,7 @@ function declaredVersion(raw: unknown): number {
 export function upgradeManifest(raw: unknown): Manifest {
   const declared = declaredVersion(raw)
   if (declared > MANIFEST_VERSION)
-    throw new ManifestAheadOfReader(declared)
+    throw new RecordAheadOfReader(MANIFEST_FILE, 'manifestVersion', declared, MANIFEST_VERSION)
   const manifest = raw as Manifest
   const discovery = (manifest.discovery ?? {}) as Partial<DiscoveryRecord> & Record<string, unknown>
   const recorded = (discovery.markers ?? discovery) as Record<string, unknown>

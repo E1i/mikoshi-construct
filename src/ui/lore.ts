@@ -104,7 +104,7 @@ export interface Lore {
   policyGainedKeys: (added: { dir: string, allowed: string[] }[]) => string
   recordFactsRetained: (facts: string[], entries: string[]) => string
   recordClaimNotBorn: (claimId: string, doesNotHold: readonly [string, ...string[]]) => string
-  manifestAhead: (found: number, understood: number) => string
+  recordAhead: (record: string, field: string, found: number, understood: number) => string
   modelIsWrittenByInit: string
   graphPageWritten: (target: string) => string
   notCarried: string
@@ -233,7 +233,7 @@ export const LORE: Lore = {
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => `ENGRAM REWRITTEN: this run changed ${changed.map(entry => `${entry.name} (${entry.from} \u2192 ${entry.to})`).join(', ')} in the record; the recorded hashes were taken with the old value${changed.length === 1 ? '' : 's'}.`,
   recordFactsRetained: (facts: string[], entries: string[]) => `ENGRAM HELD: ${facts.length} construct-authored fact${facts.length === 1 ? '' : 's'} this preset no longer makes ${facts.length === 1 ? 'was' : 'were'} kept, because ${entries.join(', ')} still ${entries.length === 1 ? 'stands' : 'stand'} on ${facts.length === 1 ? 'it' : 'them'}.`,
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `ENGRAM WITHHELD: ${claimId} was not recorded \u2014 ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
-  manifestAhead: (found: number, understood: number) => `RELIC FROM A LATER BUILD: construct.json declares manifestVersion ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
+  recordAhead: (record: string, field: string, found: number, understood: number) => `RELIC FROM A LATER BUILD: ${record} declares ${field} ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
@@ -354,7 +354,7 @@ export const PLAIN_LORE: Lore = {
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => `This run changed ${changed.map(entry => `${entry.name} (${entry.from} -> ${entry.to})`).join(', ')} in the record; the recorded hashes were taken with the old value${changed.length === 1 ? '' : 's'}.`,
   recordFactsRetained: (facts: string[], entries: string[]) => `Kept ${facts.length} construct-authored fact${facts.length === 1 ? '' : 's'} this preset no longer makes, because ${entries.join(', ')} still ${entries.length === 1 ? 'stands' : 'stand'} on ${facts.length === 1 ? 'it' : 'them'}.`,
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `Did not record the claim ${claimId}: ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
-  manifestAhead: (found: number, understood: number) => `construct.json declares manifestVersion ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
+  recordAhead: (record: string, field: string, found: number, understood: number) => `${record} declares ${field} ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',

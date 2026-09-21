@@ -1,9 +1,9 @@
 import type { Ui } from './ui/console.js'
-import { ManifestAheadOfReader } from './manifest.js'
+import { RecordAheadOfReader } from './record-ahead.js'
 
 export function flatlineFor(ui: Ui, error: unknown): void {
-  if (error instanceof ManifestAheadOfReader)
-    ui.flatline(ui.lore.manifestAhead(error.found, error.understood))
+  if (error instanceof RecordAheadOfReader)
+    ui.flatline(ui.lore.recordAhead(error.record, error.field, error.found, error.understood))
   else
     ui.flatline(error instanceof Error ? error.message : String(error))
 }
