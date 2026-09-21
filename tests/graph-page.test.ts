@@ -11,6 +11,7 @@ import { COLOUR_IS_NOT_STRENGTH, svgFromGraph } from '../src/model/svg.js'
 import { writeModel } from '../src/model/write.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
+const CLI_DOC = path.resolve(REPO_ROOT, 'docs/cli.md')
 
 const THREE_STATES: RepositoryModel = {
   modelVersion: MODEL_VERSION,
@@ -143,6 +144,12 @@ describe('the page a person opens', () => {
 
     expect(page).toContain(COLOUR_IS_NOT_STRENGTH)
     expect(page.indexOf(COLOUR_IS_NOT_STRENGTH)).toBeGreaterThan(page.indexOf('class="legend"'))
+  })
+
+  it('is repeated in the CLI reference from the same constant, so the page and the document cannot drift', () => {
+    const prose = readFileSync(CLI_DOC, 'utf8').replaceAll(/\s+/g, ' ')
+
+    expect(prose).toContain(COLOUR_IS_NOT_STRENGTH.replaceAll(/\s+/g, ' '))
   })
 
   it('still has more than one enforcement level to confuse, so the sentence is still earned here', () => {
