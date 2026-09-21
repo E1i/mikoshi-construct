@@ -67,8 +67,19 @@ on its own.
 **The interaction — and only if the picture is used.** Clicking, filtering, drill-down and history
 carry no enforcement value; they must earn their place on top of a model people already read.
 
-Discovery grows in parallel and is not part of this sequence: it writes better hypotheses into the
-model over time, under [decision 0015](0015-interpretation-stays-with-the-agent.md).
+Discovery is not part of this sequence and has one step of its own. **The discovery protocol writes
+hypotheses into the model**, as its own step after the markers rather than as a reading of them: the
+markers are prose answering *what is where*, a hypothesis is a structural record answering *what this
+is*, standing on the same two fact kinds and no third, under
+[decision 0015](0015-interpretation-stays-with-the-agent.md).
+
+The step is prose an agent may or may not follow, so its level is **L0**. The change that added it
+proves three things and no more: that the step materializes with the rest of the protocol, that the
+worked example in it parses against the schema with every entry authored by `discovery`, and that a
+discovery-authored hypothesis survives the next `init` while the construct-authored half is rewritten
+byte for byte. That discovery in fact writes a hypothesis into a real repository's model is shown only
+by a live run on one, which is separate work and has not been done. Nothing here demonstrates the
+capability, and nothing enforces it.
 
 ## Consequences
 
