@@ -605,6 +605,30 @@ of which carries no run id at all and therefore cannot be joined to any measurem
 a bounded task — identify the run, read its deduplicated total — and not one that may be done by
 multiplying.
 
+**A figure derived from prices cannot be corrected by any single factor.** The inflation is not
+uniform across token classes, and the spread is wide:
+
+| Class | Pre-deduplication | Deduplicated | Factor |
+|---|---|---|---|
+| input | 5,068 | 2,448 | 2.0703 |
+| cache write | 10,589,790 | 4,265,051 | 2.4829 |
+| cache read | 137,905,764 | 72,343,960 | 1.9063 |
+| output | 1,259,755 | 137,205 | **9.1816** |
+
+Output was counted **more than nine times over**, because a response split across many content blocks
+contributed its output once per block, and output is the class that costs the most per token. So a
+money figure built from classes at prices is inflated far more than the billable factor of 1.9513
+suggests, and by a different amount again than the input-equivalent factor of 2.5148. **The most-cited
+figure from this corpus — a cost of a little over two hundred dollars — must therefore be recomputed
+from the deduplicated class totals above at the prices it used, not divided by anything.** A related
+gap surfaces in the attempt: the prices that figure was computed with were never recorded beside it,
+which is the same absent provenance one level up from the instrument.
+
+**The missed file is a symptom-driven repair covering the symptom's population.** The commit that
+corrected the published figures fixed the places it had been shown, and its subject line — *correct
+every figure that defect published* — reads as exhaustive. It was not, and `0011` is what it did not
+happen to be looking at.
+
 **Boundary.** Two corpora, both measured at one moment with two instruments over identical identifier
 sets. Nothing here establishes a factor for any third corpus, and the reconciliation's exactness is
 evidence about these token streams rather than about the counting of token streams in general.
