@@ -78,6 +78,7 @@ export interface Lore {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => string
   ledgerEntryWithoutSession: string
   ledgerSessionWithoutEntry: string
+  graphNothingDrawn: (reading: string) => string
   syncTitle: string
   syncClasses: string
   syncClassMeaning: Record<string, string>
@@ -179,6 +180,7 @@ export const LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the traces it claims: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
+  graphNothingDrawn: (reading: string) => `NO SIGNAL: ${reading}`,
   syncTitle: 'BRAINDANCE \u2014 ENGRAM REPLAY',
   syncClasses: 'PATH CLASSES',
   syncClassMeaning: {
@@ -287,6 +289,7 @@ export const PLAIN_LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the runtime: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
+  graphNothingDrawn: (reading: string) => reading,
   syncTitle: 'Sync report',
   syncClasses: 'Classes',
   syncClassMeaning: {

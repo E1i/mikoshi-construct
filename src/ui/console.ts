@@ -22,6 +22,10 @@ export const stdoutWriter: Writer = (text) => {
   process.stdout.write(text)
 }
 
+export const stderrWriter: Writer = (text) => {
+  process.stderr.write(text)
+}
+
 export const silentWriter: Writer = () => {}
 
 export function createUi(theme: Theme, write: Writer = stdoutWriter): Ui {

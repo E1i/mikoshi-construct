@@ -855,6 +855,43 @@ because `0` is a number and it would be a lie.
 | `unknown` | `1` | Sibling keys look like this repository without settling it; the report says so rather than guessing. |
 | `unsupported` | `3` | This runtime does not expose per-run token usage. |
 
+## construct graph
+
+Draws `construct.model.json` — every claim, every hypothesis and the files each one stands on — as a
+Mermaid flowchart on **stdout**, so it pipes:
+
+```bash
+npx mikoshi-construct graph > model.mmd
+```
+
+It takes no options of its own beyond [the common ones](#options-every-command-takes). It writes no
+file: the Mermaid is already the machine-readable artifact, so there is no `--json` and no
+`--output`.
+
+The states in the labels are the ones `doctor` reports, derived on read by the same code and stored
+nowhere. A claim carries its declared enforcement level and the state of each stage, a hypothesis
+carries its state, and a fact carries whether it holds where it was read. A fact several entries
+stand on is drawn once, with one edge from each of them. `held` is not proof that the level is right,
+`unsupported` says the named evidence no longer matches and nothing more, and `unknown` says nothing
+was read.
+
+Three readings, and only the first draws anything:
+
+| Reading | Where it goes | Exit |
+|---|---|---|
+| The model carries entries | the diagram, on stdout | `0` |
+| `construct.model.json` is here and names no fact, claim or hypothesis | a line on stderr, nothing on stdout | `0` |
+| There is no `construct.model.json` here | a line on stderr, nothing on stdout | `0` |
+
+Absence is not obstruction, so all three exit `0`, and the two messages go to stderr rather than into
+the diagram: `construct graph > picture.mmd` on a repository with no model leaves an empty file and
+says why on the terminal, never prose inside the file.
+
+This repository renders its own picture into
+[architecture/model.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/model.md)
+through the same function the command calls, so the committed block and the command agree by
+construction.
+
 ## Exit codes
 
 | Code | Meaning |

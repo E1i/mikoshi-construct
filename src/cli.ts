@@ -4,12 +4,13 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
+import { modelPicture, printGraph } from './commands/graph.js'
 import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
 import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
-import { createUi } from './ui/console.js'
+import { createUi, stderrWriter, stdoutWriter } from './ui/console.js'
 import { createClackPrompter } from './ui/prompts.js'
 import { resolveTheme } from './ui/theme.js'
 import { VERSION } from './version.js'
@@ -20,8 +21,8 @@ const commonArgs = {
   johnny: { type: 'boolean', description: 'Wake up, Netrunner.', default: false },
 } as const
 
-function ui(args: { plain: boolean, johnny: boolean }) {
-  return createUi(resolveTheme({ plain: args.plain, johnny: args.johnny }))
+function ui(args: { plain: boolean, johnny: boolean }, write = stdoutWriter) {
+  return createUi(resolveTheme({ plain: args.plain, johnny: args.johnny }), write)
 }
 
 const init = defineCommand({
@@ -107,6 +108,14 @@ const cost = defineCommand({
   },
 })
 
+const graph = defineCommand({
+  meta: { name: 'graph', description: 'Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout' },
+  args: { ...commonArgs },
+  run({ args }) {
+    process.exitCode = printGraph(ui(args, stderrWriter), modelPicture(args.dir), stdoutWriter)
+  },
+})
+
 const sync = defineCommand({
   meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; --apply writes what it owns' },
   args: {
@@ -157,6 +166,7 @@ const main = defineCommand({
     doctor,
     sync,
     cost,
+    graph,
   },
 })
 
