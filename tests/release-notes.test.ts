@@ -17,6 +17,11 @@ function links(items: NavItem[]): string[] {
   return items.flatMap(item => [...(item.link == null ? [] : [item.link]), ...links(item.items ?? [])])
 }
 
+function newestFirst(left: string, right: string): number {
+  const [a, b] = [left, right].map(version => version.split('.').map(Number))
+  return (b[0] - a[0]) || (b[1] - a[1]) || (b[2] - a[2])
+}
+
 function wiredLinks(): string[] {
   const theme = config.themeConfig as { nav?: NavItem[], sidebar?: NavItem[] }
   return [...links(theme.nav ?? []), ...links(theme.sidebar ?? [])]
@@ -81,7 +86,9 @@ describe('the release index is rendered from the changelog, not maintained by ha
   it('lists the versions newest first, in the order the changelog carries them', () => {
     const order = [...renderIndex(parseChangelog(CHANGELOG), handWrittenNotes()).matchAll(/^## (\d+\.\d+\.\d+)$/gm)].map(match => match[1])
     expect(order).toEqual(parseChangelog(CHANGELOG).map(entry => entry.version))
-    expect(order[0]).toBe('0.8.0')
+    expect(order.length).toBeGreaterThan(1)
+    expect(order).toEqual([...order].sort(newestFirst))
+    expect([...order].sort(newestFirst)).not.toEqual([...order].reverse())
   })
 })
 
