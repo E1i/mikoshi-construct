@@ -792,9 +792,14 @@ target in `construct.json` — and only then asked for its usage. A runtime whos
 readable (Cursor, for instance, which keeps no such session files) is reported as `unsupported`,
 never as an absence of runs.
 
+Every report names the version of the CLI that produced it, before the numbers in the text register
+and as `version` in `--json`. Two builds of `construct` can count the same session differently, so a
+figure quoted without the version of the binary that measured it says nothing about what was counted.
+
 `--json` prints one object: `status` (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
-`runtime` (`claude-code` or `cursor`), `key` and `candidates` where the project key is in question,
-`runs` when there are any, and `ledger` and `reconciliation` as described below.
+`runtime` (`claude-code` or `cursor`), `version` (the CLI that produced the report), `key` and
+`candidates` where the project key is in question, `runs` when there are any, and `ledger` and
+`reconciliation` as described below.
 
 ### The run ledger
 

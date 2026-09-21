@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { billable, COST_EXIT, costJson, costReport, printCost, projectKey, readLedger, weighted } from '../src/commands/cost/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { VERSION } from '../src/version.js'
+import { IN_UNIVERSE } from './lore-vocabulary.js'
 
 function line(model: string, usage: Record<string, number>): string {
   return `${JSON.stringify({ message: { role: 'assistant', model, usage } })}\n`
@@ -27,9 +29,9 @@ function recordRun(projects: string, cwd: string): string {
   return run
 }
 
-function printed(report: Parameters<typeof printCost>[1]): { exit: number, text: string } {
+function printed(report: Parameters<typeof printCost>[1], theme: Parameters<typeof resolveTheme>[0] = { plain: true }): { exit: number, text: string } {
   const lines: string[] = []
-  const exit = printCost(createUi(resolveTheme({ plain: true }), text => lines.push(text)), report, false)
+  const exit = printCost(createUi(resolveTheme(theme), text => lines.push(text)), report, false)
   return { exit, text: lines.join('') }
 }
 
@@ -97,8 +99,8 @@ describe('construct cost', () => {
 
   it('reports a runtime that does not expose per-run usage as unsupported, not as absence', () => {
     const report = costReport(workspace(), { projectsDir: projectsRoot(), env: CURSOR_ENV })
-    expect(report).toEqual({ status: 'unsupported', runtime: 'cursor' })
-    expect(costJson(report, false)).toEqual({ status: 'unsupported', runtime: 'cursor' })
+    expect(report).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION })
+    expect(costJson(report, false)).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION })
     const { exit, text } = printed(report)
     expect(exit).toBe(COST_EXIT.unsupported)
     expect(exit).not.toBe(COST_EXIT.ok)
@@ -110,7 +112,7 @@ describe('construct cost', () => {
   it('reports a runtime whose usage store is absent as unsupported', () => {
     const projects = path.join(projectsRoot(), 'never-written')
     const report = costReport(workspace(), { projectsDir: projects, env: CLAUDE_CODE_ENV })
-    expect(report).toEqual({ status: 'unsupported', runtime: 'claude-code' })
+    expect(report).toEqual({ status: 'unsupported', runtime: 'claude-code', version: VERSION })
   })
 
   it('names the key it looked up when the runs were recorded under the path the directory resolves to', () => {
@@ -343,5 +345,60 @@ describe('one response is one response, however many blocks the journal splits i
     const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(2)
     expect(billable(recorded.total)).toBe(20)
+  })
+})
+
+describe('a figure names the tool that produced it', () => {
+  it('carries the running CLI version in the report and in --json, read from the version module', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/demo'
+    recordRun(projects, cwd)
+
+    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(report.version).toBe(VERSION)
+    expect(costJson(report, false)).toMatchObject({ version: VERSION })
+    expect(costJson(report, true)).toMatchObject({ version: VERSION })
+  })
+
+  it('prints the version in both registers, before the numbers', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/demo'
+    recordRun(projects, cwd)
+    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+
+    for (const theme of [{ plain: true }, { plain: false }]) {
+      const { text } = printed(report, theme)
+      expect(text, JSON.stringify(theme)).toContain(VERSION)
+      expect(text.indexOf(VERSION), JSON.stringify(theme)).toBeLessThan(text.indexOf('billable tokens'))
+    }
+  })
+
+  it('names the tool even when there are no numbers to name it for', () => {
+    const report = costReport(workspace(), { projectsDir: projectsRoot(), env: CURSOR_ENV })
+    expect(printed(report).text).toContain(VERSION)
+  })
+
+  it('carries no emoji and no lore vocabulary with --plain', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/demo'
+    recordRun(projects, cwd)
+    const { text } = printed(costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }))
+
+    expect(text).not.toMatch(/\p{Extended_Pictographic}/u)
+    for (const word of IN_UNIVERSE)
+      expect(text.toUpperCase()).not.toContain(word.toUpperCase())
+  })
+
+  it('pins the computed totals to catch a drift, never asserting they are the right numbers: two counting methods disagree and are not yet reconciled, so this is a movement detector and not a source of truth', () => {
+    const projects = projectsRoot()
+    const cwd = '/Users/someone/projects/demo'
+    recordRun(projects, cwd)
+
+    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const [only] = report.runs!
+    expect(only.total).toMatchObject({ calls: 3, input: 130, cacheWrite: 0, cacheRead: 400, output: 57 })
+    expect(only.agents.map(agent => agent.usage.calls)).toEqual([2, 1])
+    expect(billable(only.total)).toBe(587)
+    expect(weighted(only.total)).toBe(455)
   })
 })
