@@ -37,6 +37,12 @@ than by the construct, so it is the only place `uncollectedTests` staying silent
 observed. An unexamined case and an examined one with no finding are indistinguishable unless the
 examination is written down.
 
+Run once on 2026-09-21 against a **diverged construct repository** — materialized by `init` at 0.1.1
+and since diverged on 16 paths — which found the baseline defect fixed in #71 and produced the first
+candidate evidence on the enforcement-capability question. It does **not** discharge this criterion:
+the tree was one the construct itself materialized, and what is owed is a repository it never did.
+Recorded in [architecture/observations.md](../observations.md).
+
 5.1 also carries a deferred-question check (L1): inspect `doctor`'s output on this live repository
 and record whether a useful diagnosis needs a fact the model cannot currently provide. If one does,
 record the missing fact and return to *Where does evidence of enforcement capability belong?* in

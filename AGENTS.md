@@ -180,6 +180,15 @@ them as rules.
   Until then the blind spot is represented by the absence of a question the model can answer — not
   by synthesising an `unknown` value or any equivalent derived status, which would assert that the
   question was asked and came back empty.
+  **Candidate evidence, 2026-09-21, leaning toward "a repository fact".** The claim
+  `vulnerable-dependencies-are-visible` rendered `held` at L3 while the job behind it carried
+  `continue-on-error` and could not fail. That a mechanism cannot fail is a property of a workflow
+  file — a fact about the repository, checkable from the repository — which is what tilts this one
+  case toward the first answer. It is one case and the question stays open. Note also where it
+  surfaced: on the construct's own repository, before any other, and the second half of 0017's
+  acceptance is still owed by a repository the construct never materialized. The inspection that
+  found it is recorded in
+  [architecture/observations.md](architecture/observations.md).
   If it resolves towards "a repository fact", it becomes a **new rule number**, never an expansion
   of [rule 8](architecture/epistemic-rules.md). The two are adjacent in meaning and must stay
   separate in identity: *a command exists → the enforcement level* is rule 8, and *the enforcement
