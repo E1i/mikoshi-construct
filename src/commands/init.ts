@@ -106,8 +106,7 @@ function changesTheTree(root: string, op: FileOp): boolean {
   return !existsSync(absolute) || readFileSync(absolute, 'utf8') !== op.content
 }
 
-function nextStep(root: string, applied: FileOp[], vars: TemplateVars): string | null {
-  const changing = applied.filter(op => changesTheTree(root, op))
+function nextStepAfter(changing: FileOp[], vars: TemplateVars): string | null {
   if (changing.length === 0)
     return null
   return changing.some(op => declaresDependencies(op.target))
@@ -356,7 +355,8 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     return aborted(skipped, plan.conflicts)
 
   const existingModel = readModel(root)
-  const next = nextStep(root, applied, vars)
+  const changing = applied.filter(op => changesTheTree(root, op))
+  const next = nextStepAfter(changing, vars)
   const written = applyPlan(root, plan.ops)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous, policy })
   writeManifest(root, manifest)
@@ -372,7 +372,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   }
   ui.phase(4, 4, '✅', ui.lore.phaseOnline)
   ui.tree([
-    ['Written', `${written.length} files`],
+    ['Written', ui.lore.written(written.length, changing.length)],
     ...next == null ? [] : [['Next', next] as [string, string]],
     ['Then', ai === 'cursor' ? 'open Cursor and ask the agent to run the construct discovery' : 'claude → /construct-discover'],
   ])

@@ -29,6 +29,14 @@ function classificationMap(dir: string): Record<string, string> {
   return Object.fromEntries(report.classifications.map(entry => [entry.target, entry.class]))
 }
 
+function writtenCountsIn(lines: string[]): { applied: number, changed: number } {
+  const row = lines.join('').split('\n').find(text => text.includes('Written: '))
+  const counts = /Written: (\d+) files?, (\d+) changed/.exec(row ?? '')
+  if (counts == null)
+    throw new Error(`no written row with both counts in: ${row ?? '(no row)'}`)
+  return { applied: Number(counts[1]), changed: Number(counts[2]) }
+}
+
 function nextStepIn(lines: string[]): string | undefined {
   return lines.join('').split('\n').find(text => text.includes('Next: '))
 }
@@ -140,5 +148,31 @@ describe('a second construct init adds to the record it found', () => {
     await init(dir, text => restored.push(text))
     expect(nextStepIn(restored)).toContain('pnpm run quality')
     expect(nextStepIn(restored)).not.toContain('install')
+  })
+
+  it('counts applied operations and changed files apart in the written row, and the next step follows the same count', async () => {
+    const dir = scratch()
+
+    const first: string[] = []
+    await init(dir, text => first.push(text))
+    const afterFirst = writtenCountsIn(first)
+    expect(afterFirst.applied).toBeGreaterThan(0)
+    expect(afterFirst.changed).toBe(afterFirst.applied)
+
+    const second: string[] = []
+    await init(dir, text => second.push(text))
+    const afterSecond = writtenCountsIn(second)
+    expect(afterSecond.applied).toBeGreaterThan(0)
+    expect(afterSecond.changed).toBe(0)
+
+    rmSync(path.join(dir, '.gitleaks.toml'), { force: true })
+    const third: string[] = []
+    await init(dir, text => third.push(text))
+    const afterThird = writtenCountsIn(third)
+    expect(afterThird.changed).toBeGreaterThan(0)
+    expect(afterThird.changed).toBeLessThan(afterThird.applied)
+
+    for (const [lines, counts] of [[first, afterFirst], [second, afterSecond], [third, afterThird]] as const)
+      expect(nextStepIn(lines) !== undefined, `changed ${counts.changed}`).toBe(counts.changed > 0)
   })
 })
