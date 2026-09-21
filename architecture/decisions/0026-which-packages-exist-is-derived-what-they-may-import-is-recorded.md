@@ -34,10 +34,19 @@ decided, and the tree answers what exists, not what is allowed.
 **A correction to the account this record was opened on.** The run is not silent about the change.
 `recordVarsChanged` has named every changed variable with both values since 0013, and since the
 output ordering changed it prints ahead of the list of paths. Measured on a re-inited monorepo, the
-second run prints `allowedWorkspaceImports` with the old and new maps in full. What has never been
-reported is the *consequence*: that `eslint.config.mjs` was skipped, so the record and the file now
-disagree, and that a later `sync --apply` closes that gap by loosening the file. The missing reading
-is about the divergence, not about the variable.
+second run prints `allowedWorkspaceImports` with the old and new maps in full.
+
+So the defect was not invisible. It was **read and not understood**: the output named a change to a
+variable and did not name what that change would do. A reader who sees both maps in full still cannot
+derive from them that `eslint.config.mjs` was skipped, that the record and the file therefore
+disagree, and that a later `sync --apply` will close that gap by loosening the file. Every clause
+printed was true and the reader's next action was still wrong — the same shape as a `doctor` line that
+correctly reported a claim's facts as holding and let an adopter conclude that running `init` would
+record it.
+
+**Naming both values is necessary and is not sufficient.** A delta is not the message; the message is
+what the delta will cause. That is the requirement this record carries, and it is more general than
+the variable it was found on.
 
 ## Decision
 
@@ -50,8 +59,10 @@ are never re-derived.**
   for byte. The construct does not recompute a decision it did not make.
 - A new key is given a default, and the default is the one the preset applies to a package of that
   kind when it creates a workspace of its own.
-- Every change to a policy variable is named in the run's output with both values. This already
-  holds; it is restated here because it is the property that makes the rest checkable.
+- A run that changes a policy variable names both values **and what the change will do** — which
+  file now disagrees with the record, and what a later `sync --apply` would write into it. Naming
+  both values already holds; naming the consequence is the part that was missing, and it is the
+  requirement rather than the delta.
 
 Widening and narrowing stop being separate cases. There is no direction to detect, because a recorded
 value is not touched — no flag, no prompt, and no asymmetry between the two directions.
@@ -91,12 +102,19 @@ Cursor target or turns review on by re-running `init`. Policy variables are the 
 reason is the one 0013 itself gives for every other branch: a later run does not cross out what an
 earlier one recorded. The general rule stands; this names the class that leaves it.
 
-**An obstacle the implementation has to resolve rather than route around.**
+**A constraint on the implementation, not a choice left to whoever picks it up.**
 `allowedWorkspaceImports` is recorded as rendered JavaScript source, not as structured data, because
-`vars` is `Record<string, string>`. Keeping a recorded key's allowances means either reading the map
-back out of that string or recording the structure beside it. Which of those is right is an
-implementation question this record deliberately leaves open; what it does not leave open is that the
-recorded allowances win.
+`vars` is `Record<string, string>`. Keeping a recorded key's allowances therefore has two routes, and
+they are not equivalent. **The structure is recorded beside the rendered form; the map is not parsed
+back out of the source.**
+
+Parsing would make the rendered artifact the authority on what was decided. That is the coupling
+broken when `init` stopped choosing the `AGENTS.md` template form from whether the file was on disk
+and started reading it from the `variants` branch that
+[0013](0013-a-second-init-adds-to-the-record.md) already required the record to carry: the record
+decides and the render follows, never the other way round. A policy recovered by reading its own
+output back is a policy whose source of truth is a formatting function. Where the rendered form and
+the recorded structure disagree, the structure is right and the render is regenerated from it.
 
 ## Enforced by
 
@@ -106,4 +124,5 @@ tree. Stating that plainly is the honest answer rather than naming a level this 
 It becomes L3 when a test asserts, over a tree materialized from empty and re-inited: that a key
 recorded with `[]` still reads `[]` after the second and third run; that a package added between runs
 appears as a new key carrying its kind default and no wider; and that the run names the change with
-both values. Until that test exists, the behaviour described above is not the behaviour of the tool.
+both values **and with what it will do to the file the variable governs**. Until that test exists,
+the behaviour described above is not the behaviour of the tool.

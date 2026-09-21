@@ -22,3 +22,11 @@ value is not touched.
 
 The decision is recorded; its implementation and test are not, and the record says so and carries L0
 rather than a level it does not have.
+
+The record carries two named constraints rather than leaving them to whoever implements it. A run
+that changes a policy variable names both values **and what the change will do** — naming both
+values has held since 0013, and the defect was read and not understood rather than invisible, so the
+consequence is the requirement and the delta is not. And the recorded allowances are kept by
+recording the structure beside the rendered form, never by parsing the map back out of the rendered
+source, which would make a formatting function the authority on what was decided.
+
