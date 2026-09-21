@@ -97,6 +97,7 @@ export interface Lore {
   syncApplyLeftToYou: (count: number) => string
   syncVersionGap: (from: string, to: string) => string
   syncNoManifest: string
+  written: (applied: number, changed: number) => string
   recordAnswered: (names: string[]) => string
   recordCarriedOver: (carried: number, added: number) => string
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => string
@@ -220,6 +221,7 @@ export const LORE: Lore = {
   syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
   syncVersionGap: (from: string, to: string) => `ENGRAM CUT BY v${from} // REPLAYED BY v${to}`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
+  written: (applied: number, changed: number) => `${applied} file${applied === 1 ? '' : 's'}, ${changed} changed`,
   recordAnswered: (names: string[]) => `ENGRAM READ: ${names.join(', ')} came from the construct.json already here, so ${names.length === 1 ? 'it was' : 'they were'} not asked again. A flag overrides ${names.length === 1 ? 'it' : 'them'}.`,
   recordCarriedOver: (carried: number, added: number) => `ENGRAM EXTENDED: ${carried} record${carried === 1 ? '' : 's'} carried over from the construct.json already here, ${added} added.`,
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => `ENGRAM REWRITTEN: this run changed ${changed.map(entry => `${entry.name} (${entry.from} \u2192 ${entry.to})`).join(', ')} in the record; the recorded hashes were taken with the old value${changed.length === 1 ? '' : 's'}.`,
@@ -339,6 +341,7 @@ export const PLAIN_LORE: Lore = {
   syncApplyLeftToYou: (count: number) => `${count} path${count === 1 ? '' : 's'} the record cannot prove the construct owns. Yours to carry across.`,
   syncVersionGap: (from: string, to: string) => `Materialized by construct ${from}, read by ${to}.`,
   syncNoManifest: 'No construct.json here. Run `construct init` first.',
+  written: (applied: number, changed: number) => `${applied} file${applied === 1 ? '' : 's'}, ${changed} changed`,
   recordAnswered: (names: string[]) => `${names.join(', ')} came from the construct.json already here, so ${names.length === 1 ? 'it was' : 'they were'} not asked again. A flag overrides ${names.length === 1 ? 'it' : 'them'}.`,
   recordCarriedOver: (carried: number, added: number) => `Carried over ${carried} record${carried === 1 ? '' : 's'} from the construct.json already here; added ${added}.`,
   recordVarsChanged: (changed: { name: string, from: string, to: string }[]) => `This run changed ${changed.map(entry => `${entry.name} (${entry.from} -> ${entry.to})`).join(', ')} in the record; the recorded hashes were taken with the old value${changed.length === 1 ? '' : 's'}.`,

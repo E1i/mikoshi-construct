@@ -101,6 +101,12 @@ code, and there is no `--force`.
 
 ### Running init again
 
+The closing line reports two counts, because they answer two questions: how many write operations the
+run applied, and how many of those left a file different from what was there. A second run typically
+reads `4 files, 0 changed` — the merges and appends were applied and produced exactly what was
+already on disk. The same changed count decides whether the run names a next step at all, so the two
+lines cannot disagree.
+
 A second `init` asks nothing `construct.json` already answers. The preset, the agent target, the
 project name and the code-review provider are all recorded there, so a re-run reads them and names
 them in the configuration block instead of putting the same four questions again. A flag still
