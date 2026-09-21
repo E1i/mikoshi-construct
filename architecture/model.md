@@ -251,3 +251,54 @@ match that the tool could already do; the model only holds them in one object
 ([decision 0017](decisions/0017-v5-adds-no-new-way-of-knowing.md)). Recognition of an unfamiliar
 stack improves by improving the discovery protocol, which writes better hypotheses, not by adding
 detectors to the CLI.
+
+## The picture — the same model, drawn
+
+The block below is rendered from this repository's own `construct.model.json` by
+`pnpm model:render`, and `pnpm run quality` runs `pnpm model:check`, which reports the block as stale
+until it is rendered again. It is a third projection of the model beside `doctor` and the reports
+([decision 0016](decisions/0016-the-model-is-the-source.md)) and holds nothing of its own: every
+state in it comes from `deriveModelState`, and a repository with no model renders a sentence saying
+so rather than an empty diagram.
+
+<!-- model:picture -->
+What this tool holds about the repository, and the files each reading stands on. A fact several entries stand on is drawn once, with one edge from each of them. Every state below is derived on read, never stored.
+
+```mermaid
+flowchart LR
+  subgraph claims["Claims"]
+    e_no_committed_secret["no-committed-secret<br/>enforcement L3 held<br/>verification held"]
+    e_vulnerable_dependencies_are_visible["vulnerable-dependencies-are-visible<br/>enforcement L0 held<br/>verification held"]
+    e_every_change_passes_the_harness["every-change-passes-the-harness<br/>enforcement L3 held<br/>verification held"]
+    e_harness_steps["harness-steps<br/>enforcement L3 held<br/>verification held"]
+  end
+  subgraph evidence["Evidence"]
+    f_security_workflow[/".github/workflows/security.yml<br/>holds"/]
+    f_security_workflow_runs_gitleaks[/".github/workflows/security.yml contains #quot;gitleaks#quot;<br/>holds"/]
+    f_gitleaks_config[/".gitleaks.toml<br/>holds"/]
+    f_security_workflow_audits_dependencies[/".github/workflows/security.yml contains #quot;pnpm audit --audit-level=high#quot;<br/>holds"/]
+    f_ci_workflow[/".github/workflows/ci.yml<br/>holds"/]
+    f_ci_workflow_runs_the_harness[/".github/workflows/ci.yml contains #quot;pnpm run quality#quot;<br/>holds"/]
+    f_eslint_config[/"eslint.config.mjs<br/>holds"/]
+    f_security_invariants[/"architecture/security-invariants.md<br/>holds"/]
+    f_harness_manifest[/"package.json<br/>holds"/]
+    f_harness_script_runs_lint[/"package.json contains #quot;pnpm lint#quot;<br/>holds"/]
+    f_harness_script_runs_typecheck[/"package.json contains #quot;pnpm typecheck#quot;<br/>holds"/]
+    f_harness_script_runs_tests[/"package.json contains #quot;pnpm test#quot;<br/>holds"/]
+  end
+  e_no_committed_secret -->|"enforcement"| f_security_workflow
+  e_no_committed_secret -->|"enforcement"| f_security_workflow_runs_gitleaks
+  e_no_committed_secret -->|"verification"| f_gitleaks_config
+  e_vulnerable_dependencies_are_visible -->|"enforcement"| f_security_workflow
+  e_vulnerable_dependencies_are_visible -->|"enforcement"| f_security_workflow_audits_dependencies
+  e_vulnerable_dependencies_are_visible -->|"verification"| f_security_invariants
+  e_every_change_passes_the_harness -->|"enforcement"| f_ci_workflow
+  e_every_change_passes_the_harness -->|"enforcement"| f_ci_workflow_runs_the_harness
+  e_every_change_passes_the_harness -->|"verification"| f_eslint_config
+  e_harness_steps -->|"enforcement"| f_ci_workflow_runs_the_harness
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_lint
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_typecheck
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_tests
+  e_harness_steps -->|"verification"| f_harness_manifest
+```
+<!-- /model:picture -->

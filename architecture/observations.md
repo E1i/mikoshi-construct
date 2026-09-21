@@ -373,3 +373,149 @@ scratch copy.
 **Boundary.** One occurrence, and it was caught in review rather than by anything mechanical. Nothing
 here proposes a check; the note exists because the failure is easy to repeat and reads as prudence
 while it is happening.
+
+## 2026-09-21 · The same tree, discovered a second time after the rename
+
+Specimen C was re-discovered rather than patched. The copy adopted on 2026-09-21 carried a model
+written before `baseClean` became `evidenceClean`, so the current parser rejects it; renaming the key
+by hand would have put the new name over a number computed under the old definition — the cleanliness
+of the whole tree — and everything built on that file afterwards would have displayed a hand edit
+while looking like a working pipeline. So the copy was reset to its commit (`6fd6894`, clean), adopted
+again with `pnpm dev init --yes --dir <copy>` from this repository at 0.8.0, and step 12 of the
+materialized discovery protocol was run over it again. **The entry above, of the first run, is not
+edited: it records what was seen then, and its value is its date.** What follows is a second run, and
+the two sets of numbers below are two runs, not a discrepancy between one right and one wrong.
+
+**What this run wrote.** Twenty-six facts — eleven `file-exists`, fifteen `file-contains` — and six
+hypotheses standing on between four and six of them, over a model `init` had already filled with
+sixteen construct facts and five claims: forty-two facts in the finished file. Every path and every
+needle was checked against the tree before it was written. `doctor` parsed the model and reported all
+six as `held`, and `You are here: no claim stops before the end of its chain` — one line, as before.
+The ten markers were left at their placeholders: this run was the hypothesis step, not the whole
+protocol.
+
+**`evidenceClean` is no longer constant, which is what the rename was for.** Three hypotheses read
+`true` and three read `false`, on one tree, in one run: the three standing only on the repository's own
+committed sources (`coupon-lifecycle-is-an-explicit-state-machine`,
+`multi-coupon-behaviour-is-a-strategy`, `one-retriever-per-value-source`) against the three that also
+stand on `package.json`, which `init` merged into, or on `eslint.config.mjs`, which `init` wrote
+(`published-as-a-browser-library`, `the-host-is-notified-by-events`, `formatting-has-two-owners`). The
+first run recorded `false` six times out of six and could not have recorded anything else. This is the
+first measurement in which both values are reachable on the adoption path, and it is a measurement of
+the scope change, not of the repository.
+
+**The two runs, side by side.**
+
+| | First run | This run |
+|---|---|---|
+| Facts in the finished model | 37 | 42 |
+| Facts discovery wrote | 21 | 26 |
+| Hypotheses | 6 | 6 |
+| Facts with more than one dependent | 4 | 4 |
+| Most dependents on one fact | 4 (`engine-entry`) | 3 (`engine-entry`) |
+| Longest chain from an entry to evidence | one hop | one hop |
+| `evidenceClean` / `baseClean` true | 0 of 6 | 3 of 6 |
+| YOU ARE HERE | one line | one line |
+
+**Two things changed between the runs, not one.** The first ran under the protocol as it stood before
+the rename; the second ran under the protocol carrying the `evidenceClean` computation step. So any
+difference between the two models is explained equally well by variation from one run to the next and
+by the edit to the protocol itself, and this pair cannot separate them. That is the ordinary form of
+two points differing in two respects: they are evidence about neither. **And two runs are two runs,
+not a spread** — a spread is an assertion about a distribution, which this file's own header declines
+to make and which was declined once already over how often an architect failed validation.
+
+**What the comparison supports, and what it does not.** Under that limit it supports two narrow
+things: two runs over one tree produced models of the same order — a handful of hypotheses, tens of
+facts, every chain one hop — and the counts moved by a few, not by a factor. It supports nothing about
+reproducibility of content. The same six interpretations came back under the same six ids, and that
+is **not** evidence that the protocol converges: the discoverer of this run had read the entry above
+before starting, so the second run was primed with the first run's answers. The honest reading is that
+a primed second run agrees with the first, which is the weakest of the possible findings and the only
+one this design can carry. A blind second run is what would settle convergence, and nothing here
+stands in for it — but blind has to mean more than unread. The first run wrote
+`construct.model.json` into that tree, and a second run in the same tree reads that file as ordinary
+work and inherits every conclusion in it. Only a run in a fresh copy, where the model does not yet
+exist, is blind; reusing the adopted tree is the convenient version of the experiment and is exactly
+the contamination.
+
+**Material for the picture step, second reading.** Four facts of forty-two carry more than one
+dependent, and the densest is three. One of the four is new in kind rather than in number:
+`eslint.config.mjs` is stood on by the construct's own `every-change-passes-the-harness` and by
+discovery's `formatting-has-two-owners`, so the fan-in now crosses authors as well as entries. The
+rendering of this model — the first of a real model — draws forty-two evidence nodes and eleven
+entries, and the four fan-ins are the only thing in it a list could not have shown. That remains a
+third reading pointing the same way as the first two, and the readings are not the
+thing that is short. The population is.
+
+| Measured so far | What the question needs |
+|---|---|
+| two runs | several repositories |
+| one tree | of differing size |
+| about six hypotheses, forty-two facts | tens of claims |
+| fan-in at most three | shared infrastructure standing under many entries |
+| every chain one hop | |
+
+**Fan-in is a property of scale.** One workflow carrying five claims appears in a large repository,
+not in a library with six hypotheses. Forty nodes is the size at which a list wins against a diagram
+under any circumstances, and judging the value of a picture there is like judging an index by a
+forty-row table.
+
+So the boundary is harder than *the picture has not earned its place*: **the question is not answered,
+because no model inspected so far reaches the size at which it arises.** That is not an argument about
+models rather than about pictures — it is the absence of a suitable specimen, the same shape as the
+missing adopted repository two weeks ago, and it is closed the same way: by finding one, not by
+reasoning from the ones at hand.
+
+**An empty result that named no cause, caught by arithmetic.** `evidenceClean` was first computed by a
+script that shelled out to `git status --porcelain` per hypothesis and read empty output as clean. All
+six came back `true`. The value that gave it away was `published-as-a-browser-library`, which stands
+on `package.json` — a file `init` had just merged into, so `false` was the only possible answer. The
+cause was environmental: the `git` shim on this machine fails under the x86_64 Python, exits non-zero
+and writes nothing to stdout, and the script read the failure as an answer. Re-run in the shell, three
+of the six were `false`. The rule this is an instance of is already written down — an empty result
+never names its cause — and the instance is worth keeping because the reading was *plausible*: a clean
+tree is exactly what an adopted repository looks like a moment before `init` runs. The guard that
+worked was not a check but a prediction made before the measurement.
+
+### Two experiments, named, with their candidates
+
+Recorded so they stay experiments with addresses rather than turning back into *someday we will find
+a suitable model*.
+
+**Fan-in is measured across the corpus, not hunted for in one specimen.** The question stopped being
+*find a model large enough* the moment it was clear that fan-in is a property of structure: several
+deployable things sharing one set of infrastructure. That is measurable on repositories already
+adopted, and the right column below is a hypothesis, not a finding — testing it is the experiment.
+
+| Structure | Shared infrastructure | Fan-in predicted |
+|---|---|---|
+| library, one package | one package, one CI, one lint config | 1 |
+| service with a contract | one deployable plus its contract | 1–2 |
+| workspace monorepo | several apps over shared packages, one CI, one lint config | N |
+| application with a backing service | not yet characterised | unknown |
+| site with a build and content | not yet characterised | unknown |
+
+Five discovery runs settle it, at roughly three minutes and a hundred thousand tokens each. **If
+fan-in is one everywhere, including the monorepo, the picture has nothing to show** — and that is a
+conclusion about models in general rather than about one small model, which is more than any amount of
+arguing produces. **If it grows with structure**, the graph gets the case it was proposed for, and the
+same measurement says who it is for: not everyone, but repositories of a particular shape.
+
+The monorepo carries no `construct.model.json` — materialized before 0.5.0 and brought forward by
+`sync` — so its run begins with a first `init`. That makes it also the first case of a pre-0.5.0 tree
+acquiring a model, the open question recorded in AGENTS.md, and the two meet in one tree rather than
+needing two.
+
+**From this measurement onward, a specimen is described by shape and not by address.** The two
+entries above name theirs, which is why the rule is written down here rather than assumed to be
+obvious. For the corpus it is absolute: no repository name, domain or identifying path enters this
+file, an example or a fixture, on the same rule the frozen manifests were sanitised under. One of the
+five is a private site belonging to the maintainer, and it appears as a structure and nothing else —
+that constraint goes in the brief of any run touching the corpus rather than being remembered at the
+time.
+
+**The blind run is parked with its price.** A fresh copy plus discovery, twice, so that neither run
+can read the other's model. It costs two runs and returns `n = 2` whichever way it falls: weak
+evidence of convergence, or evidence of sensitivity to something. Both are worth having and neither
+blocks anything, so it waits for a reason rather than being done because it has been formulated.
