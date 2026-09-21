@@ -92,6 +92,13 @@ describe('the discovery protocol writes hypotheses the schema accepts', () => {
     expect(protocol()).toMatch(/Compute it, never estimate it/)
   })
 
+  it('tells the run to regenerate a rendered model, because writing the source is not writing the artifact', () => {
+    const step = protocol().slice(protocol().indexOf('Worked example'), protocol().indexOf('**Prove it.**'))
+    expect(step).toContain('regenerate it in')
+    expect(step).toContain('construct.model.json')
+    expect(protocol().slice(0, protocol().indexOf('Worked example'))).toContain('pnpm composition:render')
+  })
+
   it('names every fact kind the code declares and no kind it does not', () => {
     expect(factKindsNamed(protocol())).toEqual([...FACT_KINDS].sort())
   })
