@@ -80,4 +80,64 @@ commands, the composition roots, the dependency policy, the high-effort areas, t
 not fix by accident, the open questions. Cursor users ask the agent to run the construct discovery;
 it follows the same protocol.
 
+## Then look at what it believes
+
+`init` writes the files, `doctor` reports on them, and `construct graph` shows you the picture the
+reports are read out of — so you can look at what the tool holds true about your repository instead of
+reading `construct.model.json`.
+
+```bash
+construct graph
+```
+
+It draws every claim, every hypothesis discovery has written, and the evidence each one stands on. A
+file that several entries stand on is drawn **once**, with an edge from each of them, which is the
+thing a list of claims cannot show you. Here is a repository straight after `init`, before discovery
+has added anything:
+
+```mermaid
+flowchart LR
+  subgraph claims["Claims"]
+    e_no_committed_secret["no-committed-secret<br/>enforcement L3 held<br/>verification held"]
+    e_vulnerable_dependencies_are_visible["vulnerable-dependencies-are-visible<br/>enforcement L0 held<br/>verification held"]
+    e_every_change_passes_the_harness["every-change-passes-the-harness<br/>enforcement L3 held<br/>verification held"]
+    e_harness_steps["harness-steps<br/>enforcement L3 held<br/>verification held"]
+  end
+  subgraph evidence["Evidence"]
+    f_security_workflow[/".github/workflows/security.yml<br/>holds"/]
+    f_security_workflow_runs_gitleaks[/".github/workflows/security.yml contains #quot;gitleaks#quot;<br/>holds"/]
+    f_gitleaks_config[/".gitleaks.toml<br/>holds"/]
+    f_security_workflow_audits_dependencies[/".github/workflows/security.yml contains #quot;pnpm audit --audit-level=high#quot;<br/>holds"/]
+    f_ci_workflow[/".github/workflows/ci.yml<br/>holds"/]
+    f_ci_workflow_runs_the_harness[/".github/workflows/ci.yml contains #quot;pnpm run quality#quot;<br/>holds"/]
+    f_eslint_config[/"eslint.config.mjs<br/>holds"/]
+    f_security_invariants[/"architecture/security-invariants.md<br/>holds"/]
+    f_harness_manifest[/"package.json<br/>holds"/]
+    f_harness_script_runs_lint[/"package.json contains #quot;pnpm lint#quot;<br/>holds"/]
+    f_harness_script_runs_typecheck[/"package.json contains #quot;pnpm typecheck#quot;<br/>holds"/]
+    f_harness_script_runs_tests[/"package.json contains #quot;pnpm test#quot;<br/>holds"/]
+  end
+  e_no_committed_secret -->|"enforcement"| f_security_workflow
+  e_no_committed_secret -->|"enforcement"| f_security_workflow_runs_gitleaks
+  e_no_committed_secret -->|"verification"| f_gitleaks_config
+  e_vulnerable_dependencies_are_visible -->|"enforcement"| f_security_workflow
+  e_vulnerable_dependencies_are_visible -->|"enforcement"| f_security_workflow_audits_dependencies
+  e_vulnerable_dependencies_are_visible -->|"verification"| f_security_invariants
+  e_every_change_passes_the_harness -->|"enforcement"| f_ci_workflow
+  e_every_change_passes_the_harness -->|"enforcement"| f_ci_workflow_runs_the_harness
+  e_every_change_passes_the_harness -->|"verification"| f_eslint_config
+  e_harness_steps -->|"enforcement"| f_ci_workflow_runs_the_harness
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_lint
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_typecheck
+  e_harness_steps -->|"enforcement"| f_harness_script_runs_tests
+  e_harness_steps -->|"verification"| f_harness_manifest
+```
+
+A repository with no `construct.model.json` draws nothing and says so, rather than showing an empty
+diagram — absence is not the same as a model that claims nothing. **`init` is what creates the model**,
+so that is the state to expect in a repository the construct has not been run in yet.
+
+The diagram goes to standard output, so `construct graph > picture.mmd` keeps it; the
+[CLI reference](/cli) has the rest.
+
 From there the loop is [the development cycle](/guide/the-cycle).

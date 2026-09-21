@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 import { releaseSidebarItems } from '../../scripts/release-notes/changelog.js'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'mikoshi-construct',
   description: 'Bootstrap for AI-native software projects: policy, contract, harness and agent instructions, materialized into a repository.',
   base: '/mikoshi-construct/',
@@ -50,4 +51,4 @@ export default defineConfig({
       copyright: 'MIT licensed',
     },
   },
-})
+}))
