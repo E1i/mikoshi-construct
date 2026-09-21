@@ -233,3 +233,35 @@ seen by anybody yet.
 
 The burden therefore sits with whoever wants to build it, which is the bar 0017 set: a picture must
 earn its place on top of a model people already read.
+
+## 2026-09-21 · An exemption that fails open, and the tell that finds it
+
+Teaching the discovery protocol to write hypotheses meant exempting discovery-authored entries from
+the check that every identifier documentation names is one the code owns. Their ids belong to the
+inspected repository and the code will never own them. The exemption was first written as
+`authoredBy === 'construct'` — keep the entries still to be checked — and that shape is the finding.
+
+**Selecting the checked set by a positive match drops everything unanticipated out of scope.** An
+entry with the field missing, an entry with a typo in the value, an entry carrying some future third
+author: none of them match `construct`, so none of them are checked, and nothing says so. Written as
+`authoredBy !== 'discovery'` the exemption covers exactly the case it was written for and leaves
+everything else checked. **An exemption belongs as a negation of what is exempt, never as an
+enumeration of what is checked** — then it fails closed.
+
+**The defect was in the form, not in its effects.** Before the repair, every `json` block in `docs/`
+and `templates/` was read and classified: exactly one repository model exists in the tree, the worked
+example in the discovery protocol, and every entry in it is discovery-authored. So nothing had in
+fact escaped the check, and no data was ever wrong. This is recorded deliberately, because a note
+that reports only the defect sends a later reader looking for corrupted entries that never existed.
+
+**The discriminator separated the two implementations rather than confirming the current one.** The
+case added is an entry carrying no `authoredBy` at all: under the old filter it is exempt and the
+unowned list comes back empty, under the new one it is checked and the invented identifier appears. A
+test exercising a construct-authored entry would have passed against either version and proved
+nothing about the change.
+
+**Boundary.** One case. So what this supports is a tell, not a rule: *a gate whose scope is set by a
+positive match rather than by subtraction.* It is a narrow instrument — an asymmetry between two
+renderers, a one-sided relation between two sets, a summary value collapsing toward reassurance are
+all invisible to it — but where it does apply the repair is mechanical, and this file already carries
+three other observations about checks run over sets in which the defect could not appear.
