@@ -1,6 +1,6 @@
 # Epistemic rules
 
-Nine rules about what may be asserted and on what grounds. They apply to the repository this tool
+Ten rules about what may be asserted and on what grounds. They apply to the repository this tool
 audits and to this repository itself. Decisions in [decisions/](decisions/) cite them by number, so
 the numbering is stable: a rule is never renumbered, and a rule that stops applying is struck
 through in place rather than removed.
@@ -39,3 +39,18 @@ merge) are defined in [decisions/README.md](decisions/README.md).
 9. **An output contract is declared once, by the runtime schema.** Describing the same contract
    again in prose does not reinforce it — it breaks it: the agent starts formatting its answer as
    text for a human. See [decision 0005](decisions/0005-one-output-contract-per-agent.md).
+10. **True when written ≠ true when merged.** A sentence whose truth-maker is changed by the same
+    diff that contains it is false on arrival, however careful the author was at the moment of
+    writing. The failure is not carelessness: the sentence was written while its ground was still
+    the old one. It concentrates in two places — the passages that describe the change itself, such
+    as a decision's consequences, a changeset, or a comment on the behaviour being altered, and the
+    artifact's own account of itself, where a count, an index or a summary line is falsified by the
+    very entry being added to it. Before a change that describes itself is finished, both are reread
+    against the finished diff, and every present-tense claim is asked whether this diff alters what
+    makes it true. A claim that fails is restated as a cause rather than as a current state.
+
+Rule 10 caught its own introduction: adding it falsified the first line of this file, which counted
+the rules, inside rule 10's own diff. Its evidence is two sentences written an hour apart in one
+afternoon, each sitting in a passage that explained the change it was part of, each true when written
+and false once that change was finished. Two occurrences, one author, one file — enough to name a
+shape, not to claim a rate.
