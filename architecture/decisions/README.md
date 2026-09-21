@@ -38,3 +38,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0016](0016-the-model-is-the-source.md) | The model is the source; doctor, the graph and reports are projections | L1 review, L3 tests |
 | [0017](0017-v5-adds-no-new-way-of-knowing.md) | v5 adds no new way of knowing | L1 review |
 | [0018](0018-evidence-clean-scopes-to-the-evidence.md) | A hypothesis records whether its evidence was committed, not whether the tree was clean | L3 tests |
+| [0019](0019-a-specimen-is-described-by-structure.md) | A specimen is described by structure, never by address | L1 review |

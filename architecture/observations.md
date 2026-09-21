@@ -14,6 +14,11 @@ proper lives in a separate private repository
 ([decision 0001](decisions/0001-findings-corpus-outside-the-cli.md)); this file is what that corpus
 can point at.
 
+Every specimen here is described by structure and never by address, and quoted tool output is either
+reproduced as captured or replaced by a description — never edited to look like a capture. Both rules,
+and the exemption for frozen fixtures, are
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md).
+
 ## 2026-09-21 · `testsWeakened` fired on a second class of change
 
 The ladder's `testsWeakened` guard rejected a change in which tests were deleted **together with the
@@ -69,7 +74,8 @@ hand.
 
 ## 2026-09-21 · `doctor` 0.5.0 run against a diverged construct repository
 
-Run against `E1i/yacht-trade` at commit `4112643cfe54466ee9cb59535e50f1e392cb67a6`.
+Run against a single-package repository this tool materialized itself, read at a single commit, which
+this record does not name.
 
 **What the tree is, stated precisely.** It was materialized by `construct init` at 0.1.1 and has
 since diverged from the templates on 16 paths. It is a **diverged construct repository, not an
@@ -268,8 +274,8 @@ three other observations about checks run over sets in which the defect could no
 
 ## 2026-09-21 · Discovery writes hypotheses on a live repository, and the base it reads is never clean
 
-The first run of the hypothesis step against a real codebase. Specimen C
-(`@offerstock/coupons-apply-engine`, clean at `6fd6894`, pnpm) was copied with its `.git` into a
+The first run of the hypothesis step against a real codebase. Specimen C — an adopted single-package
+browser library on pnpm, clean at the commit it was read from — was copied with its `.git` into a
 scratch directory, adopted with `pnpm dev init --yes --dir <copy>` from this repository's source at
 0.8.0, and discovered by following the materialized `.claude/commands/construct-discover.md`. The
 original was never written to. Nine of the ten markers were filled; `composition` was left, because
@@ -277,20 +283,18 @@ it needs `composition:render` and no `pnpm install` was run in the copy.
 
 **What discovery wrote.** Twenty-one facts — twelve `file-exists`, nine `file-contains` — and six
 hypotheses, each standing on between three and five of them: the repository publishes a browser
-library rather than a service, the coupon lifecycle is an explicit state machine, multi-coupon
-behaviour is a Strategy, reading a page value is decomposed one module per source, the host is
-notified over an event emitter, and formatting has two owners. Every needle and every path was
-checked against the tree before it was written. `doctor` parsed the model and reported all six:
+library rather than a service, a core domain object's lifecycle is an explicit state machine, a
+family of competing behaviours over that object is a Strategy, reading a page value is decomposed one
+module per source, the host is notified over an event emitter, and formatting has two owners. Every
+needle and every path was checked against the tree before it was written.
 
-    Hypotheses
-      published-as-a-browser-library                held   … — read from a tree carrying
-                                                           uncommitted changes, so it was never
-                                                           read from the base it records
-      coupon-lifecycle-is-an-explicit-state-machine held   … (same annotation)
-      multi-coupon-behaviour-is-a-strategy          held   … (same annotation)
-      one-retriever-per-value-source                held   … (same annotation)
-      formatting-has-two-owners                     held   … (same annotation)
-      the-host-is-notified-by-events                held   … (same annotation)
+`doctor` parsed the model and reported all six. Described rather than quoted, under
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md): the `Hypotheses` section
+carried six rows, every one `held`, and every one carrying the same annotation — that it was read
+from a tree with uncommitted changes and so was never read from the base it records. The capture
+itself is not reproduced here, because the hypothesis identifiers in it name the specimen's problem
+domain, and editing identifiers inside a block that reads as console output would present edited text
+as a capture.
 
 So the answer to the question this run existed to ask is yes: discovery can write a hypothesis, and
 `doctor` reads it back.
@@ -332,9 +336,10 @@ not arise. Six hypotheses sharing one fact is the densest overlap seen so far, a
 
 **Carry-over on real entries.** A second `pnpm dev init --yes --dir <copy>` reported *Carried over 38
 records from the construct.json already here; added 0*. All twenty-one discovery-authored facts and
-all six hypotheses came through byte-identical, with `baseSha` still `6fd6894…` and `baseClean` still
-`false`. The construct-authored half was rebuilt: `mergeModel` replaces every entry whose author is
-`construct` with the freshly built one of the same id, and the result was identical here only because
+all six hypotheses came through byte-identical, with `baseSha` unchanged from the first run and
+`baseClean` still `false`. The construct-authored half was rebuilt: `mergeModel` replaces every
+entry whose author is `construct` with the freshly built one of the same id, and the result was
+identical here only because
 the construct version and the preset inputs had not changed between the two runs. So what this run
 establishes is that the preservation path runs on real entries, not that a rebuilt entry differs.
 
@@ -380,7 +385,7 @@ Specimen C was re-discovered rather than patched. The copy adopted on 2026-09-21
 written before `baseClean` became `evidenceClean`, so the current parser rejects it; renaming the key
 by hand would have put the new name over a number computed under the old definition — the cleanliness
 of the whole tree — and everything built on that file afterwards would have displayed a hand edit
-while looking like a working pipeline. So the copy was reset to its commit (`6fd6894`, clean), adopted
+while looking like a working pipeline. So the copy was reset to that same commit, clean, adopted
 again with `pnpm dev init --yes --dir <copy>` from this repository at 0.8.0, and step 12 of the
 materialized discovery protocol was run over it again. **The entry above, of the first run, is not
 edited: it records what was seen then, and its value is its date.** What follows is a second run, and
@@ -396,10 +401,8 @@ protocol.
 
 **`evidenceClean` is no longer constant, which is what the rename was for.** Three hypotheses read
 `true` and three read `false`, on one tree, in one run: the three standing only on the repository's own
-committed sources (`coupon-lifecycle-is-an-explicit-state-machine`,
-`multi-coupon-behaviour-is-a-strategy`, `one-retriever-per-value-source`) against the three that also
-stand on `package.json`, which `init` merged into, or on `eslint.config.mjs`, which `init` wrote
-(`published-as-a-browser-library`, `the-host-is-notified-by-events`, `formatting-has-two-owners`). The
+committed sources against the three that also stand on `package.json`, which `init` merged into, or on
+`eslint.config.mjs`, which `init` wrote. The
 first run recorded `false` six times out of six and could not have recorded anything else. This is the
 first measurement in which both values are reachable on the adoption path, and it is a measurement of
 the scope change, not of the repository.
@@ -507,13 +510,16 @@ The monorepo carries no `construct.model.json` — materialized before 0.5.0 and
 acquiring a model, the open question recorded in AGENTS.md, and the two meet in one tree rather than
 needing two.
 
-**From this measurement onward, a specimen is described by shape and not by address.** The two
-entries above name theirs, which is why the rule is written down here rather than assumed to be
-obvious. For the corpus it is absolute: no repository name, domain or identifying path enters this
-file, an example or a fixture, on the same rule the frozen manifests were sanitised under. One of the
-five is a private site belonging to the maintainer, and it appears as a structure and nothing else —
-that constraint goes in the brief of any run touching the corpus rather than being remembered at the
-time.
+**From this measurement onward, a specimen is described by shape and not by address.** It is written
+down here because the entries above this one did not follow it: they named their specimens by scope,
+owner and problem domain, and those names were removed by
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) rather than by this clause,
+which governed nothing while it sat inside an observation. For the specimen set it is absolute: no
+repository name, domain or identifying path enters this file, an example or a fixture, on the same
+rule the frozen manifests were sanitised under. One of the five is a private site belonging to the
+maintainer, and it appears as a structure and nothing else — that constraint goes in the brief of any
+run touching the specimen set rather than being remembered at the time. In this file "findings corpus"
+always means [0001](decisions/0001-findings-corpus-outside-the-cli.md)'s, never these five.
 
 **The blind run is parked with its price.** A fresh copy plus discovery, twice, so that neither run
 can read the other's model. It costs two runs and returns `n = 2` whichever way it falls: weak
