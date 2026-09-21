@@ -153,3 +153,28 @@ describe('the releases sublist names the latest releases, not only the hand-writ
     }
   })
 })
+
+describe('the harness runs on every change, so the gates inside it cannot sit off the path', () => {
+  const WORKFLOW = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')
+
+  function triggerBlock(): string {
+    const start = WORKFLOW.indexOf('\non:')
+    const rest = WORKFLOW.slice(start + 1)
+    const end = rest.search(/\n[a-z][\w-]*:/)
+    return end === -1 ? rest : rest.slice(0, end)
+  }
+
+  it('reads a trigger block that actually names pull_request, so the check is not looking at nothing', () => {
+    expect(triggerBlock()).toContain('pull_request')
+  })
+
+  it('restricts the harness to no path, because a filter would take every gate inside it off the path of some change', () => {
+    expect(triggerBlock()).not.toContain('paths')
+  })
+
+  it('goes red for a trigger block that filters by path, which is how a gate leaves the route without moving', () => {
+    const filtered = triggerBlock().replace('pull_request:', 'pull_request:\n    paths:\n      - src/**')
+    expect(filtered).toContain('paths')
+    expect(triggerBlock()).not.toBe(filtered)
+  })
+})
