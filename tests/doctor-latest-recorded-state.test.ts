@@ -1,5 +1,5 @@
 import type { TemplateVars } from '../src/presets/index.js'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -55,5 +55,51 @@ describe('the baseline a path is compared against is its latest recorded state',
   it('still calls a file modified when it matches neither record, so the fix does not become reporting nothing', () => {
     const verdict = runDoctor(syncedRepository(`${SYNCED}\n`))
     expect(verdict?.modifiedFiles).toEqual(['package.json'])
+  })
+})
+
+const SYNC_ONLY = 'architecture/decisions/README.md'
+const ARRIVED_WITH_SYNC = '# Decisions\n'
+
+function withAPathOnlySyncRecorded(onDisk: string | null): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'construct-sync-only-'))
+  writeFileSync(path.join(root, 'package.json'), MATERIALIZED)
+  mkdirSync(path.join(root, path.dirname(SYNC_ONLY)), { recursive: true })
+  writeFileSync(path.join(root, SYNC_ONLY), ARRIVED_WITH_SYNC)
+  const materialized = buildManifest({
+    version: '0.1.1',
+    preset: 'node-backend',
+    ai: 'claude',
+    review: 'none',
+    vars: VARS,
+    written: [{ target: 'package.json', strategy: 'create', action: 'create', content: MATERIALIZED }],
+    contracts: false,
+    previous: null,
+  })
+  writeManifest(root, recordSync(materialized, {
+    ranAt: '2026-09-21T00:00:00.000Z',
+    toVersion: '0.5.0',
+    files: { [SYNC_ONLY]: sha256(ARRIVED_WITH_SYNC) },
+  }))
+  if (onDisk == null)
+    rmSync(path.join(root, SYNC_ONLY))
+  else
+    writeFileSync(path.join(root, SYNC_ONLY), onDisk)
+  return root
+}
+
+describe('a path only the sync record names is examined like any other', () => {
+  it('says nothing about it while it matches what sync recorded', () => {
+    const verdict = runDoctor(withAPathOnlySyncRecorded(ARRIVED_WITH_SYNC))
+    expect(verdict?.missingFiles).toEqual([])
+    expect(verdict?.modifiedFiles).toEqual([])
+  })
+
+  it('reports it missing when it is gone, rather than never looking at a path the init record never held', () => {
+    expect(runDoctor(withAPathOnlySyncRecorded(null))?.missingFiles).toEqual([SYNC_ONLY])
+  })
+
+  it('reports it modified when it was edited, so the silent half is held and not merely repaired', () => {
+    expect(runDoctor(withAPathOnlySyncRecorded(`${ARRIVED_WITH_SYNC}edited\n`))?.modifiedFiles).toEqual([SYNC_ONLY])
   })
 })
