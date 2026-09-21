@@ -135,6 +135,55 @@ pair. The run ledger is the obvious place and is itself L0 today
 ([0003](0003-run-ledger-stops-at-l0.md)), so the mechanism would have to be built on something with a
 carrier of its own. Naming the mechanism is not building it, and this record does not.
 
+### Three steps, and the second is the one that will be misread
+
+The path from here to a carrier has three rungs, and they are written separately because collapsing
+them into one is how the claim gets ahead of the work:
+
+| | what changes | where the rule stands after it |
+|---|---|---|
+| today | the rule is in this record only | the planning agent does not read it at all — L1, and memory |
+| the template, and this repository's copy of it | `templates/ai/shared/_claude/commands/plan.md` and `.claude/commands/plan.md` state the rule, so the agent reads it | **L0.** It is prose an agent may follow or not, exactly like the discovery protocol |
+| the run leaves evidence | the acceptance, its red result and the implementation commit are recorded, and something checks the three are present | L3 |
+
+**The middle rung is necessary and is not sufficient**, and it is the one that will be reported as
+completion. The day the template lands, the natural sentence to write is *0027 now works* — and that
+sentence would be wider than what was done, which is the defect recorded in the entry *A claim with a
+complete lifespan*, where a true statement about a record layer stood for ten minor versions as a
+statement about the whole. Naming the rungs apart is the cheapest available guard against writing it
+again.
+
+### Where the chain of carriers stops
+
+Asking what carries a rule invites the same question about the carrier, and about that carrier's
+carrier. Without a stopping condition the question regresses and cannot be answered, so it is stated
+here:
+
+> **The chain stops at the first level where enforcement can fail without a human deciding it has
+> failed, and where that failure has been demonstrated on a real case the carrier was expected to
+> catch.** Above that point no further carrier is required.
+
+Both clauses are load-bearing, and this repository already carries an example of each failing and
+holding.
+
+**A mechanism whose violation has no outcome of its own does not stop the chain.** The dependency
+audit in `security.yml` runs under `continue-on-error: true`: it reports into the log, its check is
+green whether or not it found a vulnerability, and nobody is obliged to read it. Whether the invariant
+held is then decided by a human noticing, which is the first clause failing — and the level scale in
+[decisions/README.md](README.md) already calls such a check L0 for exactly this reason, however much
+machinery stands behind it.
+
+**A mechanism whose ability to fail has only been argued does not stop the chain either.** The
+post-publish smoke satisfies the second clause in the form this record means: it was run against the
+last release that carried the defects it exists to catch and failed on it — `a second init changed
+construct.model.json, AGENTS.md` on 0.12.2 — and passed on 0.13.0. That is a demonstration on a real
+artifact rather than on a mutation of our own making, and it is the difference between knowing a
+carrier fires and believing it would.
+
+So the answer to *what carries the carrier* ends at a mechanism that fails by itself and has been
+seen to. It is not that nothing above it could be checked; it is that nothing above it needs to be,
+and a chain with no stated end produces an architecture of carriers rather than an enforced rule.
+
 **Boundary.** Six stops, one operator, one project, one reviewing session, one night. A form, not a
 rate. It does not say how often this stage stops anything, and it does not establish that a session
 without it would have shipped the falsified premises.

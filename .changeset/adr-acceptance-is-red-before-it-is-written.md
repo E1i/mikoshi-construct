@@ -24,3 +24,13 @@ the decision and §3 points at it.
 
 The record carries L1 and says why: nothing today can report a violation, so by this repository's own
 observation it is a rule carried by memory. What would make it L3 is named and not built.
+
+The record carries two things a later reader would otherwise have to rediscover. The chain of
+carriers has a stated end — it stops at the first level where enforcement can fail without a human
+deciding it has failed, and where that failure has been demonstrated on a real case the carrier was
+expected to catch — with both clauses shown against examples already here: the dependency audit under
+`continue-on-error` fails the first, and the post-publish smoke satisfies the second by having been
+run red on 0.12.2 and green on 0.13.0. And the path to enforcement is written as three rungs rather
+than one, because the middle rung — the planning agent reading the rule — is necessary, is still L0,
+and is the one that will be reported as completion.
+
