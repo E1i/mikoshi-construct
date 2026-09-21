@@ -4,23 +4,39 @@ A tool that reports on your repository is worth what its reports are worth. This
 a single rule — **a claim is worth what its enforcement is worth** — and most of the design is what
 follows from taking that seriously.
 
-## Three states, and `unknown` is not `absent`
+## Where the verdicts come from
 
-Every check `construct doctor` runs answers with one of three states:
+`construct doctor` holds no opinion of its own about enforcement. Every verdict it prints is read out
+of `construct.model.json` — a record of what is claimed about your repository and on what grounds —
+and a test constructs a verdict whose claim is absent from that record and requires the gate to fail.
+It cannot report a finding it cannot trace to something written down.
+
+If there is no model, it says so and reports nothing about claims. That is the common state for a
+repository upgraded rather than created by this tool, and it is not a fault: nothing was inspected,
+so nothing is asserted, and the command still exits zero.
+
+## Three states, and each is a different kind of silence
 
 | State | Means |
 |---|---|
-| `present` | The evidence was read and it is there |
-| `absent` | The evidence was read and it is not there |
-| `unknown` | The evidence needed to answer could not be read in full |
+| `held` | Facts are named under it, every one was evaluated, and every one holds |
+| `unsupported` | Facts are named, every one was evaluated, and at least one does not hold |
+| `unknown` | No fact is named, or a named fact could not be evaluated at all |
 
-`absent` is a claim about your repository. It is never reported without a complete scope of evidence,
-because "I looked everywhere it could be and it is not there" and "I could not look" are different
-sentences, and only one of them should make anybody change their code.
+Each has a reading it is not, and the three are easy to collapse into each other:
+
+- **`held` is not *proven*.** The facts under a claim are necessary conditions, never sufficient ones.
+  A stage can be shown unheld; it cannot be shown held at the strength it claims.
+- **`unsupported` is not *not enforced*.** It means a named fact stopped matching — a workflow
+  renamed, a script rewritten into an equivalent form. The report names the fact, so you can tell
+  which.
+- **`unknown` is not *absent*.** "I looked everywhere it could be and it is not there" and "I could
+  not look" are different sentences, and only one of them should make anybody change their code.
+
+The last distinction decides the exit code. A repository part of which `doctor` could not read is not
+one it calls intact; a repository that simply has nothing to inspect is.
 
 ## Five levels of enforcement
-
-Each check also reports how strongly the thing it found is held:
 
 | Level | What holds it |
 |---|---|
@@ -30,17 +46,32 @@ Each check also reports how strongly the thing it found is held:
 | `L3` | CI runs it |
 | `L4` | CI runs it **and** the result blocks the merge |
 
+Every level above `L0` presumes a mechanism that **can report a failure**. `L3` and `L4` differ over
+whether a failure blocks a merge; `L0` and `L3` differ over whether a failure can be raised at all. A
+check that is green whether or not the invariant holds reports nothing and is `L0`, however much
+machinery stands behind it — and this project found one of those in its own CI after shipping the
+model that exposed it.
+
 `doctor` never claims `L4`. Branch protection and organisation rulesets live in the forge's API, not
 in your files, and `doctor` reads files. It is run through `npx` inside repositories nobody has
 decided to trust yet, so it executes nothing from the repository it inspects — which also means it
-cannot answer *is the harness green on a clean checkout*. That one is always `unknown`, because
-proving it means running it.
+cannot answer *is the harness green on a clean checkout*.
+
+It used to answer that with a verdict permanently set to `unknown`. It no longer does. A blind spot
+is now represented by a stated boundary — one line saying what the command does not execute and
+therefore does not speak about — rather than by a verdict manufactured to fill the space. An answer
+nobody can act on is not a smaller finding than no answer; it is a different and worse thing, because
+it looks like one.
 
 ## Things it will not say
 
 **That your project still builds after a sync.** `sync --apply` writes the paths it can prove the
 construct owns. Whether the result passes is your harness's answer, and the upgrade loop puts that
 step between the write and the report for exactly this reason.
+
+**That a level it reports is proven.** `held` beside `L3` says the facts named under that enforcement
+hold. Whether the mechanism could actually fail if the invariant were violated is a separate question,
+and one this tool does not currently answer. It is recorded as open rather than assumed either way.
 
 **That a file it cannot identify is yours.** When the record does not say which template variant
 wrote a construct block and no rendering reproduces the recorded hash, the path is classified
