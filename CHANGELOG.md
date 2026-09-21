@@ -1,5 +1,53 @@
 # mikoshi-construct
 
+## 0.12.1
+
+### Patch Changes
+
+- [#129](https://github.com/E1i/mikoshi-construct/pull/129) [`7fed773`](https://github.com/E1i/mikoshi-construct/commit/7fed773488110ee2f1d8c94b3b33136d98c5994d) Thanks [@E1i](https://github.com/E1i)! - Observation: a command that did not run, read as a measurement that did
+  
+  Two cases on one machine in one day, under the same broken shim: a scan reported pull request bodies
+  clean from a run where the tool was never found, and an `evidenceClean` computation would have
+  written `true` for five hypotheses from a `git` that never executed.
+  
+  Recorded as one shape rather than as two tool problems — a command fails, returns empty, and the
+  empty is read as a successful measurement. The entry keeps the part that makes it worth recording:
+  the failure was visible only because an unrelated expectation happened to contradict the value, and
+  on a clean tree the failed measurement and the correct answer coincide exactly. Catching it was luck.
+  
+  The requirement it leaves is procedural, not a check for a missing binary: a result is not a
+  measurement merely because it has the expected shape; the measurement must also evidence that it was
+  performed. Where a hypothesis depends on one that cannot show it ran, no hypothesis is written.
+
+- [#128](https://github.com/E1i/mikoshi-construct/pull/128) [`77f7db8`](https://github.com/E1i/mikoshi-construct/commit/77f7db8d5641670340a7f4f14c601c4079189f01) Thanks [@E1i](https://github.com/E1i)! - Discovery runs on this repository, and the open questions name what holds them
+  
+  The tool had interpreted a specimen, a corporate site and two adopted trees, and never its own
+  repository: the model carried zero hypotheses. Running the materialized protocol here writes seven,
+  each `authoredBy: discovery` with a computed `baseSha` and a computed `evidenceClean`, and `doctor`
+  now reports hypotheses where it reported none.
+  
+  Three of the four open questions asserted something false about this repository and nothing could
+  re-check them. Decision 0025 states why: a hypothesis stands on facts and is re-derived on every
+  read, so it cannot go stale silently; a question stands on nothing and therefore can. Premises that
+  fit the two fact kinds are now hypotheses the questions cite by id; the judgment halves stay prose
+  and the marker says they age.
+  
+  The elision in the rendered picture now keeps the tail of a long label. Two facts on one long path
+  rendered as the same visible line — the latent property recorded a few hours earlier, arriving on
+  the first new data. The demonstration moves with it: the blind spot is now the middle of a line, not
+  its end.
+
+- [#131](https://github.com/E1i/mikoshi-construct/pull/131) [`18c435c`](https://github.com/E1i/mikoshi-construct/commit/18c435c92e72dcd00b64e49e21afa766d6834304) Thanks [@E1i](https://github.com/E1i)! - The reading-that-never-happened observation no longer rests on one broken toolchain
+  
+  The entry recorded two cases under one broken shim, which left it readable as one machine's
+  misconfiguration. The same reading arose in that session from a second, unrelated cause — a 403 from
+  a proxy on the GitHub API — which has no shim under it at all. Zero matches distinguishes neither
+  "the tool was not found" nor "the API refused": two sufficient causes, one empty result, and the
+  result names neither.
+  
+  Recorded as reported by the reviewing session and not verified here. Its weight is that the form does
+  not depend on the shim, so the opening no longer offers the shim as the explanation.
+
 ## 0.12.0
 
 ### Minor Changes
