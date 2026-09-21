@@ -136,9 +136,10 @@ written. And no change to anything shipped in this pass. The remedy named here i
 hypothesis depends on a measurement, a measurement that cannot show it ran means **no hypothesis is
 written at all**.
 
-**Boundary, and where it sits.** The `gh` case is recorded as reported by the maintainer; what this
-session verified first-hand is the shim breaking `gh` during a pull request creation, and the `git`
-case in full. This belongs beside two readings already here — [rule 2](epistemic-rules.md), that
+**Boundary, and where it sits.** The `gh` case is recorded as reported by the reviewing session;
+what the session writing this verified first-hand is the shim breaking `gh` during a pull request
+creation, and the `git` case in full. This belongs beside two readings already here —
+[rule 2](epistemic-rules.md), that
 `unknown` is not absence, and the finding above that an empty result never names its cause. It is the
 same family one level further down: not a reading whose cause is unnamed, but a reading that never
 happened, wearing the shape of one that did.
