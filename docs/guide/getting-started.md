@@ -67,6 +67,7 @@ which are not.
 | `architecture/decisions/` | Where decisions that shape what the project may claim are recorded |
 | `.claude/` or `.cursor/` | Rules, agents, skills and the `/implement` ladder |
 | `construct.json` | The manifest: preset, harness command, contract paths, a hash per file written |
+| `construct.model.json` | What is claimed about the repository and how each claim is held — committed, and read by `doctor` |
 
 ## Then hand it to the agent
 
