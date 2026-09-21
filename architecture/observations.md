@@ -19,6 +19,84 @@ reproduced as captured or replaced by a description — never edited to look lik
 and the exemption for frozen fixtures, are
 [decision 0019](decisions/0019-a-specimen-is-described-by-structure.md).
 
+## 2026-09-21 · The `add` population, named before anything is done about it
+
+A live run against an adopted single-package frontend repository left two construct-written artifacts
+that do not fit it: a `"preview"` script naming a dev server the repository does not use, and a
+`tsconfig.base.json` that nothing extends, because the repository's own `tsconfig.json` extends a
+framework preset. Neither is a conflict — the construct added them and the owner never touched them,
+so they read as ours and sit there inert or wrong.
+
+This entry names the population rather than repairing it. Nothing in `src/sync/`, `src/materialize/`
+or `templates/` changes here.
+
+**What `add` actually tests.** `classifyPath` reaches `add` on exactly one condition: the path is
+absent from the tree, the manifest records no sha for it, and the template groups produced it. There
+is no notion of applicability anywhere in the classification — "the preset produces it and the tree
+lacks it" is the whole of the test.
+
+**The two conditionalities that do exist**, both in `planMaterialize` and neither reached by `sync`:
+a mount marked `onlyWhenEmpty` is skipped against a non-empty tree, and the groups so skipped are
+reported as `omittedGroups`. That is the only machinery in the tool for deciding a path does not
+apply, and it keys on the tree being empty, never on what the tree is.
+
+**The population, partitioned.** Across the four available presets, `planMaterialize` produces 87
+distinct paths. 37 of them are reached only in an empty directory, by the mechanism above. The
+remaining 50 are written into any tree that adopts the construct, and they fall into four kinds:
+
+`construct-subject` — the construct's own material, which cannot misfit because the construct is what
+it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
+`.claude/agents/implementer.md`, `.claude/commands/construct-discover.md`, `.claude/commands/plan.md`,
+`.claude/rules/conventions.md`, `.claude/rules/css.md`, `.claude/rules/secrets.md`,
+`.claude/rules/tests.md`, `.claude/skills/implement/SKILL.md`, `.github/workflows/security.yml`,
+`.gitignore`, `.gitleaks.toml`, `AGENTS.md`, `CLAUDE.md`, `architecture/checklists.md`,
+`architecture/decisions/README.md`, `architecture/principles.md`,
+`architecture/security-invariants.md`, `scripts/construct/implement.workflow.mjs`.
+
+`harness-adoption` — presumes the repository runs the construct's harness, and is inert or wrong
+where it runs another: `.editorconfig`, `.github/workflows/ci.yml`, `.nvmrc`,
+`.vscode/settings.json`, `eslint.config.mjs`, `package.json`, `pnpm-workspace.yaml`,
+`scripts/composition/check.ts`, `scripts/composition/files.ts`, `scripts/composition/model.ts`,
+`scripts/composition/render.ts`, `scripts/composition/sync-docs.ts`,
+`scripts/tests/composition/files.test.ts`, `scripts/tests/composition/model.test.ts`,
+`scripts/tests/composition/render.test.ts`, `tsconfig.base.json`, `tsconfig.json`,
+`vitest.config.ts`.
+
+`layout-or-stack-assumed` — asserts a directory layout or build shape the repository may not have:
+`packages/shared/package.json`, `packages/shared/src/index.ts`,
+`packages/shared/tsconfig.build.json`, `packages/shared/tsconfig.json`, `tsconfig.build.json`.
+
+`contract-bound` — reached only where the chosen preset materializes an HTTP contract:
+`.github/workflows/api-contract.yml`, `contracts/api/openapi.yaml`,
+`packages/shared/src/api/openapi.ts`, `redocly.yaml`, `scripts/contracts/types.mjs`,
+`scripts/tests/contracts/security.test.ts`, `src/contracts/openapi.ts`.
+
+**Where the two observed misfits fall, and what that shows.** `tsconfig.base.json` is
+`harness-adoption`: it is correct wherever the repository's own `tsconfig.json` extends it, and inert
+wherever that file extends something else. The `"preview"` script is not a path at all — it is a key
+inside `package.json`, which `sync` classifies through `merge-json`, so the misfit arrives as an
+added key on a path classified `update` rather than as an `add`. **The applicability question has two
+granularities, and only one of them is a file.**
+
+Of the five kinds, two are already conditional — `sample-only` on the tree being empty,
+`contract-bound` on the preset chosen — and one, `construct-subject`, cannot misfit. So the
+population where a misfit can occur is exactly `harness-adoption` and `layout-or-stack-assumed`, 23
+paths plus the keys merged into `package.json`. Each observed misfit fell in a different one of the
+two, which is why one of them looked like a frontend problem and the other like a TypeScript problem.
+
+**What it would take for `add` to decide otherwise.** Nothing in the current model can express it: a
+fact about the tree would have to be available at classification time, and `classifyPath` is given
+only the target, the recorded sha, the present content and the produced content. Whether that fact
+should come from `detect` — which reports facts and never interprets
+([decision 0015](decisions/0015-interpretation-stays-with-the-agent.md)) — or from the preset
+declaring a precondition per path, is not settled here and is the question this entry exists to hand
+over.
+
+**Boundary.** Two misfits, one repository, one preset. The partition above is complete over what the
+presets produce today and is checked by `tests/add-population.test.ts` in both directions; it says
+nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
+backend or library presets.
+
 ## 2026-09-21 · `testsWeakened` fired on a second class of change
 
 The ladder's `testsWeakened` guard rejected a change in which tests were deleted **together with the
