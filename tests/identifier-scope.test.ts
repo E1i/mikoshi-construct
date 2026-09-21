@@ -57,15 +57,43 @@ function namedIdentifiers(value: unknown): string[] {
     (key === 'id' || key === 'claimId') && typeof entry === 'string' ? [entry] : namedIdentifiers(entry))
 }
 
-function doctorResultBlocks(source: string): Record<string, unknown>[] {
+const BLOCK_KINDS = ['doctor-result', 'repository-model', 'manifest', 'sync-report'] as const
+type BlockKind = (typeof BLOCK_KINDS)[number]
+
+const SCANNED_KINDS: BlockKind[] = ['doctor-result', 'repository-model']
+
+function kindOf(block: Record<string, unknown>): BlockKind | null {
+  if (Array.isArray(block.checks))
+    return 'doctor-result'
+  if (Array.isArray(block.claims) && Array.isArray(block.facts))
+    return 'repository-model'
+  if (typeof block.manifestVersion === 'number')
+    return 'manifest'
+  if (typeof block.fromVersion === 'string' && typeof block.toVersion === 'string')
+    return 'sync-report'
+  return null
+}
+
+function jsonBlocks(source: string): Record<string, unknown>[] {
   return [...source.matchAll(/```json\n([\s\S]*?)```/g)].flatMap((match) => {
     try {
-      const parsed = JSON.parse(match[1]) as Record<string, unknown>
-      return Array.isArray(parsed.checks) ? [parsed] : []
+      const parsed = JSON.parse(match[1]) as unknown
+      return typeof parsed === 'object' && parsed != null && !Array.isArray(parsed) ? [parsed as Record<string, unknown>] : []
     }
     catch {
       return []
     }
+  })
+}
+
+function unclassifiedBlocks(source: string): string[] {
+  return jsonBlocks(source).flatMap(block => (kindOf(block) == null ? [Object.keys(block).slice(0, 3).join(', ')] : []))
+}
+
+function scannedBlocks(source: string): Record<string, unknown>[] {
+  return jsonBlocks(source).filter((block) => {
+    const kind = kindOf(block)
+    return kind != null && SCANNED_KINDS.includes(kind)
   })
 }
 
@@ -98,8 +126,9 @@ function tableIdentifiers(source: string): string[] {
 }
 
 function identifiersNamed(source: string): string[] {
-  const blocks = doctorResultBlocks(source)
-  return [...blocks.flatMap(block => Object.keys(block)), ...blocks.flatMap(block => namedIdentifiers(block)), ...tableIdentifiers(source)]
+  const blocks = scannedBlocks(source)
+  const keys = blocks.flatMap(block => (kindOf(block) === 'doctor-result' ? Object.keys(block) : []))
+  return [...keys, ...blocks.flatMap(block => namedIdentifiers(block)), ...tableIdentifiers(source)]
 }
 
 function reused(current: string[], retired: readonly string[]): string[] {
@@ -169,6 +198,29 @@ describe('an identifier the documentation names is one the code owns or has reti
     expect(identifiersNamed(manifest)).toEqual([])
     expect(identifiersNamed(report)).toEqual([])
     expect(identifiersNamed(DOCTOR_RESULT_BLOCK).length).toBeGreaterThan(0)
+  })
+
+  it('classifies every json block it meets, so one of a shape nobody decided about fails instead of not joining the scan', () => {
+    for (const { file, source } of scanned())
+      expect(unclassifiedBlocks(source), file).toEqual([])
+    const kinds = scanned().flatMap(({ source }) => jsonBlocks(source).flatMap(block => kindOf(block) ?? []))
+    expect(kinds.filter(kind => !BLOCK_KINDS.includes(kind))).toEqual([])
+    expect(SCANNED_KINDS.filter(kind => !BLOCK_KINDS.includes(kind))).toEqual([])
+    expect(new Set(kinds).size).toBeGreaterThan(1)
+  })
+
+  it('names a block of an unrecognised shape rather than passing over it, which is what selection could never do', () => {
+    const invented = '```json\n{ "ledgerVersion": 2, "runs": [] }\n```\n'
+    expect(unclassifiedBlocks(invented)).toEqual(['ledgerVersion, runs'])
+    expect(unclassifiedBlocks(DOCTOR_RESULT_BLOCK)).toEqual([])
+  })
+
+  it('scans a model block for the claim ids it names and not for the keys that hold them', () => {
+    const model = '```json\n{ "modelVersion": 1, "facts": [], "claims": [{ "id": "no-committed-secret", "checkId": "ci" }], "hypotheses": [] }\n```\n'
+    expect(unclassifiedBlocks(model)).toEqual([])
+    expect(identifiersNamed(model)).toContain('no-committed-secret')
+    expect(identifiersNamed(model)).not.toContain('modelVersion')
+    expect(unowned(identifiersNamed(model.replace('"no-committed-secret"', '"no-such-claim"')))).toEqual(['no-such-claim'])
   })
 
   it('keeps a retired name out of the current list, so no identifier can come back meaning something else', () => {
