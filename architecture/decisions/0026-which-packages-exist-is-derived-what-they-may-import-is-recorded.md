@@ -82,6 +82,19 @@ workspace package, and a package anywhere else may import nothing. It is the nar
 it is what the preset asserts about a package whose role it placed itself. A package in a directory
 the preset does not recognise falls to `nothing`, which is the safe side for a policy.
 
+**The same default applies to a monorepo the construct did not build.** Until this record, a
+repository whose packages were detected rather than created got the permissive branch — every package
+allowed to import every other. That is the construct authoring an import policy for someone else's
+packages, which is the thing this record forbids, applied at first contact instead of on a re-run. A
+policy nobody chose is not made acceptable by being wide; it is made invisible by it. So there is one
+default and the narrow one is it.
+
+The cost is real and is not hidden here: adopting a monorepo whose packages already import each other
+will fail lint until the owner widens the policy deliberately. That is the point. A failing check
+names what the repository actually does and asks someone to decide about it, where a permissive
+default would bless whatever is already there without anyone choosing it — and, under this record's
+own rule, that unchosen blessing would then be recorded and kept.
+
 **What this record does not settle.** The measured default lets an app import another app. That is
 what the preset computes today; whether it is right is a separate question, and this record fixes
 only that a new key's default is not broader than what the preset already gives a package of that

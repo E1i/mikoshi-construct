@@ -17,10 +17,13 @@ else may import nothing. The run names the keys it added, what each may import, 
 `eslint.config.mjs` is not rewritten there so a later `sync --apply` would write the new policy into
 it — the consequence, not only the delta.
 
-**The default for a first `init` on a monorepo that already has packages changes with this.** It used
-to be permissive, because the packages were detected rather than created; it is now the same kind
-default as everywhere else, so `packages/*` starts at importing nothing. That is the narrow side, it
-is recorded, and widening it is kept from then on.
+**Adopting a monorepo whose packages already import each other will now fail lint until you widen the
+policy deliberately.** The default for a first `init` on a monorepo that already carries packages
+used to be permissive — every package allowed to import every other — because the packages were
+detected rather than created. It is now the same narrow default as everywhere else: `packages/*`
+starts at importing nothing. Widening it is a one-line edit to `eslint.config.mjs`, and from then on
+the record keeps what you chose. The old default blessed whatever the repository already did without
+anyone deciding to, and under this release that unchosen policy would have been recorded and kept.
 
 `construct.json` carries the policy as structure under `policy` and declares `manifestVersion` 5. The
 rendered form is derived from the structure and is never read back to recover it, so a formatting
