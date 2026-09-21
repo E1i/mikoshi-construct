@@ -432,8 +432,12 @@ reproducibility of content. The same six interpretations came back under the sam
 is **not** evidence that the protocol converges: the discoverer of this run had read the entry above
 before starting, so the second run was primed with the first run's answers. The honest reading is that
 a primed second run agrees with the first, which is the weakest of the possible findings and the only
-one this design can carry. A blind second run — a discoverer that has not seen the first result — is
-what would settle convergence, and nothing here stands in for it.
+one this design can carry. A blind second run is what would settle convergence, and nothing here
+stands in for it — but blind has to mean more than unread. The first run wrote
+`construct.model.json` into that tree, and a second run in the same tree reads that file as ordinary
+work and inherits every conclusion in it. Only a run in a fresh copy, where the model does not yet
+exist, is blind; reusing the adopted tree is the convenient version of the experiment and is exactly
+the contamination.
 
 **Material for the picture step, second reading.** Four facts of forty-two carry more than one
 dependent, and the densest is three. One of the four is new in kind rather than in number:
@@ -441,10 +445,27 @@ dependent, and the densest is three. One of the four is new in kind rather than 
 discovery's `formatting-has-two-owners`, so the fan-in now crosses authors as well as entries. The
 rendering of this model — the first of a real model — draws forty-two evidence nodes and eleven
 entries, and the four fan-ins are the only thing in it a list could not have shown. That remains a
-third reading pointing the same way as the first two, with the caveat that it is not a third
-repository: this run and the one above it are the same tree, so the population measured for fan-in
-density is two repositories, not three. The picture is honest, and the shape it exists to show is
-sparse in every model looked at so far.
+third reading pointing the same way as the first two, and the readings are not the
+thing that is short. The population is.
+
+| Measured so far | What the question needs |
+|---|---|
+| two runs | several repositories |
+| one tree | of differing size |
+| about six hypotheses, forty-two facts | tens of claims |
+| fan-in at most three | shared infrastructure standing under many entries |
+| every chain one hop | |
+
+**Fan-in is a property of scale.** One workflow carrying five claims appears in a large repository,
+not in a library with six hypotheses. Forty nodes is the size at which a list wins against a diagram
+under any circumstances, and judging the value of a picture there is like judging an index by a
+forty-row table.
+
+So the boundary is harder than *the picture has not earned its place*: **the question is not answered,
+because no model inspected so far reaches the size at which it arises.** That is not an argument about
+models rather than about pictures — it is the absence of a suitable specimen, the same shape as the
+missing adopted repository two weeks ago, and it is closed the same way: by finding one, not by
+reasoning from the ones at hand.
 
 **An empty result that named no cause, caught by arithmetic.** `evidenceClean` was first computed by a
 script that shelled out to `git status --porcelain` per hypothesis and read empty output as clean. All
