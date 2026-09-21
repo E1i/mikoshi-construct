@@ -1045,7 +1045,8 @@ claude                             # then /construct-discover
 ```
 
 `/construct-discover` fills the ten markers in `AGENTS.md` and `architecture/` by reading the code.
-`/plan` turns a feature into tasks with acceptance criteria. `/implement` runs the reasoning-budget
+`/plan` turns a feature into tasks with acceptance criteria, each shown failing before the
+implementation exists. `/implement` runs the reasoning-budget
 ladder and lets the harness decide when more effort is warranted. Cursor users ask the agent to run
 construct discovery instead, and it follows the same protocol.
 

@@ -129,7 +129,8 @@ flow, the security invariants with their checks, what a reviewer must flag, and 
 convention but is not. Where a section already exists in the repository, the marker points at it.
 
 **Plan** — `/plan <feature>` turns a feature into two to six tasks, each with acceptance criteria a
-harness run can confirm and an effort class.
+harness run can confirm — shown failing before the implementation exists, or they are intent rather
+than criteria — and an effort class.
 
 **Implement** — `/implement <task>` runs the ladder: `low → low → medium → high` (or from `medium` or
 `high` when the task warrants it). An `implementer` agent works under strict constraints, a `harness`
