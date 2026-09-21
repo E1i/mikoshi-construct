@@ -43,6 +43,7 @@ export interface Hypothesis {
   statement: string
   authoredBy: EntryAuthor
   baseSha: string | null
+  baseClean: boolean
   supportedBy: string[]
 }
 
@@ -57,7 +58,7 @@ const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle']
 const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
 const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification', 'checkId']
-const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'supportedBy']
+export const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'baseClean', 'supportedBy']
 const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses']
 
 export class DanglingFactReference extends Error {
@@ -107,6 +108,13 @@ function nullableText(name: string, record: Record<string, unknown>, key: string
     return null
   if (typeof value !== 'string' || value.trim() === '')
     fail(name, `${where} needs a non-empty "${key}" or null`)
+  return value
+}
+
+function flag(name: string, record: Record<string, unknown>, key: string, where: string): boolean {
+  const value = record[key]
+  if (typeof value !== 'boolean')
+    fail(name, `${where} needs a "${key}" of true or false`)
   return value
 }
 
@@ -221,6 +229,7 @@ function parseHypotheses(name: string, raw: Record<string, unknown>, facts: Set<
       statement: text(name, entry, 'statement', where),
       authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
       baseSha: nullableText(name, entry, 'baseSha', where),
+      baseClean: flag(name, entry, 'baseClean', where),
       supportedBy: supportedBy(name, entry, where, facts),
     }
   })

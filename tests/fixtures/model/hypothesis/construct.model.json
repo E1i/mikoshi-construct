@@ -29,6 +29,7 @@
       "statement": "This repository is a pnpm workspace whose single deployable is apps/api, and CI runs the harness over it",
       "authoredBy": "discovery",
       "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
+      "baseClean": true,
       "supportedBy": ["workspace-file", "api-app", "ci-runs-the-harness"]
     },
     {
@@ -36,6 +37,7 @@
       "statement": "This repository is deployed as a single container",
       "authoredBy": "unknown",
       "baseSha": null,
+      "baseClean": false,
       "supportedBy": []
     }
   ]
