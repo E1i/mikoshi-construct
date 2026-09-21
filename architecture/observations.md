@@ -303,7 +303,15 @@ and therefore after `init`. `false` was recorded, and it was not a choice — **
 construct adopts rather than creates, `baseClean` can only ever be `false` unless the adopter commits
 `init`'s output first.** Every hypothesis then carries a caveat that is true and says nothing
 distinguishing. Nothing is proposed here; the observation is that a field meant to separate careful
-readings from careless ones is, in the adoption path, constant.
+readings from careless ones is, in the adoption path, constant. (The field was later scoped to the
+evidence under each hypothesis and renamed `evidenceClean` —
+[decision 0018](decisions/0018-evidence-clean-scopes-to-the-evidence.md). The names above are the ones
+the run recorded.)
+
+**The copy this was measured on predates the rename**, and its `construct.model.json` still carries
+`baseClean`. The current parser rejects that file, so re-running `doctor` against that tree meets a
+schema error rather than a defect. The tree is scratch and nothing depends on it; this is recorded so
+the error is recognised for what it is by whoever meets it next.
 
 **Boundary.** One specimen, one adoption, one adopter who chose not to commit. Whether committing the
 `init` output before running discovery is what an adopter would normally do has not been observed at
@@ -345,3 +353,23 @@ files. So if this list argues for a third kind at all, it argues for quantificat
 for a third thing to look at. That is recorded as evidence and acted on nowhere: one specimen, one
 discoverer, and the discoverer knew the two kinds before choosing what to conclude, which is exactly
 the bias that would make the list look tidier than the need is.
+
+
+## 2026-09-21 · Two arguments about timing rest on the same fact
+
+Renaming `baseClean` was argued against on the ground that it would churn a published field, in the
+same paragraph as the meaning change was argued *for* on the ground that nothing in the wild carries
+a hypothesis yet. Both arguments rest on one fact — whether real data exists — and it points the same
+way for both. Invoking it for the meaning and forgetting it for the name produced the right answer to
+one question and the wrong answer to the other, a few lines apart.
+
+**The general form.** *It is too late to change this* and *it is cheap to change this now* are not two
+considerations to be weighed against each other; they are one claim about the state of the world, read
+in two directions. Whenever a change is justified by the absence of data in the wild, every other
+change the same absence would license has to be settled in the same breath, because the licence
+expires for all of them at once. Here it expires at the first hypothesis anybody writes outside a
+scratch copy.
+
+**Boundary.** One occurrence, and it was caught in review rather than by anything mechanical. Nothing
+here proposes a check; the note exists because the failure is easy to repeat and reads as prudence
+while it is happening.

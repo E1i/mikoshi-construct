@@ -18,7 +18,7 @@ export type HypothesisReading = {
   hypothesisId: string
   statement: string
   baseSha: string | null
-  baseClean: boolean
+  evidenceClean: boolean
 } & StageFinding
 
 export interface KnowledgeProjection {
@@ -43,7 +43,7 @@ function reading(hypothesis: Hypothesis, finding: StageFinding): HypothesisReadi
     hypothesisId: hypothesis.id,
     statement: hypothesis.statement,
     baseSha: hypothesis.baseSha,
-    baseClean: hypothesis.baseClean,
+    evidenceClean: hypothesis.evidenceClean,
     ...finding,
   }
 }

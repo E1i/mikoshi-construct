@@ -143,10 +143,13 @@ describe('doctor reads each hypothesis the model carries', () => {
     expect(JSON.stringify(reading)).not.toContain('ci-runs-the-harness"')
   })
 
-  it('reports a hypothesis read from an unclean tree as made against one, and says nothing of the sort about the others', () => {
+  it('reports a hypothesis whose evidence was uncommitted as standing on uncommitted evidence, and says nothing of the sort about the others', () => {
     const output = render(result())
-    expect(lineFor(output, 'a-pnpm-workspace')).toContain('read from a tree carrying uncommitted changes')
-    expect(lineFor(output, 'one-deployable-under-apps')).not.toContain('uncommitted changes')
+    const uncommitted = lineFor(output, 'a-pnpm-workspace')
+    const committed = lineFor(output, 'one-deployable-under-apps')
+    expect(uncommitted).toContain('the evidence under it carried uncommitted changes when it was read')
+    expect(committed).not.toContain('uncommitted changes')
+    expect(uncommitted.replace('a-pnpm-workspace', '')).not.toBe(committed.replace('one-deployable-under-apps', ''))
   })
 })
 
@@ -179,7 +182,7 @@ describe('an empty hypotheses list never reads as a repository that was looked a
     hypothesisId: 'a-pnpm-workspace',
     statement: 'This repository is a pnpm workspace',
     baseSha: '9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a',
-    baseClean: true,
+    evidenceClean: true,
     state: 'held',
   }]
 

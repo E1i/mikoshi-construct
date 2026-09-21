@@ -61,8 +61,8 @@ function hypothesisReading(ui: Ui, hypothesis: HypothesisReading): string {
 }
 
 function hypothesisLine(ui: Ui, hypothesis: HypothesisReading, width: number): string {
-  const base = hypothesis.baseClean ? '' : ` ${ui.lore.hypothesisUncleanBase}`
-  return `  ${hypothesis.hypothesisId.padEnd(width)} ${hypothesis.state.padEnd(12)} ${ui.theme.dim(`${hypothesisReading(ui, hypothesis)}${base}`)}`
+  const evidence = hypothesis.evidenceClean ? '' : ` ${ui.lore.hypothesisUncommittedEvidence}`
+  return `  ${hypothesis.hypothesisId.padEnd(width)} ${hypothesis.state.padEnd(12)} ${ui.theme.dim(`${hypothesisReading(ui, hypothesis)}${evidence}`)}`
 }
 
 function hypothesesRead(ui: Ui, hypotheses: HypothesisReading[], placement: ClaimPlacement): string | null {

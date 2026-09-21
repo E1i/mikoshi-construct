@@ -12,7 +12,7 @@
       "statement": "This repository is a pnpm workspace",
       "authoredBy": "discovery",
       "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
-      "baseClean": false,
+      "evidenceClean": false,
       "supportedBy": ["workspace-file"]
     },
     {
@@ -20,7 +20,7 @@
       "statement": "The single deployable is apps/api",
       "authoredBy": "discovery",
       "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
-      "baseClean": true,
+      "evidenceClean": true,
       "supportedBy": ["api-app"]
     },
     {
@@ -28,7 +28,7 @@
       "statement": "CI runs the harness over every change",
       "authoredBy": "discovery",
       "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
-      "baseClean": true,
+      "evidenceClean": true,
       "supportedBy": ["ci-runs-the-harness"]
     },
     {
@@ -36,7 +36,7 @@
       "statement": "This repository is deployed as a single container",
       "authoredBy": "unknown",
       "baseSha": null,
-      "baseClean": true,
+      "evidenceClean": true,
       "supportedBy": []
     }
   ]

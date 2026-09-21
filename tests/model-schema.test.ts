@@ -54,9 +54,16 @@ describe('the repository model schema', () => {
     expect(() => parseModel(model([{ id: 'a', kind: 'file-exists', path: 'ci.yml', authoredBy: 'construct', needle: 'x' }]), 'M')).toThrow('facts[0] of kind "file-exists" must not carry a "needle"')
   })
 
-  it('refuses a hypothesis that does not say whether the tree it was derived from was clean', () => {
+  it('refuses a hypothesis that does not say whether the evidence it was derived from was committed', () => {
     const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha: null, supportedBy: [] }
-    expect(() => parseModel(JSON.stringify({ modelVersion: 1, facts: [], claims: [], hypotheses: [hypothesis] }), 'M')).toThrow('hypotheses[0] needs a "baseClean" of true or false')
+    expect(() => parseModel(JSON.stringify({ modelVersion: 1, facts: [], claims: [], hypotheses: [hypothesis] }), 'M')).toThrow('hypotheses[0] needs a "evidenceClean" of true or false')
+  })
+
+  it('refuses the whole-tree name the field used to carry, and accepts the evidence-scoped one', () => {
+    const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha: null, supportedBy: [] }
+    const document = (entry: object): string => JSON.stringify({ modelVersion: 1, facts: [], claims: [], hypotheses: [entry] })
+    expect(() => parseModel(document({ ...hypothesis, baseClean: true }), 'M')).toThrow('hypotheses[0] carries an unexpected property "baseClean"')
+    expect(parseModel(document({ ...hypothesis, evidenceClean: true }), 'M').hypotheses[0]).toEqual({ ...hypothesis, evidenceClean: true })
   })
 
   it.each([
@@ -64,15 +71,15 @@ describe('the repository model schema', () => {
     ['9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a', false],
     [null, true],
     [null, false],
-  ])('accepts a hypothesis based on %s with baseClean %s, because no combination of the two is ruled out', (baseSha, baseClean) => {
-    const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha, baseClean, supportedBy: [] }
+  ])('accepts a hypothesis based on %s with evidenceClean %s, because no combination of the two is ruled out', (baseSha, evidenceClean) => {
+    const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha, evidenceClean, supportedBy: [] }
     const model = parseModel(JSON.stringify({ modelVersion: 1, facts: [], claims: [], hypotheses: [hypothesis] }), 'M')
     expect(model.hypotheses[0]).toEqual(hypothesis)
   })
 
   it('requires every supportedBy entry to name a fact that exists, and every id to be unique', () => {
     const fact = { id: 'a', kind: 'file-exists', path: 'ci.yml', authoredBy: 'construct' }
-    const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha: null, baseClean: false, supportedBy: ['missing'] }
+    const hypothesis = { id: 'h', statement: 'a guess', authoredBy: 'discovery', baseSha: null, evidenceClean: false, supportedBy: ['missing'] }
     expect(() => parseModel(JSON.stringify({ modelVersion: 1, facts: [fact], claims: [], hypotheses: [hypothesis] }), 'M')).toThrow('hypotheses[0] supportedBy refers to unknown fact "missing"')
     expect(() => parseModel(JSON.stringify({ modelVersion: 1, facts: [fact, fact], claims: [], hypotheses: [] }), 'M')).toThrow('fact ids must be unique')
   })

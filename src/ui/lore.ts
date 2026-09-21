@@ -57,7 +57,7 @@ export interface Lore {
   hypothesisUnsupported: (statement: string, doesNotHold: readonly [string, ...string[]]) => string
   hypothesisUnevaluable: (statement: string, unevaluable: readonly [string, ...string[]]) => string
   hypothesisNothingNamed: (statement: string) => string
-  hypothesisUncleanBase: string
+  hypothesisUncommittedEvidence: string
   hypothesesNoModel: string
   hypothesesNoneNamed: string
   youAreHereUnsupported: (claimId: string, stage: string, doesNotHold: readonly [string, ...string[]]) => string
@@ -153,7 +153,7 @@ export const LORE: Lore = {
   hypothesisUnsupported: (statement: string, doesNotHold: readonly [string, ...string[]]) => `READS ${statement} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
   hypothesisUnevaluable: (statement: string, unevaluable: readonly [string, ...string[]]) => `READS ${statement} \u2014 could not be read here, so nothing is said about it: ${unevaluable.join(', ')}`,
   hypothesisNothingNamed: (statement: string) => `READS ${statement} \u2014 no fact is named under it, so nothing was read`,
-  hypothesisUncleanBase: '\u2014 read from a tree carrying uncommitted changes, so it was never read from the base it records',
+  hypothesisUncommittedEvidence: '\u2014 the evidence under it carried uncommitted changes when it was read, so no commit holds the bytes it stands on',
   hypothesesNoModel: 'THERE IS NO construct.model.json HERE: nothing was read, so nothing is known about what this repository was taken to be.',
   hypothesesNoneNamed: 'construct.model.json NAMES NO HYPOTHESIS: it was read and it holds nothing open about this repository \u2014 which is not a reading that everything is settled.',
   youAreHereUnsupported: (claimId: string, stage: string, [first, ...rest]: readonly [string, ...string[]]) => `YOU ARE HERE: ${claimId} \u2014 ${stage} unsupported: ${first} no longer matches${andMore(rest)}`,
@@ -260,7 +260,7 @@ export const PLAIN_LORE: Lore = {
   hypothesisUnsupported: (statement: string, doesNotHold: readonly [string, ...string[]]) => `reads ${statement} \u2014 no longer matching: ${doesNotHold.join(', ')}`,
   hypothesisUnevaluable: (statement: string, unevaluable: readonly [string, ...string[]]) => `reads ${statement} \u2014 could not be read here, so nothing is said about it: ${unevaluable.join(', ')}`,
   hypothesisNothingNamed: (statement: string) => `reads ${statement} \u2014 no fact is named under it, so nothing was read`,
-  hypothesisUncleanBase: '\u2014 read from a tree carrying uncommitted changes, so it was never read from the base it records',
+  hypothesisUncommittedEvidence: '\u2014 the evidence under it carried uncommitted changes when it was read, so no commit holds the bytes it stands on',
   hypothesesNoModel: 'There is no construct.model.json here: nothing was read, so nothing is known about what this repository was taken to be.',
   hypothesesNoneNamed: 'construct.model.json names no hypothesis: it was read and it holds nothing open about this repository \u2014 which is not a reading that everything is settled.',
   youAreHereUnsupported: (claimId: string, stage: string, [first, ...rest]: readonly [string, ...string[]]) => `You are here: ${claimId} \u2014 ${stage} unsupported: ${first} no longer matches${andMore(rest)}`,

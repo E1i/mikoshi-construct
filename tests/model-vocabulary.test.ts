@@ -34,12 +34,13 @@ describe('architecture/model.md explains every word the model uses', () => {
     expect(unexplained([...HYPOTHESIS_PROPERTIES, 'inventedProperty'])).toEqual(['inventedProperty'])
   })
 
-  it('says what a hypothesis records about the tree it was read from, in the three ways a reader gets it wrong', () => {
-    expect(DOCUMENT).toContain('### `baseClean` is about the tree read, never the tree left behind')
-    expect(DOCUMENT).toContain('### `baseClean` is a claim, not a measurement')
+  it('says what a hypothesis records about the evidence it was read from, in the three ways a reader gets it wrong', () => {
+    expect(DOCUMENT).toContain('### `evidenceClean` is about the evidence read, never the tree around it')
+    expect(DOCUMENT).toContain('### `evidenceClean` is a claim, not a measurement')
     expect(DOCUMENT).toContain('### Hypotheses with different bases belong together')
     expect(DOCUMENT).toContain('before the run began writing')
-    expect(DOCUMENT).toContain('Nothing in this tool verifies `baseClean`.')
+    expect(DOCUMENT).toContain('the files named by the facts under `supportedBy`')
+    expect(DOCUMENT).toContain('Nothing in this tool verifies `evidenceClean`.')
   })
 
   it('explains the points a reader cannot get from the code', () => {
