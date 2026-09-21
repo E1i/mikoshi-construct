@@ -101,6 +101,7 @@ function repository(name: string): string {
     written: fileOps(root),
     contracts: false,
     previous: null,
+    policy: null,
   }))
   const model = buildModel({ vars: VARS, contracts: false, sample: true })
   writeModel(root, fixture.model == null ? model : fixture.model(model))
@@ -136,6 +137,7 @@ function healthyControl(): DoctorResult {
     written: fileOps(root),
     contracts: false,
     previous: null,
+    policy: null,
   }))
   writeModel(root, buildModel({ vars: VARS, contracts: false, sample: true }))
   return runDoctor(root) as DoctorResult

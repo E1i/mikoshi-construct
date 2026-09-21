@@ -28,7 +28,7 @@ const VARS: TemplateVars = {
 function producedFor(presetId: PresetId, emptyTarget: boolean): string[] {
   const dir = mkdtempSync(path.join(tmpdir(), 'construct-population-'))
   const preset = getPreset(presetId)
-  const vars = { ...VARS, contracts: preset.contracts ? 'true' : 'false', ...preset.vars(detect(dir), VARS.projectName) }
+  const vars = { ...VARS, contracts: preset.contracts ? 'true' : 'false', ...preset.vars(detect(dir), VARS.projectName, null) }
   const plan = planMaterialize(dir, [...preset.groups, ...aiGroups('claude')], vars, { emptyTarget, ai: 'claude' })
   return plan.ops.map(op => op.target)
 }

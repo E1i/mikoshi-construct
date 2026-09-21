@@ -31,7 +31,7 @@ than this binary understands is neither read nor normalised: the command reports
 version it found, the version it understands, and that the CLI needs upgrading, then exits `1`.
 
 ```
-construct.json declares manifestVersion 5, and this binary understands 4.
+construct.json declares manifestVersion 6, and this binary understands 5.
 Nothing was read and nothing was written: upgrade the CLI and run this again.
 ```
 
@@ -113,6 +113,15 @@ repository is answered by whether the construct ever materialized it here, which
 records, rather than by whether the directory is empty — which is false from the second run onward,
 and used to delete the `lint-policy` claim from `construct.model.json` on every re-run.
 
+The workspace policy is read the same way, and it is the one place where a fact and a decision shared
+a variable. Which packages exist is a fact about the tree and is re-derived on every run, so a
+package added since the last one becomes a new key. What each package may import is a decision: once
+it is in the record it is kept, and a new key is given the preset's default for a package of its kind
+— a package under `apps/` may import every other workspace package, anything else may import nothing.
+The run names the keys it added, what each may import, and that `eslint.config.mjs` is not rewritten
+here, so a later `construct sync --apply` would write the new policy into it
+([decision 0026](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0026-which-packages-exist-is-derived-what-they-may-import-is-recorded.md)).
+
 `AGENTS.md` and `CLAUDE.md` ship in two forms: the full document the construct writes when it creates
 the file, and the shorter block it writes into a file that was already there. A second `init` keeps
 the form recorded for that path under `variants` in `construct.json` rather than choosing again from
@@ -157,6 +166,7 @@ it is read and never written back.
 | `harness`, `report`, `contracts`, `vars` | The harness command, the contract paths and the resolved template variables. |
 | `files` | One sha256 per file that run declared writing. |
 | `variants` | For each `append-block` target, which template form wrote it: `default` where the construct created the file, `existing` where the file was already there. |
+| `policy` | The workspace import policy as structure, not as rendered source: one entry per package directory naming what it may import. What a run renders into `eslint.config.mjs` follows this, never the other way round. |
 | `discovery` | Where each marker lives, and who wrote it. |
 
 ```json
