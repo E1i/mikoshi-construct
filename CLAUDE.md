@@ -102,6 +102,13 @@ enforcement levels, the in-universe vocabulary, the discovery markers — lives 
 test reads it from there and asserts the document explains every member. The document is the second
 reader, never a second copy: a test that restates the list only proves the copy matches the copy.
 
+**An open version pull request is a lock on `main`.** While a `changeset-release/main` pull request
+is open, nothing else merges to `main`. The changesets action keeps that branch in sync by
+force-pushing it whenever `main` moves, and a force-push discards the workflow approval already
+granted to it and restarts the required checks — with ten required contexts, every unrelated merge
+costs the maintainer another approval and keeps the release unmergeable for longer. Finished work
+waits on its branch until the release lands.
+
 No comments in source, including JSDoc. ESLint (`@antfu/eslint-config`) is the only formatter; fix
 style with `pnpm lint:fix`, never by hand. Tests live in `tests/`, never beside source, and every
 changed logic module ships its test in the same change. `detect` returns facts; anything that needs
