@@ -91,6 +91,7 @@ function materialized(): string {
     written: [{ target: 'package.json', strategy: 'create', action: 'create', content }],
     contracts: false,
     previous: null,
+    policy: null,
   }))
   return root
 }

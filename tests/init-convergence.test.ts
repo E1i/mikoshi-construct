@@ -35,10 +35,6 @@ function pathsThatDiffer(before: Record<string, string>, after: Record<string, s
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(file => before[file] !== after[file]).sort()
 }
 
-function varsRecordedIn(manifest: string): Record<string, string> {
-  return (JSON.parse(manifest) as { vars: Record<string, string> }).vars
-}
-
 function manifestOf(dir: string): Manifest {
   return readManifest(dir)!
 }
@@ -150,7 +146,7 @@ describe('two comparisons, because a re-run can go wrong in two ways that do not
     }
   })
 
-  it('holds the defect that settles on a wrong value, which the comparison above cannot see: the first run differs from the second in one file of one preset, the monorepo record, and only in the two workspace variables the second run re-derives from the packages the first run created', async () => {
+  it('holds the defect that settles on a wrong value, which the comparison above cannot see: no preset differs between the first run and the second, in any file', async () => {
     const differences: Record<string, string[]> = {}
 
     for (const preset of PRESETS) {
@@ -159,17 +155,11 @@ describe('two comparisons, because a re-run can go wrong in two ways that do not
       const afterFirst = treeOf(dir)
       await init(dir, preset)
       differences[preset] = pathsThatDiffer(afterFirst, treeOf(dir))
-
-      if (preset !== 'monorepo')
-        continue
-      const before = varsRecordedIn(afterFirst['construct.json'])
-      const after = varsRecordedIn(treeOf(dir)['construct.json'])
-      expect(Object.keys(after).filter(name => after[name] !== before[name])).toEqual(['workspacePackages', 'allowedWorkspaceImports'])
     }
 
     expect(differences).toEqual({
       'node-backend': [],
-      'monorepo': ['construct.json'],
+      'monorepo': [],
       'node-frontend': [],
       'node-library': [],
     })

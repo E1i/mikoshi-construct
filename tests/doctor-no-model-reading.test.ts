@@ -38,6 +38,7 @@ function repository(withModel: boolean): string {
     written: [],
     contracts: false,
     previous: null,
+    policy: null,
   }))
   if (withModel)
     writeModel(root, buildModel({ vars: VARS, contracts: false, sample: false }))

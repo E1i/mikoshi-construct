@@ -118,11 +118,18 @@ the recorded structure disagree, the structure is right and the render is regene
 
 ## Enforced by
 
-**Nothing yet — L0.** This record is the decision; the implementation and its test are not in the
-tree. Stating that plainly is the honest answer rather than naming a level this record does not have.
+`tests/workspace-policy.test.ts` (L3). The test that matters most reproduces the defect end to end:
+a monorepo materialized from empty, a second `init`, then `sync --apply`, asserting that
+`eslint.config.mjs` is unchanged and that `packages/shared` still reads `[]`. It was written first
+and was red before the implementation. Beside it: the recorded allowances of a key survive a re-run
+byte for byte; a package that appeared since the last run becomes a new key carrying the kind default
+and no wider, while no recorded key widens; the run names the added keys, what each may import,
+`eslint.config.mjs` and what `sync --apply` would do to it; and exactly two variables change when a
+package appears, so a third joining them fails.
 
-It becomes L3 when a test asserts, over a tree materialized from empty and re-inited: that a key
-recorded with `[]` still reads `[]` after the second and third run; that a package added between runs
-appears as a new key carrying its kind default and no wider; and that the run names the change with
-both values **and with what it will do to the file the variable governs**. Until that test exists,
-the behaviour described above is not the behaviour of the tool.
+`tests/init-convergence.test.ts` holds the two convergence properties around it — no file of any
+preset differs between the first run and the second, and none between the second and the third.
+
+The structure is recorded under `policy` in `construct.json`, which carries `manifestVersion` 5. The
+rendered `allowedWorkspaceImports` is derived from it on every run and is never read back to recover
+it.

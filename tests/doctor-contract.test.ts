@@ -36,6 +36,7 @@ function emittedResult(): Record<string, unknown> {
     written: [{ target: 'package.json', strategy: 'create', action: 'create', content }],
     contracts: false,
     previous: null,
+    policy: null,
   }))
   return runDoctor(root) as unknown as Record<string, unknown>
 }

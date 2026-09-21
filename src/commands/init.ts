@@ -13,7 +13,7 @@ import { planMaterialize } from '../materialize/plan.js'
 import { repositoryCarriesTheSample } from '../materialize/sample.js'
 import { withoutStillbornClaims } from '../model/birth.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
-import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, PRESET_LIST, sampleGroups, sampleMounts } from '../presets/index.js'
+import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, keysGivenADefault, PRESET_LIST, sampleGroups, sampleMounts, workspacePackagesFor } from '../presets/index.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { printDetectReport } from './soulkill.js'
@@ -282,6 +282,10 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ui.line(ui.theme.dim(`  ${ui.lore.recordAnswered(answeredByTheRecord)}`))
   ui.line()
 
+  const recordedPolicy = previous?.policy?.workspaceImports ?? null
+  const policy = preset.policy?.(report, projectName, recordedPolicy) ?? null
+  const policyKeysAdded = preset.policy == null ? [] : keysGivenADefault(workspacePackagesFor(report, projectName), recordedPolicy)
+
   const vars: TemplateVars = {
     projectName,
     scope: `@${projectName}`,
@@ -295,7 +299,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     pnpmVersion: report.pnpmVersion ?? '',
     reviewModel,
     constructVersion: VERSION,
-    ...preset.vars(report, projectName),
+    ...preset.vars(report, projectName, policy),
   }
 
   const groups = groupsFor(preset, ai, review)
@@ -321,6 +325,8 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     const changed = varsThisRunChanged(previous, vars)
     if (changed.length > 0)
       ui.line(ui.theme.dim(`  ${ui.lore.recordVarsChanged(changed)}`))
+    if (policyKeysAdded.length > 0 && policy != null)
+      ui.line(ui.theme.dim(`  ${ui.lore.policyGainedKeys(policyKeysAdded.map(dir => ({ dir, allowed: policy[dir] ?? [] })))}`))
     ui.line()
   }
 
@@ -352,7 +358,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const existingModel = readModel(root)
   const next = nextStep(root, applied, vars)
   const written = applyPlan(root, plan.ops)
-  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous })
+  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous, policy })
   writeManifest(root, manifest)
   const sample = sampleIsHere({ preset, vars, ai, review, omittedGroups: plan.omittedGroups, previous })
   const born = withoutStillbornClaims(buildModel({ vars, contracts: preset.contracts, sample }), existingModel, root)

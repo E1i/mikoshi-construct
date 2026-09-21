@@ -36,6 +36,7 @@ function syncedRepository(onDisk: string): string {
     written: [{ target: 'package.json', strategy: 'create', action: 'create', content: MATERIALIZED }],
     contracts: false,
     previous: null,
+    policy: null,
   })
   writeManifest(root, recordSync(materialized, {
     ranAt: '2026-09-21T00:00:00.000Z',
@@ -75,6 +76,7 @@ function withAPathOnlySyncRecorded(onDisk: string | null): string {
     written: [{ target: 'package.json', strategy: 'create', action: 'create', content: MATERIALIZED }],
     contracts: false,
     previous: null,
+    policy: null,
   })
   writeManifest(root, recordSync(materialized, {
     ranAt: '2026-09-21T00:00:00.000Z',

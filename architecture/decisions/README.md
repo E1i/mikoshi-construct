@@ -45,4 +45,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0023](0023-the-picture-is-a-file-you-can-open.md) | The picture is one file you can open, and what would count as evidence anyone did | L3 test |
 | [0024](0024-an-absent-claim-is-derived-not-recorded.md) | An absent claim is derived on read, never recorded | L3 test |
 | [0025](0025-a-premise-that-can-be-a-fact-is-not-left-as-prose.md) | A premise expressible as facts is written as a hypothesis; prose is understood to age | L1 review |
-| [0026](0026-which-packages-exist-is-derived-what-they-may-import-is-recorded.md) | Which packages exist is derived; what each package may import is recorded | L0 until its test lands |
+| [0026](0026-which-packages-exist-is-derived-what-they-may-import-is-recorded.md) | Which packages exist is derived; what each package may import is recorded | L3 test |

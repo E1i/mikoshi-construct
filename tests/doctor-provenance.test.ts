@@ -33,7 +33,7 @@ function repositoryAfterDiscovery(bodies: Record<string, string>, written: Recor
   writeFileSync(path.join(root, 'AGENTS.md'), agentsWith(bodies))
   mkdirSync(path.join(root, 'architecture/composition'), { recursive: true })
   writeFileSync(path.join(root, 'architecture/composition/app.yaml'), 'id: app\n')
-  const manifest = buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false, previous: null })
+  const manifest = buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false, previous: null, policy: null })
   for (const [marker, body] of Object.entries(written))
     manifest.discovery.markers[marker as 'product'] = { file: 'AGENTS.md', authoredBy: 'construct', sha: sha256(body) }
   manifest.discovery.markers.composition = { file: 'architecture/composition', authoredBy: 'construct', sha: sha256('app.yaml\nid: app\n') }

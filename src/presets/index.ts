@@ -39,7 +39,8 @@ export interface Preset {
   groups: TemplateGroup[]
   contracts: boolean
   available: boolean
-  vars: (report: DetectReport, projectName: string) => Partial<TemplateVars>
+  vars: (report: DetectReport, projectName: string, policy: WorkspaceImports | null) => Partial<TemplateVars>
+  policy?: (report: DetectReport, projectName: string, recorded: WorkspaceImports | null) => WorkspaceImports
 }
 
 const EXPRESS_APP = 'stacks/express-api/app'
@@ -50,6 +51,10 @@ interface WorkspacePackage {
   dir: string
   name: string
 }
+
+export type WorkspaceImports = Record<string, string[]>
+
+const DEPLOYABLE_DIR = 'apps/'
 
 function sampleWorkspace(scope: string): WorkspacePackage[] {
   return [
@@ -62,16 +67,29 @@ function quote(value: string): string {
   return `'${value}'`
 }
 
-export function renderWorkspacePolicy(packages: WorkspacePackage[], sample: boolean): { workspacePackages: string, allowedWorkspaceImports: string } {
+export function workspacePackagesFor(report: DetectReport, projectName: string): WorkspacePackage[] {
+  const packages = report.workspacePackages.length > 0 ? report.workspacePackages : sampleWorkspace(`@${projectName}`)
+  return [...packages].sort((a, b) => a.dir.localeCompare(b.dir))
+}
+
+function kindDefaultFor(pkg: WorkspacePackage, names: string[]): string[] {
+  return pkg.dir.startsWith(DEPLOYABLE_DIR) ? names.filter(name => name !== pkg.name) : []
+}
+
+export function resolveWorkspaceImports(packages: WorkspacePackage[], recorded: WorkspaceImports | null): WorkspaceImports {
   const names = packages.map(pkg => pkg.name)
-  const allowedFor = (pkg: WorkspacePackage): string[] => {
-    if (sample)
-      return pkg.dir.startsWith('apps/') ? names.filter(name => name !== pkg.name) : []
-    return names.filter(name => name !== pkg.name)
-  }
-  const lines = packages.map(pkg => `  ${quote(pkg.dir)}: [${allowedFor(pkg).map(quote).join(', ')}],`)
+  const derived = Object.fromEntries(packages.map(pkg => [pkg.dir, recorded?.[pkg.dir] ?? kindDefaultFor(pkg, names)]))
+  return { ...recorded, ...derived }
+}
+
+export function keysGivenADefault(packages: WorkspacePackage[], recorded: WorkspaceImports | null): string[] {
+  return packages.map(pkg => pkg.dir).filter(dir => recorded?.[dir] == null)
+}
+
+export function renderWorkspacePolicy(packages: WorkspacePackage[], imports: WorkspaceImports): { workspacePackages: string, allowedWorkspaceImports: string } {
+  const lines = packages.map(pkg => `  ${quote(pkg.dir)}: [${(imports[pkg.dir] ?? []).map(quote).join(', ')}],`)
   return {
-    workspacePackages: `[${names.map(quote).join(', ')}]`,
+    workspacePackages: `[${packages.map(pkg => quote(pkg.name)).join(', ')}]`,
     allowedWorkspaceImports: `{\n${lines.join('\n')}\n}`,
   }
 }
@@ -144,16 +162,16 @@ const PRESETS: Record<PresetId, Preset> = {
     ],
     contracts: true,
     available: true,
-    vars: (report, projectName) => {
-      const detected = report.workspacePackages
-      const packages = detected.length > 0 ? detected : sampleWorkspace(`@${projectName}`)
+    policy: (report, projectName, recorded) => resolveWorkspaceImports(workspacePackagesFor(report, projectName), recorded),
+    vars: (report, projectName, policy) => {
+      const packages = workspacePackagesFor(report, projectName)
       return {
         contractPath: 'contracts/api/openapi.yaml',
         contractTypesOutput: 'packages/shared/src/api/openapi.ts',
         contractTypesImport: `@${projectName}/shared`,
         contractPathFromConfig: '../../../contracts/api/openapi.yaml',
         appRoot: 'apps/api/',
-        ...renderWorkspacePolicy(packages, detected.length === 0),
+        ...renderWorkspacePolicy(packages, policy ?? resolveWorkspaceImports(packages, null)),
       }
     },
   },

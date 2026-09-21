@@ -41,7 +41,7 @@ function scratch(): string {
 
 function presetVars(dir: string, presetId: PresetId): TemplateVars {
   const preset = getPreset(presetId)
-  return { ...VARS, contracts: preset.contracts ? 'true' : 'false', ...preset.vars(detect(dir), VARS.projectName) }
+  return { ...VARS, contracts: preset.contracts ? 'true' : 'false', ...preset.vars(detect(dir), VARS.projectName, null) }
 }
 
 function materializedContent(presetId: PresetId): Record<string, string> {

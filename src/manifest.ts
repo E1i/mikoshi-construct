@@ -1,13 +1,13 @@
 import type { FileOp } from './materialize/plan.js'
 import type { TemplateVariant } from './materialize/templates.js'
-import type { AiTarget, PresetId, ReviewProvider, TemplateVars } from './presets/index.js'
+import type { AiTarget, PresetId, ReviewProvider, TemplateVars, WorkspaceImports } from './presets/index.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR } from './detect/existing.js'
 
 export const MANIFEST_FILE = 'construct.json'
-export const MANIFEST_VERSION = 4
+export const MANIFEST_VERSION = 5
 
 export const DISCOVERY_MARKERS = [
   'product',
@@ -46,6 +46,10 @@ export interface SyncRecord {
   variants: Record<string, TemplateVariant>
 }
 
+export interface PolicyRecord {
+  workspaceImports: WorkspaceImports
+}
+
 export interface Manifest {
   manifestVersion: number
   construct: string
@@ -61,6 +65,7 @@ export interface Manifest {
   variants: Record<string, TemplateVariant>
   discovery: DiscoveryRecord
   sync: SyncRecord | null
+  policy: PolicyRecord | null
 }
 
 export function sha256(content: string): string {
@@ -87,6 +92,7 @@ export function buildManifest(input: {
   written: FileOp[]
   contracts: boolean
   previous: Manifest | null
+  policy: WorkspaceImports | null
 }): Manifest {
   const written: Record<string, string> = {}
   for (const op of input.written)
@@ -112,6 +118,7 @@ export function buildManifest(input: {
     variants: { ...input.previous?.variants, ...variantsOf(input.written) },
     discovery: input.previous?.discovery ?? { baseSha: null, filledAt: null, markers },
     sync: input.previous?.sync ?? null,
+    policy: input.policy == null ? input.previous?.policy ?? null : { workspaceImports: input.policy },
   }
 }
 
@@ -137,6 +144,15 @@ function upgradeMarker(recorded: unknown, file: string): MarkerProvenance {
     authoredBy: value.authoredBy === 'construct' ? 'construct' : 'unknown',
     sha: typeof value.sha === 'string' ? value.sha : null,
   }
+}
+
+function upgradePolicy(raw: unknown): PolicyRecord | null {
+  const value = (raw ?? {}) as Partial<PolicyRecord>
+  if (typeof value.workspaceImports !== 'object' || value.workspaceImports == null)
+    return null
+  const entries = Object.entries(value.workspaceImports).flatMap(([dir, allowed]) =>
+    (Array.isArray(allowed) && allowed.every(name => typeof name === 'string') ? [[dir, [...allowed] as string[]]] : []))
+  return { workspaceImports: Object.fromEntries(entries) }
 }
 
 function upgradeSync(raw: unknown): SyncRecord | null {
@@ -190,6 +206,7 @@ export function upgradeManifest(raw: unknown): Manifest {
       markers,
     },
     sync: upgradeSync(manifest.sync),
+    policy: upgradePolicy(manifest.policy),
   }
 }
 

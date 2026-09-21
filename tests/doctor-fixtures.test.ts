@@ -132,6 +132,7 @@ function materializeFixture(name: string, options: FixtureOptions = {}): string 
     written,
     contracts: false,
     previous: null,
+    policy: null,
   })
   writeManifest(root, manifest)
   const carried = options.model ?? 'built'
