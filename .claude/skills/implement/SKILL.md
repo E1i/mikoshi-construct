@@ -78,4 +78,8 @@ repository's CLAUDE.md and `construct.json`.
    cost of the rung that succeeded is on record next to the result. When `construct` is on the PATH,
    add the per-agent split from `construct cost --last --json` (implementer, harness, architect);
    when it is not, the Workflow accounting alone is the line — never guess numbers.
+   Every figure in that line names what measured it: figures from the Workflow tool's own accounting
+   say so, and figures from `construct cost` carry the `version` that command reports, which is the
+   version of the binary on the PATH and not necessarily the sources you are working in. A relayed
+   number that does not say what measured it is not written down.
 6. Never commit. The user reviews the working tree first.

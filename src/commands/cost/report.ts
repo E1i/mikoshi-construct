@@ -22,6 +22,7 @@ export function costJson(report: CostReport, last: boolean): Record<string, unkn
   return {
     status: report.status,
     runtime: report.runtime,
+    version: report.version,
     ...(report.key == null ? {} : { key: report.key }),
     ...(report.candidates == null || report.candidates.length === 0 ? {} : { candidates: report.candidates }),
     ...(runs.length === 0 ? {} : { runs }),
@@ -70,6 +71,7 @@ function printRuns(ui: Ui, runs: WorkflowRun[]): void {
 }
 
 export function printCost(ui: Ui, report: CostReport, last: boolean): number {
+  ui.line(ui.theme.dim(ui.lore.costMeasuredBy(report.version)))
   const key = report.key ?? ''
   const candidates = report.candidates ?? []
   switch (report.status) {

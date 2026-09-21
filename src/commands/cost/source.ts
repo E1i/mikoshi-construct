@@ -23,6 +23,7 @@ export interface CostSource {
 export interface CostReport {
   status: CostStatus
   runtime: Runtime
+  version: string
   runs?: WorkflowRun[]
   key?: string
   candidates?: string[]
