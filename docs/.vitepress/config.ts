@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { releaseSidebarItems } from '../../scripts/release-notes/changelog.js'
 
 export default defineConfig({
   title: 'mikoshi-construct',
@@ -34,9 +35,7 @@ export default defineConfig({
         text: 'Releases',
         items: [
           { text: 'All releases', link: '/release-notes/' },
-          { text: '0.5.0', link: '/release-notes/0.5.0' },
-          { text: '0.4.0', link: '/release-notes/0.4.0' },
-          { text: '0.3.0', link: '/release-notes/0.3.0' },
+          ...releaseSidebarItems(),
         ],
       },
     ],

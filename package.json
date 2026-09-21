@@ -60,7 +60,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "version-packages": "changeset version && pnpm release-notes:render"
+    "version-packages": "changeset version && pnpm release-notes:render",
+    "docs:anchors": "tsx scripts/docs/anchors.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",
