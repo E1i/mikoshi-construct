@@ -1,0 +1,117 @@
+# Runs the published package, in a clean container, against the version that was just published.
+#
+# Everything else in CI tests the source tree. This answers the one question none of it can: whether
+# what went to npm behaves like what is in main. Two cases made that a live question — a dist/ build
+# that predated the feature it was asked for, and a latest tag pointing at a version the registry had
+# not finished serving.
+#
+# The trigger is the publish, not a clock: Release verification chains off Release and passes only
+# once the version in package.json is installable, so this chains off that. There is no checkout and
+# no local build; the only thing read from the repository is the version number, so that the run
+# smokes the version this release published rather than whatever latest happens to point at.
+
+name: Published smoke
+
+on:
+  workflow_run:
+    workflows: [Release verification]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A published version to smoke; empty means the one package.json carries on main
+        required: false
+
+permissions:
+  contents: read
+
+concurrency: published-smoke-${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    container: node:24-bookworm-slim
+    steps:
+      - name: Resolve the version this release published
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.event.workflow_run.head_sha || github.ref_name }}
+          GIVEN: ${{ inputs.version }}
+        run: |
+          cat > /tmp/resolve.mjs <<'SCRIPT'
+          import { appendFileSync } from 'node:fs'
+          import process from 'node:process'
+
+          const given = (process.env.GIVEN ?? '').trim()
+          const resolved = given === '' ? await fromRepository() : given
+
+          async function fromRepository() {
+            const url = `https://api.github.com/repos/${process.env.REPOSITORY}/contents/package.json?ref=${process.env.REF}`
+            const answer = await fetch(url, {
+              headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github.raw' },
+            })
+            if (!answer.ok)
+              throw new Error(`package.json at ${process.env.REF} could not be read: ${answer.status}`)
+            return (JSON.parse(await answer.text())).version
+          }
+
+          console.log(`smoking mikoshi-construct@${resolved}`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${resolved}\n`)
+          SCRIPT
+          node /tmp/resolve.mjs
+
+      - name: Materialize twice from the registry and compare what the second run left
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          cat > /tmp/smoke.mjs <<'SCRIPT'
+          import { execFileSync } from 'node:child_process'
+          import { mkdtempSync, readFileSync } from 'node:fs'
+          import { tmpdir } from 'node:os'
+          import path from 'node:path'
+          import process from 'node:process'
+
+          const version = process.env.VERSION
+          const spec = `mikoshi-construct@${version}`
+          const dir = mkdtempSync(path.join(tmpdir(), 'published-smoke-'))
+          const KEPT = ['construct.model.json', 'AGENTS.md']
+          const ATTEMPTS = 8
+          const DELAY_MS = 15_000
+
+          const read = () => Object.fromEntries(KEPT.map(file => [file, readFileSync(path.join(dir, file), 'utf8')]))
+          const init = () => execFileSync('npx', ['--yes', spec, 'init', '--yes'], { cwd: dir, stdio: 'inherit' })
+
+          for (let attempt = 1; ; attempt += 1) {
+            try {
+              init()
+              break
+            }
+            catch (error) {
+              if (attempt === ATTEMPTS)
+                throw new Error(`${spec} was not runnable from the registry after ${ATTEMPTS} attempts: ${String(error)}`)
+              console.log(`${spec} not runnable yet, attempt ${attempt} of ${ATTEMPTS}`)
+              await new Promise(resolve => setTimeout(resolve, DELAY_MS))
+            }
+          }
+
+          const first = read()
+          init()
+          const second = read()
+
+          const differing = KEPT.filter(file => first[file] !== second[file])
+          if (differing.length > 0)
+            throw new Error(`a second init changed ${differing.join(', ')}; the published package does not converge`)
+
+          const model = JSON.parse(first['construct.model.json'])
+          const claims = model.claims.map(claim => claim.id)
+          if (claims.length === 0)
+            throw new Error('the published package wrote a model carrying no claim')
+          if (!claims.includes('lint-policy'))
+            throw new Error(`the published package wrote a model without lint-policy; it carries ${claims.join(', ')}`)
+
+          console.log(`${spec} converged on the second run and recorded ${claims.length} claims: ${claims.join(', ')}`)
+          SCRIPT
+          node /tmp/smoke.mjs
