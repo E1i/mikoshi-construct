@@ -204,5 +204,12 @@ them as rules.
   claims for as long as that takes. The third is only tolerable because a missing model is honestly
   `unknown` rather than a failure — so the projection's no-model acceptance must land before this is
   decided, not after.
+  **What this now blocks, 2026-09-21.** Since discovery writes its hypotheses into
+  `construct.model.json` and creates none where the file is absent, a repository that arrived at the
+  current baseline through `sync` from 0.4.x has nowhere for discovery to write: it can fill every
+  marker and still record nothing structural, and `doctor` can say nothing about what that repository
+  takes itself to be. Self-identification is therefore unavailable to those repositories until their
+  first `init` — which is most of the live ones. That turns this question from academic into the one
+  gating the feature for them. It is not decided here; the three options above stand as written.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->

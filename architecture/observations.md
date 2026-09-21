@@ -265,3 +265,83 @@ positive match rather than by subtraction.* It is a narrow instrument — an asy
 renderers, a one-sided relation between two sets, a summary value collapsing toward reassurance are
 all invisible to it — but where it does apply the repair is mechanical, and this file already carries
 three other observations about checks run over sets in which the defect could not appear.
+
+## 2026-09-21 · Discovery writes hypotheses on a live repository, and the base it reads is never clean
+
+The first run of the hypothesis step against a real codebase. Specimen C
+(`@offerstock/coupons-apply-engine`, clean at `6fd6894`, pnpm) was copied with its `.git` into a
+scratch directory, adopted with `pnpm dev init --yes --dir <copy>` from this repository's source at
+0.8.0, and discovered by following the materialized `.claude/commands/construct-discover.md`. The
+original was never written to. Nine of the ten markers were filled; `composition` was left, because
+it needs `composition:render` and no `pnpm install` was run in the copy.
+
+**What discovery wrote.** Twenty-one facts — twelve `file-exists`, nine `file-contains` — and six
+hypotheses, each standing on between three and five of them: the repository publishes a browser
+library rather than a service, the coupon lifecycle is an explicit state machine, multi-coupon
+behaviour is a Strategy, reading a page value is decomposed one module per source, the host is
+notified over an event emitter, and formatting has two owners. Every needle and every path was
+checked against the tree before it was written. `doctor` parsed the model and reported all six:
+
+    Hypotheses
+      published-as-a-browser-library                held   … — read from a tree carrying
+                                                           uncommitted changes, so it was never
+                                                           read from the base it records
+      coupon-lifecycle-is-an-explicit-state-machine held   … (same annotation)
+      multi-coupon-behaviour-is-a-strategy          held   … (same annotation)
+      one-retriever-per-value-source                held   … (same annotation)
+      formatting-has-two-owners                     held   … (same annotation)
+      the-host-is-notified-by-events                held   … (same annotation)
+
+So the answer to the question this run existed to ask is yes: discovery can write a hypothesis, and
+`doctor` reads it back.
+
+**The annotation is the finding, and it is structural.** `baseClean` is the cleanliness of the tree
+the reading was made from, and on an adopted repository that tree is the one `init` has just written
+forty-two files into. The copy's `git status --porcelain` was empty before `init` and carried
+twenty-two entries after it; the protocol records cleanliness at step 2, which is inside discovery
+and therefore after `init`. `false` was recorded, and it was not a choice — **on a repository the
+construct adopts rather than creates, `baseClean` can only ever be `false` unless the adopter commits
+`init`'s output first.** Every hypothesis then carries a caveat that is true and says nothing
+distinguishing. Nothing is proposed here; the observation is that a field meant to separate careful
+readings from careless ones is, in the adoption path, constant.
+
+**Boundary.** One specimen, one adoption, one adopter who chose not to commit. Whether committing the
+`init` output before running discovery is what an adopter would normally do has not been observed at
+all.
+
+**Material for the picture step.** Of thirty-seven facts in the finished model, four carry more than
+one dependent, and only one carries more than two: `engine-entry`, under four hypotheses. Every chain
+from a claim or hypothesis to the facts under it is one hop — the model has no fact standing on
+another fact, so the longest path from a claim through enforcement or verification to evidence is
+two nodes. The YOU ARE HERE section of the `doctor` output was one
+line: `You are here: no claim stops before the end of its chain`.
+
+**Boundary, and it is the same one as last time.** This is the second data point and it points the
+same way: a line answered completely, and a diagram of thirty-seven facts whose fan-out is one would
+have drawn thirty-seven nodes to say what one sentence said. That still is not evidence that the
+picture is unnecessary — it is a second case in which the situation the picture was proposed for did
+not arise. Six hypotheses sharing one fact is the densest overlap seen so far, and it is not dense.
+
+**Carry-over on real entries.** A second `pnpm dev init --yes --dir <copy>` reported *Carried over 38
+records from the construct.json already here; added 0*. All twenty-one discovery-authored facts and
+all six hypotheses came through byte-identical, with `baseSha` still `6fd6894…` and `baseClean` still
+`false`. The construct-authored half was rebuilt: `mergeModel` replaces every entry whose author is
+`construct` with the freshly built one of the same id, and the result was identical here only because
+the construct version and the preset inputs had not changed between the two runs. So what this run
+establishes is that the preservation path runs on real entries, not that a rebuilt entry differs.
+
+**What no fact kind could support.** Six things were concluded and none of them entered the model:
+that `src/tests` holds exactly one test file; that no dependency policy is declared or enforced; that
+the import graph is flat, every directory under `src/` importing every other; that every one of the
+fourteen `CaaStates` classes is reachable from a transition; that `src/` is uniformly tabs and double
+quotes; and — the sharp half of a hypothesis that did enter — that *nothing* subordinates Prettier to
+ESLint, as against the two positive needles proving both are configured. They stayed prose in the
+markers, and the wanted facts were named in that repository's `open-questions`, as step 12 requires.
+
+**What the list is evidence of, and what it is not.** Every one of the six is a **count over a set or
+a negative**: *exactly one*, *none*, *every*, *nothing*. Not one of them wanted a new *dimension* of
+evidence — none wanted to know about git history, about a running process, about anything outside the
+files. So if this list argues for a third kind at all, it argues for quantification over a glob, not
+for a third thing to look at. That is recorded as evidence and acted on nowhere: one specimen, one
+discoverer, and the discoverer knew the two kinds before choosing what to conclude, which is exactly
+the bias that would make the list look tidier than the need is.
