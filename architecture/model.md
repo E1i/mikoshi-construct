@@ -123,6 +123,11 @@ a hypothesis invites exactly that substitution — a reader takes 0.9 for *known
 | `L3` | CI runs the check and reports. |
 | `L4` | CI runs the check and blocks the merge. |
 
+Every level above L0 presumes a mechanism that **can report a failure**. L3 and L4 differ over
+whether a failure blocks a merge; L0 and L3 differ over whether a failure can be raised at all. A
+check that is green whether or not the invariant holds reports nothing and is L0, however much
+machinery stands behind it.
+
 An enforcement is never a bare level. It carries a `mechanism` and the `supportedBy` facts that hold
 that level up, because [rule 8](epistemic-rules.md) separates the presence of a command from the
 level at which it is enforced: a script in `package.json` with no hook and no CI is L0, not L2. A

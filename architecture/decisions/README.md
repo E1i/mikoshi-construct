@@ -13,6 +13,11 @@ Each record names how it is enforced and at what level: L0 text only, L1 review,
 L3 CI, L4 CI that blocks merge. A decision enforced only by review says so; that is the honest
 answer, not a gap to hide.
 
+Every level above L0 presumes a mechanism that **can report a failure**. L3 and L4 differ over
+whether a failure blocks a merge; L0 and L3 differ over whether a failure can be raised at all. A
+check that is green whether or not the invariant holds — a CI job that always succeeds, a script
+whose exit code is discarded — reports nothing and is L0, however much machinery stands behind it.
+
 | # | Decision | Enforced at |
 |---|---|---|
 | [0001](0001-findings-corpus-outside-the-cli.md) | The findings corpus lives outside the CLI | L1 review |
