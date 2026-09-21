@@ -64,7 +64,14 @@ pretending** — the same sentence 0.5.0 was released under, now applying to a l
 
 Withholding the claim withholds a warning with it. Today `harness-steps` is falsely red on a tree
 whose `quality` script the owner wrote; afterwards it is absent, and if that owner drops `typecheck`
-from their own script, `doctor` says nothing. The same holds for the security claims.
+from their own script, nothing here notices. The same holds for the security claims.
+
+Since [0024](0024-an-absent-claim-is-derived-not-recorded.md) the absence itself is no longer silent:
+`doctor` names the claim it is not carrying and the fact that does not hold. That is a different
+statement from the lost warning, and it is worth keeping apart. *This repository does not carry
+`harness-steps`, and `package.json` does not carry what it would stand on* is true and actionable;
+*you have dropped `typecheck` from your own script* is the warning, and it is still gone. What 0024
+removes is the silence about the absence, not the absence of the warning.
 
 That is honest — the construct did not write those files and has no standing to speak about them —
 but it is a transfer rather than a reduction. The part that can legitimately speak about the owner's
@@ -86,6 +93,22 @@ fixes, relocated rather than removed.
 
 ## Open question — a reading that says why the set is short
 
+**Closed by [0024](0024-an-absent-claim-is-derived-not-recorded.md), as incorrectly posed.** The
+question below asks whether an absence should be recorded. The answer is that **the absence does not
+need recording at all**: the set of claims the preset can make is recomputed from `construct.json` on
+every read and compared with what the model carries, so a claim that was never made is named without
+anything being stored, and stops being named the moment its evidence starts holding.
+
+**The locus named below is also wrong, and is left standing rather than edited away.** It says
+`ClaimPlacement`. `ClaimPlacement` is `YOU ARE HERE` — which point on one claim's chain the reading
+stops at — and this was never about a point on a chain. It is about the membership of the set: which
+claims are in the model and which are not. Naming `ClaimPlacement` sent the question at the one
+structure that could not answer it, and the mistake is recorded here because a locus named with
+confidence is the part a later reader is least likely to re-derive.
+
+The section as originally written follows.
+
+
 `init` names each withheld claim once, at adoption, in output nobody keeps. A week later `doctor`
 shows a short list and explains nothing.
 
@@ -105,6 +128,9 @@ Deliberately left open here, with its locus named, rather than settled in passin
 An adopted repository gets a model describing only what the construct wrote into it. A repository
 materialized from empty is unchanged: every preset claim holds at birth, which the pinned fixture
 asserts.
+
+See also [0024](0024-an-absent-claim-is-derived-not-recorded.md), which reports the claims this
+repository does not carry by deriving them rather than by recording them.
 
 `docs/cli.md`'s table of when each verdict appears no longer says "Always" for four rows. The
 condition is authorship — the claim appears where the construct wrote the file its facts name —

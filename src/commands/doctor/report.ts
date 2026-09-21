@@ -1,6 +1,7 @@
 import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
+import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
@@ -47,6 +48,15 @@ function printChecks(ui: Ui, checks: CheckVerdict[], placement: ClaimPlacement):
   for (const check of checks)
     ui.line(checkLine(ui, check, width))
   ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))
+}
+
+function printNotCarried(ui: Ui, notCarried: ClaimNotCarried[]): void {
+  if (notCarried.length === 0)
+    return
+  ui.line()
+  ui.line(ui.theme.dim(`  ${ui.lore.notCarried}`))
+  for (const claim of notCarried)
+    ui.line(ui.theme.dim(ui.lore.notCarriedLine(claim.claimId, claim.doesNotHold)))
 }
 
 function hypothesisReading(ui: Ui, hypothesis: HypothesisReading): string {
@@ -159,6 +169,7 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
     ui.ok(ui.lore.stable)
   printProvenance(ui, result.provenance)
   printChecks(ui, result.checks, result.youAreHere)
+  printNotCarried(ui, result.notCarried)
   printHypotheses(ui, result.hypotheses, result.youAreHere)
   printYouAreHere(ui, result.youAreHere)
   return result.ok ? 0 : 1

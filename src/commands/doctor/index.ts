@@ -1,5 +1,6 @@
 import type { DiscoveryMarker } from '../../manifest.js'
 import type { ProvenanceEvidence } from './families.js'
+import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
@@ -11,6 +12,7 @@ import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
 import { isIntact } from './families.js'
 import { harnessProblems, readHarnessFacts } from './harness.js'
+import { claimsNotCarried } from './not-carried.js'
 import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
 import { FileReadings } from './readings.js'
@@ -31,6 +33,7 @@ export interface DoctorResult {
   checks: CheckVerdict[]
   hypotheses: HypothesisReading[]
   youAreHere: ClaimPlacement
+  notCarried: ClaimNotCarried[]
   versionGap: VersionGap
 }
 
@@ -46,7 +49,8 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   const markers = missingDiscovery(root, manifest, readings)
   const provenance = discoveryProvenance(root, manifest, readings)
   const uncollected = uncollectedTests(root, manifest, readings)
-  const knowledge = projectKnowledge(readModel(root), root)
+  const model = readModel(root)
+  const knowledge = projectKnowledge(model, root)
   const unreadableFiles = readings.files
   const intact: ProvenanceEvidence = {
     missingFiles: baseline.missingFiles,
@@ -73,6 +77,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     checks: knowledge.checks,
     hypotheses: knowledge.hypotheses,
     youAreHere: knowledge.youAreHere,
+    notCarried: claimsNotCarried(root, manifest, model),
     versionGap: versionGap(root, manifest, version),
   }
 }
@@ -80,6 +85,8 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
 export { DISCOVERY_PLACEHOLDER, isMarkerFilled, markerClose, markerOpen } from './discovery.js'
 export type { ResultFamily } from './families.js'
 export { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, RETIRED_IDENTIFIERS } from './families.js'
+export type { ClaimNotCarried } from './not-carried.js'
+export { claimsNotCarried } from './not-carried.js'
 export type { ClaimPlacement, HypothesisReading, KnowledgeProjection, PlacementName } from './projection.js'
 export { CLAIM_PLACEMENTS, projectKnowledge } from './projection.js'
 export type { MarkerAuthorship, MarkerReading } from './provenance.js'

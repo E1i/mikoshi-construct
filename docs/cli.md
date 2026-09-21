@@ -194,6 +194,7 @@ that claim stands on, and where you are is the model's own path selection.
 | `checks` | knowledge |
 | `hypotheses` | knowledge |
 | `youAreHere` | knowledge |
+| `notCarried` | knowledge |
 | `versionGap` | provenance |
 
 `harnessProblems` carries provenance only: `package.json` is gone, it has no script under the name
@@ -421,6 +422,34 @@ it: the construct required nothing there, and announcing the absence of somethin
 would be a finding about a task. `node-library` is such a preset — its harness is the shared ESLint
 configuration with no restriction of the construct's own.
 
+### Claims this preset can make and this repository does not carry
+
+Where a claim the preset **can** make is absent from `construct.model.json`, `doctor` names it in a
+block of its own, after the enforcement trace and before the hypotheses:
+
+```
+Not claimed here: this preset can make these and this repository does not carry them. They have no
+level, because nothing is enforced by a claim that was never made.
+  no-committed-secret — .github/workflows/security.yml does not carry what it would stand on.
+  lint-policy — scripts/tests/lint/syntax-policy.test.ts does not carry what it would stand on.
+```
+
+The set is **derived on every read** and stored nowhere: `construct.json` records the preset and the
+vars, the claims that preset can make are rebuilt from them, and whatever the model does not carry is
+compared against the tree by the same machinery that evaluates the claims it does. So the line
+disappears the moment the file appears, rather than repeating what was true at `init`
+([decision 0024](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0024-an-absent-claim-is-derived-not-recorded.md)).
+
+An absent claim **carries no level and is not a verdict**: nothing is enforced by a claim that was
+never made, and it changes no exit code. Where the tree carries every claim its preset can make, the
+block is not printed at all. A claim the preset cannot make is never named — `node-library` and
+`lint-policy` above — because that would be a statement about the preset dressed as one about the
+repository.
+
+On a repository whose owner wrote their own `ci.yml` and `security.yml`, or one adopted without the
+preset's sample, these lines appear on **every** run until the files appear. That is intended: the
+statement is true while it is true.
+
 Two verdicts that existed before this version are gone rather than renamed. `hook` reported that no
 hook manager was installed, which no preset installs and no claim requires. `red-gate` reported
 `doctor`'s own limit as a verdict about the repository; that limit is now a stated boundary in the
@@ -554,6 +583,7 @@ never changes the exit code.
     }
   ],
   "youAreHere": { "at": "stop", "stop": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] } },
+  "notCarried": [{ "claimId": "lint-policy", "doesNotHold": "scripts/tests/lint/syntax-policy.test.ts" }],
   "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
