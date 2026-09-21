@@ -619,10 +619,29 @@ Output was counted **more than nine times over**, because a response split acros
 contributed its output once per block, and output is the class that costs the most per token. So a
 money figure built from classes at prices is inflated far more than the billable factor of 1.9513
 suggests, and by a different amount again than the input-equivalent factor of 2.5148. **The most-cited
-figure from this corpus — a cost of a little over two hundred dollars — must therefore be recomputed
-from the deduplicated class totals above at the prices it used, not divided by anything.** A related
-gap surfaces in the attempt: the prices that figure was computed with were never recorded beside it,
-which is the same absent provenance one level up from the instrument.
+figure from this corpus — a cost of a little over two hundred dollars — is therefore recomputed from
+the deduplicated class totals above at the prices it used, not divided by anything.**
+
+The rates were never recorded beside the figure; they were stated in conversation on 2026-09-20 when
+it was first computed, taken from the price list rather than from memory: **$5 per million input, $25
+output, $10 hourly cache write, $0.50 cache read.** They are fixed here from that conversation, not
+read off the price list today — substituting current prices would silently swap one input for another
+and produce a new number dressed as a corrected old one. They can be checked rather than trusted: at
+those rates the *pre-deduplication* classes come to **$206.37**, which is the figure as published, so
+the rates reproduce their own output.
+
+| | Pre-deduplication | Deduplicated |
+|---|---|---|
+| input | $0.03 | $0.01 |
+| cache write | $105.90 | $42.65 |
+| cache read | $68.95 | $36.17 |
+| output | $31.49 | $3.43 |
+| **total** | **$206.37** | **$82.26** |
+
+**A money figure is computed from three inputs — the data, the instrument and the rates.** The data was
+identified in the ledger, the instrument is what this entry adds, and the rates had been written
+nowhere. Constants are the input most reliably lost, because at the moment of calculation they are
+obvious.
 
 **The missed file is a symptom-driven repair covering the symptom's population.** The commit that
 corrected the published figures fixed the places it had been shown, and its subject line — *correct
