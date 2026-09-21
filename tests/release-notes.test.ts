@@ -84,6 +84,18 @@ describe('the release index is rendered from the changelog, not maintained by ha
     expect(rendered).toContain('## 0.8.0')
   })
 
+  it('orders a two-digit minor above a single-digit one, which a string comparison inverts', () => {
+    const versions = ['0.10.0', '0.9.1', '0.9.0', '0.8.1']
+    expect([...versions].sort(newestFirst)).toEqual(versions)
+    expect([...versions].sort().reverse()).not.toEqual(versions)
+  })
+
+  it('reads the changelog order rather than sorting it, so the assertion and the data cannot share one wrong comparison', () => {
+    const fromChangelog = parseChangelog(CHANGELOG).map(entry => entry.version)
+    expect(fromChangelog).toEqual([...fromChangelog].sort(newestFirst))
+    expect(renderIndex(parseChangelog(CHANGELOG), handWrittenNotes())).toContain(fromChangelog[0])
+  })
+
   it('lists the versions newest first, in the order the changelog carries them', () => {
     const order = [...renderIndex(parseChangelog(CHANGELOG), handWrittenNotes()).matchAll(/^## (\d+\.\d+\.\d+)$/gm)].map(match => match[1])
     expect(order).toEqual(parseChangelog(CHANGELOG).map(entry => entry.version))
