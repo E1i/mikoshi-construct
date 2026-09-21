@@ -1,5 +1,58 @@
 # mikoshi-construct
 
+## 0.5.3
+
+### Patch Changes
+
+- [#78](https://github.com/E1i/mikoshi-construct/pull/78) [`62a317b`](https://github.com/E1i/mikoshi-construct/commit/62a317b0a25eba890cb1717dfc7077f21aebd97c) Thanks [@E1i](https://github.com/E1i)! - cli: When `red-gate`, `hook`, `construct-tests` and `weakestLink` left `doctor`, the documentation went
+  on naming them and nothing failed; a reader would have found out before the build did.
+  
+  The code now owns two lists instead of one. **Current** is derived and never written by hand — the
+  keys of `DOCTOR_FIELD_FAMILY` plus every claim id and check id the model builder produces. **Retired**
+  is the new exported list of identifiers this tool has published and no longer uses. Every identifier
+  the docs and templates name must sit in one of them, so a removal can be described freely while a name
+  in neither list fails the build. The two are asserted disjoint, which is the list's second and larger
+  job: a retired name may never come back meaning something else, or every past mention would
+  retroactively start saying something false.
+  
+  A mention is a token in code formatting — a key or an `id` value in a fenced JSON result, a
+  single-backticked cell in the tables that list fields and verdicts — never a word in prose. The English
+  word "hook" in the L2 level description is not an identifier, and a rule that flagged it would be
+  demanding edits that make the documentation worse.
+  
+  **What the scan deliberately does not read.** Only blocks whose shape is a doctor result, and the
+  field and verdict tables. The manifest and sync-report examples are left alone: their keys —
+  `manifestVersion`, `strategy`, `counts` — belong to other vocabularies and are in neither list, so
+  scanning them would have forced exactly the allowlist this design exists to avoid. A test states that
+  exclusion rather than leaving it to be inferred from a regex.
+  
+  The gap that leaves is tracked rather than merely named. The scan *selects* the blocks it reads, and
+  selection catches narrowing — a reworded heading fails — while being blind to a block of a new shape
+  never joining the set at all. Replacing the selection with a partition, so that every JSON block must
+  be classified and an unclassified one fails, is issue [#79](https://github.com/E1i/mikoshi-construct/issues/79).
+
+- [#77](https://github.com/E1i/mikoshi-construct/pull/77) [`8084a24`](https://github.com/E1i/mikoshi-construct/commit/8084a24e5265497f84053781bca6ce065b40903b) Thanks [@E1i](https://github.com/E1i)! - `What it refuses to claim` described a version that no longer exists, which is an uncomfortable thing
+  for a page about not overstating.
+  
+  It taught the old three states — `present`, `absent`, `unknown` — which were the check vocabulary
+  before verdicts became projections of the model. The states are `held`, `unsupported` and `unknown`
+  now, and the page gives each one the reading it is **not**: `held` is not *proven*, because the facts
+  under a claim are necessary and never sufficient; `unsupported` is not *not enforced*, because a
+  named fact stopped matching and the report says which; `unknown` is not *absent*.
+  
+  It also still said the harness question is "always `unknown`, because proving it means running it".
+  That verdict is gone. A blind spot is represented by a stated boundary now, not by a verdict
+  manufactured to fill the space — an answer nobody can act on is not a smaller finding than no answer,
+  it is a worse one, because it looks like a finding.
+  
+  The levels table carries the precondition every level above `L0` was already assuming: the mechanism
+  must be able to report a failure. And a new refusal joins the list — that a level it reports is
+  proven — with the note that whether a mechanism could fail at all is an open question rather than
+  something assumed either way.
+  
+  `getting-started` lists `construct.model.json` among the files a new repository gets, since it is
+  committed and a reader meets it in their tree on the first run.
+
 ## 0.5.2
 
 ### Patch Changes
