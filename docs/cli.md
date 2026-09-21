@@ -983,7 +983,10 @@ That file is the whole picture. The graph is an inline SVG drawn from the same s
 is serialized from, the styling is inline, and **nothing is fetched when you open it** — no CDN, no
 script, no network of any kind, from a `file://` URL or anywhere else. It is a few kilobytes, and it
 carries a legend for the three states and the state of each entry in the entry itself, in its colour
-and in its own words.
+and in its own words. Under that legend the page says what the colour is **not**, and this reference
+repeats that line rather than restating it: *Colour carries the derived state and not the enforcement
+level: the same green covers an L0 claim nobody is obliged to read and an L3 claim that fails the
+build, and each claim’s level is written inside it.*
 
 `--out` adds to stdout and never replaces it: the Mermaid is written exactly as it was before, and
 the file is written afterwards. Where a reading draws nothing, no file is written either.
