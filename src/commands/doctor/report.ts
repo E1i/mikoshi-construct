@@ -58,6 +58,8 @@ function notCarriedLine(ui: Ui, claim: ClaimNotCarried): string {
       return ui.lore.notCarriedUnevaluable(claim.claimId, claim.path)
     case 'every-fact-holds':
       return ui.lore.notCarriedEveryFactHolds(claim.claimId)
+    case 'sources-omitted':
+      return ui.lore.notCarriedSourcesOmitted(claim.claimId)
   }
 }
 

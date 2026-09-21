@@ -95,9 +95,18 @@ function withoutSecondH1(existing: string, block: string): string {
   return block.replace(/^# (.*)$/m, '## $1')
 }
 
+function outsideTheConstructBlock(existing: string, target: string): string {
+  const [begin, end] = blockMarkers(target)
+  const start = existing.indexOf(begin)
+  const stop = existing.indexOf(end)
+  if (start === -1 || stop === -1 || stop <= start)
+    return existing
+  return `${existing.slice(0, start)}${existing.slice(stop + end.length)}`
+}
+
 export function appendBlock(existing: string, block: string, target: string): string {
   const [begin, end] = blockMarkers(target)
-  const wrapped = `${begin}\n${preserveDiscovery(existing, withoutSecondH1(existing, block)).trimEnd()}\n${end}\n`
+  const wrapped = `${begin}\n${preserveDiscovery(existing, withoutSecondH1(outsideTheConstructBlock(existing, target), block)).trimEnd()}\n${end}\n`
   const start = existing.indexOf(begin)
   const stop = existing.indexOf(end)
   if (start !== -1 && stop !== -1 && stop > start)

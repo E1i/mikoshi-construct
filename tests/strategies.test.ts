@@ -34,6 +34,18 @@ describe('appendBlock', () => {
   it('appends to an unmarked file without touching it', () => {
     expect(appendBlock('node_modules/\n', 'dist/', '.gitignore')).toBe('node_modules/\n\n# construct:begin\ndist/\n# construct:end\n')
   })
+
+  it('keeps its own heading a heading on a re-run, because the H1 it would be demoting is the one it wrote', () => {
+    const first = appendBlock('', '# Project\n\nbody', 'AGENTS.md')
+    expect(first).toContain('# Project')
+    expect(appendBlock(first, '# Project\n\nbody', 'AGENTS.md')).toBe(first)
+  })
+
+  it('still demotes its heading under an H1 the document carries outside the block', () => {
+    const owned = appendBlock('# Theirs\n\ntheir prose\n', '# Project\n\nbody', 'AGENTS.md')
+    expect(owned).toContain('## Project')
+    expect(appendBlock(owned, '# Project\n\nbody', 'AGENTS.md')).toBe(owned)
+  })
 })
 
 describe('preserveDiscovery', () => {
