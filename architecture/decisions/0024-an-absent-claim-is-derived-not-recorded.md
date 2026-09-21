@@ -21,9 +21,9 @@ construct.json → buildModel(preset, vars) → expected claim set
 ```
 
 For each claim expected and absent, its facts are evaluated against the tree by the same machinery
-that evaluates the ones the model carries, and the first that does not hold is named. A claim absent
-because its sample was never materialized then reads as *the file its fact names is not here* —
-present tense, true, and requiring no knowledge of what happened at `init`.
+that evaluates the ones the model carries, and what they say is reported in one of the three forms
+below. A claim absent because its sample was never materialized then reads as *the file its fact
+names is not here* — present tense, true, and requiring no knowledge of what happened at `init`.
 
 ### Why derivation beats a trace
 
@@ -79,9 +79,10 @@ facts.
 
 ## Consequences
 
-**On a repository whose owner wrote their own `ci.yml` and `security.yml`, four claims are named on
-every run, and on an adopted tree that never took the preset's sample, `lint-policy` is named on
-every run until the owner adds `scripts/tests/lint/syntax-policy.test.ts`.** That is intended. It is
+**On an adopted repository whose owner wrote their own `ci.yml` and `security.yml`, five claims are
+named on every run** — four for the workflows, and `lint-policy` for the sample that tree never took,
+until the owner adds `scripts/tests/lint/syntax-policy.test.ts`. The count is five rather than four
+because such a tree is adopted by definition, and the two reasons are separate. That is intended. It is
 an absent claim like any other: true while it is true, actionable, and gone the moment the file
 appears. It is recorded here so that a later reader does not take a recurring line for a defect.
 
@@ -101,6 +102,9 @@ is believed.
 
 `tests/claims-not-carried.test.ts` (L3) pins both directions: nothing is printed where the tree
 carries every expected claim; nothing is said about `lint-policy` for a preset that cannot make it;
-`lint-policy` is named with the file that is not there on a preset that can; the four withheld on an
-owner-authored-workflow tree are each named once with the fact that does not hold; and no such line
+`lint-policy` is named with the file that is not there on a preset that can; each of the five
+withheld on an adopted owner-authored-workflow tree is named once with the fact that does not hold;
+a fact that could not be read is distinguished from one that does not hold, and a failing fact is
+preferred over an unreadable one even when named after it; a fully supported claim the model carries
+is absent from the block while a fully supported claim it does not carry is present; and no such line
 carries a level.
