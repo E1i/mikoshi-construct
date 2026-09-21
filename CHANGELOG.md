@@ -1,5 +1,19 @@
 # mikoshi-construct
 
+## 0.10.0
+
+### Minor Changes
+
+- [#106](https://github.com/E1i/mikoshi-construct/pull/106) [`0cc12d0`](https://github.com/E1i/mikoshi-construct/commit/0cc12d08afc499caed37bd8ee16b000a190aeb1f) Thanks [@E1i](https://github.com/E1i)! - **The model has a picture you can look at: `construct graph`.** The renderer that draws
+  `construct.model.json` as a Mermaid flowchart was reachable only from this repository's own scripts;
+  now every installation has it. The diagram goes to stdout so it pipes into a file or a viewer, and
+  the states in it are derived on read by the same code `doctor` reports from — the command decides
+  none of them itself.
+  
+  Absence stays a reading of its own: a repository with no `construct.model.json` gets a line on
+  stderr and an empty diagram, a model that parses and names no entry gets a different line, and both
+  exit `0`, because nothing to draw is not a failure.
+
 ## 0.9.1
 
 ### Patch Changes
