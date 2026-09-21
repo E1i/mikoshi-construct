@@ -65,6 +65,31 @@ larger decision than the picture.
 arrives, the interaction step stays unbuilt on that absence rather than on a measurement, and this
 record is what keeps the two apart.
 
+## Colour carries state, and one sentence says so
+
+On a default-preset tree an L0 claim nobody is obliged to read and an L3 claim that fails the build
+are **the same green** — which is true of this repository's own picture, where
+`vulnerable-dependencies-are-visible` is L0 and `no-committed-secret` is L3. Each claim's level is
+written inside it, but colour is read first and text second, so the page implied that green means
+*fine* when it means *the facts named under it hold*. That is [rule 1](../epistemic-rules.md) in the
+strongest perceptual channel, claim and enforcement and strength collapsed into one mark, and
+[rule 2](../epistemic-rules.md) turned around: saying nothing about strength reads as strength being
+absent.
+
+**The correction is one sentence rendered with the legend**, because the legend is what explains the
+colour. No new channel, no new colour, no new element, no layout change.
+
+**The picture does not show enforcement strength and is not intended to.** The sentence prevents a
+wrong reading; it does not supply a right one. A reader who wants to compare strength reads the level
+inside each claim, or `doctor`, which reports it per check.
+
+**A channel of its own for strength was costed and set aside, not overlooked.** Encoding the level as
+a second visual channel — border weight, a bar, a glyph — was the alternative. It is deferred on the
+same condition this record already sets for interaction: it is built when there is a recorded reading
+of the picture, and not before. Adding a channel for a distinction nobody has yet been observed
+needing would be the same inversion of 0017's order as taking a renderer dependency before anyone had
+read the picture at all.
+
 ## What this delivery is not
 
 Rendering a model is not reading it. A file that exists is not a file anyone opened, and a picture
@@ -75,8 +100,8 @@ allows here.
 
 ## Consequences
 
-The package gains a renderer of its own: a layout, an elision rule for long labels, and a
-parallel-edge spread. All of it is ours, testable, and deletable. The layout is deliberately plain —
+The package gains a renderer of its own: a layout, an elision rule for long labels, a parallel-edge
+spread and a label separation pass that makes two labels closer than a line unconstructible. All of it is ours, testable, and deletable. The layout is deliberately plain —
 two columns, no crossing minimisation — because a better layout is a change to one function rather
 than a reason to take a dependency.
 
@@ -89,5 +114,7 @@ exactly as `graph` does today.
 from the renderer as it stood before the split; both serializers name every node and every edge of
 the same structure; a model exercising all three derived states renders each one as a shape class and
 in the entry's own words, not only in the legend; the page carries no script, no remote reference and
-no namespace-external URL; a needle carrying a quote or a tag is escaped in both; and nothing is
-written where nothing is drawn.
+no namespace-external URL; a needle carrying a quote or a tag is escaped in both; the sentence about
+colour renders after the legend, taken from the renderer's constant so a reword moves the test with
+it, beside an assertion that this repository's own model really does carry more than one enforcement
+level under a single colour; and nothing is written where nothing is drawn.

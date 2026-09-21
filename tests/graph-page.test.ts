@@ -7,7 +7,7 @@ import { modelGraph, pageOfGraph, writeGraphPage } from '../src/commands/graph.j
 import { graphOfModel, mermaidFromGraph, PICTURE_STATES } from '../src/model/graph.js'
 import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
-import { svgFromGraph } from '../src/model/svg.js'
+import { COLOUR_IS_NOT_STRENGTH, svgFromGraph } from '../src/model/svg.js'
 import { writeModel } from '../src/model/write.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -136,6 +136,33 @@ describe('the page a person opens', () => {
     expect(page).not.toMatch(/\ssrc=/i)
     expect(page).not.toMatch(/@import|url\(/i)
     expect(page).not.toMatch(/\shref=/i)
+  })
+
+  it('says beside the legend that colour is the derived state and not the enforcement level', () => {
+    const page = pageOfGraph(graphOf(repositoryModel(), REPO_ROOT), 'fixture')
+
+    expect(page).toContain(COLOUR_IS_NOT_STRENGTH)
+    expect(page.indexOf(COLOUR_IS_NOT_STRENGTH)).toBeGreaterThan(page.indexOf('class="legend"'))
+  })
+
+  it('still has more than one enforcement level to confuse, so the sentence is still earned here', () => {
+    const model = repositoryModel()
+    const levels = new Set(model.claims.flatMap(claim => (claim.enforcement == null ? [] : [claim.enforcement.level])))
+
+    expect(
+      levels.size,
+      'Every claim in this repository now sits at one enforcement level, so the reading the legend sentence corrects can no longer occur here. Re-examine whether the sentence is still earned. Do not lower a claim\u2019s level to make this pass: that trades enforcement for a green test, and raising a level is exactly the change expected to reach this line first.',
+    ).toBeGreaterThan(1)
+  })
+
+  it('draws those levels in one colour, which is the confusion the sentence names', () => {
+    const graph = graphOf(repositoryModel(), REPO_ROOT)
+    const statesOfClaims = new Set(graph.nodes.filter(node => node.kind === 'claim').map(node => node.state))
+
+    expect(
+      statesOfClaims.size,
+      'A claim in this repository stopped being held, so its claims no longer share one colour. This is not about the legend sentence: read it in the enforcement trace, not here.',
+    ).toBe(1)
   })
 
   it('escapes what the model puts in a label, so a needle cannot close a tag', () => {
