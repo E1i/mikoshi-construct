@@ -1,5 +1,117 @@
 # mikoshi-construct
 
+## 0.13.0
+
+### Minor Changes
+
+- [#136](https://github.com/E1i/mikoshi-construct/pull/136) [`d640935`](https://github.com/E1i/mikoshi-construct/commit/d640935fe5e7feee71443e45b4b410e043966465) Thanks [@E1i](https://github.com/E1i)! - A second init reads the record instead of asking the directory, and instead of asking you
+  
+  Three places where `init` derived an answer from the state of the directory when `construct.json`
+  already held it. All three are only wrong from the second run onward, which is why the rollout is
+  what triggers them.
+  
+  **A second `init` deleted the `lint-policy` claim from `construct.model.json`.** Whether the
+  repository carries the preset's sample was computed from whether the directory is empty — false on
+  every re-run — so the model was rebuilt without that claim and `mergeModel` dropped it, silently,
+  while the sample sources were still on disk and every fact under the claim still held. It is now
+  answered by whether the construct ever materialized the sample here, which the manifest records and
+  `sync` already computed the same way; the reading is one function both commands call. Three runs on a
+  tree materialized from empty now leave `construct.model.json` byte-identical from the second run on,
+  carrying the same claims the first run wrote.
+  
+  `doctor` follows the same reading, so the two cannot disagree. Where the construct did materialize the
+  sample and the owner deleted the claim by hand, `doctor` now reads `every-fact-holds` — a run here
+  really would record it — instead of promising the opposite.
+  
+  **A second `init` asked again for what it had already been told.** The preset, the agent target, the
+  project name and the code-review provider are all recorded, and a re-run now reads them and names
+  them in the configuration block rather than putting the same four questions. A flag still overrides
+  any of them. The confirmation before writing stays, because it authorises this run rather than
+  restating a value. The recorded review model is kept too, instead of falling back to the default.
+  
+  **`init` against a `manifestVersion` from a later build writes nothing**, which `docs/cli.md` has
+  asserted all along and nothing held. It is now a test.
+
+- [#134](https://github.com/E1i/mikoshi-construct/pull/134) [`e2db78c`](https://github.com/E1i/mikoshi-construct/commit/e2db78c7f8d39ac2f84f4d438739e1b31ffaa8a5) Thanks [@E1i](https://github.com/E1i)! - Three output lines stop claiming a case they are only true in
+  
+  Found by taking a live adopted monorepo through `sync`, `sync --apply`, the harness, `init` and
+  `doctor`. The model was written and five claims recorded; the output made it read as though nothing
+  had happened.
+  
+  `doctor` told an adopter that `lint-policy` stood on facts that all hold and that `construct init`
+  would record it. It never will. The claim comes with the preset's sample sources, and `init`
+  materializes those only into an empty directory — which the tree `doctor` inspects never is, because
+  it carries a `construct.json`. The `every-fact-holds` reading now splits: it keeps that name and that
+  promise only where a run in this repository really would write the claim, and reads `sources-omitted`
+  where it would not, saying so instead. `--json` carries the fourth value under `reading`.
+  
+  `init` reported how many records it carried over and how many it added *after* the list of paths, so
+  a second run read as a full re-materialization until the last line. The count, and the variables this
+  run changed, now print before the list. What the run changed is reported before what it looked at.
+  
+  `init`'s closing line named `pnpm install && pnpm run quality` whatever the run did. It now names
+  install and the harness where the run wrote a package manifest, the harness alone where it changed
+  other files, and nothing at all where it changed no file — which is what a third `init` on the same
+  tree does.
+  
+  `init` chose the `AGENTS.md` and `CLAUDE.md` form from whether the file exists, when the question is
+  which form the construct wrote. By the second run the file always exists, so a second `init` replaced
+  the full document it had written itself with the short form meant for a repository that already had
+  one — on a real adopted monorepo that silently removed the baseline command list. The form now comes
+  from `variants` in `construct.json`, which records it, and `appendBlock` no longer counts the heading
+  inside its own block as a document heading it must demote. A second and a third `init` on a tree the
+  construct materialized from empty now leave both files exactly as the first run wrote them.
+
+### Patch Changes
+
+- [#138](https://github.com/E1i/mikoshi-construct/pull/138) [`8b977cf`](https://github.com/E1i/mikoshi-construct/commit/8b977cfd5a15b779920233c05aecaf1e99e5c45d) Thanks [@E1i](https://github.com/E1i)! - Decision 0026: which packages exist is derived, what each package may import is recorded
+  
+  A second `init` on the monorepo preset re-derived `allowedWorkspaceImports` from the packages the
+  first run created, recording `'packages/shared': ['@x/api']` where the first run recorded `[]`.
+  `eslint.config.mjs` is skipped on a re-run, so the file kept the strict policy and the record no
+  longer matched it; `sync` reads that path as `update`, and `sync --apply` closes the gap by writing
+  the looser policy into the file. Confirmed by running it.
+  
+  The variable answers two questions at once. Which packages exist is a fact about the tree. What each
+  may import is a decision, and after the first run it is the owner's — re-deriving it is the construct
+  overwriting what it does not own, which is the shape 0013 and 0006 already settled for the record.
+  
+  The record decides: the key set is derived every run, so a package the owner added is picked up; the
+  allowances of a key already recorded are never re-derived; a new key gets the default the preset
+  applies to a package of its kind, measured as `apps/*` may import every other workspace package and
+  anything else may import nothing. Widening and narrowing stop being separate cases because a recorded
+  value is not touched.
+  
+  The decision is recorded; its implementation and test are not, and the record says so and carries L0
+  rather than a level it does not have.
+  
+  The record carries two named constraints rather than leaving them to whoever implements it. A run
+  that changes a policy variable names both values **and what the change will do** — naming both
+  values has held since 0013, and the defect was read and not understood rather than invisible, so the
+  consequence is the requirement and the delta is not. And the recorded allowances are kept by
+  recording the structure beside the rendered form, never by parsing the map back out of the rendered
+  source, which would make a formatting function the authority on what was decided.
+
+- [#137](https://github.com/E1i/mikoshi-construct/pull/137) [`be73f5d`](https://github.com/E1i/mikoshi-construct/commit/be73f5d7eb6085347952a49723b454fac9a84a90) Thanks [@E1i](https://github.com/E1i)! - An observation: the claim that a second init was fixed, from the day it was made to the day it failed
+  
+  Decision 0013 measured a second `init` on a 43-path tree, made `construct.json` additive and named
+  `variants` among the branches that must survive. `docs/guide/upgrading.md` then concluded "That is
+  fixed: the record is additive now." The second clause was true and tested; the first read as *the
+  second `init` is fixed*, when what was fixed was its record layer. It shipped in v0.3.0 and stood
+  through v0.12.2.
+  
+  The defect rode in on 0013's own sentence — the branches carry the previous entries, "then the
+  entries this run wrote". `AGENTS.md` is written by every run, so the freshly computed variant always
+  replaced the carried one, and the record handed the right answer to the caller that computed the
+  wrong one. The tests held the record's self-consistency and not its stability: the carry-over
+  assertion was guarded by a clause excluding every path the run wrote, and a case named *is
+  idempotent* asserted four properties the replacement satisfies. Nothing compared what `init` rendered
+  across two runs until this week.
+  
+  The entry is kept because it is the one claim in this corpus with a complete lifespan: when it was
+  made, what it was measured on, the layer that evidence covered, the layer the sentence claimed, when
+  it was falsified and by what. It is one claim in one repository and carries no rate.
+
 ## 0.12.2
 
 ### Patch Changes
