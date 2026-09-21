@@ -99,7 +99,7 @@ backend or library presets.
 
 ## 2026-09-21 · A command that did not run, read as a measurement that did
 
-Two cases on one machine in one day, both with the same broken `xcrun` shim beneath them: a scan
+Two cases on one machine in one day, on which the same `xcrun` shim happened to be broken: a scan
 reported pull request bodies clean from a run in which `gh` was never found, and an `evidenceClean`
 computation would have written `true` for five hypotheses from a `git` that never executed —
 `returncode 1`, empty stdout, the failure on stderr where nothing was reading.
@@ -108,10 +108,16 @@ computation would have written `true` for five hypotheses from a `git` that neve
 
     a command fails  →  an empty or zero result  →  read as a successful measurement
 
-It is not a property of `git` or of `gh`. Either would have served; the shim was under both, and any
-tool invoked the same way would have produced the same reading. Two occurrences of one form on one
-day, with one cause beneath them. That is a form, not a rate, and nothing here says how often it
+It is not a property of `git` or of `gh`. Either would have served, and any tool invoked the same way
+would have produced the same reading. That is a form, not a rate, and nothing here says how often it
 happens.
+
+**Nor is it a property of the shim.** The same reading arose in that session from a second, unrelated
+cause: a 403 from the proxy on the GitHub API. Zero matches distinguishes neither "the tool was not
+found" nor "the API refused" — two sufficient causes, one empty result, and the result names neither.
+This is reported by the reviewing session and not verified here; its weight is that the form does not
+depend on the shim. Without it this entry would read as one machine's broken toolchain, which is the
+narrowest thing it could be taken for and the least useful.
 
 **Catching it was luck, and the record would be a success story without this paragraph.** The failed
 measurement was visible only because an unrelated expectation happened to contradict it: the working
