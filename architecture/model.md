@@ -163,26 +163,34 @@ list from `src/model/schema.ts` and fails when one of them is not explained here
 | `statement` | The interpretation itself, in one sentence. |
 | `authoredBy` | Who wrote the entry, from the authors above. |
 | `baseSha` | The commit that was checked out when the run that formed this hypothesis began reading, before that run had written anything; `null` where there was no commit to name. |
-| `baseClean` | Whether that same starting tree — the bytes present when the run began reading, before the run wrote anything — carried no uncommitted change. |
+| `evidenceClean` | Whether the files named by the facts under `supportedBy` — and those files only, not the tree around them — carried no uncommitted change when the run read them. |
 | `supportedBy` | The ids of the facts the interpretation stands on. |
 
-### `baseClean` is about the tree read, never the tree left behind
+### `evidenceClean` is about the evidence read, never the tree around it
 
-`baseClean` describes the state the hypothesis was **derived from**: the working tree as it stood
-before the run began writing. It says nothing whatever about the tree at the moment the entry was
-written, and it is not a statement about the repository at any later time. The distinction is not
-pedantic. A discovery run dirties the tree itself — filling a marker is a write — so the run that
-forms a hypothesis has almost always made the tree dirty by the time it writes that hypothesis down.
-Read the other way, the field would be `false` on every entry within a release: mandatory, and
-carrying no information at all.
+`evidenceClean` describes what the hypothesis was **derived from**: the files its own facts point at,
+as they stood before the run began writing. It says nothing whatever about the rest of the tree, about
+the tree at the moment the entry was written, or about the repository at any later time. A dirty
+README does not undermine a conclusion about `apps/`; an uncommitted `apps/api/src/app.ts` under a
+conclusion that stands on it does, and that is the whole difference the scope buys.
 
-The two fields constrain each other in no way. All four combinations occur and all four are
-legitimate: a repository with files and no commit at all is `baseSha: null` with `baseClean: false`.
+Read as the cleanliness of the whole tree instead, the field is constant wherever it matters most.
+A discovery run dirties the tree itself — filling a marker is a write — and on a repository the
+construct adopts, `init` has just written dozens of files into it before discovery reads anything, so
+every entry would carry `false`: mandatory, and carrying no information at all. Scoped to the
+evidence, both values are reachable on that same path — a hypothesis standing on the repository's own
+committed files reads `true`, one standing on a file `init` just wrote reads `false`.
 
-### `baseClean` is a claim, not a measurement
+`baseSha` and `evidenceClean` constrain each other in no way, and they are not two halves of one
+reading: `baseSha` names the commit the run started from, `evidenceClean` speaks only of the files the
+facts name. All four combinations occur and all four are legitimate: a repository with files and no
+commit at all is `baseSha: null` with `evidenceClean: false`.
 
-Nothing in this tool verifies `baseClean`. Discovery records it about its own run, and by the time
-anyone reads the model the tree has moved on, so there is no later moment at which the value could be
+### `evidenceClean` is a claim, not a measurement
+
+Nothing in this tool verifies `evidenceClean`. Discovery computes it during its own run — the
+protocol carries the `git status --porcelain` one-liner that produces it — and by the time anyone
+reads the model the tree has moved on, so there is no later moment at which the value could be
 confirmed or refuted. It has exactly the nature of `authoredBy`: recorded by the writer, taken on the
 writer's word, never re-derived on read. A reader looking for the check that confirms it should stop
 looking — there is none, and its absence is not an omission.

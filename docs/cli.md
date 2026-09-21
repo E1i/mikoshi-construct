@@ -249,8 +249,9 @@ exit code: a repository with no model exits `0`, because absence of a subject is
 ### What the model holds open
 
 `hypotheses` carries one entry per hypothesis in `construct.model.json`, in the model's declaration
-order, each with the `statement` discovery wrote, the base it was read from (`baseSha` and
-`baseClean`) and the state derived from the facts named under it — the same derivation the claims
+order, each with the `statement` discovery wrote, the commit it was read from (`baseSha`), whether the
+files under it were committed when they were read (`evidenceClean`) and the state derived from the
+facts named under it — the same derivation the claims
 use, so a hypothesis reads `held`, `unsupported` with the paths that no longer match, or `unknown`.
 
 `unknown` keeps its two origins apart here as everywhere else. A hypothesis whose facts could not be
@@ -263,8 +264,10 @@ An empty list is not a repository whose readings all stand. The section names wh
 — there is no model at all, or the model was read and holds nothing open — the same way `youAreHere`
 does for claims.
 
-`baseClean: false` says the hypothesis was read from a tree carrying uncommitted changes, so it was
-never read from the commit it records, and the line for it says that beside the reading.
+`evidenceClean: false` says the files that hypothesis's own facts name carried uncommitted changes when
+discovery read them — the evidence under it is in no commit, not that the hypothesis is doubtful — and
+the line for it says that beside the reading. It speaks of those files only, never of the tree around
+them.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -516,7 +519,7 @@ never changes the exit code.
       "hypothesisId": "one-deployable-under-apps",
       "statement": "The single deployable is apps/api",
       "baseSha": "9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a",
-      "baseClean": false,
+      "evidenceClean": false,
       "state": "unsupported",
       "doesNotHold": ["apps/api/package.json"]
     },
@@ -524,7 +527,7 @@ never changes the exit code.
       "hypothesisId": "deployed-as-a-single-container",
       "statement": "This repository is deployed as a single container",
       "baseSha": null,
-      "baseClean": true,
+      "evidenceClean": true,
       "state": "unknown",
       "reason": "no-fact-named"
     }

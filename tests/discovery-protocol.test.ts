@@ -38,6 +38,11 @@ function factKindsNamed(source: string): string[] {
   return [...new Set([...inProse, ...inBlocks])].sort()
 }
 
+function pathsStatused(source: string): string[] {
+  const command = /git status --porcelain -- ([^\n]+)/.exec(source)
+  return command == null ? [] : command[1].trim().split(/ +/)
+}
+
 function constructHalf(model: RepositoryModel): string {
   return JSON.stringify({
     modelVersion: model.modelVersion,
@@ -55,7 +60,7 @@ function discoveryEntry(baseSha: string | null): { fact: Fact, hypothesis: Hypot
       statement: 'Each directory under apps/ is a deployable service',
       authoredBy: 'discovery',
       baseSha,
-      baseClean: true,
+      evidenceClean: true,
       supportedBy: ['apps-directory'],
     },
   }
@@ -71,6 +76,20 @@ describe('the discovery protocol writes hypotheses the schema accepts', () => {
     expect(entries.length).toBeGreaterThan(1)
     expect(entries.filter(entry => entry.authoredBy !== 'discovery')).toEqual([])
     expect(model.hypotheses.every(hypothesis => hypothesis.supportedBy.length > 0)).toBe(true)
+  })
+
+  it('carries the command that computes evidenceClean over the paths of that hypothesis own facts', () => {
+    const model = parseModel(jsonBlocks(protocol()).filter(block => block.includes('"modelVersion"'))[0], MODEL_FILE)
+    const hypothesis = model.hypotheses[0]
+    const evidencePaths = hypothesis.supportedBy.map(id => model.facts.find(fact => fact.id === id)?.path)
+    expect(evidencePaths.filter(path => path === undefined)).toEqual([])
+    expect(pathsStatused(protocol())).toEqual(evidencePaths)
+  })
+
+  it('tells the run to compute the value rather than estimate it, in the idiom the recording step uses', () => {
+    const step = protocol().slice(protocol().indexOf('evidenceClean'), protocol().indexOf('git status --porcelain'))
+    expect(step).toMatch(/Compute it,\s+never estimate it/)
+    expect(protocol()).toMatch(/Compute it, never estimate it/)
   })
 
   it('names every fact kind the code declares and no kind it does not', () => {

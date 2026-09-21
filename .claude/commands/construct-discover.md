@@ -39,8 +39,8 @@ Work in this order:
    one, and every `*.config.ts` / `config.ts`. Note the package manager, runtime, database and clients, CI, deployment
    and existing conventions. Do not write yet. Record the commit this run starts from: set
    `discovery.baseSha` in `construct.json` to the output of `git rev-parse HEAD`, or `null` where the
-   repository has no commit yet. Note now whether `git status --porcelain` is empty at this moment:
-   that is the tree every reading below is made from, and your own writes are about to dirty it.
+   repository has no commit yet. Do not record the cleanliness of the tree here: a hypothesis records
+   whether its own evidence was committed, one file set at a time, and step 12 says how.
 3. **`product`** (AGENTS.md): what the system does, in one paragraph, and the one flow where a
    defect costs the most (money, identity, data). If the repository is empty apart from the baseline,
    say so in one line.
@@ -79,8 +79,17 @@ Work in this order:
     For each interpretation you are prepared to stand behind, add one entry under `hypotheses` and the
     facts it stands on under `facts`. Everything you write here carries `"authoredBy": "discovery"`,
     which is what keeps the next `init` from replacing it. Each hypothesis carries the `baseSha` step
-    2 recorded and the `baseClean` of that same starting tree — the reading is about the tree you read,
-    not about the tree you leave behind.
+    2 recorded and its own `evidenceClean`: whether the files named by *that hypothesis's* facts — those
+    files only, not the tree around them — carried uncommitted changes when you read them. Compute it,
+    never estimate it, over the paths of the facts under it:
+
+    ```bash
+    git status --porcelain -- apps/billing/Dockerfile apps/billing/package.json pnpm-workspace.yaml
+    ```
+
+    Empty output is `"evidenceClean": true`; any line is `false`. A repository that has just been
+    adopted answers both ways — a hypothesis standing on files the repository already committed reads
+    `true`, one standing on a file `init` wrote reads `false`.
 
     A fact is what code can look at without judgement, and there are two kinds and no third:
     `file-exists` names a `path`, `file-contains` names a `path` and a literal `needle`. An
@@ -109,7 +118,7 @@ Work in this order:
           "statement": "Each directory under apps/ is a deployable service with its own manifest and image, rather than a module of one application",
           "authoredBy": "discovery",
           "baseSha": "9f1c0b7e1b3b9f0e2a4c6d8e0a2b4c6d8e0a2b4c",
-          "baseClean": true,
+          "evidenceClean": true,
           "supportedBy": ["billing-service-dockerfile", "billing-service-manifest", "workspace-covers-apps"]
         }
       ]

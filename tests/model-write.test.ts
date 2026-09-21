@@ -128,7 +128,7 @@ const DISCOVERED_HYPOTHESIS: Hypothesis = {
   statement: 'This repository is a pnpm workspace whose single deployable is apps/api',
   authoredBy: 'discovery',
   baseSha: '9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a',
-  baseClean: true,
+  evidenceClean: true,
   supportedBy: [DISCOVERED_FACT.id],
 }
 
@@ -148,7 +148,7 @@ describe('a second init rewrites what the construct authored and carries the res
     const again = readModelAt(dir)
     expect(again.hypotheses).toEqual([DISCOVERED_HYPOTHESIS])
     expect(again.hypotheses[0].baseSha).toBe(DISCOVERED_HYPOTHESIS.baseSha)
-    expect(again.hypotheses[0].baseClean).toBe(DISCOVERED_HYPOTHESIS.baseClean)
+    expect(again.hypotheses[0].evidenceClean).toBe(DISCOVERED_HYPOTHESIS.evidenceClean)
     expect(again.facts).toContainEqual(DISCOVERED_FACT)
     expect(() => parseModel(readFileSync(path.join(dir, MODEL_FILE), 'utf8'), MODEL_FILE)).not.toThrow()
   })
@@ -214,7 +214,7 @@ describe('merging the model preserves the declaration order selectPath reads', (
       statement: 'The pre-commit hook is what stops a secret reaching a commit here',
       authoredBy: 'discovery',
       baseSha: null,
-      baseClean: false,
+      evidenceClean: false,
       supportedBy: ['commit-hook'],
     }
     const seeded: RepositoryModel = { ...existing, hypotheses: [hypothesis] }
@@ -245,7 +245,7 @@ const STOOD_ON_BY_A_HYPOTHESIS: Hypothesis = {
   statement: 'A local hook is what runs the harness before a commit here',
   authoredBy: 'discovery',
   baseSha: null,
-  baseClean: false,
+  evidenceClean: false,
   supportedBy: ['abandoned-hook'],
 }
 

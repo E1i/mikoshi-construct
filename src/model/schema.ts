@@ -43,7 +43,7 @@ export interface Hypothesis {
   statement: string
   authoredBy: EntryAuthor
   baseSha: string | null
-  baseClean: boolean
+  evidenceClean: boolean
   supportedBy: string[]
 }
 
@@ -58,7 +58,7 @@ const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle']
 const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
 const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification', 'checkId']
-export const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'baseClean', 'supportedBy']
+export const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'evidenceClean', 'supportedBy']
 const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses']
 
 export class DanglingFactReference extends Error {
@@ -229,7 +229,7 @@ function parseHypotheses(name: string, raw: Record<string, unknown>, facts: Set<
       statement: text(name, entry, 'statement', where),
       authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
       baseSha: nullableText(name, entry, 'baseSha', where),
-      baseClean: flag(name, entry, 'baseClean', where),
+      evidenceClean: flag(name, entry, 'evidenceClean', where),
       supportedBy: supportedBy(name, entry, where, facts),
     }
   })
