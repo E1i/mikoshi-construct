@@ -42,6 +42,8 @@ function printChecks(ui: Ui, checks: CheckVerdict[], placement: ClaimPlacement):
   const read = claimsRead(ui, placement)
   if (read != null)
     ui.line(ui.theme.dim(`  ${read}`))
+  if (placement.at === 'no-model')
+    ui.line(ui.theme.dim(`  ${ui.lore.modelIsWrittenByInit}`))
   for (const check of checks)
     ui.line(checkLine(ui, check, width))
   ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))

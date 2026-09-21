@@ -256,6 +256,9 @@ inferred from an empty `checks` list: `at` is the discriminant, and `stop` is ca
 | `at` | What it says | The line it prints |
 |---|---|---|
 | `no-model` | There is no `construct.model.json` here: nothing was read, so nothing is known about what this repository claims. This is not a reading that nothing is enforced. | `You are here: nowhere to place you — there is no construct.model.json, so nothing is known about claims` |
+
+Under `no-model` the Enforcement section adds one further line, once, naming what writes the file: `One is written by construct init, which is additive and overwrites nothing it does not own. Nothing forces you to have one.` The three readings of the absence are unchanged — the sentence is added beside them, not in place of one, because the absence is a state to explain rather than a fault to repair.
+
 | `no-claim` | `construct.model.json` was read and names no claim: it asserts nothing about this repository. | `You are here: construct.model.json carries no claim, so there is none to place` |
 | `no-stop` | The model carries claims and none of their chains stops before its end. | `You are here: no claim stops before the end of its chain` |
 | `stop` | The first claim whose chain stops, carried under `stop` with the stage and the facts behind it. The line names the **first** fact the stage declares in its `supportedBy` — the same declared-order key that breaks a tie between claims, so the line is stable between runs and diffs — and counts the rest, so it stands on its own where it is read apart from the section above; the full list stays in the verdict. A stage that could not be read names no fact: nothing was established about it, so there is nothing that stopped matching to name. | `You are here: <claim> — <stage> unsupported: <fact> no longer matches, and 2 more` |
