@@ -799,6 +799,12 @@ emphatically, which is an L0 control stacked on an L0 control. This repository r
 today in code; it is no better in a process. The question for an unenforced step is not *how do we
 remember it* but *why can the thing that knows not record it*.
 
+That question has a place to start. The outcome crosses the sandbox boundary at one known moment: when
+a run returns its result to the session that launched it. The code servicing that handover holds the
+outcome and a filesystem at the same time, and it is the only point where both conditions are met —
+which makes it the first place to look, and, as far as this analysis goes, the only one. Whether a
+write belongs there is not settled here; where to look is.
+
 **Boundary, and it is narrow.** One step of one shape — append a line by hand after reading a result —
 thirty-six missed runs, two operators, three sessions, five days, one repository. **Not a rate for L0 in
 general.** It is the first number of any kind where there had previously been an assumption, and
