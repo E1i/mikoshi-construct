@@ -483,21 +483,37 @@ worked was not a check but a prediction made before the measurement.
 Recorded so they stay experiments with addresses rather than turning back into *someday we will find
 a suitable model*.
 
-**The fan-in specimen is not missing — it is the boats repository.** Fan-in appears where several
-deployable things share one set of infrastructure, and that is structural: a library with one package,
-one config and one workflow has nothing to fan into, however many hypotheses are written about it.
-The boats tree is a pnpm workspace carrying `apps/api` and `apps/web` over `packages/catalog`,
-`packages/paths` and `packages/shared`, with three workflows (`ci.yml`, `security.yml`,
-`api-contract.yml`), one `eslint.config.mjs` and a contract at `contracts/api/openapi.yaml`. One
-`ci.yml` stands under the harness claim and under whatever discovery concludes about each deployable;
-one eslint config stands under the dependency policy and under the same. So the question closes with
-one discovery run on a copy, the same way the adopted-repository question closed: by finding the
-specimen, not by reasoning from the ones at hand.
+**Fan-in is measured across the corpus, not hunted for in one specimen.** The question stopped being
+*find a model large enough* the moment it was clear that fan-in is a property of structure: several
+deployable things sharing one set of infrastructure. That is measurable on repositories already
+adopted, and the right column below is a hypothesis, not a finding — testing it is the experiment.
 
-It carries no `construct.model.json` — it was materialized at 0.1.1 and reached the current baseline
-through `sync` — so the run begins with a first `init`. That makes it simultaneously the first case of
-a pre-0.5.0 tree acquiring a model, which is the open question recorded in AGENTS.md, and the two meet
-in one tree rather than needing two.
+| Structure | Shared infrastructure | Fan-in predicted |
+|---|---|---|
+| library, one package | one package, one CI, one lint config | 1 |
+| service with a contract | one deployable plus its contract | 1–2 |
+| workspace monorepo | several apps over shared packages, one CI, one lint config | N |
+| application with a backing service | not yet characterised | unknown |
+| site with a build and content | not yet characterised | unknown |
+
+Five discovery runs settle it, at roughly three minutes and a hundred thousand tokens each. **If
+fan-in is one everywhere, including the monorepo, the picture has nothing to show** — and that is a
+conclusion about models in general rather than about one small model, which is more than any amount of
+arguing produces. **If it grows with structure**, the graph gets the case it was proposed for, and the
+same measurement says who it is for: not everyone, but repositories of a particular shape.
+
+The monorepo carries no `construct.model.json` — materialized before 0.5.0 and brought forward by
+`sync` — so its run begins with a first `init`. That makes it also the first case of a pre-0.5.0 tree
+acquiring a model, the open question recorded in AGENTS.md, and the two meet in one tree rather than
+needing two.
+
+**From this measurement onward, a specimen is described by shape and not by address.** The two
+entries above name theirs, which is why the rule is written down here rather than assumed to be
+obvious. For the corpus it is absolute: no repository name, domain or identifying path enters this
+file, an example or a fixture, on the same rule the frozen manifests were sanitised under. One of the
+five is a private site belonging to the maintainer, and it appears as a structure and nothing else —
+that constraint goes in the brief of any run touching the corpus rather than being remembered at the
+time.
 
 **The blind run is parked with its price.** A fresh copy plus discovery, twice, so that neither run
 can read the other's model. It costs two runs and returns `n = 2` whichever way it falls: weak
