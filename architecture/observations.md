@@ -97,6 +97,43 @@ presets produce today and is checked by `tests/add-population.test.ts` in both d
 nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
 backend or library presets.
 
+## 2026-09-21 · The discovery plan skill was not built, and the empty plan is why
+
+A skill was scoped to turn what the model holds open into a proposed plan. Written out by hand first,
+against this repository's own model at `18c435c`, the plan came out **empty**, and the emptiness is
+the result rather than a missing one.
+
+**The measurement.** The model carries seven hypotheses, every one `authoredBy: discovery`, every one
+recording `baseSha` `906f554`, every one `evidenceClean: true`. All twenty-eight facts were
+re-evaluated against the tree and all twenty-eight hold. Under the three kinds of decay the skill was
+scoped to name, the plan has zero items in each:
+
+| Decay the skill would report | Items |
+|---|---|
+| A fact that stopped holding | 0 |
+| A hypothesis recorded from a base it never read | 0 |
+| A question whose carrier stopped holding | 0 |
+
+**Why the emptiness is evidence and not an absent result.** Had anything decayed, `doctor` would
+already say so. A hypothesis whose facts stop holding reads `unsupported` under STANDING HYPOTHESES,
+derived by the same `deriveModelState` through the same projection the skill would have called. So
+the skill as scoped is **a second rendering of knowledge the report already carries**, and building it
+would have produced another renderer named as a capability.
+
+**The procedure, recorded because this is its second use today.** In both cases a plan written by
+hand, before any code, decided whether the work should exist. The first found that the *input* had no
+honest carrier: three of four open questions asserted something false and nothing could re-check them,
+which sent that change to repairing the questions and running discovery instead. The second found that
+the *output* would be duplicative. It is a check of necessity, not a preparation for implementation,
+and the distinction matters: preparation assumes the thing gets built and asks how, while this asks
+whether, and twice answered differently from the brief that proposed it.
+
+**Boundary.** Two uses in one day is a form, not a rate. Nothing here says a hand-written plan would
+catch anything on a third feature, only that on these two it changed the decision before any code was
+written. The specimen is this repository itself, so
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) costs nothing here — there is
+no address to withhold — and it is said rather than left unstated.
+
 ## 2026-09-21 · A command that did not run, read as a measurement that did
 
 Two cases on one machine in one day, on which the same `xcrun` shim happened to be broken: a scan
