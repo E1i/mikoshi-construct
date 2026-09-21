@@ -151,6 +151,50 @@ with one state for two independent mechanisms — which is exactly the one-colum
 prevent. Keeping them apart is what lets `doctor` say *which* mechanism stopped holding, and lets a
 repository that has one and not the other be described honestly rather than half-credited.
 
+## Hypotheses — what discovery concluded, and the tree it was read from
+
+A hypothesis is an interpretation: what discovery concluded about a repository from the facts it
+names. Every property below is required, and `tests/model-vocabulary.test.ts` reads the property
+list from `src/model/schema.ts` and fails when one of them is not explained here.
+
+| Property | Meaning |
+|---|---|
+| `id` | The name other entries and reports use for this hypothesis. |
+| `statement` | The interpretation itself, in one sentence. |
+| `authoredBy` | Who wrote the entry, from the authors above. |
+| `baseSha` | The commit that was checked out when the run that formed this hypothesis began reading, before that run had written anything; `null` where there was no commit to name. |
+| `baseClean` | Whether that same starting tree — the bytes present when the run began reading, before the run wrote anything — carried no uncommitted change. |
+| `supportedBy` | The ids of the facts the interpretation stands on. |
+
+### `baseClean` is about the tree read, never the tree left behind
+
+`baseClean` describes the state the hypothesis was **derived from**: the working tree as it stood
+before the run began writing. It says nothing whatever about the tree at the moment the entry was
+written, and it is not a statement about the repository at any later time. The distinction is not
+pedantic. A discovery run dirties the tree itself — filling a marker is a write — so the run that
+forms a hypothesis has almost always made the tree dirty by the time it writes that hypothesis down.
+Read the other way, the field would be `false` on every entry within a release: mandatory, and
+carrying no information at all.
+
+The two fields constrain each other in no way. All four combinations occur and all four are
+legitimate: a repository with files and no commit at all is `baseSha: null` with `baseClean: false`.
+
+### `baseClean` is a claim, not a measurement
+
+Nothing in this tool verifies `baseClean`. Discovery records it about its own run, and by the time
+anyone reads the model the tree has moved on, so there is no later moment at which the value could be
+confirmed or refuted. It has exactly the nature of `authoredBy`: recorded by the writer, taken on the
+writer's word, never re-derived on read. A reader looking for the check that confirms it should stop
+looking — there is none, and its absence is not an omission.
+
+### Hypotheses with different bases belong together
+
+After a second discovery run the model holds hypotheses carrying different `baseSha` values, and that
+is the design rather than a defect to tidy away. [Rule 5](epistemic-rules.md) requires every finding
+to record the base it was made against precisely so that a fresh interpretation can be told from a
+stale one: the base is what distinguishes them. Do not align the bases, and do not read the
+divergence as an inconsistency in the file.
+
 ## Where a verdict belongs — knowledge or provenance
 
 A verdict is **knowledge** if it can become false without anything `init` wrote changing. It is
