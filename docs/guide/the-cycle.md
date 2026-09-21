@@ -51,6 +51,12 @@ not this one. Criteria of the form *after X happens, assert Y* are the usual dis
 change before the implementation that conforms to them, and before anything consuming the new
 behaviour.
 
+A third rule governs the criteria themselves and is recorded rather than restated here: **an
+acceptance is red before the implementation exists**, because a criterion that cannot be shown
+failing is a statement of intent whatever its wording. That rule, the two stops it carries and the
+condition it depends on are
+[decision 0027](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md).
+
 ## 4. `/implement <task>` — the ladder
 
 Implementation starts at the lowest reasoning class the task can carry, under stronger constraints

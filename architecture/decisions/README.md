@@ -46,3 +46,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0024](0024-an-absent-claim-is-derived-not-recorded.md) | An absent claim is derived on read, never recorded | L3 test |
 | [0025](0025-a-premise-that-can-be-a-fact-is-not-left-as-prose.md) | A premise expressible as facts is written as a hypothesis; prose is understood to age | L1 review |
 | [0026](0026-which-packages-exist-is-derived-what-they-may-import-is-recorded.md) | Which packages exist is derived; what each package may import is recorded | L3 test |
+| [0027](0027-an-acceptance-is-red-before-the-implementation-exists.md) | An acceptance is red before the implementation exists | L1 review |
