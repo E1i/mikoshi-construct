@@ -726,3 +726,87 @@ every change; people will keep hanging new gates off the artifact they watch.
 **Boundary.** Six gates, one hit, and the hit was the newest of them — written the same day, wired into
 the workflow that happened to be nearby. Nothing here says the rate is one in six; it says the sweep
 is one extra line of reading per gate and found something on the first gate it looked at.
+
+## 2026-09-21 · The first measurement of what an L0 step is worth
+
+Recorded as a ledger finding and it is not one. The ledger is the instrument; the subject is the
+enforcement level. This repository has graded controls L0 to L4 all month and labelled them honestly,
+L0 meaning *nothing enforces this*. Underneath every such label sat an unexamined assumption: that an
+L0 step is performed unless somebody is careless. One has now been measured.
+
+### 2026-09-21 · Half the ladder runs were never recorded, in every session alike
+
+The ledger holds 29 readable entries against 65 runs the runtime knows about. The 36 without an entry
+were measured rather than guessed at, and the result is not what the phrasing *runs that were never
+logged* suggests.
+
+**They are not historical.** The step that writes the ledger entered the `/implement` instructions on
+2026-09-16, before every one of these runs. Nothing here predates the rule it breaks.
+
+**They are not one operator's lapse.** Grouped by the session that launched them, the split is even
+everywhere:
+
+| Session | Recorded | Not recorded |
+|---|---|---|
+| first | 15 | 15 |
+| second | 13 | 17 |
+| third | 1 | 4 |
+
+The session that recorded thirteen and missed seventeen is the one in which this entry was written,
+by an operator who wrote a ledger line after every run he noticed finishing.
+
+**They are not all the same kind of run**, and the split matters for what to do about it:
+
+| | Count |
+|---|---|
+| reached verification — a completed run, simply never recorded | 26 |
+| never reached it — stopped or failed before the harness ran | 10 |
+| of those, no agent completed at all | 2 |
+
+So the deferred *stopped run* class is ten of the thirty-six, not a corner case and not the bulk
+either. The larger share is twenty-six ordinary completed runs whose entry was never written.
+
+**The cause is the enforcement level, and it is already stated.** The ledger line is written by hand by
+whoever ran the ladder, after reading the result; the workflow sandbox has no filesystem, so the script
+that knows the outcome cannot record it. The instructions say plainly that nothing enforces this step.
+What was missing was not a rule but a measurement of how often an L0 step of this shape is actually
+kept — and the answer, over three sessions and five days, is **about half**.
+
+**It has already cost something specific.** [Decision 0011](decisions/0011-design-is-part-of-the-run.md)
+carries a figure measured by a superseded instrument that cannot be corrected, because it names no run
+identifier and one of the two ledger entries matching its description has no run id to join on. An
+uncorrectable record is the concrete form of this gap; before today it was an abstraction.
+
+**What the drift line can and cannot say.** `construct cost` reports every session with no entry, and
+it names them. Until today that reconciliation existed and printed nothing, for reasons recorded above.
+Now that it prints, the number is visible on every run of the tool — which is a compensating control
+for an L0 step, not a replacement for it, and it is worth nothing unless somebody reads it.
+
+### What this calibrates, and what it does not
+
+**Every past label of the form *L0, held by review* now reads differently than it was written.** Not
+*performed unless forgotten*, but *performed about half the time*. The ownership rule in
+[model.md](model.md), the discovery protocol's steps, the deferred-question check in
+[0017](decisions/0017-v5-adds-no-new-way-of-knowing.md) — none of them changes, and all of them now
+carry a calibration they did not have this morning. That is not an argument against labelling honestly:
+it is what the honest label was always worth.
+
+**The remedy is not a louder instruction.** The step is L0 **by construction rather than by oversight**:
+the workflow sandbox has no filesystem, so the component that knows the outcome cannot record it, and
+the knowledge must travel by hand to something that can write. The solution space is therefore moving
+the write to where knowledge of the outcome and the ability to persist it meet — not instructing more
+emphatically, which is an L0 control stacked on an L0 control. This repository refused that three times
+today in code; it is no better in a process. The question for an unenforced step is not *how do we
+remember it* but *why can the thing that knows not record it*.
+
+That question has a place to start. The outcome crosses the sandbox boundary at one known moment: when
+a run returns its result to the session that launched it. The code servicing that handover holds the
+outcome and a filesystem at the same time, and it is the only point where both conditions are met —
+which makes it the first place to look, and, as far as this analysis goes, the only one. Whether a
+write belongs there is not settled here; where to look is.
+
+**Boundary, and it is narrow.** One step of one shape — append a line by hand after reading a result —
+thirty-six missed runs, two operators, three sessions, five days, one repository. **Not a rate for L0 in
+general.** It is the first number of any kind where there had previously been an assumption, and
+nothing in it says whether a prompt, a checklist or a different placement would move it, because none
+of those was tried.
