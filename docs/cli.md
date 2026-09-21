@@ -301,6 +301,14 @@ inferred from an empty `checks` list: `at` is the discriminant, and `stop` is ca
 
 Under `no-model` the Enforcement section adds one further line, once, naming what writes the file: `One is written by construct init, which is additive and overwrites nothing it does not own. Nothing forces you to have one.` The three readings of the absence are unchanged — the sentence is added beside them, not in place of one, because the absence is a state to explain rather than a fault to repair.
 
+**A model this binary cannot read is not one of these readings.** Where `construct.model.json`
+declares a `modelVersion` above what the running binary understands, the command reports that state
+and exits `1` — it does not reach `no-model`, and it does not offer `init`, which would propose
+overwriting the file it could not read
+([decision 0028](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0028-a-model-ahead-of-the-reader-is-a-state.md)).
+A version *below* this binary's is a malformed document and is reported as one; nothing migrates an
+older model.
+
 | `no-claim` | `construct.model.json` was read and names no claim: it asserts nothing about this repository. | `You are here: construct.model.json carries no claim, so there is none to place` |
 | `no-stop` | The model carries claims and none of their chains stops before its end. | `You are here: no claim stops before the end of its chain` |
 | `stop` | The first claim whose chain stops, carried under `stop` with the stage and the facts behind it. The line names the **first** fact the stage declares in its `supportedBy` — the same declared-order key that breaks a tie between claims, so the line is stable between runs and diffs — and counts the rest, so it stands on its own where it is read apart from the section above; the full list stays in the verdict. A stage that could not be read names no fact: nothing was established about it, so there is nothing that stopped matching to name. | `You are here: <claim> — <stage> unsupported: <fact> no longer matches, and 2 more` |
@@ -1004,15 +1012,18 @@ stand on is drawn once, with one edge from each of them. `held` is not proof tha
 `unsupported` says the named evidence no longer matches and nothing more, and `unknown` says nothing
 was read.
 
-Three readings, and only the first draws anything:
+Four readings, and only the first draws anything:
 
 | Reading | Where it goes | Exit |
 |---|---|---|
 | The model carries entries | the diagram, on stdout — and the page, where `--out` names one | `0` |
 | `construct.model.json` is here and names no fact, claim or hypothesis | a line on stderr, nothing on stdout, and no file written | `0` |
 | There is no `construct.model.json` here | a line on stderr, nothing on stdout, and no file written | `0` |
+| `construct.model.json` declares a `modelVersion` this binary does not understand | the state named on stderr, nothing on stdout, and no file written | `1` |
 
-Absence is not obstruction, so all three exit `0`, and the two messages go to stderr rather than into
+The first three exit `0` because absence is not obstruction; the fourth is obstruction — the file is
+there and could not be read — and exits `1` like every other reading of a record from a later build.
+The messages go to stderr rather than into
 the diagram: `construct graph > picture.mmd` on a repository with no model leaves an empty file and
 says why on the terminal, never prose inside the file.
 

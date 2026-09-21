@@ -9,7 +9,8 @@ import { modelPicture } from '../src/commands/graph.js'
 import { runInit } from '../src/commands/init.js'
 import { runSync } from '../src/commands/sync/index.js'
 import { flatlineFor, reported } from '../src/failure.js'
-import { MANIFEST_FILE, MANIFEST_VERSION, ManifestAheadOfReader, readManifest, upgradeManifest } from '../src/manifest.js'
+import { MANIFEST_FILE, MANIFEST_VERSION, readManifest, upgradeManifest } from '../src/manifest.js'
+import { RecordAheadOfReader } from '../src/record-ahead.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -42,7 +43,7 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
   it('refuses to normalise a manifestVersion it does not understand, rather than rewriting it down', () => {
     const raw = { manifestVersion: AHEAD, vars: {}, discovery: {} }
 
-    expect(() => upgradeManifest(raw)).toThrow(ManifestAheadOfReader)
+    expect(() => upgradeManifest(raw)).toThrow(RecordAheadOfReader)
     expect(raw.manifestVersion).toBe(AHEAD)
   })
 
@@ -52,19 +53,19 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
       expect.unreachable('upgradeManifest accepted a manifest from a later build')
     }
     catch (error) {
-      expect(error).toBeInstanceOf(ManifestAheadOfReader)
-      expect((error as ManifestAheadOfReader).found).toBe(AHEAD)
-      expect((error as ManifestAheadOfReader).understood).toBe(MANIFEST_VERSION)
+      expect(error).toBeInstanceOf(RecordAheadOfReader)
+      expect((error as RecordAheadOfReader).found).toBe(AHEAD)
+      expect((error as RecordAheadOfReader).understood).toBe(MANIFEST_VERSION)
     }
   })
 
   it('reaches the composition root from every command that reads the manifest', () => {
     const dir = treeAheadOfThisBinary()
 
-    expect(() => readManifest(dir)).toThrow(ManifestAheadOfReader)
-    expect(() => runDoctor(dir)).toThrow(ManifestAheadOfReader)
-    expect(() => runSync(dir, VERSION)).toThrow(ManifestAheadOfReader)
-    expect(() => costReport(dir, { env: {} })).toThrow(ManifestAheadOfReader)
+    expect(() => readManifest(dir)).toThrow(RecordAheadOfReader)
+    expect(() => runDoctor(dir)).toThrow(RecordAheadOfReader)
+    expect(() => runSync(dir, VERSION)).toThrow(RecordAheadOfReader)
+    expect(() => costReport(dir, { env: {} })).toThrow(RecordAheadOfReader)
   })
 
   it('leaves every file where it found it when init reads a manifest from a later build, so an older CLI cannot damage a newer repository', async () => {
@@ -74,7 +75,7 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
 
     await expect(runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset: 'node-backend', name: 'ahead', yes: true, dryRun: false }))
       .rejects
-      .toThrow(ManifestAheadOfReader)
+      .toThrow(RecordAheadOfReader)
 
     expect(Object.fromEntries(readdirSync(dir).map(entry => [entry, readFileSync(path.join(dir, entry), 'utf8')]))).toEqual(before)
   })
@@ -83,7 +84,7 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
     const dir = treeAheadOfThisBinary()
 
     expect(() => costReport(dir, { env: { CLAUDECODE: '1' } })).not.toThrow()
-    expect(() => costReport(dir, { env: {} })).toThrow(ManifestAheadOfReader)
+    expect(() => costReport(dir, { env: {} })).toThrow(RecordAheadOfReader)
   })
 
   it('leaves graph alone, because the picture is drawn from the model and never reads the manifest', () => {
@@ -102,13 +103,13 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
     expect(lines[0]).toContain(String(AHEAD))
     expect(lines[0]).toContain(String(MANIFEST_VERSION))
     expect(lines[0]).not.toContain('    at ')
-    expect(lines[0]).not.toContain('ManifestAheadOfReader')
+    expect(lines[0]).not.toContain('RecordAheadOfReader')
   })
 
   it('says the same thing in both vocabularies, and the plain one carries no lore', () => {
-    expect(LORE.manifestAhead(AHEAD, MANIFEST_VERSION)).toContain('upgrade the CLI')
-    expect(PLAIN_LORE.manifestAhead(AHEAD, MANIFEST_VERSION)).toContain('upgrade the CLI')
-    expect(PLAIN_LORE.manifestAhead(AHEAD, MANIFEST_VERSION)).not.toMatch(/RELIC|ENGRAM|BLACKWALL/)
+    expect(LORE.recordAhead(MANIFEST_FILE, 'manifestVersion', AHEAD, MANIFEST_VERSION)).toContain('upgrade the CLI')
+    expect(PLAIN_LORE.recordAhead(MANIFEST_FILE, 'manifestVersion', AHEAD, MANIFEST_VERSION)).toContain('upgrade the CLI')
+    expect(PLAIN_LORE.recordAhead(MANIFEST_FILE, 'manifestVersion', AHEAD, MANIFEST_VERSION)).not.toMatch(/RELIC|ENGRAM|BLACKWALL/)
   })
 
   it('reports any other failure as its own message, so the new state is not a catch-all', () => {

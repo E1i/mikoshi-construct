@@ -1,3 +1,5 @@
+import { RecordAheadOfReader } from '../record-ahead.js'
+
 export const MODEL_FILE = 'construct.model.json'
 export const MODEL_VERSION = 1
 
@@ -245,6 +247,8 @@ export function parseModel(source: string, name: string): RepositoryModel {
   }
   if (!isRecord(raw))
     fail(name, 'the document must be an object')
+  if (typeof raw.modelVersion === 'number' && raw.modelVersion > MODEL_VERSION)
+    throw new RecordAheadOfReader(MODEL_FILE, 'modelVersion', raw.modelVersion, MODEL_VERSION)
   closed(name, raw, MODEL_PROPERTIES, 'the document')
   if (raw.modelVersion !== MODEL_VERSION)
     fail(name, `the document needs "modelVersion": ${MODEL_VERSION}`)
