@@ -150,7 +150,7 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
       '.gitleaks.toml': '',
       'architecture/security-invariants.md': '',
       'eslint.config.mjs': '',
-      'package.json': '{ "scripts": { "quality": "pnpm lint && pnpm typecheck && pnpm test" } }',
+      'package.json': '{ "scripts": { "quality": "pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test" } }',
     })
     expect(projectKnowledge(repository, held).youAreHere).toEqual({ at: 'no-stop' })
   })
@@ -172,7 +172,7 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
       '.gitleaks.toml': '',
       'architecture/security-invariants.md': '',
       'eslint.config.mjs': '',
-      'package.json': '{ "scripts": { "quality": "pnpm lint && pnpm typecheck && pnpm test" } }',
+      'package.json': '{ "scripts": { "quality": "pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test" } }',
     })
     expect(projectKnowledge(model(false), held).youAreHere).toEqual({ at: 'no-stop' })
   })

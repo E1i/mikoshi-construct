@@ -29,6 +29,7 @@ function baselineFacts(harnessCommand: string): Fact[] {
     { id: 'eslint-config', kind: 'file-exists', path: 'eslint.config.mjs', authoredBy: 'construct' },
     { id: 'security-invariants', kind: 'file-exists', path: 'architecture/security-invariants.md', authoredBy: 'construct' },
     { id: 'harness-manifest', kind: 'file-exists', path: MANIFEST, authoredBy: 'construct' },
+    { id: 'harness-script-runs-composition-check', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm composition:check' },
     { id: 'harness-script-runs-lint', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm lint' },
     { id: 'harness-script-runs-typecheck', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm typecheck' },
     { id: 'harness-script-runs-tests', kind: 'file-contains', path: MANIFEST, authoredBy: 'construct', needle: 'pnpm test' },
@@ -40,8 +41,8 @@ function listed(items: string[]): string {
 }
 
 function harnessStepsClaim(harnessCommand: string, contracts: boolean): Claim {
-  const steps = [...contracts ? ['contracts:check'] : [], 'lint', 'typecheck', 'tests']
-  const spelled = [...contracts ? ['pnpm contracts:check'] : [], 'pnpm lint', 'pnpm typecheck', 'pnpm test']
+  const steps = [...contracts ? ['contracts:check'] : [], 'composition:check', 'lint', 'typecheck', 'tests']
+  const spelled = [...contracts ? ['pnpm contracts:check'] : [], 'pnpm composition:check', 'pnpm lint', 'pnpm typecheck', 'pnpm test']
   return {
     id: 'harness-steps',
     statement: `${harnessCommand} runs ${listed(steps)}, rather than merely existing as a script`,
@@ -52,6 +53,7 @@ function harnessStepsClaim(harnessCommand: string, contracts: boolean): Claim {
       supportedBy: [
         'ci-workflow-runs-the-harness',
         ...contracts ? ['harness-script-runs-contracts-check'] : [],
+        'harness-script-runs-composition-check',
         'harness-script-runs-lint',
         'harness-script-runs-typecheck',
         'harness-script-runs-tests',

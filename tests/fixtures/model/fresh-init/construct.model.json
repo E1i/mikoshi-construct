@@ -10,6 +10,7 @@
     { "id": "eslint-config", "kind": "file-exists", "path": "eslint.config.mjs", "authoredBy": "construct" },
     { "id": "security-invariants", "kind": "file-exists", "path": "architecture/security-invariants.md", "authoredBy": "construct" },
     { "id": "harness-manifest", "kind": "file-exists", "path": "package.json", "authoredBy": "construct" },
+    { "id": "harness-script-runs-composition-check", "kind": "file-contains", "path": "package.json", "needle": "pnpm composition:check", "authoredBy": "construct" },
     { "id": "harness-script-runs-lint", "kind": "file-contains", "path": "package.json", "needle": "pnpm lint", "authoredBy": "construct" },
     { "id": "harness-script-runs-typecheck", "kind": "file-contains", "path": "package.json", "needle": "pnpm typecheck", "authoredBy": "construct" },
     { "id": "harness-script-runs-tests", "kind": "file-contains", "path": "package.json", "needle": "pnpm test", "authoredBy": "construct" }
@@ -60,12 +61,12 @@
     },
     {
       "id": "harness-steps",
-      "statement": "pnpm run quality runs lint, typecheck and tests, rather than merely existing as a script",
+      "statement": "pnpm run quality runs composition:check, lint, typecheck and tests, rather than merely existing as a script",
       "authoredBy": "construct",
       "enforcement": {
-        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm lint, pnpm typecheck and pnpm test",
+        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm composition:check, pnpm lint, pnpm typecheck and pnpm test",
         "level": "L3",
-        "supportedBy": ["ci-workflow-runs-the-harness", "harness-script-runs-lint", "harness-script-runs-typecheck", "harness-script-runs-tests"]
+        "supportedBy": ["ci-workflow-runs-the-harness", "harness-script-runs-composition-check", "harness-script-runs-lint", "harness-script-runs-typecheck", "harness-script-runs-tests"]
       },
       "verification": {
         "mechanism": "package.json is the file that command resolves against, so a step dropped from it is visible there",

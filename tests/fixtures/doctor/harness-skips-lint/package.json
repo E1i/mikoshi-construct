@@ -6,7 +6,7 @@
     "lint": "node scripts/lint.mjs",
     "typecheck": "node --version",
     "test": "vitest run",
-    "quality": "pnpm typecheck && pnpm test",
+    "quality": "pnpm composition:check && pnpm typecheck && pnpm test",
     "precommit": "pnpm run quality"
   },
   "devDependencies": {
