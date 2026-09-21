@@ -73,8 +73,8 @@ Run against `E1i/yacht-trade` at commit `4112643cfe54466ee9cb59535e50f1e392cb67a
 
 **What the tree is, stated precisely.** It was materialized by `construct init` at 0.1.1 and has
 since diverged from the templates on 16 paths. It is a **diverged construct repository, not an
-adopted one.** [Decision 0017](decisions/0017-v5-adds-no-new-way-of-knowing.md) asks 5.1 to be
-accepted against a repository the construct never materialized, and this tree does not answer that.
+adopted one.** [Decision 0017](decisions/0017-v5-adds-no-new-way-of-knowing.md) asks the projection
+step to be accepted against a repository the construct never materialized, and this tree does not answer that.
 **That half of the criterion remains open.**
 
 **What `doctor` 0.5.0 returned, before `sync --apply`:**
@@ -154,8 +154,8 @@ because it required noticing our own contribution to it.
 
 ## 2026-09-21 · Two adopted repositories inspected, and the first broken chain
 
-0017 asks 5.1 to be accepted against a repository the construct never materialized. Two were used,
-both copies so nothing was written to the originals, both adopted by running `init` into them and
+0017 asks the projection step to be accepted against a repository the construct never materialized.
+Two were used, both copies so nothing was written to the originals, both adopted by running `init` into them and
 then `doctor`.
 
 **Specimen A — a repository built to conventions much like the construct's.** 582 commits, pnpm, its
@@ -189,7 +189,7 @@ first time `YOU ARE HERE` has shown the thing it was written for.
 
 ### What this discharges, and what it does not
 
-**0017's 5.1 criterion is met.** Both trees were ones the construct never materialized.
+**0017's criterion for the projection step is met.** Both trees were ones the construct never materialized.
 
 **The `uncollectedTests` conditional is verified, on a third specimen, with its counterfactual.**
 Getting there took retracting a wrong conclusion, which is the more useful half of this entry.
@@ -218,9 +218,9 @@ only a constructed counterfactual told them apart. The general form is worth mor
 an empty result never names its cause, so where emptiness is meant to prove something, build the case
 in which it would be non-empty.
 
-### First evidence on whether 5.2 needs a picture
+### First evidence on whether the picture step is warranted
 
-0017 makes the static graph conditional on whether a picture answers *where am I and where is the
+0017 makes the picture step conditional on whether a picture answers *where am I and where is the
 hole* better than a line does. On the first real case with holes in it, the line answered completely:
 two unsupported claims, one underlying fact, and the line names that fact. A diagram would have drawn
 two red nodes where the line names one cause — more marks, less insight.
