@@ -53,7 +53,7 @@
     "lint:fix": "eslint --fix .",
     "prepublishOnly": "pnpm build",
     "privacy:check": "tsx scripts/privacy/check.ts",
-    "quality": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test",
+    "quality": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:anchors",
     "release": "pnpm build && changeset publish",
     "release-notes:render": "tsx scripts/release-notes/sync-docs.ts",
     "release:verify": "tsx scripts/release/verify-published.ts",

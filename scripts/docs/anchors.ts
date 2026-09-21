@@ -32,6 +32,11 @@ function idsOn(page: string): string[] {
   return [...readFileSync(file, 'utf8').matchAll(/<h[1-6] id="([^"]+)"/g)].map(match => match[1])
 }
 
+if (!existsSync(DIST)) {
+  console.error('[docs:anchors] no build at docs/.vitepress/dist: run `pnpm docs:build` first, or this would check nothing')
+  process.exit(1)
+}
+
 const targets = anchored()
 if (targets.length === 0) {
   console.error('[docs:anchors] no anchored link found in the navigation: the check would pass over nothing')

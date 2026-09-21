@@ -13,4 +13,7 @@ The sublist is now computed at config time from the same functions the index ren
 no generated artifact that can fall behind and no second writer to enumerate. A version with a
 hand-written page links to that page and stays named however old it gets; a version without one links
 to its own section in the index. `pnpm docs:anchors` checks those section links against the rendered
-HTML after `docs:build`, because an anchor that misses still lands on the page and says nothing.
+HTML, because an anchor that misses still lands on the page and says nothing. It runs inside
+`pnpm run quality` rather than only in the docs deployment, which fires on pushes to the default
+branch and never on a pull request — and whose path filter did not cover the sources that generate the
+anchors.
