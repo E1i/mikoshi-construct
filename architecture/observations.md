@@ -97,6 +97,73 @@ presets produce today and is checked by `tests/add-population.test.ts` in both d
 nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
 backend or library presets.
 
+## 2026-09-22 · A claim with a complete lifespan: the record was made additive, the document was not
+
+Every other entry here records something observed once. This one records a claim through its whole
+life — the date it was made, the evidence it was made on, the layer that evidence covered, the layer
+the sentence claimed, the date it was falsified and what falsified it. That completeness is the
+reason to keep it. The repository is this one, so it is named; the repository the falsification came
+from is described by structure alone, under
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md).
+
+**The claim, and the evidence under it.**
+[Decision 0013](decisions/0013-a-second-init-adds-to-the-record.md) was accepted on 2026-09-17. A
+second `init` had been replacing `construct.json`'s `files` branch with only the paths that run
+wrote, so every path an earlier run wrote and this one skipped left the record silently; measured on
+a scratch tree carrying 43 recorded paths, the next `sync` read 4 `keep` and 39 `conflict` with
+nothing in the tree changed. The decision made the record additive and named `variants` among the
+branches that must survive a re-run. A second `init` was a known hazard with a measurement behind it,
+not something nobody had looked at.
+
+**The later defect rode in on the decision's own sentence.** `files` and `variants` "carry every
+entry the previous manifest recorded, then the entries this run wrote". `AGENTS.md` is an
+`append-block` target, so every run writes it, so the second clause always won: `buildManifest`
+spreads the variants of this run's written ops over the carried entries, and the variant in each of
+those ops had been computed a moment earlier from whether the file was on disk — which, from the
+second run onward, it always is. The record held the right answer and handed it to the caller that
+computed the wrong one, on every run, for every target that ships in more than one form.
+
+**What the tests covered was the record's self-consistency, not its stability.**
+`tests/init-record.test.ts` did assert that `variants` carried over — inside a guard excluding every
+path the run wrote, which is every `append-block` target, which is exactly the set with a second form
+to carry. Its hash assertion compared the recorded sha against the bytes now on disk, which holds
+whatever was written. `tests/init.test.ts` carried a case named *is idempotent: a second run keeps the
+discovered content*, asserting four things: no reported conflicts, the discovery body still present,
+one `construct:begin` in the file, and the marker not reported missing. The replacement satisfies all
+four — the discovery bodies are carried across by design, and what replaces the block is a
+well-formed block. Running `init` twice and comparing what it rendered was done by no test in this
+repository until `tests/init-convergence.test.ts`.
+
+**The sentence that was wider than its evidence.** `docs/guide/upgrading.md` recounts the 43-path
+measurement and concludes: "That is fixed: the record is additive now, and a re-`init` carries
+forward every line it did not write." The second clause is true and was tested. The first is wider
+than anything that had been measured — it reads as *the second `init` is fixed*, when what was fixed
+was its record layer. It shipped in v0.3.0 and stood through v0.12.2: ten minor versions,
+twenty-one releases, four days.
+
+**What falsified it.** A pnpm monorepo that had adopted the construct, materialized by 0.1.1 and
+since diverged, taken on 2026-09-21 through `sync`, `sync --apply`, its own harness, `init` and
+`doctor` on 0.12.2. The second `init` rewrote `AGENTS.md` from the form the construct writes when it
+creates the file into the form meant for a file that was already there, and the baseline command
+block went with it. Attribution was settled by reconstructing the recorded hashes rather than by
+argument: what `sync --apply` recorded for that path is exactly the owned sha of the default form,
+the file as found is exactly the owned sha of the existing form, and `variants` — written only by
+`buildManifest`, and only by `init` — said `existing`.
+
+**Where the sentence stands now.** The form is read from `variants` rather than from file existence,
+and the convergence test compares every file `init` writes, byte for byte, between runs. The
+sentence in `upgrading.md` is closer to true than when it was written, by work that had nothing to do
+with it, and it is still wider than the evidence: a second `init` on the monorepo preset re-derives
+`workspacePackages` and `allowedWorkspaceImports` from the packages the first run created, recording
+a dependency policy the file on disk does not carry, after which `sync` classifies
+`eslint.config.mjs` as `update` and `sync --apply` writes the looser policy over the stricter one.
+That one is open.
+
+**The boundary.** One claim, one repository, one falsification. Nothing here is a rate, and nothing
+here says how often a sentence outruns its evidence. What it supports is narrower: the distance
+between the layer an evidence covers and the layer a sentence claims can be measured after the fact,
+and in this instance it was four days, ten minor versions and one guard clause.
+
 ## 2026-09-21 · The discovery plan skill was not built, and the empty plan is why
 
 A skill was scoped to turn what the model holds open into a proposed plan. Written out by hand first,
