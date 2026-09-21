@@ -19,6 +19,13 @@ reproduced as captured or replaced by a description — never edited to look lik
 and the exemption for frozen fixtures, are
 [decision 0019](decisions/0019-a-specimen-is-described-by-structure.md).
 
+**One entry refers to another by its heading, never by direction.** New entries are inserted near the
+top, so "the entry above" has a lifespan of one insertion and falsifies itself in whatever diff adds
+the next record — which has already happened here, inside the commit that caused it. A reference by
+name lives as long as the entry does. The exception is stated so that it does not have to be
+rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
+inserted between a paragraph and the lines above it in the same record. Between entries it is not.
+
 ## 2026-09-21 · The `add` population, named before anything is done about it
 
 A live run against an adopted single-package frontend repository left two construct-written artifacts
