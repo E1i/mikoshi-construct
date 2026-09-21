@@ -18,6 +18,8 @@ export const DOCTOR_FIELD_FAMILY = {
   versionGap: 'provenance',
 } as const satisfies Record<keyof DoctorResult, ResultFamily>
 
+export const RETIRED_IDENTIFIERS = ['red-gate', 'hook', 'construct-tests', 'weakestLink'] as const
+
 export type ProvenanceField = {
   [K in keyof typeof DOCTOR_FIELD_FAMILY]: (typeof DOCTOR_FIELD_FAMILY)[K] extends 'provenance' ? K : never
 }[keyof typeof DOCTOR_FIELD_FAMILY]

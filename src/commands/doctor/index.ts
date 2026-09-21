@@ -77,7 +77,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
 
 export { DISCOVERY_PLACEHOLDER, isMarkerFilled, markerClose, markerOpen } from './discovery.js'
 export type { ResultFamily } from './families.js'
-export { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES } from './families.js'
+export { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, RETIRED_IDENTIFIERS } from './families.js'
 export type { ClaimPlacement, KnowledgeProjection, PlacementName } from './projection.js'
 export { CLAIM_PLACEMENTS, projectKnowledge } from './projection.js'
 export type { MarkerAuthorship, MarkerReading } from './provenance.js'
