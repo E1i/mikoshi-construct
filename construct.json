@@ -58,8 +58,8 @@
     "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80"
   },
   "discovery": {
-    "baseSha": null,
-    "filledAt": null,
+    "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+    "filledAt": "2026-09-21T15:46:18.322068Z",
     "markers": {
       "product": {
         "file": "AGENTS.md",
@@ -108,8 +108,8 @@
       },
       "open-questions": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "a81945210a22652a194d71dc18244ed378a886b1f03e6faf738bf0981530788b"
       }
     }
   },

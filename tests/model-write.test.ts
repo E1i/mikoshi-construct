@@ -101,12 +101,23 @@ describe('the model init writes', () => {
     expect(parseModel(source, MODEL_FILE)).toEqual(model)
   })
 
-  it('is the model this repository commits, built from its own manifest rather than by hand', () => {
+  it('is the model this repository commits: the construct half built from its own manifest, the rest carried over', () => {
     const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'construct.json'), 'utf8')) as { preset: PresetId, vars: TemplateVars, contracts: unknown }
-    const committed = readFileSync(path.join(REPO_ROOT, MODEL_FILE), 'utf8')
-    const model = buildModel({ vars: manifest.vars, contracts: manifest.contracts != null, sample: sampleGroups(getPreset(manifest.preset)).length > 0 })
-    expect(parseModel(committed, MODEL_FILE)).toEqual(model)
-    expect(committed).toBe(`${JSON.stringify(model, null, 2)}\n`)
+    const source = readFileSync(path.join(REPO_ROOT, MODEL_FILE), 'utf8')
+    const committed = parseModel(source, MODEL_FILE)
+    const built = buildModel({ vars: manifest.vars, contracts: manifest.contracts != null, sample: sampleGroups(getPreset(manifest.preset)).length > 0 })
+
+    expect(committed.claims.filter(claim => claim.authoredBy === 'construct')).toEqual(built.claims)
+    expect(committed.facts.filter(fact => fact.authoredBy === 'construct')).toEqual(built.facts)
+    expect(source).toBe(`${JSON.stringify(JSON.parse(source), null, 2)}\n`)
+  })
+
+  it('carries what discovery wrote here, which no init produces', () => {
+    const committed = parseModel(readFileSync(path.join(REPO_ROOT, MODEL_FILE), 'utf8'), MODEL_FILE)
+
+    expect(committed.hypotheses.length).toBeGreaterThan(0)
+    expect(committed.hypotheses.every(hypothesis => hypothesis.authoredBy === 'discovery')).toBe(true)
+    expect(committed.hypotheses.every(hypothesis => hypothesis.baseSha != null)).toBe(true)
   })
 })
 
