@@ -43,3 +43,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0021](0021-a-record-of-the-past-is-not-edited.md) | A record of what a past version said is not edited to match what is true now | L1 review |
 | [0022](0022-a-manifest-ahead-of-the-reader-is-a-state.md) | A manifest from a later build is a state this binary reports, not one it normalises | L3 test |
 | [0023](0023-the-picture-is-a-file-you-can-open.md) | The picture is one file you can open, and what would count as evidence anyone did | L3 test |
+| [0024](0024-an-absent-claim-is-derived-not-recorded.md) | An absent claim is derived on read, never recorded | L3 test |

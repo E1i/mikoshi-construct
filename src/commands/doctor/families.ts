@@ -16,6 +16,7 @@ export const DOCTOR_FIELD_FAMILY = {
   checks: 'knowledge',
   hypotheses: 'knowledge',
   youAreHere: 'knowledge',
+  notCarried: 'knowledge',
   versionGap: 'provenance',
 } as const satisfies Record<keyof DoctorResult, ResultFamily>
 

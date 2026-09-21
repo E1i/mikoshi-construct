@@ -41,6 +41,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     checks: knowledge.checks,
     hypotheses: knowledge.hypotheses,
     youAreHere: knowledge.youAreHere,
+    notCarried: [],
     versionGap: { materializedBy: '0.1.0', readBy: '0.1.0', pending: 0 },
     ...overrides,
   }

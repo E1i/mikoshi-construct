@@ -104,6 +104,10 @@ export interface Lore {
   manifestAhead: (found: number, understood: number) => string
   modelIsWrittenByInit: string
   graphPageWritten: (target: string) => string
+  notCarried: string
+  notCarriedDoesNotHold: (claimId: string, target: string) => string
+  notCarriedUnevaluable: (claimId: string, target: string) => string
+  notCarriedEveryFactHolds: (claimId: string) => string
 }
 
 function andMore(rest: readonly string[]): string {
@@ -221,6 +225,10 @@ export const LORE: Lore = {
   manifestAhead: (found: number, understood: number) => `RELIC FROM A LATER BUILD: construct.json declares manifestVersion ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
+  notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
+  notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
+  notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
+  notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -334,4 +342,8 @@ export const PLAIN_LORE: Lore = {
   manifestAhead: (found: number, understood: number) => `construct.json declares manifestVersion ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
+  notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
+  notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
+  notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
+  notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
 }

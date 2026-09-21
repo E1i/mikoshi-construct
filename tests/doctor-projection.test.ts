@@ -58,6 +58,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     checks: [],
     hypotheses: [],
     youAreHere: { at: 'no-stop' },
+    notCarried: [],
     versionGap: { materializedBy: '0.1.0', readBy: '0.1.0', pending: 0 },
     ...overrides,
   }

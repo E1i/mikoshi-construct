@@ -37,6 +37,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
       { hypothesisId: 'a-pnpm-workspace', statement: 'This repository is a pnpm workspace', baseSha: '9f1c2a0e4b7d8c6a5f3e2d1c0b9a8f7e6d5c4b3a', evidenceClean: true, state: 'held' },
     ],
     youAreHere: { at: 'stop', stop: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported', doesNotHold: ['scripts/tests/lint/syntax-policy.test.ts'] } },
+    notCarried: [],
     versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
     ...overrides,
   }
