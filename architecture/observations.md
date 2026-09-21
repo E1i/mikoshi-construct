@@ -519,3 +519,44 @@ time.
 can read the other's model. It costs two runs and returns `n = 2` whichever way it falls: weak
 evidence of convergence, or evidence of sensitivity to something. Both are worth having and neither
 blocks anything, so it waits for a reason rather than being done because it has been formulated.
+
+## 2026-09-21 · Both directions is polarity; every writer is population
+
+A gate kept the generated release page current: it failed when a version appeared in `CHANGELOG.md`
+and was not reachable from the site, and failed when the wiring for an existing version was removed.
+Two mutations, both directions, each asserted. It shipped a defect that blocked every release —
+`changeset version` writes `CHANGELOG.md` when it prepares a version, never calls the renderer, so
+every version pull request failed the gate on its own changes.
+
+**Both mutations were performed by one actor**, the renderer, driven by hand. Exercising one writer in
+two directions is still one writer. *Both directions* establishes that the gate has the right
+polarity; it says nothing about **who else can put the artifact into the state the gate forbids.** In
+both cases observed here the writer that was missed already existed, touching the source for its own
+reasons with no idea the derived artifact exists, while the writer added alongside the gate called the
+regeneration because it was wired deliberately. Two cases do not make that a rule, and stating it as
+one would act in the wrong direction: believing it, a reviewer stops enumerating the writers
+introduced in the same change as the gate, which is precisely where the next one would come from.
+
+**The sweep, in the shape of the identifier-vocabulary audit.** For every gate over a generated
+artifact: the artifact, its source, and every process that writes that source.
+
+| Gate | Derived artifact | Source | Writers of the source | Regenerates |
+|---|---|---|---|---|
+| `release-notes:check` | `docs/release-notes/index.md` | `CHANGELOG.md` | `changeset version`, bot and local | no, until the version step was made to run the renderer |
+| `model:check` | the rendered block in `architecture/model.md` | `construct.model.json` | `init`; the discovery protocol's hypothesis step | **neither did** |
+| `composition:check` | the blocks in `architecture/<flow>.md` | `architecture/composition/*.yaml` | a person; the discovery protocol's composition step | yes — that step says to run `composition:render` |
+| `doctor` | none | `construct.json` | `init`, `sync` | not this shape: `doctor` reads a source, nothing is derived from it |
+
+**The second row is the same defect, found by sweeping before it fired rather than after.** The discovery protocol writes hypotheses into
+`construct.model.json` and said nothing about re-rendering, while the instruction to run
+`composition:render` sat nine lines above it for the neighbouring artifact. It had not fired because
+the picture is not materialized into user projects — a repository that `init` sets up has no rendered
+model to go stale — so the only tree where it can bite today is this one, which renders its own model
+and commits it. **That radius grows the day the picture is materialized into user projects**, and the
+instruction will already be in the protocol when it does. The step now carries it, and a test requires
+it to.
+
+**Boundary.** One defect that fired, one found by sweeping, and two rows that came back clean. That is
+an audit, not a rate: nothing here says how many gates in general carry a second writer. What it does
+support is that the sweep is cheap — four rows, read off the harness — and that it found something on
+its first run.

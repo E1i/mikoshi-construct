@@ -125,6 +125,12 @@ Work in this order:
     }
     ```
 
+    Where the repository renders its model — a committed diagram or page generated from
+    `construct.model.json`, the way the composition models are rendered in step 9 — regenerate it in
+    the same step that changed the model, and confirm its check passes. Writing the source and leaving
+    the artifact behind is what turns the next harness run red for a reason nobody will connect to this
+    step.
+
 13. **Prove it.** Run the harness command from `construct.json`. Fix anything discovery broke (a
     stale rendered diagram, a lint rule with no matching file). Then run `construct doctor`, or
     `npx mikoshi-construct doctor` when the CLI is not installed; it names every marker that still
