@@ -4,6 +4,26 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.9.1
+
+### Patch Changes
+
+- [#102](https://github.com/E1i/mikoshi-construct/pull/102) [`1d1a639`](https://github.com/E1i/mikoshi-construct/commit/1d1a63943c481c3b8aea041edec4c0d970c00e08) Thanks [@E1i](https://github.com/E1i)! - The documentation sidebar listed `0.5.0`, `0.4.0` and `0.3.0` under Releases — the three versions that
+  happen to have hand-written pages — so a visitor saw `0.5.0` as the highest number in the navigation
+  and concluded that was where the project stood, while the index below listed everything through the
+  current release. The gate added earlier was not at fault: it required every version to be reachable,
+  and every version was. Reachable and prominent are different properties, and only the first had been
+  asserted.
+  
+  The sublist is now computed at config time from the same functions the index renders from, so there is
+  no generated artifact that can fall behind and no second writer to enumerate. A version with a
+  hand-written page links to that page and stays named however old it gets; a version without one links
+  to its own section in the index. `pnpm docs:anchors` checks those section links against the rendered
+  HTML, because an anchor that misses still lands on the page and says nothing. It runs inside
+  `pnpm run quality` rather than only in the docs deployment, which fires on pushes to the default
+  branch and never on a pull request — and whose path filter did not cover the sources that generate the
+  anchors.
+
 ## 0.9.0
 
 ### Minor Changes
