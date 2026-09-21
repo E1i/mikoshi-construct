@@ -560,3 +560,51 @@ it to.
 an audit, not a rate: nothing here says how many gates in general carry a second writer. What it does
 support is that the sweep is cheap — four rows, read off the harness — and that it found something on
 its first run.
+
+## 2026-09-21 · Figures measured by a superseded instrument, and the radius drawn round them
+
+A session's worth of cost figures was quoted from the `construct` on PATH, a bundle that reports
+`0.1.1` and, on inspection of the bundle itself, predates the response-deduplication fix. The sources
+it was quoted against were at 0.8.0. Nothing in any of those numbers said which instrument produced
+them, which is the asymmetry [0018](decisions/0018-evidence-clean-scopes-to-the-evidence.md)'s
+neighbour now closes for the cost report.
+
+**The methods were reconciled by reading, not by re-measuring.** Two versions of one tool are two
+points in one history, so the diffs that touched the counting path are the primary source. Exactly one
+commit had changed the arithmetic; one other created the counting and a third touched only the ledger.
+Disabling that single guard in the current source made it reproduce the old binary **to the digit** —
+265,209,419 billable tokens in 4102 calls, and the same input-equivalent — over an identical set of run
+identifiers. **The exactness is the finding**: it confirms deduplication as the cause *and excludes a
+second one*. A close match would have done neither, and would have been the more tempting to accept
+because a ratio had already been computed. The difference in run counts seen earlier, 59 against 60,
+was one run occurring between two invocations, established by diffing the sorted identifier lists
+rather than by assuming it was trivial.
+
+**The multiplier is per corpus and there is no general correction.** The share of duplicated responses
+depends on how many content blocks the answers in that set happened to carry.
+
+| Corpus | Published, pre-deduplication | Deduplicated | Its own factor |
+|---|---|---|---|
+| this repository | 265,209,419 billable, 4102 calls | 139,467,665 billable, 2072 calls | 1.9016 billable, 1.9797 calls |
+| the workspace monorepo | 149,760,377 billable, 33,331,657 input-equivalent | 76,748,664 billable, 13,254,183 input-equivalent | 1.9513 billable, **2.5148 input-equivalent** |
+
+Two things follow that are easy to get wrong. The input-equivalent factor is not the billable factor,
+because the weights differ — so a figure derived from the money-facing number corrects further than
+one derived from billable, and which of the two a published figure came from decides its correction.
+And **a corpus factor must never be applied to an individual run**: it is an aggregate property of a
+set, not a per-run constant.
+
+**The radius over committed records.** The fix that introduced deduplication also corrected the figures
+published at that time, in [0008](decisions/0008-a-retry-buys-a-new-exploration.md) and in the
+reasoning-budget guide. It did not touch
+[0011](decisions/0011-design-is-part-of-the-run.md), which predates it by three days and carries
+`2,648,458 billable tokens` and *roughly 2.6M* — **pre-deduplication figures that the correction pass
+missed.** The entry is left standing and flagged here rather than edited, and **no corrected value is
+stated for it**, because 0011 names no run identifier: two ledger entries match its description, one
+of which carries no run id at all and therefore cannot be joined to any measurement. Correcting it is
+a bounded task — identify the run, read its deduplicated total — and not one that may be done by
+multiplying.
+
+**Boundary.** Two corpora, both measured at one moment with two instruments over identical identifier
+sets. Nothing here establishes a factor for any third corpus, and the reconciliation's exactness is
+evidence about these token streams rather than about the counting of token streams in general.
