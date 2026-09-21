@@ -160,10 +160,11 @@ These look like conventions but the codebase is not consistent about them. Confi
 them as rules.
 
 <!-- construct:discover:open-questions -->
-- `scripts/tests/lint/syntax-policy.test.ts` ships only in the node-backend and monorepo samples;
-  node-frontend's styling policy has no test that asserts the resolved lint restrictions per role.
-- Commands are listed in three places: README, CLAUDE.md § Commands and AGENTS.md. Which one the
-  other two should point at is not settled.
+- **Which of the three documents that list commands is the source?** That all three state the
+  command list is structural and is recorded as the hypothesis
+  `the-command-list-is-stated-in-three-documents` in `construct.model.json`, which stands on a fact
+  per document and is re-derived on every read. Which one the other two should point at is judgment,
+  stays here, and ages: nothing re-checks this paragraph.
 - **Where does evidence of enforcement capability belong?** The model records the declared
   enforcement mechanism and evidence that the mechanism exists and runs. It does not represent
   evidence that the mechanism can actually *fail* when the invariant it protects is violated.
@@ -180,11 +181,14 @@ them as rules.
   Until then the blind spot is represented by the absence of a question the model can answer — not
   by synthesising an `unknown` value or any equivalent derived status, which would assert that the
   question was asked and came back empty.
-  **Candidate evidence, 2026-09-21, leaning toward "a repository fact".** The claim
-  `vulnerable-dependencies-are-visible` rendered `held` at L3 while the job behind it carried
-  `continue-on-error` and could not fail. That a mechanism cannot fail is a property of a workflow
-  file — a fact about the repository, checkable from the repository — which is what tilts this one
-  case toward the first answer. It is one case and the question stays open. Note also where it
+  **Candidate evidence, observed 2026-09-21, leaning toward "a repository fact".** On that date the
+  claim `vulnerable-dependencies-are-visible` rendered `held` at **L3** while the job behind it
+  carried `continue-on-error` and could not fail. It carries **L0** today, and its mechanism says in
+  as many words that the job is green whether or not a vulnerability was found; `continue-on-error:
+  true` is still in `security.yml`, so the mechanism still cannot fail and the model now reports that
+  honestly. What the observation showed stands: that a mechanism cannot fail is a property of a
+  workflow file — a fact about the repository, checkable from the repository — which is what tilts
+  this one case toward the first answer. It is one case and the question stays open. Note also where it
   surfaced: on the construct's own repository, before any other, and the second half of 0017's
   acceptance is still owed by a repository the construct never materialized. The inspection that
   found it is recorded in
@@ -194,9 +198,17 @@ them as rules.
   separate in identity: *a command exists → the enforcement level* is rule 8, and *the enforcement
   level → the capability demonstrated* would be the new rule. Rule 8 may later point at it with a
   "see also"; its own scope stays as written.
-- **How does a repository materialized before 0.5.0 get a model?** `construct.model.json` is written
-  only by `init` and is not materialized from templates, so `sync` never creates one. Three options,
-  none chosen: `sync` learns to write a fresh model when none exists, which puts repository knowledge
+- **How does a repository materialized before 0.5.0 get a model?** **Settled by practice, not by
+  decision: option three shipped.** `docs/guide/upgrading.md` documents `construct init` as the one
+  upgrade step that writes a model, run where `doctor` reports none — which is the third option
+  below, taken and published without this question being told. It shipped in #121 on 2026-09-21, the
+  same day this marker was last revised in #92, and nothing re-read the question in between, because
+  nothing re-reads it at all. What is still open is narrower and is judgment: whether an explicit
+  command should exist so that acquiring a model is not a side effect of a command named for
+  something else.
+
+  `construct.model.json` is written only by `init` and is not materialized from templates, so `sync`
+  never creates one. The three options as originally written: `sync` learns to write a fresh model when none exists, which puts repository knowledge
   in a command whose job is file provenance and blurs the line
   [0016](architecture/decisions/0016-the-model-is-the-source.md) draws; an explicit command, which
   keeps the two apart but adds surface for a file the tool can already write; or nothing until the
