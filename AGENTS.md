@@ -160,31 +160,34 @@ These look like conventions but the codebase is not consistent about them. Confi
 them as rules.
 
 <!-- construct:discover:open-questions -->
-- `scripts/tests/lint/syntax-policy.test.ts` ships only in the node-backend and monorepo samples;
-  node-frontend's styling policy has no test that asserts the resolved lint restrictions per role.
-- Commands are listed in three places: README, CLAUDE.md § Commands and AGENTS.md. Which one the
-  other two should point at is not settled.
+- **Which of the three documents that list commands is the source?** That all three state the
+  command list is structural and is recorded as the hypothesis
+  `the-command-list-is-stated-in-three-documents` in `construct.model.json`, which stands on a fact
+  per document and is re-derived on every read. Which one the other two should point at is judgment,
+  stays here, and ages: nothing re-checks this paragraph.
 - **Where does evidence of enforcement capability belong?** The model records the declared
   enforcement mechanism and evidence that the mechanism exists and runs. It does not represent
   evidence that the mechanism can actually *fail* when the invariant it protects is violated.
   Harness mutation tests are evidence of enforcement capability, and PR #57 added an observed case
   of a different kind: `testsWeakened` caught erosion in a live implementation change rather than in
   a dedicated mutation fixture. A second class was observed on 2026-09-21 — tests deleted alongside
-  the modules they covered, where legitimacy needed human adjudication. Both are recorded in
-  [architecture/observations.md](architecture/observations.md), which is where occurrences live so
-  that this question stays a question and the records they bear on stay unchanged; neither is offered
-  as a frequency. So is enforcement capability a fact about the repository, which the
+  the modules they covered, where legitimacy needed human adjudication. That occurrences of both live in
+  [architecture/observations.md](architecture/observations.md) rather than in the records they bear
+  on is carried by the hypothesis `occurrences-live-in-observations-not-in-the-records-they-bear-on`;
+  neither is offered as a frequency. So is enforcement capability a fact about the repository, which the
   model should represent, or process evidence belonging to the corpus and the harness history?
   Do not resolve this before `doctor` consumes the model. Revisit it when `doctor` reads the model
   on a live repository and a useful diagnosis turns out to need a fact the model cannot provide.
   Until then the blind spot is represented by the absence of a question the model can answer — not
   by synthesising an `unknown` value or any equivalent derived status, which would assert that the
   question was asked and came back empty.
-  **Candidate evidence, 2026-09-21, leaning toward "a repository fact".** The claim
-  `vulnerable-dependencies-are-visible` rendered `held` at L3 while the job behind it carried
-  `continue-on-error` and could not fail. That a mechanism cannot fail is a property of a workflow
-  file — a fact about the repository, checkable from the repository — which is what tilts this one
-  case toward the first answer. It is one case and the question stays open. Note also where it
+  **Candidate evidence, observed 2026-09-21, leaning toward "a repository fact".** On that date the
+  claim `vulnerable-dependencies-are-visible` rendered `held` at **L3** while the job behind it
+  carried `continue-on-error` and could not fail. That the job still cannot fail is structural and is
+  carried by the hypothesis `the-dependency-audit-job-cannot-fail`; what level the claim declares
+  today is in `construct.model.json` and is not restated here. What the observation showed stands: that a mechanism cannot fail is a property of a
+  workflow file — a fact about the repository, checkable from the repository — which is what tilts
+  this one case toward the first answer. It is one case and the question stays open. Note also where it
   surfaced: on the construct's own repository, before any other, and the second half of 0017's
   acceptance is still owed by a repository the construct never materialized. The inspection that
   found it is recorded in
@@ -194,9 +197,17 @@ them as rules.
   separate in identity: *a command exists → the enforcement level* is rule 8, and *the enforcement
   level → the capability demonstrated* would be the new rule. Rule 8 may later point at it with a
   "see also"; its own scope stays as written.
-- **How does a repository materialized before 0.5.0 get a model?** `construct.model.json` is written
-  only by `init` and is not materialized from templates, so `sync` never creates one. Three options,
-  none chosen: `sync` learns to write a fresh model when none exists, which puts repository knowledge
+- **How does a repository materialized before 0.5.0 get a model?** **Settled by practice, not by
+  decision: option three shipped.** That the upgrade guide names `init` as the step that writes a
+  model is carried by the hypothesis `the-upgrade-guide-names-init-as-what-writes-a-model` — the
+  third option below, taken and published without this question being told. It shipped in #121 on 2026-09-21, the
+  same day this marker was last revised in #92, and nothing re-read the question in between, because
+  nothing re-reads it at all. What is still open is narrower and is judgment: whether an explicit
+  command should exist so that acquiring a model is not a side effect of a command named for
+  something else.
+
+  `construct.model.json` is written only by `init` and is not materialized from templates, so `sync`
+  never creates one. The three options as originally written: `sync` learns to write a fresh model when none exists, which puts repository knowledge
   in a command whose job is file provenance and blurs the line
   [0016](architecture/decisions/0016-the-model-is-the-source.md) draws; an explicit command, which
   keeps the two apart but adds surface for a file the tool can already write; or nothing until the
@@ -209,7 +220,7 @@ them as rules.
   current baseline through `sync` from 0.4.x has nowhere for discovery to write: it can fill every
   marker and still record nothing structural, and `doctor` can say nothing about what that repository
   takes itself to be. Self-identification is therefore unavailable to those repositories until their
-  first `init` — which is most of the live ones. That turns this question from academic into the one
-  gating the feature for them. It is not decided here; the three options above stand as written.
+  first `init`. That is what makes this question gating rather than academic for any repository in
+  that state; how many are in that state is not known here and is not asserted. It is not decided here; the three options above stand as written.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->

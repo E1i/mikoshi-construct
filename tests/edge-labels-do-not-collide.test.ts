@@ -107,20 +107,34 @@ describe('elided labels stay distinguishable \u2014 a property nothing in this r
     expect(repeated(visibleFirstLines(model, REPO_ROOT))).toEqual([])
   })
 
-  it('is violable, and the check sees it: two facts differing only past the elision point read as one', () => {
-    const shared = '.github/workflows/security.yml'
-    const differingOnlyPastTheCut: RepositoryModel = {
+  it('is violable in the middle, which is the part elision drops, and the check sees it', () => {
+    const differingOnlyInTheMiddle: RepositoryModel = {
       modelVersion: MODEL_VERSION,
       facts: [
-        { id: 'high', kind: 'file-contains', path: shared, authoredBy: 'construct', needle: 'pnpm audit --audit-level=high' },
-        { id: 'low', kind: 'file-contains', path: shared, authoredBy: 'construct', needle: 'pnpm audit --audit-level=low' },
+        { id: 'one', kind: 'file-exists', path: 'templates/presets/node-backend/one/scripts/tests/lint/syntax-policy.test.ts', authoredBy: 'construct' },
+        { id: 'two', kind: 'file-exists', path: 'templates/presets/node-backend/two/scripts/tests/lint/syntax-policy.test.ts', authoredBy: 'construct' },
       ],
       claims: [],
       hypotheses: [],
     }
-    const lines = visibleFirstLines(differingOnlyPastTheCut, treeWithThePathTheFactsName())
+    const lines = visibleFirstLines(differingOnlyInTheMiddle, treeWithThePathTheFactsName())
 
-    expect(differingOnlyPastTheCut.facts[0]?.needle).not.toBe(differingOnlyPastTheCut.facts[1]?.needle)
+    expect(differingOnlyInTheMiddle.facts[0]?.path).not.toBe(differingOnlyInTheMiddle.facts[1]?.path)
     expect(repeated(lines)).toHaveLength(1)
+  })
+
+  it('keeps the tail, so two facts on one long path stay apart by what follows it', () => {
+    const shared = 'templates/presets/node-frontend/sample/scripts/tests/lint/syntax-policy.test.ts'
+    const sameLongPath: RepositoryModel = {
+      modelVersion: MODEL_VERSION,
+      facts: [
+        { id: 'exists', kind: 'file-exists', path: shared, authoredBy: 'discovery' },
+        { id: 'contains', kind: 'file-contains', path: shared, authoredBy: 'discovery', needle: 'ROLES' },
+      ],
+      claims: [],
+      hypotheses: [],
+    }
+
+    expect(repeated(visibleFirstLines(sameLongPath, treeWithThePathTheFactsName()))).toEqual([])
   })
 })

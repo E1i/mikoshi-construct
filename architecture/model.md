@@ -273,6 +273,15 @@ flowchart LR
     e_every_change_passes_the_harness["every-change-passes-the-harness<br/>enforcement L3 held<br/>verification held"]
     e_harness_steps["harness-steps<br/>enforcement L3 held<br/>verification held"]
   end
+  subgraph hypotheses["Hypotheses"]
+    e_the_command_list_is_stated_in_three_documents("the-command-list-is-stated-in-three-documents<br/>held")
+    e_the_dependency_audit_job_cannot_fail("the-dependency-audit-job-cannot-fail<br/>held")
+    e_the_upgrade_guide_names_init_as_what_writes_a_model("the-upgrade-guide-names-init-as-what-writes-a-model<br/>held")
+    e_occurrences_live_in_observations_not_in_the_records_they_bear_on("occurrences-live-in-observations-not-in-the-records-they-bear-on<br/>held")
+    e_every_stack_with_a_lint_policy_ships_its_own_policy_test("every-stack-with-a-lint-policy-ships-its-own-policy-test<br/>held")
+    e_user_facing_text_has_one_owner_and_a_plain_counterpart("user-facing-text-has-one-owner-and-a-plain-counterpart<br/>held")
+    e_the_tool_is_its_own_first_consumer("the-tool-is-its-own-first-consumer<br/>held")
+  end
   subgraph evidence["Evidence"]
     f_security_workflow[/".github/workflows/security.yml<br/>holds"/]
     f_security_workflow_runs_gitleaks[/".github/workflows/security.yml contains #quot;gitleaks#quot;<br/>holds"/]
@@ -287,6 +296,21 @@ flowchart LR
     f_harness_script_runs_lint[/"package.json contains #quot;pnpm lint#quot;<br/>holds"/]
     f_harness_script_runs_typecheck[/"package.json contains #quot;pnpm typecheck#quot;<br/>holds"/]
     f_harness_script_runs_tests[/"package.json contains #quot;pnpm test#quot;<br/>holds"/]
+    f_readme_states_the_harness_command[/"README.md contains #quot;pnpm run quality#quot;<br/>holds"/]
+    f_claude_md_states_the_harness_command[/"CLAUDE.md contains #quot;pnpm run quality#quot;<br/>holds"/]
+    f_agents_md_states_the_harness_command[/"AGENTS.md contains #quot;pnpm run quality#quot;<br/>holds"/]
+    f_dependency_audit_continues_on_error[/".github/workflows/security.yml contains #quot;continue-on-error: true#quot;<br/>holds"/]
+    f_upgrade_guide_names_init[/"docs/guide/upgrading.md contains #quot;npx mikoshi-construct@latest init#quot;<br/>holds"/]
+    f_observations_records_an_occurrence[/"architecture/observations.md contains #quot;testsWeakened#quot;<br/>holds"/]
+    f_decisions_index_sends_occurrences_elsewhere[/"architecture/decisions/README.md contains #quot;Occurrences of something a record already describes belong in#quot;<br/>holds"/]
+    f_backend_sample_policy_test[/"templates/presets/node-backend/sample/scripts/tests/lint/syntax-policy.test.ts<br/>holds"/]
+    f_frontend_sample_policy_test[/"templates/presets/node-frontend/sample/scripts/tests/lint/syntax-policy.test.ts<br/>holds"/]
+    f_monorepo_sample_policy_test[/"templates/presets/monorepo/sample/scripts/tests/lint/syntax-policy.test.ts.eta<br/>holds"/]
+    f_frontend_policy_test_asserts_per_role[/"templates/presets/node-frontend/sample/scripts/tests/lint/syntax-policy.test.ts contains #quot;ROLES#quot;<br/>holds"/]
+    f_one_vocabulary_module[/"src/ui/lore.ts<br/>holds"/]
+    f_vocabulary_carries_a_plain_counterpart[/"src/ui/lore.ts contains #quot;PLAIN_LORE#quot;<br/>holds"/]
+    f_carries_its_own_manifest[/"construct.json<br/>holds"/]
+    f_carries_its_own_model[/"construct.model.json<br/>holds"/]
   end
   e_no_committed_secret -->|"enforcement"| f_security_workflow
   e_no_committed_secret -->|"enforcement"| f_security_workflow_runs_gitleaks
@@ -303,5 +327,20 @@ flowchart LR
   e_harness_steps -->|"enforcement"| f_harness_script_runs_typecheck
   e_harness_steps -->|"enforcement"| f_harness_script_runs_tests
   e_harness_steps -->|"verification"| f_harness_manifest
+  e_the_command_list_is_stated_in_three_documents --> f_readme_states_the_harness_command
+  e_the_command_list_is_stated_in_three_documents --> f_claude_md_states_the_harness_command
+  e_the_command_list_is_stated_in_three_documents --> f_agents_md_states_the_harness_command
+  e_the_dependency_audit_job_cannot_fail --> f_dependency_audit_continues_on_error
+  e_the_upgrade_guide_names_init_as_what_writes_a_model --> f_upgrade_guide_names_init
+  e_occurrences_live_in_observations_not_in_the_records_they_bear_on --> f_observations_records_an_occurrence
+  e_occurrences_live_in_observations_not_in_the_records_they_bear_on --> f_decisions_index_sends_occurrences_elsewhere
+  e_every_stack_with_a_lint_policy_ships_its_own_policy_test --> f_backend_sample_policy_test
+  e_every_stack_with_a_lint_policy_ships_its_own_policy_test --> f_frontend_sample_policy_test
+  e_every_stack_with_a_lint_policy_ships_its_own_policy_test --> f_monorepo_sample_policy_test
+  e_every_stack_with_a_lint_policy_ships_its_own_policy_test --> f_frontend_policy_test_asserts_per_role
+  e_user_facing_text_has_one_owner_and_a_plain_counterpart --> f_one_vocabulary_module
+  e_user_facing_text_has_one_owner_and_a_plain_counterpart --> f_vocabulary_carries_a_plain_counterpart
+  e_the_tool_is_its_own_first_consumer --> f_carries_its_own_manifest
+  e_the_tool_is_its_own_first_consumer --> f_carries_its_own_model
 ```
 <!-- /model:picture -->

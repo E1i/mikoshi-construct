@@ -21,8 +21,13 @@ export interface PlacedNode {
   lines: string[]
 }
 
+const TAIL_KEPT = 28
+
 function elided(line: string): string {
-  return line.length <= MAX_LINE ? line : `${line.slice(0, MAX_LINE - 1)}…`
+  if (line.length <= MAX_LINE)
+    return line
+  const head = MAX_LINE - 1 - TAIL_KEPT
+  return `${line.slice(0, head)}…${line.slice(-TAIL_KEPT)}`
 }
 
 function wrapped(node: PictureNode): string[] {

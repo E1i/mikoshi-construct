@@ -85,6 +85,105 @@
       "path": "package.json",
       "authoredBy": "construct",
       "needle": "pnpm test"
+    },
+    {
+      "id": "readme-states-the-harness-command",
+      "kind": "file-contains",
+      "path": "README.md",
+      "authoredBy": "discovery",
+      "needle": "pnpm run quality"
+    },
+    {
+      "id": "claude-md-states-the-harness-command",
+      "kind": "file-contains",
+      "path": "CLAUDE.md",
+      "authoredBy": "discovery",
+      "needle": "pnpm run quality"
+    },
+    {
+      "id": "agents-md-states-the-harness-command",
+      "kind": "file-contains",
+      "path": "AGENTS.md",
+      "authoredBy": "discovery",
+      "needle": "pnpm run quality"
+    },
+    {
+      "id": "dependency-audit-continues-on-error",
+      "kind": "file-contains",
+      "path": ".github/workflows/security.yml",
+      "authoredBy": "discovery",
+      "needle": "continue-on-error: true"
+    },
+    {
+      "id": "upgrade-guide-names-init",
+      "kind": "file-contains",
+      "path": "docs/guide/upgrading.md",
+      "authoredBy": "discovery",
+      "needle": "npx mikoshi-construct@latest init"
+    },
+    {
+      "id": "observations-records-an-occurrence",
+      "kind": "file-contains",
+      "path": "architecture/observations.md",
+      "authoredBy": "discovery",
+      "needle": "testsWeakened"
+    },
+    {
+      "id": "decisions-index-sends-occurrences-elsewhere",
+      "kind": "file-contains",
+      "path": "architecture/decisions/README.md",
+      "authoredBy": "discovery",
+      "needle": "Occurrences of something a record already describes belong in"
+    },
+    {
+      "id": "backend-sample-policy-test",
+      "kind": "file-exists",
+      "path": "templates/presets/node-backend/sample/scripts/tests/lint/syntax-policy.test.ts",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "frontend-sample-policy-test",
+      "kind": "file-exists",
+      "path": "templates/presets/node-frontend/sample/scripts/tests/lint/syntax-policy.test.ts",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "monorepo-sample-policy-test",
+      "kind": "file-exists",
+      "path": "templates/presets/monorepo/sample/scripts/tests/lint/syntax-policy.test.ts.eta",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "frontend-policy-test-asserts-per-role",
+      "kind": "file-contains",
+      "path": "templates/presets/node-frontend/sample/scripts/tests/lint/syntax-policy.test.ts",
+      "authoredBy": "discovery",
+      "needle": "ROLES"
+    },
+    {
+      "id": "one-vocabulary-module",
+      "kind": "file-exists",
+      "path": "src/ui/lore.ts",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "vocabulary-carries-a-plain-counterpart",
+      "kind": "file-contains",
+      "path": "src/ui/lore.ts",
+      "authoredBy": "discovery",
+      "needle": "PLAIN_LORE"
+    },
+    {
+      "id": "carries-its-own-manifest",
+      "kind": "file-exists",
+      "path": "construct.json",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "carries-its-own-model",
+      "kind": "file-exists",
+      "path": "construct.model.json",
+      "authoredBy": "discovery"
     }
   ],
   "claims": [
@@ -169,5 +268,84 @@
       }
     }
   ],
-  "hypotheses": []
+  "hypotheses": [
+    {
+      "id": "the-command-list-is-stated-in-three-documents",
+      "statement": "The harness command is stated in three documents rather than in one with two pointers",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "readme-states-the-harness-command",
+        "claude-md-states-the-harness-command",
+        "agents-md-states-the-harness-command"
+      ]
+    },
+    {
+      "id": "the-dependency-audit-job-cannot-fail",
+      "statement": "The dependency audit runs under continue-on-error, so the job reports and cannot fail the build",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "dependency-audit-continues-on-error"
+      ]
+    },
+    {
+      "id": "the-upgrade-guide-names-init-as-what-writes-a-model",
+      "statement": "The published upgrade path names init as the step that writes a model, rather than sync or a command of its own",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "upgrade-guide-names-init"
+      ]
+    },
+    {
+      "id": "occurrences-live-in-observations-not-in-the-records-they-bear-on",
+      "statement": "An occurrence of something a decision already describes is recorded in observations, leaving the decision unchanged",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "observations-records-an-occurrence",
+        "decisions-index-sends-occurrences-elsewhere"
+      ]
+    },
+    {
+      "id": "every-stack-with-a-lint-policy-ships-its-own-policy-test",
+      "statement": "Each preset that declares a syntax policy ships a test asserting the restrictions it resolves, per role",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "backend-sample-policy-test",
+        "frontend-sample-policy-test",
+        "monorepo-sample-policy-test",
+        "frontend-policy-test-asserts-per-role"
+      ]
+    },
+    {
+      "id": "user-facing-text-has-one-owner-and-a-plain-counterpart",
+      "statement": "Every string a person reads comes from one vocabulary module that carries a lore-free counterpart beside each entry",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "one-vocabulary-module",
+        "vocabulary-carries-a-plain-counterpart"
+      ]
+    },
+    {
+      "id": "the-tool-is-its-own-first-consumer",
+      "statement": "The repository runs on the construct it publishes, carrying the manifest and model it writes for others",
+      "authoredBy": "discovery",
+      "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
+      "evidenceClean": true,
+      "supportedBy": [
+        "carries-its-own-manifest",
+        "carries-its-own-model"
+      ]
+    }
+  ]
 }
