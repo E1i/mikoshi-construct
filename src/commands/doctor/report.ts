@@ -50,13 +50,24 @@ function printChecks(ui: Ui, checks: CheckVerdict[], placement: ClaimPlacement):
   ui.line(ui.theme.dim(`  ${ui.lore.executesNothing}`))
 }
 
+function notCarriedLine(ui: Ui, claim: ClaimNotCarried): string {
+  switch (claim.reading) {
+    case 'does-not-hold':
+      return ui.lore.notCarriedDoesNotHold(claim.claimId, claim.path)
+    case 'unevaluable':
+      return ui.lore.notCarriedUnevaluable(claim.claimId, claim.path)
+    case 'every-fact-holds':
+      return ui.lore.notCarriedEveryFactHolds(claim.claimId)
+  }
+}
+
 function printNotCarried(ui: Ui, notCarried: ClaimNotCarried[]): void {
   if (notCarried.length === 0)
     return
   ui.line()
   ui.line(ui.theme.dim(`  ${ui.lore.notCarried}`))
   for (const claim of notCarried)
-    ui.line(ui.theme.dim(ui.lore.notCarriedLine(claim.claimId, claim.doesNotHold)))
+    ui.line(ui.theme.dim(notCarriedLine(ui, claim)))
 }
 
 function hypothesisReading(ui: Ui, hypothesis: HypothesisReading): string {

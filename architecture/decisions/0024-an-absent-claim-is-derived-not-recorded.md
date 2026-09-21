@@ -53,6 +53,30 @@ So the rule is: a claim is expected where the preset can make it, and absent whe
 does not carry it. For `node-library` and `lint-policy` only the first half fails, and nothing is
 said.
 
+### Three readings, because a fact has three evaluations
+
+An absent claim is reported in one of three forms, and which one is chosen never depends on the order
+its facts are named in:
+
+| What the facts say | What is reported |
+|---|---|
+| One does not hold | that file does not carry what the claim would stand on |
+| One could not be read, and none fails | that file could not be read, so whether the claim would stand cannot be determined |
+| Every one holds | every fact holds, and `construct init` would record the claim |
+
+Collapsing the first two into "not `holds`" would merge two different states — *this is false here* and
+*we could not look* — which [rule 2](../epistemic-rules.md) exists to keep apart, and would leave the
+choice between them to the declaration order of `supportedBy`. Where both are present the failing
+fact is reported, because it is the one a reader can act on; the unreadable one is reported only when
+nothing fails.
+
+The third form is the one this block exists for. A claim whose every fact holds and which the model
+does not carry is fully supported today and absent only because an earlier `init` did not write it.
+Dropping it would restore the silent omission from the other side — which is distinct from a claim
+whose facts hold and which the model *does* carry, since that one is already in the enforcement trace
+and is never named here. Membership in the model is what separates the two, not the state of the
+facts.
+
 ## Consequences
 
 **On a repository whose owner wrote their own `ci.yml` and `security.yml`, four claims are named on
