@@ -171,10 +171,10 @@ them as rules.
   Harness mutation tests are evidence of enforcement capability, and PR #57 added an observed case
   of a different kind: `testsWeakened` caught erosion in a live implementation change rather than in
   a dedicated mutation fixture. A second class was observed on 2026-09-21 — tests deleted alongside
-  the modules they covered, where legitimacy needed human adjudication. Both are recorded in
-  [architecture/observations.md](architecture/observations.md), which is where occurrences live so
-  that this question stays a question and the records they bear on stay unchanged; neither is offered
-  as a frequency. So is enforcement capability a fact about the repository, which the
+  the modules they covered, where legitimacy needed human adjudication. That occurrences of both live in
+  [architecture/observations.md](architecture/observations.md) rather than in the records they bear
+  on is carried by the hypothesis `occurrences-live-in-observations-not-in-the-records-they-bear-on`;
+  neither is offered as a frequency. So is enforcement capability a fact about the repository, which the
   model should represent, or process evidence belonging to the corpus and the harness history?
   Do not resolve this before `doctor` consumes the model. Revisit it when `doctor` reads the model
   on a live repository and a useful diagnosis turns out to need a fact the model cannot provide.
@@ -183,10 +183,9 @@ them as rules.
   question was asked and came back empty.
   **Candidate evidence, observed 2026-09-21, leaning toward "a repository fact".** On that date the
   claim `vulnerable-dependencies-are-visible` rendered `held` at **L3** while the job behind it
-  carried `continue-on-error` and could not fail. It carries **L0** today, and its mechanism says in
-  as many words that the job is green whether or not a vulnerability was found; `continue-on-error:
-  true` is still in `security.yml`, so the mechanism still cannot fail and the model now reports that
-  honestly. What the observation showed stands: that a mechanism cannot fail is a property of a
+  carried `continue-on-error` and could not fail. That the job still cannot fail is structural and is
+  carried by the hypothesis `the-dependency-audit-job-cannot-fail`; what level the claim declares
+  today is in `construct.model.json` and is not restated here. What the observation showed stands: that a mechanism cannot fail is a property of a
   workflow file — a fact about the repository, checkable from the repository — which is what tilts
   this one case toward the first answer. It is one case and the question stays open. Note also where it
   surfaced: on the construct's own repository, before any other, and the second half of 0017's
@@ -199,9 +198,9 @@ them as rules.
   level → the capability demonstrated* would be the new rule. Rule 8 may later point at it with a
   "see also"; its own scope stays as written.
 - **How does a repository materialized before 0.5.0 get a model?** **Settled by practice, not by
-  decision: option three shipped.** `docs/guide/upgrading.md` documents `construct init` as the one
-  upgrade step that writes a model, run where `doctor` reports none — which is the third option
-  below, taken and published without this question being told. It shipped in #121 on 2026-09-21, the
+  decision: option three shipped.** That the upgrade guide names `init` as the step that writes a
+  model is carried by the hypothesis `the-upgrade-guide-names-init-as-what-writes-a-model` — the
+  third option below, taken and published without this question being told. It shipped in #121 on 2026-09-21, the
   same day this marker was last revised in #92, and nothing re-read the question in between, because
   nothing re-reads it at all. What is still open is narrower and is judgment: whether an explicit
   command should exist so that acquiring a model is not a side effect of a command named for
@@ -221,7 +220,7 @@ them as rules.
   current baseline through `sync` from 0.4.x has nowhere for discovery to write: it can fill every
   marker and still record nothing structural, and `doctor` can say nothing about what that repository
   takes itself to be. Self-identification is therefore unavailable to those repositories until their
-  first `init` — which is most of the live ones. That turns this question from academic into the one
-  gating the feature for them. It is not decided here; the three options above stand as written.
+  first `init`. That is what makes this question gating rather than academic for any repository in
+  that state; how many are in that state is not known here and is not asserted. It is not decided here; the three options above stand as written.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->
