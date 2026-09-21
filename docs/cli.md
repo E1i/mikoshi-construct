@@ -22,6 +22,24 @@ miko <command> [options]                    # same binary, fewer keystrokes
 Colour also turns itself off when `NO_COLOR` is set or when stdout is not a terminal.
 Flags accept either spelling, so `--dry-run` and `--dryRun` both work.
 
+### A construct.json from a later build
+
+`construct.json` declares an integer `manifestVersion` describing its own shape, separate from the
+CLI version that wrote it ([decision 0009](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0009-the-manifest-carries-its-own-schema-version.md)).
+A manifest written by an older CLI is normalised on read. A manifest declaring a version **higher**
+than this binary understands is neither read nor normalised: the command reports one line naming the
+version it found, the version it understands, and that the CLI needs upgrading, then exits `1`.
+
+```
+construct.json declares manifestVersion 5, and this binary understands 4.
+Nothing was read and nothing was written: upgrade the CLI and run this again.
+```
+
+This reaches `doctor`, `sync`, `init`, and `cost` where no environment variable already names the
+runtime. `graph` draws from `construct.model.json` and never reads the manifest, so it cannot meet
+this state. Nothing is written in any of these cases, so running an older CLI against a newer
+repository cannot damage it.
+
 ## construct init
 
 Detects the repository, asks what it cannot detect, then writes the construct: architecture policy,

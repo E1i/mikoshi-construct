@@ -9,8 +9,10 @@ import { runInit } from './commands/init.js'
 import { printDetectReport } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
+import { flatlineFor, reported } from './failure.js'
 import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
 import { createUi, stderrWriter, stdoutWriter } from './ui/console.js'
+
 import { createClackPrompter } from './ui/prompts.js'
 import { resolveTheme } from './ui/theme.js'
 import { VERSION } from './version.js'
@@ -46,7 +48,7 @@ const init = defineCommand({
       process.exitCode = result.status === 'aborted' ? 1 : 0
     }
     catch (error) {
-      console.flatline(error instanceof Error ? error.message : String(error))
+      flatlineFor(console, error)
       process.exitCode = 1
     }
   },
@@ -79,14 +81,18 @@ const doctor = defineCommand({
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
   },
   run({ args }) {
-    const result = runDoctor(args.dir)
-    if (args.json) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
-      process.exitCode = result?.ok === true ? 0 : 1
-      return
-    }
-    const console = ui(args)
-    process.exitCode = printDoctor(console, result)
+    const console = ui(args, args.json ? stderrWriter : stdoutWriter)
+    const failed = reported(console, () => {
+      const result = runDoctor(args.dir)
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+        process.exitCode = result?.ok === true ? 0 : 1
+        return
+      }
+      process.exitCode = printDoctor(console, result)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
   },
 })
 
@@ -98,13 +104,18 @@ const cost = defineCommand({
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
   },
   run({ args }) {
-    const report = costReport(path.resolve(args.dir))
-    if (args.json) {
-      process.stdout.write(`${JSON.stringify(costJson(report, args.last), null, 2)}\n`)
-      process.exitCode = COST_EXIT[report.status]
-      return
-    }
-    process.exitCode = printCost(ui(args), report, args.last)
+    const console = ui(args, args.json ? stderrWriter : stdoutWriter)
+    const failed = reported(console, () => {
+      const report = costReport(path.resolve(args.dir))
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify(costJson(report, args.last), null, 2)}\n`)
+        process.exitCode = COST_EXIT[report.status]
+        return
+      }
+      process.exitCode = printCost(console, report, args.last)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
   },
 })
 
@@ -112,7 +123,12 @@ const graph = defineCommand({
   meta: { name: 'graph', description: 'Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout' },
   args: { ...commonArgs },
   run({ args }) {
-    process.exitCode = printGraph(ui(args, stderrWriter), modelPicture(args.dir), stdoutWriter)
+    const console = ui(args, stderrWriter)
+    const failed = reported(console, () => {
+      process.exitCode = printGraph(console, modelPicture(args.dir), stdoutWriter)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
   },
 })
 
@@ -136,19 +152,23 @@ const sync = defineCommand({
         process.exitCode = printSyncApply(console, result)
       }
       catch (error) {
-        console.flatline(error instanceof Error ? error.message : String(error))
+        flatlineFor(console, error)
         process.exitCode = 1
       }
       return
     }
 
-    const report = runSync(args.dir, VERSION)
-    if (args.json) {
-      process.stdout.write(`${JSON.stringify(report == null ? null : syncJson(report), null, 2)}\n`)
-      process.exitCode = syncExit(report)
-      return
-    }
-    process.exitCode = printSync(console, report)
+    const failed = reported(console, () => {
+      const report = runSync(args.dir, VERSION)
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify(report == null ? null : syncJson(report), null, 2)}\n`)
+        process.exitCode = syncExit(report)
+        return
+      }
+      process.exitCode = printSync(console, report)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
   },
 })
 
