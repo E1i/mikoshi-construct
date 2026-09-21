@@ -149,6 +149,7 @@ with a named check, not a second fix.
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
 | `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
+| `construct graph` | Draw the model — claims, hypotheses and the evidence under them — as a Mermaid flowchart on stdout |
 | `construct cost` | Token usage of the `/implement` runs in this directory, per agent, billable and price-weighted (`--last`, `--json`) |
 
 `--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner. The full reference,
