@@ -151,3 +151,55 @@ The general form is worth more than the instance: **where two explanations fit t
 well, the one that does not involve the observer is the one chosen by default.** The data had been
 measured correctly and attributed to the environment, and the alternative was never considered
 because it required noticing our own contribution to it.
+
+## 2026-09-21 · Two adopted repositories inspected, and the first broken chain
+
+0017 asks 5.1 to be accepted against a repository the construct never materialized. Two were used,
+both copies so nothing was written to the originals, both adopted by running `init` into them and
+then `doctor`.
+
+**Specimen A — a repository built to conventions much like the construct's.** 582 commits, pnpm, its
+own `vitest.config.ts`, its own workflows including `ci.yml` and `security.yml`. `init` wrote 19 files
+and skipped every existing config. `doctor` then reported `ok: true`, no missing, modified or
+unreadable files, and **all five claims held**.
+
+That was not the prediction. It held because the repository already satisfied the preset's claims —
+it has gitleaks in a security workflow, a `ci.yml` running the harness command, oasdiff on the API
+contract — having been built by the same author to the same standards. It is an adopted repository
+and it is not a *foreign* one, and the difference matters when reading a green result.
+
+**Specimen B — a repository built to other conventions.** jest rather than vitest, npm rather than
+pnpm, its own CI. `init` wrote 40 files. `doctor` reported **two claims `unsupported`**, both standing
+on the same fact:
+
+    ci             L3  unsupported  expects … — no longer matching: .github/workflows/ci.yml
+    harness-steps  L3  unsupported  expects … — no longer matching: .github/workflows/ci.yml
+    You are here: every-change-passes-the-harness — enforcement unsupported:
+                  .github/workflows/ci.yml no longer matches
+
+The repository has a `ci.yml`; it does not run `pnpm run quality`, so the fact honestly does not hold.
+**This is the first time on any real repository that a chain has stopped in the middle**, and the
+first time `YOU ARE HERE` has shown the thing it was written for.
+
+### What this discharges, and what it does not
+
+**0017's 5.1 criterion is met.** Both trees were ones the construct never materialized.
+
+**The `uncollectedTests` conditional is still unverified, and this route cannot verify it.** It
+returned `[]` on specimen A, and the runner config is indeed absent from the manifest — but the
+manifest also records **zero** test files, because the sample group is omitted when the target
+directory is not empty. Two sufficient causes produce the same empty list and the output cannot
+separate them. On an adopted repository the construct records no tests at all, so the condition
+cannot be exercised this way; a specimen where the construct owns test files and does not own the
+runner config is what is needed.
+
+### First evidence on whether 5.2 needs a picture
+
+0017 makes the static graph conditional on whether a picture answers *where am I and where is the
+hole* better than a line does. On the first real case with holes in it, the line answered completely:
+two unsupported claims, one underlying fact, and the line names that fact. A diagram would have drawn
+two red nodes where the line names one cause — more marks, less insight.
+
+**Boundary.** One specimen, a model of five claims, and both holes at the same stage sharing one
+fact. It is evidence that the line suffices at this size, not that a picture is never warranted; a
+larger model with holes at different stages has not been seen.
