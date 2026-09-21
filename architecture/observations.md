@@ -704,6 +704,25 @@ The remedy for the one that was found was to move it onto the route rather than 
 the documentation build costs 0.82 seconds, so the check now runs inside the harness. The path filter
 was widened as well, so the deployed build is still checked when its inputs move.
 
+**The property rests on two conditions and only one of them was asserted.** *The harness runs on every
+change* is now held by the no-path-filter test above. *Every gate lives inside the harness* was held by
+nothing — and it is the one that was actually broken, because `docs:anchors` existed, was correct, and
+sat outside. A test about the trigger would not have caught it: it inspects the route, not the
+membership.
+
+So membership is now a partition of the same kind used for identifiers: every script in the manifest is
+either on the harness route — reached from `quality`, or reaching it — or declared outside it **with a
+reason**. A script that is neither fails the check, so adding a gate and wiring it somewhere else is no
+longer a silent act. The mutation lifts `docs:anchors` back out of `quality` and the script becomes
+unclassified. The declaration also made one honest exemption visible that had never been written down:
+`release:verify` is a gate and belongs outside, because it inspects what was published and that does
+not exist while the harness runs.
+
+**This is the condition that will keep breaking, and the reflex says why.** A gate gets attached to the
+thing it inspects rather than to the path changes travel — `docs:anchors` went into the documentation
+workflow because that is where documentation is built. Nobody will remove the harness's coverage of
+every change; people will keep hanging new gates off the artifact they watch.
+
 **Boundary.** Six gates, one hit, and the hit was the newest of them — written the same day, wired into
 the workflow that happened to be nearby. Nothing here says the rate is one in six; it says the sweep
 is one extra line of reading per gate and found something on the first gate it looked at.

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import config from '../docs/.vitepress/config.js'
 import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor } from '../scripts/release-notes/changelog.js'
 import { renderIndex } from '../scripts/release-notes/render.js'
+import { packageScripts, resolvedScript } from './package-scripts.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const CHANGELOG = readFileSync(CHANGELOG_PATH, 'utf8')
@@ -95,18 +96,6 @@ describe('the release index is rendered from the changelog, not maintained by ha
 describe('the step that writes the changelog regenerates the page rendered from it', () => {
   const RENDERER = 'scripts/release-notes/sync-docs.ts'
 
-  function scripts(): Record<string, string> {
-    return (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
-  }
-
-  function resolved(name: string, table: Record<string, string>, seen = new Set<string>()): string {
-    if (seen.has(name))
-      return ''
-    seen.add(name)
-    const body = table[name] ?? ''
-    return [body, ...[...body.matchAll(/pnpm (?:run )?([\w:-]+)/g)].map(match => resolved(match[1], table, seen))].join(' ')
-  }
-
   function versionScript(): string {
     const workflow = readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8')
     return /version-script:\s*pnpm (?:run )?([\w:-]+)/.exec(workflow)?.[1] ?? ''
@@ -114,16 +103,16 @@ describe('the step that writes the changelog regenerates the page rendered from 
 
   it('names a version script the release workflow actually runs', () => {
     expect(versionScript()).not.toBe('')
-    expect(scripts()[versionScript()]).toBeDefined()
+    expect(packageScripts()[versionScript()]).toBeDefined()
   })
 
   it('reaches the renderer from that script, so a release cannot bump the changelog and leave the page behind', () => {
-    expect(resolved(versionScript(), scripts())).toContain(RENDERER)
+    expect(resolvedScript(versionScript(), packageScripts())).toContain(RENDERER)
   })
 
   it('goes red when the version script stops reaching the renderer, which is how every release turned red before', () => {
-    const withoutRender = { ...scripts(), [versionScript()]: 'changeset version' }
-    expect(resolved(versionScript(), withoutRender)).not.toContain(RENDERER)
+    const withoutRender = { ...packageScripts(), [versionScript()]: 'changeset version' }
+    expect(resolvedScript(versionScript(), withoutRender)).not.toContain(RENDERER)
   })
 })
 
