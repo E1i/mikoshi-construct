@@ -1,5 +1,71 @@
 # mikoshi-construct
 
+## 0.5.1
+
+### Patch Changes
+
+- [#71](https://github.com/E1i/mikoshi-construct/pull/71) [`211da72`](https://github.com/E1i/mikoshi-construct/commit/211da72236db1817fe9f00c2721381a861311407) Thanks [@E1i](https://github.com/E1i)! - `doctor` compared every path against the frozen `init` record and ignored everything `sync` had
+  recorded since, so on any repository that has run `sync --apply` it reported the files sync had just
+  written as modified. Found on a real tree, not a fixture: seven fabricated entries sitting beside
+  nineteen genuine ones, with nothing in the output telling them apart, and one more added by every
+  future sync.
+  
+  `construct.json` holds two records on purpose — the `init` record is frozen by decision 0006, and the
+  sync record carries what has been written since. The latest recorded state for a path is the first
+  overlaid by the second, which is what `recordedShas` has always returned and what `sync` itself
+  reads. `doctor` simply did not use it. That was visible in the output before it was visible in the
+  code: `versionGap` reached the sync record through `replay` while `modifiedFiles` did not, one
+  sibling backed and the other bare.
+  
+  The same defect was in two more places. `uncollectedTests` looked for the runner config and
+  enumerated recorded test files in the init record alone, so anything sync added was invisible to it.
+  And `init` counted the records it carried over from an existing `construct.json` without the sync
+  half, under-reporting what it kept and over-reporting what it added.
+  
+  Three occurrences make it structural rather than a bug to fix again, so the shared boundary is now
+  enforced: reading `manifest.files` directly anywhere under `src/` fails lint, with `src/manifest.ts`
+  the single exemption, since it is the file that defines what the two records mean.
+
+- [#71](https://github.com/E1i/mikoshi-construct/pull/71) [`211da72`](https://github.com/E1i/mikoshi-construct/commit/211da72236db1817fe9f00c2721381a861311407) Thanks [@E1i](https://github.com/E1i)! - The model every repository gets from `init` claimed `vulnerable-dependencies-are-visible` at **L3**,
+  and the job behind it ships with `continue-on-error: true` in `templates/base`. A job with that flag
+  is marked successful even when its step fails, so the check is green whether or not a vulnerability
+  was found. The claim asserted a level the mechanism cannot reach, in the release that shipped the
+  model, in every repository materialized by it.
+  
+  The level is now `L0` and the mechanism says why: the audit runs on a schedule and on pull requests,
+  reports into the log, and can never fail a check, so nobody is obliged to act on it.
+  
+  The scale reads `L3` as "CI that does not block a merge", which superficially fits — but that wording
+  presumes a check able to report a failure at all, and distinguishes `L3` from `L4` by whether the
+  failure blocks. A check that is green in both worlds carries no information and sits below the scale.
+  
+  The mechanism was left as it is rather than made to fail. A dependency audit reads an external
+  advisory database, so making it block would fail on news rather than on the change, which is
+  presumably why the flag was set. Lowering the claim to the truth is the repair; raising the mechanism
+  is a separate question with its own costs.
+  
+  This is rule 8 applied to the tool itself — the presence of a command is not the level at which it is
+  enforced — and the first case where a claim was `held` on facts that were all true while the
+  mechanism it named could not fail. `supportedBy` gives necessary conditions, never sufficient ones.
+
+- [#73](https://github.com/E1i/mikoshi-construct/pull/73) [`73f4d54`](https://github.com/E1i/mikoshi-construct/commit/73f4d540c1e6ce89af5235171c52b37e69b74cd4) Thanks [@E1i](https://github.com/E1i)! - The enforcement scale now states the assumption every level above L0 was already making: the
+  mechanism must be able to **report a failure**.
+  
+  L3 read as "CI that does not block a merge", which literally describes a job carrying
+  `continue-on-error` — it is CI, and it does not block. The wording presumed a check capable of
+  failing and distinguished L3 from L4 by whether the failure blocks, without ever saying so. The
+  distinction between L0 and L3 is whether a failure can be raised at all, and that half was never
+  written down.
+  
+  A check that is green whether or not the invariant holds reports nothing and is L0, however much
+  machinery stands behind it.
+  
+  This is a precondition being written out, not scope being added: it is what the levels already
+  assumed, and exactly one record was affected by the gap — the dependency-audit claim corrected in
+  this same release. Writing it now, while that single case is known and already repaired, means the
+  sentence reclassifies nothing retroactively. Left for later it would silently move an unknown number
+  of past records, and nobody would be able to tell a clarification from a change of scope.
+
 ## 0.5.0
 
 ### Minor Changes
