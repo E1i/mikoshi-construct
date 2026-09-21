@@ -105,8 +105,8 @@
       "statement": "Dependencies with known high-severity vulnerabilities are visible",
       "authoredBy": "construct",
       "enforcement": {
-        "mechanism": "security.yml runs pnpm audit weekly and on pull requests, reporting only",
-        "level": "L3",
+        "mechanism": "security.yml runs pnpm audit weekly and on pull requests under continue-on-error, so it reports into the log and its check is green whether or not a vulnerability was found; nobody is obliged to read it",
+        "level": "L0",
         "supportedBy": [
           "security-workflow",
           "security-workflow-audits-dependencies"
