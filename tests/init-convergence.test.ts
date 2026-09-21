@@ -127,8 +127,8 @@ describe('a re-run keeps the claims the record says this repository carries', ()
   })
 })
 
-describe('a third init changes nothing the second one wrote, in any file', () => {
-  it('leaves every file of every preset byte-identical between the second and third run, the merged package.json and the record among them', async () => {
+describe('two comparisons, because a re-run can go wrong in two ways that do not catch each other', () => {
+  it('holds the defect that never settles: every file of every preset is byte-identical between the second and third run, the merged package.json and the record among them', async () => {
     const sets: Record<string, string[]> = {}
 
     for (const preset of PRESETS) {
@@ -150,7 +150,7 @@ describe('a third init changes nothing the second one wrote, in any file', () =>
     }
   })
 
-  it('differs between the first and second run in one file of one preset only: the monorepo record, and only in the two workspace variables the second run re-derives from the packages the first run created', async () => {
+  it('holds the defect that settles on a wrong value, which the comparison above cannot see: the first run differs from the second in one file of one preset, the monorepo record, and only in the two workspace variables the second run re-derives from the packages the first run created', async () => {
     const differences: Record<string, string[]> = {}
 
     for (const preset of PRESETS) {
