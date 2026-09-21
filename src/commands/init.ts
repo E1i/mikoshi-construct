@@ -6,7 +6,7 @@ import type { Prompter } from '../ui/prompts.js'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
-import { buildManifest, readManifest, writeManifest } from '../manifest.js'
+import { buildManifest, readManifest, recordedShas, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
@@ -238,8 +238,9 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ui.line(ui.theme.dim(`  ${ui.lore.recordFactsRetained(merged.retained.map(fact => fact.id), standingOn)}`))
   }
   if (previous != null) {
-    const carriedOver = Object.keys(previous.files).filter(target => !written.some(op => op.target === target)).length
-    const added = written.filter(op => previous.files[op.target] == null).length
+    const recorded = recordedShas(previous)
+    const carriedOver = Object.keys(recorded).filter(target => !written.some(op => op.target === target)).length
+    const added = written.filter(op => recorded[op.target] == null).length
     ui.line(ui.theme.dim(`  ${ui.lore.recordCarriedOver(carriedOver, added)}`))
     const changed = varsThisRunChanged(previous, vars)
     if (changed.length > 0)

@@ -63,9 +63,22 @@ const NO_RUNTIME_CODE_LOADING = [
   { selector: 'Identifier[name="createRequire"]', message: RUNS_ONLY_SHIPPED_CODE },
 ]
 
+const FROZEN_INIT_RECORD = 'construct.json holds two records: files is the frozen init record and never the latest state. Read recordedShas(manifest), which overlays the sync record — reading .files directly reports a synced file as modified'
+
+const NO_BARE_INIT_RECORD = [
+  { selector: 'MemberExpression[property.name="files"][object.name=/^(manifest|previous)$/]', message: FROZEN_INIT_RECORD },
+]
+
 const spawnPolicy = {
   files: ['src/**'],
   ignores: ['src/detect/package-manager.ts'],
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
+  },
+}
+
+const theRecordItselfMayReadBothHalves = {
+  files: ['src/manifest.ts'],
   rules: {
     'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING],
   },
@@ -82,4 +95,5 @@ export default antfu(
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
   spawnPolicy,
+  theRecordItselfMayReadBothHalves,
 )
