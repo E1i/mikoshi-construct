@@ -4,6 +4,101 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.16.2
+
+### Patch Changes
+
+- [#160](https://github.com/E1i/mikoshi-construct/pull/160) [`9016086`](https://github.com/E1i/mikoshi-construct/commit/9016086ee04becc541abf1c33d9c3fcae89f521e) Thanks [@E1i](https://github.com/E1i)! - Two open questions: a check that can never be green, and a path that left no evidence
+  
+  `doctor` exits 1 on this repository for two conditions that are legitimate and permanent —
+  `tsconfig.base.json` recorded in the manifest's `sync` branch and absent from the tree, and fifteen
+  baseline files modified since `init`, which is what a repository that edits its own construct files
+  looks like. Neither will become green, and a third condition — a real one — would arrive in the same
+  exit code and go unread. A check that can never be green reports as much as one that can never fail.
+  The question recorded is whether an owner can declare a construct-owned path they do not want, and
+  files they maintain themselves, so that `doctor` can tell a declared deviation from an unknown one.
+  
+  The second question comes from the first one's evidence. Measured: the recorded hash `040735e3…` is
+  byte-identical to `templates/harness/tsconfig.base.json`, and `git log --all --follow` over the path
+  returns nothing, so git holds no evidence either way about whether the file was ever on disk here.
+  Stated, not measured: the message of commit `9c00c33` says `--apply` wrote the path and that it was
+  then deleted; the owner does not recall deleting it. A path `sync --apply` writes that git does not
+  track leaves no evidence of having existed, so what the run did is recoverable only from prose — and
+  the two kinds of claim above are why the entry keeps them apart rather than reading the message as a
+  record of the action.
+  
+  Both are named and neither is answered. No design, no code, and nothing repaired: the `sync` record is
+  a record of the past.
+
+- [#155](https://github.com/E1i/mikoshi-construct/pull/155) [`9428ade`](https://github.com/E1i/mikoshi-construct/commit/9428ade0cec5f1e84971b03bbc07711efa34c1a8) Thanks [@E1i](https://github.com/E1i)! - Why a marker with no recorded provenance is not backfilled, said where the reader meets the gap
+  
+  `doctor` now reports markers that carry no recorded provenance, and the obvious next move — compute a
+  sha over each body and write it down — is the one move that must not be made. A sha asserts that the
+  body it hashes is what that run wrote. Computing one over a body nobody recorded asserts authorship of
+  text whose author is exactly what is unknown, turning *never looked* into *checked and matching*: rule
+  2 in the direction that manufactures support.
+  
+  `docs/cli.md` says this under the table of readings, so a reader who meets `unrecorded` there finds the
+  reason rather than an apparent backlog. Provenance is written only by the run that writes the body: a
+  discovery run records it for the markers it fills, a marker it did not fill keeps the entry it had,
+  and `unrecorded` stays until a run rewrites that marker.
+  
+  This repository's own `open-questions` marker carries the question that leaves open, with its shape
+  stated rather than a design proposed: the step that knows what body it wrote is a hand-written L0 step,
+  and any command that records provenance after the fact is indistinguishable at the moment it runs from
+  the laundering above. So an answer cannot be a command the owner runs afterwards — either the write
+  happens inside the same act that authors the body, or it does not happen.
+  
+  No behaviour changes and no code changes; the nine markers stay unrecorded.
+
+- [#157](https://github.com/E1i/mikoshi-construct/pull/157) [`ed97251`](https://github.com/E1i/mikoshi-construct/commit/ed9725181a5a62b3268030010be31e1f6320858d) Thanks [@E1i](https://github.com/E1i)! - Two pointers in this repository's own markers named a file that is not here
+  
+  `AGENTS.md` pointed at `docs/PLAN.md` twice — once in `module-map`, listing it among the directories
+  the layout table does not cover, once in `high-effort-areas`, citing a section of it beside the
+  discovery protocol. The file does not exist and is not tracked. Both pointers are removed and neither
+  is replaced: what that file held now appears to live across `architecture/decisions/`,
+  `architecture/observations.md` and `docs/guide/`, but that is an inference, and a marker is not the
+  place for one. The sentences around them stand without a destination.
+  
+  Nothing else changes. Both markers carry no recorded provenance and still do.
+
+- [#158](https://github.com/E1i/mikoshi-construct/pull/158) [`8d21eac`](https://github.com/E1i/mikoshi-construct/commit/8d21eacdb3746f9326f7e6b17784b62aef6d9212) Thanks [@E1i](https://github.com/E1i)! - Two source files imported across the dependency policy with no boundary to hold them to it
+  
+  `AGENTS.md` says dependencies inside `src/` point one way and that `eslint.config.mjs` enforces it.
+  `ALLOWED_INTERNAL_IMPORTS` keyed a directory or file per module, and two files that import other
+  modules had no key at all, so nothing was enforced for them: `src/failure.ts`, which reaches the
+  vocabulary in `src/ui`, and `src/cli.ts`, which composes everything.
+  
+  The acceptance is the general property rather than the two files: **every source file that names an
+  internal import is covered by a boundary.** It was run red first and named both — the second was not
+  known before it ran. A file that names no internal import is asked for nothing, so `src/record-ahead.ts`
+  and `src/version.ts` carry no entry and are not made to carry an empty one; that case ships as a test
+  beside the criterion.
+  
+  The entries say what each file imports today, not what it might: `src/failure.ts` may reach `ui` and
+  nothing that holds a record, and `src/cli.ts` may reach the commands, the presets, the vocabulary, the
+  version and `detect`, but not the manifest, the model, the materializer or `sync` behind them. Both
+  cases are in `tests/dependency-policy.test.ts`.
+  
+  No behaviour changes: nothing in `src/` moved, and the new rules are satisfied by the tree as it stands.
+
+- [#159](https://github.com/E1i/mikoshi-construct/pull/159) [`6b22a07`](https://github.com/E1i/mikoshi-construct/commit/6b22a0736936b16d9e6f0831bb3505f12c3905f4) Thanks [@E1i](https://github.com/E1i)! - An open question: the machine-readable output declares nothing and refuses nobody
+  
+  `construct.json` declares `manifestVersion` and `construct.model.json` declares `modelVersion`, and each
+  refuses a record written by a later build through one shared error. `doctor --json` declares nothing:
+  `src/cli.ts` serialises `DoctorResult` as it stands, so the output carries no statement of what it is
+  and there is nothing for a reader to check or for the tool to refuse. A consumer matching a value that
+  has since changed — `authorship: "unknown"`, which 0.16.1 no longer emits — receives no error; its
+  branch simply stops firing.
+  
+  The question is recorded in this repository's `open-questions` marker with the measurement behind it:
+  nothing the construct materializes calls `doctor --json` — not the templates, not the workflows, not
+  `construct-discover.md` — and every match outside the source is built documentation or release-note
+  prose. The consumer count is zero today, and that is what makes an answer cheap now rather than what
+  makes it unnecessary.
+  
+  No design is proposed and no code changes.
+
 ## 0.16.1
 
 ### Patch Changes
