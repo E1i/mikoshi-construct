@@ -285,5 +285,29 @@ them as rules.
   answer cheap now rather than what makes it unnecessary**: the reason to declare what an output is
   does not arrive with the first consumer, but the cost of declaring it does. Nothing is designed or
   decided here.
+- **Can an owner declare a construct-owned path they do not want, and files they maintain themselves,
+  so that `doctor` can tell a declared deviation from an unknown one?** `doctor` exits 1 here for two
+  conditions that are legitimate and permanent. `tsconfig.base.json` is recorded in the manifest's
+  `sync` branch and absent from the tree. Fifteen baseline files are modified since `init`, which is
+  what a repository that edits its own construct files looks like. Neither will become green, and a
+  third condition — a real one — would arrive in the same exit code and go unread. **A check that can
+  never be green reports as much as one that can never fail**, and this one now carries two permanent
+  reasons for a reader to stop looking. Nothing is designed here and nothing is repaired: the `sync`
+  record is a record of the past.
+
+  **What is measured about the missing path, and what is only stated.** Measured: the recorded hash
+  `040735e3…` is byte-identical to `templates/harness/tsconfig.base.json`, and `git log --all --follow`
+  over the path returns nothing, so git holds no evidence either way about whether the file was ever on
+  disk here. Stated, not measured: the message of commit `9c00c33` says `--apply` wrote the path and
+  that it was then deleted, as it had been before. The owner does not recall deleting it. Those are two
+  different kinds of claim and the second is not a record of the action, only a description of one.
+
+- **What evidence does a run leave of a path it wrote, when git never tracked that path?** The one
+  above is recoverable only from prose. `sync --apply` writes a file and records its hash in
+  `construct.json`; the file itself, if it is one the repository does not track, leaves no trace of
+  having existed — not in the history, not in the tree once it is gone. So what a run did is
+  reconstructable from the record of *what it intended to write* and from whatever a commit message
+  happens to say, and those are the two things above that must be kept apart. This is named, not
+  answered.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->
