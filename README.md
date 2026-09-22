@@ -11,9 +11,12 @@ npx mikoshi-construct init          # interactive: preset, agent, project name
 pnpm install && pnpm run quality    # green before you write a line
 ```
 
-> **v0.3.** Presets `node-backend`, `node-frontend`, `node-library` and `monorepo`. Claude Code gets
-> the full lifecycle; Cursor gets the rules, the conventions and the discovery protocol.
-> `construct sync` moves a repository already carrying a construct onto newer templates.
+> Presets `node-backend`, `node-frontend`, `node-library` and `monorepo`. Claude Code gets the full
+> lifecycle; Cursor gets the rules, the conventions and the discovery protocol. What a repository has
+> become lives in two records: `construct.json`, the provenance of what was materialized and by which
+> version, and `construct.model.json`, the knowledge — facts, claims and hypotheses, each standing on
+> evidence a reader can re-check. `sync` replays the first against today's templates, `graph` draws
+> the second, and `doctor` reads both.
 
 
 ## What it does
