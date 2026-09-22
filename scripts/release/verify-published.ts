@@ -1,5 +1,6 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import process from 'node:process'
+import { readReleaseRoute } from './changesets.js'
 import { describeOutcome, EXIT_CODE, fetchFromRegistry, pollForVersion } from './registry.js'
 
 const ATTEMPTS = 10
@@ -15,7 +16,7 @@ const outcome = await pollForVersion(request, {
   delayMs: DELAY_MS,
 })
 
-const message = describeOutcome(outcome, request)
+const message = describeOutcome(outcome, request, readReleaseRoute())
 const summaryPath = process.env.GITHUB_STEP_SUMMARY
 
 if (outcome === 'installable')
