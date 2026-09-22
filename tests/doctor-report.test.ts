@@ -116,23 +116,32 @@ describe('the doctor report', () => {
     expect(code).toBe(1)
   })
 
-  it('names the markers still reading back what discovery wrote, above the you-are-here line and without changing the exit code', () => {
+  it('names every reading it computed, not only the markers still reading back what discovery wrote, above the you-are-here line and without changing the exit code', () => {
     const provenance: MarkerReading[] = [
       { marker: 'product', file: 'AGENTS.md', authorship: 'construct' },
       { marker: 'module-map', file: 'AGENTS.md', authorship: 'owner' },
-      { marker: 'composition', file: 'architecture/composition', authorship: 'unknown' },
+      { marker: 'composition', file: 'architecture/composition', authorship: 'unreadable' },
+      { marker: 'commands', file: 'AGENTS.md', authorship: 'unrecorded' },
     ]
     const { output, code } = render(result({ provenance }))
     expect(output).toContain('product')
-    expect(output).not.toContain('module-map')
-    expect(output).not.toContain('architecture/composition')
+    expect(output).toContain('module-map')
+    expect(output).toContain('architecture/composition')
+    expect(output).toContain(PLAIN_LORE.noProvenanceRecorded(1))
     expect(nonEmptyLines(output).at(-1)).toMatch(YOU_ARE_HERE_LINE)
     expect(code).toBe(0)
   })
 
-  it('says nothing about provenance when no marker still reads as the construct\'s own', () => {
+  it('names a marker the owner has edited even when no marker still reads as the construct\'s own', () => {
     const provenance: MarkerReading[] = [{ marker: 'product', file: 'AGENTS.md', authorship: 'owner' }]
-    expect(render(result({ provenance })).output).not.toContain('Discovery provenance')
+    const { output } = render(result({ provenance }))
+    expect(output).toContain('Discovery provenance')
+    expect(output).toContain('product')
+    expect(output).toContain(PLAIN_LORE.ownerAuthored(1))
+  })
+
+  it('says nothing about provenance only when there is no marker to read at all', () => {
+    expect(render(result({ provenance: [] })).output).not.toContain('Discovery provenance')
   })
 
   it('names the version gap and the paths a sync would write, above the you-are-here line and without changing the exit code', () => {

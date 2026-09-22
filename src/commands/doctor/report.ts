@@ -3,10 +3,10 @@ import type { Ui } from '../../ui/console.js'
 import type { DoctorResult } from './index.js'
 import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
-import type { MarkerReading } from './provenance.js'
+import type { MarkerAuthorship, MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
-import { constructAuthored } from './provenance.js'
+import { MARKER_AUTHORSHIP, readingsBy } from './provenance.js'
 
 function reading(ui: Ui, check: CheckVerdict): string {
   switch (check.state) {
@@ -107,15 +107,36 @@ function printHypotheses(ui: Ui, hypotheses: HypothesisReading[], placement: Cla
     ui.line(hypothesisLine(ui, hypothesis, width))
 }
 
+function markerRows(ui: Ui, readings: MarkerReading[]): string[] {
+  return readings.map(reading => `  ${reading.marker.padEnd(20)} ${ui.theme.dim(reading.file)}`)
+}
+
+function countLine(ui: Ui, phrase: (count: number) => string, readings: MarkerReading[]): string[] {
+  return [ui.theme.dim(`  ${phrase(readings.length)}`)]
+}
+
+const PROVENANCE_READINGS: Record<MarkerAuthorship, (ui: Ui, readings: MarkerReading[]) => string[]> = {
+  construct: (ui, readings) => [...markerRows(ui, readings), ...countLine(ui, ui.lore.stillConstructAuthored, readings)],
+  owner: (ui, readings) => [...markerRows(ui, readings), ...countLine(ui, ui.lore.ownerAuthored, readings)],
+  unreadable: (ui, readings) => [...markerRows(ui, readings), ...countLine(ui, ui.lore.provenanceUnreadable, readings)],
+  unrecorded: (ui, readings) => countLine(ui, ui.lore.noProvenanceRecorded, readings),
+}
+
+function provenanceLines(ui: Ui, provenance: MarkerReading[]): string[] {
+  const byAuthorship = readingsBy(provenance)
+  return MARKER_AUTHORSHIP.flatMap(authorship =>
+    (byAuthorship[authorship].length === 0 ? [] : PROVENANCE_READINGS[authorship](ui, byAuthorship[authorship])),
+  )
+}
+
 function printProvenance(ui: Ui, provenance: MarkerReading[]): void {
-  const authored = constructAuthored(provenance)
-  if (authored.length === 0)
+  const lines = provenanceLines(ui, provenance)
+  if (lines.length === 0)
     return
   ui.line()
   ui.line(ui.theme.accent(ui.lore.provenance))
-  for (const reading of authored)
-    ui.line(`  ${reading.marker.padEnd(20)} ${ui.theme.dim(reading.file)}`)
-  ui.line(ui.theme.dim(`  ${ui.lore.stillConstructAuthored(authored.length)}`))
+  for (const line of lines)
+    ui.line(line)
 }
 
 function gapReading(ui: Ui, gap: VersionGap): string {

@@ -79,7 +79,7 @@ describe('a manifest written by 0.1.x still reads', () => {
     writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { quality: 'pnpm lint && pnpm typecheck && pnpm test' } }))
     const result = runDoctor(root)
     expect(result).not.toBeNull()
-    expect(result?.provenance.map(reading => reading.authorship)).toEqual(DISCOVERY_MARKERS.map(() => 'unknown'))
+    expect(result?.provenance.map(reading => reading.authorship)).toEqual(DISCOVERY_MARKERS.map(() => 'unrecorded'))
   })
 
   it('leaves a manifest that already carries provenance untouched', () => {

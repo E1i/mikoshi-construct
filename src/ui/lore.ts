@@ -38,6 +38,9 @@ export interface Lore {
   discoveryIncomplete: string
   provenance: string
   stillConstructAuthored: (count: number) => string
+  ownerAuthored: (count: number) => string
+  noProvenanceRecorded: (count: number) => string
+  provenanceUnreadable: (count: number) => string
   baselineCurrent: string
   baselineMoved: (count: number) => string
   baselineGapUnknown: string
@@ -152,6 +155,9 @@ export const LORE: Lore = {
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'AUTHORSHIP TRACE',
   stillConstructAuthored: (count: number) => `Still the construct's own words: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
+  ownerAuthored: (count: number) => `Rewritten in your own hand: ${count} marker${count === 1 ? '' : 's'} no longer matching the trace on file.`,
+  noProvenanceRecorded: (count: number) => `No trace on file: ${count} marker${count === 1 ? '' : 's'} with nothing recorded to compare a body against.`,
+  provenanceUnreadable: (count: number) => `Trace on file, body gone: ${count} marker${count === 1 ? '' : 's'} recorded but unreadable here.`,
   baselineCurrent: 'The baseline reads back what today\'s templates produce.',
   baselineMoved: (count: number) => `THE BASELINE MOVED ON: ${count} recorded path${count === 1 ? '' : 's'} a sync would add or update \u2014 run \`construct sync\`.`,
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
@@ -273,6 +279,9 @@ export const PLAIN_LORE: Lore = {
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'Discovery provenance',
   stillConstructAuthored: (count: number) => `Unchanged since discovery wrote them: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
+  ownerAuthored: (count: number) => `Edited since the sha was recorded: ${count} marker${count === 1 ? '' : 's'} now reading as yours rather than the construct's.`,
+  noProvenanceRecorded: (count: number) => `No provenance recorded: ${count} marker${count === 1 ? '' : 's'} with nothing recorded to compare a body against.`,
+  provenanceUnreadable: (count: number) => `Recorded but unreadable: ${count} marker${count === 1 ? '' : 's'} whose body could not be read here.`,
   baselineCurrent: 'The baseline reads back what today\'s templates produce.',
   baselineMoved: (count: number) => `The baseline moved on: ${count} recorded path${count === 1 ? '' : 's'} a sync would add or update \u2014 run \`construct sync\`.`,
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
