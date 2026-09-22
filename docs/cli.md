@@ -194,7 +194,12 @@ it is read and never written back.
 }
 ```
 
-`init` writes every marker as `unknown` with no sha: it fills no marker, so it claims none.
+`init` writes every marker as `unknown` with no sha: it fills no marker, so it claims none. The two
+fields move together and the record carries no third combination: `construct` always comes with the
+sha of the body that run wrote, `unknown` always with `null`. A `construct` recorded with no sha is a
+record from no run the tool can have made, and reading `construct.json` turns it back into `unknown`
+with `null` rather than carrying it forward as a fourth shape.
+
 `/construct-discover` records `baseSha` — the commit the run started from — when it starts, `filledAt`
 when it finishes, and for each marker it fills the file, `authoredBy: "construct"` and the sha256 of
 the body it wrote. The body is the text between the two `construct:discover` comments, trimmed; for
@@ -202,6 +207,23 @@ the body it wrote. The body is the text between the two `construct:discover` com
 and its contents. Nothing is written into the prose of a marker: a document people read does not carry
 machine bookkeeping, and the one place an owner is most likely to edit is the worst place to keep the
 record.
+
+### What doctor reads a marker as
+
+`authorship` is derived on every read from the recorded provenance and the body found in the file, and
+never stored. The four readings are distinct states and not one state with a flag, because the repairs
+differ:
+
+| reading | what it means |
+|---|---|
+| `construct` | provenance was recorded and the body still hashes to the recorded sha, so the marker is still the construct's own words |
+| `owner` | provenance was recorded and the body no longer matches it: the marker has been edited since, and reads as the owner's. There is no command to run — the edit is the evidence |
+| `unrecorded` | no provenance was recorded for this marker, so there is nothing to compare a body against. It says nothing about who wrote the body |
+| `unreadable` | provenance was recorded, and the file or directory holding the body could not be read here |
+
+All four are reported. `unrecorded` and `unreadable` are the two ways a comparison could not be made,
+and they are kept apart because one is repaired by a discovery run recording what it wrote and the
+other by the missing file.
 
 ## construct doctor
 
@@ -364,6 +386,9 @@ npx mikoshi-construct doctor
 Discovery provenance
   commands             AGENTS.md
   Unchanged since discovery wrote them: 1 marker nobody has stood behind yet.
+  composition-roots    AGENTS.md
+  Edited since the sha was recorded: 1 marker now reading as yours rather than the construct's.
+  No provenance recorded: 1 marker with nothing recorded to compare a body against.
 
 Enforcement
   no-committed-secret                  L3  held         .github/workflows/security.yml runs gitleaks over the history …
@@ -580,7 +605,7 @@ never changes the exit code.
   "unreadableFiles": [],
   "missingDiscovery": ["product", "module-map"],
   "provenance": [
-    { "marker": "product", "file": "AGENTS.md", "authorship": "unknown" },
+    { "marker": "product", "file": "AGENTS.md", "authorship": "unrecorded" },
     { "marker": "commands", "file": "AGENTS.md", "authorship": "construct" },
     { "marker": "composition-roots", "file": "AGENTS.md", "authorship": "owner" }
   ],

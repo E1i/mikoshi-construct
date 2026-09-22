@@ -25,13 +25,9 @@ export const DISCOVERY_MARKERS = [
 
 export type DiscoveryMarker = (typeof DISCOVERY_MARKERS)[number]
 
-export type MarkerAuthor = 'construct' | 'unknown'
-
-export interface MarkerProvenance {
-  file: string
-  authoredBy: MarkerAuthor
-  sha: string | null
-}
+export type MarkerProvenance
+  = | { file: string, authoredBy: 'construct', sha: string }
+    | { file: string, authoredBy: 'unknown', sha: null }
 
 export interface DiscoveryRecord {
   baseSha: string | null
@@ -139,12 +135,11 @@ function upgradeVariants(raw: unknown): Record<string, TemplateVariant> {
 function upgradeMarker(recorded: unknown, file: string): MarkerProvenance {
   if (typeof recorded === 'string')
     return { file: recorded, authoredBy: 'unknown', sha: null }
-  const value = (recorded ?? {}) as Partial<MarkerProvenance>
-  return {
-    file: typeof value.file === 'string' ? value.file : file,
-    authoredBy: value.authoredBy === 'construct' ? 'construct' : 'unknown',
-    sha: typeof value.sha === 'string' ? value.sha : null,
-  }
+  const value = (recorded ?? {}) as Partial<{ file: unknown, authoredBy: unknown, sha: unknown }>
+  const recordedFile = typeof value.file === 'string' ? value.file : file
+  if (value.authoredBy !== 'construct' || typeof value.sha !== 'string')
+    return { file: recordedFile, authoredBy: 'unknown', sha: null }
+  return { file: recordedFile, authoredBy: 'construct', sha: value.sha }
 }
 
 function upgradePolicy(raw: unknown): PolicyRecord | null {
