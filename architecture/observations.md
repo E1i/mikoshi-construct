@@ -26,6 +26,63 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-22 · A true output read for the wrong relation, and the refusal that stopped it
+
+A false premise entered a task brief from the reviewing session, survived the owner re-running the
+command it rested on, and was stopped at the implementer by a measurement.
+
+**The premise.** `git tag | tail -3` was read as *the three newest versions*. It answers *the last
+three lexicographically*, and in this repository those are `v0.8.0`, `v0.9.0`, `v0.9.1` — `v0.9.1`
+sorts after `v0.16.2` because `9 > 1`.
+
+**What followed from it**, none of which was true: that twelve releases were untagged; that the
+release action does not push the tags it creates; that the header comment in
+`.github/workflows/release.yml` is false where it says the v1 action pushed no tag. Two pull requests
+were briefed on that reading, and a correction was drafted for a changeset stating that a missing tag
+distinguishes nothing.
+
+**The measurement that ended it.** `git tag --sort=v:refname` returns 31 tags, against 32 versions
+published to the registry, with one gap: `0.1.0`. That is the version `release.yml` already documents
+as published by hand, before trusted publishing could work. The document the brief called false is
+the document that explains the only gap.
+
+**What makes this specimen stronger than an ordinary failed command, said plainly.** The command
+succeeded. Its exit status was zero, its output was real, and every tag it printed exists. Re-running
+it reproduced the same three lines. Only the *relation* between that output and the question was
+wrong. A failure would have announced itself; this did not, and the second run — by a second person,
+the owner — read as confirmation rather than as a repetition of the same reading.
+
+Two readings follow, and neither is promoted to anything.
+
+**First: a third instance of a valid result read as evidence for a different relation.** The earlier
+two are the `git ls-files` reconciliation in
+[decision 0014](decisions/0014-a-check-answers-only-about-what-it-was-shown.md), and the commit
+window in the entry *An acceptance played a second role at 0027's first use, and the rule describes
+only the first*.
+
+| | the question asked | what the default output answers | the flag that existed |
+|---|---|---|---|
+| `git ls-files` | what is tracked | what is listed | git's own ignore decision, rather than the index |
+| `git A..B` | what came after in time | what is reachable by ancestry | commit time, rather than the range |
+| `git tag` | the newest versions | the last lexicographically | `--sort=v:refname` |
+
+All three are git, and in each case a flag existed that would have answered the question asked. Three
+instances on one mechanism are material for this entry and are not grounds to extend anything: the
+trigger for extending would be a third instance on a *different* mechanism, and this is not one.
+
+**Second: the carrier that stopped it was neither a check nor a rule.** It was the implementer
+declining to write code from a brief that did not match the tree, and measuring instead. That is the
+fourth refusal to build recorded here — the first three are in the entry *Three plans that ended in
+not building, each with its reason recorded* — and it is the first where the refusal kept a false
+statement out of a published record rather than out of an unbuilt artifact.
+
+**Boundary.** One premise, one night, one project, three parties. A form, not a rate. Nothing here
+says how often a true output is read for the wrong relation, and nothing claims the two briefed pull
+requests would have shipped: what is recorded is that the premise was false, that re-running the
+command did not show it, and that a measurement did. The specimen is this repository, so
+[decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) costs nothing and the figures
+are given rather than withheld.
+
 ## 2026-09-22 · The blind run against those cells: four instances, and no form
 
 The run whose cells the entry *The cells of a discovery run, written before the run* fixed has
