@@ -1,3 +1,5 @@
+import type { ReleaseRouteReading } from './changesets.js'
+
 export type RegistryOutcome = 'installable' | 'absent' | 'unreachable'
 
 export interface RegistryRequest {
@@ -70,19 +72,49 @@ export async function pollForVersion(request: RegistryRequest, options: PollOpti
   return outcome
 }
 
-export function describeOutcome(outcome: RegistryOutcome, request: RegistryRequest): string {
+function pendingEvidence(reading: ReleaseRouteReading): string {
+  const counted = reading.pending.length === 1
+    ? '1 unconsumed changeset is'
+    : `${reading.pending.length} unconsumed changesets are`
+  return `${counted} still in ${reading.dir}/ (${reading.pending.join(', ')})`
+}
+
+const TELLS_THEM_APART = 'The repair differs between them, and the Release run\'s log is what tells them apart.'
+
+function describeAbsent(specifier: string, reading: ReleaseRouteReading): string {
+  if (reading.route === 'versioning') {
+    return [
+      `${specifier} is not on the registry, and the release workflow did not publish it.`,
+      `${pendingEvidence(reading)}, and on a tree carrying one the release action versions instead of publishing.`,
+      'Merge the version pull request it opened or updated; the release that runs on that merge publishes this work under the version the pull request writes.',
+    ].join(' ')
+  }
+
+  if (reading.route === 'publishing') {
+    return [
+      `${specifier} is not on the registry, and nothing is pending in ${reading.dir}/, so the release action took the publishing route.`,
+      'Two states are left: the publish is staged and awaiting approval, or it failed while reporting success.',
+      TELLS_THEM_APART,
+    ].join(' ')
+  }
+
+  return [
+    `${specifier} is not on the registry, and three states produce that same answer:`,
+    'the publish is staged and awaiting approval, it failed while reporting success,',
+    'or it never ran because the release action was versioning instead.',
+    `${reading.dir}/ could not be read here, so which of them this is has not been determined.`,
+    TELLS_THEM_APART,
+  ].join(' ')
+}
+
+export function describeOutcome(outcome: RegistryOutcome, request: RegistryRequest, reading: ReleaseRouteReading): string {
   const specifier = `${request.packageName}@${request.version}`
 
   if (outcome === 'installable')
     return `${specifier} is on the registry and installable.`
 
-  if (outcome === 'absent') {
-    return [
-      `${specifier} is not on the registry.`,
-      'Either the publish is staged and awaiting approval, or it failed while reporting success.',
-      'Approve the staged version on npmjs.com or with `npm stage approve`, then re-run the Release verification workflow.',
-    ].join(' ')
-  }
+  if (outcome === 'absent')
+    return describeAbsent(specifier, reading)
 
   return `The registry could not be asked about ${specifier}. Unknown is not absent — nothing is claimed about the published state.`
 }

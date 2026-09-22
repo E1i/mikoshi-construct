@@ -2,6 +2,11 @@
 
 ## 0.16.0
 
+> **Recorded 2026-09-22 — this release also carries the work versioned as 0.15.0.** The entry below
+> names only what 0.16.0 versioned itself. Everything listed under 0.15.0 is in this release too:
+> that version was versioned and never published, so if you installed 0.16.0, read the 0.15.0 section
+> as part of what you have.
+
 ### Minor Changes
 
 - [#149](https://github.com/E1i/mikoshi-construct/pull/149) [`fda1950`](https://github.com/E1i/mikoshi-construct/commit/fda19505c9cb9c21df8b7924eb18925c96cf1d76) Thanks [@E1i](https://github.com/E1i)! - `/plan` in Claude Code requires a criterion to be seen failing before the change
@@ -27,6 +32,12 @@
   reporting this release as *the rule now works* is making a claim wider than what was done.
 
 ## 0.15.0
+
+> **Recorded 2026-09-22 — versioned, never released.** No `v0.15.0` tag exists and the registry has
+> never served this version. The release run on the version commit found an unconsumed changeset in
+> `.changeset/` and updated the next version pull request instead of publishing — nothing was staged
+> and nothing failed, the publish never ran. The changes below reached the registry in 0.16.0. The
+> entry itself is left as it was written.
 
 ### Minor Changes
 

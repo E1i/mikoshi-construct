@@ -1,10 +1,16 @@
 # Verifies that the version in package.json is actually installable from the registry.
 #
-# A trusted publisher configured stage-only turns a successful `npm publish` into a staged version that
-# nobody can install until a human approves it, so a green Release run is not evidence of a release.
-# This workflow is separate from release.yml because it must be re-runnable on its own after that
-# approval; re-running release.yml would publish again and fail with `409 Cannot publish over
-# previously staged version`.
+# A green Release run is not evidence of a release. Three states leave the version absent from the
+# registry and are indistinguishable from the registry's answer alone: a trusted publisher configured
+# stage-only turns a successful `npm publish` into a staged version nobody can install until a human
+# approves it; a publish can fail while reporting success; and the release action publishes nothing at
+# all when unconsumed changesets are still in `.changeset/`, because it takes the versioning branch and
+# opens a version pull request instead. The third is derived here from the tree rather than guessed,
+# and the other two are named without a repair being prescribed for either.
+#
+# This workflow is separate from release.yml because it must be re-runnable on its own after a staged
+# version is approved; re-running release.yml would publish again and fail with `409 Cannot publish
+# over previously staged version`.
 
 name: Release verification
 

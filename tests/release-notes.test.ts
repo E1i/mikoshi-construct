@@ -3,6 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import config from '../docs/.vitepress/config.js'
 import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor } from '../scripts/release-notes/changelog.js'
+import { parseNotices, unansweredNotices } from '../scripts/release-notes/notices.js'
 import { renderIndex } from '../scripts/release-notes/render.js'
 import { packageScripts, resolvedScript } from './package-scripts.js'
 
@@ -177,5 +178,42 @@ describe('the harness runs on every change, so the gates inside it cannot sit of
     const filtered = triggerBlock().replace('pull_request:', 'pull_request:\n    paths:\n      - src/**')
     expect(filtered).toContain('paths')
     expect(triggerBlock()).not.toBe(filtered)
+  })
+})
+
+describe('a version whose record turned out to be wrong is answered, not corrected', () => {
+  const notices = parseNotices(parseChangelog(CHANGELOG))
+
+  it('finds a notice in the changelog at all, so an empty set cannot pass for a pairing that holds', () => {
+    expect(notices.length).toBeGreaterThan(1)
+    for (const notice of notices)
+      expect(notice.recorded, notice.version).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('names only versions the changelog carries, so a notice cannot point at nothing', () => {
+    const versions = parseChangelog(CHANGELOG).map(entry => entry.version)
+    for (const notice of notices) {
+      expect(notice.names, notice.version).not.toEqual([])
+      for (const named of notice.names)
+        expect(versions, `${notice.version} names ${named}`).toContain(named)
+    }
+  })
+
+  it('answers every notice from the version it names, because a reader arrives at the version they installed', () => {
+    expect(unansweredNotices(notices)).toEqual([])
+  })
+
+  it('goes red for a notice pointing one way only, which is the shape that leaves half the readers unserved', () => {
+    const pointing = { version: '9.9.0', recorded: '2026-01-01', body: '', names: ['9.9.1'] }
+    const silent = { version: '9.9.1', recorded: '2026-01-01', body: '', names: [] }
+
+    expect(unansweredNotices([pointing, silent])).toEqual(['9.9.0 → 9.9.1'])
+    expect(unansweredNotices([pointing, { ...silent, names: ['9.9.0'] }])).toEqual([])
+  })
+
+  it('carries each notice onto the page rendered from the changelog, not only into the changelog', () => {
+    const rendered = renderIndex(parseChangelog(CHANGELOG), handWrittenNotes())
+    for (const notice of notices)
+      expect(rendered, notice.version).toContain(notice.body)
   })
 })
