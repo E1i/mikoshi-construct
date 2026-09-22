@@ -4,6 +4,123 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.16.1
+
+### Patch Changes
+
+- [#151](https://github.com/E1i/mikoshi-construct/pull/151) [`2cf0662`](https://github.com/E1i/mikoshi-construct/commit/2cf0662376e9ba8ef3532ed948343cc572c8be23) Thanks [@E1i](https://github.com/E1i)! - Release verification says which of three states left the version absent, and derives the third
+  
+  `mikoshi-construct@0.15.0` was versioned and never reached the registry. Release verification caught
+  it, which is what it is for. Its message then named two causes — a staged publish awaiting approval,
+  or a publish that failed while reporting success — and prescribed the repair for the first:
+  `npm stage approve`, then re-run. The real cause was neither. The release action had found an
+  unconsumed changeset in `.changeset/` and updated the version pull request instead of publishing, so
+  there was nothing staged to approve and nothing to re-run. Every fact in the line was true and it
+  pointed the reader at a repair that does not exist for the state they were in.
+  
+  **Three states produce the identical 404**, and they take three different repairs: approve the staged
+  version, read the failed publish's log, or consume the changesets and release again. The message now
+  names all three and prescribes none of them while the state is undetermined — the reader is told what
+  tells them apart, not what to do before they know which one they have.
+  
+  **The third is not one of three guesses, because it is readable.** Which branch the release action
+  takes is decided by the tree it runs on: unconsumed changesets in `.changeset/` mean it versions
+  rather than publishes. The verification checks out that tree to read the version it is verifying, so
+  it reads the directory from the same checkout and states the cause, with the count and the filenames
+  that carry it. A tree with nothing pending excludes that state instead, and two are named rather than
+  three.
+  
+  **Boundary.** The reading is of the tree the verification checked out, and it says so in those terms.
+  A changeset merged after a successful publish, while the registry is still catching up, would be read
+  as versioning; the window is the poll's two and a half minutes and the claim stays scoped to what was
+  seen. Nothing about the exit codes changes: absent is still 1, unreachable still 2, and unreachable
+  still claims nothing.
+
+- [#154](https://github.com/E1i/mikoshi-construct/pull/154) [`424df7f`](https://github.com/E1i/mikoshi-construct/commit/424df7f9b851296b87b52cfc90d3c0349593570e) Thanks [@E1i](https://github.com/E1i)! - Discovery provenance reports every state it computes, and the three causes of "unknown" become three states
+  
+  `doctor` derived four things about a discovery marker and printed one. `markerAuthorship` answered
+  `unknown` for three different causes — the marker was never construct-authored, no sha was ever
+  recorded, and the body could not be read — and the report then kept only the markers still reading
+  back what discovery wrote and returned early when that list was empty. So `owner`, the one state the
+  sha exists to surface, was computed on every run and never printed, and a marker whose provenance was
+  never recorded was indistinguishable from one the owner had rewritten.
+  
+  Measured on this repository before anything changed: nine of ten markers recorded as `unknown` with no
+  sha, one recorded as construct-authored whose body no longer hashes to its recorded sha. `doctor`
+  printed no provenance section at all.
+  
+  **The incoherent record is now unconstructable rather than handled.** `MarkerProvenance` is a union of
+  the two combinations that can occur — `construct` with the sha of the body that run wrote, or
+  `unknown` with `null` — so `construct` with no sha cannot be expressed. `upgradeManifest` is the one
+  door such a record can arrive through, and it reads it back as `unknown` with `null`. That removes one
+  of the three causes at the type level and leaves two real states, which is why `authorship` has four
+  members and no flag:
+  
+  | reading | what it means |
+  |---|---|
+  | `construct` | recorded, and the body still hashes to the recorded sha |
+  | `owner` | recorded, and the body no longer matches: edited since, and read as the owner's |
+  | `unrecorded` | nothing was recorded, so there is nothing to compare a body against |
+  | `unreadable` | recorded, and the body could not be read here |
+  
+  The report renders each of them from one table keyed by the reading, so a state added later has
+  nowhere to be silently dropped, and the section is omitted only when there is no marker at all. On the
+  repository above it now names the edited marker as the owner's and says that nine carry no recorded
+  provenance.
+  
+  **`authorship` in `doctor --json` no longer emits `unknown`**; it emits `unrecorded` or `unreadable`,
+  whichever the reading was. Nothing else about the output changes, and provenance still never changes
+  the exit code.
+  
+  The nine markers are left without shas: recording them is a separate change, and doing it here would
+  have removed the state this was measured against.
+
+- [#152](https://github.com/E1i/mikoshi-construct/pull/152) [`c4411fb`](https://github.com/E1i/mikoshi-construct/commit/c4411fb11ccca58e17d73f38da4b1fd48cf717a5) Thanks [@E1i](https://github.com/E1i)! - Two observations: the cells of a blind discovery run, written before it, and what the run produced
+  
+  A copy of this repository was taken before either record existed, to ask whether the discovery
+  protocol surfaces a form stated nowhere in the tree: *an assertion that cannot be subjected to a
+  meaningful attempt to refute it is a declaration, not a check*. The tree carries an instance of that
+  form — decision 0027, on acceptance criteria, rendered in three further files — and an adjacent
+  generalisation in decision 0024 and in observations.md. The prescribed reading surface of
+  `.claude/commands/construct-discover.md` names none of them.
+  
+  The first entry fixes the four cells before the run: what a hypothesis matching the form would mean
+  with the carriers unread or opened, and what its absence would mean in each case. Two readings are
+  stated plainly there because both were got wrong on the way to writing them — that a protocol which
+  does not prescribe a file is not an agent failing to read it, which is why the run asks for the list
+  of files actually opened, and that a hypothesis matching the form is attributable to independent
+  discovery only if that list shows every carrier unread.
+  
+  The second entry records the outcome. In one blind run the protocol produced four new instances of
+  the form — three in the enforcement plane, one in verification — and did not state the form as a
+  general property; no carrier of it was opened. The cells were binary on whether a hypothesis
+  appeared and had nowhere to put four instances written without the generalisation, which is recorded
+  rather than adjusted. No mechanism is offered for why the form was not stated. A second run by a
+  different tool is excluded as invalid rather than counted as a negative result, and one of the four
+  instances — nine of ten discovery markers carrying no recorded provenance — is left unrepaired on
+  purpose, because repairing it would have changed the specimen.
+  
+  Neither entry is promoted to a decision or a rule. The boundaries are one run, one specimen, one
+  protocol, and an agent of the same lineage as the one with which the form was first stated.
+
+- [#151](https://github.com/E1i/mikoshi-construct/pull/151) [`2cf0662`](https://github.com/E1i/mikoshi-construct/commit/2cf0662376e9ba8ef3532ed948343cc572c8be23) Thanks [@E1i](https://github.com/E1i)! - 0.15.0 and 0.16.0 each carry a dated notice naming the other
+  
+  The changelog asserts that 0.15.0 is a release. It is not: no tag, nothing on the registry. Under
+  [0021](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0021-a-record-of-the-past-is-not-edited.md)
+  the entry is not corrected — it records what was versioned, and that did happen — so a dated notice is
+  added beside it instead, and the entry is left as it was written.
+  
+  **The notice is written in both directions, and the more important one is on 0.16.0.** A reader
+  arrives at the version they installed, not at the one that does not exist: someone on 0.16.0 sees an
+  entry naming a single pull request and has no way to learn that two more shipped inside it. So 0.16.0
+  says it carries what is listed under 0.15.0, and 0.15.0 says its changes went out as 0.16.0. This is
+  0021's own remedy for a stale record — a pointer from the old statement to the new one — applied to a
+  pair rather than to one file.
+  
+  A notice is parsed out of the changelog rather than kept in a second list, and a test fails when one
+  points at a version that answers nothing back, so the pair cannot be half-written. The rendered
+  release-notes page carries both, because it is generated from the changelog.
+
 ## 0.16.0
 
 > **Recorded 2026-09-22 — this release also carries the work versioned as 0.15.0.** The entry below
