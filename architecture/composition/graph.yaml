@@ -1,0 +1,64 @@
+id: graph
+title: construct graph composition
+description: >-
+  `construct graph` draws what a repository claims and the evidence under it. `modelPicture` and
+  `modelGraph` in `src/commands/graph.ts` resolve the directory, read `construct.model.json` through
+  `readModel` — which refuses a record written by a later build rather than reading it partially —
+  and derive the state of every claim and hypothesis with `deriveModelState`, which looks only at the
+  files the facts name. Everything after that is a rendering of that one reading, never a second
+  derivation: `printGraph` writes the Mermaid text to stdout, and `--out` renders the same graph as
+  one self-contained HTML file. A repository with no model, or a model holding nothing, is a state
+  rather than an error — the picture carries where it stopped, `printGraph` says so in one line, and
+  the command exits 0 having drawn nothing. The page is the only write and it goes to the path the
+  flag names, never into the repository being read.
+doc: architecture/graph.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: read
+    label: Read · the model, and the files its facts name
+  - id: derive
+    label: Derive
+  - id: render
+    label: Render
+nodes:
+  - id: cli
+    label: construct graph (citty)
+    path: src/cli.ts
+    boundary: entry
+  - id: picture
+    label: modelPicture / modelGraph · resolve the directory
+    path: src/commands/graph.ts
+    boundary: entry
+  - id: read
+    label: readModel → construct.model.json · absent is a state, not a failure
+    path: src/model/write.ts
+    boundary: read
+  - id: schema
+    label: MODEL_FILE, modelVersion · a model ahead of the reader is refused
+    path: src/model/schema.ts
+    boundary: read
+  - id: state
+    label: deriveModelState · each claim and hypothesis against the facts named under it
+    path: src/model/state.ts
+    boundary: derive
+  - id: graph
+    label: graphOfModel / pictureOfModel · nodes, edges, where the chain stops
+    path: src/model/graph.ts
+    boundary: derive
+  - id: mermaid
+    label: printGraph → Mermaid on stdout
+    path: src/commands/graph.ts
+    boundary: render
+  - id: page
+    label: htmlFromGraph → one self-contained file at the path --out names
+    path: src/model/page.ts
+    boundary: render
+edges:
+  - {from: cli, to: picture, kind: sequence}
+  - {from: picture, to: read, kind: sequence}
+  - {from: read, to: schema, kind: wires}
+  - {from: read, to: state, kind: sequence}
+  - {from: state, to: graph, kind: sequence}
+  - {from: graph, to: mermaid, kind: fan-out, label: stdout}
+  - {from: graph, to: page, kind: fan-out, label: --out}

@@ -58,53 +58,53 @@
     "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80"
   },
   "discovery": {
-    "baseSha": "906f5546d5de4838d671da40439efdbc713e24ef",
-    "filledAt": "2026-09-21T15:46:18.322068Z",
+    "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+    "filledAt": "2026-09-22T14:24:00.000Z",
     "markers": {
       "product": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "207f1c8514be5c2f580e2a504def89ed26fb1fc83d716f14a12a2b797e69218b"
       },
       "module-map": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "60bf5dd5ce9029fbc134375fcfb715d97b9e5601725e357a20bf5dc923854944"
       },
       "commands": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "e21722084872c4c433600552cab2e264f6d8a618d02acf5ff8ef547552b998f4"
       },
       "composition-roots": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "ded3afa7b6324d3139141fa3f952469a640899ea72a8f201aa02f3ff91c8d643"
       },
       "dependency-policy": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "a16b0b23ab43a28feda61da46636d1e0c0c75d446b1353f9f315be27ff72827d"
       },
       "high-effort-areas": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "82e58bfb59a07800e7f47730ca8aa9775292656807e09e28e4d20ee075428e51"
       },
       "composition": {
         "file": "architecture/composition",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "a55c1b8ef82ca9ff66b06c0c254c30114c6f2520fa184abf478d7e8b7524674d"
       },
       "security-invariants": {
         "file": "architecture/security-invariants.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "5384e96eba9023dc06b5a834d2a3ea86b82dcf5a5b3ba1c2a6ea02e0d446f543"
       },
       "defects-vs-variance": {
         "file": "AGENTS.md",
-        "authoredBy": "unknown",
-        "sha": null
+        "authoredBy": "construct",
+        "sha": "44a922d1ea28d93ca1baf2053b592b8de2657b7613a8b2e1d21df05903bd9cc3"
       },
       "open-questions": {
         "file": "AGENTS.md",

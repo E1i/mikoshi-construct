@@ -14,27 +14,46 @@ whoever changes the thing they describe.
 <!-- construct:discover:product -->
 `mikoshi-construct` is a CLI (`construct`, `miko`, `npx mikoshi-construct`) that materializes a
 construct — architecture policy, an optional OpenAPI contract, a quality harness and agent
-instructions — into a new or existing repository, then hands the repository to the agent for
-discovery. Four commands: `init` (detect, configure, materialize), `doctor` (is the baseline and the
-discovery intact), `soulkill` (print the detected facts, write nothing), `cost` (token usage of
-`/implement` runs). Pitch and lifecycle: [README.md § What it does](README.md#what-it-does).
+instructions — into a new or existing repository, hands the repository to the agent for discovery,
+and afterwards reads back what that repository has become. Six commands: `init` (detect, configure,
+materialize), `sync` (classify what today's construct would change; `--apply` writes only what it
+owns), `doctor` (are the baseline, the discovery and the knowledge intact), `graph` (draw the claims
+and the evidence under them), `cost` (token usage of `/implement` runs), `soulkill` (print the
+detected facts, write nothing; aliases `inspect`, `capture`). Pitch and lifecycle:
+[README.md § What it does](README.md#what-it-does); every command, its flags and its output:
+[docs/cli.md](docs/cli.md).
 
-The flow where a defect costs the most is `init` against a repository that already has code: a
-wrong merge or append strategy corrupts a user's `package.json`, `CLAUDE.md` or `AGENTS.md`, and a
-template that fails its own lint or install turns every generated project red on the first
-`pnpm run quality`.
+Two records carry what a repository is, and nothing else in the tool holds that state.
+`construct.json` is provenance — what was materialized, by which version, the sha of each file at the
+time, and what a later `sync` wrote. `construct.model.json` is knowledge — facts, claims and
+hypotheses, each standing on evidence a reader can re-check. `doctor` and `graph` read them; neither
+derives a state of its own.
+
+The flow where a defect costs the most is a write into a repository that already has code: `init`
+against an existing tree, or `sync --apply`. A wrong merge, append or ownership decision corrupts a
+user's `package.json`, `CLAUDE.md` or `AGENTS.md`, and a template that fails its own lint or install
+turns every generated project red on the first `pnpm run quality`.
 <!-- /construct:discover:product -->
 
 ## Module map
 
 <!-- construct:discover:module-map -->
-The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map (`src/cli.ts`, `src/detect`,
-`src/presets`, `src/materialize`, `src/manifest.ts`, `src/commands`, `src/ui`, `templates/*`,
-`tests`). Not listed there: `src/commands/cost/` (a `CostSource` per runtime — only Claude Code is readable —
-reading `~/.claude/projects/<dir>` session files and summing token usage per workflow run), `scripts/composition` and `scripts/tests` (the harness this repo
-materialized for itself), `scripts/construct/implement.workflow.mjs` (the `/implement` ladder),
-`architecture/` (policy and the composition models of this repo), `.changeset/` and
-`.github/workflows/release.yml` (versioning and publish).
+The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map for the part of the tree it
+covers (`src/cli.ts`, `src/detect`, `src/presets`, `src/materialize`, `src/manifest.ts`,
+`src/failure.ts`, `src/commands/doctor`, `src/ui`, `templates/*`, `tests`). It has not kept pace with
+the tree; these top-level modules exist and are not in it.
+
+| Path | Purpose |
+|------|---------|
+| `src/model/` | `construct.model.json`: `schema.ts` (the shape and `modelVersion`), `write.ts` (read and write, refusing a record a later build wrote), `birth.ts` (the model `init` writes), `state.ts` (each claim's and hypothesis's state, derived from the facts under it), `graph.ts` / `page.ts` / `svg.ts` (the picture and the self-contained HTML), `path.ts` (where the chain stops), `ownership.ts` |
+| `src/sync/` | `replay.ts` (re-render today's template groups for the recorded preset), `classify.ts` (every path into one of the eight classes), `variant.ts` (which template variant wrote an append-block target), `ownership.ts`, `write.ts` |
+| `src/commands/` | `init.ts`, `soulkill.ts`, `graph.ts`, `sync/`, and `cost/` (a `CostSource` per runtime — only Claude Code is readable — summing token counts from `~/.claude/projects/<dir>` session files and joining them to the `/implement` ledger record), beside the `doctor/` CLAUDE.md does list |
+| `src/record-ahead.ts`, `src/version.ts` | The shared "this record was written by a later build" error, and the version constant `tsup` stamps into the build |
+| `scripts/` | The harness this repository materialized for itself and then grew: `composition/` and `model/` (check + render for the two kinds of diagram), `privacy/` (no home path or unlisted domain in a published artifact), `docs/` (every anchored nav link resolves to a rendered heading), `release-notes/`, `release/`, `bench/` (the architect benchmark), `construct/implement.workflow.mjs` (the `/implement` ladder), `tests/` |
+| `architecture/` | Policy, the decision records, the epistemic rules, the observations corpus, and this repository's own composition models and rendered flow docs |
+| `docs/` | The VitePress site `docs:build` publishes; `docs/cli.md` is the per-command reference |
+| `.changeset/`, `.github/workflows/release.yml` | Versioning and publish |
+| `.construct/runs.jsonl` | Gitignored and local: what the `/implement` ladder recorded about its own runs, and what `construct cost` reconciles against the session files |
 <!-- /construct:discover:module-map -->
 
 ## Commands
@@ -50,16 +69,25 @@ Use `pnpm run quality` / `pnpm run ci` — bare `pnpm ci` is a pnpm install buil
 
 <!-- construct:discover:commands -->
 ```bash
-pnpm dev <init|doctor|soulkill|cost> [flags]   # the CLI from source; bare `pnpm dev` prints citty usage, there is no service to run
-pnpm dev cost --dir . [--last] [--json]         # token usage of /implement runs recorded for this directory
-pnpm composition:check                          # models named after their id, paths exist, rendered docs current
+pnpm dev <init|sync|doctor|graph|cost|soulkill> [flags]  # the CLI from source; bare `pnpm dev` prints citty usage, there is no service to run
+pnpm composition:check / composition:render     # flow models: named after their id, every path exists, rendered docs current
+pnpm model:check / model:render                 # the picture of construct.model.json embedded in architecture/model.md
+pnpm privacy:check                              # no home path or unlisted domain in templates, docs, README or fixtures
+pnpm docs:dev / docs:build / docs:preview       # the VitePress site; docs:anchors checks every anchored nav link resolves
 pnpm test:watch                                 # Vitest in watch mode (tests/ and scripts/tests/)
+pnpm bench:architect --yes                      # the architect benchmark; it calls the Anthropic API and costs real money
 pnpm run ci                                     # alias of pnpm run quality
-pnpm changeset / pnpm version-packages / pnpm release   # changesets → version bump → build + npm publish with provenance
+pnpm changeset / pnpm version-packages / pnpm release   # changesets → version bump + rendered release notes → build + npm publish with provenance
+pnpm release:verify                             # poll the registry until the version in package.json is installable
 ```
 
-The `pnpm dev # run the service locally` line above comes from the construct's generic block and
-does not apply here. Acceptance for template changes is in [CLAUDE.md § Commands](CLAUDE.md#commands).
+`pnpm run quality` here is eight steps, not the four the baseline block names: `composition:check &&
+model:check && privacy:check && lint && typecheck && test && docs:build && docs:anchors`. A change
+that edits a composition model, `construct.model.json` or the docs nav and skips the matching render
+fails on the check, not on the render.
+
+The `pnpm dev # run the service locally` line above comes from the construct's generic block and does
+not apply here. Acceptance for template changes is in [CLAUDE.md § Commands](CLAUDE.md#commands).
 <!-- /construct:discover:commands -->
 
 ## Harness
@@ -75,26 +103,61 @@ here.
 
 - *Composition roots.*
   <!-- construct:discover:composition-roots -->
-  `src/cli.ts` wires the four citty commands to `src/commands/*` and creates the `Ui` (theme, lore,
-  writer) and the clack `Prompter`; it is the only place that reads `process.stdout` / `stdin` for a
-  TTY. `runInit` in `src/commands/init.ts` is the root of the init flow — modelled in
-  [architecture/composition/init.yaml](architecture/composition/init.yaml) — and the only code path that
-  writes to a target directory (through `applyPlan` and `writeManifest`). `runDoctor` in
-  `src/commands/doctor/` is the root of the doctor flow ([doctor.yaml](architecture/composition/doctor.yaml)).
-  `soulkill` and `cost` are a detect or collect call followed by a print. Adding a command: define it in
-  `src/cli.ts`, put the logic in `src/commands/<name>.ts` as `run<Name>(...)` plus `print<Name>(ui, ...)`
-  taking a `Ui`, add every string to `src/ui/lore.ts` with its `PLAIN_LORE` counterpart, and test it in
-  `tests/<name>.test.ts` with `createUi(resolveTheme({ plain: true }), silentWriter)`.
+  `src/cli.ts` wires the six citty commands — `init`, `sync`, `doctor`, `graph`, `cost`, `soulkill`
+  (aliases `inspect`, `capture`) — to `src/commands/*`, creates the `Ui` (theme, lore, writer) and the
+  clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
+  picks `stderrWriter` over `stdoutWriter` so a `--json` run keeps stdout machine-readable.
+
+  Three roots write, and each writes somewhere different. `runInit` in `src/commands/init.ts`
+  ([init.yaml](architecture/composition/init.yaml)) is the only path that materializes a tree, through
+  `applyPlan`, `writeManifest` and `writeModel`. `applySync` in `src/commands/sync/index.ts`
+  ([sync.yaml](architecture/composition/sync.yaml)) writes only the paths the construct owns and records
+  them in the manifest's `sync` branch, never the branch `init` froze. `writeGraphPage` in
+  `src/commands/graph.ts` ([graph.yaml](architecture/composition/graph.yaml)) writes one HTML file at
+  the path `--out` names, outside the repository it read.
+
+  The rest only read. `runDoctor` in `src/commands/doctor/index.ts`
+  ([doctor.yaml](architecture/composition/doctor.yaml)) reads `construct.json` and
+  `construct.model.json` and writes nothing, including the manifest it just normalised. `costReport` in
+  `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads the session files
+  and the ladder record. `soulkill` is a `detect` call followed by a print.
+
+  Adding a command: define it in `src/cli.ts`; put the logic in `src/commands/<name>.ts`, or
+  `<name>/index.ts` once it needs more than one file, as `run<Name>(...)` plus `print<Name>(ui, ...)`
+  taking a `Ui`; add every string to `src/ui/lore.ts` with its `PLAIN_LORE` counterpart; give the module
+  its row in `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs`; model the flow as
+  `architecture/composition/<name>.yaml` with a doc carrying the `<!-- composition:<name> -->` block and
+  run `pnpm composition:render`; and test it in `tests/<name>.test.ts` with
+  `createUi(resolveTheme({ plain: true }), silentWriter)`.
   <!-- /construct:discover:composition-roots -->
 - *Dependency policy.*
   <!-- construct:discover:dependency-policy -->
-  Inside `src/`, dependencies point one way: `detect` imports no other module (facts only);
-  `presets` imports `detect`; `materialize` and `ui` import `presets`; `manifest` imports `materialize`
-  and `presets`; `commands` import everything except `cli`; `cli` composes it all. `node:child_process`
-  is imported only by `src/detect/package-manager.ts` (the single spawn, `pnpm --version`).
-  `eslint.config.mjs` enforces both (`ALLOWED_INTERNAL_IMPORTS`, the `no-restricted-syntax` block) and
-  `tests/dependency-policy.test.ts` asserts the resolved rules. `templates/**` is not linted by this
-  repo — each generated project lints it under its own config, which the acceptance run proves.
+  Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
+  the declaration rather than a description of one: `detect` imports no other module (facts only);
+  `presets` imports `detect`; `model` imports `detect` and `presets`; `materialize` and `ui` import
+  `presets`; `manifest` imports `detect`, `materialize` and `presets`; `sync` imports `manifest`,
+  `materialize` and `presets`; `failure` imports `ui`; `commands` import everything but `cli`; `cli`
+  composes it all. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
+  and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
+  inspected repository goes through one reader that reports a path it could not read instead of dropping
+  it from the set it inspected. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
+  forbids `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
+  spawns only `pnpm --version` and runs only the code it ships; it also forbids reading `manifest.files`
+  directly, because that branch is the frozen `init` record and `recordedShas()` is what overlays the
+  `sync` one. `theRecordItselfMayReadBothHalves` restores the second of those for `src/manifest.ts`,
+  which is the module that owns both branches.
+
+  One file is exempt from `spawnPolicy` entirely: `src/detect/package-manager.ts`, which carries the
+  single spawn. ESLint's `ignores` removes the whole config object rather than one selector from it, so
+  the code-loading restrictions are off there too — resolving the config for that file yields only the
+  two antfu base restrictions. It is therefore the one place under `src/` where lint would not stop a
+  dynamic `import()`. It contains none today and nothing mechanical keeps it that way; the file is
+  short and it is the file to read first when the spawn boundary is under review.
+
+  `tests/dependency-policy.test.ts` resolves the config per file, lints one source sample per forbidden
+  form, and fails when a source file that names an internal import falls outside every boundary — so a
+  new module under `src/` gets its row or the suite goes red. `templates/**` is not linted by this
+  repository; each generated project lints it under its own config, which the acceptance run proves.
   <!-- /construct:discover:dependency-policy -->
 - *Composition models* and their rendered diagrams: [architecture/composition/](architecture/composition/).
 
@@ -106,8 +169,15 @@ implemented (see `/implement`):
 <!-- construct:discover:high-effort-areas -->
 - `src/materialize/strategies.ts` and `plan.ts` — how existing user files are merged, appended,
   mounted or skipped; a wrong guess edits someone's repository.
+- `src/sync/**` and `applySync` — the only other path that writes into a repository that already has
+  code. What the construct owns, which template variant wrote a block, and what is never written
+  (`merge-json`, `conflict`, `unknown`, `removed`, `foreign`) are decisions with no undo.
 - `src/manifest.ts` and `DISCOVERY_MARKERS` — the `construct.json` shape is the contract between
-  `init`, `doctor`, the templates and a future `sync`.
+  `init`, `sync`, `doctor` and the templates, and `manifestVersion` is what lets an older build refuse
+  a record it cannot read.
+- `src/model/schema.ts`, `write.ts` and `birth.ts` — `construct.model.json` is the other record with a
+  version of its own, and it is what `doctor` and `graph` report from. A change to the shape changes
+  what every repository can say about itself.
 - `templates/base/**`, `templates/harness/**` and every `package.json.eta` version range — lands in
   every generated project; a red harness or an uninstallable range breaks first contact.
 - `src/detect/**` — the facts contract; `soulkill --json` is consumed by scripts.
@@ -143,11 +213,16 @@ Treat as real defects:
   (empty directory → `init` → `pnpm install` → `pnpm run quality`).
 - A user-facing string outside `src/ui/lore.ts`, or a lore string without its `PLAIN_LORE` twin.
 - A template version range that only matches a release published this week.
-- A hand edit to a generated artifact: a rendered composition block, `src/contracts/openapi.ts`, a
-  `.cursor/rules/*.mdc`.
+- A hand edit to a generated artifact: a rendered composition block in `architecture/*.md`, the model
+  picture in `architecture/model.md`, `src/contracts/openapi.ts`, a rendered release note under
+  `docs/release-notes/`, a `.cursor/rules/*.mdc`. Edit the source and re-run the render.
 - Interpretation in `src/detect` — anything that needs judgement is a discovery marker.
+- A read of an inspected repository added under `src/commands/doctor/` that does not go through
+  `FileReadings`, or a verdict claiming L4 — `doctor` executes nothing it inspects.
+- A claim, hypothesis or enforcement level written into `construct.model.json` without the facts that
+  hold it up, or with facts that were not evaluated.
 - On an existing repository, a write outside `construct:begin … end` or a `construct:discover:*`
-  block, or a new `--force`-like flag.
+  block, a `sync --apply` that writes a class it does not own, or a new `--force`-like flag.
 <!-- /construct:discover:defects-vs-variance -->
 
 Treat as accepted variance and do not report: formatting, quoting and import order (ESLint owns
