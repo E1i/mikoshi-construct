@@ -9,6 +9,10 @@ export interface ReleaseNotice {
   names: string[]
 }
 
+function namedIn(body: string, version: string): boolean {
+  return new RegExp(`\\b${version.replaceAll('.', '\\.')}\\b`).test(body)
+}
+
 function noticeIn(entry: ReleaseEntry, versions: string[]): ReleaseNotice | null {
   const lines = entry.body.split('\n')
   const opening = lines.findIndex(line => NOTICE_OPENING.test(line))
@@ -25,7 +29,7 @@ function noticeIn(entry: ReleaseEntry, versions: string[]): ReleaseNotice | null
     version: entry.version,
     recorded,
     body,
-    names: versions.filter(version => version !== entry.version && body.includes(version)),
+    names: versions.filter(version => version !== entry.version && namedIn(body, version)),
   }
 }
 

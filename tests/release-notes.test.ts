@@ -211,6 +211,17 @@ describe('a version whose record turned out to be wrong is answered, not correct
     expect(unansweredNotices([pointing, { ...silent, names: ['9.9.0'] }])).toEqual([])
   })
 
+  it('reads a version out of a notice by its whole number, so 0.9.1 is not found inside 0.9.10', () => {
+    const named = parseNotices([
+      { version: '0.10.0', body: '> **Recorded 2026-01-01 — a.** The changes below reached the registry in 0.9.10.' },
+      { version: '0.9.10', body: '' },
+      { version: '0.9.1', body: '' },
+    ])[0].names
+
+    expect(named).toEqual(['0.9.10'])
+    expect(named).not.toContain('0.9.1')
+  })
+
   it('carries each notice onto the page rendered from the changelog, not only into the changelog', () => {
     const rendered = renderIndex(parseChangelog(CHANGELOG), handWrittenNotes())
     for (const notice of notices)
