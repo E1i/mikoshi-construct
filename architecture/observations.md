@@ -26,6 +26,140 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-22 · The blind run against those cells: four instances, and no form
+
+The run whose cells the entry *The cells of a discovery run, written before the run* fixed has
+happened. The specimen is the blind copy committed at
+`eebb4cce23b219c4cd2274d2ebe1d5a08b2bf729`, taken from
+`76bbae4f6fa5214e88a0c38701b8c160b30bbb33` — eleven files, 681 insertions, 79 deletions — with the
+transcript kept outside the tree. The copy is not pushed anywhere. The specimen is this repository,
+so [decision 0019](decisions/0019-a-specimen-is-described-by-structure.md) costs nothing and the
+address is given rather than withheld.
+
+**The finding, in the words it is to be read in and no stronger:**
+
+> In one blind discovery run the protocol produced four new instances of one structural form but did
+> not state the form as a general property; the previously written carriers of that form were not
+> opened.
+
+**The four instances.** Each is something the run wrote, and each turns on whether an assertion can
+be subjected to a meaningful attempt to refute it:
+
+| plane | what the run wrote |
+|---|---|
+| enforcement | a new open question — `pnpm composition:check` validates the models that exist and asks nothing about a flow that has none, so a command could ship unmodelled and no check would notice |
+| enforcement | a new hypothesis — every rendered artifact has a checker that fails when it is stale, rather than a convention to re-render |
+| verification | nine of ten discovery markers carry `authoredBy` `"unknown"` and `sha` `null`, reported as a provenance problem: what the recorded sha exists to detect cannot be detected where there is no sha |
+| enforcement | `src/failure.ts` imports `src/ui` with no entry in `ALLOWED_INTERNAL_IMPORTS`, so the boundary the `dependency-policy` marker describes was, for that file, unenforced |
+
+**Which cell this is.** No hypothesis stated the form as a general property, and no carrier of it was
+opened: the lower-left cell of the table those cells fixed, which reads as a statement about the
+prescribed surface and not about the reader. **The cells were binary on whether a hypothesis matching
+the form appeared, and had nowhere to put four instances written without the generalisation.** That
+is a property of how the cells were drawn, recorded because the cells were fixed in advance precisely
+so that the reading could not be adjusted afterwards, and adjusting them now would be the same move.
+
+**No mechanism is offered here for why the form was not stated.** That the protocol does not ask for
+generalisation, and every neighbour of that sentence, is a further layer; this run does not settle
+any of it and nothing here should be read as evidence for one of them over another.
+
+**The evidence for *carriers not opened*.**
+[Decision 0027](decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md) appears
+nowhere in the run's list of files opened. This file and [epistemic-rules.md](epistemic-rules.md)
+appear only as lines in grep output; neither was opened.
+
+**A second run is excluded from the evidence rather than counted against it.** A different tool was
+given the same task, opened five files, wrote no hypothesis and did not execute the protocol. That is
+an invalid run and not a negative result: nothing can be concluded from it about what the protocol
+surfaces, because the protocol was not run.
+
+**The provenance defect is left unrepaired on purpose.** Nine of ten markers in this repository's own
+`construct.json` still carry `authoredBy` `"unknown"` and `sha` `null`. That state is part of what
+produced this result — it is one of the four instances — and repairing it before this record existed
+would have changed the specimen. **The repair is the next task and is not part of this one.**
+
+**Three boundaries, each of which bounds the finding rather than softening it.** The list of files
+opened is the agent's report about its own work, in exactly the sense
+[0027](decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md) calls an opinion
+rather than evidence a second party can read; the transcript is the second-party artifact, and it is
+what settles any disagreement with the list. This is one run. And the run's agent is of the same
+lineage as the one with which the form was first stated, so *independent* here is bounded by that
+lineage and not by nothing.
+
+**Boundary.** One run, one specimen, one protocol, one lineage. A form, not a rate: nothing here
+counts how often the protocol produces instances without their generalisation, and four instances in
+one run is not a frequency. Nothing in this entry is promoted to a decision or a rule.
+
+## 2026-09-22 · The cells of a discovery run, written before the run
+
+A copy of this repository was taken at `76bbae4f6fa5214e88a0c38701b8c160b30bbb33` — the head of
+`fix/absent-is-derived-not-guessed`, not of `main` — before this entry existed, to ask whether the
+discovery protocol surfaces a form that is stated nowhere in the tree. The run has not happened. What
+is recorded here is what each outcome would mean and what the run does not measure, written first so
+that the reading cannot be fitted to the result once the result is in hand.
+
+**The form**, in the words it was given outside the repository:
+
+> An assertion that cannot be subjected to a meaningful attempt to refute it is a declaration, not a
+> check.
+
+**The tree carries an instance of it, not the form.**
+[Decision 0027](decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md) states the
+property of one thing, an acceptance criterion: *a criterion that cannot be shown failing is a
+statement of intent, however specific its wording*. Searching for that sentence before the copy was
+taken found it in four files — 0027, `docs/guide/the-cycle.md` §3, `docs/release-notes/index.md` and
+`CHANGELOG.md` — the last three being renderings of 0027 rather than independent statements. Two
+further files carry an adjacent generalisation of the same property under another name:
+[decision 0024](decisions/0024-an-absent-claim-is-derived-not-recorded.md) refuses a stored absence
+because it would be the one entry in the model *nothing could refute*, and the entry *A rule with no
+independently checkable carrier is carried by memory* states the carrier test for a rule. The form
+above appears in none of the six, and appears in this repository for the first time in this entry —
+which is why the copy was taken at a commit that predates it.
+
+**The prescribed reading surface names none of those six files.**
+`.claude/commands/construct-discover.md` sends the agent to `construct.json`, `package.json`, the
+tree two levels deep, the entry points, the contract, the `*.config.ts` files, `AGENTS.md`,
+`architecture/security-invariants.md` and `architecture/composition`. Neither
+`architecture/decisions/` nor this file is named anywhere in it.
+
+**The four cells.** The run has two readings: whether discovery writes a hypothesis matching the
+form, and what the list of files it actually opened contains.
+
+| | no carrier of the instance opened | a carrier opened |
+|---|---|---|
+| **a hypothesis matching the form** | the strongest positive the run can give: the prescribed surface was enough to reach the form from the repository's structure, and the discovery is independent | a restatement: the agent met the instance and generalised it, which says nothing about the prescribed surface, because the surface is not where it was met |
+| **no such hypothesis** | a reading about the surface and not about the reader: the protocol never sent the agent to the files where the instance lives | the sharpest negative the run can give: the instance was in hand and was not lifted into its form |
+
+Two things follow from that table, and both were got wrong once on the way to writing it, which is
+why each is said here in its own sentence rather than left to be inferred from the cells.
+
+**A protocol that does not prescribe a file is not an agent failing to read it.** The lower-left cell
+is the one that invites the mistake: nothing written, nothing read, and the easy reading is that the
+agent did not look. It did not look because it was not sent, and a run that recorded only the absence
+could not tell the two apart. That is the whole reason the run asks for the list of files actually
+opened — an ask the protocol's own report step does not make, and an addition to it for this run
+rather than a change to the protocol.
+
+**A hypothesis matching the form is attributable to independent discovery only on that list.** The
+attribution holds if the list shows every carrier unread — 0027 and its three renderings, 0024, and
+this file. The pair that matters most is 0027 and this file, and the other four were added by
+searching for the sentence rather than by recalling where it had been written; a list that showed
+`docs/guide/the-cycle.md` opened would settle the question as completely as one showing 0027 opened,
+and the first draft of this entry did not name it.
+
+**What the run does not measure.** Whether the form is true or useful: the run asks only whether the
+protocol's surface reaches it. Whether the protocol *should* prescribe `architecture/decisions/` or
+this file — that question is raised by a positive in the upper-right cell and by a negative in the
+lower-right, and is not answered by either. How often any of this happens: one copy, one protocol,
+one agent, one run. And the read list has the standing 0027 gives an implementer's answer about their
+own work — it is a report, not evidence a second party can check, unless the run's transcript is kept
+and read against it; where the two disagree, the transcript is the reading.
+
+**Boundary.** No data. This is a record of an experiment not yet run, and nothing in it is a decision
+or a rule: the cells are written down so that the run cannot be read generously afterwards. The
+specimen is this repository, so [decision 0019](decisions/0019-a-specimen-is-described-by-structure.md)
+costs nothing here — there is no address to withhold — and it is said rather than left unstated.
+
 ## 2026-09-21 · The `add` population, named before anything is done about it
 
 A live run against an adopted single-package frontend repository left two construct-written artifacts
