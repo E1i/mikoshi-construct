@@ -265,5 +265,25 @@ them as rules.
   command the owner runs afterwards. Either the write happens inside the same act that authors the
   body, or it does not happen. That is the constraint; no design is proposed here, and nothing about
   the nine is repaired by naming it.
+- **What makes a machine-readable output refuse a reader it can no longer serve, and is that the
+  mechanism the two records already share?** `construct.json` declares `manifestVersion` and
+  `construct.model.json` declares `modelVersion`, and each refuses a record written by a later build
+  through one shared error rather than one of its own. `doctor --json` declares nothing: `src/cli.ts`
+  serialises `DoctorResult` as it stands, so the output carries no statement of what it is, and there
+  is nothing for a reader to check or for the tool to refuse. A consumer matching a value that has
+  since changed — `authorship: "unknown"`, which 0.16.1 no longer emits — receives no error; its
+  branch simply stops firing.
+
+  The two are not the same situation and the question is partly whether they can share an answer. A
+  record is read by this tool, which can refuse it; an output is read by somebody else's code, which
+  this tool cannot make check anything. What a version buys there is the ability to be refused *by*
+  the reader, which is a different transaction from the one `RecordAheadOfReader` performs.
+
+  **Measured before this was written: the consumer count is zero.** Nothing the construct materializes
+  calls `doctor --json` — not the templates, not the workflows, not `construct-discover.md`. Every
+  match outside the source is built documentation or release-note prose. **That is what makes an
+  answer cheap now rather than what makes it unnecessary**: the reason to declare what an output is
+  does not arrive with the first consumer, but the cost of declaring it does. Nothing is designed or
+  decided here.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->
