@@ -184,6 +184,124 @@
       "kind": "file-exists",
       "path": "construct.model.json",
       "authoredBy": "discovery"
+    },
+    {
+      "id": "init-flow-model",
+      "kind": "file-exists",
+      "path": "architecture/composition/init.yaml",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "doctor-flow-model",
+      "kind": "file-exists",
+      "path": "architecture/composition/doctor.yaml",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "sync-flow-model",
+      "kind": "file-exists",
+      "path": "architecture/composition/sync.yaml",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "graph-flow-model",
+      "kind": "file-exists",
+      "path": "architecture/composition/graph.yaml",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "cost-flow-model",
+      "kind": "file-exists",
+      "path": "architecture/composition/cost.yaml",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "the-spawn-block-ignores-one-whole-file",
+      "kind": "file-contains",
+      "path": "eslint.config.mjs",
+      "authoredBy": "discovery",
+      "needle": "ignores: ['src/detect/package-manager.ts']"
+    },
+    {
+      "id": "the-spawn-block-also-carries-the-loading-ban",
+      "kind": "file-contains",
+      "path": "eslint.config.mjs",
+      "authoredBy": "discovery",
+      "needle": "...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD]"
+    },
+    {
+      "id": "one-reader-for-an-inspected-repository",
+      "kind": "file-exists",
+      "path": "src/commands/doctor/readings.ts",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "lint-names-the-one-reader",
+      "kind": "file-contains",
+      "path": "eslint.config.mjs",
+      "authoredBy": "discovery",
+      "needle": "doctorReadsThroughOneReader"
+    },
+    {
+      "id": "the-one-reader-rule-states-its-reason",
+      "kind": "file-contains",
+      "path": "eslint.config.mjs",
+      "authoredBy": "discovery",
+      "needle": "READS_GO_THROUGH_ONE_READER"
+    },
+    {
+      "id": "the-manifest-declares-its-schema-version",
+      "kind": "file-contains",
+      "path": "construct.json",
+      "authoredBy": "discovery",
+      "needle": "manifestVersion"
+    },
+    {
+      "id": "the-model-schema-declares-its-version",
+      "kind": "file-contains",
+      "path": "src/model/schema.ts",
+      "authoredBy": "discovery",
+      "needle": "modelVersion"
+    },
+    {
+      "id": "one-shared-refusal-for-both-records",
+      "kind": "file-exists",
+      "path": "src/record-ahead.ts",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "privacy-guard",
+      "kind": "file-exists",
+      "path": "scripts/privacy/check.ts",
+      "authoredBy": "discovery"
+    },
+    {
+      "id": "privacy-guard-names-what-it-scans",
+      "kind": "file-contains",
+      "path": "scripts/privacy/scan.ts",
+      "authoredBy": "discovery",
+      "needle": "SCANNED_PATHS = ['templates', 'docs', 'README.md', 'tests/fixtures']"
+    },
+    {
+      "id": "harness-script-runs-privacy-check",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "discovery",
+      "needle": "pnpm privacy:check"
+    },
+    {
+      "id": "harness-script-runs-model-check",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "discovery",
+      "needle": "pnpm model:check"
+    },
+    {
+      "id": "harness-script-runs-docs-anchors",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "discovery",
+      "needle": "pnpm docs:anchors"
     }
   ],
   "claims": [
@@ -345,6 +463,83 @@
       "supportedBy": [
         "carries-its-own-manifest",
         "carries-its-own-model"
+      ]
+    },
+    {
+      "id": "each-composed-flow-is-modelled-and-its-render-is-gated",
+      "statement": "Every command that composes more than one module carries a composition model of its own, and the harness fails when a model and its rendered doc drift apart, rather than the diagrams being kept current by hand",
+      "authoredBy": "discovery",
+      "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+      "evidenceClean": false,
+      "supportedBy": [
+        "init-flow-model",
+        "doctor-flow-model",
+        "sync-flow-model",
+        "graph-flow-model",
+        "cost-flow-model",
+        "harness-script-runs-composition-check"
+      ]
+    },
+    {
+      "id": "the-spawn-exemption-lifts-the-whole-syntax-block",
+      "statement": "The one file permitted to spawn a process is exempted by an ignores entry on the whole config object, so the ban on loading code at runtime is lifted there too rather than only the ban on child_process",
+      "authoredBy": "discovery",
+      "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+      "evidenceClean": true,
+      "supportedBy": [
+        "the-spawn-block-ignores-one-whole-file",
+        "the-spawn-block-also-carries-the-loading-ban",
+        "eslint-config"
+      ]
+    },
+    {
+      "id": "reading-an-inspected-repository-is-concentrated-by-lint",
+      "statement": "Every read of a repository doctor does not trust is funnelled into one module by a lint rule that names its reason, rather than by a convention reviewers are asked to remember",
+      "authoredBy": "discovery",
+      "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+      "evidenceClean": true,
+      "supportedBy": [
+        "one-reader-for-an-inspected-repository",
+        "lint-names-the-one-reader",
+        "the-one-reader-rule-states-its-reason",
+        "eslint-config"
+      ]
+    },
+    {
+      "id": "each-record-declares-its-own-version-and-shares-one-refusal",
+      "statement": "Provenance and knowledge are two records, each declaring a schema version of its own, and both refuse a record written by a later build through one shared error rather than one apiece",
+      "authoredBy": "discovery",
+      "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+      "evidenceClean": true,
+      "supportedBy": [
+        "the-manifest-declares-its-schema-version",
+        "the-model-schema-declares-its-version",
+        "one-shared-refusal-for-both-records"
+      ]
+    },
+    {
+      "id": "what-the-package-would-publish-is-scanned-by-the-harness",
+      "statement": "The paths that reach a published artifact are scanned for personal filesystem paths and unlisted domains as a step of the gate every change runs, rather than as a release-time check",
+      "authoredBy": "discovery",
+      "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+      "evidenceClean": true,
+      "supportedBy": [
+        "privacy-guard",
+        "privacy-guard-names-what-it-scans",
+        "harness-script-runs-privacy-check"
+      ]
+    },
+    {
+      "id": "the-harness-gates-generated-artifacts-against-their-sources",
+      "statement": "Beside lint, typecheck and tests, the gate checks that three generated artifacts still match what they were generated from — the flow diagrams, the picture of the model, and the documentation nav",
+      "authoredBy": "discovery",
+      "baseSha": "f560b60d9ab21bdb8dcfe0884e26850f63678515",
+      "evidenceClean": true,
+      "supportedBy": [
+        "harness-script-runs-composition-check",
+        "harness-script-runs-model-check",
+        "harness-script-runs-docs-anchors",
+        "harness-manifest"
       ]
     }
   ]

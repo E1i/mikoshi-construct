@@ -281,6 +281,12 @@ flowchart LR
     e_every_stack_with_a_lint_policy_ships_its_own_policy_test("every-stack-with-a-lint-policy-ships-its-own-policy-test<br/>held")
     e_user_facing_text_has_one_owner_and_a_plain_counterpart("user-facing-text-has-one-owner-and-a-plain-counterpart<br/>held")
     e_the_tool_is_its_own_first_consumer("the-tool-is-its-own-first-consumer<br/>held")
+    e_each_composed_flow_is_modelled_and_its_render_is_gated("each-composed-flow-is-modelled-and-its-render-is-gated<br/>held")
+    e_the_spawn_exemption_lifts_the_whole_syntax_block("the-spawn-exemption-lifts-the-whole-syntax-block<br/>held")
+    e_reading_an_inspected_repository_is_concentrated_by_lint("reading-an-inspected-repository-is-concentrated-by-lint<br/>held")
+    e_each_record_declares_its_own_version_and_shares_one_refusal("each-record-declares-its-own-version-and-shares-one-refusal<br/>held")
+    e_what_the_package_would_publish_is_scanned_by_the_harness("what-the-package-would-publish-is-scanned-by-the-harness<br/>held")
+    e_the_harness_gates_generated_artifacts_against_their_sources("the-harness-gates-generated-artifacts-against-their-sources<br/>held")
   end
   subgraph evidence["Evidence"]
     f_security_workflow[/".github/workflows/security.yml<br/>holds"/]
@@ -311,6 +317,24 @@ flowchart LR
     f_vocabulary_carries_a_plain_counterpart[/"src/ui/lore.ts contains #quot;PLAIN_LORE#quot;<br/>holds"/]
     f_carries_its_own_manifest[/"construct.json<br/>holds"/]
     f_carries_its_own_model[/"construct.model.json<br/>holds"/]
+    f_init_flow_model[/"architecture/composition/init.yaml<br/>holds"/]
+    f_doctor_flow_model[/"architecture/composition/doctor.yaml<br/>holds"/]
+    f_sync_flow_model[/"architecture/composition/sync.yaml<br/>holds"/]
+    f_graph_flow_model[/"architecture/composition/graph.yaml<br/>holds"/]
+    f_cost_flow_model[/"architecture/composition/cost.yaml<br/>holds"/]
+    f_the_spawn_block_ignores_one_whole_file[/"eslint.config.mjs contains #quot;ignores: ['src/detect/package-manager.ts']#quot;<br/>holds"/]
+    f_the_spawn_block_also_carries_the_loading_ban[/"eslint.config.mjs contains #quot;...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD]#quot;<br/>holds"/]
+    f_one_reader_for_an_inspected_repository[/"src/commands/doctor/readings.ts<br/>holds"/]
+    f_lint_names_the_one_reader[/"eslint.config.mjs contains #quot;doctorReadsThroughOneReader#quot;<br/>holds"/]
+    f_the_one_reader_rule_states_its_reason[/"eslint.config.mjs contains #quot;READS_GO_THROUGH_ONE_READER#quot;<br/>holds"/]
+    f_the_manifest_declares_its_schema_version[/"construct.json contains #quot;manifestVersion#quot;<br/>holds"/]
+    f_the_model_schema_declares_its_version[/"src/model/schema.ts contains #quot;modelVersion#quot;<br/>holds"/]
+    f_one_shared_refusal_for_both_records[/"src/record-ahead.ts<br/>holds"/]
+    f_privacy_guard[/"scripts/privacy/check.ts<br/>holds"/]
+    f_privacy_guard_names_what_it_scans[/"scripts/privacy/scan.ts contains #quot;SCANNED_PATHS = ['templates', 'docs', 'README.md', 'tests/fixtures']#quot;<br/>holds"/]
+    f_harness_script_runs_privacy_check[/"package.json contains #quot;pnpm privacy:check#quot;<br/>holds"/]
+    f_harness_script_runs_model_check[/"package.json contains #quot;pnpm model:check#quot;<br/>holds"/]
+    f_harness_script_runs_docs_anchors[/"package.json contains #quot;pnpm docs:anchors#quot;<br/>holds"/]
   end
   e_no_committed_secret -->|"enforcement"| f_security_workflow
   e_no_committed_secret -->|"enforcement"| f_security_workflow_runs_gitleaks
@@ -342,5 +366,28 @@ flowchart LR
   e_user_facing_text_has_one_owner_and_a_plain_counterpart --> f_vocabulary_carries_a_plain_counterpart
   e_the_tool_is_its_own_first_consumer --> f_carries_its_own_manifest
   e_the_tool_is_its_own_first_consumer --> f_carries_its_own_model
+  e_each_composed_flow_is_modelled_and_its_render_is_gated --> f_init_flow_model
+  e_each_composed_flow_is_modelled_and_its_render_is_gated --> f_doctor_flow_model
+  e_each_composed_flow_is_modelled_and_its_render_is_gated --> f_sync_flow_model
+  e_each_composed_flow_is_modelled_and_its_render_is_gated --> f_graph_flow_model
+  e_each_composed_flow_is_modelled_and_its_render_is_gated --> f_cost_flow_model
+  e_each_composed_flow_is_modelled_and_its_render_is_gated --> f_harness_script_runs_composition_check
+  e_the_spawn_exemption_lifts_the_whole_syntax_block --> f_the_spawn_block_ignores_one_whole_file
+  e_the_spawn_exemption_lifts_the_whole_syntax_block --> f_the_spawn_block_also_carries_the_loading_ban
+  e_the_spawn_exemption_lifts_the_whole_syntax_block --> f_eslint_config
+  e_reading_an_inspected_repository_is_concentrated_by_lint --> f_one_reader_for_an_inspected_repository
+  e_reading_an_inspected_repository_is_concentrated_by_lint --> f_lint_names_the_one_reader
+  e_reading_an_inspected_repository_is_concentrated_by_lint --> f_the_one_reader_rule_states_its_reason
+  e_reading_an_inspected_repository_is_concentrated_by_lint --> f_eslint_config
+  e_each_record_declares_its_own_version_and_shares_one_refusal --> f_the_manifest_declares_its_schema_version
+  e_each_record_declares_its_own_version_and_shares_one_refusal --> f_the_model_schema_declares_its_version
+  e_each_record_declares_its_own_version_and_shares_one_refusal --> f_one_shared_refusal_for_both_records
+  e_what_the_package_would_publish_is_scanned_by_the_harness --> f_privacy_guard
+  e_what_the_package_would_publish_is_scanned_by_the_harness --> f_privacy_guard_names_what_it_scans
+  e_what_the_package_would_publish_is_scanned_by_the_harness --> f_harness_script_runs_privacy_check
+  e_the_harness_gates_generated_artifacts_against_their_sources --> f_harness_script_runs_composition_check
+  e_the_harness_gates_generated_artifacts_against_their_sources --> f_harness_script_runs_model_check
+  e_the_harness_gates_generated_artifacts_against_their_sources --> f_harness_script_runs_docs_anchors
+  e_the_harness_gates_generated_artifacts_against_their_sources --> f_harness_manifest
 ```
 <!-- /model:picture -->

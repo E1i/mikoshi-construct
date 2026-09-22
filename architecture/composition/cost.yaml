@@ -1,0 +1,72 @@
+id: cost
+title: construct cost composition
+description: >-
+  `costReport(cwd)` in `src/commands/cost/index.ts` is the composition root. It resolves the runtime
+  first — the environment variables a coding agent sets, and only failing those the `ai` the manifest
+  recorded — then picks the `CostSource` for it. The contract has one implementation: Claude Code,
+  which reads the session files under `~/.claude/projects/<key>` and sums token counts per workflow
+  run through `usage.ts`; any other runtime is `unsupported`, reported rather than guessed at. In
+  parallel the root reads the ladder's own record, `.construct/runs.jsonl`, which `/implement` appends
+  to. Where both sides can be read, `reconcile` joins what the ladder said it did to what the session
+  files show it spent, and the two are reported side by side rather than merged into one number. No
+  message content is read past the token counts, and nothing is written. `COST_EXIT` maps the status
+  to the exit code, so a run that could not be read is a non-zero exit rather than a zero total.
+doc: architecture/cost.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: resolve
+    label: Resolve the runtime
+  - id: read
+    label: Read · token counts only
+  - id: join
+    label: Join
+  - id: report
+    label: Report
+nodes:
+  - id: cli
+    label: construct cost (citty)
+    path: src/cli.ts
+    boundary: entry
+  - id: run
+    label: costReport(cwd)
+    path: src/commands/cost/index.ts
+    boundary: entry
+  - id: runtime
+    label: resolveRuntime · the agent's env first, then the manifest's ai
+    path: src/commands/cost/runtime.ts
+    boundary: resolve
+  - id: source
+    label: CostSource · the contract a runtime implements; unreadable is a status, not an error
+    path: src/commands/cost/source.ts
+    boundary: resolve
+  - id: claude
+    label: ClaudeCodeCostSource · ~/.claude/projects/<key> session lines
+    path: src/commands/cost/claude-code.ts
+    boundary: read
+  - id: usage
+    label: add / billable / weighted · token arithmetic, no message content
+    path: src/commands/cost/usage.ts
+    boundary: read
+  - id: ledger
+    label: readLedger → .construct/runs.jsonl · what the ladder recorded about itself
+    path: src/commands/cost/ledger.ts
+    boundary: read
+  - id: reconcile
+    label: reconcile · ladder entries against the runs the session files hold
+    path: src/commands/cost/ledger.ts
+    boundary: join
+  - id: print
+    label: printCost / costJson · COST_EXIT sets the exit code
+    path: src/commands/cost/report.ts
+    boundary: report
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: runtime, kind: sequence}
+  - {from: runtime, to: source, kind: route}
+  - {from: source, to: claude, kind: route, label: claude-code}
+  - {from: claude, to: usage, kind: wires}
+  - {from: run, to: ledger, kind: sequence}
+  - {from: claude, to: reconcile, kind: fan-in}
+  - {from: ledger, to: reconcile, kind: fan-in}
+  - {from: reconcile, to: print, kind: sequence}
