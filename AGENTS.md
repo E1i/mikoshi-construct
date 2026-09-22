@@ -33,8 +33,8 @@ The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map (`src/cli
 `tests`). Not listed there: `src/commands/cost/` (a `CostSource` per runtime — only Claude Code is readable —
 reading `~/.claude/projects/<dir>` session files and summing token usage per workflow run), `scripts/composition` and `scripts/tests` (the harness this repo
 materialized for itself), `scripts/construct/implement.workflow.mjs` (the `/implement` ladder),
-`architecture/` (policy and the composition models of this repo), `docs/PLAN.md` (plan, closed
-decisions, day log), `.changeset/` and `.github/workflows/release.yml` (versioning and publish).
+`architecture/` (policy and the composition models of this repo), `.changeset/` and
+`.github/workflows/release.yml` (versioning and publish).
 <!-- /construct:discover:module-map -->
 
 ## Commands
@@ -112,7 +112,7 @@ implemented (see `/implement`):
   every generated project; a red harness or an uninstallable range breaks first contact.
 - `src/detect/**` — the facts contract; `soulkill --json` is consumed by scripts.
 - `templates/ai/shared/_claude/commands/construct-discover.md` and the marker skeletons in
-  `templates/ai/**` — the discovery protocol is the CLI ↔ agent contract (docs/PLAN.md § 1).
+  `templates/ai/**` — the discovery protocol is the CLI ↔ agent contract.
 - `.github/workflows/release.yml`, `.changeset/config.json` and the `release` script — a publish
   cannot be unpublished.
 <!-- /construct:discover:high-effort-areas -->
