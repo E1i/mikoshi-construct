@@ -10,7 +10,9 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/materialize': ['presets'],
   'src/sync': ['manifest', 'materialize', 'presets'],
   'src/ui': ['presets'],
+  'src/failure.ts': ['ui'],
   'src/commands': ['detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
+  'src/cli.ts': ['commands', 'detect', 'presets', 'ui', 'version'],
 }
 
 function dependencyBoundary([target, allowed]) {

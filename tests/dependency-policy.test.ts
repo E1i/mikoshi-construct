@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ESLint } from 'eslint'
@@ -6,10 +7,54 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const eslint = new ESLint({ cwd: root })
 
+const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version']
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory()
+      ? sourceFiles(path.join(directory, entry.name))
+      : (entry.name.endsWith('.ts') ? [path.join(directory, entry.name)] : []),
+  )
+}
+
+function internalImportsOf(file: string): string[] {
+  const specifiers = [...readFileSync(path.join(root, file), 'utf8').matchAll(/from '(\.[^']*)'/g)].map(match => match[1])
+  const named = specifiers.map((specifier) => {
+    const resolved = path.relative(root, path.resolve(path.dirname(path.join(root, file)), specifier))
+    return resolved.split(path.sep)[1]?.replace(/\.js$/, '') ?? ''
+  })
+  return [...new Set(named.filter(name => INTERNAL_MODULES.includes(name)))]
+}
+
+async function boundedModules(file: string): Promise<number> {
+  const resolved = await eslint.calculateConfigForFile(path.join(root, file))
+  const rule = resolved.rules['no-restricted-imports'] as [number, { patterns?: { group?: string[] }[] }] | undefined
+  return (rule?.[1].patterns ?? []).flatMap(pattern => pattern.group ?? []).length
+}
+
 async function violations(file: string, source: string): Promise<string[]> {
   const [result] = await eslint.lintText(source, { filePath: path.join(root, file) })
   return result.messages.map(message => message.ruleId ?? '').filter(rule => rule === 'no-restricted-imports' || rule === 'no-restricted-syntax')
 }
+
+describe('every source file that names an internal import is covered by a boundary', () => {
+  it('leaves no importing file outside ALLOWED_INTERNAL_IMPORTS', async () => {
+    const importing = sourceFiles('src').filter(file => internalImportsOf(file).length > 0)
+    const uncovered: string[] = []
+    for (const file of importing) {
+      if (await boundedModules(file) === 0)
+        uncovered.push(file)
+    }
+    expect(uncovered).toEqual([])
+  })
+
+  it('asks nothing of a file that names no internal import, so an entry is never empty ceremony', async () => {
+    expect(internalImportsOf('src/record-ahead.ts')).toEqual([])
+    expect(internalImportsOf('src/version.ts')).toEqual([])
+    expect(await boundedModules('src/record-ahead.ts')).toBe(0)
+    expect(await boundedModules('src/version.ts')).toBe(0)
+  })
+})
 
 describe('dependency policy in eslint.config.mjs', () => {
   it('lets dependencies point only one way inside src', async () => {
@@ -25,6 +70,19 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/sync/probe.ts', 'import { strategyFor } from \'../materialize/strategies.js\'\n\nexport const probe = strategyFor\n')).toEqual([])
     expect(await violations('src/sync/probe.ts', 'import { createUi } from \'../ui/console.js\'\n\nexport const probe = createUi\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/materialize/probe.ts', 'import { classifyPath } from \'../sync/classify.js\'\n\nexport const probe = classifyPath\n')).toEqual(['no-restricted-imports'])
+  })
+
+  it('lets the failure reader reach the vocabulary it renders with, and nothing that holds a record', async () => {
+    expect(await violations('src/failure.ts', 'import type { Ui } from \'./ui/console.js\'\n\nexport const probe = (ui: Ui) => ui\n')).toEqual([])
+    expect(await violations('src/failure.ts', 'import { readManifest } from \'./manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/failure.ts', 'import { parseModel } from \'./model/schema.js\'\n\nexport const probe = parseModel\n')).toEqual(['no-restricted-imports'])
+  })
+
+  it('lets the entry point compose the commands and reach no record behind them', async () => {
+    expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual([])
+    expect(await violations('src/cli.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual([])
+    expect(await violations('src/cli.ts', 'import { readManifest } from \'./manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/cli.ts', 'import { runSync } from \'./sync/index.js\'\n\nexport const probe = runSync\n')).toEqual(['no-restricted-imports'])
   })
 
   it('keeps the model and the manifest apart in both directions', async () => {
