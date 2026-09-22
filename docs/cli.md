@@ -222,8 +222,17 @@ differ:
 | `unreadable` | provenance was recorded, and the file or directory holding the body could not be read here |
 
 All four are reported. `unrecorded` and `unreadable` are the two ways a comparison could not be made,
-and they are kept apart because one is repaired by a discovery run recording what it wrote and the
+and they are kept apart because one is answered by a discovery run recording what it wrote and the
 other by the missing file.
+
+**An `unrecorded` marker is not repaired by writing a sha for it**, and the gap in the record is not a
+backlog. A sha asserts that the body it hashes is what that run wrote; computing one over a body
+nobody recorded asserts authorship of text whose author is exactly what is unknown, and turns *never
+looked* into *checked and matching*. The body of an `unrecorded` marker may be the construct's from an
+earlier run or the owner's own edit since, and nothing on file distinguishes them — which is what
+`unrecorded` says. Provenance is written only by the run that writes the body: a discovery run records
+it for the markers it fills, a marker it did not fill keeps the entry it had, and `unrecorded` stays
+until a run rewrites that marker. It is the honest reading of the record, not a defect in it.
 
 ## construct doctor
 

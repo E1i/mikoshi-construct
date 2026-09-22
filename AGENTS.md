@@ -243,5 +243,27 @@ them as rules.
   takes itself to be. Self-identification is therefore unavailable to those repositories until their
   first `init`. That is what makes this question gating rather than academic for any repository in
   that state; how many are in that state is not known here and is not asserted. It is not decided here; the three options above stand as written.
+- **What can record provenance for a marker whose body was written before anything recorded it?**
+  `doctor` reports nine markers here as carrying no recorded provenance, and they are not to be
+  backfilled. Recording a sha asserts that the body it hashes is the construct's own words, written by
+  the run that recorded it. With no sha on file there is no evidence of what those bodies now are —
+  the construct's text from an earlier run, or an owner's edit since — so hashing them today would
+  turn *never looked* into *checked and matching*. That is [rule 2](architecture/epistemic-rules.md)
+  in the direction that manufactures support, and it is the laundering
+  `.claude/commands/construct-discover.md` forbids when it records provenance only for the markers a
+  run filled and leaves the rest with the entry they had, applied to nine markers at once.
+
+  So `unrecorded` is the true state here and it stays. Provenance can be recorded only by the run that
+  wrote the body: the next discovery run records it for the markers it rewrites, and the rest go on
+  reading `unrecorded`, truthfully.
+
+  **What is open is the shape any answer can take, not whether to backfill.** The step that knows what
+  body it wrote is a hand-written L0 step — the run sets `discovery.markers.<name>` itself, and nothing
+  checks that it did so, or that the sha it wrote is of the text it actually wrote. Any command that
+  records provenance after the fact is indistinguishable, at the moment it runs, from the laundering
+  above: it reads a body it did not write and asserts authorship of it. So an answer cannot be a
+  command the owner runs afterwards. Either the write happens inside the same act that authors the
+  body, or it does not happen. That is the constraint; no design is proposed here, and nothing about
+  the nine is repaired by naming it.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->
