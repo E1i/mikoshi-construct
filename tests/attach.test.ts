@@ -314,4 +314,17 @@ describe('the rollback removes only the block this run added to .git/info/exclud
     rollbackAttach(dir, { written: [], directories: [], separator: exclude.separator })
     expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toBe('mine/\n')
   })
+
+  it('leaves the block alone and says so when the bytes before it are no longer the separator it wrote', () => {
+    const dir = fixture()
+    const exclude = writeExcludeBlock(dir, [...ATTACH_CARRIERS.targets])
+    const file = path.join(dir, EXCLUDE_FILE)
+    const edited = readFileSync(file, 'utf8').replace('\n\n# construct:begin', '\n# construct:begin')
+    writeFileSync(file, edited)
+
+    const rollback = rollbackAttach(dir, { written: [], directories: [], separator: exclude.separator })
+
+    expect(rollback.excludeKept).toBe(true)
+    expect(readFileSync(file, 'utf8')).toBe(edited)
+  })
 })

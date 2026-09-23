@@ -39,14 +39,26 @@ export function writeExcludeBlock(root: string, carriers: string[]): ExcludeWrit
   return { created, separator: appended.separator }
 }
 
-export function removeExcludeBlock(root: string, separator: BlockSeparator): void {
+export type ExcludeRemoval
+  = | { kind: 'absent' }
+    | { kind: 'mismatch' }
+    | { kind: 'remainder', content: string }
+
+export function planExcludeRemoval(root: string, separator: BlockSeparator): ExcludeRemoval {
   const file = path.join(root, EXCLUDE_FILE)
   if (!existsSync(file))
+    return { kind: 'absent' }
+  const remainder = removeBlock(readFileSync(file, 'utf8'), EXCLUDE_FILE, separator)
+  return remainder == null ? { kind: 'mismatch' } : { kind: 'remainder', content: remainder }
+}
+
+export function applyExcludeRemoval(root: string, removal: ExcludeRemoval): void {
+  if (removal.kind !== 'remainder')
     return
-  const remaining = removeBlock(readFileSync(file, 'utf8'), EXCLUDE_FILE, separator)
-  if (remaining === '') {
+  const file = path.join(root, EXCLUDE_FILE)
+  if (removal.content === '') {
     rmSync(file)
     return
   }
-  writeFileSync(file, remaining)
+  writeFileSync(file, removal.content)
 }

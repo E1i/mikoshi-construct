@@ -127,6 +127,7 @@ export interface Lore {
   attachRefusedNoHarness: string
   attachRefusedCursor: string
   attachRolledBack: (count: number) => string
+  attachBlockKept: string
   attached: string
   attachTrailer: (version: string) => string
   attachPullRequest: (version: string) => string
@@ -136,6 +137,7 @@ export interface Lore {
   detachNothingAttached: string
   detachRefusedOrphanBlock: string
   detachRefusedSeparator: string
+  detachRefusedSeparatorMismatch: string
   detachRefusedChanged: (count: number) => string
   detachRefusedIndexV4: string
   detachRefusedSplitIndex: string
@@ -292,6 +294,7 @@ export const LORE: Lore = {
   attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
   attachRefusedCursor: 'BREACH FAILED // CURSOR OUT OF SCOPE: alwaysApply rules govern the whole tree',
   attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
+  attachBlockKept: 'Block left in .git/info/exclude: the bytes before it are no longer what this run wrote, so it was not cut out. construct detach will name it.',
   attached: 'JACKED IN // NETRUN STARTED',
   attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
@@ -300,6 +303,7 @@ export const LORE: Lore = {
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
   detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
   detachRefusedSeparator: 'BREACH FAILED // RECORD UNREADABLE: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so the block cannot be cut out to the byte',
+  detachRefusedSeparatorMismatch: 'BREACH FAILED // BLOCK MOVED: the bytes before the construct block in .git/info/exclude are not the separator attach wrote, so cutting it out would take yours',
   detachRefusedOrphanBlock: 'BREACH FAILED // ORPHAN BLOCK: .git/info/exclude carries a construct block and no .construct/attach.json names what it hides',
   detachRefusedChanged: (count: number) => `BREACH FAILED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record`,
   detachRefusedIndexV4: 'BREACH FAILED // INDEX V4: .git/index is version 4 (prefix-compressed names) and cannot be read here',
@@ -449,6 +453,7 @@ export const PLAIN_LORE: Lore = {
   attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
   attachRefusedCursor: 'Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.',
   attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,
+  attachBlockKept: 'The block this run added to .git/info/exclude was left in place: the bytes before it are no longer what this run wrote, so cutting it out would take yours. construct detach will name it.',
   attached: 'Attached to repository.',
   attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
@@ -457,6 +462,7 @@ export const PLAIN_LORE: Lore = {
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
   detachNothingAttached: 'Nothing is attached here.',
   detachRefusedSeparator: 'Refused: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so .git/info/exclude cannot be restored byte for byte; nothing was removed. Found:',
+  detachRefusedSeparatorMismatch: 'Refused: the bytes before the construct block in .git/info/exclude are not the separator attach wrote (excludeSeparator), so the block cannot be cut out without taking yours; nothing was removed.',
   detachRefusedOrphanBlock: 'Refused: .git/info/exclude carries a construct block but .construct/attach.json is missing, so what it hides cannot be told from yours:',
   detachRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record; nothing was removed:`,
   detachRefusedIndexV4: 'Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.',

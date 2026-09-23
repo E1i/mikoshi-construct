@@ -253,6 +253,28 @@ describe('a4 over an exclude file git did not shape: the separator in the record
   }
 })
 
+describe('the bytes before the block are no longer the separator attach wrote', () => {
+  it('refuses instead of cutting the owner\'s bytes: nothing removed, exclude untouched', async () => {
+    const dir = fixture()
+    await attached(dir)
+    const file = path.join(dir, EXCLUDE_FILE)
+    const edited = readFileSync(file, 'utf8').replace('\n\n# construct:begin', '\n# construct:begin')
+    expect(edited).not.toBe(readFileSync(file, 'utf8'))
+    writeFileSync(file, edited)
+    const before = listing(dir)
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('separator-mismatch')
+    expect(listing(dir)).toEqual(before)
+    expect(readFileSync(file, 'utf8')).toBe(edited)
+    expect(existsSync(path.join(dir, ATTACH_RECORD_FILE))).toBe(true)
+    expect(output()).toContain(PLAIN_LORE.detachRefusedSeparatorMismatch)
+  })
+})
+
 describe('a record whose separator cannot be trusted', () => {
   for (const value of [undefined, 3, -1, '1']) {
     it(`${JSON.stringify(value)}: refuses, names the value and removes nothing`, async () => {

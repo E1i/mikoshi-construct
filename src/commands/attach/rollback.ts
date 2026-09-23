@@ -3,7 +3,7 @@ import type { BlockSeparator } from '../../materialize/strategies.js'
 import { existsSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { sha256 } from '../../manifest.js'
-import { removeExcludeBlock } from './exclude.js'
+import { applyExcludeRemoval, planExcludeRemoval } from './exclude.js'
 
 export interface RollbackInput {
   written: FileOp[]
@@ -27,7 +27,12 @@ export function removeEmptyDirectories(root: string, directories: string[]): str
   return removed
 }
 
-export function rollbackAttach(root: string, input: RollbackInput): string[] {
+export interface Rollback {
+  removed: string[]
+  excludeKept: boolean
+}
+
+export function rollbackAttach(root: string, input: RollbackInput): Rollback {
   const removed: string[] = []
   for (const op of input.written) {
     const absolute = path.join(root, op.target)
@@ -37,6 +42,7 @@ export function rollbackAttach(root: string, input: RollbackInput): string[] {
     removed.push(op.target)
   }
   removeEmptyDirectories(root, input.directories)
-  removeExcludeBlock(root, input.separator)
-  return removed
+  const exclude = planExcludeRemoval(root, input.separator)
+  applyExcludeRemoval(root, exclude)
+  return { removed, excludeKept: exclude.kind === 'mismatch' }
 }

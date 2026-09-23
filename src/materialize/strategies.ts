@@ -139,12 +139,17 @@ export function isBlockSeparator(value: unknown): value is BlockSeparator {
   return value === 0 || value === 1 || value === 2
 }
 
-export function removeBlock(existing: string, target: string, separator: BlockSeparator): string {
+export function removeBlock(existing: string, target: string, separator: BlockSeparator): string | null {
   const [begin, end] = blockMarkers(target)
   const start = existing.indexOf(begin)
   const stop = existing.indexOf(end)
   if (start === -1 || stop === -1 || stop < start)
     return existing
+  if (start < separator || existing.slice(start - separator, start) !== '\n'.repeat(separator))
+    return null
+  const before = existing.slice(0, start - separator)
+  if (separatorBefore(before) !== separator)
+    return null
   const after = existing.slice(stop + end.length).replace(/^\n/, '')
-  return `${existing.slice(0, start - separator)}${after}`
+  return `${before}${after}`
 }

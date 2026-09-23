@@ -4,7 +4,7 @@ import type { IndexUnreadable } from './index-reader.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { isBlockSeparator } from '../../materialize/strategies.js'
-import { readExcludeBlockPaths } from '../attach/exclude.js'
+import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
 import { readAttachRecord } from '../attach/record.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
@@ -17,7 +17,7 @@ export interface DetachOptions {
   dir: string
 }
 
-export type DetachRefusalReason = 'orphan-block' | 'separator' | 'changed' | IndexUnreadable
+export type DetachRefusalReason = 'orphan-block' | 'separator' | 'separator-mismatch' | 'changed' | IndexUnreadable
 
 export interface DetachResult {
   status: 'done' | 'nothing-attached' | 'refused'
@@ -28,6 +28,7 @@ export interface DetachResult {
 const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) => string> = {
   'orphan-block': lore => lore.detachRefusedOrphanBlock,
   'separator': lore => lore.detachRefusedSeparator,
+  'separator-mismatch': lore => lore.detachRefusedSeparatorMismatch,
   'changed': (lore, paths) => lore.detachRefusedChanged(paths.length),
   'index-v4': lore => lore.detachRefusedIndexV4,
   'split-index': lore => lore.detachRefusedSplitIndex,
@@ -60,6 +61,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   const separator = record.excludeSeparator
   if (!isBlockSeparator(separator))
     return refused(ui, 'separator', [String(separator)])
+  const exclude = planExcludeRemoval(root, separator)
+  if (exclude.kind === 'mismatch')
+    return refused(ui, 'separator-mismatch')
 
   const reading = readTrackedPaths(root)
   if ('unreadable' in reading)
@@ -70,7 +74,7 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   if (changed.length > 0)
     return refused(ui, 'changed', changed)
 
-  const { removed, leftBehind } = removeAttached(root, record, ofKind(classified, 'remove'), separator)
+  const { removed, leftBehind } = removeAttached(root, record, ofKind(classified, 'remove'), exclude)
   for (const target of removed)
     ui.line(`  ${ui.theme.dim('-')} ${target}`)
   for (const target of ofKind(classified, 'adopted'))

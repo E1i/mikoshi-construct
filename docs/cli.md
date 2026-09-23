@@ -937,7 +937,9 @@ the collision check and the write, attach does not write over it: it removes the
 (only those whose bytes are still what it wrote), the directories it created that are now empty, and
 its block from `.git/info/exclude` together with exactly the separator it added, so the file is byte
 for byte what it was (deleted only when nothing else is left in it), then refuses with `COLLISION`
-naming that path. Nothing of this run is left behind.
+naming that path. Nothing of this run is left behind, with one exception it says out loud: if the
+bytes before its block changed in that window, the block stays rather than a byte of yours going,
+and `construct detach` names it.
 
 ### The record
 
@@ -1013,9 +1015,11 @@ before anything is removed:
 | sparse index (`sdir` extension, `index.sparse`) | `Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.` |
 | `extensions.objectFormat` neither `sha1` nor `sha256` | `Refused: extensions.objectFormat in .git/config is neither sha1 nor sha256, so .git/index cannot be read; nothing was removed.` |
 
-A fifth refusal is about the record rather than the index: an `excludeSeparator` that is missing or
-not `0`, `1` or `2` means the exclude block cannot be cut out to the byte, so detach refuses, names the
-value it found and removes nothing.
+Two more refusals are about the exclude block rather than the index. An `excludeSeparator` that is
+missing or not `0`, `1` or `2` means the block cannot be cut out to the byte, so detach refuses, names
+the value it found and removes nothing. And when the bytes right before the block are no longer that
+many newlines (a blank line you deleted by hand, say), cutting the block out would take a byte of
+yours, so detach refuses and removes nothing; the block is checked before the first removal.
 
 `git update-index --index-version 2` and `git update-index --no-split-index` return an index detach
 can read; a sparse index expands with `git sparse-checkout disable` or `git config index.sparse false`

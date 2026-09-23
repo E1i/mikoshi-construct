@@ -115,5 +115,14 @@ describe('removeBlock is the exact inverse of appendBlock through the separator 
     it(`${target}: returns text without a block unchanged`, () => {
       expect(removeBlock('node_modules/\n', target, 1)).toBe('node_modules/\n')
     })
+
+    it(`${target}: refuses when the bytes before the block are no longer the separator it recorded`, () => {
+      const appended = appendBlockWith('x', 'body', target)
+      const blankLineRemoved = appended.content.replace('x\n\n', 'x\n')
+      expect(removeBlock(blankLineRemoved, target, appended.separator)).toBeNull()
+      expect(removeBlock(appended.content.replace('x\n\n', ''), target, appended.separator)).toBeNull()
+      const afterOneNewline = appendBlockWith('x\n', 'body', target)
+      expect(removeBlock(afterOneNewline.content.replace('x\n\n', 'x\n'), target, afterOneNewline.separator)).toBeNull()
+    })
   }
 })
