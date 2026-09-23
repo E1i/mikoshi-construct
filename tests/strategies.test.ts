@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendBlock, mergeJson, preserveDiscovery, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
+import { appendBlock, appendBlockWith, mergeJson, preserveDiscovery, removeBlock, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
 
 describe('strategyFor', () => {
   it('routes manifests, agent files and gitignore to their strategies', () => {
@@ -88,4 +88,32 @@ describe('substituteBlock', () => {
     expect(substituteBlock('node_modules/\n\n# construct:begin\nold\n# construct:end\n', '# construct:begin\ndist/\n# construct:end\n', '.gitignore'))
       .toBe('node_modules/\n\n# construct:begin\ndist/\n# construct:end\n')
   })
+})
+
+describe('removeBlock is the exact inverse of appendBlock through the separator it recorded', () => {
+  const TARGETS = ['.gitignore', 'CLAUDE.md']
+  const otherStyleBlock = (target: string): string => appendBlock('', 'other', target === '.gitignore' ? 'CLAUDE.md' : '.gitignore')
+  const PRIORS = ['', 'x', 'x\n', 'x\n\n', '# comment\n\n\n']
+
+  for (const target of TARGETS) {
+    it(`${target}: removing the block with its separator gives the prior back byte for byte, for every prior`, () => {
+      for (const prev of [...PRIORS, otherStyleBlock(target)]) {
+        const appended = appendBlockWith(prev, 'body', target)
+        expect(removeBlock(appended.content, target, appended.separator), JSON.stringify(prev)).toBe(prev)
+      }
+    })
+
+    it(`${target}: records how many newlines it added, and the priors differ in it`, () => {
+      expect(PRIORS.map(prev => appendBlockWith(prev, 'body', target).separator)).toEqual([0, 2, 1, 0, 0])
+    })
+
+    it(`${target}: keeps a line appended after the block`, () => {
+      const appended = appendBlockWith('x', 'body', target)
+      expect(removeBlock(`${appended.content}foreign\n`, target, appended.separator)).toBe('xforeign\n')
+    })
+
+    it(`${target}: returns text without a block unchanged`, () => {
+      expect(removeBlock('node_modules/\n', target, 1)).toBe('node_modules/\n')
+    })
+  }
 })

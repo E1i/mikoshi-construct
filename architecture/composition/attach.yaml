@@ -65,7 +65,7 @@ nodes:
     path: src/commands/attach/record.ts
     boundary: materialize
   - id: rollback
-    label: rollbackAttach · own files by sha, exclude restored
+    label: rollbackAttach · own files by sha, exclude restored byte for byte
     path: src/commands/attach/rollback.ts
     boundary: materialize
 edges:

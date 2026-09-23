@@ -13,10 +13,11 @@ import { rollbackAttach } from './rollback.js'
 import { writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
-export { EXCLUDE_FILE, pathsInExcludeBlock } from './exclude.js'
+export { EXCLUDE_FILE, pathsInExcludeBlock, readExcludeBlockPaths, removeExcludeBlock } from './exclude.js'
 export { ATTACH_RECORD_FILE, readAttachRecord } from './record.js'
 export type { AttachRecord } from './record.js'
 export type { AttachRefusalReason } from './refusals.js'
+export { removeEmptyDirectories } from './rollback.js'
 
 export interface AttachOptions {
   dir: string
@@ -92,7 +93,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   const directories = directoriesToCreate(root, targets)
   const write = writeCarriersExclusively(root, ops)
   if (write.collided != null) {
-    const rolledBack = rollbackAttach(root, { written: write.written, directories, exclude })
+    const rolledBack = rollbackAttach(root, { written: write.written, directories, separator: exclude.separator })
     return refused(ui, { reason: 'collision', paths: [write.collided], rolledBack: true }, rolledBack)
   }
   const written = write.written
@@ -104,6 +105,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     files: Object.fromEntries(written.map(op => [op.target, sha256(op.content)])),
     directories,
     excludeCreated: exclude.created,
+    excludeSeparator: exclude.separator,
   })
 
   ui.ok(ui.lore.attached)

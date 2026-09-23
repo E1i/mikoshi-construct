@@ -4,6 +4,7 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
 import { runAttach } from './commands/attach/index.js'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
+import { runDetach } from './commands/detach/index.js'
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { runInit } from './commands/init.js'
@@ -70,6 +71,23 @@ const attach = defineCommand({
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
       const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, yes: args.yes }, prompter)
       process.exitCode = result.status === 'done' ? 0 : 1
+    }
+    catch (error) {
+      flatlineFor(console, error)
+      process.exitCode = 1
+    }
+  },
+})
+
+const detach = defineCommand({
+  meta: { name: 'detach', description: 'Remove what attach wrote and nothing else: the recorded files, their empty directories, the exclude block and the record (alias: jack-out)' },
+  args: commonArgs,
+  run({ args }) {
+    const console = ui(args)
+    console.banner(VERSION, args.johnny)
+    try {
+      const result = runDetach(console, { dir: args.dir })
+      process.exitCode = result.status === 'refused' ? 1 : 0
     }
     catch (error) {
       flatlineFor(console, error)
@@ -214,6 +232,8 @@ const main = defineCommand({
     init,
     attach,
     'jack-in': attach,
+    detach,
+    'jack-out': detach,
     soulkill,
     'inspect': soulkill,
     'capture': soulkill,

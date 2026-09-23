@@ -133,6 +133,21 @@ export interface Lore {
   attachThen: string
   attachDetach: string
   attachLedgerExcluded: string
+  detachNothingAttached: string
+  detachRefusedOrphanBlock: string
+  detachRefusedSeparator: string
+  detachRefusedChanged: (count: number) => string
+  detachRefusedIndexV4: string
+  detachRefusedSplitIndex: string
+  detachRefusedSparseIndex: string
+  detachRefusedObjectFormat: string
+  detachPresentOnDisk: string
+  detachAbsentOnDisk: string
+  detachAdopted: (target: string) => string
+  detachAlreadyAbsent: (target: string) => string
+  detachLeftBehind: (target: string) => string
+  detachBookkeeping: string
+  detached: (count: number) => string
 }
 
 function policyEntries(added: { dir: string, allowed: string[] }[]): string {
@@ -283,6 +298,21 @@ export const LORE: Lore = {
   attachThen: 'claude \u2192 /plan <feature>',
   attachDetach: 'construct detach',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
+  detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
+  detachRefusedSeparator: 'BREACH FAILED // RECORD UNREADABLE: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so the block cannot be cut out to the byte',
+  detachRefusedOrphanBlock: 'BREACH FAILED // ORPHAN BLOCK: .git/info/exclude carries a construct block and no .construct/attach.json names what it hides',
+  detachRefusedChanged: (count: number) => `BREACH FAILED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record`,
+  detachRefusedIndexV4: 'BREACH FAILED // INDEX V4: .git/index is version 4 (prefix-compressed names) and cannot be read here',
+  detachRefusedSplitIndex: 'BREACH FAILED // SPLIT INDEX: .git/index carries a link extension and cannot be read here',
+  detachRefusedSparseIndex: 'BREACH FAILED // SPARSE INDEX: .git/index carries an sdir extension and cannot be read here',
+  detachRefusedObjectFormat: 'BREACH FAILED // UNKNOWN OBJECT FORMAT: extensions.objectFormat in .git/config is neither sha1 nor sha256',
+  detachPresentOnDisk: 'on disk',
+  detachAbsentOnDisk: 'not on disk',
+  detachAdopted: (target: string) => `adopted by the net: ${target} is tracked now; left as yours`,
+  detachAlreadyAbsent: (target: string) => `already gone: ${target}`,
+  detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach`,
+  detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty, and the exclude block in .git/info/exclude.',
+  detached: (count: number) => `JACKED OUT // NETRUN CLOSED. ${count} paths wiped.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -425,4 +455,19 @@ export const PLAIN_LORE: Lore = {
   attachThen: 'claude \u2192 /plan <feature>',
   attachDetach: 'construct detach',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
+  detachNothingAttached: 'Nothing is attached here.',
+  detachRefusedSeparator: 'Refused: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so .git/info/exclude cannot be restored byte for byte; nothing was removed. Found:',
+  detachRefusedOrphanBlock: 'Refused: .git/info/exclude carries a construct block but .construct/attach.json is missing, so what it hides cannot be told from yours:',
+  detachRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record; nothing was removed:`,
+  detachRefusedIndexV4: 'Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.',
+  detachRefusedSplitIndex: 'Refused: .git/index is a split index (link extension), which detach cannot read; nothing was removed.',
+  detachRefusedSparseIndex: 'Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.',
+  detachRefusedObjectFormat: 'Refused: extensions.objectFormat in .git/config is neither sha1 nor sha256, so .git/index cannot be read; nothing was removed.',
+  detachPresentOnDisk: 'on disk',
+  detachAbsentOnDisk: 'not on disk',
+  detachAdopted: (target: string) => `adopted: ${target} is tracked by git now and stays.`,
+  detachAlreadyAbsent: (target: string) => `already absent: ${target}`,
+  detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach and stays.`,
+  detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty, and the exclude block in .git/info/exclude.',
+  detached: (count: number) => `Detached. Removed ${count} paths.`,
 }

@@ -43,7 +43,7 @@ describe('the front page lists what the tool can do', () => {
     expect(commands.length).toBeGreaterThan(3)
     expect(commands).toContain('sync')
     expect(commands).not.toContain('inspect')
-    expect(aliases()).toEqual(['capture', 'inspect', 'jack-in'])
+    expect(aliases()).toEqual(['capture', 'inspect', 'jack-in', 'jack-out'])
   })
 
   it('names every alias where the command it stands for is documented', () => {

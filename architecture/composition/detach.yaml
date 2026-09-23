@@ -1,0 +1,65 @@
+id: detach
+title: construct detach composition
+description: >-
+  `runDetach(ui, options)` in `src/commands/detach/index.ts` is the composition root: every read —
+  the record, the exclude block, the git index, the class of each recorded file — happens before any
+  write, and each refusal leaves the tree as it found it; then the files, their emptied directories,
+  the exclude block and the record are removed in that order. Dotted edges are wiring, solid edges
+  are the flow.
+doc: architecture/detach.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: read
+    label: Read · before any write
+  - id: classify
+    label: Classify
+  - id: remove
+    label: Remove
+nodes:
+  - id: cli
+    label: construct detach (citty, alias jack-out)
+    path: src/cli.ts
+    boundary: entry
+  - id: run
+    label: runDetach
+    path: src/commands/detach/index.ts
+    boundary: entry
+  - id: record
+    label: readAttachRecord
+    path: src/commands/attach/record.ts
+    boundary: read
+  - id: exclude
+    label: pathsInExcludeBlock, removeExcludeBlock
+    path: src/commands/attach/exclude.ts
+    boundary: read
+  - id: indexreader
+    label: readTrackedPaths · .git/index, .git/config
+    path: src/commands/detach/index-reader.ts
+    boundary: read
+  - id: classify
+    label: adopted → absent → changed → remove
+    path: src/commands/detach/classify.ts
+    boundary: classify
+  - id: remove
+    label: files by sha, empty directories, exclude block, record
+    path: src/commands/detach/remove.ts
+    boundary: remove
+  - id: strategies
+    label: removeBlock
+    path: src/materialize/strategies.ts
+    boundary: remove
+  - id: directories
+    label: removeEmptyDirectories
+    path: src/commands/attach/rollback.ts
+    boundary: remove
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: record, kind: sequence}
+  - {from: run, to: exclude, kind: wires, label: block paths}
+  - {from: run, to: indexreader, kind: sequence, label: record found; unreadable index → refused}
+  - {from: indexreader, to: classify, kind: sequence, label: tracked set}
+  - {from: classify, to: remove, kind: sequence, label: no changed file}
+  - {from: remove, to: directories, kind: wires}
+  - {from: remove, to: exclude, kind: wires}
+  - {from: exclude, to: strategies, kind: wires}

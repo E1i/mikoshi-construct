@@ -107,13 +107,44 @@ function outsideTheConstructBlock(existing: string, target: string): string {
   return `${existing.slice(0, start)}${existing.slice(stop + end.length)}`
 }
 
-export function appendBlock(existing: string, block: string, target: string): string {
+export type BlockSeparator = 0 | 1 | 2
+
+export interface AppendedBlock {
+  content: string
+  separator: BlockSeparator
+}
+
+function separatorBefore(existing: string): BlockSeparator {
+  if (existing.length === 0 || existing.endsWith('\n\n'))
+    return 0
+  return existing.endsWith('\n') ? 1 : 2
+}
+
+export function appendBlockWith(existing: string, block: string, target: string): AppendedBlock {
   const [begin, end] = blockMarkers(target)
   const wrapped = `${begin}\n${preserveDiscovery(existing, withoutSecondH1(outsideTheConstructBlock(existing, target), block)).trimEnd()}\n${end}\n`
   const start = existing.indexOf(begin)
   const stop = existing.indexOf(end)
   if (start !== -1 && stop !== -1 && stop > start)
-    return `${existing.slice(0, start)}${wrapped}${existing.slice(stop + end.length).replace(/^\n/, '')}`
-  const separator = existing.length === 0 || existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n'
-  return `${existing}${separator}${wrapped}`
+    return { content: `${existing.slice(0, start)}${wrapped}${existing.slice(stop + end.length).replace(/^\n/, '')}`, separator: 0 }
+  const separator = separatorBefore(existing)
+  return { content: `${existing}${'\n'.repeat(separator)}${wrapped}`, separator }
+}
+
+export function appendBlock(existing: string, block: string, target: string): string {
+  return appendBlockWith(existing, block, target).content
+}
+
+export function isBlockSeparator(value: unknown): value is BlockSeparator {
+  return value === 0 || value === 1 || value === 2
+}
+
+export function removeBlock(existing: string, target: string, separator: BlockSeparator): string {
+  const [begin, end] = blockMarkers(target)
+  const start = existing.indexOf(begin)
+  const stop = existing.indexOf(end)
+  if (start === -1 || stop === -1 || stop < start)
+    return existing
+  const after = existing.slice(stop + end.length).replace(/^\n/, '')
+  return `${existing.slice(0, start - separator)}${after}`
 }

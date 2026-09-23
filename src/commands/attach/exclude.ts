@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
+import type { BlockSeparator } from '../../materialize/strategies.js'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { appendBlock, blockMarkers } from '../../materialize/strategies.js'
+import { appendBlockWith, blockMarkers, removeBlock } from '../../materialize/strategies.js'
 
 export const EXCLUDE_FILE = '.git/info/exclude'
 export const LEDGER_DIR = '.construct/'
 
 export interface ExcludeWrite {
   created: boolean
-  infoDirCreated: boolean
-  previous: string | null
+  separator: BlockSeparator
 }
 
 export function excludeBlockBody(carriers: string[]): string {
@@ -24,23 +24,29 @@ export function pathsInExcludeBlock(exclude: string): string[] {
   return exclude.slice(start + begin.length, stop).split('\n').map(line => line.trim()).filter(line => line !== '')
 }
 
+export function readExcludeBlockPaths(root: string): string[] {
+  const file = path.join(root, EXCLUDE_FILE)
+  return existsSync(file) ? pathsInExcludeBlock(readFileSync(file, 'utf8')) : []
+}
+
 export function writeExcludeBlock(root: string, carriers: string[]): ExcludeWrite {
   const file = path.join(root, EXCLUDE_FILE)
   const created = !existsSync(file)
-  const infoDirCreated = !existsSync(path.dirname(file))
-  const previous = created ? null : readFileSync(file, 'utf8')
+  const previous = created ? '' : readFileSync(file, 'utf8')
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, appendBlock(previous ?? '', excludeBlockBody(carriers), EXCLUDE_FILE))
-  return { created, infoDirCreated, previous }
+  const appended = appendBlockWith(previous, excludeBlockBody(carriers), EXCLUDE_FILE)
+  writeFileSync(file, appended.content)
+  return { created, separator: appended.separator }
 }
 
-export function restoreExclude(root: string, write: ExcludeWrite): void {
+export function removeExcludeBlock(root: string, separator: BlockSeparator): void {
   const file = path.join(root, EXCLUDE_FILE)
-  if (write.previous != null) {
-    writeFileSync(file, write.previous)
+  if (!existsSync(file))
+    return
+  const remaining = removeBlock(readFileSync(file, 'utf8'), EXCLUDE_FILE, separator)
+  if (remaining === '') {
+    rmSync(file)
     return
   }
-  rmSync(file, { force: true })
-  if (write.infoDirCreated)
-    rmdirSync(path.dirname(file))
+  writeFileSync(file, remaining)
 }
