@@ -889,6 +889,77 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 `doctor` — and what the report leaves for you to decide, is on its own page:
 [Upgrading a repository](/guide/upgrading).
 
+## construct attach
+
+Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
+agents and the ladder script — into a repository the construct did not write, without touching a
+tracked file. It writes six files, hides them and the ledger directory through `.git/info/exclude`,
+and records what it created in `.construct/attach.json`. No `construct.json`, no
+`construct.model.json`, no discovery markers, no harness, lint or CI files. Alias: `jack-in`.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: without a terminal it must be passed. |
+| `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
+| `--yes`, `-y` | `false` | Skip the confirmation. Needs `--harness`. |
+
+```bash
+npx mikoshi-construct attach --harness "npm test"
+```
+
+### The seven refusals
+
+Every check runs before anything is written, in this order, and a refusal creates nothing — not even
+`.construct/`:
+
+| Refusal | Plain output |
+|---|---|
+| `<dir>/.git` does not exist | `Refused: not a git repository.` |
+| `<dir>/.git` is a file (a worktree or a submodule) | `Refused: .git is a file (worktree or submodule); attach needs the .git directory.` |
+| `construct.json` exists | `Refused: this repository already carries a construct; use init or sync.` |
+| the layout is `empty` or `unknown` | `Refused: this repository's stack is not recognised.` |
+| a path attach would create already exists | `Refused: N paths attach would create already exist:` followed by the paths |
+| `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.` |
+| `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
+
+### The write order
+
+1. The exclude block: `.git/info/exclude` gains a `# construct:begin` … `# construct:end` block
+   listing `.construct/` and every carrier path, one per line. When the file does not exist, it is
+   created with only that block and the record says so.
+2. The six carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
+   `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
+   `scripts/construct/implement.workflow.mjs` — byte-identical to what `init` writes.
+3. The record, `.construct/attach.json`.
+
+The carriers are written exclusively (`wx`), in the order listed above. If one of them appears between
+the collision check and the write, attach does not write over it: it removes the files this run wrote
+(only those whose bytes are still what it wrote), the directories it created that are now empty, and
+its exclude block byte for byte, then refuses with `COLLISION` naming that path. Nothing of this run
+is left behind.
+
+### The record
+
+`.construct/attach.json` is a public format: the carried commands read `harness.command` from it
+when there is no `construct.json`, and a later `detach` removes exactly what it lists.
+
+| Field | What it holds |
+|---|---|
+| `recordVersion` | `1`. The shape of this record, separate from the CLI version. |
+| `construct` | The CLI version that attached. |
+| `attachedAt` | ISO timestamp of the run. |
+| `harness.command` | The command passed or answered. Never a default. |
+| `files` | Every carrier path with the sha256 of the bytes written. The record itself is not in it. |
+| `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
+| `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
+
+The report ends with a trailer to copy into commits, `Attached-Construct: mikoshi-construct@<version>`,
+one sentence for a pull request, and the next steps: `claude → /plan <feature>`, later
+`construct detach`.
+
+Exits `0` when it writes, `1` on any refusal, on a cancelled prompt, or when there is no terminal and
+no `--yes`.
+
 ## construct soulkill
 
 Prints what the detector sees and writes nothing. It is the same code `init` runs, so it is also how
@@ -1076,7 +1147,7 @@ construction.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. |
-| `1` | `init` was declined or failed; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `1` | `init` was declined or failed; `attach` refused, was cancelled or had no terminal; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 

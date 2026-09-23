@@ -110,6 +110,7 @@ function scripted(script: Script): { prompter: Prompter, asked: string[] } {
       projectName: () => answer('name'),
       review: () => answer('review'),
       confirm: () => answer('confirm'),
+      harnessCommand: () => Promise.resolve(null),
     },
   }
 }

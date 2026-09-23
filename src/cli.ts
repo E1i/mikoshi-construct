@@ -2,6 +2,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
+import { runAttach } from './commands/attach/index.js'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
@@ -46,6 +47,29 @@ const init = defineCommand({
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
       const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, yes: args.yes, dryRun: args.dryRun }, prompter)
       process.exitCode = result.status === 'aborted' ? 1 : 0
+    }
+    catch (error) {
+      flatlineFor(console, error)
+      process.exitCode = 1
+    }
+  },
+})
+
+const attach = defineCommand({
+  meta: { name: 'attach', description: 'Attach the /plan and /implement carriers to a repository the construct did not write, hidden through .git/info/exclude (alias: jack-in)' },
+  args: {
+    ...commonArgs,
+    harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
+    ai: { type: 'string', description: 'AI target: claude (cursor and both are refused)' },
+    yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
+  },
+  async run({ args }) {
+    const console = ui(args)
+    console.banner(VERSION, args.johnny)
+    try {
+      const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
+      const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, yes: args.yes }, prompter)
+      process.exitCode = result.status === 'done' ? 0 : 1
     }
     catch (error) {
       flatlineFor(console, error)
@@ -188,9 +212,11 @@ const main = defineCommand({
   },
   subCommands: {
     init,
+    attach,
+    'jack-in': attach,
     soulkill,
-    inspect: soulkill,
-    capture: soulkill,
+    'inspect': soulkill,
+    'capture': soulkill,
     doctor,
     sync,
     cost,

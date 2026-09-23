@@ -10,6 +10,7 @@ export interface Prompter {
   projectName: (initial: string) => Promise<string | undefined>
   review: (initial: boolean) => Promise<boolean | undefined>
   confirm: (message: string) => Promise<boolean | undefined>
+  harnessCommand: () => Promise<string | null>
 }
 
 type SingleAiTarget = Exclude<AiTarget, 'both'>
@@ -85,6 +86,15 @@ export function createClackPrompter(lore: Lore, streams: PromptStreams = {}): Pr
     },
     async confirm(message) {
       return settle(await confirm({ ...streams, message, initialValue: true }))
+    },
+    async harnessCommand() {
+      const answer = await text({
+        ...streams,
+        message: lore.askHarness,
+        validate: value => ((value ?? '').trim() === '' ? lore.harnessEmpty : undefined),
+      })
+      const value = settle(answer)
+      return value == null ? null : value.trim()
     },
   }
 }

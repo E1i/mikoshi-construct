@@ -22,7 +22,8 @@ repository's CLAUDE.md and `construct.json`.
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
    `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] } }`
-   where `harness.command` comes from `construct.json` and `harness.extra` lists any area-specific
+   where `harness.command` comes from `construct.json`, or from `.construct/attach.json` when
+   `construct.json` is absent (an attached repository), and `harness.extra` lists any area-specific
    commands CLAUDE.md names for the files the task touches (usually empty). `retryLimit` is optional
    and defaults to `0`: a rejected response is not re-asked, and the run stops with the validator's
    error so a person reads it. Each retry is a whole new agent call that repeats the agent's
@@ -65,7 +66,7 @@ repository's CLAUDE.md and `construct.json`.
    content. This log is what tunes the ladder later; workflow scripts have no filesystem access, so
    it is written here, not by the script. Nothing enforces this step: the ledger is L0, and
    `construct cost` reconciles it against the runtime instead of trusting it. `.construct/` is
-   gitignored.
+   gitignored, or excluded through `.git/info/exclude` in an attached repository.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
    files changed, and the harness tail. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed`, give the last failure excerpt. When

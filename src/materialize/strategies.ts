@@ -42,8 +42,11 @@ export function mergeJson(existing: JsonObject, incoming: JsonObject, conflicts:
   return result
 }
 
+const GITIGNORE_SYNTAX = new Set(['.gitignore', 'exclude'])
+
 export function blockMarkers(target: string): [string, string] {
-  return target.endsWith('.gitignore') ? [GITIGNORE_BEGIN, GITIGNORE_END] : [BLOCK_BEGIN, BLOCK_END]
+  const basename = target.split('/').at(-1) ?? target
+  return GITIGNORE_SYNTAX.has(basename) ? [GITIGNORE_BEGIN, GITIGNORE_END] : [BLOCK_BEGIN, BLOCK_END]
 }
 
 const DISCOVERY_OPEN = /<!-- construct:discover:([\w-]+) -->/g

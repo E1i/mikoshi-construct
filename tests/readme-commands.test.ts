@@ -23,7 +23,7 @@ function entries(): { name: string, aliasOf: string | null }[] {
     .map(line => line.trim().replace(/,$/, ''))
     .filter(line => line !== '' && !line.startsWith('//'))
     .map((line) => {
-      const [name, target] = line.split(':').map(part => part.trim())
+      const [name, target] = line.split(':').map(part => part.trim().replace(/^'(.*)'$/, '$1'))
       return { name, aliasOf: target == null || target === '' ? null : target }
     })
 }
@@ -43,7 +43,7 @@ describe('the front page lists what the tool can do', () => {
     expect(commands.length).toBeGreaterThan(3)
     expect(commands).toContain('sync')
     expect(commands).not.toContain('inspect')
-    expect(aliases()).toEqual(['capture', 'inspect'])
+    expect(aliases()).toEqual(['capture', 'inspect', 'jack-in'])
   })
 
   it('names every alias where the command it stands for is documented', () => {
