@@ -1,20 +1,24 @@
 import type { ReleaseRouteReading } from './changesets.js'
 
-export type RegistryOutcome = 'installable' | 'absent' | 'unreachable'
+export type RegistryOutcome = 'installable' | 'propagating' | 'absent' | 'unreachable'
 
 export interface RegistryRequest {
   packageName: string
   version: string
 }
 
-export type RegistryFetcher = (request: RegistryRequest) => Promise<Response>
+export interface RegistryFetchers {
+  metadata: (request: RegistryRequest) => Promise<Response>
+  tarball: (url: string) => Promise<Response>
+}
 
 export type Sleep = (milliseconds: number) => Promise<void>
 
 export interface PollOptions {
-  fetcher: RegistryFetcher
+  fetchers: RegistryFetchers
+  now: () => number
   sleep: Sleep
-  attempts: number
+  timeoutMs: number
   delayMs: number
 }
 
@@ -22,54 +26,78 @@ export const EXIT_CODE: Record<RegistryOutcome, number> = {
   installable: 0,
   absent: 1,
   unreachable: 2,
+  propagating: 3,
 }
 
-export async function fetchFromRegistry(request: RegistryRequest): Promise<Response> {
+async function fetchMetadata(request: RegistryRequest): Promise<Response> {
   const specifier = `${encodeURIComponent(request.packageName).replace('%40', '@')}/${encodeURIComponent(request.version)}`
   return fetch(`https://registry.npmjs.org/${specifier}`, { headers: { accept: 'application/json' } })
 }
 
-export async function checkVersion(request: RegistryRequest, fetcher: RegistryFetcher): Promise<RegistryOutcome> {
+async function fetchTarball(url: string): Promise<Response> {
+  return fetch(url, { method: 'HEAD' })
+}
+
+export const REGISTRY: RegistryFetchers = { metadata: fetchMetadata, tarball: fetchTarball }
+
+interface ServedVersion {
+  version?: unknown
+  dist?: { tarball?: unknown }
+}
+
+async function servedMetadata(request: RegistryRequest, fetchers: RegistryFetchers): Promise<ServedVersion | RegistryOutcome> {
   let response: Response
   try {
-    response = await fetcher(request)
+    response = await fetchers.metadata(request)
   }
   catch {
     return 'unreachable'
   }
-
   if (response.status === 404)
     return 'absent'
-
   if (!response.ok)
     return 'unreachable'
-
-  let body: unknown
   try {
-    body = await response.json()
+    return (await response.json() as ServedVersion | null) ?? 'absent'
   }
   catch {
     return 'unreachable'
   }
+}
 
-  const servedVersion = (body as { version?: unknown } | null)?.version
-  return servedVersion === request.version ? 'installable' : 'absent'
+async function tarballOutcome(url: string, fetchers: RegistryFetchers): Promise<RegistryOutcome> {
+  let response: Response
+  try {
+    response = await fetchers.tarball(url)
+  }
+  catch {
+    return 'unreachable'
+  }
+  if (response.status === 404)
+    return 'propagating'
+  return response.ok ? 'installable' : 'unreachable'
+}
+
+export async function checkVersion(request: RegistryRequest, fetchers: RegistryFetchers): Promise<RegistryOutcome> {
+  const served = await servedMetadata(request, fetchers)
+  if (typeof served === 'string')
+    return served
+  if (served.version !== request.version)
+    return 'absent'
+  const tarball = served.dist?.tarball
+  if (typeof tarball !== 'string' || tarball === '')
+    return 'unreachable'
+  return tarballOutcome(tarball, fetchers)
 }
 
 export async function pollForVersion(request: RegistryRequest, options: PollOptions): Promise<RegistryOutcome> {
-  let outcome: RegistryOutcome = 'unreachable'
-
-  for (let attempt = 1; attempt <= options.attempts; attempt++) {
-    outcome = await checkVersion(request, options.fetcher)
-
-    if (outcome === 'installable')
+  const deadline = options.now() + options.timeoutMs
+  for (;;) {
+    const outcome = await checkVersion(request, options.fetchers)
+    if (outcome === 'installable' || options.now() + options.delayMs > deadline)
       return outcome
-
-    if (attempt < options.attempts)
-      await options.sleep(options.delayMs)
+    await options.sleep(options.delayMs)
   }
-
-  return outcome
 }
 
 function pendingEvidence(reading: ReleaseRouteReading): string {
@@ -115,6 +143,13 @@ export function describeOutcome(outcome: RegistryOutcome, request: RegistryReque
 
   if (outcome === 'absent')
     return describeAbsent(specifier, reading)
+
+  if (outcome === 'propagating') {
+    return [
+      `${specifier} is published: the registry serves its metadata, but its tarball still answers 404, so it has not reached the CDN yet.`,
+      'Nothing needs to be published again. Re-run this verification in a few minutes.',
+    ].join(' ')
+  }
 
   return `The registry could not be asked about ${specifier}. Unknown is not absent — nothing is claimed about the published state.`
 }
