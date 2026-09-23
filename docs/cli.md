@@ -1227,8 +1227,8 @@ construction.
 
 | Code | Meaning |
 |---|---|
-| `0` | The command did what it said. |
-| `1` | `init` was declined or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
+| `1` | `init` was declined, had no terminal without `--yes`, or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 
