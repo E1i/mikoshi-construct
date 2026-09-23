@@ -1,77 +1,150 @@
 import type { ReleaseRoute, ReleaseRouteReading } from '../../release/changesets.js'
+import type { RegistryFetchers } from '../../release/registry.js'
 import { describe, expect, it, vi } from 'vitest'
 import { checkVersion, describeOutcome, EXIT_CODE, pollForVersion } from '../../release/registry.js'
 
 const REQUEST = { packageName: 'mikoshi-construct', version: '0.3.0' }
 
+const TARBALL = 'https://registry.npmjs.org/mikoshi-construct/-/mikoshi-construct-0.3.0.tgz'
+
 function served(version: string): Response {
-  return new Response(JSON.stringify({ version }), { status: 200, headers: { 'content-type': 'application/json' } })
+  return new Response(JSON.stringify({ version, dist: { tarball: TARBALL } }), { status: 200, headers: { 'content-type': 'application/json' } })
 }
 
 function failing(status: number): Response {
   return new Response('', { status })
 }
 
+function ok(): Response {
+  return new Response('', { status: 200 })
+}
+
+function registry(metadata: () => Promise<Response>, tarball: () => Promise<Response> = async () => ok()): RegistryFetchers & { tarballUrls: string[] } {
+  const tarballUrls: string[] = []
+  return {
+    tarballUrls,
+    metadata: async () => metadata(),
+    tarball: async (url) => {
+      tarballUrls.push(url)
+      return tarball()
+    },
+  }
+}
+
+interface FakeClock {
+  now: () => number
+  sleep: (milliseconds: number) => Promise<void>
+  slept: number[]
+}
+
+function fakeClock(): FakeClock {
+  let time = 0
+  const slept: number[] = []
+  return {
+    slept,
+    now: () => time,
+    sleep: async (milliseconds) => {
+      slept.push(milliseconds)
+      time += milliseconds
+    },
+  }
+}
+
+const THREE_MINUTES = 180_000
+const FIFTEEN_SECONDS = 15_000
+
 describe('registry query', () => {
-  it('reads a response carrying the version as installable', async () => {
-    await expect(checkVersion(REQUEST, async () => served('0.3.0'))).resolves.toBe('installable')
+  it('reads served metadata and a tarball answering 200 as installable, and asks for the tarball the metadata names', async () => {
+    const fetchers = registry(async () => served('0.3.0'))
+    await expect(checkVersion(REQUEST, fetchers)).resolves.toBe('installable')
+    expect(fetchers.tarballUrls).toEqual([TARBALL])
   })
 
-  it('reads a 404 as absent', async () => {
-    await expect(checkVersion(REQUEST, async () => failing(404))).resolves.toBe('absent')
+  it('reads served metadata with a tarball answering 404 as published but not yet on the CDN', async () => {
+    await expect(checkVersion(REQUEST, registry(async () => served('0.3.0'), async () => failing(404)))).resolves.toBe('propagating')
+  })
+
+  it('reads a tarball request that throws or fails otherwise as unreachable, never as propagating', async () => {
+    await expect(checkVersion(REQUEST, registry(async () => served('0.3.0'), async () => failing(503)))).resolves.toBe('unreachable')
+    await expect(checkVersion(REQUEST, registry(async () => served('0.3.0'), async () => {
+      throw new Error('ECONNRESET')
+    }))).resolves.toBe('unreachable')
+  })
+
+  it('reads a 404 on the metadata as absent', async () => {
+    await expect(checkVersion(REQUEST, registry(async () => failing(404)))).resolves.toBe('absent')
   })
 
   it('reads an answer without the version as absent', async () => {
-    await expect(checkVersion(REQUEST, async () => served('0.2.0'))).resolves.toBe('absent')
+    await expect(checkVersion(REQUEST, registry(async () => served('0.2.0')))).resolves.toBe('absent')
   })
 
-  it('reads a thrown request as unreachable, never as absent', async () => {
-    await expect(checkVersion(REQUEST, async () => {
+  it('reads a thrown metadata request as unreachable, never as absent', async () => {
+    await expect(checkVersion(REQUEST, registry(async () => {
       throw new Error('ENOTFOUND registry.npmjs.org')
-    })).resolves.toBe('unreachable')
+    }))).resolves.toBe('unreachable')
   })
 
-  it('reads a non-404 failure status as unreachable, never as absent', async () => {
-    await expect(checkVersion(REQUEST, async () => failing(503))).resolves.toBe('unreachable')
+  it('reads a non-404 metadata failure status as unreachable, never as absent', async () => {
+    await expect(checkVersion(REQUEST, registry(async () => failing(503)))).resolves.toBe('unreachable')
   })
 })
 
 describe('registry poller', () => {
-  it('stops at the first installable without exhausting the attempts', async () => {
-    const fetcher = vi.fn()
+  it('turns green once the tarball appears: 404 on the first requests, then 200', async () => {
+    const tarball = vi.fn()
       .mockResolvedValueOnce(failing(404))
-      .mockResolvedValueOnce(served('0.3.0'))
-    const sleep = vi.fn(async () => {})
+      .mockResolvedValueOnce(failing(404))
+      .mockResolvedValueOnce(failing(404))
+      .mockResolvedValue(ok())
+    const clock = fakeClock()
 
-    const outcome = await pollForVersion(REQUEST, { fetcher, sleep, attempts: 5, delayMs: 10 })
+    const outcome = await pollForVersion(REQUEST, { fetchers: registry(async () => served('0.3.0'), tarball), ...clock, timeoutMs: THREE_MINUTES, delayMs: FIFTEEN_SECONDS })
 
     expect(outcome).toBe('installable')
-    expect(fetcher).toHaveBeenCalledTimes(2)
-    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(tarball).toHaveBeenCalledTimes(4)
+    expect(clock.slept).toEqual([FIFTEEN_SECONDS, FIFTEEN_SECONDS, FIFTEEN_SECONDS])
   })
 
-  it('returns absent after the configured number of attempts and never sleeps after the final one', async () => {
-    const fetcher = vi.fn(async () => failing(404))
-    const sleep = vi.fn(async () => {})
+  it('turns green once the metadata appears', async () => {
+    const metadata = vi.fn()
+      .mockResolvedValueOnce(failing(404))
+      .mockResolvedValue(served('0.3.0'))
+    const clock = fakeClock()
 
-    const outcome = await pollForVersion(REQUEST, { fetcher, sleep, attempts: 3, delayMs: 10 })
+    const outcome = await pollForVersion(REQUEST, { fetchers: registry(metadata), ...clock, timeoutMs: THREE_MINUTES, delayMs: FIFTEEN_SECONDS })
 
+    expect(outcome).toBe('installable')
+    expect(metadata).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a tarball that never reaches the CDN as propagating after three minutes, without sleeping past the deadline', async () => {
+    const clock = fakeClock()
+
+    const outcome = await pollForVersion(REQUEST, { fetchers: registry(async () => served('0.3.0'), async () => failing(404)), ...clock, timeoutMs: THREE_MINUTES, delayMs: FIFTEEN_SECONDS })
+
+    expect(outcome).toBe('propagating')
+    expect(clock.now()).toBeLessThanOrEqual(THREE_MINUTES)
+    expect(clock.slept.reduce((total, milliseconds) => total + milliseconds, 0)).toBe(THREE_MINUTES)
+    expect(clock.slept.every(milliseconds => milliseconds === FIFTEEN_SECONDS)).toBe(true)
+  })
+
+  it('returns absent when the metadata never appears within the deadline', async () => {
+    const clock = fakeClock()
+    const outcome = await pollForVersion(REQUEST, { fetchers: registry(async () => failing(404)), ...clock, timeoutMs: THREE_MINUTES, delayMs: FIFTEEN_SECONDS })
     expect(outcome).toBe('absent')
-    expect(fetcher).toHaveBeenCalledTimes(3)
-    expect(sleep).toHaveBeenCalledTimes(2)
-    expect(sleep).toHaveBeenCalledWith(10)
   })
 
   it('keeps unreachable as the outcome when the registry could never be asked', async () => {
+    const clock = fakeClock()
     const outcome = await pollForVersion(REQUEST, {
-      fetcher: async () => {
+      fetchers: registry(async () => {
         throw new Error('timeout')
-      },
-      sleep: async () => {},
-      attempts: 2,
-      delayMs: 0,
+      }),
+      ...clock,
+      timeoutMs: 30_000,
+      delayMs: FIFTEEN_SECONDS,
     })
-
     expect(outcome).toBe('unreachable')
   })
 })
@@ -86,7 +159,18 @@ describe('verification report', () => {
   const UNKNOWN = reading('unknown')
 
   it('maps each outcome to its exit code', () => {
-    expect(EXIT_CODE).toEqual({ installable: 0, absent: 1, unreachable: 2 })
+    expect(EXIT_CODE).toEqual({ installable: 0, absent: 1, unreachable: 2, propagating: 3 })
+  })
+
+  it('names a published version whose tarball has not reached the CDN as published, not as absent or failed', () => {
+    for (const route of [VERSIONING, PUBLISHING, UNKNOWN]) {
+      const message = describeOutcome('propagating', REQUEST, route)
+
+      expect(message).toContain('mikoshi-construct@0.3.0 is published')
+      expect(message).toContain('not reached the CDN yet')
+      expect(message).not.toContain('not on the registry')
+      expect(message).not.toContain('failed while reporting success')
+    }
   })
 
   it('names all three states that produce the same empty answer when the tree cannot say which', () => {

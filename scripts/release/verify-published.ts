@@ -1,18 +1,19 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { readReleaseRoute } from './changesets.js'
-import { describeOutcome, EXIT_CODE, fetchFromRegistry, pollForVersion } from './registry.js'
+import { describeOutcome, EXIT_CODE, pollForVersion, REGISTRY } from './registry.js'
 
-const ATTEMPTS = 10
+const TIMEOUT_MS = 180_000
 const DELAY_MS = 15_000
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as { name: string, version: string }
 const request = { packageName: manifest.name, version: manifest.version }
 
 const outcome = await pollForVersion(request, {
-  fetcher: fetchFromRegistry,
+  fetchers: REGISTRY,
+  now: () => Date.now(),
   sleep: async milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
-  attempts: ATTEMPTS,
+  timeoutMs: TIMEOUT_MS,
   delayMs: DELAY_MS,
 })
 
