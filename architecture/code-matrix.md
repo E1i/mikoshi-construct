@@ -37,3 +37,4 @@ decision is taken.
 | Pull request | ■ | □ | · |
 |---|---|---|---|
 | #170 verify-published waits for the tarball to reach the CDN | 4 | 0 | 11 |
+| #173 detach reads recordVersion (0030, part A) | 5 | 0 | 10 |

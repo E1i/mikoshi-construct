@@ -1015,6 +1015,12 @@ before anything is removed:
 | sparse index (`sdir` extension, `index.sparse`) | `Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.` |
 | `extensions.objectFormat` neither `sha1` nor `sha256` | `Refused: extensions.objectFormat in .git/config is neither sha1 nor sha256, so .git/index cannot be read; nothing was removed.` |
 
+Two refusals are about the record itself, and both come before anything else is read. A
+`recordVersion` that is missing or not a positive integer means which build wrote the record cannot be
+told, so detach refuses and names the value it found. A `recordVersion` higher than this binary
+understands is refused the way a later `construct.json` is: the line names both versions and says to
+upgrade the CLI. Nothing is removed in either case.
+
 Two more refusals are about the exclude block rather than the index. An `excludeSeparator` that is
 missing or not `0`, `1` or `2` means the block cannot be cut out to the byte, so detach refuses, names
 the value it found and removes nothing. And when the bytes right before the block are no longer that

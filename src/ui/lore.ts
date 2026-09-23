@@ -136,6 +136,7 @@ export interface Lore {
   attachLedgerExcluded: string
   detachNothingAttached: string
   detachRefusedOrphanBlock: string
+  detachRefusedRecordVersion: string
   detachRefusedSeparator: string
   detachRefusedSeparatorMismatch: string
   detachRefusedChanged: (count: number) => string
@@ -302,6 +303,7 @@ export const LORE: Lore = {
   attachDetach: 'construct detach',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
   detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
+  detachRefusedRecordVersion: 'BREACH FAILED // RECORD UNDATED: recordVersion in .construct/attach.json is missing or not a known integer, so which build wrote it cannot be told',
   detachRefusedSeparator: 'BREACH FAILED // RECORD UNREADABLE: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so the block cannot be cut out to the byte',
   detachRefusedSeparatorMismatch: 'BREACH FAILED // BLOCK MOVED: the bytes before the construct block in .git/info/exclude are not the separator attach wrote, so cutting it out would take yours',
   detachRefusedOrphanBlock: 'BREACH FAILED // ORPHAN BLOCK: .git/info/exclude carries a construct block and no .construct/attach.json names what it hides',
@@ -461,6 +463,7 @@ export const PLAIN_LORE: Lore = {
   attachDetach: 'construct detach',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
   detachNothingAttached: 'Nothing is attached here.',
+  detachRefusedRecordVersion: 'Refused: recordVersion in .construct/attach.json is missing or not a positive integer, so which build wrote the record cannot be told; nothing was removed. Found:',
   detachRefusedSeparator: 'Refused: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so .git/info/exclude cannot be restored byte for byte; nothing was removed. Found:',
   detachRefusedSeparatorMismatch: 'Refused: the bytes before the construct block in .git/info/exclude are not the separator attach wrote (excludeSeparator), so the block cannot be cut out without taking yours; nothing was removed.',
   detachRefusedOrphanBlock: 'Refused: .git/info/exclude carries a construct block but .construct/attach.json is missing, so what it hides cannot be told from yours:',
