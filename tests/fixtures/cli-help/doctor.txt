@@ -1,0 +1,12 @@
+Check that the construct baseline and discovery are intact (construct doctor v<version>)
+
+USAGE construct doctor [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)                    
+      --plain    No colors, no lore (CI-friendly) (Default: false)
+     --johnny    Wake up, Netrunner. (Default: false)             
+       --json    Machine-readable report (Default: false)         
+
+

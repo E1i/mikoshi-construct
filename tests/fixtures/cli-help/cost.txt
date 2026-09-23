@@ -1,0 +1,13 @@
+Token usage of the /implement runs recorded for this directory (from Claude Code session data) (construct cost v<version>)
+
+USAGE construct cost [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)                    
+      --plain    No colors, no lore (CI-friendly) (Default: false)
+     --johnny    Wake up, Netrunner. (Default: false)             
+       --last    Only the most recent run (Default: false)        
+       --json    Machine-readable report (Default: false)         
+
+

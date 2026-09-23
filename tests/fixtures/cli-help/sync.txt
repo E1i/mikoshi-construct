@@ -1,0 +1,13 @@
+Classify what today's construct would change in this repository; --apply writes what it owns (construct sync v<version>)
+
+USAGE construct sync [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)                                                                                               
+      --plain    No colors, no lore (CI-friendly) (Default: false)                                                                           
+     --johnny    Wake up, Netrunner. (Default: false)                                                                                        
+       --json    Machine-readable report (Default: false)                                                                                    
+      --apply    Write the paths the construct owns — the only way sync writes; never a conflict, a removal or a merged file (Default: false)
+
+

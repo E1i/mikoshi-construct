@@ -1,0 +1,14 @@
+Attach the /plan and /implement carriers to a repository the construct did not write, hidden through .git/info/exclude (alias: jack-in) (construct attach v<version>)
+
+USAGE construct attach [OPTIONS] 
+
+OPTIONS
+
+          --dir=<dir>    Target directory (Default: .)                                           
+              --plain    No colors, no lore (CI-friendly) (Default: false)                       
+             --johnny    Wake up, Netrunner. (Default: false)                                    
+  --harness=<harness>    The harness command the ladder verifies with; nothing is assumed        
+            --ai=<ai>    AI target: claude (cursor and both are refused)                         
+            -y, --yes    Non-interactive: skip the confirmation; needs --harness (Default: false)
+
+

@@ -1,0 +1,18 @@
+Materialize the construct: architecture, contracts, harness, AI instructions (construct init v<version>)
+
+USAGE construct init [OPTIONS] 
+
+OPTIONS
+
+                   --dir=<dir>    Target directory (Default: .)                                            
+                       --plain    No colors, no lore (CI-friendly) (Default: false)                        
+                      --johnny    Wake up, Netrunner. (Default: false)                                     
+             --preset=<preset>    Preset: node-backend | node-frontend | node-library | monorepo           
+                     --ai=<ai>    AI target: claude | cursor | both (default: claude)                      
+                 --name=<name>    Project name (defaults to the directory name)                            
+             --review=<review>    AI code review on pull requests: claude | none (default: none)           
+  --reviewModel=<review_model>    Model for the review workflow (default: claude-sonnet-5)                 
+                     -y, --yes    Non-interactive: take defaults and skip the confirmation (Default: false)
+                      --dryRun    Print the plan, write nothing (Default: false)                           
+
+
