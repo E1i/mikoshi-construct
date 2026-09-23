@@ -935,13 +935,17 @@ Every check runs before anything is written, in this order, and a refusal create
 The carriers are written exclusively (`wx`), in the order listed above. If one of them appears between
 the collision check and the write, attach does not write over it: it removes the files this run wrote
 (only those whose bytes are still what it wrote), the directories it created that are now empty, and
-its exclude block byte for byte, then refuses with `COLLISION` naming that path. Nothing of this run
-is left behind.
+its block from `.git/info/exclude` together with exactly the separator it added, so the file is byte
+for byte what it was (deleted only when nothing else is left in it), then refuses with `COLLISION`
+naming that path. Nothing of this run is left behind, with one exception it says out loud: if the
+bytes before its block changed in that window, the block stays rather than a byte of yours going,
+and `construct detach` names it.
 
 ### The record
 
 `.construct/attach.json` is a public format: the carried commands read `harness.command` from it
-when there is no `construct.json`, and a later `detach` removes exactly what it lists.
+when there is no `construct.json`, and [`construct detach`](#construct-detach) removes exactly what it
+lists.
 
 | Field | What it holds |
 |---|---|
@@ -952,6 +956,7 @@ when there is no `construct.json`, and a later `detach` removes exactly what it 
 | `files` | Every carrier path with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
+| `excludeSeparator` | How many newlines (`0`, `1` or `2`) attach put before its block in `.git/info/exclude`. `detach` removes the block together with exactly that many, which is what makes the file byte for byte what it was; any other value is refused. |
 
 The report ends with a trailer to copy into commits, `Attached-Construct: mikoshi-construct@<version>`,
 one sentence for a pull request, and the next steps: `claude → /plan <feature>`, later
@@ -959,6 +964,76 @@ one sentence for a pull request, and the next steps: `claude → /plan <feature>
 
 Exits `0` when it writes, `1` on any refusal, on a cancelled prompt, or when there is no terminal and
 no `--yes`.
+
+## construct detach
+
+The inverse of `attach`: removes what `.construct/attach.json` lists and nothing else. It reads
+everything before it writes anything, so a refusal leaves the tree exactly as it found it. Alias:
+`jack-out`. There is no `--force`.
+
+```bash
+npx mikoshi-construct detach
+```
+
+### The three states
+
+| State | What detach does | Exit |
+|---|---|---|
+| no record and no construct block in `.git/info/exclude` | prints `Nothing is attached here.` and writes nothing | `0` |
+| a construct block in `.git/info/exclude` and no record | refuses: what the block hides cannot be told from yours. Each path in the block is printed marked `on disk` or `not on disk`. Nothing is written | `1` |
+| a record | proceeds; a record without a block makes the block removal a no-op | see below |
+
+### The four file classes
+
+With a record, detach reads the tracked set from `.git/index` and classifies every recorded file, in
+this order, taking the first class that matches:
+
+| Class | Test | What happens |
+|---|---|---|
+| adopted | the path is in the git index (you committed it with `git add -f`) | named, not removed, not counted; its directory stays |
+| already absent | the path is not on disk | named, not removed, not counted |
+| changed | the bytes on disk hash differently from the record | the whole run refuses, listing the changed paths; nothing is removed |
+| to remove | the bytes are what attach wrote | removed |
+
+If nothing is changed, detach removes the files to remove, then the recorded directories that are now
+empty (deepest first), then the block it added to `.git/info/exclude` (the file itself only when
+nothing else is left in it), then `.construct/attach.json` and `.construct/` when it is empty. A file
+inside a recorded directory that the record does not list — `.construct/runs.jsonl`,
+`.claude/settings.local.json` — is never deleted; its directory stays and it is named as left behind.
+Once the exclude block is gone such a file is an ordinary untracked path, so `git status` shows it.
+
+### The four index refusals
+
+The tracked set is read from `.git/index` directly; the CLI runs no `git`. Index versions 2 and 3 are
+read, with `sha1` and `sha256` object formats. Four shapes are refused, each with its own reason,
+before anything is removed:
+
+| Index | Plain output |
+|---|---|
+| version 4 (`index.version 4` or `feature.manyFiles`) | `Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.` |
+| split index (`link` extension, `core.splitIndex`) | `Refused: .git/index is a split index (link extension), which detach cannot read; nothing was removed.` |
+| sparse index (`sdir` extension, `index.sparse`) | `Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.` |
+| `extensions.objectFormat` neither `sha1` nor `sha256` | `Refused: extensions.objectFormat in .git/config is neither sha1 nor sha256, so .git/index cannot be read; nothing was removed.` |
+
+Two more refusals are about the exclude block rather than the index. An `excludeSeparator` that is
+missing or not `0`, `1` or `2` means the block cannot be cut out to the byte, so detach refuses, names
+the value it found and removes nothing. And when the bytes right before the block are no longer that
+many newlines (a blank line you deleted by hand, say), cutting the block out would take a byte of
+yours, so detach refuses and removes nothing; the block is checked before the first removal.
+
+`git update-index --index-version 2` and `git update-index --no-split-index` return an index detach
+can read; a sparse index expands with `git sparse-checkout disable` or `git config index.sparse false`
+followed by any command that rewrites the index.
+
+### The report
+
+One `- path` line per removed path, files then directories; then every adopted, already-absent and
+left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
+once empty, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
+and directories actually removed. On the six carriers into a repository with none of their
+directories, N is 12.
+
+Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 
 ## construct soulkill
 
@@ -1147,7 +1222,7 @@ construction.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. |
-| `1` | `init` was declined or failed; `attach` refused, was cancelled or had no terminal; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `1` | `init` was declined or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 

@@ -2,6 +2,7 @@ import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { Prompter } from '../../ui/prompts.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
+import type { Rollback } from './rollback.js'
 import path from 'node:path'
 import { sha256 } from '../../manifest.js'
 import { VERSION } from '../../version.js'
@@ -13,10 +14,12 @@ import { rollbackAttach } from './rollback.js'
 import { writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
-export { EXCLUDE_FILE, pathsInExcludeBlock } from './exclude.js'
+export { applyExcludeRemoval, EXCLUDE_FILE, pathsInExcludeBlock, planExcludeRemoval, readExcludeBlockPaths } from './exclude.js'
+export type { ExcludeRemoval } from './exclude.js'
 export { ATTACH_RECORD_FILE, readAttachRecord } from './record.js'
 export type { AttachRecord } from './record.js'
 export type { AttachRefusalReason } from './refusals.js'
+export { removeEmptyDirectories } from './rollback.js'
 
 export interface AttachOptions {
   dir: string
@@ -44,16 +47,18 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, paths: string[]) =>
   'cursor': lore => lore.attachRefusedCursor,
 }
 
-function refused(ui: Ui, refusal: AttachRefusal, rolledBack: string[] = []): AttachResult {
+function refused(ui: Ui, refusal: AttachRefusal, rollback: Rollback = { removed: [], excludeKept: false }): AttachResult {
   ui.flatline(REFUSAL_LINE[refusal.reason](ui.lore, refusal.paths))
   for (const target of refusal.paths)
     ui.line(`    ${ui.theme.dim(target)}`)
-  if (rolledBack.length > 0 || refusal.rolledBack === true) {
-    ui.line(ui.theme.dim(`  ${ui.lore.attachRolledBack(rolledBack.length)}`))
-    for (const target of rolledBack)
+  if (refusal.rolledBack === true) {
+    ui.line(ui.theme.dim(`  ${ui.lore.attachRolledBack(rollback.removed.length)}`))
+    for (const target of rollback.removed)
       ui.line(`  ${ui.theme.dim('-')} ${ui.theme.dim(target)}`)
+    if (rollback.excludeKept)
+      ui.glitch(ui.lore.attachBlockKept)
   }
-  return { status: 'refused', refusal: refusal.reason, created: [], rolledBack }
+  return { status: 'refused', refusal: refusal.reason, created: [], rolledBack: rollback.removed }
 }
 
 function aborted(): AttachResult {
@@ -92,8 +97,8 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   const directories = directoriesToCreate(root, targets)
   const write = writeCarriersExclusively(root, ops)
   if (write.collided != null) {
-    const rolledBack = rollbackAttach(root, { written: write.written, directories, exclude })
-    return refused(ui, { reason: 'collision', paths: [write.collided], rolledBack: true }, rolledBack)
+    const rollback = rollbackAttach(root, { written: write.written, directories, separator: exclude.separator })
+    return refused(ui, { reason: 'collision', paths: [write.collided], rolledBack: true }, rollback)
   }
   const written = write.written
   writeAttachRecord(root, {
@@ -104,6 +109,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     files: Object.fromEntries(written.map(op => [op.target, sha256(op.content)])),
     directories,
     excludeCreated: exclude.created,
+    excludeSeparator: exclude.separator,
   })
 
   ui.ok(ui.lore.attached)

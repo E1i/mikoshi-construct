@@ -2,11 +2,13 @@ import type { Ui, Writer } from '../src/ui/console.js'
 import type { Prompter } from '../src/ui/prompts.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach } from '../src/commands/attach/index.js'
+import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { runInit } from '../src/commands/init.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { ATTACH_CARRIERS, getPreset, groupsFor } from '../src/presets/index.js'
@@ -130,6 +132,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     expect(Date.parse(record?.attachedAt ?? '')).not.toBeNaN()
     expect(record?.harness).toEqual({ command: HARNESS })
     expect(record?.excludeCreated).toBe(false)
+    expect(record?.excludeSeparator).toBe(1)
 
     const files = Object.keys(record?.files ?? {}).sort()
     expect(files).toEqual([...ATTACH_CARRIERS.targets].sort())
@@ -160,6 +163,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
     expect(result.status).toBe('done')
     expect(readAttachRecord(dir)?.excludeCreated).toBe(true)
+    expect(readAttachRecord(dir)?.excludeSeparator).toBe(0)
     expect(porcelain(dir)).toBe('')
   })
 })
@@ -299,4 +303,28 @@ describe('a carrier path that appears after the collision check is never overwri
       expect(output()).toContain(race.target)
     })
   }
+})
+
+describe('the rollback removes only the block this run added to .git/info/exclude', () => {
+  it('keeps a line appended by hand after the block when the file did not exist before', () => {
+    const dir = fixture()
+    rmSync(path.join(dir, '.git/info'), { recursive: true })
+    const exclude = writeExcludeBlock(dir, [...ATTACH_CARRIERS.targets])
+    appendFileSync(path.join(dir, EXCLUDE_FILE), 'mine/\n')
+    rollbackAttach(dir, { written: [], directories: [], separator: exclude.separator })
+    expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toBe('mine/\n')
+  })
+
+  it('leaves the block alone and says so when the bytes before it are no longer the separator it wrote', () => {
+    const dir = fixture()
+    const exclude = writeExcludeBlock(dir, [...ATTACH_CARRIERS.targets])
+    const file = path.join(dir, EXCLUDE_FILE)
+    const edited = readFileSync(file, 'utf8').replace('\n\n# construct:begin', '\n# construct:begin')
+    writeFileSync(file, edited)
+
+    const rollback = rollbackAttach(dir, { written: [], directories: [], separator: exclude.separator })
+
+    expect(rollback.excludeKept).toBe(true)
+    expect(readFileSync(file, 'utf8')).toBe(edited)
+  })
 })

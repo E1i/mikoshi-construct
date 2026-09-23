@@ -151,6 +151,7 @@ with a named check, not a second fix.
 |---|---|
 | `construct init` | Detect, configure, materialize. `--yes --preset node-backend\|node-frontend\|node-library\|monorepo --ai claude\|cursor\|both --review claude --dir . --dry-run` |
 | `construct attach` | Bring `/plan`, `/implement`, the three agents and the ladder into a repository the construct did not write, hidden through `.git/info/exclude`; never touches a tracked file (`--harness <command>`, `--yes`; alias `jack-in`) |
+| `construct detach` | Remove exactly what `attach` recorded — its files by hash, their emptied directories, the exclude block and the record — and nothing else; refuses when a carrier was changed (alias `jack-out`) |
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
 | `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
@@ -194,6 +195,7 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 | Engram | The record `init` cut into `construct.json`: what the construct wrote, and the version that wrote it |
 | Braindance | `construct sync`: replaying that engram against today's templates and reporting where the two disagree |
 | Jack in | `construct attach`: the agent carriers alone, into a repository the construct did not write, hidden from git and recorded in `.construct/attach.json` |
+| Jack out | `construct detach`: the inverse of jack in — removes what the record lists, leaves a carrier git has adopted or a file attach did not write, and reports each by name |
 | Breach Protocol | The attach procedure: the seven refusals it runs, in order, before touching anything — `BREACH FAILED` names the one that fired |
 | Relic write | `construct sync --apply`: the one write into a repository the construct did not create |
 | Blackwall | Where a construct block whose template variant cannot be established sits — not yours, not ours, and nothing is written there |

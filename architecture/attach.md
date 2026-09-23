@@ -28,7 +28,7 @@ flowchart LR
     strategies["appendBlock, gitignore markers"]
     apply["writeCarriersExclusively (wx)"]
     record[".construct/attach.json"]
-    rollback["rollbackAttach · own files by sha, exclude restored"]
+    rollback["rollbackAttach · own files by sha, exclude restored byte for byte"]
   end
   cli --> run
   run --> refusals

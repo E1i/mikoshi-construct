@@ -12,6 +12,7 @@ export interface AttachRecord {
   files: Record<string, string>
   directories: string[]
   excludeCreated: boolean
+  excludeSeparator: number
 }
 
 export function readAttachRecord(root: string): AttachRecord | null {

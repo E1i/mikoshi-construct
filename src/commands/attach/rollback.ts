@@ -1,21 +1,38 @@
 import type { FileOp } from '../../materialize/plan.js'
-import type { ExcludeWrite } from './exclude.js'
+import type { BlockSeparator } from '../../materialize/strategies.js'
 import { existsSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { sha256 } from '../../manifest.js'
-import { restoreExclude } from './exclude.js'
+import { applyExcludeRemoval, planExcludeRemoval } from './exclude.js'
 
 export interface RollbackInput {
   written: FileOp[]
   directories: string[]
-  exclude: ExcludeWrite
+  separator: BlockSeparator
 }
 
 function stillWhatThisRunWrote(absolute: string, op: FileOp): boolean {
   return existsSync(absolute) && sha256(readFileSync(absolute, 'utf8')) === sha256(op.content)
 }
 
-export function rollbackAttach(root: string, input: RollbackInput): string[] {
+export function removeEmptyDirectories(root: string, directories: string[]): string[] {
+  const removed: string[] = []
+  for (const directory of [...directories].reverse()) {
+    const absolute = path.join(root, directory)
+    if (!existsSync(absolute) || readdirSync(absolute).length > 0)
+      continue
+    rmdirSync(absolute)
+    removed.push(directory)
+  }
+  return removed
+}
+
+export interface Rollback {
+  removed: string[]
+  excludeKept: boolean
+}
+
+export function rollbackAttach(root: string, input: RollbackInput): Rollback {
   const removed: string[] = []
   for (const op of input.written) {
     const absolute = path.join(root, op.target)
@@ -24,11 +41,8 @@ export function rollbackAttach(root: string, input: RollbackInput): string[] {
     rmSync(absolute)
     removed.push(op.target)
   }
-  for (const directory of [...input.directories].reverse()) {
-    const absolute = path.join(root, directory)
-    if (existsSync(absolute) && readdirSync(absolute).length === 0)
-      rmdirSync(absolute)
-  }
-  restoreExclude(root, input.exclude)
-  return removed
+  removeEmptyDirectories(root, input.directories)
+  const exclude = planExcludeRemoval(root, input.separator)
+  applyExcludeRemoval(root, exclude)
+  return { removed, excludeKept: exclude.kind === 'mismatch' }
 }

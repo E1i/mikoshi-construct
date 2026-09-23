@@ -127,12 +127,29 @@ export interface Lore {
   attachRefusedNoHarness: string
   attachRefusedCursor: string
   attachRolledBack: (count: number) => string
+  attachBlockKept: string
   attached: string
   attachTrailer: (version: string) => string
   attachPullRequest: (version: string) => string
   attachThen: string
   attachDetach: string
   attachLedgerExcluded: string
+  detachNothingAttached: string
+  detachRefusedOrphanBlock: string
+  detachRefusedSeparator: string
+  detachRefusedSeparatorMismatch: string
+  detachRefusedChanged: (count: number) => string
+  detachRefusedIndexV4: string
+  detachRefusedSplitIndex: string
+  detachRefusedSparseIndex: string
+  detachRefusedObjectFormat: string
+  detachPresentOnDisk: string
+  detachAbsentOnDisk: string
+  detachAdopted: (target: string) => string
+  detachAlreadyAbsent: (target: string) => string
+  detachLeftBehind: (target: string) => string
+  detachBookkeeping: string
+  detached: (count: number) => string
 }
 
 function policyEntries(added: { dir: string, allowed: string[] }[]): string {
@@ -277,12 +294,29 @@ export const LORE: Lore = {
   attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
   attachRefusedCursor: 'BREACH FAILED // CURSOR OUT OF SCOPE: alwaysApply rules govern the whole tree',
   attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
+  attachBlockKept: 'Block left in .git/info/exclude: the bytes before it are no longer what this run wrote, so it was not cut out. construct detach will name it.',
   attached: 'JACKED IN // NETRUN STARTED',
   attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
   attachThen: 'claude \u2192 /plan <feature>',
   attachDetach: 'construct detach',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
+  detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
+  detachRefusedSeparator: 'BREACH FAILED // RECORD UNREADABLE: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so the block cannot be cut out to the byte',
+  detachRefusedSeparatorMismatch: 'BREACH FAILED // BLOCK MOVED: the bytes before the construct block in .git/info/exclude are not the separator attach wrote, so cutting it out would take yours',
+  detachRefusedOrphanBlock: 'BREACH FAILED // ORPHAN BLOCK: .git/info/exclude carries a construct block and no .construct/attach.json names what it hides',
+  detachRefusedChanged: (count: number) => `BREACH FAILED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record`,
+  detachRefusedIndexV4: 'BREACH FAILED // INDEX V4: .git/index is version 4 (prefix-compressed names) and cannot be read here',
+  detachRefusedSplitIndex: 'BREACH FAILED // SPLIT INDEX: .git/index carries a link extension and cannot be read here',
+  detachRefusedSparseIndex: 'BREACH FAILED // SPARSE INDEX: .git/index carries an sdir extension and cannot be read here',
+  detachRefusedObjectFormat: 'BREACH FAILED // UNKNOWN OBJECT FORMAT: extensions.objectFormat in .git/config is neither sha1 nor sha256',
+  detachPresentOnDisk: 'on disk',
+  detachAbsentOnDisk: 'not on disk',
+  detachAdopted: (target: string) => `adopted by the net: ${target} is tracked now; left as yours`,
+  detachAlreadyAbsent: (target: string) => `already gone: ${target}`,
+  detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach`,
+  detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty, and the exclude block in .git/info/exclude.',
+  detached: (count: number) => `JACKED OUT // NETRUN CLOSED. ${count} paths wiped.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -419,10 +453,27 @@ export const PLAIN_LORE: Lore = {
   attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
   attachRefusedCursor: 'Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.',
   attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,
+  attachBlockKept: 'The block this run added to .git/info/exclude was left in place: the bytes before it are no longer what this run wrote, so cutting it out would take yours. construct detach will name it.',
   attached: 'Attached to repository.',
   attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
   attachThen: 'claude \u2192 /plan <feature>',
   attachDetach: 'construct detach',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
+  detachNothingAttached: 'Nothing is attached here.',
+  detachRefusedSeparator: 'Refused: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so .git/info/exclude cannot be restored byte for byte; nothing was removed. Found:',
+  detachRefusedSeparatorMismatch: 'Refused: the bytes before the construct block in .git/info/exclude are not the separator attach wrote (excludeSeparator), so the block cannot be cut out without taking yours; nothing was removed.',
+  detachRefusedOrphanBlock: 'Refused: .git/info/exclude carries a construct block but .construct/attach.json is missing, so what it hides cannot be told from yours:',
+  detachRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record; nothing was removed:`,
+  detachRefusedIndexV4: 'Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.',
+  detachRefusedSplitIndex: 'Refused: .git/index is a split index (link extension), which detach cannot read; nothing was removed.',
+  detachRefusedSparseIndex: 'Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.',
+  detachRefusedObjectFormat: 'Refused: extensions.objectFormat in .git/config is neither sha1 nor sha256, so .git/index cannot be read; nothing was removed.',
+  detachPresentOnDisk: 'on disk',
+  detachAbsentOnDisk: 'not on disk',
+  detachAdopted: (target: string) => `adopted: ${target} is tracked by git now and stays.`,
+  detachAlreadyAbsent: (target: string) => `already absent: ${target}`,
+  detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach and stays.`,
+  detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty, and the exclude block in .git/info/exclude.',
+  detached: (count: number) => `Detached. Removed ${count} paths.`,
 }
