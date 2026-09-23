@@ -26,6 +26,70 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-23 · Pre-registered predictions across an attach and detach pair
+
+### What was done
+
+Before code, predictions were written for two pull requests, `construct attach` and `construct detach`,
+and each was labelled after its run as confirmed, refuted or not checked. No label was explained after
+the fact. Seven rows under six numbers; the third prediction had two parts.
+
+| # | Subject | Label |
+|---|---|---|
+| P1 | an attach interrupted between its files and its record → detach refuses and prints the block with each path marked on disk or not | confirmed; the wording was corrected by review before the run, from "prints the block, not the paths" |
+| P2 | one changed carrier of N → nothing removed | confirmed |
+| P3-A1 | attach writing over a tracked file → acceptance red | confirmed, by half: the target-set assertion turned red, the create-only assertion did not |
+| P3-A4 | detach leaving empty directories → the round trip is red only if its snapshots list directories | confirmed |
+| P4 | without "no record, no right to remove", detach removes `.construct/` wholesale | confirmed |
+| P5 | the collision check after the exclude write → the refusal acceptance red only through the exclude bytes | confirmed for that acceptance; a race test outside it also turned red, on the shape of the failure, which was not predicted |
+| P6 | an independently drawn rule matrix has a cell its reference does not support | labelled confirmed by review; the comparison it rests on is in neither pull request |
+
+P1 through P4 are in the detach pull request's description. P3-A1 and P5 ran on the attach pull
+request and are recorded only in the session that ran them, because that pull request's description
+carries the detach text instead of its own.
+
+### Who produced what
+
+- **A measurement before planning** found that a carried command writes a file attach never records:
+  the `/implement` skill appends to `.construct/runs.jsonl`. It drew two implications in example form
+  — attach must exclude `.construct/` whole, and detach keeps the ledger and names it. Review added a
+  second example from outside the measurement, `.claude/settings.local.json`, turned the second
+  implication into a named rule, *no record, no right to remove*, and separated `.construct/` from the
+  record as a declared zone of visibility.
+- **Five brief criteria were found false and replaced aloud.** Three were written by the reviewer:
+  a ladder script assumed to read files, found false by a premise check before its run; a count of 11
+  that contradicted the brief's own rule that an adopted file keeps its directory, measured as 10; and
+  a prediction worded against the data it described, corrected by the reviewer before the run. Two
+  were written by the planning session: that git reports a directory no pattern names as ignored, and
+  that removing a block is byte-exact for every prior content. Both were measured false by the
+  implementer inside a run. Every one of the five came from whoever wrote the brief, which is the
+  pattern recorded in the entry *Six stops on a false premise, in one night*.
+- **A non-injective append** — `x`, `x\n` and `x\n\n` gave the same bytes once a block followed them
+  — was found by the implementer, whose first rung stopped with the question. The architect answered
+  it with a canonical form that normalised the owner's bytes; review rejected it and had the separator
+  recorded instead. A further review question found that the first exact removal cut the recorded
+  number of bytes without looking at them, and the final version refuses unless those bytes, and the
+  separator the remainder would need, are what was recorded.
+
+### Defect forms seen
+
+- **One label, two questions.** In the rule matrix drawn after the attach run, *attribution* was read
+  as "who produced the knowledge" in one cell and as "who authored the file" in another.
+- **A label set by the implementation is a declaration, not a witness.** The `create` action on a
+  planned operation is assigned by the code under test, and a mutant assigned it to its own write.
+
+### Candidate rule, not adopted
+
+An acceptance assertion reads a value the implementation under test did not set itself. Two instances,
+both from the attach pull request: the `create` label, and the race test's first form, which asserted
+how attach failed rather than what it left. It needs one from elsewhere.
+
+**Boundary.** Two pull requests in one day, one reviewer, one planning session and one implementer
+per run. Seven labels are not a calibration of how often pre-registered predictions hold, and the
+five replaced criteria are not a rate of defects per brief. What the entry supports is that writing
+down *which* assertion turns red before the run exposed two criteria whose first form could not tell
+a wrong implementation apart.
+
 ## 2026-09-22 · A true output read for the wrong relation, and the refusal that stopped it
 
 A false premise entered a task brief from the reviewing session, survived the owner re-running the
