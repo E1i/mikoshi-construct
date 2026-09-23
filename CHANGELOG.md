@@ -1,5 +1,11 @@
 # mikoshi-construct
 
+## 0.17.2
+
+### Patch Changes
+
+- [#178](https://github.com/E1i/mikoshi-construct/pull/178) [`3b5bccd`](https://github.com/E1i/mikoshi-construct/commit/3b5bccde04aab95f5fba1d4d71e4c4af58cdb8f6) Thanks [@E1i](https://github.com/E1i)! - The detected facts that `soulkill`, `inspect`, `capture` and `init` print label the Node major as `CLI runtime` and say it is the Node running construct, not something read from the repository. The line used to read `Runtime`, which looked like a fact about the project.
+
 ## 0.17.1
 
 ### Patch Changes
