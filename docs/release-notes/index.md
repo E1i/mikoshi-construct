@@ -4,6 +4,55 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.17.0
+
+### Minor Changes
+
+- [#166](https://github.com/E1i/mikoshi-construct/pull/166) [`66597f2`](https://github.com/E1i/mikoshi-construct/commit/66597f230514519a1f0598e0269ebf0709446102) Thanks [@E1i](https://github.com/E1i)! - `construct attach` (alias `jack-in`): the reasoning-budget carriers for a repository the construct did not write
+  
+  A repository with its own agent configuration and often a different package manager can now take
+  only the carriers of the reasoning-budget discipline — the `/plan` command, the `/implement` skill,
+  the three agents and the ladder script — without a construct. `attach` writes those six files, hides
+  them and `.construct/` through `.git/info/exclude`, and records what it created in
+  `.construct/attach.json`: the harness command, the sha256 of each file, the directories it made and
+  whether it created the exclude file. It never modifies a tracked file; `git status` is as clean after
+  it as before.
+  
+  Seven refusals run before anything is written, in a fixed order, and each one creates nothing: no
+  `.git`, a `.git` that is a file, a `construct.json` already here, a stack the detector does not
+  recognise, a carrier path that already exists, `--yes` without `--harness`, and `--ai cursor` or
+  `both`. Nothing is assumed about the harness: without `--harness` the command asks, and without a
+  terminal it refuses.
+  
+  The carried commands read the record. The `/implement` skill takes `harness.command` from
+  `.construct/attach.json` when there is no `construct.json`, the harness and architect agents accept a
+  git toplevel that holds either record, and the ladder script no longer defaults the harness command
+  to `pnpm run quality`: a run with no `args.harness.command` returns `blocked` with a question and
+  calls no agent.
+  
+  The carriers are written exclusively (`wx`). A carrier that appears between the collision check and
+  the write is never overwritten: attach removes what this run wrote, restores `.git/info/exclude` byte
+  for byte and refuses with `COLLISION`.
+  
+  A later `detach` removes exactly what the record lists.
+
+- [#167](https://github.com/E1i/mikoshi-construct/pull/167) [`edbb648`](https://github.com/E1i/mikoshi-construct/commit/edbb648d63c6b92761542bddf800c15545473e97) Thanks [@E1i](https://github.com/E1i)! - `construct detach` (alias `jack-out`): the inverse of `attach`
+  
+  Removes exactly what `.construct/attach.json` lists and nothing else: the recorded files whose bytes
+  are still what attach wrote, the recorded directories that emptied, the block attach added to
+  `.git/info/exclude`, and the record. Every read happens before any write. A carrier you committed
+  with `git add -f` is adopted and stays; a carrier already gone is named; a carrier whose bytes changed
+  refuses the whole run with nothing removed. A file attach did not write — the ledger
+  `.construct/runs.jsonl`, a local `.claude/settings.local.json` — is never deleted and is named as left
+  behind. There is no `--force`.
+  
+  The tracked set is read from `.git/index` directly, versions 2 and 3, `sha1` and `sha256`; the CLI
+  still runs no `git`. Four index shapes are refused with their own reason before anything is removed:
+  version 4, a split index, a sparse index, and an object format that is neither `sha1` nor `sha256`.
+  
+  Attach's rollback now removes the block it added to `.git/info/exclude` through the same inverse
+  instead of restoring the file from memory, so a line appended into the file in the meantime survives.
+
 ## 0.16.4
 
 ### Patch Changes
