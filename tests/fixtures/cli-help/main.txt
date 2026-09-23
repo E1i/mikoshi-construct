@@ -1,0 +1,21 @@
+mikoshi-construct — bootstrap for AI-native software projects (construct v<version>)
+
+USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|graph
+
+COMMANDS
+
+      init    Materialize the construct: architecture, contracts, harness, AI instructions                                                              
+    attach    Attach the /plan and /implement carriers to a repository the construct did not write, hidden through .git/info/exclude (alias: jack-in)   
+   jack-in    Attach the /plan and /implement carriers to a repository the construct did not write, hidden through .git/info/exclude (alias: jack-in)   
+    detach    Remove what attach wrote and nothing else: the recorded files, their empty directories, the exclude block and the record (alias: jack-out)
+  jack-out    Remove what attach wrote and nothing else: the recorded files, their empty directories, the exclude block and the record (alias: jack-out)
+  soulkill    Extract the facts about a repository without writing anything (alias: inspect, capture)                                                   
+   inspect    Extract the facts about a repository without writing anything (alias: inspect, capture)                                                   
+   capture    Extract the facts about a repository without writing anything (alias: inspect, capture)                                                   
+    doctor    Check that the construct baseline and discovery are intact                                                                                
+      sync    Classify what today's construct would change in this repository; --apply writes what it owns                                              
+      cost    Token usage of the /implement runs recorded for this directory (from Claude Code session data)                                            
+     graph    Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout                                               
+
+Use construct <command> --help for more information about a command.
+

@@ -1,0 +1,11 @@
+Remove what attach wrote and nothing else: the recorded files, their empty directories, the exclude block and the record (alias: jack-out) (construct detach v<version>)
+
+USAGE construct detach [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)                    
+      --plain    No colors, no lore (CI-friendly) (Default: false)
+     --johnny    Wake up, Netrunner. (Default: false)             
+
+
