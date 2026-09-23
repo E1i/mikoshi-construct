@@ -48,3 +48,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0026](0026-which-packages-exist-is-derived-what-they-may-import-is-recorded.md) | Which packages exist is derived; what each package may import is recorded | L3 test |
 | [0027](0027-an-acceptance-is-red-before-the-implementation-exists.md) | An acceptance is red before the implementation exists | L1 review |
 | [0028](0028-a-model-ahead-of-the-reader-is-a-state.md) | A model from a later build is a state this binary names | L3 test |
+| [0029](0029-an-acceptance-is-red-under-a-named-wrong-implementation.md) | An acceptance criterion is shown red under a named plausible wrong implementation | L1 review |
