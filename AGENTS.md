@@ -148,12 +148,11 @@ here.
   `sync` one. `theRecordItselfMayReadBothHalves` restores the second of those for `src/manifest.ts`,
   which is the module that owns both branches.
 
-  One file is exempt from `spawnPolicy` entirely: `src/detect/package-manager.ts`, which carries the
-  single spawn. ESLint's `ignores` removes the whole config object rather than one selector from it, so
-  the code-loading restrictions are off there too — resolving the config for that file yields only the
-  two antfu base restrictions. It is therefore the one place under `src/` where lint would not stop a
-  dynamic `import()`. It contains none today and nothing mechanical keeps it that way; the file is
-  short and it is the file to read first when the spawn boundary is under review.
+  `src/detect/package-manager.ts` carries the single spawn, and `thePnpmProbeMaySpawnAndNothingElse`
+  gives it the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
+  because ESLint's `ignores` removes the whole config object rather than one selector from it.
+  Code loading, `createRequire` and the antfu base restrictions stay forbidden there, and
+  `tests/dependency-policy.test.ts` lints one sample per form against that file.
 
   `tests/dependency-policy.test.ts` resolves the config per file, lints one source sample per forbidden
   form, and fails when a source file that names an internal import falls outside every boundary — so a

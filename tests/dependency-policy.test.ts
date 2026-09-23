@@ -104,6 +104,17 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/detect/package-manager.ts', spawn)).toEqual([])
   })
 
+  it('exempts the pnpm version probe from the child-process rule alone, never from the rest of the block', async () => {
+    const forms = [
+      'import { createRequire } from \'node:module\'\n\nexport const probe = createRequire\n',
+      'export async function probe(specifier: string) {\n  return await import(specifier)\n}\n',
+      'export function probe(specifier: string) {\n  return require(specifier)\n}\n',
+      'export const enum Probe { A = 1 }\n',
+    ]
+    for (const form of forms)
+      expect(await violations('src/detect/package-manager.ts', form), form).toContain('no-restricted-syntax')
+  })
+
   it('reports every form of loading code the CLI did not ship', async () => {
     const forms = [
       'export async function probe() {\n  return await import(\'node:child_process\')\n}\n',

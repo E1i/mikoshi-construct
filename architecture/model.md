@@ -282,7 +282,7 @@ flowchart LR
     e_user_facing_text_has_one_owner_and_a_plain_counterpart("user-facing-text-has-one-owner-and-a-plain-counterpart<br/>held")
     e_the_tool_is_its_own_first_consumer("the-tool-is-its-own-first-consumer<br/>held")
     e_each_composed_flow_is_modelled_and_its_render_is_gated("each-composed-flow-is-modelled-and-its-render-is-gated<br/>held")
-    e_the_spawn_exemption_lifts_the_whole_syntax_block("the-spawn-exemption-lifts-the-whole-syntax-block<br/>held")
+    e_the_spawn_exemption_lifts_the_whole_syntax_block("the-spawn-exemption-lifts-the-whole-syntax-block<br/>unsupported")
     e_reading_an_inspected_repository_is_concentrated_by_lint("reading-an-inspected-repository-is-concentrated-by-lint<br/>held")
     e_each_record_declares_its_own_version_and_shares_one_refusal("each-record-declares-its-own-version-and-shares-one-refusal<br/>held")
     e_what_the_package_would_publish_is_scanned_by_the_harness("what-the-package-would-publish-is-scanned-by-the-harness<br/>held")
@@ -322,7 +322,7 @@ flowchart LR
     f_sync_flow_model[/"architecture/composition/sync.yaml<br/>holds"/]
     f_graph_flow_model[/"architecture/composition/graph.yaml<br/>holds"/]
     f_cost_flow_model[/"architecture/composition/cost.yaml<br/>holds"/]
-    f_the_spawn_block_ignores_one_whole_file[/"eslint.config.mjs contains #quot;ignores: ['src/detect/package-manager.ts']#quot;<br/>holds"/]
+    f_the_spawn_block_ignores_one_whole_file[/"eslint.config.mjs contains #quot;ignores: ['src/detect/package-manager.ts']#quot;<br/>does not hold"/]
     f_the_spawn_block_also_carries_the_loading_ban[/"eslint.config.mjs contains #quot;...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD]#quot;<br/>holds"/]
     f_one_reader_for_an_inspected_repository[/"src/commands/doctor/readings.ts<br/>holds"/]
     f_lint_names_the_one_reader[/"eslint.config.mjs contains #quot;doctorReadsThroughOneReader#quot;<br/>holds"/]
