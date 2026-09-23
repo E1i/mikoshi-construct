@@ -40,3 +40,4 @@ decision is taken.
 | #173 detach reads recordVersion (0030, part A) | 5 | 0 | 10 |
 | #175 characterize exit codes and --help (0030, B0) | 1 | 1 | 13 |
 | #176 command definitions in src/program.ts, exit codes in tables (0030, B) | 2 | 0 | 13 |
+| #177 attach and detach guide, exit table read from the characterization | 0 | 2 | 13 |
