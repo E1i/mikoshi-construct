@@ -28,7 +28,7 @@ boundaries:
 nodes:
   - id: cli
     label: construct doctor (citty)
-    path: src/cli.ts
+    path: src/program.ts
     boundary: entry
   - id: run
     label: runDoctor

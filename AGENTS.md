@@ -39,7 +39,7 @@ turns every generated project red on the first `pnpm run quality`.
 
 <!-- construct:discover:module-map -->
 The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map for the part of the tree it
-covers (`src/cli.ts`, `src/detect`, `src/presets`, `src/materialize`, `src/manifest.ts`,
+covers (`src/cli.ts`, `src/program.ts`, `src/detect`, `src/presets`, `src/materialize`, `src/manifest.ts`,
 `src/failure.ts`, `src/commands/doctor`, `src/ui`, `templates/*`, `tests`). It has not kept pace with
 the tree; these top-level modules exist and are not in it.
 
@@ -103,7 +103,7 @@ here.
 
 - *Composition roots.*
   <!-- construct:discover:composition-roots -->
-  `src/cli.ts` wires the six citty commands — `init`, `sync`, `doctor`, `graph`, `cost`, `soulkill`
+  `src/program.ts` wires the six citty commands — `init`, `sync`, `doctor`, `graph`, `cost`, `soulkill`
   (aliases `inspect`, `capture`) — to `src/commands/*`, creates the `Ui` (theme, lore, writer) and the
   clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
   picks `stderrWriter` over `stdoutWriter` so a `--json` run keeps stdout machine-readable.
@@ -122,7 +122,7 @@ here.
   `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads the session files
   and the ladder record. `soulkill` is a `detect` call followed by a print.
 
-  Adding a command: define it in `src/cli.ts`; put the logic in `src/commands/<name>.ts`, or
+  Adding a command: define it in `src/program.ts`; put the logic in `src/commands/<name>.ts`, or
   `<name>/index.ts` once it needs more than one file, as `run<Name>(...)` plus `print<Name>(ui, ...)`
   taking a `Ui`; add every string to `src/ui/lore.ts` with its `PLAIN_LORE` counterpart; give the module
   its row in `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs`; model the flow as
@@ -136,8 +136,9 @@ here.
   the declaration rather than a description of one: `detect` imports no other module (facts only);
   `presets` imports `detect`; `model` imports `detect` and `presets`; `materialize` and `ui` import
   `presets`; `manifest` imports `detect`, `materialize` and `presets`; `sync` imports `manifest`,
-  `materialize` and `presets`; `failure` imports `ui`; `commands` import everything but `cli`; `cli`
-  composes it all. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
+  `materialize` and `presets`; `failure` imports `ui`; `commands` import everything but `cli` and
+  `program`; `program` composes `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
+  `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
   and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
   inspected repository goes through one reader that reports a path it could not read instead of dropping
   it from the set it inspected. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
@@ -343,7 +344,7 @@ them as rules.
 - **What makes a machine-readable output refuse a reader it can no longer serve, and is that the
   mechanism the two records already share?** `construct.json` declares `manifestVersion` and
   `construct.model.json` declares `modelVersion`, and each refuses a record written by a later build
-  through one shared error rather than one of its own. `doctor --json` declares nothing: `src/cli.ts`
+  through one shared error rather than one of its own. `doctor --json` declares nothing: `src/program.ts`
   serialises `DoctorResult` as it stands, so the output carries no statement of what it is, and there
   is nothing for a reader to check or for the tool to refuse. A consumer matching a value that has
   since changed — `authorship: "unknown"`, which 0.16.1 no longer emits — receives no error; its

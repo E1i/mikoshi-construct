@@ -24,7 +24,8 @@ edits. Run it before reporting done.
 
 | Path | What it is |
 |------|------------|
-| `src/cli.ts` | citty entry: `init`, `doctor`, `soulkill` (+ aliases `inspect`, `capture`) |
+| `src/cli.ts` | Runs `main` from `src/program.ts` with citty's `runMain`; nothing else |
+| `src/program.ts` | The citty command definitions and their aliases (`jack-in`, `jack-out`, `inspect`, `capture`), exported as `main` without running it |
 | `src/detect/` | **Facts only** — package manager and installed pnpm version, layout, workspace packages, existing files. Never interprets the codebase |
 | `src/presets/` | Preset = template groups (plain or mounted: `{ group, into, onlyWhenEmpty }`) + variables. `available: false` hides a preset from `init` |
 | `src/materialize/` | `templates.ts` (walk, `_`→`.`, `.eta`→`{{var}}` + `{{#if}}` blocks), `plan.ts` (mount + layer groups → FileOp, canonical `package.json` key order), `strategies.ts` (create / merge-json / append-block, `preserveDiscovery`), `apply.ts` |

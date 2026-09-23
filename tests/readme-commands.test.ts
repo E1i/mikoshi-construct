@@ -9,7 +9,7 @@ function read(file: string): string {
 }
 
 function subCommandLines(): string[] {
-  const lines = read('src/cli.ts').split('\n')
+  const lines = read('src/program.ts').split('\n')
   const opens = lines.findIndex(line => line.includes('subCommands: {'))
   if (opens === -1)
     return []

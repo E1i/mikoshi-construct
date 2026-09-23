@@ -35,6 +35,12 @@ export interface AttachResult {
   rolledBack: string[]
 }
 
+export const ATTACH_EXIT: Record<AttachResult['status'], number> = {
+  done: 0,
+  refused: 1,
+  aborted: 1,
+}
+
 const AI_TARGETS = ['claude', 'cursor', 'both']
 
 const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, paths: string[]) => string> = {

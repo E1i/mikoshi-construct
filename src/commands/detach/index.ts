@@ -25,6 +25,12 @@ export interface DetachResult {
   removed: string[]
 }
 
+export const DETACH_EXIT: Record<DetachResult['status'], number> = {
+  'done': 0,
+  'nothing-attached': 0,
+  'refused': 1,
+}
+
 const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) => string> = {
   'orphan-block': lore => lore.detachRefusedOrphanBlock,
   'record-version': lore => lore.detachRefusedRecordVersion,

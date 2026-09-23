@@ -24,7 +24,7 @@ boundaries:
 nodes:
   - id: cli
     label: construct graph (citty)
-    path: src/cli.ts
+    path: src/program.ts
     boundary: entry
   - id: picture
     label: modelPicture / modelGraph · resolve the directory

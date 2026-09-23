@@ -36,6 +36,12 @@ export interface InitResult {
   conflicts: string[]
 }
 
+export const INIT_EXIT: Record<InitResult['status'], number> = {
+  'done': 0,
+  'dry-run': 0,
+  'aborted': 1,
+}
+
 interface InitChoices {
   presetId: PresetId
   ai: AiTarget
