@@ -23,6 +23,7 @@ export default withMermaid(defineConfig({
           { text: 'The development cycle', link: '/guide/the-cycle' },
           { text: 'The reasoning budget', link: '/guide/reasoning-budget' },
           { text: 'Upgrading a repository', link: '/guide/upgrading' },
+          { text: 'Working in a repository the construct did not write', link: '/guide/attach' },
           { text: 'What it refuses to claim', link: '/guide/what-it-refuses-to-claim' },
         ],
       },

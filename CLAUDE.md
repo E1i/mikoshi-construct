@@ -16,6 +16,10 @@ pnpm run quality        # lint + typecheck + vitest — the gate for every chang
 pnpm build              # tsup → dist/cli.js (bin: construct, miko, mikoshi-construct)
 ```
 
+Run the published CLI from outside this repository: `npx mikoshi-construct` here resolves the local
+package, not the release. Keep the global `construct` current (`npm i -g mikoshi-construct@latest`):
+a stale one reads a newer manifest as ahead of it, and its `cost` figures come from an older build.
+
 Acceptance for any change touching `templates/` or `src/materialize`: an empty directory →
 `construct init --yes --preset <preset>` → `pnpm install` → `pnpm run quality` is green, with no manual
 edits. Run it before reporting done.
