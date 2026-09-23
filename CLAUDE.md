@@ -116,6 +116,9 @@ changed logic module ships its test in the same change. `detect` returns facts; 
 judgement is a discovery marker for the agent, not code in the CLI. Do not commit; the working tree is
 reviewed first.
 
+A report on a pull request here ends with the compact matrix described in
+[architecture/code-matrix.md](architecture/code-matrix.md), and adds its row to that document's *Used in*.
+
 <!-- construct:begin -->
 ## Construct
 
