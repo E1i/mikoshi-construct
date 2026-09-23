@@ -74,9 +74,15 @@ const NO_BARE_INIT_RECORD = [
 
 const spawnPolicy = {
   files: ['src/**'],
-  ignores: ['src/detect/package-manager.ts'],
   rules: {
     'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_CHILD_PROCESS, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
+  },
+}
+
+const thePnpmProbeMaySpawnAndNothingElse = {
+  files: ['src/detect/package-manager.ts'],
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
   },
 }
 
@@ -98,5 +104,6 @@ export default antfu(
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
   spawnPolicy,
+  thePnpmProbeMaySpawnAndNothingElse,
   theRecordItselfMayReadBothHalves,
 )
