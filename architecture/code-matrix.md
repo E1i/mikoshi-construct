@@ -39,3 +39,4 @@ decision is taken.
 | #170 verify-published waits for the tarball to reach the CDN | 4 | 0 | 11 |
 | #173 detach reads recordVersion (0030, part A) | 5 | 0 | 10 |
 | #175 characterize exit codes and --help (0030, B0) | 1 | 1 | 13 |
+| #176 command definitions in src/program.ts, exit codes in tables (0030, B) | 2 | 0 | 13 |
