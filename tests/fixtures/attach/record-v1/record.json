@@ -1,0 +1,26 @@
+{
+  "recordVersion": 1,
+  "construct": "0.17.0",
+  "attachedAt": "2026-09-23T15:53:18.208Z",
+  "harness": {
+    "command": "pnpm run quality"
+  },
+  "files": {
+    ".claude/commands/plan.md": "39ea0d308b5cc8926855eb8704f8c7d11977df03f9bc477808b56702cb92b886",
+    ".claude/skills/implement/SKILL.md": "fcc78013b4edf924e8315a9c1965b68e30e25deaa443cda15e7da5488b077a34",
+    ".claude/agents/architect.md": "4aa2e01569635a2cfbb3a155d5c35e8b47a4421d2978d2eaad4e54cdd683f27a",
+    ".claude/agents/harness.md": "e0ece4d355656148bf2436b04f2dd34d8e96ecfe6442dd3c5abedf42e478ee04",
+    ".claude/agents/implementer.md": "9e774107e820819f97205b7338a70c7b314662921b7ebea3b37fc632a4d13623",
+    "scripts/construct/implement.workflow.mjs": "d0deb3ae7ca98eaf866e310b701a11474b7ad3001f84cb4d4aa4f01ccc30ca54"
+  },
+  "directories": [
+    ".claude",
+    ".claude/commands",
+    ".claude/skills",
+    ".claude/skills/implement",
+    ".claude/agents",
+    "scripts/construct"
+  ],
+  "excludeCreated": false,
+  "excludeSeparator": 1
+}

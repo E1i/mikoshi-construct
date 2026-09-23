@@ -253,6 +253,72 @@ describe('a4 over an exclude file git did not shape: the separator in the record
   }
 })
 
+const FROZEN_RECORD_V1 = path.join(import.meta.dirname, 'fixtures/attach/record-v1')
+
+function withFrozenRecordV1(dir: string): string[] {
+  cpSync(path.join(FROZEN_RECORD_V1, 'tree'), dir, { recursive: true })
+  mkdirSync(path.join(dir, '.construct'), { recursive: true })
+  cpSync(path.join(FROZEN_RECORD_V1, 'record.json'), path.join(dir, ATTACH_RECORD_FILE))
+  const record = JSON.parse(readFileSync(path.join(FROZEN_RECORD_V1, 'record.json'), 'utf8')) as { files: Record<string, string>, directories: string[] }
+  return [...Object.keys(record.files), ...record.directories]
+}
+
+function rewriteRecordVersion(dir: string, value: unknown): void {
+  const file = path.join(dir, ATTACH_RECORD_FILE)
+  const record = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  if (value === undefined)
+    delete record.recordVersion
+  else
+    record.recordVersion = value
+  writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`)
+}
+
+describe('the record version detach reads', () => {
+  it('detaches from a frozen version-1 record written by an earlier build', () => {
+    const dir = fixture()
+    const recorded = withFrozenRecordV1(dir)
+
+    const result = runDetach(ui, { dir })
+
+    expect(result.status).toBe('done')
+    expect([...result.removed].sort()).toEqual([...recorded].sort())
+    expect(existsSync(path.join(dir, '.construct'))).toBe(false)
+  })
+
+  it('refuses a record written by a newer construct, names both versions and removes nothing', async () => {
+    const dir = fixture()
+    await attached(dir)
+    rewriteRecordVersion(dir, 2)
+    const before = listing(dir)
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('record-ahead')
+    expect(listing(dir)).toEqual(before)
+    expect(output()).toContain(PLAIN_LORE.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', 2, 1))
+  })
+
+  for (const value of [undefined, '1', 1.5, null, 0]) {
+    it(`${JSON.stringify(value) ?? 'missing'}: a recordVersion that is not a known integer is refused with its own reason, nothing removed`, async () => {
+      const dir = fixture()
+      await attached(dir)
+      rewriteRecordVersion(dir, value)
+      const before = listing(dir)
+      const { ui: plain, output } = capturing()
+
+      const result = runDetach(plain, { dir })
+
+      expect(result.status).toBe('refused')
+      expect(result.refusal).toBe('record-version')
+      expect(listing(dir)).toEqual(before)
+      expect(output()).toContain(PLAIN_LORE.detachRefusedRecordVersion)
+      expect(output()).toContain(String(value))
+    })
+  }
+})
+
 describe('the bytes before the block are no longer the separator attach wrote', () => {
   it('refuses instead of cutting the owner\'s bytes: nothing removed, exclude untouched', async () => {
     const dir = fixture()

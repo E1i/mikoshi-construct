@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { isBlockSeparator } from '../../materialize/strategies.js'
 import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
-import { readAttachRecord } from '../attach/record.js'
+import { ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, readAttachRecord } from '../attach/record.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
 import { removeAttached } from './remove.js'
@@ -17,7 +17,7 @@ export interface DetachOptions {
   dir: string
 }
 
-export type DetachRefusalReason = 'orphan-block' | 'separator' | 'separator-mismatch' | 'changed' | IndexUnreadable
+export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'separator' | 'separator-mismatch' | 'changed' | IndexUnreadable
 
 export interface DetachResult {
   status: 'done' | 'nothing-attached' | 'refused'
@@ -27,6 +27,8 @@ export interface DetachResult {
 
 const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) => string> = {
   'orphan-block': lore => lore.detachRefusedOrphanBlock,
+  'record-version': lore => lore.detachRefusedRecordVersion,
+  'record-ahead': (lore, found) => lore.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', Number(found[0]), ATTACH_RECORD_VERSION),
   'separator': lore => lore.detachRefusedSeparator,
   'separator-mismatch': lore => lore.detachRefusedSeparatorMismatch,
   'changed': (lore, paths) => lore.detachRefusedChanged(paths.length),
@@ -41,6 +43,11 @@ function refused(ui: Ui, reason: DetachRefusalReason, lines: string[] = []): Det
   for (const line of lines)
     ui.line(`    ${ui.theme.dim(line)}`)
   return { status: 'refused', refusal: reason, removed: [] }
+}
+
+function refusedAhead(ui: Ui, found: number): DetachResult {
+  ui.flatline(REFUSAL_LINE['record-ahead'](ui.lore, [String(found)]))
+  return { status: 'refused', refusal: 'record-ahead', removed: [] }
 }
 
 function onDiskLabel(ui: Ui, root: string, target: string): string {
@@ -58,6 +65,11 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   }
   if (record == null)
     return refused(ui, 'orphan-block', blockPaths.map(target => onDiskLabel(ui, root, target)))
+  const version: unknown = record.recordVersion
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1)
+    return refused(ui, 'record-version', [String(version)])
+  if (version > ATTACH_RECORD_VERSION)
+    return refusedAhead(ui, version)
   const separator = record.excludeSeparator
   if (!isBlockSeparator(separator))
     return refused(ui, 'separator', [String(separator)])
