@@ -18,7 +18,7 @@ boundaries:
 nodes:
   - id: cli
     label: construct attach (citty, alias jack-in)
-    path: src/cli.ts
+    path: src/program.ts
     boundary: entry
   - id: run
     label: runAttach

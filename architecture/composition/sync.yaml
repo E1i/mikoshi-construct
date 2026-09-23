@@ -33,7 +33,7 @@ boundaries:
 nodes:
   - id: cli
     label: construct sync (citty)
-    path: src/cli.ts
+    path: src/program.ts
     boundary: entry
   - id: run
     label: runSync · replay, count, report

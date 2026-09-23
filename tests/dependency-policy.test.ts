@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const eslint = new ESLint({ cwd: root })
 
-const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version']
+const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'program', 'sync', 'ui', 'version']
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry =>
@@ -78,11 +78,18 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/failure.ts', 'import { parseModel } from \'./model/schema.js\'\n\nexport const probe = parseModel\n')).toEqual(['no-restricted-imports'])
   })
 
-  it('lets the entry point compose the commands and reach no record behind them', async () => {
-    expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual([])
-    expect(await violations('src/cli.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual([])
-    expect(await violations('src/cli.ts', 'import { readManifest } from \'./manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
-    expect(await violations('src/cli.ts', 'import { runSync } from \'./sync/index.js\'\n\nexport const probe = runSync\n')).toEqual(['no-restricted-imports'])
+  it('lets the program compose the commands and reach no record behind them', async () => {
+    expect(await violations('src/program.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual([])
+    expect(await violations('src/program.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual([])
+    expect(await violations('src/program.ts', 'import { readManifest } from \'./manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/program.ts', 'import { runSync } from \'./sync/index.js\'\n\nexport const probe = runSync\n')).toEqual(['no-restricted-imports'])
+  })
+
+  it('keeps the entry point to running the program', async () => {
+    expect(await violations('src/cli.ts', 'import { main } from \'./program.js\'\n\nexport const probe = main\n')).toEqual([])
+    expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/cli.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/commands/probe.ts', 'import { main } from \'../program.js\'\n\nexport const probe = main\n')).toEqual(['no-restricted-imports'])
   })
 
   it('keeps the model and the manifest apart in both directions', async () => {

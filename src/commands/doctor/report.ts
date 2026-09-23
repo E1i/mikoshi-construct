@@ -8,6 +8,12 @@ import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
 import { MARKER_AUTHORSHIP, readingsBy } from './provenance.js'
 
+export const DOCTOR_EXIT = {
+  ok: 0,
+  notOk: 1,
+  noManifest: 1,
+} as const
+
 function reading(ui: Ui, check: CheckVerdict): string {
   switch (check.state) {
     case 'held':
@@ -182,7 +188,7 @@ function printYouAreHere(ui: Ui, placement: ClaimPlacement): void {
 export function printDoctor(ui: Ui, result: DoctorResult | null): number {
   if (result == null) {
     ui.flatline('No construct.json here. Run `construct init` first.')
-    return 1
+    return DOCTOR_EXIT.noManifest
   }
   if (result.harnessProblems.length > 0)
     ui.glitch('Harness is broken.', result.harnessProblems)
@@ -206,5 +212,5 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
   printNotCarried(ui, result.notCarried)
   printHypotheses(ui, result.hypotheses, result.youAreHere)
   printYouAreHere(ui, result.youAreHere)
-  return result.ok ? 0 : 1
+  return result.ok ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk
 }
