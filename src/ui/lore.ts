@@ -115,6 +115,24 @@ export interface Lore {
   notCarriedUnevaluable: (claimId: string, target: string) => string
   notCarriedEveryFactHolds: (claimId: string) => string
   notCarriedSourcesOmitted: (claimId: string) => string
+  askHarness: string
+  harnessEmpty: string
+  attachNeedsTerminal: string
+  attachConfirm: string
+  attachRefusedNoGit: string
+  attachRefusedLinkedGit: string
+  attachRefusedConstructed: string
+  attachRefusedUnsupportedStack: string
+  attachRefusedCollision: (paths: string[]) => string
+  attachRefusedNoHarness: string
+  attachRefusedCursor: string
+  attachRolledBack: (count: number) => string
+  attached: string
+  attachTrailer: (version: string) => string
+  attachPullRequest: (version: string) => string
+  attachThen: string
+  attachDetach: string
+  attachLedgerExcluded: string
 }
 
 function policyEntries(added: { dir: string, allowed: string[] }[]): string {
@@ -247,6 +265,24 @@ export const LORE: Lore = {
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
   notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but the construct never wrote the sample sources it stands on into this repository, and it writes those only into an empty directory; no run here records it.`,
+  askHarness: 'Harness command \u2014 the gate every change must pass (nothing is assumed)?',
+  harnessEmpty: 'Name a command; nothing is assumed.',
+  attachNeedsTerminal: 'No terminal for the interactive flow; pass --yes --harness <command> to run non-interactively.',
+  attachConfirm: 'Jack in?',
+  attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
+  attachRefusedLinkedGit: 'BREACH FAILED // LINKED NET: .git is a file',
+  attachRefusedConstructed: 'BREACH FAILED // ALREADY CONSTRUCTED: construct.json is here',
+  attachRefusedUnsupportedStack: 'BREACH FAILED // ICE DETECTED: unsupported stack',
+  attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
+  attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
+  attachRefusedCursor: 'BREACH FAILED // CURSOR OUT OF SCOPE: alwaysApply rules govern the whole tree',
+  attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
+  attached: 'JACKED IN // NETRUN STARTED',
+  attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
+  attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
+  attachThen: 'claude \u2192 /plan <feature>',
+  attachDetach: 'construct detach',
+  attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
 }
 
 export const PLAIN_LORE: Lore = {
@@ -371,4 +407,22 @@ export const PLAIN_LORE: Lore = {
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
   notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but the construct never wrote the sample sources it stands on into this repository, and it writes those only into an empty directory; no run here records it.`,
+  askHarness: 'Harness command \u2014 the gate every change must pass (nothing is assumed)?',
+  harnessEmpty: 'Name a command; nothing is assumed.',
+  attachNeedsTerminal: 'No terminal for the interactive flow; pass --yes --harness <command> to run non-interactively.',
+  attachConfirm: 'Attach these files?',
+  attachRefusedNoGit: 'Refused: not a git repository.',
+  attachRefusedLinkedGit: 'Refused: .git is a file (worktree or submodule); attach needs the .git directory.',
+  attachRefusedConstructed: 'Refused: this repository already carries a construct; use init or sync.',
+  attachRefusedUnsupportedStack: 'Refused: this repository\'s stack is not recognised.',
+  attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
+  attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
+  attachRefusedCursor: 'Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.',
+  attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,
+  attached: 'Attached to repository.',
+  attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
+  attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
+  attachThen: 'claude \u2192 /plan <feature>',
+  attachDetach: 'construct detach',
+  attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
 }

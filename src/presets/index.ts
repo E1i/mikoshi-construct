@@ -204,6 +204,18 @@ export function aiGroups(target: AiTarget): string[] {
   return target === 'both' ? ['ai/shared', 'ai/claude', 'ai/cursor'] : ['ai/shared', `ai/${target}`]
 }
 
+export const ATTACH_CARRIERS = {
+  groups: ['ai/shared', 'ai/claude'],
+  targets: [
+    '.claude/commands/plan.md',
+    '.claude/skills/implement/SKILL.md',
+    '.claude/agents/architect.md',
+    '.claude/agents/harness.md',
+    '.claude/agents/implementer.md',
+    'scripts/construct/implement.workflow.mjs',
+  ],
+} as const
+
 export type ReviewProvider = 'claude' | 'none'
 
 export const DEFAULT_REVIEW_MODEL = 'claude-sonnet-5'

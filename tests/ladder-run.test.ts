@@ -150,3 +150,18 @@ describe('a design step that ran out names the way out of it', () => {
     expect(result.recovery).toBeUndefined()
   })
 })
+
+describe('a run with no harness command names nothing and asks for it', () => {
+  it('returns blocked with an empty attempts array and calls no agent when args.harness is absent', async () => {
+    const { result, calls } = await run({ task: 'add a rule', effort: 'low', harness: undefined }, {
+      implementer: [REPORT],
+      harness: [GREEN],
+    })
+
+    expect(result.status).toBe('blocked')
+    expect(result.attempts).toEqual([])
+    expect(result.question).toContain('harness command')
+    expect(result.question).toContain('.construct/attach.json')
+    expect(calls).toEqual([])
+  })
+})

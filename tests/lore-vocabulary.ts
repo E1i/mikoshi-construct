@@ -7,6 +7,7 @@ export const IN_UNIVERSE = [
   'ENGRAM',
   'RELIC',
   'BLACKWALL',
+  'BREACH',
 ]
 
 export const SHARED_BY_BOTH_REGISTERS = ['johnnyWakeUp']

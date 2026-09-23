@@ -150,6 +150,7 @@ with a named check, not a second fix.
 | Command | What it does |
 |---|---|
 | `construct init` | Detect, configure, materialize. `--yes --preset node-backend\|node-frontend\|node-library\|monorepo --ai claude\|cursor\|both --review claude --dir . --dry-run` |
+| `construct attach` | Bring `/plan`, `/implement`, the three agents and the ladder into a repository the construct did not write, hidden through `.git/info/exclude`; never touches a tracked file (`--harness <command>`, `--yes`; alias `jack-in`) |
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
 | `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
@@ -192,6 +193,8 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 | Relic | The files at the root the agent reads first: `AGENTS.md`, `CLAUDE.md`, `construct.json` |
 | Engram | The record `init` cut into `construct.json`: what the construct wrote, and the version that wrote it |
 | Braindance | `construct sync`: replaying that engram against today's templates and reporting where the two disagree |
+| Jack in | `construct attach`: the agent carriers alone, into a repository the construct did not write, hidden from git and recorded in `.construct/attach.json` |
+| Breach Protocol | The attach procedure: the seven refusals it runs, in order, before touching anything — `BREACH FAILED` names the one that fired |
 | Relic write | `construct sync --apply`: the one write into a repository the construct did not create |
 | Blackwall | Where a construct block whose template variant cannot be established sits — not yours, not ours, and nothing is written there |
 | Glitch | A warning in the output. Something wants a human; nothing has failed |

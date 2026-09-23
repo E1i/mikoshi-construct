@@ -1,0 +1,84 @@
+id: attach
+title: construct attach composition
+description: >-
+  `runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the
+  refusals run first and every one of them exits before a byte is written; then the harness command
+  comes from a flag or a prompt; then the carriers are planned, the exclude block, the six files and
+  the record are written in that order. Dotted edges are wiring, solid edges are the flow.
+doc: architecture/attach.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: refuse
+    label: Refuse · before any write
+  - id: configure
+    label: Configure
+  - id: materialize
+    label: Materialize
+nodes:
+  - id: cli
+    label: construct attach (citty, alias jack-in)
+    path: src/cli.ts
+    boundary: entry
+  - id: run
+    label: runAttach
+    path: src/commands/attach/index.ts
+    boundary: entry
+  - id: refusals
+    label: seven refusals, in order
+    path: src/commands/attach/refusals.ts
+    boundary: refuse
+  - id: detect
+    label: detect(dir) · layout
+    path: src/detect/index.ts
+    boundary: refuse
+  - id: carrierset
+    label: ATTACH_CARRIERS
+    path: src/presets/index.ts
+    boundary: refuse
+  - id: prompts
+    label: prompter (clack) or --harness
+    path: src/ui/prompts.ts
+    boundary: configure
+  - id: carriers
+    label: planCarriers, directoriesToCreate
+    path: src/commands/attach/carriers.ts
+    boundary: materialize
+  - id: plan
+    label: planMaterialize
+    path: src/materialize/plan.ts
+    boundary: materialize
+  - id: exclude
+    label: .git/info/exclude block
+    path: src/commands/attach/exclude.ts
+    boundary: materialize
+  - id: strategies
+    label: appendBlock, gitignore markers
+    path: src/materialize/strategies.ts
+    boundary: materialize
+  - id: apply
+    label: writeCarriersExclusively (wx)
+    path: src/commands/attach/write.ts
+    boundary: materialize
+  - id: record
+    label: .construct/attach.json
+    path: src/commands/attach/record.ts
+    boundary: materialize
+  - id: rollback
+    label: rollbackAttach · own files by sha, exclude restored
+    path: src/commands/attach/rollback.ts
+    boundary: materialize
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: refusals, kind: sequence}
+  - {from: refusals, to: detect, kind: wires}
+  - {from: refusals, to: carrierset, kind: wires, label: collision}
+  - {from: refusals, to: prompts, kind: sequence, label: none fired}
+  - {from: prompts, to: carriers, kind: sequence, label: harness command}
+  - {from: carriers, to: plan, kind: wires}
+  - {from: carriers, to: carrierset, kind: wires}
+  - {from: carriers, to: exclude, kind: sequence, label: 'six targets, after confirm'}
+  - {from: exclude, to: strategies, kind: wires}
+  - {from: exclude, to: apply, kind: sequence, label: block written}
+  - {from: apply, to: record, kind: sequence, label: 'sha256 of each file, directories created'}
+  - {from: apply, to: rollback, kind: sequence, label: EEXIST → refused COLLISION}

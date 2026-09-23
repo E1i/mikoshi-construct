@@ -54,13 +54,17 @@ const SPEC = {
 
 const DESIGN_RECOVERY = 'Re-run this task one class lower with the design written into the brief. That is the measured route out: three of three such re-runs on the construct\'s own repository produced the design the architect had failed to return. The run does not retry the design step itself, because a second agent entry pays for the exploration again.'
 
+const HARNESS_COMMAND_QUESTION = 'Name the harness command: pass args.harness.command, taken from construct.json (harness.command) or, in an attached repository, from .construct/attach.json. Nothing is assumed.'
+
 const DEFAULT_RETRY_LIMIT = 0
 const DESIGN_EFFORT = 'xhigh'
 const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
 const acceptance = args.acceptance ?? []
-const harness = { command: 'pnpm run quality', extra: [], ...(args.harness ?? {}) }
+const harness = { extra: [], ...(args.harness ?? {}) }
+if (typeof harness.command !== 'string' || harness.command === '')
+  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 

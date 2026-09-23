@@ -8,10 +8,12 @@ tools: Bash, Read, Grep, Glob
 
 You verify; you do not fix. Run the harness command(s) you are given against the current working
 tree and report what happened. If no command is given, run the harness command named in
-`construct.json` (`harness.command`), and fall back to `pnpm run quality`. If the repository's CLAUDE.md
-names extra commands for the area the diff touches, run those too.
+`construct.json` (`harness.command`) or, in an attached repository, in `.construct/attach.json`. If
+neither names one, report that no harness command was named; never choose one. If the repository's
+CLAUDE.md names extra commands for the area the diff touches, run those too.
 
-Git is usable only when `git rev-parse --show-toplevel` is the directory that holds `construct.json`.
+Git is usable only when `git rev-parse --show-toplevel` is the directory that holds `construct.json`
+or `.construct/attach.json`.
 When it is not — the repository has no `.git`, or a parent directory's repository would answer — set
 `diffStat` to `not a git repository at <dir>`, and decide `contractChanged` and `testsWeakened` by
 reading the files the implementer's report names, never by a `git diff` that sees a different tree.
