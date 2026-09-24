@@ -13,6 +13,7 @@ export interface ExistingFiles {
   openapi: string | null
   compositionDir: string | null
   constructJson: boolean
+  foreignManifests: string[]
 }
 
 export interface WorkspacePackage {

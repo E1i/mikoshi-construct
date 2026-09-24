@@ -61,8 +61,18 @@ it changed other files, and nothing at all where it changed none.
 Without `--yes` and with a terminal attached, `init` asks only for what the flags and the record leave
 open. Piping input without `--yes` is refused rather than guessed at.
 
-Exits `0` when it writes or when `--dry-run` finishes, `1` when you decline the confirmation or when
-the target cannot be read.
+Exits `0` when it writes or when `--dry-run` finishes, `1` when you decline the confirmation, when
+the target cannot be read, or when the preset contradicts the stack the detector found.
+
+Every preset today is a Node preset. A directory with another ecosystem's manifest at its root
+(`go.mod`, `Cargo.toml`, `pyproject.toml` and the others `soulkill` lists) and no `package.json` is
+refused before anything is written, with a line that names the preset and the manifest:
+
+```
+Refused: --preset node-backend is a node preset, and this directory has go.mod and no package.json; nothing was written.
+```
+
+A `package.json` beside the other manifest makes Node part of the stack, and init proceeds.
 
 ### A new project
 
@@ -1062,6 +1072,7 @@ npx mikoshi-construct soulkill
   ├─ Package manager: pnpm (pnpm 12.4.2 installed)
   ├─ Layout: monorepo (pnpm-workspace)
   ├─ Workspace dirs: apps, packages (7 packages)
+  ├─ Other stacks' manifests: none
   ├─ src/: no
   ├─ Contracts: contracts/api/openapi.yaml
   ├─ tsconfig / ESLint config: yes / yes
@@ -1228,7 +1239,7 @@ construction.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
-| `1` | `init` was declined, had no terminal without `--yes`, or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
+| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 

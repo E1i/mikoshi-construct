@@ -30,7 +30,7 @@ export interface InitOptions {
 }
 
 export interface InitResult {
-  status: 'done' | 'dry-run' | 'aborted'
+  status: 'done' | 'dry-run' | 'aborted' | 'refused'
   written: string[]
   skipped: string[]
   conflicts: string[]
@@ -40,6 +40,7 @@ export const INIT_EXIT: Record<InitResult['status'], number> = {
   'done': 0,
   'dry-run': 0,
   'aborted': 1,
+  'refused': 1,
 }
 
 interface InitChoices {
@@ -273,6 +274,11 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const preset = getPreset(presetId)
   if (!preset.available)
     throw new Error(`preset "${presetId}" is not available yet in v${VERSION}`)
+
+  if (preset.stack === 'node' && !report.existing.packageJson && report.existing.foreignManifests.length > 0) {
+    ui.flatline(ui.lore.initRefusedForeignStack(presetId, preset.stack, report.existing.foreignManifests))
+    return { status: 'refused', written: [], skipped: [], conflicts: [] }
+  }
 
   if (report.packageManager !== 'pnpm' && report.packageManager !== 'none')
     ui.glitch(`This repository uses ${report.packageManager}; the construct harness scripts assume pnpm in v${VERSION}.`)

@@ -28,6 +28,7 @@ export interface Lore {
   nameInvalid: string
   cancelled: string
   needsTerminal: string
+  initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => string
   confirm: string
   dryRun: string
   sampleOmitted: string
@@ -181,6 +182,7 @@ export const LORE: Lore = {
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
   cancelled: 'Netrunner jacked out. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
+  initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `BREACH FAILED // WRONG CHROME: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written`,
   confirm: 'Inject Construct into repository?',
   dryRun: 'DRY RUN — nothing was written.',
   sampleOmitted: 'Sample sources omitted: the directory is not empty. Discovery maps what is already here.',
@@ -341,6 +343,7 @@ export const PLAIN_LORE: Lore = {
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
   cancelled: 'Cancelled. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
+  initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `Refused: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written.`,
   confirm: 'Write these files?',
   dryRun: 'Dry run — nothing was written.',
   sampleOmitted: 'Sample sources omitted: the directory is not empty. Discovery maps what is already here.',
