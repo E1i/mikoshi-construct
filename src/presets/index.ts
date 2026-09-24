@@ -219,7 +219,6 @@ export const ATTACH_CARRIERS = {
     '.claude/agents/implementer.md',
     'scripts/construct/implement.workflow.mjs',
     'scripts/construct/check-acceptance.mjs',
-    'scripts/construct/contract-paths.mjs',
   ],
 } as const
 

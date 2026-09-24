@@ -110,7 +110,7 @@ describe('a1: init plans merges and appends where attach plans only creates', ()
 })
 
 describe('a2: attach leaves the tracked tree untouched and records what it did', () => {
-  it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records eight hashes matching disk', async () => {
+  it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records seven hashes matching disk', async () => {
     const dir = fixture()
     const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
     expect(result.status).toBe('done')
@@ -193,10 +193,6 @@ const REFUSALS: RefusalCase[] = [
   { name: 'the acceptance check already exists', refusal: 'collision', reason: PLAIN_LORE.attachRefusedCollision(['scripts/construct/check-acceptance.mjs']), arrange: (dir) => {
     mkdirSync(path.join(dir, 'scripts/construct'), { recursive: true })
     writeFileSync(path.join(dir, 'scripts/construct/check-acceptance.mjs'), 'export {}\n')
-  } },
-  { name: 'the contract-paths script already exists', refusal: 'collision', reason: PLAIN_LORE.attachRefusedCollision(['scripts/construct/contract-paths.mjs']), arrange: (dir) => {
-    mkdirSync(path.join(dir, 'scripts/construct'), { recursive: true })
-    writeFileSync(path.join(dir, 'scripts/construct/contract-paths.mjs'), 'export {}\n')
   } },
   { name: '--yes without --harness', refusal: 'no-harness', reason: PLAIN_LORE.attachRefusedNoHarness, arrange: () => {}, options: { harness: undefined } },
   { name: '--ai cursor', refusal: 'cursor', reason: PLAIN_LORE.attachRefusedCursor, arrange: () => {}, options: { ai: 'cursor' } },
@@ -282,7 +278,7 @@ describe('a carrier path that appears after the collision check is never overwri
 
   const RACES = [
     { name: 'the first carrier, so nothing was written yet', target: ATTACH_CARRIERS.targets[0], appears: ['.claude/', '.claude/commands/', '.claude/commands/plan.md'], rolledBack: 0 },
-    { name: 'the last carrier, so seven files and their directories were written', target: ATTACH_CARRIERS.targets[7], appears: ['scripts/construct/', 'scripts/construct/contract-paths.mjs'], rolledBack: 7 },
+    { name: 'the last carrier, so six files and their directories were written', target: ATTACH_CARRIERS.targets[6], appears: ['scripts/construct/', 'scripts/construct/check-acceptance.mjs'], rolledBack: 6 },
   ]
 
   for (const race of RACES) {
