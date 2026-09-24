@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
 import antfu from '@antfu/eslint-config'
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 
@@ -92,6 +94,28 @@ const theRecordItselfMayReadBothHalves = {
   },
 }
 
+const ROOT = import.meta.dirname
+const AGENT_WORKTREES = '.claude/worktrees/**'
+
+function registeredWorktrees() {
+  try {
+    return execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n')
+      .filter(line => line.startsWith('worktree '))
+      .map(line => line.slice('worktree '.length))
+  }
+  catch {
+    return []
+  }
+}
+
+function nestedWorktrees() {
+  return registeredWorktrees()
+    .map(worktree => path.relative(ROOT, worktree))
+    .filter(relative => relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative))
+    .map(relative => `${relative.split(path.sep).join('/')}/**`)
+}
+
 const THE_SURFACE_TEST_NEVER_WRITES = 'tests/contract/surface.test.ts compares and never writes (0030): contract/surface.json is written only by `pnpm contract:update`'
 const FS_WRITES = ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'rm', 'rmSync', 'unlink', 'unlinkSync', 'mkdir', 'mkdirSync', 'cpSync', 'copyFile', 'copyFileSync', 'rename', 'renameSync', 'createWriteStream']
 
@@ -110,7 +134,7 @@ export default antfu(
     typescript: true,
   },
   {
-    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/**/*.workflow.mjs'],
+    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/**/*.workflow.mjs', AGENT_WORKTREES, ...nestedWorktrees()],
   },
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
