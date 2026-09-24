@@ -20,6 +20,7 @@ export function printDetectReport(ui: Ui, report: DetectReport): void {
     ['Package manager', report.packageManager],
     ['Layout', layout],
     ['Workspace dirs', report.workspaceDirs.length > 0 ? `${report.workspaceDirs.join(', ')} (${report.workspacePackages.length} packages)` : 'none'],
+    ['Other stacks\' manifests', report.existing.foreignManifests.length > 0 ? report.existing.foreignManifests.join(', ') : 'none'],
     ['src/', yesNo(report.hasSrc)],
     ['Contracts', report.existing.openapi ?? 'none'],
     ['tsconfig / ESLint config', `${yesNo(report.existing.tsconfig)} / ${yesNo(report.existing.eslintConfig)}`],

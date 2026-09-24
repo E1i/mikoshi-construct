@@ -39,6 +39,7 @@ export interface Preset {
   groups: TemplateGroup[]
   contracts: boolean
   available: boolean
+  stack: 'node'
   vars: (report: DetectReport, projectName: string, policy: WorkspaceImports | null) => Partial<TemplateVars>
   policy?: (report: DetectReport, projectName: string, recorded: WorkspaceImports | null) => WorkspaceImports
 }
@@ -110,6 +111,7 @@ const PRESETS: Record<PresetId, Preset> = {
     ],
     contracts: true,
     available: true,
+    stack: 'node',
     vars: () => ({
       contractPath: 'contracts/api/openapi.yaml',
       contractTypesOutput: 'src/contracts/openapi.ts',
@@ -130,6 +132,7 @@ const PRESETS: Record<PresetId, Preset> = {
     ],
     contracts: false,
     available: true,
+    stack: 'node',
     vars: () => ({
       contractPath: '',
       contractTypesOutput: '',
@@ -142,6 +145,7 @@ const PRESETS: Record<PresetId, Preset> = {
     groups: ['base', 'harness'],
     contracts: false,
     available: true,
+    stack: 'node',
     vars: () => ({
       contractPath: '',
       contractTypesOutput: '',
@@ -162,6 +166,7 @@ const PRESETS: Record<PresetId, Preset> = {
     ],
     contracts: true,
     available: true,
+    stack: 'node',
     policy: (report, projectName, recorded) => resolveWorkspaceImports(workspacePackagesFor(report, projectName), recorded),
     vars: (report, projectName, policy) => {
       const packages = workspacePackagesFor(report, projectName)

@@ -2,6 +2,7 @@ import type { ExistingFiles } from './report.js'
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
+const FOREIGN_MANIFESTS = ['go.mod', 'Cargo.toml', 'pyproject.toml', 'requirements.txt', 'Gemfile', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'composer.json', 'mix.exs', 'Package.swift']
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml']
 export const DEFAULT_COMPOSITION_DIR = 'architecture/composition'
 const COMPOSITION_CANDIDATES = [DEFAULT_COMPOSITION_DIR, 'docs/architecture/composition', 'docs/composition', 'composition']
@@ -39,5 +40,6 @@ export function detectExisting(dir: string): ExistingFiles {
     openapi: firstExisting(dir, OPENAPI_CANDIDATES),
     compositionDir: compositionDir(dir),
     constructJson: existsSync(path.join(dir, 'construct.json')),
+    foreignManifests: FOREIGN_MANIFESTS.filter(manifest => existsSync(path.join(dir, manifest))),
   }
 }
