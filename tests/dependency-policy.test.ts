@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const eslint = new ESLint({ cwd: root })
 
-const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'program', 'sync', 'ui', 'version']
+const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'program', 'record-ahead', 'sync', 'ui', 'version']
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry =>
@@ -90,6 +90,16 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/cli.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/commands/probe.ts', 'import { main } from \'../program.js\'\n\nexport const probe = main\n')).toEqual(['no-restricted-imports'])
+  })
+
+  it('lets only the readers of a versioned record and the failure reader reach the record-ahead error', async () => {
+    const ahead = (base: string) => `import { RecordAheadOfReader } from '${base}/record-ahead.js'\n\nexport const probe = RecordAheadOfReader\n`
+    expect(await violations('src/manifest.ts', ahead('.'))).toEqual([])
+    expect(await violations('src/model/probe.ts', ahead('..'))).toEqual([])
+    expect(await violations('src/failure.ts', ahead('.'))).toEqual([])
+    expect(await violations('src/detect/probe.ts', ahead('..'))).toEqual(['no-restricted-imports'])
+    expect(await violations('src/ui/probe.ts', ahead('..'))).toEqual(['no-restricted-imports'])
+    expect(await violations('src/presets/probe.ts', ahead('..'))).toEqual(['no-restricted-imports'])
   })
 
   it('keeps the model and the manifest apart in both directions', async () => {
