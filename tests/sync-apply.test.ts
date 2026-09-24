@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
-import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
+import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, SYNC_JSON_SCHEMA_VERSION, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
 import { factsTheRepositoryEstablishes } from '../src/detect/facts.js'
 import { DISCOVERY_MARKERS, MANIFEST_VERSION, markerFile, readManifest, sha256, writeManifest } from '../src/manifest.js'
 import { BLOCK_BEGIN, BLOCK_END } from '../src/materialize/strategies.js'
@@ -364,8 +364,9 @@ describe('the apply report', () => {
     const dir = frozenTree()
     packageJsonMissingAKey(dir)
     const result = applySync(dir, VERSION)!
-    const json = syncApplyJson(result) as { fromVersion: string, toVersion: string, counts: Record<PathClass, number>, paths: unknown[], written: string[], pending: string[], ranAt: string }
+    const json = syncApplyJson(result) as { schemaVersion: number, fromVersion: string, toVersion: string, counts: Record<PathClass, number>, paths: unknown[], written: string[], pending: string[], ranAt: string }
 
+    expect(json.schemaVersion).toBe(SYNC_JSON_SCHEMA_VERSION)
     expect(json.fromVersion).toBe('0.1.0')
     expect(json.toVersion).toBe(VERSION)
     expect(Object.keys(json.counts).sort()).toEqual([...PATH_CLASSES].sort())

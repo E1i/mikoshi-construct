@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CLAIM_PLACEMENTS, DOCTOR_FIELD_FAMILY, NOT_CARRIED_READINGS, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
+import { CLAIM_PLACEMENTS, DOCTOR_FIELD_FAMILY, doctorJson, NOT_CARRIED_READINGS, RESULT_FAMILIES, runDoctor } from '../src/commands/doctor/index.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
 import { buildModel } from '../src/model/write.js'
 
@@ -38,7 +38,7 @@ function emittedResult(): Record<string, unknown> {
     previous: null,
     policy: null,
   }))
-  return runDoctor(root) as unknown as Record<string, unknown>
+  return doctorJson(runDoctor(root))
 }
 
 const CLI_DOC = path.resolve(import.meta.dirname, '../docs/cli.md')

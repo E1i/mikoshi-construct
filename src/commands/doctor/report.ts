@@ -14,6 +14,14 @@ export const DOCTOR_EXIT = {
   noManifest: 1,
 } as const
 
+export const DOCTOR_JSON_SCHEMA_VERSION = 1
+
+export function doctorJson(result: DoctorResult | null): Record<string, unknown> {
+  if (result == null)
+    return { schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, state: 'no-manifest' }
+  return { schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, ...result }
+}
+
 function reading(ui: Ui, check: CheckVerdict): string {
   switch (check.state) {
     case 'held':

@@ -1,8 +1,9 @@
+import type { DoctorResult } from '../src/commands/doctor/index.js'
 import type { TemplateVars } from '../src/presets/index.js'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DOCTOR_FIELD_FAMILY, RETIRED_IDENTIFIERS } from '../src/commands/doctor/index.js'
+import { DOCTOR_FIELD_FAMILY, doctorJson, RETIRED_IDENTIFIERS } from '../src/commands/doctor/index.js'
 import { LEVELS } from '../src/commands/doctor/verdict.js'
 import { ENFORCEMENT_LEVELS } from '../src/model/schema.js'
 import { buildModel } from '../src/model/write.js'
@@ -43,9 +44,11 @@ const IDENTIFIER_TABLES: { header: string[], columns: number[] }[] = [
   { header: ['`id`', 'The claim it renders', 'When it appears'], columns: [0, 1] },
 ]
 
+const ENVELOPE_KEYS = Object.keys(doctorJson({} as DoctorResult))
+
 function currentIdentifiers(): string[] {
   const claims = buildModel({ vars: VARS, contracts: true, sample: true }).claims
-  return [...Object.keys(DOCTOR_FIELD_FAMILY), ...claims.map(claim => claim.id), ...claims.flatMap(claim => claim.checkId ?? [])]
+  return [...Object.keys(DOCTOR_FIELD_FAMILY), ...ENVELOPE_KEYS, ...claims.map(claim => claim.id), ...claims.flatMap(claim => claim.checkId ?? [])]
 }
 
 function namedIdentifiers(value: unknown): string[] {

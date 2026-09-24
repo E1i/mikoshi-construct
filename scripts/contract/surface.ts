@@ -1,4 +1,5 @@
 import type { ArgsDef, CommandDef } from 'citty'
+import type { JsonKeys } from './json-samples.js'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,12 +18,12 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main } from '../../src/program.js'
+import { cliEnv, jsonKeys } from './json-samples.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const CLI = path.join(REPO_ROOT, 'src/cli.ts')
 const ATTACH_SAMPLE = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
-const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT', 'CURSOR_TRACE_ID']
 const GIT_EXCLUDE = '.git/info/exclude'
 
 export const OUTSIDE_THE_CONTRACT = [
@@ -44,6 +45,7 @@ export type CommandSurface = { flags: Record<string, Flag> } | { aliasOf: string
 export interface Surface {
   commands: Record<string, CommandSurface>
   exits: Record<string, Record<string, number>>
+  jsonKeys: JsonKeys
   formats: { manifestVersion: number, modelVersion: number, recordVersion: number }
   paths: { init: Record<string, string[]>, attach: { writes: string[], edits: string[] } }
   markers: { block: string[][], discover: { tags: string[], markers: string[] } }
@@ -99,10 +101,7 @@ function exits(): Record<string, Record<string, number>> {
 }
 
 function runCli(args: string[], dir: string, home: string): void {
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', HOME: home }
-  for (const name of RUNTIME_MARKERS)
-    delete env[name]
-  execFileSync(process.execPath, [TSX, CLI, ...args, '--dir', dir], { env, stdio: 'ignore' })
+  execFileSync(process.execPath, [TSX, CLI, ...args, '--dir', dir], { env: cliEnv(home), stdio: 'ignore' })
 }
 
 function filesUnder(root: string, relative = ''): string[] {
@@ -178,6 +177,7 @@ export function generateSurface(): Surface {
   return {
     commands: commandsOf(main),
     exits: exits(),
+    jsonKeys: jsonKeys(),
     formats: runs.formats,
     paths: runs.paths,
     markers: markers(),

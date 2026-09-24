@@ -16,6 +16,10 @@ export const SYNC_APPLY_EXIT = {
   refused: 2,
 } as const
 
+export const SYNC_JSON_SCHEMA_VERSION = 1
+
+export const SYNC_NO_MANIFEST_JSON = { schemaVersion: SYNC_JSON_SCHEMA_VERSION, state: 'no-manifest' } as const
+
 export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'conflict', 'unknown', 'removed', 'orphaned']
 
 const CLASS_COLUMN = Math.max(...PATH_CLASSES.map(value => value.length)) + 2
@@ -36,6 +40,7 @@ function actionableKeys(entry: PathClassification): string[] {
 
 export function syncJson(report: SyncReport): Record<string, unknown> {
   return {
+    schemaVersion: SYNC_JSON_SCHEMA_VERSION,
     fromVersion: report.fromVersion,
     toVersion: report.toVersion,
     counts: report.counts,
