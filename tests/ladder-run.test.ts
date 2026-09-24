@@ -45,8 +45,8 @@ const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '
 
 const REJECTED = new Error('SPEC: decision: missing')
 
-async function run(args: Record<string, unknown>, replies: Record<string, Reply[]>): Promise<{ result: LadderResult, calls: AgentCall[] }> {
-  const queues: Record<string, Reply[]> = { architect: [], implementer: [], harness: [], ...replies }
+async function run(args: Record<string, unknown>, replies: Record<string, Reply[]>, base: Reply = GREEN): Promise<{ result: LadderResult, calls: AgentCall[] }> {
+  const queues: Record<string, Reply[]> = { architect: [], implementer: [], ...replies, harness: [base, ...(replies.harness ?? [])] }
   const calls: AgentCall[] = []
   const agent = async (prompt: string, options: { agentType: string }): Promise<unknown> => {
     calls.push({ agentType: options.agentType, prompt })
@@ -81,7 +81,7 @@ describe('the design step is part of the run', () => {
 
     expect(result.status).toBe('design incomplete')
     expect(result.validationError).toBe(REJECTED.message)
-    expect(calls.map(call => call.agentType)).toEqual(['architect'])
+    expect(calls.map(call => call.agentType)).toEqual(['harness', 'architect'])
   })
 
   it('lets a medium run continue after a failed architect but never reports it as a plain success', async () => {
@@ -123,7 +123,7 @@ describe('the design step is part of the run', () => {
 
     expect(result.status).toBe('done')
     expect(result.effort).toBe('high')
-    expect(calls[1].prompt).toContain(SPEC.decision)
+    expect(calls[2].prompt).toContain(SPEC.decision)
   })
 })
 
@@ -163,5 +163,36 @@ describe('a run with no harness command names nothing and asks for it', () => {
     expect(result.question).toContain('harness command')
     expect(result.question).toContain('.construct/attach.json')
     expect(calls).toEqual([])
+  })
+})
+
+describe('a red base stops the ladder before it spends anything', () => {
+  it('checks the base with the harness before the first rung, and before the architect of a high run', async () => {
+    const { calls } = await run({ task: 'change a boundary', effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [GREEN] })
+
+    expect(calls.map(call => call.agentType)).toEqual(['harness', 'architect', 'implementer', 'harness'])
+  })
+
+  it('returns base red with the harness failure and runs no implementer and no architect', async () => {
+    const { result, calls } = await run({ task: 'change a boundary', effort: 'high' }, { architect: [SPEC], implementer: [REPORT] }, RED)
+
+    expect(result.status).toBe('base red')
+    expect(result.lastFailure).toBe(RED.failureExcerpt)
+    expect(result.attempts).toEqual([{ rung: 0, effort: 'low', outcome: 'base red', reason: RED.failureExcerpt }])
+    expect(calls.map(call => call.agentType)).toEqual(['harness'])
+  })
+
+  it('names a base it could not verify apart from a red one, and still runs nothing', async () => {
+    const { result, calls } = await run({ task: 'add a rule', effort: 'low' }, { implementer: [REPORT] }, REJECTED)
+
+    expect(result.status).toBe('base unverified')
+    expect(result.validationError).toBe(REJECTED.message)
+    expect(calls.map(call => call.agentType)).toEqual(['harness'])
+  })
+
+  it('tells the harness it is looking at the base, so no change is expected in the diff', async () => {
+    const { calls } = await run({ task: 'add a rule', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(calls[0].prompt).toContain('before any change')
   })
 })
