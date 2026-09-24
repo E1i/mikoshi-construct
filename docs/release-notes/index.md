@@ -4,6 +4,14 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.21.0
+
+### Minor Changes
+
+- [#225](https://github.com/E1i/mikoshi-construct/pull/225) [`d05d282`](https://github.com/E1i/mikoshi-construct/commit/d05d282239dbd74a8a5ba73316f9faf0ab1220a3) Thanks [@E1i](https://github.com/E1i)! - templates: the ladder derives `contractChanged` instead of asking the harness agent to judge it. The harness agent reports `changedFiles` — `git diff --name-only HEAD` plus untracked files, verbatim — and the VERDICT schema no longer has a `contractChanged` field. `implement.workflow.mjs` sets the result's `contractChanged` when a changed file equals, exactly, one of `args.harness.contractPaths`, and returns `changedFiles` beside it. The `/implement` skill fills `contractPaths` by reading `contracts.path` and `contracts.types` from `construct.json` and a `Contract paths:` line from `CLAUDE.md`; `.construct/attach.json` records no contract paths, so an attached repository names them in that line.
+
+- [#222](https://github.com/E1i/mikoshi-construct/pull/222) [`c5a8882`](https://github.com/E1i/mikoshi-construct/commit/c5a8882cd70073b73a124e2de62d611487b4416f) Thanks [@E1i](https://github.com/E1i)! - templates: `AGENTS.md` and `.github/workflows/ci.yml` name the recorded harness command instead of a literal `pnpm run quality`, and the workflow's quality step quotes a command that would not parse as a bare YAML scalar (one carrying `: ` or ` #`), so its `run` is the command verbatim; with `pnpm run quality` the output is unchanged byte for byte. `construct doctor` checks a `pnpm`/`npm`/`yarn`/`bun` script command against `package.json` as before, and reports any other command — `make check`, say — as `harness.state: "unknown"`, named in the output as not statically checkable, rather than as a missing `package.json`; `doctor --json` gains the `harness` field, and `unknown` never makes `ok` false.
+
 ## 0.20.0
 
 ### Minor Changes
