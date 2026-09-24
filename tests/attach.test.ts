@@ -16,6 +16,7 @@ import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
+import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
 const HARNESS = 'pnpm run quality'
@@ -41,13 +42,6 @@ function fixture(): string {
   git(dir, 'add', '-A')
   git(dir, 'commit', '-qm', 'base')
   return dir
-}
-
-function listing(dir: string): string[] {
-  return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .map(entry => `${path.relative(dir, path.join(entry.parentPath, entry.name))}${entry.isDirectory() ? '/' : ''}`)
-    .filter(entry => entry !== '.git/' && !entry.startsWith('.git/'))
-    .sort()
 }
 
 function sha256(file: string): string {
