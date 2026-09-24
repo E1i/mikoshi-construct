@@ -6,8 +6,8 @@ import { hasLedgerFindings, readLedger, reconcile, summarizeLedger, withoutToken
 import { resolveRuntime } from './runtime.js'
 
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey } from './claude-code.js'
-export { LEDGER_FILE, readLedger, reconcile, STOP_REASONS, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
-export type { LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconciliation, StopReason, TokenCount, TokenSource } from './ledger.js'
+export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
+export type { Cause, LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconciliation, TokenCount, TokenSource } from './ledger.js'
 export { COST_EXIT, costJson, printCost } from './report.js'
 export { resolveRuntime } from './runtime.js'
 export type { CostReport, CostSource, CostStatus, Runtime } from './source.js'
