@@ -22,6 +22,14 @@ blocks are cumulative, and where a version bump has to land.
 This repository runs on its own construct. `/plan` and `/implement` in Claude Code work here; so does
 `construct doctor`.
 
+Pull requests from the maintainer end with a compact matrix and record, before each run, a
+prediction of what will turn red and a named wrong implementation applied as a mutation
+([decisions 0027](architecture/decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md)
+and [0029](architecture/decisions/0029-an-acceptance-is-red-under-a-named-wrong-implementation.md)).
+The matrix, the predictions and the mutations are not required from an outside contributor: they
+are the maintainer's own record, described in [the code matrix](architecture/code-matrix.md). A
+contribution needs a green `pnpm run quality` and a test for what it changes.
+
 ## Adding a preset
 
 1. `templates/presets/<id>/baseline/` — what every repository gets: lint policy, `package.json`
