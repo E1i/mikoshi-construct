@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ESLint } from 'eslint'
 import { describe, expect, it } from 'vitest'
-import { INTERNAL_MODULES } from '../eslint.config.mjs'
+import INTERNAL_MODULES from '../internal-modules.json' with { type: 'json' }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const eslint = new ESLint({ cwd: root })

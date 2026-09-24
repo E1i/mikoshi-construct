@@ -1,6 +1,5 @@
 import antfu from '@antfu/eslint-config'
-
-export const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'failure', 'manifest', 'materialize', 'model', 'presets', 'program', 'record-ahead', 'sync', 'ui', 'version']
+import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 
 const ALLOWED_INTERNAL_IMPORTS = {
   'src/detect': [],
