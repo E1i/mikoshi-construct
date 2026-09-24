@@ -1,7 +1,7 @@
 import type { ReleaseRoute, ReleaseRouteReading } from '../../release/changesets.js'
 import type { RegistryFetchers } from '../../release/registry.js'
 import { describe, expect, it, vi } from 'vitest'
-import { checkVersion, describeOutcome, EXIT_CODE, pollForVersion } from '../../release/registry.js'
+import { checkVersion, describeOutcome, describeStaged, EXIT_CODE, pollForVersion, withStage } from '../../release/registry.js'
 
 const REQUEST = { packageName: 'mikoshi-construct', version: '0.3.0' }
 
@@ -158,8 +158,8 @@ describe('verification report', () => {
   const PUBLISHING = reading('publishing')
   const UNKNOWN = reading('unknown')
 
-  it('maps each outcome to its exit code', () => {
-    expect(EXIT_CODE).toEqual({ installable: 0, absent: 1, unreachable: 2, propagating: 3 })
+  it('maps each outcome to its exit code, and only an installable version to zero', () => {
+    expect(EXIT_CODE).toEqual({ installable: 0, absent: 1, unreachable: 2, propagating: 3, staged: 4 })
   })
 
   it('names a published version whose tarball has not reached the CDN as published, not as absent or failed', () => {
@@ -226,5 +226,32 @@ describe('verification report', () => {
 
   it('claims nothing about the published state when the registry was unreachable', () => {
     expect(describeOutcome('unreachable', REQUEST, UNKNOWN)).toContain('Unknown is not absent')
+  })
+})
+
+describe('a staged publish awaiting approval', () => {
+  const STAGE = { version: '0.3.0', stageId: '0f8e2c1a-5b7d-4e3f-9a21-6c4d8b0e7f12' }
+
+  it('reads an absent version with a stage record for it as staged, not absent', () => {
+    expect(withStage('absent', STAGE)).toBe('staged')
+  })
+
+  it('keeps an absent version without a stage record absent, so it still fails', () => {
+    expect(withStage('absent', undefined)).toBe('absent')
+  })
+
+  it('lets the registry answer win over the record once the version is served', () => {
+    for (const outcome of ['installable', 'propagating', 'unreachable'] as const)
+      expect(withStage(outcome, STAGE)).toBe(outcome)
+  })
+
+  it('names the stage id and says to re-run this run after approval', () => {
+    const message = describeStaged(STAGE, 'mikoshi-construct')
+
+    expect(message).toContain('mikoshi-construct@0.3.0')
+    expect(message).toContain(`staged it as ${STAGE.stageId}`)
+    expect(message).toContain('pending, not a failure')
+    expect(message).toContain('re-run this run after approval')
+    expect(message).not.toContain('failed while reporting success')
   })
 })

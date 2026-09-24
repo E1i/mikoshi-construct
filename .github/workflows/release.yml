@@ -11,9 +11,15 @@
 # Changesets 3 no longer prints, so it pushed no tag and created no GitHub release while still
 # reporting success.
 #
-# Trusted publishing needs npm 11.5.1 or newer. The Node major pinned in .nvmrc ships npm 10, which has
-# no OIDC support and publishes unauthenticated — the registry answers `404 Not Found - PUT`. So the
-# job upgrades npm before publishing, and keeps the pinned Node so the harness runs where CI runs it.
+# The publish is staged with `npm stage publish`, which npm has from 11.15.0 (trusted publishing itself
+# needs 11.5.1). The Node major pinned in .nvmrc ships npm 10, which has neither and publishes
+# unauthenticated — the registry answers `404 Not Found - PUT`. So the job upgrades npm before
+# publishing, and keeps the pinned Node so the harness runs where CI runs it.
+#
+# A staged version is installable only once a human approves it, so the stage id is uploaded as the
+# release-stage artifact: Release verification reads it to tell a publish awaiting approval from one
+# that is absent. `changeset tag` then writes the git-tag report the action turns into tags and
+# GitHub releases, which `changeset publish` wrote before.
 
 name: Release
 
@@ -45,7 +51,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Upgrade npm to a release that supports trusted publishing
-        run: npm install --global "npm@^11.5.1"
+        run: npm install --global "npm@^11.15.0"
 
       - run: pnpm install --frozen-lockfile
 
@@ -61,3 +67,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: Upload the stage record
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-stage
+          path: release-stage.json
+          if-no-files-found: ignore

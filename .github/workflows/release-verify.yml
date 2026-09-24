@@ -8,6 +8,13 @@
 # opens a version pull request instead. The third is derived here from the tree rather than guessed,
 # and the other two are named without a repair being prescribed for either.
 #
+# The Release run uploads the stage id of the version it staged as the release-stage artifact. An absent
+# version with a stage record for it is pending, not failed: the run prints the stage id, then cancels
+# itself so it ends grey rather than red or green, and Published smoke, which runs only after a green
+# verification, stays skipped. Re-running this same run after approval reads the same record and turns
+# green. If the cancellation does not take effect the run ends red, never green. An absent version with
+# no stage record fails as before.
+#
 # This workflow is separate from release.yml because it must be re-runnable on its own after a staged
 # version is approved; re-running release.yml would publish again and fail with `409 Cannot publish
 # over previously staged version`.
@@ -22,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   verify:
@@ -38,4 +46,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Download the stage record the Release run uploaded
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          count=$(gh api "repos/$REPOSITORY/actions/runs/$RELEASE_RUN/artifacts?name=release-stage" --jq '.total_count')
+          if [ "$count" -gt 0 ]; then
+            gh run download "$RELEASE_RUN" --repo "$REPOSITORY" --name release-stage --dir release-stage
+          fi
+
       - run: pnpm run release:verify
+        env:
+          GH_TOKEN: ${{ github.token }}
