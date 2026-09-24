@@ -1,5 +1,11 @@
 # mikoshi-construct
 
+## 0.20.0
+
+### Minor Changes
+
+- [#211](https://github.com/E1i/mikoshi-construct/pull/211) [`6a95be8`](https://github.com/E1i/mikoshi-construct/commit/6a95be827378b2b6a2d3df3b626a0171574b85e0) Thanks [@E1i](https://github.com/E1i)! - templates: `/implement` copies an agreed `Acceptance:` section into the ladder's arguments verbatim and checks it with `scripts/construct/check-acceptance.mjs` before calling the ladder, stopping when an agreed item dropped out; the ladder logs the acceptance it received and echoes it as `acceptance` on every result, and `construct attach` now writes the check as a seventh file.
+
 ## 0.19.1
 
 ### Patch Changes
