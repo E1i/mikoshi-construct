@@ -858,7 +858,83 @@ recorded and decision 0006 froze; a block sync rewrote no longer hashes to it. S
 wrote in its own branch instead of correcting the baseline, because correcting it would erase the
 evidence of what `init` actually did.
 
-### Exit codes
+### construct mutate
+
+Carries one named wrong implementation from a brief
+([decision 0029](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0029-an-acceptance-is-red-under-a-named-wrong-implementation.md))
+from edit to verdict. The CLI owns the edit, its record, the restoration and the judgment; running
+the tests stays with you or the agent
+([decision 0031](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0031-the-cli-owns-the-mutation-the-runner-owns-execution.md)).
+`mutate` starts no process: the two halves meet only through files.
+
+```bash
+npx vitest run --reporter=json --outputFile=green.json
+construct mutate judge --baseline --report green.json
+construct mutate apply --from brief.md --id M2
+npx vitest run --reporter=json --outputFile=m2.json
+construct mutate judge --id M2 --report m2.json
+```
+
+| Subcommand | Options | What it does |
+|---|---|---|
+| `mutate judge --baseline` | `--report <file>`, `--json` | Records a well-formed report in which nothing failed as `.construct/mutations/baseline.json`, with the report's `startTime`. A red, empty or unreadable report is refused and nothing is written. |
+| `mutate apply` | `--from <file>`, `--id <id>`, `--json` | Applies the line with that id: one `find` → `replace` in one file, after copying the original to `.construct/mutations/<id>.orig` and recording `<id>.json` (the file's sha256 before and after, `appliedAt`, the prediction). |
+| `mutate judge` | `--id <id>`, `--report <file>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. |
+
+A mutation line starts with `M`; every other line of `--from` is ignored. Backtick-delimited strings
+are taken literally.
+
+```
+M2 | src/x.ts | find: `a < b` → `a <= b` | red: tests/x.test.ts › describe › title | `expected 1 to be 2`
+```
+
+The `red:` field names a test by its file, relative to `--dir`, then its describe blocks and its
+title, separated by ` › `; or it is `green`, a prediction that nothing turns red. A line whose third
+field is `edit: <prose>` is a brief written before the code existed.
+
+### What apply refuses
+
+`apply` changes nothing and exits `1` when no green baseline is recorded, when the file was modified
+after the baseline run started, when `.construct/mutations/` still holds a record or copy for that id,
+when `--from` has no line or several lines with that id, when the line is malformed or an `edit:`
+line, when the file is missing or outside `--dir`, and when `find` does not occur exactly once. After
+a successful `judge` the file's modification time is set back to the original's, so the next
+mutation of the same file does not need a new baseline.
+
+### What judge decides, in order
+
+1. The file is not what `apply` wrote (its sha256 differs from the recorded one): a **hard failure**.
+   The file is someone else's edit and is not touched; the record and the copy stay, and the output
+   names the copy.
+2. The report is unreadable or malformed, or it started before the mutation was applied: the file is
+   restored and the result is **no witness**.
+3. The restoration or the byte comparison fails: a **hard failure**, not an outcome of the mutation.
+   The record and the copy stay.
+4. Otherwise the file is restored and the outcome read: the named test turned red, another test
+   turned red (each one named by file and full name), or nothing turned red — the criterion does not
+   tell the implementation apart. With a `green` prediction, nothing turning red is the prediction.
+
+The named test is matched exactly, by its file and by its describe blocks and title. A report in
+which more than one test carries that name, or none does, is refused rather than read from its first
+match. The restoration always comes from the copy, never from reversing the replacement and never
+from git. After a hard failure the record stays, so a second `apply` with that id refuses until the
+file is restored by hand.
+
+The verdict rests on the report you hand over. The CLI checks that it is well formed and newer than
+the mutation; it cannot check which tree it ran on, and the output says so.
+
+| Result | Exit |
+|---|---|
+| The outcome matches the prediction; `--baseline` recorded | `0` |
+| Refused | `1` |
+| The outcome does not match the prediction; no witness | `2` |
+| Hard failure | `3` |
+
+`--json` prints one object with `schemaVersion` and `state` (`matched`, `baselineRecorded`,
+`refused`, `unmatched`, `noWitness` or `hardFailure`). The records under `.construct/mutations/` are
+local working state, not part of the recorded surface.
+
+## Exit codes
 
 | Code | Meaning |
 |---|---|
@@ -1252,9 +1328,9 @@ construction.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
-| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`). |
-| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
-| `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
+| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused. |
+| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness. |
+| `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure. |
 
 ### The recorded surface
 

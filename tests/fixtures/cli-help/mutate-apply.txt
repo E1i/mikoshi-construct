@@ -1,0 +1,14 @@
+Apply one named wrong implementation from a brief: one find → replace in one file, with a copy and a record in .construct/mutations/ (mutate apply)
+
+USAGE mutate apply [OPTIONS] 
+
+OPTIONS
+
+    --dir=<dir>    Target directory (Default: .)                                                                      
+        --plain    No colors, no lore (CI-friendly) (Default: false)                                                  
+       --johnny    Wake up, Netrunner. (Default: false)                                                               
+  --from=<from>    The file carrying the mutation lines (M<id> | file | find: `old` → `new` | red: <test> | `message`)
+      --id=<id>    The id of the mutation line to apply                                                               
+         --json    Machine-readable report (Default: false)                                                           
+
+

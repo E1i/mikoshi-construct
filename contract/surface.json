@@ -134,6 +134,53 @@
     "jack-out": {
       "aliasOf": "detach"
     },
+    "mutate apply": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mutate judge": {
+      "flags": {
+        "baseline": {
+          "type": "boolean"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        },
+        "report": {
+          "type": "string"
+        }
+      }
+    },
     "soulkill": {
       "flags": {
         "dir": {
@@ -208,6 +255,20 @@
       "dry-run": 0,
       "failed": 1,
       "refused": 1
+    },
+    "mutate apply": {
+      "applied": 0,
+      "failed": 1,
+      "refused": 1
+    },
+    "mutate judge": {
+      "baselineRecorded": 0,
+      "failed": 1,
+      "hardFailure": 3,
+      "matched": 0,
+      "noWitness": 2,
+      "refused": 1,
+      "unmatched": 2
     },
     "soulkill": {
       "failed": 1,
@@ -381,6 +442,119 @@
           "warnings",
           "youAreHere",
           "youAreHere.at"
+        ],
+        "root": "object"
+      }
+    },
+    "mutate apply": {
+      "applied": {
+        "keys": [
+          "appliedAt",
+          "baselineSha",
+          "copy",
+          "file",
+          "id",
+          "mutatedSha",
+          "prediction",
+          "prediction.file",
+          "prediction.kind",
+          "prediction.titles",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "refused": {
+        "keys": [
+          "detail",
+          "refusal",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      }
+    },
+    "mutate judge": {
+      "baselineRecorded": {
+        "keys": [
+          "report",
+          "report.path",
+          "report.startTime",
+          "schemaVersion",
+          "state",
+          "tests"
+        ],
+        "root": "object"
+      },
+      "hardFailure": {
+        "keys": [
+          "cause",
+          "copy",
+          "file",
+          "id",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "matched": {
+        "keys": [
+          "failures",
+          "failures[].file",
+          "failures[].name",
+          "file",
+          "id",
+          "outcome",
+          "prediction",
+          "prediction.file",
+          "prediction.kind",
+          "prediction.titles",
+          "report",
+          "report.path",
+          "report.startTime",
+          "restored",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "noWitness": {
+        "keys": [
+          "file",
+          "id",
+          "reason",
+          "restored",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "refused": {
+        "keys": [
+          "detail",
+          "failures",
+          "refusal",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "unmatched": {
+        "keys": [
+          "failures",
+          "file",
+          "id",
+          "outcome",
+          "prediction",
+          "prediction.file",
+          "prediction.kind",
+          "prediction.titles",
+          "report",
+          "report.path",
+          "report.startTime",
+          "restored",
+          "schemaVersion",
+          "state"
         ],
         "root": "object"
       }

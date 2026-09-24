@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commandFromHelp, usageCommands } from '../../scripts/contract/help.js'
+import { commandFromHelp, listsCommands, usageCommands } from '../../scripts/contract/help.js'
 import { HEAD_CLI } from '../../scripts/contract/json-samples.js'
 import { commandsFromHelp, headCommands } from '../../scripts/contract/surface.js'
 
@@ -26,6 +26,27 @@ OPTIONS
                      --verbose    Chatty (Default: true)
 `
 
+const MUTATE_HELP = `Apply a named wrong implementation (construct mutate v0.19.0)
+
+USAGE construct mutate apply|judge
+
+COMMANDS
+
+  apply    Apply one named wrong implementation
+  judge    Restore and judge
+`
+
+const MUTATE_APPLY_HELP = `Apply one named wrong implementation (mutate apply)
+
+USAGE mutate apply [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)
+    --id=<id>    The id of the mutation line to apply
+       --json    Machine-readable report (Default: false)
+`
+
 describe('the command surface read from --help', () => {
   it('lists every command and alias named in the root USAGE line', () => {
     expect(usageCommands(ROOT_HELP)).toEqual(['init', 'attach', 'jack-in', 'soulkill', 'inspect'])
@@ -45,6 +66,20 @@ describe('the command surface read from --help', () => {
 
   it('reads a name whose header names another command as an alias of it', () => {
     expect(commandFromHelp('inspect', 'Extract the facts (alias: inspect, capture) (construct soulkill v0.17.2)\n')).toEqual({ aliasOf: 'soulkill' })
+  })
+
+  it('lists the subcommands a command group names in its own USAGE line', () => {
+    expect(usageCommands(MUTATE_HELP)).toEqual(['apply', 'judge'])
+    expect(listsCommands(MUTATE_HELP)).toBe(true)
+    expect(listsCommands(INIT_HELP)).toBe(false)
+  })
+
+  it('reads a subcommand whose header names its parent and carries no version', () => {
+    expect(commandFromHelp('mutate apply', MUTATE_APPLY_HELP)).toEqual({ flags: { dir: { type: 'string' }, id: { type: 'string' }, json: { type: 'boolean' } } })
+  })
+
+  it('reads a subcommand whose header names another subcommand as an alias of it', () => {
+    expect(commandFromHelp('mutate run', 'Apply (mutate apply)\n')).toEqual({ aliasOf: 'mutate apply' })
   })
 
   it('refuses a command with positional arguments rather than guess their names', () => {

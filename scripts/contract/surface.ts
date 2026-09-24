@@ -12,6 +12,7 @@ import { DETACH_EXIT } from '../../src/commands/detach/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
 import { GRAPH_EXIT } from '../../src/commands/graph.js'
 import { INIT_EXIT } from '../../src/commands/init.js'
+import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/index.js'
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
 import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
 import { FAILED_EXIT } from '../../src/failure.js'
@@ -19,7 +20,7 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main } from '../../src/program.js'
-import { commandFromHelp, usageCommands } from './help.js'
+import { commandFromHelp, listsCommands, usageCommands } from './help.js'
 import { cliArgs, cliEnv, failureLine, HEAD_CLI, jsonKeys, tagCli, tagJsonKeys } from './json-samples.js'
 import { unbaselined } from './semantic-diff.js'
 
@@ -60,21 +61,36 @@ export interface Surface {
   outside: string[]
 }
 
-function commandsOf(root: CommandDef): Record<string, CommandSurface> {
-  const subCommands = root.subCommands
-  if (subCommands == null || typeof subCommands !== 'object')
-    throw new Error('main.subCommands is not a plain object')
-  const firstName = new Map<unknown, string>()
-  const commands: Record<string, CommandSurface> = {}
-  for (const [name, command] of Object.entries(subCommands)) {
+function subCommandsOf(command: CommandDef, name: string): Record<string, CommandDef> | null {
+  const subCommands = command.subCommands
+  if (subCommands == null)
+    return null
+  if (typeof subCommands !== 'object')
+    throw new Error(`${name}.subCommands is not a plain object`)
+  return subCommands as Record<string, CommandDef>
+}
+
+function commandsUnder(parent: CommandDef, prefix: string, firstName: Map<unknown, string>, commands: Record<string, CommandSurface>): void {
+  for (const [ownName, command] of Object.entries(subCommandsOf(parent, prefix || 'main') ?? {})) {
+    const name = prefix === '' ? ownName : `${prefix} ${ownName}`
     const target = firstName.get(command)
     if (target != null) {
       commands[name] = { aliasOf: target }
       continue
     }
     firstName.set(command, name)
-    commands[name] = { flags: flagsOf((command as CommandDef).args) }
+    if (subCommandsOf(command, name) != null)
+      commandsUnder(command, name, firstName, commands)
+    else
+      commands[name] = { flags: flagsOf(command.args) }
   }
+}
+
+function commandsOf(root: CommandDef): Record<string, CommandSurface> {
+  if (subCommandsOf(root, 'main') == null)
+    throw new Error('main.subCommands is not a plain object')
+  const commands: Record<string, CommandSurface> = {}
+  commandsUnder(root, '', new Map(), commands)
   return commands
 }
 
@@ -105,6 +121,8 @@ function exits(): Record<string, Record<string, number>> {
     'sync --apply': withFailed(SYNC_APPLY_EXIT),
     'cost': withFailed(COST_EXIT),
     'graph': withFailed(GRAPH_EXIT),
+    'mutate apply': withFailed(MUTATE_APPLY_EXIT),
+    'mutate judge': withFailed(MUTATE_JUDGE_EXIT),
   }
 }
 
@@ -202,10 +220,18 @@ function helpOf(cli: ObservedCli, args: string[], home: string): string {
   return execFileSync(process.execPath, cliArgs(cli, args), { env: cliEnv(home), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
+function commandsInHelp(cli: ObservedCli, prefix: string[], help: string, home: string): [string, CommandSurface][] {
+  return usageCommands(help).flatMap((name) => {
+    const words = [...prefix, name]
+    const own = helpOf(cli, [...words, '--help'], home)
+    return listsCommands(own) ? commandsInHelp(cli, words, own, home) : [[words.join(' '), commandFromHelp(words.join(' '), own)] as [string, CommandSurface]]
+  })
+}
+
 export function commandsFromHelp(cli: ObservedCli): Record<string, CommandSurface> {
   const home = mkdtempSync(path.join(tmpdir(), 'construct-help-'))
   try {
-    return Object.fromEntries(usageCommands(helpOf(cli, ['--help'], home)).map(name => [name, commandFromHelp(name, helpOf(cli, [name, '--help'], home))]))
+    return Object.fromEntries(commandsInHelp(cli, [], helpOf(cli, ['--help'], home), home))
   }
   finally {
     rmSync(home, { recursive: true, force: true })

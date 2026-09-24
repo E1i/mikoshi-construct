@@ -8,6 +8,7 @@ import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
+import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
@@ -223,6 +224,63 @@ const sync = defineCommand({
   },
 })
 
+const mutateApply = defineCommand({
+  meta: { name: 'apply', description: 'Apply one named wrong implementation from a brief: one find → replace in one file, with a copy and a record in .construct/mutations/' },
+  args: {
+    ...commonArgs,
+    from: { type: 'string', description: 'The file carrying the mutation lines (M<id> | file | find: `old` → `new` | red: <test> | `message`)' },
+    id: { type: 'string', description: 'The id of the mutation line to apply' },
+    json: { type: 'boolean', description: 'Machine-readable report', default: false },
+  },
+  run({ args }) {
+    const console = ui(args, args.json ? stderrWriter : stdoutWriter)
+    const failed = reported(console, () => {
+      const result = applyMutation({ dir: args.dir, from: args.from ?? '', id: args.id ?? '' })
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify(applyJson(result), null, 2)}\n`)
+        process.exitCode = applyExit(result)
+        return
+      }
+      process.exitCode = printApply(console, result)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+})
+
+const mutateJudge = defineCommand({
+  meta: { name: 'judge', description: 'Restore the mutated file from its copy and judge the outcome from a Vitest JSON report, or record a green report as the baseline' },
+  args: {
+    ...commonArgs,
+    id: { type: 'string', description: 'The id of the applied mutation to restore and judge' },
+    baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
+    report: { type: 'string', description: 'The Vitest JSON report the runner wrote with the json reporter' },
+    json: { type: 'boolean', description: 'Machine-readable report', default: false },
+  },
+  run({ args }) {
+    const console = ui(args, args.json ? stderrWriter : stdoutWriter)
+    const failed = reported(console, () => {
+      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline })
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
+        process.exitCode = judgeExit(result)
+        return
+      }
+      process.exitCode = printJudge(console, result)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+})
+
+const mutate = defineCommand({
+  meta: { name: 'mutate', description: 'Apply a named wrong implementation and judge it from the report the runner hands over; runs no test itself' },
+  subCommands: {
+    apply: mutateApply,
+    judge: mutateJudge,
+  },
+})
+
 export const main = defineCommand({
   meta: {
     name: 'construct',
@@ -242,5 +300,6 @@ export const main = defineCommand({
     sync,
     cost,
     graph,
+    mutate,
   },
 })

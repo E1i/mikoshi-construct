@@ -56,6 +56,12 @@ acceptance is red before the implementation exists**, because a criterion that c
 failing is a statement of intent whatever its wording. That rule, the two stops it carries and the
 condition it depends on are
 [decision 0027](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0027-an-acceptance-is-red-before-the-implementation-exists.md).
+Once the implementation is green, a criterion that guards a property is shown red again under one
+named plausible wrong implementation
+([decision 0029](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0029-an-acceptance-is-red-under-a-named-wrong-implementation.md)).
+`construct mutate apply` applies that wrong implementation from the brief, you run the suite with the
+JSON reporter, and `construct mutate judge` restores the file from its copy and reads the outcome
+from the report — see [the reference](/cli#construct-mutate).
 
 ## 4. `/implement <task>` — the ladder
 
