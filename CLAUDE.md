@@ -59,7 +59,8 @@ edits. Run it before reporting done.
 - A file ending in `.eta` is rendered: `{{projectName}}`, `{{scope}}`, `{{nodeMajor}}`,
   `{{contracts}}`, `{{contractPath}}`, `{{contractTypesOutput}}`, `{{harnessCommand}}`,
   `{{packageManager}}`, `{{pnpmVersion}}`, `{{constructVersion}}` plus preset-specific ones (see
-  `TemplateVars` and each preset's `vars` in `src/presets/index.ts`). An unknown variable throws.
+  `TemplateVars` and each preset's `vars` in `src/presets/index.ts`), and `{{harnessCommandYamlScalar}}`,
+  which `planMaterialize` derives from `harnessCommand` at render time and never records. An unknown variable throws.
   `{{#if var}}` … `{{/if}}` and `{{#unless var}}` … `{{/unless}}` on lines of their own keep or drop
   the lines between them (`''` and `'false'` are falsy). Everything else is copied verbatim — prefer
   verbatim; add a variable only when a file cannot work without it.

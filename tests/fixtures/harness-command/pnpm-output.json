@@ -1,0 +1,18 @@
+{
+  "node-backend": {
+    "AGENTS.md": "7a30fa2528e43c3e265a9fe354448c98003f2d738aeb0e01308f270f000a7671",
+    ".github/workflows/ci.yml": "ec3501a4b39506803f45a549344b81bf5fbbb723a1effa4b785fbcac8daffc72"
+  },
+  "node-frontend": {
+    "AGENTS.md": "1c9464733ac0e826e32d3fc029f23b21928df60ac6ceed4d3acf8d24999f58c6",
+    ".github/workflows/ci.yml": "ec3501a4b39506803f45a549344b81bf5fbbb723a1effa4b785fbcac8daffc72"
+  },
+  "node-library": {
+    "AGENTS.md": "1c9464733ac0e826e32d3fc029f23b21928df60ac6ceed4d3acf8d24999f58c6",
+    ".github/workflows/ci.yml": "ec3501a4b39506803f45a549344b81bf5fbbb723a1effa4b785fbcac8daffc72"
+  },
+  "monorepo": {
+    "AGENTS.md": "7e2fff904ecc6707e06af2e9454c5a41e1f6f32497987b6d249454ae7ef766e2",
+    ".github/workflows/ci.yml": "ec3501a4b39506803f45a549344b81bf5fbbb723a1effa4b785fbcac8daffc72"
+  }
+}

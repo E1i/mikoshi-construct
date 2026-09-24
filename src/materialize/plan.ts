@@ -7,6 +7,7 @@ import path from 'node:path'
 import { mapRulesForTargets } from './rules.js'
 import { appendBlock, mergeJson, strategyFor } from './strategies.js'
 import { listTemplateFiles, render } from './templates.js'
+import { yamlScalar } from './yaml-scalar.js'
 
 export const NO_TREE_TO_PLAN_AGAINST = path.join(tmpdir(), 'mikoshi-construct-renders-against-no-tree')
 
@@ -36,7 +37,13 @@ function mountTarget(mount: TemplateMount, target: string): string {
   return mount.into == null || mount.into === '.' ? target : `${mount.into.replace(/\/$/, '')}/${target}`
 }
 
-function readTemplate(source: string, rendered: boolean, vars: TemplateVars): string {
+function renderedVars(vars: TemplateVars): Record<string, string> {
+  return Object.create(vars, {
+    harnessCommandYamlScalar: { get: () => yamlScalar(vars.harnessCommand), enumerable: true },
+  }) as Record<string, string>
+}
+
+function readTemplate(source: string, rendered: boolean, vars: Record<string, string>): string {
   const raw = readFileSync(source, 'utf8')
   return rendered ? render(raw, vars) : raw
 }
@@ -153,6 +160,7 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
   const omittedGroups: string[] = []
   const layered = new Map<string, string>()
   const existingVariants = new Map<string, string>()
+  const rendering = renderedVars(vars)
   for (const mount of groups.map(toMount)) {
     if (mount.onlyWhenEmpty === true && !options.emptyTarget) {
       omittedGroups.push(mount.group)
@@ -160,7 +168,7 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
     }
     for (const file of listTemplateFiles(mount.group)) {
       const target = mountTarget(mount, file.target)
-      const content = readTemplate(file.source, file.rendered, vars)
+      const content = readTemplate(file.source, file.rendered, rendering)
       if (file.variant === 'existing') {
         existingVariants.set(target, content)
         continue

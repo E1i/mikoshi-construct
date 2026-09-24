@@ -24,7 +24,7 @@ _Not discovered yet — run `/construct-discover`._
 
 ```bash
 pnpm dev             # run the service locally
-pnpm run quality     # the harness: contract + composition checks, lint, typecheck, tests — the CI gate and the agent gate
+{{harnessCommand}}     # the harness: contract + composition checks, lint, typecheck, tests — the CI gate and the agent gate
 {{#if contracts}}
 pnpm contracts:types # regenerate {{contractTypesOutput}} after editing the API contract
 {{/if}}
@@ -32,7 +32,7 @@ pnpm composition:render # regenerate architecture diagrams after editing a compo
 pnpm lint:fix        # ESLint with --fix; ESLint is the only formatter
 ```
 
-Use `pnpm run quality` / `pnpm run ci` — bare `pnpm ci` is a pnpm install builtin, not this script.
+Use `{{harnessCommand}}` / `pnpm run ci` — bare `pnpm ci` is a pnpm install builtin, not this script.
 
 <!-- construct:discover:commands -->
 _Not discovered yet — run `/construct-discover`._

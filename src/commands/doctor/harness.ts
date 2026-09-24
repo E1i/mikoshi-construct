@@ -5,16 +5,24 @@ import { FileReadings } from './readings.js'
 
 export interface HarnessFacts {
   command: string
-  script: string
+  script: string | null
   body: string | null
   resolved: string
   packageJson: Record<string, unknown> | null
 }
 
 const SCRIPT_REFERENCE = /(?:^|&&|\|\||;)\s*(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)/g
+const PACKAGE_SCRIPT_COMMAND = /^(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)$/
 
-function harnessScriptName(command: string): string {
-  return command.replace(/^(pnpm|npm|yarn|bun)\s+(run\s+)?/, '')
+export type HarnessState = 'checked' | 'unknown'
+
+export interface HarnessReading {
+  command: string
+  state: HarnessState
+}
+
+function packageScriptOf(command: string): string | null {
+  return PACKAGE_SCRIPT_COMMAND.exec(command.trim())?.[1] ?? null
 }
 
 function expandScript(scripts: Record<string, string>, name: string, seen: Set<string>): string {
@@ -31,7 +39,9 @@ function expandScript(scripts: Record<string, string>, name: string, seen: Set<s
 export const HARNESS_MANIFEST = 'package.json'
 
 export function readHarnessFacts(root: string, command: string, readings: FileReadings = new FileReadings(root)): HarnessFacts {
-  const script = harnessScriptName(command)
+  const script = packageScriptOf(command)
+  if (script == null)
+    return { command, script, body: null, resolved: '', packageJson: null }
   const packageJson = readings.readJson(HARNESS_MANIFEST)
   const scripts = (packageJson?.scripts ?? {}) as Record<string, string>
   const body = scripts[script] ?? null
@@ -52,7 +62,13 @@ function missingContractFiles(root: string, contracts: Manifest['contracts']): s
     .map(file => `${file} is missing (construct.json → contracts)`)
 }
 
+export function harnessReading(facts: HarnessFacts): HarnessReading {
+  return { command: facts.command, state: facts.script == null ? 'unknown' : 'checked' }
+}
+
 export function harnessProblems(root: string, manifest: Manifest, facts: HarnessFacts, readings: FileReadings = new FileReadings(root)): string[] {
+  if (facts.script == null)
+    return missingContractFiles(root, manifest.contracts)
   if (facts.packageJson == null)
     return readings.unreadable(HARNESS_MANIFEST) ? [] : [`${HARNESS_MANIFEST} is missing`]
   if (facts.body == null)

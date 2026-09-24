@@ -1,5 +1,6 @@
 import type { DiscoveryMarker } from '../../manifest.js'
 import type { ProvenanceEvidence } from './families.js'
+import type { HarnessReading } from './harness.js'
 import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
@@ -11,7 +12,7 @@ import { VERSION } from '../../version.js'
 import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
 import { isIntact } from './families.js'
-import { harnessProblems, readHarnessFacts } from './harness.js'
+import { harnessProblems, harnessReading, readHarnessFacts } from './harness.js'
 import { claimsNotCarried } from './not-carried.js'
 import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
@@ -27,6 +28,7 @@ export interface DoctorResult {
   unreadableFiles: string[]
   missingDiscovery: DiscoveryMarker[]
   provenance: MarkerReading[]
+  harness: HarnessReading
   harnessProblems: string[]
   uncollectedTests: string[]
   warnings: string[]
@@ -58,6 +60,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     unreadableFiles,
     missingDiscovery: markers,
     provenance,
+    harness: harnessReading(harness),
     harnessProblems: problems,
     uncollectedTests: uncollected,
     warnings: typecheckWarnings(manifest.preset, harness),
@@ -71,6 +74,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     unreadableFiles,
     missingDiscovery: markers,
     provenance,
+    harness: harnessReading(harness),
     harnessProblems: problems,
     uncollectedTests: uncollected,
     warnings: typecheckWarnings(manifest.preset, harness),

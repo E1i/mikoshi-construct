@@ -1,4 +1,4 @@
-# The harness on every pull request and push to main: `pnpm run quality` is the single gate,
+# The harness on every pull request and push to main: `{{harnessCommand}}` is the single gate,
 # for humans and for AI agents alike. Keep it green; extend it in package.json, not here.
 
 name: CI
@@ -28,4 +28,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Quality
-        run: {{harnessCommand}}
+        run: {{harnessCommandYamlScalar}}
