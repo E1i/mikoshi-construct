@@ -1,6 +1,9 @@
 import type { ReleaseRouteReading } from './changesets.js'
+import type { StageRecord } from './stage.js'
 
 export type RegistryOutcome = 'installable' | 'propagating' | 'absent' | 'unreachable'
+
+export type VerificationOutcome = RegistryOutcome | 'staged'
 
 export interface RegistryRequest {
   packageName: string
@@ -22,11 +25,12 @@ export interface PollOptions {
   delayMs: number
 }
 
-export const EXIT_CODE: Record<RegistryOutcome, number> = {
+export const EXIT_CODE: Record<VerificationOutcome, number> = {
   installable: 0,
   absent: 1,
   unreachable: 2,
   propagating: 3,
+  staged: 4,
 }
 
 async function fetchMetadata(request: RegistryRequest): Promise<Response> {
@@ -98,6 +102,18 @@ export async function pollForVersion(request: RegistryRequest, options: PollOpti
       return outcome
     await options.sleep(options.delayMs)
   }
+}
+
+export function withStage(outcome: RegistryOutcome, stage: StageRecord | undefined): VerificationOutcome {
+  return outcome === 'absent' && stage !== undefined ? 'staged' : outcome
+}
+
+export function describeStaged(stage: StageRecord, packageName: string): string {
+  return [
+    `${packageName}@${stage.version} is not on the registry yet because the Release run staged it as ${stage.stageId}, and a staged version waits for a human to approve it.`,
+    'This is pending, not a failure.',
+    `Approve stage ${stage.stageId} (npm stage approve ${stage.stageId}), then re-run this run after approval.`,
+  ].join(' ')
 }
 
 function pendingEvidence(reading: ReleaseRouteReading): string {
