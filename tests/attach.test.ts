@@ -196,6 +196,10 @@ const REFUSALS: RefusalCase[] = [
     mkdirSync(path.join(dir, '.claude/commands'), { recursive: true })
     writeFileSync(path.join(dir, '.claude/commands/plan.md'), '# mine\n')
   } },
+  { name: 'the acceptance check already exists', refusal: 'collision', reason: PLAIN_LORE.attachRefusedCollision(['scripts/construct/check-acceptance.mjs']), arrange: (dir) => {
+    mkdirSync(path.join(dir, 'scripts/construct'), { recursive: true })
+    writeFileSync(path.join(dir, 'scripts/construct/check-acceptance.mjs'), 'export {}\n')
+  } },
   { name: '--yes without --harness', refusal: 'no-harness', reason: PLAIN_LORE.attachRefusedNoHarness, arrange: () => {}, options: { harness: undefined } },
   { name: '--ai cursor', refusal: 'cursor', reason: PLAIN_LORE.attachRefusedCursor, arrange: () => {}, options: { ai: 'cursor' } },
 ]
