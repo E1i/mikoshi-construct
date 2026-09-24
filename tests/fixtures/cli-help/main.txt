@@ -1,6 +1,6 @@
 mikoshi-construct — bootstrap for AI-native software projects (construct v<version>)
 
-USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|graph
+USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|graph|mutate
 
 COMMANDS
 
@@ -16,6 +16,7 @@ COMMANDS
       sync    Classify what today's construct would change in this repository; --apply writes what it owns                                              
       cost    Token usage of the /implement runs recorded for this directory (from Claude Code session data)                                            
      graph    Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout                                               
+    mutate    Apply a named wrong implementation and judge it from the report the runner hands over; runs no test itself                                
 
 Use construct <command> --help for more information about a command.
 

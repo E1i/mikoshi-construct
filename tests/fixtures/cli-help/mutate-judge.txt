@@ -1,0 +1,15 @@
+Restore the mutated file from its copy and judge the outcome from a Vitest JSON report, or record a green report as the baseline (mutate judge)
+
+USAGE mutate judge [OPTIONS] 
+
+OPTIONS
+
+        --dir=<dir>    Target directory (Default: .)                                        
+            --plain    No colors, no lore (CI-friendly) (Default: false)                    
+           --johnny    Wake up, Netrunner. (Default: false)                                 
+          --id=<id>    The id of the applied mutation to restore and judge                  
+         --baseline    Record a green report as the baseline apply requires (Default: false)
+  --report=<report>    The Vitest JSON report the runner wrote with the json reporter       
+             --json    Machine-readable report (Default: false)                             
+
+

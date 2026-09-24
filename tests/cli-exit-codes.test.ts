@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -53,6 +53,30 @@ function frozen010(): World {
   mkdirSync(path.join(w.dir, 'architecture'))
   cpSync(path.join(FROZEN_010, 'security-invariants.md.frozen'), path.join(w.dir, 'architecture/security-invariants.md'))
   return w
+}
+
+function vitestReport(w: World, name: string, startTime: number, status: 'passed' | 'failed'): string {
+  const file = path.join(w.home, name)
+  const assertionResults = [{ ancestorTitles: ['within'], title: 'is strict', status }]
+  writeFileSync(file, JSON.stringify({ startTime, testResults: [{ name: path.join(w.dir, 'tests/limit.test.ts'), status, assertionResults }] }))
+  return file
+}
+
+async function mutable(): Promise<World & { brief: string }> {
+  const w = world()
+  const source = path.join(w.dir, 'src/limit.ts')
+  mkdirSync(path.dirname(source))
+  writeFileSync(source, 'export const within = (a: number, b: number): boolean => a < b\n')
+  const past = new Date(Date.now() - 3_600_000)
+  utimesSync(source, past, past)
+  const brief = path.join(w.home, 'brief.md')
+  writeFileSync(brief, 'M1 | src/limit.ts | find: `a < b` → `a <= b` | red: tests/limit.test.ts › within › is strict\nM2 | src/limit.ts | find: `a < b` → `b > a` | red: green\n')
+  expect(await run(w, 'mutate', 'judge', '--baseline', '--report', vitestReport(w, 'green.json', Date.now(), 'passed'))).toBe(0)
+  return { ...w, brief }
+}
+
+function appliedAt(w: World, id: string): number {
+  return (JSON.parse(readFileSync(path.join(w.dir, `.construct/mutations/${id}.json`), 'utf8')) as { appliedAt: number }).appliedAt
 }
 
 describe.concurrent('every command exits with the code it exits with today, as a literal', () => {
@@ -128,5 +152,30 @@ describe.concurrent('every command exits with the code it exits with today, as a
     for (const command of ['soulkill', 'inspect', 'capture'])
       expect(await run(w, command), command).toBe(0)
     expect(await run(w, 'soulkill', '--json')).toBe(0)
+  })
+
+  it('mutate apply: applied 0, refused 1', async () => {
+    const w = await mutable()
+    expect(await run(w, 'mutate', 'apply', '--from', w.brief, '--id', 'M1')).toBe(0)
+    expect(await run(w, 'mutate', 'apply', '--from', w.brief, '--id', 'M1')).toBe(1)
+    expect(await run(world(), 'mutate', 'apply', '--from', w.brief, '--id', 'M1')).toBe(1)
+  })
+
+  it('mutate judge: matched 0, baseline recorded 0, refused 1, unmatched 2, no witness 2, hard failure 3', async () => {
+    const matched = await mutable()
+    expect(await run(matched, 'mutate', 'apply', '--from', matched.brief, '--id', 'M1')).toBe(0)
+    expect(await run(matched, 'mutate', 'judge', '--id', 'M1', '--json', '--report', vitestReport(matched, 'm1.json', appliedAt(matched, 'M1') + 1, 'failed'))).toBe(0)
+    expect(await run(matched, 'mutate', 'judge', '--baseline', '--report', vitestReport(matched, 'red.json', Date.now(), 'failed'))).toBe(1)
+    expect(await run(matched, 'mutate', 'judge', '--id', 'M9', '--report', vitestReport(matched, 'm9.json', Date.now(), 'failed'))).toBe(1)
+    const unmatched = await mutable()
+    expect(await run(unmatched, 'mutate', 'apply', '--from', unmatched.brief, '--id', 'M2')).toBe(0)
+    expect(await run(unmatched, 'mutate', 'judge', '--id', 'M2', '--report', vitestReport(unmatched, 'm2.json', appliedAt(unmatched, 'M2') + 1, 'failed'))).toBe(2)
+    const stale = await mutable()
+    expect(await run(stale, 'mutate', 'apply', '--from', stale.brief, '--id', 'M1')).toBe(0)
+    expect(await run(stale, 'mutate', 'judge', '--id', 'M1', '--report', vitestReport(stale, 'm1.json', appliedAt(stale, 'M1') - 1, 'failed'))).toBe(2)
+    const foreign = await mutable()
+    expect(await run(foreign, 'mutate', 'apply', '--from', foreign.brief, '--id', 'M1')).toBe(0)
+    writeFileSync(path.join(foreign.dir, 'src/limit.ts'), 'export const someoneElse = true\n')
+    expect(await run(foreign, 'mutate', 'judge', '--id', 'M1', '--report', vitestReport(foreign, 'm1.json', appliedAt(foreign, 'M1') + 1, 'failed'))).toBe(3)
   })
 })

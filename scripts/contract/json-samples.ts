@@ -1,11 +1,12 @@
 import type { JsonKeysReading, Unbaselined } from './semantic-diff.js'
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
+import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/index.js'
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
 import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
 import { unbaselined } from './semantic-diff.js'
@@ -48,7 +49,7 @@ interface World {
 interface Sample {
   command: string
   state: string
-  args: string[]
+  args: string[] | ((world: World) => string[])
   world: (scratch: Scratch) => World
 }
 
@@ -144,6 +145,59 @@ function withMergedTargetPending(world: World): World {
   return world
 }
 
+const MUTATION_TARGET = 'src/target.ts'
+const MUTATION_TEST = 'tests/target.test.ts'
+const AN_HOUR_AGO = (): Date => new Date(Date.now() - 3_600_000)
+
+function outside(world: World, name: string): string {
+  return path.join(path.dirname(world.dir), name)
+}
+
+function mutationTarget(world: World): World {
+  const target = path.join(world.dir, MUTATION_TARGET)
+  mkdirSync(path.dirname(target), { recursive: true })
+  writeFileSync(target, 'export const target = 1\n')
+  utimesSync(target, AN_HOUR_AGO(), AN_HOUR_AGO())
+  writeFileSync(outside(world, 'brief.md'), `M1 | ${MUTATION_TARGET} | find: \`= 1\` → \`= 2\` | red: ${MUTATION_TEST} › target › holds | \`the target holds\`\n`)
+  return world
+}
+
+function report(world: World, name: string, startTime: number, status: 'passed' | 'failed'): string {
+  const assertionResults = [{ ancestorTitles: ['target'], fullName: 'target holds', status, title: 'holds', failureMessages: [] }]
+  const testResults = [{ name: path.join(world.dir, MUTATION_TEST), status, message: '', startTime, assertionResults }]
+  const file = outside(world, name)
+  writeFileSync(file, JSON.stringify({ numTotalTests: 1, startTime, success: status === 'passed', testResults }))
+  return file
+}
+
+function applyArgs(world: World): string[] {
+  return ['mutate', 'apply', '--from', outside(world, 'brief.md'), '--id', 'M1', '--json']
+}
+
+function judgeArgs(reportFile: string): string[] {
+  return ['mutate', 'judge', '--id', 'M1', '--report', reportFile, '--json']
+}
+
+function withBaseline(scratch: Scratch, world: World): World {
+  const status = run(scratch.cli, ['mutate', 'judge', '--baseline', '--report', report(world, 'baseline.json', Date.now(), 'passed')], world).status
+  if (status !== 0)
+    throw new Error(`mutate judge --baseline exited ${status} while building the --json samples`)
+  return world
+}
+
+function applied(scratch: Scratch): World {
+  const world = withBaseline(scratch, mutationTarget(scratch.world()))
+  const status = run(scratch.cli, applyArgs(world), world).status
+  if (status !== 0)
+    throw new Error(`mutate apply exited ${status} while building the --json samples`)
+  return world
+}
+
+function withForeignEdit(world: World): World {
+  writeFileSync(path.join(world.dir, MUTATION_TARGET), 'export const target = 3\n')
+  return world
+}
+
 const SAMPLES: Sample[] = [
   { command: 'doctor', state: 'ok', args: ['doctor', '--json'], world: scratch => scratch.init() },
   { command: 'doctor', state: 'notOk', args: ['doctor', '--json'], world: scratch => withoutBaselineFile(scratch.init()) },
@@ -164,14 +218,24 @@ const SAMPLES: Sample[] = [
   { command: 'cost', state: 'unknown', args: ['cost', '--json'], world: scratch => withLookalikeKey(scratch.init()) },
   { command: 'cost', state: 'unsupported', args: ['cost', '--json'], world: scratch => scratch.init() },
   { command: 'soulkill', state: 'reported', args: ['soulkill', '--json'], world: scratch => scratch.init() },
+  { command: 'mutate apply', state: 'applied', args: applyArgs, world: scratch => withBaseline(scratch, mutationTarget(scratch.world())) },
+  { command: 'mutate apply', state: 'refused', args: applyArgs, world: scratch => mutationTarget(scratch.world()) },
+  { command: 'mutate judge', state: 'baselineRecorded', args: world => ['mutate', 'judge', '--baseline', '--report', report(world, 'green.json', Date.now(), 'passed'), '--json'], world: scratch => mutationTarget(scratch.world()) },
+  { command: 'mutate judge', state: 'refused', args: world => judgeArgs(report(world, 'green.json', Date.now(), 'passed')), world: scratch => mutationTarget(scratch.world()) },
+  { command: 'mutate judge', state: 'matched', args: world => judgeArgs(report(world, 'red.json', Date.now(), 'failed')), world: scratch => applied(scratch) },
+  { command: 'mutate judge', state: 'unmatched', args: world => judgeArgs(report(world, 'green.json', Date.now(), 'passed')), world: scratch => applied(scratch) },
+  { command: 'mutate judge', state: 'noWitness', args: world => judgeArgs(report(world, 'stale.json', 0, 'failed')), world: scratch => applied(scratch) },
+  { command: 'mutate judge', state: 'hardFailure', args: world => judgeArgs(report(world, 'red.json', Date.now(), 'failed')), world: scratch => withForeignEdit(applied(scratch)) },
 ]
 
-const EXIT_TABLES: Record<string, Record<string, number>> = {
+export const EXIT_TABLES: Record<string, Record<string, number>> = {
   'doctor': DOCTOR_EXIT,
   'sync': SYNC_EXIT,
   'sync --apply': SYNC_APPLY_EXIT,
   'cost': COST_EXIT,
   'soulkill': SOULKILL_EXIT,
+  'mutate apply': MUTATE_APPLY_EXIT,
+  'mutate judge': MUTATE_JUDGE_EXIT,
 }
 
 function collectKeyPaths(value: unknown, at: string, into: Set<string>): void {
@@ -223,7 +287,8 @@ function parsedOutput(sample: Sample, status: number | null, stdout: string): un
 }
 
 function sampled(sample: Sample, scratch: Scratch): JsonSample {
-  const { status, stdout } = run(scratch.cli, sample.args, sample.world(scratch))
+  const world = sample.world(scratch)
+  const { status, stdout } = run(scratch.cli, typeof sample.args === 'function' ? sample.args(world) : sample.args, world)
   const parsed = parsedOutput(sample, status, stdout)
   if (scratch.cli.holdsHeadInvariants)
     heldHeadInvariants(sample, status, parsed)

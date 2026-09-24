@@ -158,6 +158,7 @@ with a named check, not a second fix.
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
 | `construct graph` | Draw the model — claims, hypotheses and the evidence under them — as a Mermaid flowchart on stdout |
 | `construct cost` | Token usage of the `/implement` runs in this directory, per agent, billable and price-weighted (`--last`, `--json`) |
+| `construct mutate` | Apply a brief's named wrong implementation (`mutate apply --from <file> --id <id>`), then restore it from its copy and judge the Vitest report the runner hands over (`mutate judge --id <id> --report <file>`); runs no test itself |
 
 `--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner. The full reference,
 with examples and exit codes, is in [docs/cli.md](https://github.com/E1i/mikoshi-construct/blob/main/docs/cli.md).

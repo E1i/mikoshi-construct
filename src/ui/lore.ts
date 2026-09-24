@@ -152,6 +152,42 @@ export interface Lore {
   detachLeftBehind: (target: string) => string
   detachBookkeeping: string
   detached: (count: number) => string
+  mutateApplied: (id: string, file: string) => string
+  mutateApplyNext: (id: string) => string
+  mutateRefusedNoBaseline: string
+  mutateRefusedUnsafeId: (id: string) => string
+  mutateRefusedFromUnreadable: (from: string) => string
+  mutateRefusedUnknownId: (id: string) => string
+  mutateRefusedDuplicateId: (count: string) => string
+  mutateRefusedMalformedLine: (why: string) => string
+  mutateRefusedEditLine: string
+  mutateRefusedRecordExists: (id: string) => string
+  mutateRefusedOutsideDir: (file: string) => string
+  mutateRefusedFileMissing: (file: string) => string
+  mutateRefusedChangedAfterBaseline: (file: string) => string
+  mutateRefusedFindCount: (count: string) => string
+  mutateBaselineRecorded: (tests: number) => string
+  mutateRefusedNoMode: string
+  mutateRefusedReportUnreadable: (why: string) => string
+  mutateRefusedReportRed: (count: string) => string
+  mutateRefusedReportEmpty: string
+  mutateRefusedNoRecord: (id: string) => string
+  mutateRefusedNamedTestMissing: string
+  mutateRefusedNamedTestAmbiguous: (count: string) => string
+  mutateHardFileChanged: (file: string) => string
+  mutateHardCopyUnreadable: (file: string) => string
+  mutateHardRestoreFailed: (file: string) => string
+  mutateCopyKept: (copy: string) => string
+  mutateRestored: (file: string) => string
+  mutateNoWitness: (why: string) => string
+  mutateNamedRed: string
+  mutateOtherRed: string
+  mutateNothingRed: string
+  mutateGreenHeld: string
+  mutateMatched: string
+  mutateUnmatched: string
+  mutateFileFailedToRun: string
+  mutateRestsOn: (report: string, startedAt: string) => string
 }
 
 function policyEntries(added: { dir: string, allowed: string[] }[]): string {
@@ -321,6 +357,42 @@ export const LORE: Lore = {
   detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach`,
   detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty, and the exclude block in .git/info/exclude.',
   detached: (count: number) => `JACKED OUT // NETRUN CLOSED. ${count} paths wiped.`,
+  mutateApplied: (id: string, file: string) => `ICE CRACKED // ${id} jacked into ${file}.`,
+  mutateApplyNext: (id: string) => `Run the suite with --reporter=json --outputFile=<file>, then: construct mutate judge --id ${id} --report <file>`,
+  mutateRefusedNoBaseline: 'BREACH FAILED // NO GREEN BASELINE: run the suite green with the JSON reporter and record it with construct mutate judge --baseline --report <file>',
+  mutateRefusedUnsafeId: (id: string) => `BREACH FAILED // BAD ID: ${id} cannot name a record under .construct/mutations/`,
+  mutateRefusedFromUnreadable: (from: string) => `BREACH FAILED // NO BRIEF: ${from} cannot be read`,
+  mutateRefusedUnknownId: (id: string) => `BREACH FAILED // UNKNOWN MUTATION: no line of --from starts with ${id}`,
+  mutateRefusedDuplicateId: (count: string) => `BREACH FAILED // ID CLASH: ${count} lines of --from carry this id`,
+  mutateRefusedMalformedLine: (why: string) => `BREACH FAILED // LINE UNREADABLE: ${why}`,
+  mutateRefusedEditLine: 'BREACH FAILED // PROSE, NOT CODE: the line says edit:, written before the code existed; rewrite it as find: `old` → `new`',
+  mutateRefusedRecordExists: (id: string) => `BREACH FAILED // ALREADY JACKED IN: .construct/mutations/ still holds ${id}; judge it, or restore it by hand from its .orig copy`,
+  mutateRefusedOutsideDir: (file: string) => `BREACH FAILED // OUTSIDE THE NET: ${file} is not a file under --dir`,
+  mutateRefusedFileMissing: (file: string) => `BREACH FAILED // NO TARGET: ${file} does not exist`,
+  mutateRefusedChangedAfterBaseline: (file: string) => `BREACH FAILED // STALE BASELINE: ${file} changed after the green run; run the suite again and record a new baseline`,
+  mutateRefusedFindCount: (count: string) => `BREACH FAILED // FIND NOT UNIQUE: the find text occurs ${count} times, not once`,
+  mutateBaselineRecorded: (tests: number) => `BASELINE LOCKED // ${tests} tests green.`,
+  mutateRefusedNoMode: 'NO SIGNAL: judge takes --report and exactly one of --id <id> or --baseline',
+  mutateRefusedReportUnreadable: (why: string) => `NO SIGNAL: ${why}`,
+  mutateRefusedReportRed: (count: string) => `NO BASELINE // ${count} failures in the report: the baseline has to be green`,
+  mutateRefusedReportEmpty: 'NO BASELINE // the report holds no test',
+  mutateRefusedNoRecord: (id: string) => `NO SIGNAL: .construct/mutations/ holds no record of ${id}`,
+  mutateRefusedNamedTestMissing: 'NO VERDICT // the named test is not in the report (the file is restored)',
+  mutateRefusedNamedTestAmbiguous: (count: string) => `NO VERDICT // ${count} tests in the report carry the named file, describe path and title (the file is restored)`,
+  mutateHardFileChanged: (file: string) => `FLATLINE // ${file} is not what mutate wrote: someone else edited it, so it was not touched`,
+  mutateHardCopyUnreadable: (file: string) => `FLATLINE // the copy of ${file} is missing or not the original, so it was not restored`,
+  mutateHardRestoreFailed: (file: string) => `FLATLINE // ${file} could not be restored byte for byte`,
+  mutateCopyKept: (copy: string) => `The original stays at ${copy}, with its record; a second apply of this id refuses until you restore it by hand.`,
+  mutateRestored: (file: string) => `${file} restored byte for byte from the copy.`,
+  mutateNoWitness: (why: string) => `NO WITNESS // ${why}`,
+  mutateNamedRed: 'The named test turned red.',
+  mutateOtherRed: 'A test other than the named one turned red:',
+  mutateNothingRed: 'Nothing turned red: the criterion does not tell the implementation apart.',
+  mutateGreenHeld: 'Nothing turned red, as predicted.',
+  mutateMatched: 'PREDICTION HELD.',
+  mutateUnmatched: 'PREDICTION MISSED.',
+  mutateFileFailedToRun: '(the file failed to run)',
+  mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -482,4 +554,40 @@ export const PLAIN_LORE: Lore = {
   detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach and stays.`,
   detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty, and the exclude block in .git/info/exclude.',
   detached: (count: number) => `Detached. Removed ${count} paths.`,
+  mutateApplied: (id: string, file: string) => `Applied ${id} to ${file}.`,
+  mutateApplyNext: (id: string) => `Run the suite with --reporter=json --outputFile=<file>, then: construct mutate judge --id ${id} --report <file>`,
+  mutateRefusedNoBaseline: 'Refused: no green baseline is recorded. Run the suite with the JSON reporter and record it with construct mutate judge --baseline --report <file>. The file is unchanged.',
+  mutateRefusedUnsafeId: (id: string) => `Refused: ${id} cannot name a record under .construct/mutations/. The file is unchanged.`,
+  mutateRefusedFromUnreadable: (from: string) => `Refused: ${from} cannot be read. The file is unchanged.`,
+  mutateRefusedUnknownId: (id: string) => `Refused: no line of --from starts with ${id}. The file is unchanged.`,
+  mutateRefusedDuplicateId: (count: string) => `Refused: ${count} lines of --from carry this id. The file is unchanged.`,
+  mutateRefusedMalformedLine: (why: string) => `Refused: the line cannot be read: ${why}. The file is unchanged.`,
+  mutateRefusedEditLine: 'Refused: the line says edit:, a brief written before the code existed; rewrite it as find: `old` → `new`. The file is unchanged.',
+  mutateRefusedRecordExists: (id: string) => `Refused: .construct/mutations/ still holds ${id}; judge it, or restore the file by hand from its .orig copy. The file is unchanged.`,
+  mutateRefusedOutsideDir: (file: string) => `Refused: ${file} is not a file under --dir. Nothing was changed.`,
+  mutateRefusedFileMissing: (file: string) => `Refused: ${file} does not exist. Nothing was changed.`,
+  mutateRefusedChangedAfterBaseline: (file: string) => `Refused: ${file} changed after the green baseline run started; run the suite again and record a new baseline. The file is unchanged.`,
+  mutateRefusedFindCount: (count: string) => `Refused: the find text occurs ${count} times, not exactly once. The file is unchanged.`,
+  mutateBaselineRecorded: (tests: number) => `Baseline recorded: ${tests} tests, none failed.`,
+  mutateRefusedNoMode: 'Refused: judge takes --report and exactly one of --id <id> or --baseline.',
+  mutateRefusedReportUnreadable: (why: string) => `Refused: ${why}. No baseline was recorded.`,
+  mutateRefusedReportRed: (count: string) => `Refused: the report has ${count} failures; a baseline has to be green. No baseline was recorded.`,
+  mutateRefusedReportEmpty: 'Refused: the report holds no test. No baseline was recorded.',
+  mutateRefusedNoRecord: (id: string) => `Refused: .construct/mutations/ holds no record of ${id}. Nothing was changed.`,
+  mutateRefusedNamedTestMissing: 'Refused: the named test is not in the report, so there is no verdict. The file is restored.',
+  mutateRefusedNamedTestAmbiguous: (count: string) => `Refused: ${count} tests in the report carry the named file, describe path and title, so there is no verdict. The file is restored.`,
+  mutateHardFileChanged: (file: string) => `Hard failure: ${file} is not the content mutate wrote. It is someone else's edit and was not touched.`,
+  mutateHardCopyUnreadable: (file: string) => `Hard failure: the copy of ${file} is missing or not the original, so the file was not restored.`,
+  mutateHardRestoreFailed: (file: string) => `Hard failure: ${file} could not be restored byte for byte from the copy.`,
+  mutateCopyKept: (copy: string) => `The original stays at ${copy}, with its record; a second apply of this id refuses until you restore it by hand.`,
+  mutateRestored: (file: string) => `${file} restored byte for byte from the copy.`,
+  mutateNoWitness: (why: string) => `No witness: ${why}.`,
+  mutateNamedRed: 'The named test turned red.',
+  mutateOtherRed: 'A test other than the named one turned red:',
+  mutateNothingRed: 'Nothing turned red: the criterion does not tell the implementation apart.',
+  mutateGreenHeld: 'Nothing turned red, as predicted.',
+  mutateMatched: 'The outcome matches the prediction.',
+  mutateUnmatched: 'The outcome does not match the prediction.',
+  mutateFileFailedToRun: '(the file failed to run)',
+  mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
 }

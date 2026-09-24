@@ -2,24 +2,15 @@ import type { Surface } from '../../scripts/contract/surface.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { EXIT_TABLES } from '../../scripts/contract/json-samples.js'
 import { generateSurface } from '../../scripts/contract/surface.js'
-import { COST_EXIT } from '../../src/commands/cost/index.js'
-import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
-import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
 
 const HELP = path.resolve(import.meta.dirname, '../fixtures/cli-help')
 const EXIT_CHARACTERIZATION = path.resolve(import.meta.dirname, '../cli-exit-codes.test.ts')
-const TITLE = /^(?<command>[a-z-]+(?: --[a-z-]+)?)(?: and its alias(?:es)?)?: (?<outcomes>.+)$/
+const TITLE = /^(?<command>[a-z-]+(?: [a-z-]+)?(?: --[a-z-]+)?)(?: and its alias(?:es)?)?: (?<outcomes>.+)$/
 const CODE = /(?:^|\s)(\d+)(?=[,;]|$)/g
 
 let surface: Surface
-
-const STATE_TABLES: Record<string, Record<string, number>> = {
-  'doctor': DOCTOR_EXIT,
-  'sync': SYNC_EXIT,
-  'sync --apply': SYNC_APPLY_EXIT,
-  'cost': COST_EXIT,
-}
 
 const GENERATION_TIMEOUT = 180_000
 
@@ -28,7 +19,7 @@ beforeAll(() => {
 }, GENERATION_TIMEOUT)
 
 function helpOf(command: string): string {
-  return readFileSync(path.join(HELP, `${command}.txt`), 'utf8')
+  return readFileSync(path.join(HELP, `${command.replaceAll(' ', '-')}.txt`), 'utf8')
 }
 
 function commandsInMainHelp(): string[] {
@@ -72,7 +63,8 @@ function sorted(codes: Set<number>): number[] {
 
 describe('the surface covers what outside witnesses show of the command line', () => {
   it('names every command and alias in the main help', () => {
-    const missing = commandsInMainHelp().filter(name => !(name in surface.commands))
+    const recorded = Object.keys(surface.commands)
+    const missing = commandsInMainHelp().filter(name => !recorded.some(command => command === name || command.startsWith(`${name} `)))
     expect(missing, `commands and aliases the help shows and the surface lacks: ${missing.join(', ')}`).toEqual([])
   })
 
@@ -92,11 +84,16 @@ describe('the surface covers what outside witnesses show of the command line', (
   })
 
   it('samples the --json of every state each exit table names, and samples no state the table lacks', () => {
-    const unsampled = Object.entries(STATE_TABLES)
+    const unsampled = Object.entries(EXIT_TABLES)
       .flatMap(([command, table]) => Object.keys(table).filter(state => surface.jsonKeys[command]?.[state] == null).map(state => `${command} ${state}`))
-    const unnamed = Object.entries(STATE_TABLES)
+    const unnamed = Object.entries(EXIT_TABLES)
       .flatMap(([command, table]) => Object.keys(surface.jsonKeys[command] ?? {}).filter(state => !(state in table)).map(state => `${command} ${state}`))
     expect(unsampled, `states with no --json sample: ${unsampled.join(', ')}`).toEqual([])
     expect(unnamed, `sampled states no exit table names: ${unnamed.join(', ')}`).toEqual([])
+  })
+
+  it('samples every command that takes --json, so a new one cannot print JSON the contract never recorded', () => {
+    const withJson = Object.entries(surface.commands).filter(([, command]) => 'flags' in command && 'json' in command.flags).map(([name]) => name)
+    expect(withJson.filter(name => !(name in EXIT_TABLES))).toEqual([])
   })
 })
