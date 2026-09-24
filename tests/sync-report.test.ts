@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runInit } from '../src/commands/init.js'
-import { printSync, runSync, SYNC_EXIT, syncExit, syncJson } from '../src/commands/sync/index.js'
+import { printSync, runSync, SYNC_EXIT, SYNC_JSON_SCHEMA_VERSION, syncExit, syncJson } from '../src/commands/sync/index.js'
 import { sha256 } from '../src/manifest.js'
 import { BLOCK_REPLACED_WHOLE_DISCOVERY_BODIES_CARRIED_OVER, PATH_CLASSES } from '../src/sync/classify.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -153,11 +153,13 @@ describe('the sync report', () => {
 describe('the sync report as json', () => {
   it('carries both versions, the counts and every classified path with its strategy and write effect', () => {
     const json = syncJson(EVERY_CLASS) as {
+      schemaVersion: number
       fromVersion: string
       toVersion: string
       counts: Record<PathClass, number>
       paths: Array<{ target: string, class: PathClass, strategy: string, keys?: unknown[], writeEffect?: string }>
     }
+    expect(json.schemaVersion).toBe(SYNC_JSON_SCHEMA_VERSION)
     expect(json.fromVersion).toBe('0.1.0')
     expect(json.toVersion).toBe(VERSION)
     expect(Object.keys(json.counts).sort()).toEqual([...PATH_CLASSES].sort())

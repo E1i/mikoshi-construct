@@ -618,6 +618,7 @@ never changes the exit code.
 
 ```json
 {
+  "schemaVersion": 1,
   "ok": true,
   "missingFiles": [],
   "modifiedFiles": [],
@@ -699,6 +700,11 @@ never changes the exit code.
   "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
 }
 ```
+
+`schemaVersion` is the version of this key set, not of the CLI; it rises when a key is removed or
+renamed. With no `construct.json` in the directory, `--json` prints
+`{ "schemaVersion": 1, "state": "no-manifest" }` and exits `1`, as before. Earlier builds printed
+`null` there: a reader that tested for `null` now tests for `state` being `"no-manifest"`.
 
 `ok`, `missingFiles`, `modifiedFiles`, `missingDiscovery`, `provenance`, `warnings` and
 `versionGap` keep their names, types and meaning. `harnessProblems` keeps its name and its type and
@@ -873,15 +879,20 @@ gate: wiring it into `pnpm run quality` or a CI job that must stay green turns o
 a red build in your repository, for a change you have not read yet. Run it when you want to know, and
 `--apply` when you want it written.
 
-`--json` prints one object with `fromVersion`, `toVersion`, `counts` (one entry per class) and
+`--json` prints one object with `schemaVersion` (the version of this key set, not of the CLI),
+`fromVersion`, `toVersion`, `counts` (one entry per class) and
 `paths` — every classified path with its `class`, its `strategy`, its `keys` for a `merge-json`
 target and its `writeEffect` where the classification carries one. A machine reader never parses the
 prose. With `--apply` the same object carries three more fields:
 `written` (the targets that were written, in write order), `pending` (the targets classified `add` or
-`update` that were refused) and `ranAt` (the ISO timestamp recorded in the manifest).
+`update` that were refused) and `ranAt` (the ISO timestamp recorded in the manifest). With no
+`construct.json`, both forms print `{ "schemaVersion": 1, "state": "no-manifest" }` and exit `1`;
+earlier builds printed `null`, so a reader that tested for `null` now tests for `state` being
+`"no-manifest"`.
 
 ```json
 {
+  "schemaVersion": 1,
   "fromVersion": "0.1.0",
   "toVersion": "0.2.0",
   "counts": { "add": 1, "keep": 41, "update": 2, "conflict": 5, "removed": 0, "orphaned": 1, "foreign": 0 },
@@ -1058,7 +1069,7 @@ you debug a preset suggestion you did not expect. Aliases: `inspect`, `capture`.
 
 | Option | Default | What it does |
 |---|---|---|
-| `--json` | `false` | The detect report as JSON. |
+| `--json` | `false` | The detect report as JSON, with a top-level `schemaVersion`. |
 
 ```bash
 npx mikoshi-construct soulkill
@@ -1113,7 +1124,8 @@ Every report names the version of the CLI that produced it, before the numbers i
 and as `version` in `--json`. Two builds of `construct` can count the same session differently, so a
 figure quoted without the version of the binary that measured it says nothing about what was counted.
 
-`--json` prints one object: `status` (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
+`--json` prints one object: `schemaVersion` (the version of this key set, not of the CLI), `status`
+(`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
 `runtime` (`claude-code` or `cursor`), `version` (the CLI that produced the report), `key` and
 `candidates` where the project key is in question, `runs` when there are any, and `ledger` and
 `reconciliation` as described below.
@@ -1246,8 +1258,9 @@ construction.
 
 ### The recorded surface
 
-The commands and their aliases, the flags, the exit code per command and state, the format versions,
-the paths `init` and `attach` write and the block markers are recorded in `contract/surface.json`
+The commands and their aliases, the flags, the exit code per command and state, the key paths each
+`--json` prints in each state, the format versions, the paths `init` and `attach` write and the block
+markers are recorded in `contract/surface.json`
 ([decision 0030](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0030-public-contract.md)).
 A test compares the file with what the code produces and never writes it; `pnpm contract:update`
 is the only command that does, and its diff goes into the pull request that changes the surface.

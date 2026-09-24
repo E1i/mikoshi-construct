@@ -5,11 +5,11 @@ import { defineCommand } from 'citty'
 import { ATTACH_EXIT, runAttach } from './commands/attach/index.js'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
-import { DOCTOR_EXIT, printDoctor, runDoctor } from './commands/doctor/index.js'
+import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
-import { printDetectReport, SOULKILL_EXIT } from './commands/soulkill.js'
-import { applySync, printSync, printSyncApply, runSync, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
+import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
+import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
 import { FAILED_EXIT, flatlineFor, reported } from './failure.js'
 import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
@@ -106,7 +106,7 @@ const soulkill = defineCommand({
     const report = detect(args.dir)
     process.exitCode = SOULKILL_EXIT.reported
     if (args.json) {
-      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify(soulkillJson(report), null, 2)}\n`)
       return
     }
     const console = ui(args)
@@ -128,7 +128,7 @@ const doctor = defineCommand({
     const failed = reported(console, () => {
       const result = runDoctor(args.dir)
       if (args.json) {
-        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+        process.stdout.write(`${JSON.stringify(doctorJson(result), null, 2)}\n`)
         process.exitCode = result == null ? DOCTOR_EXIT.noManifest : (result.ok ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk)
         return
       }
@@ -196,7 +196,7 @@ const sync = defineCommand({
       try {
         const result = applySync(args.dir, VERSION)
         if (args.json) {
-          process.stdout.write(`${JSON.stringify(result == null ? null : syncApplyJson(result), null, 2)}\n`)
+          process.stdout.write(`${JSON.stringify(result == null ? SYNC_NO_MANIFEST_JSON : syncApplyJson(result), null, 2)}\n`)
           process.exitCode = syncApplyExit(result)
           return
         }
@@ -212,7 +212,7 @@ const sync = defineCommand({
     const failed = reported(console, () => {
       const report = runSync(args.dir, VERSION)
       if (args.json) {
-        process.stdout.write(`${JSON.stringify(report == null ? null : syncJson(report), null, 2)}\n`)
+        process.stdout.write(`${JSON.stringify(report == null ? SYNC_NO_MANIFEST_JSON : syncJson(report), null, 2)}\n`)
         process.exitCode = syncExit(report)
         return
       }

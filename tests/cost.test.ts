@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { billable, COST_EXIT, costJson, costReport, printCost, projectKey, readLedger, weighted } from '../src/commands/cost/index.js'
+import { billable, COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, costReport, printCost, projectKey, readLedger, weighted } from '../src/commands/cost/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
@@ -100,7 +100,7 @@ describe('construct cost', () => {
   it('reports a runtime that does not expose per-run usage as unsupported, not as absence', () => {
     const report = costReport(workspace(), { projectsDir: projectsRoot(), env: CURSOR_ENV })
     expect(report).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION })
-    expect(costJson(report, false)).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION })
+    expect(costJson(report, false)).toEqual({ schemaVersion: COST_JSON_SCHEMA_VERSION, status: 'unsupported', runtime: 'cursor', version: VERSION })
     const { exit, text } = printed(report)
     expect(exit).toBe(COST_EXIT.unsupported)
     expect(exit).not.toBe(COST_EXIT.ok)

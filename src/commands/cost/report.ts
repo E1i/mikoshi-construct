@@ -12,6 +12,8 @@ export const COST_EXIT: Record<CostStatus, number> = {
   unsupported: 3,
 }
 
+export const COST_JSON_SCHEMA_VERSION = 1
+
 function selectRuns(report: CostReport, last: boolean): WorkflowRun[] {
   const runs = report.runs ?? []
   return last ? runs.slice(-1) : runs
@@ -20,6 +22,7 @@ function selectRuns(report: CostReport, last: boolean): WorkflowRun[] {
 export function costJson(report: CostReport, last: boolean): Record<string, unknown> {
   const runs = selectRuns(report, last)
   return {
+    schemaVersion: COST_JSON_SCHEMA_VERSION,
     status: report.status,
     runtime: report.runtime,
     version: report.version,

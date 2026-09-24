@@ -5,6 +5,12 @@ export const SOULKILL_EXIT = {
   reported: 0,
 } as const
 
+export const SOULKILL_JSON_SCHEMA_VERSION = 1
+
+export function soulkillJson(report: DetectReport): Record<string, unknown> {
+  return { schemaVersion: SOULKILL_JSON_SCHEMA_VERSION, ...report }
+}
+
 function yesNo(value: boolean): string {
   return value ? 'yes' : 'no'
 }

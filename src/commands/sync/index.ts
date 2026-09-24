@@ -58,4 +58,4 @@ export function applySync(root: string, version: string): SyncApplyReport | null
 }
 
 export { PENDING_CLASSES } from '../../sync/write.js'
-export { LISTED_CLASSES, printSync, printSyncApply, SYNC_APPLY_EXIT, SYNC_EXIT, syncApplyExit, syncApplyJson, syncExit, syncJson } from './report.js'
+export { LISTED_CLASSES, printSync, printSyncApply, SYNC_APPLY_EXIT, SYNC_EXIT, SYNC_JSON_SCHEMA_VERSION, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './report.js'
