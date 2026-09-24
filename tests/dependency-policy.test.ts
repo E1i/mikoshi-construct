@@ -3,11 +3,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ESLint } from 'eslint'
 import { describe, expect, it } from 'vitest'
+import INTERNAL_MODULES from '../internal-modules.json' with { type: 'json' }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const eslint = new ESLint({ cwd: root })
-
-const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'program', 'record-ahead', 'sync', 'ui', 'version']
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry =>
@@ -36,6 +35,15 @@ async function violations(file: string, source: string): Promise<string[]> {
   const [result] = await eslint.lintText(source, { filePath: path.join(root, file) })
   return result.messages.map(message => message.ruleId ?? '').filter(rule => rule === 'no-restricted-imports' || rule === 'no-restricted-syntax')
 }
+
+describe('the dependency policy names every top-level module of src', () => {
+  it('lists each directory and each .ts file directly under src in INTERNAL_MODULES', () => {
+    const topLevel = readdirSync(path.join(root, 'src'), { withFileTypes: true })
+      .filter(entry => entry.isDirectory() || entry.name.endsWith('.ts'))
+      .map(entry => entry.name.replace(/\.ts$/, ''))
+    expect(topLevel.filter(name => !INTERNAL_MODULES.includes(name))).toEqual([])
+  })
+})
 
 describe('every source file that names an internal import is covered by a boundary', () => {
   it('leaves no importing file outside ALLOWED_INTERNAL_IMPORTS', async () => {
@@ -81,6 +89,7 @@ describe('dependency policy in eslint.config.mjs', () => {
   it('lets the program compose the commands and reach no record behind them', async () => {
     expect(await violations('src/program.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual([])
     expect(await violations('src/program.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual([])
+    expect(await violations('src/program.ts', 'import { reported } from \'./failure.js\'\n\nexport const probe = reported\n')).toEqual([])
     expect(await violations('src/program.ts', 'import { readManifest } from \'./manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/program.ts', 'import { runSync } from \'./sync/index.js\'\n\nexport const probe = runSync\n')).toEqual(['no-restricted-imports'])
   })
@@ -89,6 +98,7 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/cli.ts', 'import { main } from \'./program.js\'\n\nexport const probe = main\n')).toEqual([])
     expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/cli.ts', 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/cli.ts', 'import { reported } from \'./failure.js\'\n\nexport const probe = reported\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/commands/probe.ts', 'import { main } from \'../program.js\'\n\nexport const probe = main\n')).toEqual(['no-restricted-imports'])
   })
 
