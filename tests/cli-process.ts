@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { VERSION } from '../src/version.js'
@@ -16,11 +17,17 @@ export interface CliRun {
   stderr: string
 }
 
-export async function runCli(args: string[], home: string): Promise<CliRun> {
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', HOME: home }
+const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), '.cache', 'node', 'corepack')
+
+export function cliEnv(home: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', HOME: home, COREPACK_HOME: MACHINE_COREPACK_HOME }
   for (const name of RUNTIME_MARKERS)
     delete env[name]
-  const child = spawn(process.execPath, [TSX, CLI, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  return env
+}
+
+export async function runCli(args: string[], home: string): Promise<CliRun> {
+  const child = spawn(process.execPath, [TSX, CLI, ...args], { env: cliEnv(home), stdio: ['ignore', 'pipe', 'pipe'] })
   let stdout = ''
   let stderr = ''
   child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
