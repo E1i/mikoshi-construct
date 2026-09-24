@@ -7,8 +7,7 @@ import { detect } from '../src/detect/index.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { aiGroups, getPreset, PRESET_IDS } from '../src/presets/index.js'
 
-const ENTRY_HEADING = '## 2026-09-21 · The `add` population, named before anything is done about it'
-const OBSERVATIONS = path.resolve(import.meta.dirname, '../architecture/observations.md')
+const PARTITION = path.resolve(import.meta.dirname, '../architecture/add-population.md')
 
 const VARS: TemplateVars = {
   projectName: 'population-fixture',
@@ -44,19 +43,14 @@ function acrossPresets(emptyTarget: boolean): Set<string> {
   return produced
 }
 
-function entry(): string {
-  const document = readFileSync(OBSERVATIONS, 'utf8')
-  const start = document.indexOf(ENTRY_HEADING)
-  if (start === -1)
-    throw new Error(`architecture/observations.md carries no entry headed "${ENTRY_HEADING}"`)
-  const next = document.indexOf('\n## ', start + ENTRY_HEADING.length)
-  return document.slice(start, next === -1 ? undefined : next)
+function partition(): string {
+  return readFileSync(PARTITION, 'utf8')
 }
 
-function pathsNamedInEntry(): Set<string> {
+function pathsNamedInPartition(): Set<string> {
   const looksLikeAPath = /^[\w.@][\w./-]*\.\w+$|^\.[\w.-]+$/
   return new Set(
-    [...entry().matchAll(/`([^`]+)`/g)]
+    [...partition().matchAll(/`([^`]+)`/g)]
       .map(match => match[1])
       .filter(candidate => looksLikeAPath.test(candidate)),
   )
@@ -65,7 +59,7 @@ function pathsNamedInEntry(): Set<string> {
 const ITS_OWN_NAME = 'tests/add-population.test.ts'
 
 function asOneLine(): string {
-  return entry().replace(/\s+/g, ' ')
+  return partition().replace(/\s+/g, ' ')
 }
 
 function sorted(values: Iterable<string>): string[] {
@@ -75,19 +69,19 @@ function sorted(values: Iterable<string>): string[] {
 describe('the add population is partitioned in the record, not selected from', () => {
   const reachesAnyTree = acrossPresets(false)
   const emptyOnly = sorted([...acrossPresets(true)].filter(target => !reachesAnyTree.has(target)))
-  const named = pathsNamedInEntry()
+  const named = pathsNamedInPartition()
 
   it('names every path that is written into a tree the construct did not create', () => {
     const unclassified = sorted([...reachesAnyTree].filter(target => !named.has(target)))
 
-    expect(unclassified, 'paths produced for an adopted tree and absent from the entry').toEqual([])
+    expect(unclassified, 'paths produced for an adopted tree and absent from the partition').toEqual([])
   })
 
   it('names no path the presets do not produce, so the record cannot drift ahead of the code', () => {
     const produced = new Set([...reachesAnyTree, ...emptyOnly])
     const invented = sorted([...named].filter(target => !produced.has(target) && target.includes('/') && target !== ITS_OWN_NAME))
 
-    expect(invented, 'paths named in the entry that no preset produces').toEqual([])
+    expect(invented, 'paths named in the partition that no preset produces').toEqual([])
   })
 
   it('states the counts the partition rests on, so a new template moves the record', () => {
@@ -103,7 +97,7 @@ describe('the add population is partitioned in the record, not selected from', (
     expect(emptyOnly.every(target => !reachesAnyTree.has(target))).toBe(true)
   })
 
-  it('reports rather than repairs: the entry names the two granularities and settles neither question', () => {
+  it('reports rather than repairs: the partition names the two granularities and settles neither question', () => {
     const text = asOneLine()
 
     expect(text).toContain('two granularities')
