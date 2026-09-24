@@ -33,10 +33,17 @@ repository's CLAUDE.md and `construct.json`.
    one. On exit `0`, call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
-   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] } }`
+   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...], "contractPaths": [...] } }`
    where `harness.command` comes from `construct.json`, or from `.construct/attach.json` when
-   `construct.json` is absent (an attached repository), and `harness.extra` lists any area-specific
-   commands CLAUDE.md names for the files the task touches (usually empty). `retryLimit` is optional
+   `construct.json` is absent (an attached repository), `harness.extra` lists any area-specific
+   commands CLAUDE.md names for the files the task touches (usually empty), and
+   `harness.contractPaths` is the JSON array `node scripts/construct/contract-paths.mjs` prints from
+   the repository root, copied verbatim: `contracts.path` and `contracts.types` from `construct.json`
+   when `contracts` is non-null, plus the comma-separated paths on a `Contract paths:` line in the
+   repository's CLAUDE.md. `.construct/attach.json` records no contract paths, so in an attached
+   repository only that CLAUDE.md line supplies them; absent both, the list is empty. The ladder
+   derives the result's `contractChanged` from it: true only when a path in the harness's
+   `changedFiles` equals one of these exactly. `retryLimit` is optional
    and defaults to `0`: a rejected response is not re-asked, and the run stops with the validator's
    error so a person reads it. Each retry is a whole new agent call that repeats the agent's
    exploration from scratch — measured at roughly three million billable tokens for an architect —
