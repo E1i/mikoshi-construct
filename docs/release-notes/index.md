@@ -4,6 +4,24 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.18.0
+
+### Minor Changes
+
+- [#186](https://github.com/E1i/mikoshi-construct/pull/186) [`714f2e1`](https://github.com/E1i/mikoshi-construct/commit/714f2e196210a8e49b6d32c05c1c9c5e358b4f83) Thanks [@E1i](https://github.com/E1i)! - `init` refuses a Node preset in a directory whose root has another ecosystem's manifest (`go.mod`, `Cargo.toml`, `pyproject.toml` and others) and no `package.json`. It names the preset and the manifest, writes nothing and exits 1. Until now it wrote the whole Node baseline into a Go repository and exited 0. `soulkill` reports the manifests it found on a new `Other stacks' manifests` line, and `--json` carries them as `existing.foreignManifests`.
+
+- [#192](https://github.com/E1i/mikoshi-construct/pull/192) [`7e53958`](https://github.com/E1i/mikoshi-construct/commit/7e5395827511170d4dfd96cf77236e8b807dbe31) Thanks [@E1i](https://github.com/E1i)! - cli: `doctor --json`, `sync --json`, `sync --apply --json`, `cost --json` and `soulkill --json` carry a top-level `schemaVersion` (1), the version of that key set; `cost`'s `version` and `sync`'s `fromVersion`/`toVersion` still name CLI versions. With no `construct.json`, `doctor`, `sync` and `sync --apply` under `--json` now print `{ "schemaVersion": 1, "state": "no-manifest" }` instead of `null`, with the same exit code `1`: a script that tested for `null` tests for `state` being `"no-manifest"`. The key paths each of these outputs prints in each state are recorded in `contract/surface.json`.
+
+- [#184](https://github.com/E1i/mikoshi-construct/pull/184) [`93327fd`](https://github.com/E1i/mikoshi-construct/commit/93327fd434ff4693544ad96f0dd4eb55ec6bd734) Thanks [@E1i](https://github.com/E1i)! - templates: the `/implement` ladder checks the base with the harness before its first rung. A red base stops the run as `base red` with the failure excerpt, and a verdict the schema rejects stops it as `base unverified`; neither runs an implementer or an architect. Every run now costs one more harness call.
+
+- [#190](https://github.com/E1i/mikoshi-construct/pull/190) [`c8401f2`](https://github.com/E1i/mikoshi-construct/commit/c8401f2eaf6e8fe2c216ee1a2950eba41a195ab4) Thanks [@E1i](https://github.com/E1i)! - templates: `/implement` gains an eighth status, `stopped`, for a run stopped from outside before it returned. A ledger entry that ended without passing carries a `cause`: `stopped` takes `environment` or `human`, and `failed` takes `environment` or `task`. `construct cost` reads the following as malformed: a cause that belongs to another status, a cause on any other status, and a stopped entry with no cause. A failed entry with no cause reads as `not recorded`, so entries written before the field are kept as they are. A ledger entry may also name where its token figure came from with an optional `tokensSource` (`runtime`); without it, the figure is the Workflow tool's own report.
+
+### Patch Changes
+
+- [#187](https://github.com/E1i/mikoshi-construct/pull/187) [`bd1f32b`](https://github.com/E1i/mikoshi-construct/commit/bd1f32bfa22be9f6dc3d3ab41c0ebe463730d698) Thanks [@E1i](https://github.com/E1i)! - cli: the command-line surface (commands and aliases, flags, exit codes per command and state, format versions, the paths `init` and `attach` write, and the block markers) is recorded in `contract/surface.json` and compared with the code on every change. No command, flag, exit code or output changes.
+
+- [#180](https://github.com/E1i/mikoshi-construct/pull/180) [`256fc30`](https://github.com/E1i/mikoshi-construct/commit/256fc30539ce4419b46d57f66a149f7024b64f3b) Thanks [@E1i](https://github.com/E1i)! - `soulkill` puts the pnpm version it finds on its own `CLI pnpm` line, saying it is the pnpm on the PATH construct runs with and was not read from the repository. The `Package manager` line now carries only what was read from the repository.
+
 ## 0.17.2
 
 ### Patch Changes
