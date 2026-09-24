@@ -206,7 +206,8 @@
       "aborted": 1,
       "done": 0,
       "dry-run": 0,
-      "failed": 1
+      "failed": 1,
+      "refused": 1
     },
     "soulkill": {
       "failed": 1,
