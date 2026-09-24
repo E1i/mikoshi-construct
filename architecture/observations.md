@@ -26,6 +26,53 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-24 · In the "d4" case the record drifted, not the block
+
+**Observed.** `AGENTS.md` carried "working on d4" inside the construct's own block, while
+`construct.json` recorded `vars.projectName: "mikoshi-construct"`. `construct sync --json` (read-only)
+classifies `AGENTS.md` as `unknown`. The line was re-rendered from the record in #215. Issue #213 asks
+why sync does not see this drift.
+
+**What was measured.**
+
+- The recorded sha of `AGENTS.md` in `construct.json` (`1e04935b3f9c…`) is exactly the sha of the 0.1.0
+  template (`templates/ai/shared/AGENTS.md.eta` at `6a7d970`), rendered in its default form with
+  `projectName: d4`. So the record was an honest witness of what the construct wrote, and what it wrote
+  said `d4`.
+- `85e3e99` then edited `vars.projectName` and `vars.scope` in `construct.json` by hand, from `d4` to
+  `mikoshi-construct`, and did not re-render. The H1 was renamed by hand in the same commit; the second
+  occurrence of `{{projectName}}`, on line 4, was missed.
+- Rendering the same 0.1.0 template with the recorded vars as they stand today, and splicing it in
+  with the repository's own `substituteBlock`, differs from the file in exactly one line, the `d4`
+  line. The block carried no other drift.
+
+**So the block did not drift. The record did.** The vars in `construct.json` changed after the files
+they describe were written, and nothing records that the recorded hashes were taken with other values.
+`init` reports that situation when it changes vars itself (`recordVarsChanged`); a hand edit leaves no
+trace.
+
+**Why sync says `unknown`.** The record is `manifestVersion: 4` with `variants: {}`. sync reconstructs
+the variant by comparing the recorded sha with a render from **today's** templates, and a file written
+by 0.1.0 cannot match that. The variant stays null, and a null variant is `unknown`. Even with a
+variant, sync compares the block with today's render, so it would read "the template moved on", not
+"the block was edited".
+
+**Proposal, not adopted: two fields, `manifestVersion` 6.**
+
+1. **The sha of each append-block target's owned view** (the block without discovery bodies) as
+   written. Drift inside the block is then "the current owned-view sha differs from the recorded
+   one", which tells a hand edit apart from a template change without shipping old templates.
+2. **A snapshot of the vars the recorded hashes were taken with.** A record whose editable `vars`
+   differ from that snapshot is then read as "the record changed after the write". That is the `d4`
+   case.
+
+Both change what `construct.json` records, so they change `formats.manifestVersion` in the 0030
+contract. Records cut before version 6 carry neither field and stay honestly `unknown` until a record
+is cut again. #213 stays open, waiting for a decision on version 6.
+
+**Boundary.** One repository and one hand edit. The claim is only that this `unknown` hid a drift of
+the record, and that the block itself was faithful.
+
 ## 2026-09-24 · The Shredder signal: splitting ladder tasks for parallel runs is not needed
 
 **Question.** Across past ladder plans, are the tasks cut into pieces whose file paths do not overlap,
