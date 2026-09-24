@@ -1232,6 +1232,14 @@ construction.
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`). |
 
+### The recorded surface
+
+The commands and their aliases, the flags, the exit code per command and state, the format versions,
+the paths `init` and `attach` write and the block markers are recorded in `contract/surface.json`
+([decision 0030](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0030-public-contract.md)).
+A test compares the file with what the code produces and never writes it; `pnpm contract:update`
+is the only command that does, and its diff goes into the pull request that changes the surface.
+
 ## After init
 
 `init` writes the files and stops. The rest of the lifecycle belongs to the agent and to the harness:

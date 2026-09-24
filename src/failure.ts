@@ -1,6 +1,8 @@
 import type { Ui } from './ui/console.js'
 import { RecordAheadOfReader } from './record-ahead.js'
 
+export const FAILED_EXIT = 1
+
 export function flatlineFor(ui: Ui, error: unknown): void {
   if (error instanceof RecordAheadOfReader)
     ui.flatline(ui.lore.recordAhead(error.record, error.field, error.found, error.understood))
@@ -15,6 +17,6 @@ export function reported(ui: Ui, run: () => void): number {
   }
   catch (error) {
     flatlineFor(ui, error)
-    return 1
+    return FAILED_EXIT
   }
 }
