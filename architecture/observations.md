@@ -500,9 +500,9 @@ a mount marked `onlyWhenEmpty` is skipped against a non-empty tree, and the grou
 reported as `omittedGroups`. That is the only machinery in the tool for deciding a path does not
 apply, and it keys on the tree being empty, never on what the tree is.
 
-**The population, partitioned.** Across the four available presets, `planMaterialize` produces 88
+**The population, partitioned.** Across the four available presets, `planMaterialize` produces 87
 distinct paths. 37 of them are reached only in an empty directory, by the mechanism above. The
-remaining 51 are written into any tree that adopts the construct, and they fall into four kinds:
+remaining 50 are written into any tree that adopts the construct, and they fall into four kinds:
 
 `construct-subject` — the construct's own material, which cannot misfit because the construct is what
 it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
@@ -511,8 +511,7 @@ it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
 `.claude/rules/tests.md`, `.claude/skills/implement/SKILL.md`, `.github/workflows/security.yml`,
 `.gitignore`, `.gitleaks.toml`, `AGENTS.md`, `CLAUDE.md`, `architecture/checklists.md`,
 `architecture/decisions/README.md`, `architecture/principles.md`,
-`architecture/security-invariants.md`, `scripts/construct/check-acceptance.mjs`,
-`scripts/construct/implement.workflow.mjs`.
+`architecture/security-invariants.md`, `scripts/construct/implement.workflow.mjs`.
 
 `harness-adoption` — presumes the repository runs the construct's harness, and is inert or wrong
 where it runs another: `.editorconfig`, `.github/workflows/ci.yml`, `.nvmrc`,
@@ -557,6 +556,8 @@ over.
 presets produce today and is checked by `tests/add-population.test.ts` in both directions; it says
 nothing about how often a misfit occurs, and nothing here has been observed for the monorepo,
 backend or library presets.
+
+See also [the `add` population](add-population.md), the living partition that carries the current counts and lists.
 
 ## 2026-09-22 · An acceptance played a second role at 0027's first use, and the rule describes only the first
 
