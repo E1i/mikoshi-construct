@@ -48,6 +48,12 @@ repository's CLAUDE.md and `construct.json`.
      carries the excerpt. Make the base green, or name what is red on purpose, before running again.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
      ran; `validationError` carries the validator's text.
+   - `stopped` — the run was stopped from outside before it returned, so the runtime gave no result.
+     It is the one status the script never returns; you write it. Its entry in step 4 carries
+     `stopReason`, one of:
+     - `environment` — the run was failing on something outside the task, such as the machine or a
+       tool the harness spawns, and further rungs would have spent money on it;
+     - `human` — a person stopped it for any other reason.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
    with exactly these fields and no others:
    - `run` — the Workflow run identifier from step 3. It is the key `construct cost` joins the entry
@@ -58,12 +64,19 @@ repository's CLAUDE.md and `construct.json`.
    - `effort` — the class the run performed: the result's `effort` when it carries one, and only
      then the class you chose in step 1. A run whose design step did not complete is never written
      down as `high`; the result has already degraded it.
-   - `status` — the result's status verbatim, one of the seven in step 3.
+   - `status` — the result's status verbatim, one of the eight in step 3.
    - `rung` — the effort of the rung that finished: `effort` from the result when it carries one,
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
      blocked report and from a design the schema rejected.
+   - `stopReason` — only when `status` is `stopped`, and then required: `environment` or `human`.
+     `construct cost` reads an entry that has it with any other status, or lacks it on a stopped run,
+     as malformed.
+   - `tokensSource` — optional. Absent, `tokens` is the standard measure: the Workflow tool's own
+     accounting as it reported the run to you. Present, it names where the figure came from instead:
+     - `runtime` — the runtime's stored record of the run, read after the tool reported nothing, as
+       for a stopped run.
    - `agents`, `tokens`, `toolUses`, `seconds` — the Workflow tool's own accounting for the run,
      exactly as it reported it. Write `"unknown"` for a token figure it did not report, never `0`.
    The ledger carries counts and reasons only — never a prompt, a response or any other message
