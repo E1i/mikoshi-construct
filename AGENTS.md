@@ -1,7 +1,7 @@
 <!-- construct:begin -->
 # mikoshi-construct
 
-Context for coding agents and automated reviewers working on d4. This repository runs on a
+Context for coding agents and automated reviewers working on mikoshi-construct. This repository runs on a
 construct materialized by `mikoshi-construct` v0.1.0: architecture policy in
 [architecture/](architecture/), a harness that proves every change, and the rules that apply to all
 code in [architecture/principles.md](architecture/principles.md). What follows is what is specific to
