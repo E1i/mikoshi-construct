@@ -1265,6 +1265,12 @@ markers are recorded in `contract/surface.json`
 A test compares the file with what the code produces and never writes it; `pnpm contract:update`
 is the only command that does, and its diff goes into the pull request that changes the surface.
 
+`pnpm contract:bump`, a CI job, compares `contract/surface.json` at the latest release tag
+reachable from `HEAD` with the file at `HEAD` and fails when the pull request declares a weaker bump
+than the change requires. Before 1.0 an addition requires at least a patch and a removal, rename or
+changed value at least a minor; from 1.0, minor and major. Satisfy it with a changeset of that level
+for `mikoshi-construct`; the version pull request declares the difference between its two versions.
+
 ## After init
 
 `init` writes the files and stops. The rest of the lifecycle belongs to the agent and to the harness:

@@ -1,4 +1,4 @@
-# Two gates on every pull request and push to main.
+# Three gates on every pull request and push to main.
 #
 # quality    — the repository's own harness: composition check, lint, typecheck, tests.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
@@ -6,6 +6,9 @@
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
 #              publish fails a user's first install (see CLAUDE.md, version ranges).
+# contract-bump — the release bump the change requires: the semantic diff of contract/surface.json
+#              against the latest release tag reachable from HEAD, compared with the strongest
+#              changeset (decision 0030). It needs tags and history, so it checks out in full.
 #
 # Each acceptance leg installs the publishable tarball into a directory outside the repository and runs
 # the installed binary. That is what publishing ships: the externals tsup leaves out of dist/cli.js must
@@ -43,6 +46,20 @@ jobs:
           name: package-tarball
           path: ${{ runner.temp }}/package/*.tgz
           retention-days: 1
+
+  contract-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm contract:bump
 
   acceptance:
     needs: quality

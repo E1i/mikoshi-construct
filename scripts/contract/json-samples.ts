@@ -16,7 +16,14 @@ const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT',
 const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), '.cache', 'node', 'corepack')
 const SAMPLE_PRESET = 'node-library'
 
-export type JsonKeys = Record<string, Record<string, string[]>>
+export type JsonRoot = 'object' | 'array' | 'null' | 'scalar'
+
+export interface JsonSample {
+  root: JsonRoot
+  keys: string[]
+}
+
+export type JsonKeys = Record<string, Record<string, JsonSample>>
 
 interface World {
   dir: string
@@ -167,13 +174,21 @@ function collectKeyPaths(value: unknown, at: string, into: Set<string>): void {
   }
 }
 
+export function jsonRoot(value: unknown): JsonRoot {
+  if (value === null)
+    return 'null'
+  if (Array.isArray(value))
+    return 'array'
+  return typeof value === 'object' ? 'object' : 'scalar'
+}
+
 export function keyPaths(value: unknown): string[] {
   const into = new Set<string>()
   collectKeyPaths(value, '', into)
   return [...into].sort()
 }
 
-function sampled(sample: Sample, scratch: Scratch): string[] {
+function sampled(sample: Sample, scratch: Scratch): JsonSample {
   const { status, stdout } = run(sample.args, sample.world(scratch))
   const expected = EXIT_TABLES[sample.command]?.[sample.state]
   if (status !== expected)
@@ -183,7 +198,7 @@ function sampled(sample: Sample, scratch: Scratch): string[] {
     throw new Error(`${sample.command} ${sample.state}: the --json sample carries no top-level schemaVersion`)
   if (sample.command === 'cost' && (parsed as { status?: unknown }).status !== sample.state)
     throw new Error(`cost ${sample.state}: the sample reports status ${String((parsed as { status?: unknown }).status)}`)
-  return keyPaths(parsed)
+  return { root: jsonRoot(parsed), keys: keyPaths(parsed) }
 }
 
 export function jsonKeys(): JsonKeys {
