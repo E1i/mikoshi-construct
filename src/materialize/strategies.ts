@@ -51,9 +51,12 @@ export function blockMarkers(target: string): [string, string] {
 
 const DISCOVERY_OPEN = /<!-- construct:discover:([\w-]+) -->/g
 
+export function discoveryTags(marker: string): [string, string] {
+  return [`<!-- construct:discover:${marker} -->`, `<!-- /construct:discover:${marker} -->`]
+}
+
 function discoveryBlock(document: string, marker: string): { start: number, end: number, body: string } | null {
-  const open = `<!-- construct:discover:${marker} -->`
-  const close = `<!-- /construct:discover:${marker} -->`
+  const [open, close] = discoveryTags(marker)
   const start = document.indexOf(open)
   const end = document.indexOf(close)
   if (start === -1 || end === -1 || end < start)

@@ -1,6 +1,10 @@
 import type { DetectReport } from '../detect/index.js'
 import type { Ui } from '../ui/console.js'
 
+export const SOULKILL_EXIT = {
+  reported: 0,
+} as const
+
 function yesNo(value: boolean): string {
   return value ? 'yes' : 'no'
 }

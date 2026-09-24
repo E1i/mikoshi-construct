@@ -1,0 +1,511 @@
+{
+  "commands": {
+    "attach": {
+      "flags": {
+        "ai": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        },
+        "yes": {
+          "alias": "y",
+          "type": "boolean"
+        }
+      }
+    },
+    "capture": {
+      "aliasOf": "soulkill"
+    },
+    "cost": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "last": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "detach": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "doctor": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "graph": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "out": {
+          "type": "string"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "init": {
+      "flags": {
+        "ai": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "plain": {
+          "type": "boolean"
+        },
+        "preset": {
+          "type": "string"
+        },
+        "review": {
+          "type": "string"
+        },
+        "reviewModel": {
+          "type": "string"
+        },
+        "yes": {
+          "alias": "y",
+          "type": "boolean"
+        }
+      }
+    },
+    "inspect": {
+      "aliasOf": "soulkill"
+    },
+    "jack-in": {
+      "aliasOf": "attach"
+    },
+    "jack-out": {
+      "aliasOf": "detach"
+    },
+    "soulkill": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "sync": {
+      "flags": {
+        "apply": {
+          "type": "boolean"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "exits": {
+    "attach": {
+      "aborted": 1,
+      "done": 0,
+      "failed": 1,
+      "refused": 1
+    },
+    "cost": {
+      "empty": 0,
+      "failed": 1,
+      "mismatch": 1,
+      "ok": 0,
+      "unknown": 1,
+      "unsupported": 3
+    },
+    "detach": {
+      "done": 0,
+      "failed": 1,
+      "nothing-attached": 0,
+      "refused": 1
+    },
+    "doctor": {
+      "failed": 1,
+      "noManifest": 1,
+      "notOk": 1,
+      "ok": 0
+    },
+    "graph": {
+      "drawn": 0,
+      "failed": 1,
+      "nothingDrawn": 0
+    },
+    "init": {
+      "aborted": 1,
+      "done": 0,
+      "dry-run": 0,
+      "failed": 1
+    },
+    "soulkill": {
+      "failed": 1,
+      "reported": 0
+    },
+    "sync": {
+      "failed": 1,
+      "noManifest": 1,
+      "pending": 2,
+      "upToDate": 0
+    },
+    "sync --apply": {
+      "failed": 1,
+      "noManifest": 1,
+      "refused": 2,
+      "written": 0
+    }
+  },
+  "formats": {
+    "manifestVersion": 5,
+    "modelVersion": 1,
+    "recordVersion": 1
+  },
+  "markers": {
+    "block": [
+      [
+        "<!-- construct:begin -->",
+        "<!-- construct:end -->"
+      ],
+      [
+        "# construct:begin",
+        "# construct:end"
+      ]
+    ],
+    "discover": {
+      "markers": [
+        "product",
+        "module-map",
+        "commands",
+        "composition-roots",
+        "dependency-policy",
+        "high-effort-areas",
+        "composition",
+        "security-invariants",
+        "defects-vs-variance",
+        "open-questions"
+      ],
+      "tags": [
+        "<!-- construct:discover:<marker> -->",
+        "<!-- /construct:discover:<marker> -->"
+      ]
+    }
+  },
+  "outside": [
+    ".construct/runs.jsonl",
+    "graph --out HTML",
+    "human-readable output text",
+    "lore strings"
+  ],
+  "paths": {
+    "attach": {
+      "edits": [
+        ".git/info/exclude"
+      ],
+      "writes": [
+        ".claude/agents/architect.md",
+        ".claude/agents/harness.md",
+        ".claude/agents/implementer.md",
+        ".claude/commands/plan.md",
+        ".claude/skills/implement/SKILL.md",
+        ".construct/attach.json",
+        "scripts/construct/implement.workflow.mjs"
+      ]
+    },
+    "init": {
+      "monorepo": [
+        ".claude/agents/architect.md",
+        ".claude/agents/harness.md",
+        ".claude/agents/implementer.md",
+        ".claude/commands/construct-discover.md",
+        ".claude/commands/plan.md",
+        ".claude/rules/conventions.md",
+        ".claude/rules/secrets.md",
+        ".claude/rules/tests.md",
+        ".claude/skills/implement/SKILL.md",
+        ".editorconfig",
+        ".github/workflows/api-contract.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".gitignore",
+        ".gitleaks.toml",
+        ".nvmrc",
+        ".vscode/settings.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "apps/api/package.json",
+        "apps/api/src/app.ts",
+        "apps/api/src/config.ts",
+        "apps/api/src/contracts/types.ts",
+        "apps/api/src/health/health.controller.ts",
+        "apps/api/src/health/health.service.ts",
+        "apps/api/src/http/api-contract.middleware.ts",
+        "apps/api/src/http/app-error.ts",
+        "apps/api/src/http/async-handler.middleware.ts",
+        "apps/api/src/http/error-handler.middleware.ts",
+        "apps/api/src/server.ts",
+        "apps/api/tests/health.test.ts",
+        "apps/api/tests/http/error-handler.middleware.test.ts",
+        "apps/api/tsconfig.build.json",
+        "apps/api/tsconfig.json",
+        "architecture/checklists.md",
+        "architecture/composition/http.yaml",
+        "architecture/decisions/README.md",
+        "architecture/http.md",
+        "architecture/principles.md",
+        "architecture/security-invariants.md",
+        "construct.json",
+        "construct.model.json",
+        "contracts/api/openapi.yaml",
+        "eslint.config.mjs",
+        "package.json",
+        "packages/shared/package.json",
+        "packages/shared/src/api/openapi.ts",
+        "packages/shared/src/index.ts",
+        "packages/shared/tsconfig.build.json",
+        "packages/shared/tsconfig.json",
+        "pnpm-workspace.yaml",
+        "redocly.yaml",
+        "scripts/composition/check.ts",
+        "scripts/composition/files.ts",
+        "scripts/composition/model.ts",
+        "scripts/composition/render.ts",
+        "scripts/composition/sync-docs.ts",
+        "scripts/construct/implement.workflow.mjs",
+        "scripts/contracts/types.mjs",
+        "scripts/tests/composition/files.test.ts",
+        "scripts/tests/composition/model.test.ts",
+        "scripts/tests/composition/render.test.ts",
+        "scripts/tests/contracts/security.test.ts",
+        "scripts/tests/lint/syntax-policy.test.ts",
+        "tsconfig.base.json",
+        "tsconfig.json",
+        "vitest.config.ts"
+      ],
+      "node-backend": [
+        ".claude/agents/architect.md",
+        ".claude/agents/harness.md",
+        ".claude/agents/implementer.md",
+        ".claude/commands/construct-discover.md",
+        ".claude/commands/plan.md",
+        ".claude/rules/conventions.md",
+        ".claude/rules/secrets.md",
+        ".claude/rules/tests.md",
+        ".claude/skills/implement/SKILL.md",
+        ".editorconfig",
+        ".github/workflows/api-contract.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".gitignore",
+        ".gitleaks.toml",
+        ".nvmrc",
+        ".vscode/settings.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "architecture/checklists.md",
+        "architecture/composition/http.yaml",
+        "architecture/decisions/README.md",
+        "architecture/http.md",
+        "architecture/principles.md",
+        "architecture/security-invariants.md",
+        "construct.json",
+        "construct.model.json",
+        "contracts/api/openapi.yaml",
+        "eslint.config.mjs",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "redocly.yaml",
+        "scripts/composition/check.ts",
+        "scripts/composition/files.ts",
+        "scripts/composition/model.ts",
+        "scripts/composition/render.ts",
+        "scripts/composition/sync-docs.ts",
+        "scripts/construct/implement.workflow.mjs",
+        "scripts/contracts/types.mjs",
+        "scripts/tests/composition/files.test.ts",
+        "scripts/tests/composition/model.test.ts",
+        "scripts/tests/composition/render.test.ts",
+        "scripts/tests/contracts/security.test.ts",
+        "scripts/tests/lint/syntax-policy.test.ts",
+        "src/app.ts",
+        "src/config.ts",
+        "src/contracts/openapi.ts",
+        "src/contracts/types.ts",
+        "src/health/health.controller.ts",
+        "src/health/health.service.ts",
+        "src/http/api-contract.middleware.ts",
+        "src/http/app-error.ts",
+        "src/http/async-handler.middleware.ts",
+        "src/http/error-handler.middleware.ts",
+        "src/server.ts",
+        "tests/health.test.ts",
+        "tests/http/error-handler.middleware.test.ts",
+        "tsconfig.base.json",
+        "tsconfig.build.json",
+        "tsconfig.json",
+        "vitest.config.ts"
+      ],
+      "node-frontend": [
+        ".claude/agents/architect.md",
+        ".claude/agents/harness.md",
+        ".claude/agents/implementer.md",
+        ".claude/commands/construct-discover.md",
+        ".claude/commands/plan.md",
+        ".claude/rules/conventions.md",
+        ".claude/rules/css.md",
+        ".claude/rules/secrets.md",
+        ".claude/rules/tests.md",
+        ".claude/skills/implement/SKILL.md",
+        ".editorconfig",
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".gitignore",
+        ".gitleaks.toml",
+        ".nvmrc",
+        ".vscode/settings.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "architecture/app.md",
+        "architecture/checklists.md",
+        "architecture/composition/app.yaml",
+        "architecture/decisions/README.md",
+        "architecture/principles.md",
+        "architecture/security-invariants.md",
+        "construct.json",
+        "construct.model.json",
+        "eslint.config.mjs",
+        "index.html",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "scripts/composition/check.ts",
+        "scripts/composition/files.ts",
+        "scripts/composition/model.ts",
+        "scripts/composition/render.ts",
+        "scripts/composition/sync-docs.ts",
+        "scripts/construct/implement.workflow.mjs",
+        "scripts/tests/composition/files.test.ts",
+        "scripts/tests/composition/model.test.ts",
+        "scripts/tests/composition/render.test.ts",
+        "scripts/tests/lint/syntax-policy.test.ts",
+        "src/app.ts",
+        "src/main.ts",
+        "src/styles/app.css",
+        "src/styles/tokens.css",
+        "tests/app.test.ts",
+        "tsconfig.base.json",
+        "tsconfig.json",
+        "vitest.config.ts"
+      ],
+      "node-library": [
+        ".claude/agents/architect.md",
+        ".claude/agents/harness.md",
+        ".claude/agents/implementer.md",
+        ".claude/commands/construct-discover.md",
+        ".claude/commands/plan.md",
+        ".claude/rules/conventions.md",
+        ".claude/rules/secrets.md",
+        ".claude/rules/tests.md",
+        ".claude/skills/implement/SKILL.md",
+        ".editorconfig",
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".gitignore",
+        ".gitleaks.toml",
+        ".nvmrc",
+        ".vscode/settings.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "architecture/checklists.md",
+        "architecture/decisions/README.md",
+        "architecture/principles.md",
+        "architecture/security-invariants.md",
+        "construct.json",
+        "construct.model.json",
+        "eslint.config.mjs",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "scripts/composition/check.ts",
+        "scripts/composition/files.ts",
+        "scripts/composition/model.ts",
+        "scripts/composition/render.ts",
+        "scripts/composition/sync-docs.ts",
+        "scripts/construct/implement.workflow.mjs",
+        "scripts/tests/composition/files.test.ts",
+        "scripts/tests/composition/model.test.ts",
+        "scripts/tests/composition/render.test.ts",
+        "tsconfig.base.json",
+        "tsconfig.json",
+        "vitest.config.ts"
+      ]
+    }
+  }
+}

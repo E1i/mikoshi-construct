@@ -41,6 +41,7 @@
     "build": "tsup",
     "changeset": "changeset",
     "ci": "pnpm run quality",
+    "contract:update": "tsx scripts/contract/update.ts",
     "composition:check": "tsx scripts/composition/check.ts",
     "composition:render": "tsx scripts/composition/sync-docs.ts",
     "dev": "tsx src/cli.ts",

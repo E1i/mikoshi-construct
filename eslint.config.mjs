@@ -93,6 +93,18 @@ const theRecordItselfMayReadBothHalves = {
   },
 }
 
+const THE_SURFACE_TEST_NEVER_WRITES = 'tests/contract/surface.test.ts compares and never writes (0030): contract/surface.json is written only by `pnpm contract:update`'
+const FS_WRITES = ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'rm', 'rmSync', 'unlink', 'unlinkSync', 'mkdir', 'mkdirSync', 'cpSync', 'copyFile', 'copyFileSync', 'rename', 'renameSync', 'createWriteStream']
+
+const theSurfaceTestNeverWrites = {
+  files: ['tests/contract/surface.test.ts'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      paths: ['node:fs', 'fs', 'node:fs/promises', 'fs/promises'].map(name => ({ name, importNames: FS_WRITES, message: THE_SURFACE_TEST_NEVER_WRITES })),
+    }],
+  },
+}
+
 export default antfu(
   {
     isInEditor: false,
@@ -106,4 +118,5 @@ export default antfu(
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,
   theRecordItselfMayReadBothHalves,
+  theSurfaceTestNeverWrites,
 )

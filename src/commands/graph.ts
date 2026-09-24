@@ -29,13 +29,18 @@ export function pageOfGraph(graph: ModelGraph, projectName: string): string {
   })
 }
 
+export const GRAPH_EXIT = {
+  drawn: 0,
+  nothingDrawn: 0,
+} as const
+
 export function printGraph(ui: Ui, picture: ModelPicture, write: Writer): number {
   if (picture.at === 'drawn') {
     write(picture.mermaid)
-    return 0
+    return GRAPH_EXIT.drawn
   }
   ui.line(ui.lore.graphNothingDrawn(PICTURE_PROSE[picture.at]))
-  return 0
+  return GRAPH_EXIT.nothingDrawn
 }
 
 export function writeGraphPage(dir: string, out: string, states: StateSource = deriveModelState): string | null {

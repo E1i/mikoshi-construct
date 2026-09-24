@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendBlock, appendBlockWith, mergeJson, preserveDiscovery, removeBlock, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
+import { appendBlock, appendBlockWith, discoveryTags, mergeJson, preserveDiscovery, removeBlock, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
 
 describe('strategyFor', () => {
   it('routes manifests, agent files and gitignore to their strategies', () => {
@@ -58,6 +58,12 @@ describe('preserveDiscovery', () => {
 
   it('leaves the placeholder when the previous block was never filled', () => {
     expect(preserveDiscovery(placeholder, placeholder)).toBe(placeholder)
+  })
+
+  it('reads a block by the tags discoveryTags names, which are the ones a template carries', () => {
+    const [open, close] = discoveryTags('module-map')
+    expect(placeholder.startsWith(open)).toBe(true)
+    expect(placeholder.endsWith(close)).toBe(true)
   })
 })
 

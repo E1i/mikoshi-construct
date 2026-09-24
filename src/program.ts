@@ -8,10 +8,10 @@ import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
-import { printDetectReport } from './commands/soulkill.js'
+import { printDetectReport, SOULKILL_EXIT } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
-import { flatlineFor, reported } from './failure.js'
+import { FAILED_EXIT, flatlineFor, reported } from './failure.js'
 import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
 import { createUi, stderrWriter, stdoutWriter } from './ui/console.js'
 
@@ -51,7 +51,7 @@ const init = defineCommand({
     }
     catch (error) {
       flatlineFor(console, error)
-      process.exitCode = 1
+      process.exitCode = FAILED_EXIT
     }
   },
 })
@@ -74,7 +74,7 @@ const attach = defineCommand({
     }
     catch (error) {
       flatlineFor(console, error)
-      process.exitCode = 1
+      process.exitCode = FAILED_EXIT
     }
   },
 })
@@ -91,7 +91,7 @@ const detach = defineCommand({
     }
     catch (error) {
       flatlineFor(console, error)
-      process.exitCode = 1
+      process.exitCode = FAILED_EXIT
     }
   },
 })
@@ -104,6 +104,7 @@ const soulkill = defineCommand({
   },
   run({ args }) {
     const report = detect(args.dir)
+    process.exitCode = SOULKILL_EXIT.reported
     if (args.json) {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
       return
@@ -203,7 +204,7 @@ const sync = defineCommand({
       }
       catch (error) {
         flatlineFor(console, error)
-        process.exitCode = 1
+        process.exitCode = FAILED_EXIT
       }
       return
     }
