@@ -194,7 +194,7 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 | Soulkiller | `construct soulkill`: extracts the facts about a repository and writes nothing |
 | Netrunner | The coding agent — Claude Code, Cursor — that connects to the project through the construct |
 | Relic | The files at the root the agent reads first: `AGENTS.md`, `CLAUDE.md`, `construct.json` |
-| Engram | The record `init` cut into `construct.json`: what the construct wrote, and the version that wrote it |
+| Engram | The record `init` cut into `construct.json`: what the construct wrote, and the version that wrote it _(semantics not fixed)_ |
 | Braindance | `construct sync`: replaying that engram against today's templates and reporting where the two disagree |
 | Jack in | `construct attach`: the agent carriers alone, into a repository the construct did not write, hidden from git and recorded in `.construct/attach.json` |
 | Jack out | `construct detach`: the inverse of jack in — removes what the record lists, leaves a carrier git has adopted or a file attach did not write, and reports each by name |

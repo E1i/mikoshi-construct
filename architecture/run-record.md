@@ -5,11 +5,6 @@ of the first wave, from the observation *Pre-registered predictions across an at
 in [observations.md](observations.md). The journal file first named as the source does not exist; that
 entry is the journal.
 
-**Name.** This was asked for as the *engram*. In the README's lore table, *Engram* already names the
-record `init` cuts into `construct.json`, and `sync` replays that engram. This record is a different
-one, kept in a different place, so it goes by the working name *run record* until the owner settles
-the name.
-
 ## Where it lives
 
 `.construct/run-records.jsonl`, one JSON line per ladder run. It is local working state, like the
