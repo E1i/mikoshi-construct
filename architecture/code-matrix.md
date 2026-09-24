@@ -4,6 +4,9 @@ Status: a convention of this repository, not a numbered decision. Adopted on 202
 of five pull requests; see *Trial* below. Session rules for this repository only; nothing here is
 materialized into other repositories.
 
+An outside contributor is not asked for the matrix, the predictions or the mutations; the
+[contributor guide](../CONTRIBUTING.md) says so to the reader who arrives there first.
+
 A report on a pull request in this repository ends with a compact matrix over its alphabet: the upper
 triangle, one sign per cell, and a count line `■ n □ n · n`. A cell is expanded only on request.
 
