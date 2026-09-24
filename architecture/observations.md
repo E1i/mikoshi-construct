@@ -26,6 +26,30 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-24 · A vitest report named a test file from a nested worktree, once, and was not reproduced
+
+**Observed once.** From the main checkout, `pnpm exec vitest run tests/strategies.test.ts
+--reporter=json` returned a report whose only test file was the copy of that file inside an agent
+worktree under `.claude/worktrees/`, not the checkout's own. The worktree had its own `node_modules`,
+and the agent working in it may have been running vitest at that moment.
+
+**Not reproduced.** Three attempts against a nested worktree, each at the same HEAD, with the same
+command and with `vitest list --filesOnly`:
+
+- under `.claude/worktrees/`, without `node_modules`;
+- the same, with `node_modules` installed;
+- in a directory without a leading dot.
+
+All three saw only the checkout's own 102 files. vitest's `include` (`tests/**/*.test.ts`,
+`scripts/tests/**/*.test.ts`) is anchored at the root, and a file filter only narrows within it. That
+explains why the sighting did not repeat. It does not explain why it happened.
+
+**Untested remaining difference.** A vitest run going on inside the nested worktree at the same
+moment. **No vitest exclusion is added until the case is reproduced**: an exclusion guarding against
+an unknown cause could only be tested for being present, not for being needed. The same
+investigation found the eslint half, which was real: eslint lints a nested worktree whenever its
+directory has no leading dot. That half is fixed and tested under #204.
+
 ## 2026-09-24 · An acceptance line was agreed and then left out of the arguments the ladder received
 
 **Observed.** The owner and the orchestrator agreed a `/implement` line for the `construct mutate`
