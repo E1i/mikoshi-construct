@@ -10,6 +10,12 @@ differences:
     reason: >-
       This repository is the generator, so its own CI runs an acceptance leg per preset on top of the
       quality gate the template ships; the template stays a single quality gate for a generated repo.
+  - path: .github/workflows/security.yml
+    kind: content
+    reason: >-
+      This repository merges through a merge queue, so the workflow carrying the required Secret scan
+      also runs on merge_group; the template keeps pull_request and push, since a generated repository
+      may not use a merge queue and the trigger would do nothing there.
   - path: .gitleaks.toml
     kind: content
     reason: >-
