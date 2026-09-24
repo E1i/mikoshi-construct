@@ -3,7 +3,7 @@ import type { TemplateVars } from '../src/presets/index.js'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DOCTOR_FIELD_FAMILY, doctorJson, RETIRED_IDENTIFIERS } from '../src/commands/doctor/index.js'
+import { DOCTOR_FIELD_FAMILY, doctorJson, projectKnowledge, RETIRED_IDENTIFIERS } from '../src/commands/doctor/index.js'
 import { LEVELS } from '../src/commands/doctor/verdict.js'
 import { ENFORCEMENT_LEVELS } from '../src/model/schema.js'
 import { buildModel } from '../src/model/write.js'
@@ -39,25 +39,47 @@ describe('an identifier others cite carries one scope, and only one', () => {
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 
-const IDENTIFIER_TABLES: { header: string[], columns: number[] }[] = [
-  { header: ['Field', 'Family'], columns: [0] },
-  { header: ['`id`', 'The claim it renders', 'When it appears'], columns: [0, 1] },
+type IdentifierKind = 'field' | 'envelope' | 'claim' | 'check' | 'fact' | 'hypothesis'
+
+interface NamedIdentifier {
+  name: string
+  kinds: IdentifierKind[]
+}
+
+const IDENTIFIER_TABLES: { header: string[], columns: [number, IdentifierKind][] }[] = [
+  { header: ['Field', 'Family'], columns: [[0, 'field']] },
+  { header: ['`id`', 'The claim it renders', 'When it appears'], columns: [[0, 'check'], [1, 'claim']] },
 ]
 
 const ENVELOPE_KEYS = Object.keys(doctorJson({} as DoctorResult))
 
-function currentIdentifiers(): string[] {
-  const claims = buildModel({ vars: VARS, contracts: true, sample: true }).claims
-  return [...Object.keys(DOCTOR_FIELD_FAMILY), ...ENVELOPE_KEYS, ...claims.map(claim => claim.id), ...claims.flatMap(claim => claim.checkId ?? [])]
+function currentIdentifiers(): Record<IdentifierKind, string[]> {
+  const model = buildModel({ vars: VARS, contracts: true, sample: true })
+  return {
+    field: Object.keys(DOCTOR_FIELD_FAMILY),
+    envelope: ENVELOPE_KEYS,
+    claim: model.claims.map(claim => claim.id),
+    check: projectKnowledge(model, ROOT).checks.map(check => check.id),
+    fact: model.facts.map(fact => fact.id),
+    hypothesis: model.hypotheses.map(hypothesis => hypothesis.id),
+  }
 }
 
-function namedIdentifiers(value: unknown): string[] {
+function everyCurrentIdentifier(): string[] {
+  return Object.values(currentIdentifiers()).flat()
+}
+
+type KindByKey = Record<string, IdentifierKind>
+
+const DOCTOR_RESULT_KEYS: KindByKey = { id: 'check', claimId: 'claim' }
+
+function namedIdentifiers(value: unknown, kindByKey: KindByKey): NamedIdentifier[] {
   if (Array.isArray(value))
-    return value.flatMap(entry => namedIdentifiers(entry))
+    return value.flatMap(entry => namedIdentifiers(entry, kindByKey))
   if (typeof value !== 'object' || value == null)
     return []
   return Object.entries(value).flatMap(([key, entry]) =>
-    (key === 'id' || key === 'claimId') && typeof entry === 'string' ? [entry] : namedIdentifiers(entry))
+    Object.hasOwn(kindByKey, key) && typeof entry === 'string' ? [{ name: entry, kinds: [kindByKey[key]] }] : namedIdentifiers(entry, kindByKey))
 }
 
 const BLOCK_KINDS = ['doctor-result', 'repository-model', 'manifest', 'sync-report'] as const
@@ -116,44 +138,55 @@ function tableRows(source: string): string[][][] {
   return tables
 }
 
-function tableIdentifiers(source: string): string[] {
+function tableIdentifiers(source: string): NamedIdentifier[] {
   return tableRows(source).flatMap((table) => {
     const scanned = IDENTIFIER_TABLES.find(candidate => candidate.header.join('|') === table[0].join('|'))
     if (scanned == null)
       return []
-    return table.slice(2).flatMap(row => scanned.columns.flatMap((column) => {
+    return table.slice(2).flatMap(row => scanned.columns.flatMap(([column, kind]) => {
       const token = /^`([^`]+)`$/.exec(row[column] ?? '')
-      return token == null ? [] : [token[1]]
+      return token == null ? [] : [{ name: token[1], kinds: [kind] }]
     }))
   })
 }
 
-const MODEL_ENTRY_KEYS = ['facts', 'claims', 'hypotheses']
+const MODEL_ENTRY_KINDS: Record<string, IdentifierKind> = { facts: 'fact', claims: 'claim', hypotheses: 'hypothesis' }
 
-function entriesTheCodeMustOwn(block: Record<string, unknown>): unknown[] {
-  return MODEL_ENTRY_KEYS.flatMap((key) => {
+function modelIdentifiers(block: Record<string, unknown>): NamedIdentifier[] {
+  return Object.entries(MODEL_ENTRY_KINDS).flatMap(([key, kind]) => {
     const entries = block[key]
-    return Array.isArray(entries)
+    const theCodeMustOwn = Array.isArray(entries)
       ? entries.filter(entry => typeof entry === 'object' && entry != null && (entry as Record<string, unknown>).authoredBy !== 'discovery')
       : []
+    return namedIdentifiers(theCodeMustOwn, { id: kind, claimId: 'claim', checkId: 'check' })
   })
 }
 
-function identifiersNamed(source: string): string[] {
-  const blocks = scannedBlocks(source)
-  const keys = blocks.flatMap(block => (kindOf(block) === 'doctor-result' ? Object.keys(block) : []))
-  const named = blocks.flatMap(block =>
-    (kindOf(block) === 'repository-model' ? namedIdentifiers(entriesTheCodeMustOwn(block)) : namedIdentifiers(block)))
-  return [...keys, ...named, ...tableIdentifiers(source)]
+function doctorResultIdentifiers(block: Record<string, unknown>): NamedIdentifier[] {
+  const keys = Object.keys(block).map(name => ({ name, kinds: ['field', 'envelope'] as IdentifierKind[] }))
+  return [...keys, ...namedIdentifiers(block, DOCTOR_RESULT_KEYS)]
+}
+
+function identifiersNamed(source: string): NamedIdentifier[] {
+  const named = scannedBlocks(source).flatMap(block =>
+    (kindOf(block) === 'repository-model' ? modelIdentifiers(block) : doctorResultIdentifiers(block)))
+  return [...named, ...tableIdentifiers(source)]
+}
+
+function namesOf(named: NamedIdentifier[]): string[] {
+  return named.map(identifier => identifier.name)
 }
 
 function reused(current: string[], retired: readonly string[]): string[] {
   return current.filter(name => retired.includes(name))
 }
 
-function unowned(names: string[]): string[] {
-  const owned = new Set<string>([...currentIdentifiers(), ...RETIRED_IDENTIFIERS])
-  return [...new Set(names.filter(name => !owned.has(name)))].sort()
+function unowned(named: NamedIdentifier[]): string[] {
+  const current = currentIdentifiers()
+  const retired = new Set<string>(RETIRED_IDENTIFIERS)
+  const owned = (identifier: NamedIdentifier): boolean =>
+    retired.has(identifier.name) || identifier.kinds.some(kind => current[kind].includes(identifier.name))
+  return [...new Set(named.filter(identifier => !owned(identifier)).map(identifier => identifier.name))].sort()
 }
 
 function scannedFiles(directory: string): string[] {
@@ -179,6 +212,8 @@ const MODEL_BLOCK = '```json\n{ "modelVersion": 1, "facts": [], "claims": [{ "id
 
 const FIELD_TABLE = '| Field | Family |\n|---|---|\n| `weakestLink` | knowledge |\n'
 
+const CHECK_TABLE = '| `id` | The claim it renders | When it appears |\n|---|---|---|\n| `ci` | `every-change-passes-the-harness` | Always |\n'
+
 describe('an identifier the documentation names is one the code owns or has retired', () => {
   it('finds every identifier the docs and templates name in the current list or the retired one', () => {
     for (const { file, source } of scanned())
@@ -189,7 +224,7 @@ describe('an identifier the documentation names is one the code owns or has reti
     const rows = scanned().flatMap(({ source }) => tableRows(source))
     for (const table of IDENTIFIER_TABLES)
       expect(rows.map(found => found[0].join('|')), table.header.join('|')).toContain(table.header.join('|'))
-    const names = scanned().flatMap(({ source }) => identifiersNamed(source))
+    const names = scanned().flatMap(({ source }) => namesOf(identifiersNamed(source)))
     expect(names).toContain('youAreHere')
     expect(names).toContain('ci')
     expect(names).toContain('every-change-passes-the-harness')
@@ -198,6 +233,25 @@ describe('an identifier the documentation names is one the code owns or has reti
   it('names an identifier belonging to neither list', () => {
     expect(unowned(identifiersNamed(DOCTOR_RESULT_BLOCK.replace('"ci"', '"soulkill"')))).toEqual(['soulkill'])
     expect(unowned(identifiersNamed(FIELD_TABLE.replace('weakestLink', 'wakeUp')))).toEqual(['wakeUp'])
+  })
+
+  it('names an identifier standing in the place of another kind, so a field name offered as a check id fails', () => {
+    expect(unowned(identifiersNamed(DOCTOR_RESULT_BLOCK.replace('"ci"', '"schemaVersion"')))).toEqual(['schemaVersion'])
+    expect(unowned(identifiersNamed(DOCTOR_RESULT_BLOCK.replace('"ci"', '"youAreHere"')))).toEqual(['youAreHere'])
+    expect(unowned(identifiersNamed(DOCTOR_RESULT_BLOCK.replace('"every-change-passes-the-harness"', '"ci"')))).toEqual(['ci'])
+    expect(unowned(identifiersNamed(FIELD_TABLE.replace('weakestLink', 'ci')))).toEqual(['ci'])
+    expect(unowned(identifiersNamed(FIELD_TABLE.replace('weakestLink', 'schemaVersion')))).toEqual(['schemaVersion'])
+    expect(unowned(identifiersNamed(CHECK_TABLE.replace('`every-change-passes-the-harness`', '`ci`')))).toEqual(['ci'])
+    expect(unowned(identifiersNamed(CHECK_TABLE.replace('| `ci` |', '| `youAreHere` |')))).toEqual(['youAreHere'])
+    expect(unowned(identifiersNamed(MODEL_BLOCK.replace('"no-committed-secret"', '"youAreHere"')))).toEqual(['youAreHere'])
+    expect(unowned(identifiersNamed(MODEL_BLOCK.replace('"checkId": "ci"', '"checkId": "youAreHere"')))).toEqual(['youAreHere'])
+  })
+
+  it('accepts each identifier in the place of its own kind', () => {
+    expect(unowned(identifiersNamed(DOCTOR_RESULT_BLOCK))).toEqual([])
+    expect(unowned(identifiersNamed(DOCTOR_RESULT_BLOCK.replace('"ci"', '"no-committed-secret"')))).toEqual([])
+    expect(unowned(identifiersNamed(CHECK_TABLE))).toEqual([])
+    expect(unowned(identifiersNamed(MODEL_BLOCK))).toEqual([])
   })
 
   it('lets the documentation describe a removal, since a retired name is one the code still owns', () => {
@@ -213,9 +267,9 @@ describe('an identifier the documentation names is one the code owns or has reti
   it('reads only the blocks whose keys are doctor\'s own, leaving the manifest and the sync report to their vocabularies', () => {
     const manifest = '```json\n{ "manifestVersion": 4, "construct": "0.5.1", "files": {} }\n```\n'
     const report = '```json\n{ "fromVersion": "0.1.1", "toVersion": "0.5.1", "counts": {}, "paths": [] }\n```\n'
-    expect(identifiersNamed(manifest)).toEqual([])
-    expect(identifiersNamed(report)).toEqual([])
-    expect(identifiersNamed(DOCTOR_RESULT_BLOCK).length).toBeGreaterThan(0)
+    expect(namesOf(identifiersNamed(manifest))).toEqual([])
+    expect(namesOf(identifiersNamed(report))).toEqual([])
+    expect(namesOf(identifiersNamed(DOCTOR_RESULT_BLOCK)).length).toBeGreaterThan(0)
   })
 
   it('classifies every json block it meets, so one of a shape nobody decided about fails instead of not joining the scan', () => {
@@ -235,8 +289,8 @@ describe('an identifier the documentation names is one the code owns or has reti
 
   it('scans a model block for the claim ids it names and not for the keys that hold them', () => {
     expect(unclassifiedBlocks(MODEL_BLOCK)).toEqual([])
-    expect(identifiersNamed(MODEL_BLOCK)).toContain('no-committed-secret')
-    expect(identifiersNamed(MODEL_BLOCK)).not.toContain('modelVersion')
+    expect(namesOf(identifiersNamed(MODEL_BLOCK))).toContain('no-committed-secret')
+    expect(namesOf(identifiersNamed(MODEL_BLOCK))).not.toContain('modelVersion')
     expect(unowned(identifiersNamed(MODEL_BLOCK.replace('"no-committed-secret"', '"no-such-claim"')))).toEqual(['no-such-claim'])
   })
 
@@ -244,13 +298,13 @@ describe('an identifier the documentation names is one the code owns or has reti
     const invented = MODEL_BLOCK.replace('"no-committed-secret"', '"no-such-claim"')
     expect(unowned(identifiersNamed(invented))).toEqual(['no-such-claim'])
     expect(unowned(identifiersNamed(invented.replace('"authoredBy": "construct"', '"authoredBy": "discovery"')))).toEqual([])
-    expect(identifiersNamed(invented.replace('"authoredBy": "construct"', '"authoredBy": "discovery"'))).not.toContain('no-such-claim')
+    expect(namesOf(identifiersNamed(invented.replace('"authoredBy": "construct"', '"authoredBy": "discovery"')))).not.toContain('no-such-claim')
     expect(unowned(identifiersNamed(invented.replace('"authoredBy": "construct", ', '')))).toEqual(['no-such-claim'])
-    expect(identifiersNamed(MODEL_BLOCK)).toContain('no-committed-secret')
+    expect(namesOf(identifiersNamed(MODEL_BLOCK))).toContain('no-committed-secret')
   })
 
   it('keeps a retired name out of the current list, so no identifier can come back meaning something else', () => {
-    expect(reused(currentIdentifiers(), RETIRED_IDENTIFIERS)).toEqual([])
-    expect(reused([...currentIdentifiers(), 'hook'], RETIRED_IDENTIFIERS)).toEqual(['hook'])
+    expect(reused(everyCurrentIdentifier(), RETIRED_IDENTIFIERS)).toEqual([])
+    expect(reused([...everyCurrentIdentifier(), 'hook'], RETIRED_IDENTIFIERS)).toEqual(['hook'])
   })
 })
