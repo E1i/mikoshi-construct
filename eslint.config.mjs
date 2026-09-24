@@ -1,6 +1,6 @@
 import antfu from '@antfu/eslint-config'
 
-const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'manifest', 'materialize', 'model', 'presets', 'program', 'record-ahead', 'sync', 'ui', 'version']
+export const INTERNAL_MODULES = ['cli', 'commands', 'detect', 'failure', 'manifest', 'materialize', 'model', 'presets', 'program', 'record-ahead', 'sync', 'ui', 'version']
 
 const ALLOWED_INTERNAL_IMPORTS = {
   'src/detect': [],
@@ -12,7 +12,7 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/ui': ['presets'],
   'src/failure.ts': ['record-ahead', 'ui'],
   'src/commands': ['detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
-  'src/program.ts': ['commands', 'detect', 'presets', 'ui', 'version'],
+  'src/program.ts': ['commands', 'detect', 'failure', 'presets', 'ui', 'version'],
   'src/cli.ts': ['program'],
 }
 
