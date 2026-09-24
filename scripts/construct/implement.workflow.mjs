@@ -63,9 +63,11 @@ const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
 const acceptance = args.acceptance ?? []
+for (const item of acceptance)
+  log(`acceptance: ${item}`)
 const harness = { extra: [], ...(args.harness ?? {}) }
 if (typeof harness.command !== 'string' || harness.command === '')
-  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION }
+  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
@@ -175,6 +177,7 @@ function designIncomplete(effort, question) {
     recovery: DESIGN_RECOVERY,
     question: question ?? '',
     lastFailure: feedback ?? '',
+    acceptance,
   }
 }
 
@@ -196,9 +199,9 @@ const base = await ask(preflightPrompt(), {
   schema: VERDICT,
 })
 if (base == null)
-  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError }
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError, acceptance }
 if (base.passed !== true)
-  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt }
+  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance }
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
@@ -226,7 +229,7 @@ for (const [index, effort] of rungs.entries()) {
   if (report.status === 'blocked') {
     attempts.push({ rung, effort, outcome: 'blocked', reason: report.question, question: report.question })
     if (rung === rungs.length)
-      return { status: 'blocked', question: report.question, attempts }
+      return { status: 'blocked', question: report.question, attempts, acceptance }
     const designed = await design(rung, `The implementer stopped on this question:\n${report.question}`, `design after blocked ${rung}`)
     if (!designed && args.effort === 'high')
       return designIncomplete(effort, report.question)
@@ -266,6 +269,7 @@ for (const [index, effort] of rungs.entries()) {
       harnessTail: report.harnessTail,
       contractChanged: verdict.contractChanged,
       diffStat: verdict.diffStat,
+      acceptance,
     }
   }
 
@@ -285,4 +289,4 @@ for (const [index, effort] of rungs.entries()) {
   }
 }
 
-return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]) }
+return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]), acceptance }

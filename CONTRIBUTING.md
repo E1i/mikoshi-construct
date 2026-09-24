@@ -30,6 +30,24 @@ The matrix, the predictions and the mutations are not required from an outside c
 are the maintainer's own record, described in [the code matrix](architecture/code-matrix.md). A
 contribution needs a green `pnpm run quality` and a test for what it changes.
 
+## One tree, one writer
+
+While `/implement` runs its ladder in a working tree, nothing else writes to that tree: no experiment
+or probe files, no second agent, no edits by hand. The ladder's harness verdict is about the tree it
+ran in, so a file another writer adds or changes during the run makes that verdict about something
+else.
+
+Parallel work goes into a separate git worktree, and **that worktree lives outside the repository**,
+for example `git worktree add ../<name> <ref>`, never under `.claude/worktrees/`. A nested worktree is
+a full second copy of `src/`, `tests/` and `scripts/` inside the tree the tools walk. eslint excludes
+nested worktrees (#204). But one vitest report from the main checkout once named a nested worktree's
+test file, and that has been neither reproduced nor explained (observation *A vitest report named a
+test file from a nested worktree, once, and was not reproduced* in
+[observations.md](architecture/observations.md)). So the rule stands on its own and does not end
+with #204.
+
+Nothing enforces this; it is kept by review.
+
 ## Adding a preset
 
 1. `templates/presets/<id>/baseline/` — what every repository gets: lint policy, `package.json`
