@@ -1,5 +1,11 @@
 # mikoshi-construct
 
+## 0.19.1
+
+### Patch Changes
+
+- [#205](https://github.com/E1i/mikoshi-construct/pull/205) [`e0e2b28`](https://github.com/E1i/mikoshi-construct/commit/e0e2b2856bdf385a69f9bc13a86b80d5cb187f9b) Thanks [@E1i](https://github.com/E1i)! - cli: `construct mutate apply --from <file> --id <id>` applies a brief's named wrong implementation with a copy and a record in `.construct/mutations/`, and `construct mutate judge --id <id> --report <file>` restores it byte for byte from the copy and judges the outcome from the Vitest JSON report the runner hands over (`--baseline` records the green run apply requires); the CLI runs no test itself.
+
 ## 0.19.0
 
 ### Minor Changes
