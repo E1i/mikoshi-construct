@@ -14,6 +14,8 @@ interface LadderResult {
   question?: string
   lastFailure?: string
   acceptance?: string[]
+  contractChanged?: boolean
+  changedFiles?: string[]
 }
 
 interface AgentCall {
@@ -41,8 +43,8 @@ const SPEC = {
 
 const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '' }
 const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?' }
-const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, contractChanged: false }
-const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, contractChanged: false }
+const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'] }
+const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'] }
 
 const REJECTED = new Error('SPEC: decision: missing')
 
@@ -241,5 +243,49 @@ describe('the ladder echoes the acceptance it received', () => {
 
     for (const { result } of [missing, red, incomplete])
       expect(result.acceptance, result.status).toEqual(args.acceptance)
+  })
+})
+
+describe('the ladder derives contractChanged from the changed files, never from the harness agent', () => {
+  const CONTRACT = 'contract/surface.json'
+  const withContract = { harness: { command: 'pnpm run quality', contractPaths: [CONTRACT] } }
+
+  it('is true when changedFiles contains a path contractPaths names', async () => {
+    const { result } = await run({ task: 'add a command', effort: 'low', ...withContract }, {
+      implementer: [REPORT],
+      harness: [{ ...GREEN, changedFiles: ['src/program.ts', CONTRACT] }],
+    })
+
+    expect(result.status).toBe('done')
+    expect(result.contractChanged).toBe(true)
+    expect(result.changedFiles).toEqual(['src/program.ts', CONTRACT])
+  })
+
+  it('is false when only other files changed, even when the agent claims a contract change', async () => {
+    const { result } = await run({ task: 'fix a typo', effort: 'low', ...withContract }, {
+      implementer: [REPORT],
+      harness: [{ ...GREEN, changedFiles: ['src/ui/lore.ts'], contractChanged: true }],
+    })
+
+    expect(result.status).toBe('done')
+    expect(result.contractChanged).toBe(false)
+  })
+
+  it('matches a contract path exactly, so a sibling that shares its prefix is not a contract change', async () => {
+    const { result } = await run({ task: 'back up the surface', effort: 'low', ...withContract }, {
+      implementer: [REPORT],
+      harness: [{ ...GREEN, changedFiles: [`${CONTRACT}.bak`] }],
+    })
+
+    expect(result.contractChanged).toBe(false)
+  })
+
+  it('is false when no contract path was passed', async () => {
+    const { result } = await run({ task: 'add a command', effort: 'low' }, {
+      implementer: [REPORT],
+      harness: [{ ...GREEN, changedFiles: [CONTRACT] }],
+    })
+
+    expect(result.contractChanged).toBe(false)
   })
 })

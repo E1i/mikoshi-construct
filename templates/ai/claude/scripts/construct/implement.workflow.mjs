@@ -29,14 +29,14 @@ const REPORT = {
 
 const VERDICT = {
   type: 'object',
-  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'contractChanged'],
+  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles'],
   properties: {
     passed: { type: 'boolean' },
     failureExcerpt: { type: 'string' },
     securityFinding: { type: 'string' },
     diffStat: { type: 'string' },
     testsWeakened: { type: 'boolean' },
-    contractChanged: { type: 'boolean' },
+    changedFiles: { type: 'array', items: { type: 'string' } },
   },
 }
 
@@ -65,13 +65,17 @@ const task = args.task
 const acceptance = args.acceptance ?? []
 for (const item of acceptance)
   log(`acceptance: ${item}`)
-const harness = { extra: [], ...(args.harness ?? {}) }
+const harness = { extra: [], contractPaths: [], ...(args.harness ?? {}) }
 if (typeof harness.command !== 'string' || harness.command === '')
   return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
 let lastValidationError = null
+
+function touchesContract(changedFiles) {
+  return changedFiles.some(file => harness.contractPaths.includes(file))
+}
 
 function retryPrompt(prompt, validationError) {
   return `${prompt}\n\nThe previous response did not match the shape the runtime validates. The validator reported:\n${validationError}\n\nReturn the same fields again with that corrected.`
@@ -267,7 +271,8 @@ for (const [index, effort] of rungs.entries()) {
       files: report.files,
       summary: report.summary,
       harnessTail: report.harnessTail,
-      contractChanged: verdict.contractChanged,
+      contractChanged: touchesContract(verdict.changedFiles),
+      changedFiles: verdict.changedFiles,
       diffStat: verdict.diffStat,
       acceptance,
     }

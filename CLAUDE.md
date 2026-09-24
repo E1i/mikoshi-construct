@@ -16,6 +16,8 @@ pnpm run quality        # lint + typecheck + vitest — the gate for every chang
 pnpm build              # tsup → dist/cli.js (bin: construct, miko, mikoshi-construct)
 ```
 
+Contract paths: contract/surface.json
+
 Run the published CLI from outside this repository: `npx mikoshi-construct` here resolves the local
 package, not the release. Keep the global `construct` current (`npm i -g mikoshi-construct@latest`):
 a stale one reads a newer manifest as ahead of it, and its `cost` figures come from an older build.

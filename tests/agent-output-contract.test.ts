@@ -74,7 +74,7 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
     securityFinding: '',
     diffStat: ` 2 files changed ${AWKWARD}`,
     testsWeakened: false,
-    contractChanged: false,
+    changedFiles: [`contract/surface.json ${AWKWARD}`],
   },
 }
 
@@ -109,6 +109,16 @@ describe('the output contract is declared once, by the schema', () => {
     for (const agent of Object.keys(SCHEMA_OF_AGENT))
       expect(read(`${AGENT_DIRS[1]}/${agent}.md`)).toBe(read(`${AGENT_DIRS[0]}/${agent}.md`))
     expect(read(`templates/ai/claude/${WORKFLOW}`)).toBe(read(WORKFLOW))
+  })
+})
+
+describe('the harness reports what changed and never judges a contract change', () => {
+  it('has no contractChanged property in VERDICT and requires changedFiles as an array of strings', () => {
+    const verdict = schema('VERDICT')
+    expect(Object.keys(verdict.properties ?? {})).not.toContain('contractChanged')
+    expect(verdict.required).not.toContain('contractChanged')
+    expect(verdict.required).toContain('changedFiles')
+    expect(verdict.properties?.changedFiles).toEqual({ type: 'array', items: { type: 'string' } })
   })
 })
 
