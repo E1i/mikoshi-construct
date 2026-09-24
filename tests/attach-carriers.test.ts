@@ -1,11 +1,20 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { planCarriers } from '../src/commands/attach/index.js'
 import { strategyFor } from '../src/materialize/strategies.js'
 import { ATTACH_CARRIERS } from '../src/presets/index.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const ATTACH_RECORD = '.construct/attach.json'
+
+const CARRIED_SCRIPT = /scripts\/construct\/[\w.-]+\.mjs/g
+
+const SCRIPTS = [
+  'scripts/construct/implement.workflow.mjs',
+  'scripts/construct/check-acceptance.mjs',
+]
 
 const RE_KEYED_TEMPLATES = [
   'templates/ai/claude/_claude/skills/implement/SKILL.md',
@@ -27,13 +36,17 @@ describe('the carried commands read the attach record when there is no construct
   it('keeps this repository\'s own copies identical to the templates', () => {
     for (const file of RE_KEYED_TEMPLATES)
       expect(read(file.replace('templates/ai/claude/_claude/', '.claude/')), file).toBe(read(file))
-    expect(read('scripts/construct/implement.workflow.mjs')).toBe(read('templates/ai/claude/scripts/construct/implement.workflow.mjs'))
+  })
+
+  it('keeps this repository\'s scripts byte-identical to the template copies', () => {
+    for (const file of SCRIPTS)
+      expect(readFileSync(path.join(REPO_ROOT, file)).equals(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude', file))), file).toBe(true)
   })
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names six targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(6)
+  it('names seven targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(7)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })
@@ -47,5 +60,29 @@ describe('the carrier set is exactly what attach may write', () => {
 
   it('comes from the two groups that ship the Claude Code carriers', () => {
     expect([...ATTACH_CARRIERS.groups]).toEqual(['ai/shared', 'ai/claude'])
+  })
+})
+
+describe('the carriers are complete and documented', () => {
+  it('carries every script the carried commands run', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'attach-carriers-'))
+    try {
+      const targets: readonly string[] = ATTACH_CARRIERS.targets
+      const named = planCarriers(dir, 'pnpm test')
+        .filter(op => op.target.endsWith('.md'))
+        .flatMap(op => op.content.match(CARRIED_SCRIPT) ?? [])
+      expect(named).toContain('scripts/construct/check-acceptance.mjs')
+      for (const script of new Set(named))
+        expect(targets, script).toContain(script)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('is named target by target in docs/cli.md', () => {
+    const doc = read('docs/cli.md')
+    for (const target of ATTACH_CARRIERS.targets)
+      expect(doc, target).toContain(`\`${target}\``)
   })
 })

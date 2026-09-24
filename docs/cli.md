@@ -990,7 +990,7 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes six files, hides them and the ledger directory through `.git/info/exclude`,
+tracked file. It writes seven files, hides them and the ledger directory through `.git/info/exclude`,
 and records what it created in `.construct/attach.json`. No `construct.json`, no
 `construct.model.json`, no discovery markers, no harness, lint or CI files. Alias: `jack-in`.
 
@@ -1024,9 +1024,9 @@ Every check runs before anything is written, in this order, and a refusal create
 1. The exclude block: `.git/info/exclude` gains a `# construct:begin` … `# construct:end` block
    listing `.construct/` and every carrier path, one per line. When the file does not exist, it is
    created with only that block and the record says so.
-2. The six carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
+2. The seven carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
-   `scripts/construct/implement.workflow.mjs` — byte-identical to what `init` writes.
+   `scripts/construct/implement.workflow.mjs`, `scripts/construct/check-acceptance.mjs` — byte-identical to what `init` writes.
 3. The record, `.construct/attach.json`.
 
 The carriers are written exclusively (`wx`), in the order listed above. If one of them appears between
@@ -1133,8 +1133,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the six carriers into a repository with none of their
-directories, N is 12.
+and directories actually removed. On the seven carriers into a repository with none of their
+directories, N is 13.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 

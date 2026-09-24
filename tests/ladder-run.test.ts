@@ -13,6 +13,7 @@ interface LadderResult {
   validationError?: string
   question?: string
   lastFailure?: string
+  acceptance?: string[]
 }
 
 interface AgentCall {
@@ -194,5 +195,51 @@ describe('a red base stops the ladder before it spends anything', () => {
     const { calls } = await run({ task: 'add a rule', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
 
     expect(calls[0].prompt).toContain('before any change')
+  })
+})
+
+describe('the ladder echoes the acceptance it received', () => {
+  const ACCEPTANCE = ['the harness is green', 'the template copy is byte-identical']
+
+  it('echoes the acceptance it received in a done result', async () => {
+    const args = { task: 'add a rule', effort: 'low', acceptance: [ACCEPTANCE[0]] }
+    const { result } = await run(args, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.status).toBe('done')
+    expect(result.acceptance).toEqual(args.acceptance)
+  })
+
+  it('echoes the acceptance it received in a failed result', async () => {
+    const args = { task: 'add a rule', effort: 'medium', acceptance: [ACCEPTANCE[0]] }
+    const { result } = await run(args, { implementer: [REPORT, REPORT, REPORT], architect: [SPEC], harness: [RED, RED, RED] })
+
+    expect(result.status).toBe('failed')
+    expect(result.acceptance).toEqual(args.acceptance)
+  })
+
+  it('echoes the acceptance it received in a blocked result', async () => {
+    const args = { task: 'add a rule', effort: 'high', acceptance: [ACCEPTANCE[0]] }
+    const { result } = await run(args, { architect: [SPEC, SPEC, SPEC], implementer: [BLOCKED, BLOCKED, BLOCKED] })
+
+    expect(result.status).toBe('blocked')
+    expect(result.acceptance).toEqual(args.acceptance)
+  })
+
+  it('echoes every acceptance item, not only the first', async () => {
+    const args = { task: 'add a rule', effort: 'low', acceptance: ACCEPTANCE }
+    const { result } = await run(args, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.acceptance).toEqual(args.acceptance)
+    expect(result.acceptance).toHaveLength(2)
+  })
+
+  it('echoes it on the early blocked for a missing harness command, on base red and on design incomplete', async () => {
+    const args = { task: 'add a rule', effort: 'high', acceptance: ACCEPTANCE }
+    const missing = await run({ ...args, harness: undefined }, {})
+    const red = await run(args, {}, RED)
+    const incomplete = await run(args, { architect: [REJECTED] })
+
+    for (const { result } of [missing, red, incomplete])
+      expect(result.acceptance, result.status).toEqual(args.acceptance)
   })
 })

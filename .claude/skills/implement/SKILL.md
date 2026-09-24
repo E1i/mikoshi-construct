@@ -18,7 +18,19 @@ repository's CLAUDE.md and `construct.json`.
    contract already defined is `low`.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
-3. Call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
+   When `$ARGUMENTS` carries an `Acceptance:` section (from the label up to a line or sentence
+   starting `Mutations:`, or the end), its items are the acceptance: split it on `;` and copy each
+   item verbatim into `args.acceptance`, one item per element, in the agreed order. You may append
+   items of your own, but never rewrite, merge or drop an agreed one.
+3. Before calling Workflow, check that the agreed acceptance reached the args: write `$ARGUMENTS`
+   verbatim to `.construct/implement-agreed.txt` and the `args` object you are about to pass to
+   `.construct/implement-args.json` (create the directory if needed; overwrite both), then run
+   `node scripts/construct/check-acceptance.mjs --agreed .construct/implement-agreed.txt --args .construct/implement-args.json`.
+   On any non-zero exit — `1` for an agreed item missing from the args, `2` for an unreadable file or
+   malformed args, or Node's own failure when the script is absent — stop: do not call Workflow, tell
+   the user which agreed item is missing by relaying the script's stderr verbatim, and write no line to
+   `.construct/runs.jsonl`, because there is no Workflow run identifier and step 4 forbids inventing
+   one. On exit `0`, call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
    `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...] } }`
@@ -90,7 +102,8 @@ repository's CLAUDE.md and `construct.json`.
    `construct cost` reconciles it against the runtime instead of trusting it. `.construct/` is
    gitignored, or excluded through `.git/info/exclude` in an attached repository.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
-   files changed, and the harness tail. When the status is `blocked`, put the architect's or
+   files changed, and the harness tail. Put the result's `acceptance` — the items the ladder received,
+   echoed verbatim — next to the agreed line, and name any agreed item missing from it. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed` or `base red`, give the last failure excerpt. When
    `design incomplete`, say that the design step did not complete, give `validationError` as the
    runtime reported it, and relay `recovery` verbatim — a dead end that names no way out is how the
