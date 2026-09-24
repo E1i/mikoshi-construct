@@ -1,7 +1,7 @@
 import type { Buffer } from 'node:buffer'
 import type { Ui, Writer } from '../src/ui/console.js'
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -10,6 +10,7 @@ import { readTrackedPaths, runDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
 const HARNESS = 'pnpm run quality'
@@ -69,13 +70,6 @@ function tracked(dir: string): Set<string> {
   if (!('tracked' in reading))
     throw new Error(`unreadable: ${reading.unreadable}`)
   return reading.tracked
-}
-
-function listing(dir: string): string[] {
-  return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .map(entry => `${path.relative(dir, path.join(entry.parentPath, entry.name))}${entry.isDirectory() ? '/' : ''}`)
-    .filter(entry => entry !== '.git/' && !entry.startsWith('.git/'))
-    .sort()
 }
 
 describe('readTrackedPaths reads the same set git ls-files prints', () => {
