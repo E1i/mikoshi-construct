@@ -25,6 +25,7 @@ export interface LedgerEntry {
   tokens: TokenCount
   toolUses: number
   seconds: number
+  stopReason?: StopReason
 }
 
 export interface MalformedLedgerLine {
@@ -50,6 +51,10 @@ export interface Reconciliation {
   sessionsWithoutEntry: string[]
   unjoinable: number
 }
+
+export const STOP_REASONS = ['environment', 'human'] as const
+export type StopReason = typeof STOP_REASONS[number]
+const STOPPED = 'stopped'
 
 const TEXT_FIELDS = ['at', 'task', 'effort', 'status', 'rung'] as const
 const COUNT_FIELDS = ['agents', 'toolUses', 'seconds'] as const
@@ -92,7 +97,15 @@ function undeclaredFields(record: Record<string, unknown>): string[] {
   if (!isTokenCount(record.tokens))
     missing.push('tokens')
   missing.push(...attemptListFaults(record.attempts))
+  if (stopReasonFault(record))
+    missing.push('stopReason')
   return missing
+}
+
+function stopReasonFault(record: Record<string, unknown>): boolean {
+  if (record.status !== STOPPED)
+    return 'stopReason' in record
+  return !(STOP_REASONS as readonly unknown[]).includes(record.stopReason)
 }
 
 function toAttempt(value: unknown): LedgerAttempt {
@@ -119,6 +132,7 @@ function toEntry(raw: unknown): LedgerEntry | string {
     tokens: record.tokens as TokenCount,
     toolUses: record.toolUses as number,
     seconds: record.seconds as number,
+    ...(record.status === STOPPED ? { stopReason: record.stopReason as StopReason } : {}),
   }
 }
 
