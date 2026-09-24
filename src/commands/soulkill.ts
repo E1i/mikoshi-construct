@@ -12,7 +12,8 @@ export function printDetectReport(ui: Ui, report: DetectReport): void {
   ui.tree([
     ['Directory', report.dir],
     ['CLI runtime', `Node.js ${report.nodeMajor} (the Node running construct, not read from this repository)`],
-    ['Package manager', report.pnpmVersion == null ? report.packageManager : `${report.packageManager} (pnpm ${report.pnpmVersion} installed)`],
+    ...(report.pnpmVersion == null ? [] : [['CLI pnpm', `pnpm ${report.pnpmVersion} (the pnpm on the PATH construct runs with, not read from this repository)`] as [string, string]]),
+    ['Package manager', report.packageManager],
     ['Layout', layout],
     ['Workspace dirs', report.workspaceDirs.length > 0 ? `${report.workspaceDirs.join(', ')} (${report.workspacePackages.length} packages)` : 'none'],
     ['src/', yesNo(report.hasSrc)],

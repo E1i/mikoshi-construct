@@ -1058,8 +1058,9 @@ npx mikoshi-construct soulkill
 >> Inspecting repository...
 
   ├─ Directory: /srv/projects/my-service
-  ├─ Runtime: Node.js 24
-  ├─ Package manager: pnpm (pnpm 12.4.2 installed)
+  ├─ CLI runtime: Node.js 24 (the Node running construct, not read from this repository)
+  ├─ CLI pnpm: pnpm 12.4.2 (the pnpm on the PATH construct runs with, not read from this repository)
+  ├─ Package manager: pnpm
   ├─ Layout: monorepo (pnpm-workspace)
   ├─ Workspace dirs: apps, packages (7 packages)
   ├─ src/: no
