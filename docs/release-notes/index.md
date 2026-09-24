@@ -4,6 +4,12 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.20.0
+
+### Minor Changes
+
+- [#198](https://github.com/E1i/mikoshi-construct/pull/198) [`4152fed`](https://github.com/E1i/mikoshi-construct/commit/4152fed85de999b07b439d5efeffcc6fc1577b22) Thanks [@E1i](https://github.com/E1i)! - contract: CI generates the base from the tag's code when the tag carries no surface of the current surfaceVersion; no CLI behaviour changes.
+
 ## 0.19.0
 
 ### Minor Changes
