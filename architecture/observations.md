@@ -26,6 +26,44 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-24 · The first red harness verdicts in the ladder's record, and why none is a signal
+
+### What was observed
+
+Counted from the Workflow journals, the ladder's harness returned 64 verdicts; the preflight's first
+use is among them. The first 60 all carried `passed: true`. What the ladder caught beyond `pnpm run
+quality` in those 60 was `testsWeakened`, in 3 runs and 5 verdicts, each confirmed by the next rung
+restoring the test. The first three `passed: false` verdicts arrived on one day, on two runs.
+
+| Verdict | Run | What was red | Cause |
+|---|---|---|---|
+| 61 | 0030 C1, rung 1 | `cli-exit-codes` timed out | the environment: the characterization spawned the CLI under a fresh `HOME`, so a corepack pnpm shim downloaded pnpm again on every `pnpm --version` probe, measured at about 3.6 s a spawn |
+| 63 | 0030 C2, rung 1 | `every-source-has-a-reader` named `.construct/experiments/bash-guard.mjs` | a third writer: the operator's session put an experiment input into the tree the ladder was verifying, while the ladder ran |
+| 64 | 0030 C2, rung 3 | the same file | the same writer; rung 2 had stopped on a question rather than delete a file it did not write |
+
+Verdict 62 is C2's preflight, which was green. The operator's file arrived after it.
+
+### What it supports
+
+**None of the three is a signal about the change the ladder was implementing.** Both implementations
+passed the gate once the cause was removed. For C1, #181 fixed it, and a separate harness agent then
+ran the gate green. For C2, the file was moved out of the tree, and a separate harness agent again ran
+it green. Counting any of them as the ladder catching a defect would credit the ladder with a failure
+of its surroundings.
+
+**63 and 64 violate "one tree, one writer".** While a ladder runs in a working tree, nothing else
+writes to that tree. The rule is not written down in this repository yet. This entry records the
+first occurrence that broke it, and what the breach cost: one run ended `failed`, with a design step
+and a `high` rung spent on a file outside the task.
+
+**61 is not the same failure.** Nothing else wrote to the tree. The test harness reached the network
+through a shim, and the gate became flaky under load.
+
+### Boundary
+
+Three verdicts on two runs are occurrences, not a rate. The count of 64 is what the journals on one
+machine hold. The ledger, at L0, is not complete enough to recount them from.
+
 ## 2026-09-23 · Pre-registered predictions across an attach and detach pair
 
 ### What was done
