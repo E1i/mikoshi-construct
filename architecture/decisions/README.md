@@ -51,3 +51,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0029](0029-an-acceptance-is-red-under-a-named-wrong-implementation.md) | An acceptance criterion is shown red under a named plausible wrong implementation | L1 review |
 | [0030](0030-public-contract.md) | The public contract is a recorded surface, and changing it requires the bump it implies (proposed) | L1 review; L3 and L4 with the code |
 | [0031](0031-the-cli-owns-the-mutation-the-runner-owns-execution.md) | The CLI owns a mutation from edit to verdict; running the repository's tests stays with the runner | lint (execution half); L1 review until the `mutate` tests land |
+| [0032](0032-a-record-carries-what-it-was-written-with.md) | A record carries the block it wrote and the values it wrote with, so drift of the record is told from drift of the block (proposed) | L3 tests; contract:bump on formats.manifestVersion (with the code) |
