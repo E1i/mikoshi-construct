@@ -10,6 +10,8 @@ changelog drift apart. A release with a hand-written note links to it rather tha
 
 - [#196](https://github.com/E1i/mikoshi-construct/pull/196) [`0f905ea`](https://github.com/E1i/mikoshi-construct/commit/0f905ead82fce992234c15b8222726d1ee19a2a5) Thanks [@E1i](https://github.com/E1i)! - contract: CI computes the bump a pull request's change to the public surface requires and fails when the declared bump is weaker. `contract/surface.json` gains `surfaceVersion` 2 and records the JSON type of each `--json` sample's root beside its key paths. `pnpm contract:bump` compares the surface at the latest release tag reachable from `HEAD` with the surface at `HEAD`: before 1.0, additions require at least a patch changeset and a breaking change at least a minor one. No command-line behaviour changes.
 
+- [#198](https://github.com/E1i/mikoshi-construct/pull/198) [`4152fed`](https://github.com/E1i/mikoshi-construct/commit/4152fed85de999b07b439d5efeffcc6fc1577b22) Thanks [@E1i](https://github.com/E1i)! - contract: CI generates the base from the tag's code when the tag carries no surface of the current surfaceVersion; no CLI behaviour changes.
+
 ## 0.18.0
 
 ### Minor Changes
