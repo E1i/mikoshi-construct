@@ -26,6 +26,52 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-24 · An acceptance line was agreed and then left out of the arguments the ladder received
+
+**Observed.** The owner and the orchestrator agreed a `/implement` line for the `construct mutate`
+pull request (#205). Its acceptance read: *the tests named in M1b–M8 are red before the code exists*.
+The acceptance array the orchestrator then passed to the Workflow tool did not carry that line. It
+said only that the eight named tests exist under those names and pass. The ladder finished `done` at
+medium on its first rung, reported no red-before record, and was never asked for one. The harness
+checks what the acceptance array names, so nothing signalled the gap. It surfaced when the owner asked
+for the red-before record after the pull request was open.
+
+**Where the item was lost.** Not inside the ladder, and not in the harness. It was lost in the step
+that turns an agreed line into the Workflow tool's `args`, which the orchestrator writes by hand and
+nobody compares with the line. The pull request carries named mutations as its witnesses instead: all
+nine went red as predicted. The red-before record 0027 asks for does not exist for this change.
+
+**Candidate, not adopted.** The harness requires a red-before record whenever the acceptance names
+one. It would not have fired here, because the acceptance it would read had already lost the line.
+A remedy has to reach the translation step: for example, the ladder script echoes back the acceptance
+it received, so the owner compares it with the agreed line before the run is counted. One occurrence;
+no rate is claimed.
+
+## 2026-09-24 · A detach test went red once during a mutation run that did not touch detach
+
+**Observed.** During the mutation runs for `construct mutate` (#205), the full suite under mutation M5
+(`judge` restores even when the file's sha differs from the recorded one) showed four red tests. Three
+belong to the mutation. The fourth was `tests/detach.test.ts › a4: attach then detach is the identity
+on a clean repository`, and M5 changes nothing that detach reaches. The unmutated suite, run
+immediately before as the control, was 1127 passed and 0 failed. Straight after M5, `detach.test.ts`
+ran three times without the mutation, 24/24 each time.
+
+**The failure's own message.** The red assertion was not an assertion at all. The test's `listing`
+helper, which walks the temporary repository with a recursive `readdirSync` that includes `.git/`,
+threw `ENOENT: no such file or directory, scandir '<tmp>/construct-detach-…/.git/objects/72'`. A
+directory under `.git/objects` existed when the walk listed its parent and was gone when the walk
+entered it. `listing` filters `.git/` out of its result only after the walk, so the walk enters `.git`
+only to discard what it finds there. The whole window of this failure lies in entries the test throws
+away.
+
+**Candidate, not tested.** Some git process was still changing `.git/objects` while the snapshot was
+taken, for example automatic maintenance that a previous git command started in the background and
+that removes empty object directories. The listing races it. The failure then depends on timing and
+load, not on the code under test, which fits a failure that went away on three immediate reruns. A
+walk that does not descend into `.git` would remove the window without deciding which git process
+opened it, and it changes nothing the test compares. One
+occurrence in eight full-suite runs plus one control; no rate is claimed.
+
 ## 2026-09-24 · What the 0030 D2 self-check tells apart, and two things it does not look at
 
 ### What was observed
