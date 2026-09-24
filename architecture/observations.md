@@ -26,6 +26,51 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-24 · The Shredder signal: splitting ladder tasks for parallel runs is not needed
+
+**Question.** Across past ladder plans, are the tasks cut into pieces whose file paths do not overlap,
+so that they could have run in parallel? For each plan, P = W / S: W is the summed weight of its pieces;
+S is the weight of the heaviest connected component, where pieces sharing a path are glued. The measure
+is how often P > 1.5.
+
+**Instrument.** A `/plan` output carries no paths, so a piece is one ladder run and its paths are the
+`files` the run reports. The final ladder result is read from the session transcript's task
+notification, because `journal.jsonl` holds only per-agent results. Where no final result exists, the
+union of the implementer results' `files` is used. Weight is subagent tokens, with wall seconds as a
+second reading. The corpus is 71 `/implement` runs, 62 of which report `files`. Two groupings were
+used: a plan is the runs of one session (the definition asked for), or the runs traced by hand to one
+of the four `/plan` outputs.
+
+**Result.**
+
+- By session: 0 of 2 measured sessions have P > 1.5; both have P = 1.00. The other three sessions have
+  pieces with no weight and are unmeasured.
+- By `/plan` output: 1 of 4, the v5.0 model plan, with P = 2.05 on tokens and 1.93 on seconds.
+- That one value is produced by the instrument. `files` lists only the paths a run wrote. In today's
+  tree, the plan's four "independent" pieces import one another's modules, and one test imports three
+  of them. Counted with import edges, the plan is one chain.
+- Dropping mechanically generated outputs (`contract/surface.json`, the rendered composition blocks)
+  changed no P.
+- No two of the 64 runs with an end time overlapped. P therefore measures a counterfactual, not a
+  practice.
+
+**Verdict: the signal says a splitter is not needed.** No plan offered real parallel work that the
+ladder left unused.
+
+**Separately: what glues the pieces is two shared files, not the tasks.** `docs/cli.md` is written by
+29 runs and `src/ui/lore.ts` by 24. Pieces whose own paths are unrelated become one component because
+each of them adds a paragraph to the command reference and a string to the vocabulary. So the
+coupling sits in the two files that collect every command's prose. The tasks themselves did not
+overlap.
+
+**Boundary.**
+
+- Two measurable sessions and four `/plan` outputs; nothing here is a rate.
+- A failed rerun with no files becomes a component of its own and inflates P. That alone lifts one
+  plan to 1.14.
+- The two largest sessions are working days that mix several plans.
+- Written paths are not read paths. The only P > 1.5 shows what that costs.
+
 ## 2026-09-24 · A vitest report named a test file from a nested worktree, once, and was not reproduced
 
 **Observed once.** From the main checkout, `pnpm exec vitest run tests/strategies.test.ts
