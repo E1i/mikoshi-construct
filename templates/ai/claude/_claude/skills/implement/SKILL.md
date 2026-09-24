@@ -49,11 +49,7 @@ repository's CLAUDE.md and `construct.json`.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
      ran; `validationError` carries the validator's text.
    - `stopped` — the run was stopped from outside before it returned, so the runtime gave no result.
-     It is the one status the script never returns; you write it. Its entry in step 4 carries
-     `stopReason`, one of:
-     - `environment` — the run was failing on something outside the task, such as the machine or a
-       tool the harness spawns, and further rungs would have spent money on it;
-     - `human` — a person stopped it for any other reason.
+     It is the one status the script never returns; you write it.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
    with exactly these fields and no others:
    - `run` — the Workflow run identifier from step 3. It is the key `construct cost` joins the entry
@@ -70,9 +66,18 @@ repository's CLAUDE.md and `construct.json`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
      blocked report and from a design the schema rejected.
-   - `stopReason` — only when `status` is `stopped`, and then required: `environment` or `human`.
-     `construct cost` reads an entry that has it with any other status, or lacks it on a stopped run,
-     as malformed.
+   - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
+     the run ended without passing, from the causes that status allows:
+     - `stopped` / `environment` — it was failing on something outside the task, such as the
+       machine, a tool the harness spawns or a file another writer left in the tree, and further
+       rungs would have spent money on it;
+     - `stopped` / `human` — a person stopped it for any other reason;
+     - `failed` / `environment` — every rung ran, and the harness stayed red on something outside the
+       task;
+     - `failed` / `task` — every rung ran, and the harness stayed red on the task itself.
+     `construct cost` reads a cause another status owns, a cause on any other status, or a stopped
+     entry with no cause as malformed. A failed entry with no cause reads as `not recorded`: entries
+     written before the field existed are kept as they are, never repaired.
    - `tokensSource` — optional. Absent, `tokens` is the standard measure: the Workflow tool's own
      accounting as it reported the run to you. Present, it names where the figure came from instead:
      - `runtime` — the runtime's stored record of the run, read after the tool reported nothing, as
