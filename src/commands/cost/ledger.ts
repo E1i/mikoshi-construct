@@ -25,7 +25,7 @@ export interface LedgerEntry {
   tokens: TokenCount
   toolUses: number
   seconds: number
-  stopReason?: StopReason
+  cause?: Cause | typeof CAUSE_NOT_RECORDED
   tokensSource?: TokenSource
 }
 
@@ -53,9 +53,13 @@ export interface Reconciliation {
   unjoinable: number
 }
 
-export const STOP_REASONS = ['environment', 'human'] as const
-export type StopReason = typeof STOP_REASONS[number]
-const STOPPED = 'stopped'
+export const CAUSES = {
+  stopped: ['environment', 'human'],
+  failed: ['environment', 'task'],
+} as const
+export type Cause = typeof CAUSES[keyof typeof CAUSES][number]
+const CAUSE_NOT_RECORDED = 'not recorded'
+const CAUSE_REQUIRED_SINCE_THE_STATUS_EXISTS = ['stopped']
 export const TOKEN_SOURCES = ['runtime'] as const
 export type TokenSource = typeof TOKEN_SOURCES[number]
 
@@ -100,17 +104,24 @@ function undeclaredFields(record: Record<string, unknown>): string[] {
   if (!isTokenCount(record.tokens))
     missing.push('tokens')
   missing.push(...attemptListFaults(record.attempts))
-  if (stopReasonFault(record))
-    missing.push('stopReason')
+  if (causeFault(record))
+    missing.push('cause')
   if ('tokensSource' in record && !(TOKEN_SOURCES as readonly unknown[]).includes(record.tokensSource))
     missing.push('tokensSource')
   return missing
 }
 
-function stopReasonFault(record: Record<string, unknown>): boolean {
-  if (record.status !== STOPPED)
-    return 'stopReason' in record
-  return !(STOP_REASONS as readonly unknown[]).includes(record.stopReason)
+function causesFor(status: unknown): readonly Cause[] | undefined {
+  return Object.hasOwn(CAUSES, status as string) ? CAUSES[status as keyof typeof CAUSES] : undefined
+}
+
+function causeFault(record: Record<string, unknown>): boolean {
+  const causes = causesFor(record.status)
+  if (causes == null)
+    return 'cause' in record
+  if (!('cause' in record))
+    return CAUSE_REQUIRED_SINCE_THE_STATUS_EXISTS.includes(record.status as string)
+  return !(causes as readonly unknown[]).includes(record.cause)
 }
 
 function toAttempt(value: unknown): LedgerAttempt {
@@ -137,7 +148,7 @@ function toEntry(raw: unknown): LedgerEntry | string {
     tokens: record.tokens as TokenCount,
     toolUses: record.toolUses as number,
     seconds: record.seconds as number,
-    ...(record.status === STOPPED ? { stopReason: record.stopReason as StopReason } : {}),
+    ...(causesFor(record.status) == null ? {} : { cause: 'cause' in record ? record.cause as Cause : CAUSE_NOT_RECORDED }),
     ...('tokensSource' in record ? { tokensSource: record.tokensSource as TokenSource } : {}),
   }
 }
