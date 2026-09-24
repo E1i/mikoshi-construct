@@ -6,6 +6,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'build': 'produces the package rather than judging it',
   'changeset': 'an authoring tool',
   'composition:render': 'a writer; composition:check is its gate',
+  'contract:bump': 'a gate, deliberately outside: it needs the release tags and full history, so it runs in its own CI job with fetch-depth 0',
   'contract:update': 'a writer; tests/contract/surface.test.ts is its gate',
   'dev': 'runs the CLI from source',
   'docs:dev': 'a local server',

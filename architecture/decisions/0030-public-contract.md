@@ -72,9 +72,11 @@ it requires is computed, and one rule covers every pull request, the version pul
 | Change | Required bump |
 |---|---|
 | a command, alias, flag, exit code, JSON key, path or marker removed or renamed; an exit code's value changed; a format version changed | at least **minor** before 1.0, **major** from 1.0 |
-| additions only | any level |
+| additions only | at least **patch** before 1.0, at least **minor** from 1.0 |
 
-A rename is a removal and an addition.
+A rename is a removal and an addition. Additions need a level because they are user-visible and reach
+the changelog only through a changeset, and before 1.0 they take patch rather than minor so that
+minor stays the mark of a release that broke something.
 
 **The package version is not part of `contract/surface.json`.** If it were, the version pull request
 would change the surface it is judged against, and the check would measure its own output. The

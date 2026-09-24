@@ -26,6 +26,8 @@ const CLI = path.join(REPO_ROOT, 'src/cli.ts')
 const ATTACH_SAMPLE = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
 const GIT_EXCLUDE = '.git/info/exclude'
 
+export const SURFACE_VERSION = 2
+
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/runs.jsonl',
   'graph --out HTML',
@@ -43,6 +45,7 @@ export interface Flag {
 export type CommandSurface = { flags: Record<string, Flag> } | { aliasOf: string }
 
 export interface Surface {
+  surfaceVersion: number
   commands: Record<string, CommandSurface>
   exits: Record<string, Record<string, number>>
   jsonKeys: JsonKeys
@@ -175,6 +178,7 @@ function markers(): Surface['markers'] {
 export function generateSurface(): Surface {
   const runs = observedRuns()
   return {
+    surfaceVersion: SURFACE_VERSION,
     commands: commandsOf(main),
     exits: exits(),
     jsonKeys: jsonKeys(),

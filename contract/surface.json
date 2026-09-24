@@ -233,260 +233,305 @@
   },
   "jsonKeys": {
     "cost": {
-      "empty": [
-        "key",
-        "runtime",
-        "schemaVersion",
-        "status",
-        "version"
-      ],
-      "mismatch": [
-        "candidates",
-        "key",
-        "runtime",
-        "schemaVersion",
-        "status",
-        "version"
-      ],
-      "ok": [
-        "key",
-        "reconciliation",
-        "reconciliation.entriesWithoutSession",
-        "reconciliation.sessionsWithoutEntry",
-        "reconciliation.unjoinable",
-        "runs",
-        "runs[].agents",
-        "runs[].agents[].label",
-        "runs[].agents[].type",
-        "runs[].agents[].usage",
-        "runs[].agents[].usage.cacheRead",
-        "runs[].agents[].usage.cacheWrite",
-        "runs[].agents[].usage.calls",
-        "runs[].agents[].usage.input",
-        "runs[].agents[].usage.models",
-        "runs[].agents[].usage.output",
-        "runs[].run",
-        "runs[].session",
-        "runs[].startedAt",
-        "runs[].total",
-        "runs[].total.cacheRead",
-        "runs[].total.cacheWrite",
-        "runs[].total.calls",
-        "runs[].total.input",
-        "runs[].total.models",
-        "runs[].total.output",
-        "runtime",
-        "schemaVersion",
-        "status",
-        "version"
-      ],
-      "unknown": [
-        "candidates",
-        "key",
-        "runtime",
-        "schemaVersion",
-        "status",
-        "version"
-      ],
-      "unsupported": [
-        "runtime",
-        "schemaVersion",
-        "status",
-        "version"
-      ]
+      "empty": {
+        "keys": [
+          "key",
+          "runtime",
+          "schemaVersion",
+          "status",
+          "version"
+        ],
+        "root": "object"
+      },
+      "mismatch": {
+        "keys": [
+          "candidates",
+          "key",
+          "runtime",
+          "schemaVersion",
+          "status",
+          "version"
+        ],
+        "root": "object"
+      },
+      "ok": {
+        "keys": [
+          "key",
+          "reconciliation",
+          "reconciliation.entriesWithoutSession",
+          "reconciliation.sessionsWithoutEntry",
+          "reconciliation.unjoinable",
+          "runs",
+          "runs[].agents",
+          "runs[].agents[].label",
+          "runs[].agents[].type",
+          "runs[].agents[].usage",
+          "runs[].agents[].usage.cacheRead",
+          "runs[].agents[].usage.cacheWrite",
+          "runs[].agents[].usage.calls",
+          "runs[].agents[].usage.input",
+          "runs[].agents[].usage.models",
+          "runs[].agents[].usage.output",
+          "runs[].run",
+          "runs[].session",
+          "runs[].startedAt",
+          "runs[].total",
+          "runs[].total.cacheRead",
+          "runs[].total.cacheWrite",
+          "runs[].total.calls",
+          "runs[].total.input",
+          "runs[].total.models",
+          "runs[].total.output",
+          "runtime",
+          "schemaVersion",
+          "status",
+          "version"
+        ],
+        "root": "object"
+      },
+      "unknown": {
+        "keys": [
+          "candidates",
+          "key",
+          "runtime",
+          "schemaVersion",
+          "status",
+          "version"
+        ],
+        "root": "object"
+      },
+      "unsupported": {
+        "keys": [
+          "runtime",
+          "schemaVersion",
+          "status",
+          "version"
+        ],
+        "root": "object"
+      }
     },
     "doctor": {
-      "noManifest": [
-        "schemaVersion",
-        "state"
-      ],
-      "notOk": [
-        "checks",
-        "checks[].authoredBy",
-        "checks[].claimId",
-        "checks[].id",
-        "checks[].level",
-        "checks[].mechanism",
-        "checks[].state",
-        "harnessProblems",
-        "hypotheses",
-        "missingDiscovery",
-        "missingFiles",
-        "modifiedFiles",
-        "notCarried",
-        "ok",
-        "provenance",
-        "provenance[].authorship",
-        "provenance[].file",
-        "provenance[].marker",
-        "schemaVersion",
-        "uncollectedTests",
-        "unreadableFiles",
-        "versionGap",
-        "versionGap.materializedBy",
-        "versionGap.pending",
-        "versionGap.readBy",
-        "warnings",
-        "youAreHere",
-        "youAreHere.at"
-      ],
-      "ok": [
-        "checks",
-        "checks[].authoredBy",
-        "checks[].claimId",
-        "checks[].id",
-        "checks[].level",
-        "checks[].mechanism",
-        "checks[].state",
-        "harnessProblems",
-        "hypotheses",
-        "missingDiscovery",
-        "missingFiles",
-        "modifiedFiles",
-        "notCarried",
-        "ok",
-        "provenance",
-        "provenance[].authorship",
-        "provenance[].file",
-        "provenance[].marker",
-        "schemaVersion",
-        "uncollectedTests",
-        "unreadableFiles",
-        "versionGap",
-        "versionGap.materializedBy",
-        "versionGap.pending",
-        "versionGap.readBy",
-        "warnings",
-        "youAreHere",
-        "youAreHere.at"
-      ]
+      "noManifest": {
+        "keys": [
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "notOk": {
+        "keys": [
+          "checks",
+          "checks[].authoredBy",
+          "checks[].claimId",
+          "checks[].id",
+          "checks[].level",
+          "checks[].mechanism",
+          "checks[].state",
+          "harnessProblems",
+          "hypotheses",
+          "missingDiscovery",
+          "missingFiles",
+          "modifiedFiles",
+          "notCarried",
+          "ok",
+          "provenance",
+          "provenance[].authorship",
+          "provenance[].file",
+          "provenance[].marker",
+          "schemaVersion",
+          "uncollectedTests",
+          "unreadableFiles",
+          "versionGap",
+          "versionGap.materializedBy",
+          "versionGap.pending",
+          "versionGap.readBy",
+          "warnings",
+          "youAreHere",
+          "youAreHere.at"
+        ],
+        "root": "object"
+      },
+      "ok": {
+        "keys": [
+          "checks",
+          "checks[].authoredBy",
+          "checks[].claimId",
+          "checks[].id",
+          "checks[].level",
+          "checks[].mechanism",
+          "checks[].state",
+          "harnessProblems",
+          "hypotheses",
+          "missingDiscovery",
+          "missingFiles",
+          "modifiedFiles",
+          "notCarried",
+          "ok",
+          "provenance",
+          "provenance[].authorship",
+          "provenance[].file",
+          "provenance[].marker",
+          "schemaVersion",
+          "uncollectedTests",
+          "unreadableFiles",
+          "versionGap",
+          "versionGap.materializedBy",
+          "versionGap.pending",
+          "versionGap.readBy",
+          "warnings",
+          "youAreHere",
+          "youAreHere.at"
+        ],
+        "root": "object"
+      }
     },
     "soulkill": {
-      "reported": [
-        "dir",
-        "existing",
-        "existing.agentsMd",
-        "existing.claudeMd",
-        "existing.compositionDir",
-        "existing.constructJson",
-        "existing.cursorRules",
-        "existing.eslintConfig",
-        "existing.foreignManifests",
-        "existing.githubWorkflows",
-        "existing.openapi",
-        "existing.packageJson",
-        "existing.tsconfig",
-        "hasSrc",
-        "layout",
-        "monorepoTools",
-        "nodeMajor",
-        "packageManager",
-        "pnpmVersion",
-        "schemaVersion",
-        "workspaceDirs",
-        "workspacePackages"
-      ]
+      "reported": {
+        "keys": [
+          "dir",
+          "existing",
+          "existing.agentsMd",
+          "existing.claudeMd",
+          "existing.compositionDir",
+          "existing.constructJson",
+          "existing.cursorRules",
+          "existing.eslintConfig",
+          "existing.foreignManifests",
+          "existing.githubWorkflows",
+          "existing.openapi",
+          "existing.packageJson",
+          "existing.tsconfig",
+          "hasSrc",
+          "layout",
+          "monorepoTools",
+          "nodeMajor",
+          "packageManager",
+          "pnpmVersion",
+          "schemaVersion",
+          "workspaceDirs",
+          "workspacePackages"
+        ],
+        "root": "object"
+      }
     },
     "sync": {
-      "noManifest": [
-        "schemaVersion",
-        "state"
-      ],
-      "pending": [
-        "counts",
-        "counts.add",
-        "counts.conflict",
-        "counts.foreign",
-        "counts.keep",
-        "counts.orphaned",
-        "counts.removed",
-        "counts.unknown",
-        "counts.update",
-        "fromVersion",
-        "paths",
-        "paths[].class",
-        "paths[].shape",
-        "paths[].strategy",
-        "paths[].target",
-        "schemaVersion",
-        "toVersion"
-      ],
-      "upToDate": [
-        "counts",
-        "counts.add",
-        "counts.conflict",
-        "counts.foreign",
-        "counts.keep",
-        "counts.orphaned",
-        "counts.removed",
-        "counts.unknown",
-        "counts.update",
-        "fromVersion",
-        "paths",
-        "paths[].class",
-        "paths[].keys",
-        "paths[].keys[].class",
-        "paths[].keys[].key",
-        "paths[].strategy",
-        "paths[].target",
-        "paths[].variant",
-        "paths[].variantEvidence",
-        "schemaVersion",
-        "toVersion"
-      ]
+      "noManifest": {
+        "keys": [
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "pending": {
+        "keys": [
+          "counts",
+          "counts.add",
+          "counts.conflict",
+          "counts.foreign",
+          "counts.keep",
+          "counts.orphaned",
+          "counts.removed",
+          "counts.unknown",
+          "counts.update",
+          "fromVersion",
+          "paths",
+          "paths[].class",
+          "paths[].shape",
+          "paths[].strategy",
+          "paths[].target",
+          "schemaVersion",
+          "toVersion"
+        ],
+        "root": "object"
+      },
+      "upToDate": {
+        "keys": [
+          "counts",
+          "counts.add",
+          "counts.conflict",
+          "counts.foreign",
+          "counts.keep",
+          "counts.orphaned",
+          "counts.removed",
+          "counts.unknown",
+          "counts.update",
+          "fromVersion",
+          "paths",
+          "paths[].class",
+          "paths[].keys",
+          "paths[].keys[].class",
+          "paths[].keys[].key",
+          "paths[].strategy",
+          "paths[].target",
+          "paths[].variant",
+          "paths[].variantEvidence",
+          "schemaVersion",
+          "toVersion"
+        ],
+        "root": "object"
+      }
     },
     "sync --apply": {
-      "noManifest": [
-        "schemaVersion",
-        "state"
-      ],
-      "refused": [
-        "counts",
-        "counts.add",
-        "counts.conflict",
-        "counts.foreign",
-        "counts.keep",
-        "counts.orphaned",
-        "counts.removed",
-        "counts.unknown",
-        "counts.update",
-        "fromVersion",
-        "paths",
-        "paths[].class",
-        "paths[].keys",
-        "paths[].keys[].class",
-        "paths[].keys[].key",
-        "paths[].shape",
-        "paths[].strategy",
-        "paths[].target",
-        "pending",
-        "ranAt",
-        "schemaVersion",
-        "toVersion",
-        "written"
-      ],
-      "written": [
-        "counts",
-        "counts.add",
-        "counts.conflict",
-        "counts.foreign",
-        "counts.keep",
-        "counts.orphaned",
-        "counts.removed",
-        "counts.unknown",
-        "counts.update",
-        "fromVersion",
-        "paths",
-        "paths[].class",
-        "paths[].shape",
-        "paths[].strategy",
-        "paths[].target",
-        "pending",
-        "ranAt",
-        "schemaVersion",
-        "toVersion",
-        "written"
-      ]
+      "noManifest": {
+        "keys": [
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
+      "refused": {
+        "keys": [
+          "counts",
+          "counts.add",
+          "counts.conflict",
+          "counts.foreign",
+          "counts.keep",
+          "counts.orphaned",
+          "counts.removed",
+          "counts.unknown",
+          "counts.update",
+          "fromVersion",
+          "paths",
+          "paths[].class",
+          "paths[].keys",
+          "paths[].keys[].class",
+          "paths[].keys[].key",
+          "paths[].shape",
+          "paths[].strategy",
+          "paths[].target",
+          "pending",
+          "ranAt",
+          "schemaVersion",
+          "toVersion",
+          "written"
+        ],
+        "root": "object"
+      },
+      "written": {
+        "keys": [
+          "counts",
+          "counts.add",
+          "counts.conflict",
+          "counts.foreign",
+          "counts.keep",
+          "counts.orphaned",
+          "counts.removed",
+          "counts.unknown",
+          "counts.update",
+          "fromVersion",
+          "paths",
+          "paths[].class",
+          "paths[].shape",
+          "paths[].strategy",
+          "paths[].target",
+          "pending",
+          "ranAt",
+          "schemaVersion",
+          "toVersion",
+          "written"
+        ],
+        "root": "object"
+      }
     }
   },
   "markers": {
@@ -766,5 +811,6 @@
         "vitest.config.ts"
       ]
     }
-  }
+  },
+  "surfaceVersion": 2
 }
