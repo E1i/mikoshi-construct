@@ -247,7 +247,7 @@ until a run rewrites that marker. It is the honest reading of the record, not a 
 ## construct doctor
 
 Checks that the construct is intact: every file the manifest recorded is still present, the harness
-script `construct.json` names is still there, the contract paths it records still resolve, and each
+script `construct.json` names is still there where that command is a package script, the contract paths it records still resolve, and each
 discovery marker is either filled or named as missing. It then answers a second question —
 what this tool claims about the repository, at what level each claim is enforced, and whether the
 facts under it still hold — and ends with one line naming where the first chain stops.
@@ -270,6 +270,7 @@ that claim stands on, and where you are is the model's own path selection.
 | `unreadableFiles` | provenance |
 | `missingDiscovery` | provenance |
 | `provenance` | provenance |
+| `harness` | provenance |
 | `harnessProblems` | provenance |
 | `uncollectedTests` | provenance |
 | `warnings` | provenance |
@@ -284,6 +285,14 @@ that claim stands on, and where you are is the model's own path selection.
 false only when what `init` installed changed. Whether the harness command really runs its steps is
 knowledge — the owner's `package.json` can drop `pnpm lint` with no construct file touched — so it
 is the `harness-steps` claim, rendered as a verdict like any other.
+
+`harness` names the command `construct.json` recorded and how far `doctor` could read it. A command of
+the form `pnpm`, `npm`, `yarn` or `bun`, optionally `run`, then one script name is a package script:
+its `state` is `checked`, and `harnessProblems` says whether `package.json` still carries that script.
+Any other command — `make check`, a shell script, a chain of several — is not a package script, and
+`doctor` executes nothing, so it cannot check it statically: its `state` is `unknown`, the output
+names the command, and neither a missing `package.json` nor a missing script is reported against it.
+`unknown` never makes `ok` false.
 
 That move changes what is rendered and not what is exited on: **a harness that no longer runs lint
 is an unsupported claim, not a problem**, and it leaves `ok` exactly where it was, because `ok`
@@ -629,6 +638,7 @@ never changes the exit code.
     { "marker": "commands", "file": "AGENTS.md", "authorship": "construct" },
     { "marker": "composition-roots", "file": "AGENTS.md", "authorship": "owner" }
   ],
+  "harness": { "command": "pnpm run quality", "state": "checked" },
   "harnessProblems": [],
   "uncollectedTests": [],
   "warnings": [],

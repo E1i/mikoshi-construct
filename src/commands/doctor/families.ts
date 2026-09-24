@@ -10,6 +10,7 @@ export const DOCTOR_FIELD_FAMILY = {
   unreadableFiles: 'provenance',
   missingDiscovery: 'provenance',
   provenance: 'provenance',
+  harness: 'provenance',
   harnessProblems: 'provenance',
   uncollectedTests: 'provenance',
   warnings: 'provenance',

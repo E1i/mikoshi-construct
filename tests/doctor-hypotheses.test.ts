@@ -35,6 +35,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     unreadableFiles: [],
     missingDiscovery: [],
     provenance: [],
+    harness: { command: 'pnpm run quality', state: 'checked' },
     harnessProblems: [],
     uncollectedTests: [],
     warnings: [],

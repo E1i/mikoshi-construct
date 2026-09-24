@@ -47,6 +47,7 @@ export interface Lore {
   baselineGapUnknown: string
   enforcement: string
   typecheckCaveat: string
+  harnessNotStaticallyCheckable: (command: string) => string
   uncollectedTests: string
   unreadableFiles: string
   executesNothing: string
@@ -237,6 +238,7 @@ export const LORE: Lore = {
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'ENFORCEMENT TRACE',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
+  harnessNotStaticallyCheckable: (command: string) => `HARNESS UNKNOWN: \`${command}\` is not a package script, so this probe cannot check it statically and says nothing about whether it runs.`,
   uncollectedTests: 'TESTS THE RECORD CARRIES AND THE RUNNER NEVER COLLECTS.',
   unreadableFiles: 'FILES THE RECORD NAMES AND THIS PROBE COULD NOT OPEN: they are neither missing nor modified, and nothing is said about them.',
   executesNothing: 'NOTHING HERE IS EXECUTED: doctor reads files and runs nothing from the repository it inspects, so it does not speak about whether the harness passes.',
@@ -434,6 +436,7 @@ export const PLAIN_LORE: Lore = {
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'Enforcement',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
+  harnessNotStaticallyCheckable: (command: string) => `Harness unknown: \`${command}\` is not a package script, so doctor cannot check it statically and says nothing about whether it runs.`,
   uncollectedTests: 'Tests the record carries and the runner does not collect.',
   unreadableFiles: 'Files the record names that could not be read: they are neither missing nor modified, and nothing is said about them.',
   executesNothing: 'doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.',

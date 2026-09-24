@@ -200,6 +200,8 @@ export function printDoctor(ui: Ui, result: DoctorResult | null): number {
   }
   if (result.harnessProblems.length > 0)
     ui.glitch('Harness is broken.', result.harnessProblems)
+  if (result.harness.state === 'unknown')
+    ui.line(ui.theme.dim(`  ${ui.lore.harnessNotStaticallyCheckable(result.harness.command)}`))
   if (result.uncollectedTests.length > 0)
     ui.glitch(ui.lore.uncollectedTests, result.uncollectedTests)
   if (result.unreadableFiles.length > 0)
