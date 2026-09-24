@@ -74,3 +74,5 @@ L1 review. Nothing mechanical records that a mutation was named, applied and rev
 that skipped the step and one that passed it look the same afterwards. It becomes checkable when a run
 leaves the named mutation and its red result as evidence a second party can read, which is the same
 carrier [0027](0027-an-acceptance-is-red-before-the-implementation-exists.md) says it lacks.
+
+See also [0031](0031-the-cli-owns-the-mutation-the-runner-owns-execution.md), which sets the boundary for the command that would leave that evidence.
