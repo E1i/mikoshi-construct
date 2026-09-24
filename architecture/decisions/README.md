@@ -50,3 +50,4 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0028](0028-a-model-ahead-of-the-reader-is-a-state.md) | A model from a later build is a state this binary names | L3 test |
 | [0029](0029-an-acceptance-is-red-under-a-named-wrong-implementation.md) | An acceptance criterion is shown red under a named plausible wrong implementation | L1 review |
 | [0030](0030-public-contract.md) | The public contract is a recorded surface, and changing it requires the bump it implies (proposed) | L1 review; L3 and L4 with the code |
+| [0031](0031-the-cli-owns-the-mutation-the-runner-owns-execution.md) | The CLI owns a mutation from edit to verdict; running the repository's tests stays with the runner | lint (execution half); L1 review until the `mutate` tests land |
