@@ -73,6 +73,10 @@ repository's CLAUDE.md and `construct.json`.
    - `stopReason` — only when `status` is `stopped`, and then required: `environment` or `human`.
      `construct cost` reads an entry that has it with any other status, or lacks it on a stopped run,
      as malformed.
+   - `tokensSource` — optional. Absent, `tokens` is the standard measure: the Workflow tool's own
+     accounting as it reported the run to you. Present, it names where the figure came from instead:
+     - `runtime` — the runtime's stored record of the run, read after the tool reported nothing, as
+       for a stopped run.
    - `agents`, `tokens`, `toolUses`, `seconds` — the Workflow tool's own accounting for the run,
      exactly as it reported it. Write `"unknown"` for a token figure it did not report, never `0`.
    The ledger carries counts and reasons only — never a prompt, a response or any other message

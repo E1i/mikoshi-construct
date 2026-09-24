@@ -26,6 +26,7 @@ export interface LedgerEntry {
   toolUses: number
   seconds: number
   stopReason?: StopReason
+  tokensSource?: TokenSource
 }
 
 export interface MalformedLedgerLine {
@@ -55,6 +56,8 @@ export interface Reconciliation {
 export const STOP_REASONS = ['environment', 'human'] as const
 export type StopReason = typeof STOP_REASONS[number]
 const STOPPED = 'stopped'
+export const TOKEN_SOURCES = ['runtime'] as const
+export type TokenSource = typeof TOKEN_SOURCES[number]
 
 const TEXT_FIELDS = ['at', 'task', 'effort', 'status', 'rung'] as const
 const COUNT_FIELDS = ['agents', 'toolUses', 'seconds'] as const
@@ -99,6 +102,8 @@ function undeclaredFields(record: Record<string, unknown>): string[] {
   missing.push(...attemptListFaults(record.attempts))
   if (stopReasonFault(record))
     missing.push('stopReason')
+  if ('tokensSource' in record && !(TOKEN_SOURCES as readonly unknown[]).includes(record.tokensSource))
+    missing.push('tokensSource')
   return missing
 }
 
@@ -133,6 +138,7 @@ function toEntry(raw: unknown): LedgerEntry | string {
     toolUses: record.toolUses as number,
     seconds: record.seconds as number,
     ...(record.status === STOPPED ? { stopReason: record.stopReason as StopReason } : {}),
+    ...('tokensSource' in record ? { tokensSource: record.tokensSource as TokenSource } : {}),
   }
 }
 

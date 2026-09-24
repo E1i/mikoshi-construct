@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readLedger, STOP_REASONS } from '../src/commands/cost/index.js'
+import { readLedger, STOP_REASONS, TOKEN_SOURCES } from '../src/commands/cost/index.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const SKILLS = ['.claude/skills/implement/SKILL.md', 'templates/ai/claude/_claude/skills/implement/SKILL.md']
@@ -63,6 +63,33 @@ describe('the /implement skill explains the stopped status and every reason', ()
       expect(text).toContain('one of the eight in step 3')
       for (const reason of STOP_REASONS)
         expect(text, reason).toMatch(new RegExp(`\`${reason}\` —`))
+    })
+  }
+})
+
+describe('a token figure may name the measure it came from, and its absence means the standard one', () => {
+  it('reads an entry with no tokensSource, which is the Workflow tool\'s own report', () => {
+    const reading = read([entry({ stopReason: 'human' })])
+    expect(reading.malformed).toEqual([])
+    expect(reading.entries[0].tokensSource).toBeUndefined()
+  })
+
+  it('reads each source the vocabulary names', () => {
+    const reading = read(TOKEN_SOURCES.map(tokensSource => entry({ stopReason: 'environment', tokens: 207835, tokensSource })))
+    expect(reading.malformed).toEqual([])
+    expect(reading.entries.map(item => item.tokensSource)).toEqual([...TOKEN_SOURCES])
+  })
+
+  it('reads a source outside the vocabulary as malformed', () => {
+    expect(read([entry({ stopReason: 'human', tokensSource: 'estimate' })]).malformed).toEqual([{ line: 1, reason: 'missing or invalid: tokensSource' }])
+  })
+
+  for (const skill of SKILLS) {
+    it(`${skill} explains tokensSource as optional and every source it may name`, () => {
+      const text = readFileSync(path.join(REPO_ROOT, skill), 'utf8')
+      expect(text).toContain('`tokensSource` — optional')
+      for (const source of TOKEN_SOURCES)
+        expect(text, source).toMatch(new RegExp(`\`${source}\` —`))
     })
   }
 })
