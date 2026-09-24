@@ -134,10 +134,11 @@ here.
   <!-- construct:discover:dependency-policy -->
   Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
   the declaration rather than a description of one: `detect` imports no other module (facts only);
-  `presets` imports `detect`; `model` imports `detect` and `presets`; `materialize` and `ui` import
-  `presets`; `manifest` imports `detect`, `materialize` and `presets`; `sync` imports `manifest`,
-  `materialize` and `presets`; `failure` imports `ui`; `commands` import everything but `cli` and
-  `program`; `program` composes `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
+  `presets` imports `detect`; `record-ahead` imports nothing, and only the two readers of a versioned
+  record and the failure reader may import it; `model` imports `detect`, `presets` and `record-ahead`;
+  `materialize` and `ui` import `presets`; `manifest` imports `detect`, `materialize`, `presets` and
+  `record-ahead`; `sync` imports `manifest`, `materialize` and `presets`; `failure` imports
+  `record-ahead` and `ui`; `commands` import everything but `cli`, `program` and `record-ahead`; `program` composes `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
   `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
   and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
   inspected repository goes through one reader that reports a path it could not read instead of dropping
