@@ -44,6 +44,10 @@ repository's CLAUDE.md and `construct.json`.
      it has been tried on the construct's own repository.
    - `failed` — every rung ran and the harness stayed red; `lastFailure` carries the excerpt.
    - `blocked` — the last rung stopped on a question; `question` carries it verbatim.
+   - `base red` — the harness was red on the base before any change, so no rung ran; `lastFailure`
+     carries the excerpt. Make the base green, or name what is red on purpose, before running again.
+   - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
+     ran; `validationError` carries the validator's text.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
    with exactly these fields and no others:
    - `run` — the Workflow run identifier from step 3. It is the key `construct cost` joins the entry
@@ -54,7 +58,7 @@ repository's CLAUDE.md and `construct.json`.
    - `effort` — the class the run performed: the result's `effort` when it carries one, and only
      then the class you chose in step 1. A run whose design step did not complete is never written
      down as `high`; the result has already degraded it.
-   - `status` — the result's status verbatim, one of the five in step 3.
+   - `status` — the result's status verbatim, one of the seven in step 3.
    - `rung` — the effort of the rung that finished: `effort` from the result when it carries one,
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
@@ -69,7 +73,7 @@ repository's CLAUDE.md and `construct.json`.
    gitignored, or excluded through `.git/info/exclude` in an attached repository.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
    files changed, and the harness tail. When the status is `blocked`, put the architect's or
-   implementer's question to the user verbatim. When `failed`, give the last failure excerpt. When
+   implementer's question to the user verbatim. When `failed` or `base red`, give the last failure excerpt. When
    `design incomplete`, say that the design step did not complete, give `validationError` as the
    runtime reported it, and relay `recovery` verbatim — a dead end that names no way out is how the
    next person decides the ladder is broken rather than that this run needs re-running lower; when `degraded`, say which design step was rejected and that the reported

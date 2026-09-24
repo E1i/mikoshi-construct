@@ -2,6 +2,7 @@ export const meta = {
   name: 'implement',
   description: 'Implement a task at low effort, verify with the harness, escalate on repeated failure or ambiguity',
   phases: [
+    { title: 'Preflight', detail: 'harness against the base before any change; a red base stops the run' },
     { title: 'Design', detail: 'architect inside the run, for high effort before the first rung and after a blocked or failed attempt' },
     { title: 'Implement', detail: 'implementer at the current rung' },
     { title: 'Verify', detail: 'harness against the working tree' },
@@ -176,6 +177,28 @@ function designIncomplete(effort, question) {
     lastFailure: feedback ?? '',
   }
 }
+
+function preflightPrompt() {
+  return [
+    `Harness command: ${harness.command}`,
+    harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
+    'This is the base before any change: nothing has been implemented yet, so no diff is expected and testsWeakened is false. Verify the current working tree and return the verdict object.',
+  ].filter(Boolean).join('\n')
+}
+
+phase('Preflight')
+log(`preflight: running ${harness.command} on the base`)
+const base = await ask(preflightPrompt(), {
+  agentType: 'harness',
+  effort: 'low',
+  phase: 'Preflight',
+  label: 'preflight',
+  schema: VERDICT,
+})
+if (base == null)
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError }
+if (base.passed !== true)
+  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt }
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1

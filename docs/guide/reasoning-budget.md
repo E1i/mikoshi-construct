@@ -18,6 +18,10 @@ a decision that already exists is the most expensive way to produce nothing.
 
 ## The ladder
 
+Before the first rung, and before the design step of a `high` run, the harness runs once on the base.
+A red base stops the run as `base red` with the failure excerpt, and no implementer or architect is
+paid for: a rung on a red base cannot tell its own failure from one that was already there.
+
 A run is a sequence of rungs. Each rung implements, then a separate agent verifies:
 
 1. **Design** — for a `high` task before the first rung, and again after a blocked or twice-failed
