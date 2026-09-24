@@ -46,6 +46,10 @@ This is the case the tool is built for, and the rules are strict:
   tooling, never examples.
 - There is no `--force`, and adding one is not on the roadmap.
 
+To see what the detector reads before anything is written, run
+[`construct soulkill`](/cli#construct-soulkill) first. It prints the package manager, the layout, the
+workspace packages and the files that already exist, and writes nothing.
+
 ```bash
 cd an-existing-service
 npx mikoshi-construct init --yes --preset node-backend
