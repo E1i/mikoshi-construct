@@ -1,3 +1,4 @@
+import type { JsonKeysReading, Unbaselined } from './semantic-diff.js'
 import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -7,10 +8,9 @@ import { COST_EXIT } from '../../src/commands/cost/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
 import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
+import { unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
-const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
-const CLI = path.join(REPO_ROOT, 'src/cli.ts')
 const FROZEN_010 = path.join(REPO_ROOT, 'tests/fixtures/sync/materialized-by-0.1.0')
 const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT', 'CURSOR_TRACE_ID']
 const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), '.cache', 'node', 'corepack')
@@ -24,6 +24,21 @@ export interface JsonSample {
 }
 
 export type JsonKeys = Record<string, Record<string, JsonSample>>
+
+export interface ObservedCli {
+  root: string
+  holdsHeadInvariants: boolean
+}
+
+export const HEAD_CLI: ObservedCli = { root: REPO_ROOT, holdsHeadInvariants: true }
+
+export function tagCli(worktree: string): ObservedCli {
+  return { root: worktree, holdsHeadInvariants: false }
+}
+
+export function cliArgs(cli: ObservedCli, args: string[]): string[] {
+  return [path.join(cli.root, 'node_modules/tsx/dist/cli.mjs'), path.join(cli.root, 'src/cli.ts'), ...args]
+}
 
 interface World {
   dir: string
@@ -44,8 +59,8 @@ export function cliEnv(home: string): NodeJS.ProcessEnv {
   return env
 }
 
-function run(args: string[], world: World): { status: number | null, stdout: string } {
-  const result = spawnSync(process.execPath, [TSX, CLI, ...args, '--dir', world.dir], { env: cliEnv(world.home), encoding: 'utf8' })
+function run(cli: ObservedCli, args: string[], world: World): { status: number | null, stdout: string } {
+  const result = spawnSync(process.execPath, cliArgs(cli, [...args, '--dir', world.dir]), { env: cliEnv(world.home), encoding: 'utf8' })
   return { status: result.status, stdout: result.stdout }
 }
 
@@ -53,7 +68,7 @@ class Scratch {
   private count = 0
   private initialised: string | null = null
 
-  constructor(readonly root: string) {}
+  constructor(readonly root: string, readonly cli: ObservedCli) {}
 
   world(): World {
     this.count += 1
@@ -67,7 +82,7 @@ class Scratch {
   init(): World {
     const world = this.world()
     if (this.initialised == null) {
-      const status = run(['init', '--yes', '--preset', SAMPLE_PRESET], world).status
+      const status = run(this.cli, ['init', '--yes', '--preset', SAMPLE_PRESET], world).status
       if (status !== 0)
         throw new Error(`init --preset ${SAMPLE_PRESET} exited ${status} while building the --json samples`)
       this.initialised = world.dir
@@ -188,30 +203,74 @@ export function keyPaths(value: unknown): string[] {
   return [...into].sort()
 }
 
-function sampled(sample: Sample, scratch: Scratch): JsonSample {
-  const { status, stdout } = run(sample.args, sample.world(scratch))
+function heldHeadInvariants(sample: Sample, status: number | null, parsed: unknown): void {
   const expected = EXIT_TABLES[sample.command]?.[sample.state]
   if (status !== expected)
     throw new Error(`${sample.command} ${sample.state}: the sample exited ${status}, the state exits ${expected}`)
-  const parsed = JSON.parse(stdout) as unknown
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed) || !('schemaVersion' in parsed))
     throw new Error(`${sample.command} ${sample.state}: the --json sample carries no top-level schemaVersion`)
+}
+
+function parsedOutput(sample: Sample, status: number | null, stdout: string): unknown {
+  if (status == null)
+    throw new Error(`${sample.command} ${sample.state}: the sample was killed before it exited`)
+  try {
+    return JSON.parse(stdout) as unknown
+  }
+  catch {
+    throw new Error(`${sample.command} ${sample.state}: the sample exited ${status} and printed no JSON`)
+  }
+}
+
+function sampled(sample: Sample, scratch: Scratch): JsonSample {
+  const { status, stdout } = run(scratch.cli, sample.args, sample.world(scratch))
+  const parsed = parsedOutput(sample, status, stdout)
+  if (scratch.cli.holdsHeadInvariants)
+    heldHeadInvariants(sample, status, parsed)
   if (sample.command === 'cost' && (parsed as { status?: unknown }).status !== sample.state)
     throw new Error(`cost ${sample.state}: the sample reports status ${String((parsed as { status?: unknown }).status)}`)
   return { root: jsonRoot(parsed), keys: keyPaths(parsed) }
 }
 
-export function jsonKeys(): JsonKeys {
-  const scratch = new Scratch(realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-json-'))))
+export type UnsampledPair<T> = (command: string, state: string, error: unknown) => T
+
+export function observedJsonKeys<T>(cli: ObservedCli, unsampled: UnsampledPair<T>): Record<string, Record<string, JsonSample | T>> {
+  const scratch = new Scratch(realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-json-'))), cli)
   try {
-    const keys: JsonKeys = {}
+    const keys: Record<string, Record<string, JsonSample | T>> = {}
     for (const sample of SAMPLES) {
       keys[sample.command] ??= {}
-      keys[sample.command][sample.state] = sampled(sample, scratch)
+      try {
+        keys[sample.command][sample.state] = sampled(sample, scratch)
+      }
+      catch (error) {
+        keys[sample.command][sample.state] = unsampled(sample.command, sample.state, error)
+      }
     }
     return keys
   }
   finally {
     rmSync(scratch.root, { recursive: true, force: true })
   }
+}
+
+function rethrown(_command: string, _state: string, error: unknown): never {
+  throw error
+}
+
+export function jsonKeys(): JsonKeys {
+  return observedJsonKeys(HEAD_CLI, rethrown)
+}
+
+export function failureLine(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.split('\n')[0]
+}
+
+function unobservedPair(command: string, state: string, error: unknown): Unbaselined {
+  return unbaselined(`${command} ${state} could not be observed from the tag: ${failureLine(error)}`)
+}
+
+export function tagJsonKeys(cli: ObservedCli): JsonKeysReading {
+  return observedJsonKeys(cli, unobservedPair)
 }

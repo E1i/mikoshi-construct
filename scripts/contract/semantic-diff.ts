@@ -1,13 +1,19 @@
 import type { JsonSample } from './json-samples.js'
 import type { CommandSurface, Flag, Surface } from './surface.js'
 
-export const UNBASELINED = 'unbaselined'
+export interface Unbaselined {
+  unbaselined: string
+}
 
 export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'formats', 'paths', 'markers', 'outside'] as const
 
 export type Section = typeof SECTIONS[number]
 
-export type SurfaceReading = { [K in Section]: Surface[K] | typeof UNBASELINED }
+export type JsonKeysReading = Record<string, Record<string, JsonSample | Unbaselined>>
+
+type SectionReadings = Omit<Surface, 'surfaceVersion' | 'jsonKeys'> & { jsonKeys: JsonKeysReading }
+
+export type SurfaceReading = { [K in Section]: SectionReadings[K] | Unbaselined }
 
 export type ChangeLevel = 'none' | 'additive' | 'breaking'
 
@@ -21,7 +27,15 @@ interface Change {
   reason: string
 }
 
-type Compare<T> = (at: string, base: T, head: T) => Change[]
+type Compare<B, H = B> = (at: string, base: B, head: H) => Change[]
+
+export function unbaselined(reason: string): Unbaselined {
+  return { unbaselined: reason }
+}
+
+export function isUnbaselined(value: unknown): value is Unbaselined {
+  return value != null && typeof value === 'object' && 'unbaselined' in value && typeof value.unbaselined === 'string'
+}
 
 function breaking(reason: string): Change {
   return { breaking: true, reason }
@@ -48,7 +62,7 @@ function setDiff(at: string, base: string[], head: string[]): Change[] {
   ]
 }
 
-function recordDiff<T>(at: string, base: Record<string, T>, head: Record<string, T>, compare: Compare<T>): Change[] {
+function recordDiff<B, H = B>(at: string, base: Record<string, B>, head: Record<string, H>, compare: Compare<B, H>): Change[] {
   return [
     ...Object.keys(base).flatMap(key => key in head ? compare(`${at}.${key}`, base[key], head[key]) : [breaking(`${at}.${key} removed`)]),
     ...Object.keys(head).filter(key => !(key in base)).map(key => additive(`${at}.${key} added`)),
@@ -94,14 +108,20 @@ function sampleDiff(at: string, base: JsonSample, head: JsonSample): Change[] {
   return [...valueDiff(`${at}.root`, base.root, head.root), ...setDiff(`${at}.keys`, base.keys, head.keys)]
 }
 
+function pairDiff(at: string, base: JsonSample | Unbaselined, head: JsonSample): Change[] {
+  if (isUnbaselined(base))
+    return [breaking(`${at}: unbaselined in the base (${base.unbaselined}), so it counts as changed`)]
+  return sampleDiff(at, base, head)
+}
+
 function blockPairs(markers: Surface['markers']): string[] {
   return markers.block.map(pair => pair.join(' … '))
 }
 
-const SECTION_DIFF: { [K in Section]: Compare<Surface[K]> } = {
+const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K], Surface[K]> } = {
   commands: (at, base, head) => recordDiff(at, base, head, commandDiff),
   exits: (at, base, head) => recordDiff(at, base, head, exitTableDiff),
-  jsonKeys: (at, base, head) => recordDiff(at, base, head, (command, states, next) => recordDiff(command, states, next, sampleDiff)),
+  jsonKeys: (at, base, head) => recordDiff(at, base, head, (command, states, next) => recordDiff(command, states, next, pairDiff)),
   formats: (at, base, head) => recordDiff<number>(at, { ...base }, { ...head }, valueDiff),
   paths: (at, base, head) => [
     ...recordDiff(`${at}.init`, base.init, head.init, setDiff),
@@ -118,9 +138,9 @@ const SECTION_DIFF: { [K in Section]: Compare<Surface[K]> } = {
 
 function sectionDiff<K extends Section>(section: K, base: SurfaceReading, head: Surface): Change[] {
   const recorded = base[section]
-  if (recorded === UNBASELINED)
-    return [breaking(`${section}: unbaselined in the base, so every item in it counts as changed`)]
-  return SECTION_DIFF[section](section, recorded as Surface[K], head[section])
+  if (isUnbaselined(recorded))
+    return [breaking(`${section}: unbaselined in the base (${recorded.unbaselined}), so every item in it counts as changed`)]
+  return SECTION_DIFF[section](section, recorded as SectionReadings[K], head[section])
 }
 
 export function requiredChange(base: SurfaceReading, head: Surface): RequiredChange {

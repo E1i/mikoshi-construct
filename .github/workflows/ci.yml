@@ -60,6 +60,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm contract:bump
+      - name: Self-check — a base generated from v0.17.2's code reads the change to 0f905ea as breaking
+        run: |
+          out="$(pnpm --silent contract:bump --base v0.17.2 --head 0f905ea 2>&1)"
+          echo "$out"
+          grep -qxF 'required: minor (breaking surface change)' <<<"$out" || { echo 'the self-check requires minor'; exit 1; }
+          grep -qxF '  jsonKeys.doctor.noManifest.root: null → object' <<<"$out" || { echo 'the self-check reads no jsonKeys.doctor.noManifest.root: null → object'; exit 1; }
 
   acceptance:
     needs: quality

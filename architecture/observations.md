@@ -26,6 +26,51 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-24 · What the 0030 D2 self-check tells apart, and two things it does not look at
+
+### What was observed
+
+0030 D2 adds a CI step that computes the required bump for base `v0.17.2` against head `0f905ea` and
+asserts two things: the line `required: minor (breaking surface change)`, and the reason
+`jsonKeys.doctor.noManifest.root: null → object`. Five mutations were written down with predictions
+before the run. The ladder's implementer ran all five. The operator re-ran M4 and M5 against the
+finished tree, with mutations of their own wording; M1–M3 are recorded as the implementer reported
+them.
+
+| # | Mutation | Predicted | Observed |
+|---|---|---|---|
+| M1 | no generation; a tag with no file is an empty base | self-check red, required patch instead of minor, root reason absent | self-check red on the root reason only; required stayed minor |
+| M2 | the generated base records no root | self-check red, root reason absent, required stays minor | as predicted; two `pnpm test` files also turned red, because HEAD and the tag share the sampler |
+| M3 | the tag's file taken whatever its surfaceVersion; no file is an empty base | self-check red, required patch | self-check red on the root reason only; required stayed minor |
+| M4 | the worktree left behind after a throw | the cleanup test red, naming the path | as predicted |
+| M5 | a pair the tag could not be sampled for recorded as absent | the pair test red, additive instead of breaking | as predicted; the CI self-check stayed green, so only `pnpm test` holds it |
+
+**M1 and M3 refuted the predicted level.** An empty base still reads `outside` as breaking, since
+every item present at the head "leaves the contract", so required does not fall to patch. In the
+unmutated run, `exits`, `markers` and `outside` are `unbaselined` in the generated base, and any one
+of them makes the change breaking and the required level minor.
+
+### What it supports
+
+**The assertion `required = minor` does not tell any of M1–M3 from the correct code.** Both hold
+minor for reasons unrelated to the mutation. The step's power to catch these three comes entirely from
+the root reason. What the self-check is obliged to prove is a separate decision, not taken in D2.
+
+Two further things the same work does, recorded as found:
+
+- **The tag's preset list is read with `tsx --eval`**, loading the tag's `PRESET_LIST` in a child
+  process. That executes the tag's code rather than observing what its CLI prints, which is the
+  method the rest of the generated base uses.
+- **An explicit `--base/--head` pair does not compare the declared level**, and says so in its last
+  line. The pull-request mode does compare it. Its witness is D2's own `pnpm contract:bump`: base
+  generated from `v0.18.0`, required minor, declared minor, exit 0. Whether a historical pair should
+  say anything about a declared level is open.
+
+### Boundary
+
+One self-check pair and five mutations, of which three the operator did not re-run. Nothing here
+states a rule about what a self-check must assert.
+
 ## 2026-09-24 · The first red harness verdicts in the ladder's record, and why none is a signal
 
 ### What was observed

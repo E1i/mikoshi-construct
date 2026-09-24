@@ -1,6 +1,6 @@
 import type { Surface } from '../../scripts/contract/surface.js'
 import { describe, expect, it } from 'vitest'
-import { requiredChange, UNBASELINED } from '../../scripts/contract/semantic-diff.js'
+import { requiredChange, unbaselined } from '../../scripts/contract/semantic-diff.js'
 import { fixtureSurface, reading } from './surface-fixture.js'
 
 type Edit = (surface: Surface) => void
@@ -100,8 +100,27 @@ describe('requiredChange classifies the difference between two surfaces', () => 
 
   it('a section unbaselined in the base is breaking, and the reason names the section', () => {
     const base = reading(fixtureSurface())
-    const change = requiredChange({ ...base, exits: UNBASELINED }, fixtureSurface())
+    const change = requiredChange({ ...base, exits: unbaselined('exit codes are not observable') }, fixtureSurface())
     expect(change.level).toBe('breaking')
-    expect(change.reasons).toEqual([expect.stringMatching(/^exits: unbaselined/)])
+    expect(change.reasons).toEqual([expect.stringMatching(/^exits: unbaselined in the base \(exit codes are not observable\)/)])
+  })
+
+  it('a JSON pair unbaselined in the base is breaking, and the reason names its command, state and why', () => {
+    const base = reading(fixtureSurface())
+    const head = fixtureSurface()
+    const change = requiredChange({ ...base, jsonKeys: { doctor: { ...head.jsonKeys.doctor, ok: unbaselined('doctor ok printed no JSON') } } }, head)
+    expect(change).toEqual({ level: 'breaking', reasons: ['jsonKeys.doctor.ok: unbaselined in the base (doctor ok printed no JSON), so it counts as changed'] })
+  })
+
+  it('beside an unbaselined pair, every other pair is diffed on its own result', () => {
+    const base = reading(fixtureSurface())
+    const head = fixtureSurface()
+    const change = requiredChange({ ...base, jsonKeys: { doctor: { ok: unbaselined('doctor ok printed no JSON'), noManifest: { root: 'null', keys: [] } } } }, head)
+    expect(change.level).toBe('breaking')
+    expect(change.reasons).toEqual([
+      'jsonKeys.doctor.ok: unbaselined in the base (doctor ok printed no JSON), so it counts as changed',
+      'jsonKeys.doctor.noManifest.root: null → object',
+      'jsonKeys.doctor.noManifest.keys: schemaVersion added',
+    ])
   })
 })

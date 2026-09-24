@@ -1,5 +1,6 @@
 import type { ArgsDef, CommandDef } from 'citty'
-import type { JsonKeys } from './json-samples.js'
+import type { JsonKeys, ObservedCli } from './json-samples.js'
+import type { SurfaceReading, Unbaselined } from './semantic-diff.js'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,13 +19,17 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main } from '../../src/program.js'
-import { cliEnv, jsonKeys } from './json-samples.js'
+import { commandFromHelp, usageCommands } from './help.js'
+import { cliArgs, cliEnv, failureLine, HEAD_CLI, jsonKeys, tagCli, tagJsonKeys } from './json-samples.js'
+import { unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
-const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
-const CLI = path.join(REPO_ROOT, 'src/cli.ts')
 const ATTACH_SAMPLE = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
 const GIT_EXCLUDE = '.git/info/exclude'
+const EXITS_NOT_OBSERVABLE = 'exit codes are not observable from the tag\'s output'
+const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the source\'s exports, not from the tag\'s output'
+const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
+const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
 
 export const SURFACE_VERSION = 2
 
@@ -103,8 +108,8 @@ function exits(): Record<string, Record<string, number>> {
   }
 }
 
-function runCli(args: string[], dir: string, home: string): void {
-  execFileSync(process.execPath, [TSX, CLI, ...args, '--dir', dir], { env: cliEnv(home), stdio: 'ignore' })
+function runCli(cli: ObservedCli, args: string[], dir: string, home: string): void {
+  execFileSync(process.execPath, cliArgs(cli, [...args, '--dir', dir]), { env: cliEnv(home), stdio: 'ignore' })
 }
 
 function filesUnder(root: string, relative = ''): string[] {
@@ -132,18 +137,18 @@ interface Runs {
   paths: Surface['paths']
 }
 
-function observedRuns(): Runs {
+function observedRuns(cli: ObservedCli, presets: string[]): Runs {
   const scratch = mkdtempSync(path.join(tmpdir(), 'construct-surface-'))
   try {
     const home = path.join(scratch, 'home')
     mkdirSync(home)
     const init: Record<string, string[]> = {}
     let initialised = ''
-    for (const preset of PRESET_LIST.filter(candidate => candidate.available !== false)) {
-      const dir = path.join(scratch, `init-${preset.id}`)
+    for (const preset of presets) {
+      const dir = path.join(scratch, `init-${preset}`)
       mkdirSync(dir)
-      runCli(['init', '--yes', '--preset', preset.id], dir, home)
-      init[preset.id] = filesUnder(dir).sort()
+      runCli(cli, ['init', '--yes', '--preset', preset], dir, home)
+      init[preset] = filesUnder(dir).sort()
       initialised = dir
     }
 
@@ -151,7 +156,7 @@ function observedRuns(): Runs {
     execFileSync('cp', ['-R', ATTACH_SAMPLE, repository])
     execFileSync('git', ['init', '-q'], { cwd: repository })
     const before = new Set(filesUnder(repository))
-    runCli(['attach', '--yes', '--harness', 'pnpm run quality'], repository, home)
+    runCli(cli, ['attach', '--yes', '--harness', 'pnpm run quality'], repository, home)
     const writes = filesUnder(repository).filter(file => !before.has(file)).sort()
 
     return {
@@ -175,17 +180,65 @@ function markers(): Surface['markers'] {
   }
 }
 
+export function headCommands(): Record<string, CommandSurface> {
+  return commandsOf(main)
+}
+
 export function generateSurface(): Surface {
-  const runs = observedRuns()
+  const runs = observedRuns(HEAD_CLI, PRESET_LIST.filter(candidate => candidate.available !== false).map(preset => preset.id))
   return {
     surfaceVersion: SURFACE_VERSION,
-    commands: commandsOf(main),
+    commands: headCommands(),
     exits: exits(),
     jsonKeys: jsonKeys(),
     formats: runs.formats,
     paths: runs.paths,
     markers: markers(),
     outside: [...OUTSIDE_THE_CONTRACT],
+  }
+}
+
+function helpOf(cli: ObservedCli, args: string[], home: string): string {
+  return execFileSync(process.execPath, cliArgs(cli, args), { env: cliEnv(home), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function commandsFromHelp(cli: ObservedCli): Record<string, CommandSurface> {
+  const home = mkdtempSync(path.join(tmpdir(), 'construct-help-'))
+  try {
+    return Object.fromEntries(usageCommands(helpOf(cli, ['--help'], home)).map(name => [name, commandFromHelp(name, helpOf(cli, [name, '--help'], home))]))
+  }
+  finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+}
+
+function availablePresets(cli: ObservedCli): string[] {
+  const listed = JSON.parse(execFileSync(process.execPath, [path.join(cli.root, 'node_modules/tsx/dist/cli.mjs'), '--eval', AVAILABLE_PRESETS], { cwd: cli.root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) as unknown
+  if (!Array.isArray(listed) || !listed.every(id => typeof id === 'string'))
+    throw new Error('the tag\'s PRESET_LIST is not a list of presets with ids')
+  return listed as string[]
+}
+
+function observedOrUnbaselined<T>(what: string, observe: () => T): T | Unbaselined {
+  try {
+    return observe()
+  }
+  catch (error) {
+    return unbaselined(`${what} could not be observed from the tag: ${failureLine(error)}`)
+  }
+}
+
+export function tagSurfaceReading(worktree: string): SurfaceReading {
+  const cli = tagCli(worktree)
+  const runs = observedOrUnbaselined('init and attach', () => observedRuns(cli, availablePresets(cli)))
+  return {
+    commands: observedOrUnbaselined('--help', () => commandsFromHelp(cli)),
+    exits: unbaselined(EXITS_NOT_OBSERVABLE),
+    jsonKeys: tagJsonKeys(cli),
+    formats: 'formats' in runs ? runs.formats : runs,
+    paths: 'paths' in runs ? runs.paths : runs,
+    markers: unbaselined(MARKERS_NOT_OBSERVABLE),
+    outside: unbaselined(OUTSIDE_NOT_OBSERVABLE),
   }
 }
 
