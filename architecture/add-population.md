@@ -8,9 +8,9 @@ that the presets do not produce. The population was first named in the observati
 [The `add` population, named before anything is done about it](observations.md#2026-09-21--the-add-population-named-before-anything-is-done-about-it),
 which records the counts as they stood on its date.
 
-**The population, partitioned.** Across the four available presets, `planMaterialize` produces 89
+**The population, partitioned.** Across the four available presets, `planMaterialize` produces 88
 distinct paths. 37 of them are reached only in an empty directory, through a mount marked
-`onlyWhenEmpty`. The remaining 52 are written into any tree that adopts the construct, and they fall
+`onlyWhenEmpty`. The remaining 51 are written into any tree that adopts the construct, and they fall
 into four kinds:
 
 `construct-subject` — the construct's own material, which cannot misfit because the construct is what
@@ -20,8 +20,7 @@ it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
 `.claude/rules/tests.md`, `.claude/skills/implement/SKILL.md`, `.github/workflows/security.yml`,
 `.gitignore`, `.gitleaks.toml`, `AGENTS.md`, `CLAUDE.md`, `architecture/checklists.md`,
 `architecture/decisions/README.md`, `architecture/principles.md`,
-`architecture/security-invariants.md`, `scripts/construct/check-acceptance.mjs`,
-`scripts/construct/contract-paths.mjs`, `scripts/construct/implement.workflow.mjs`.
+`architecture/security-invariants.md`, `scripts/construct/check-acceptance.mjs`, `scripts/construct/implement.workflow.mjs`.
 
 `harness-adoption` — presumes the repository runs the construct's harness, and is inert or wrong
 where it runs another: `.editorconfig`, `.github/workflows/ci.yml`, `.nvmrc`,

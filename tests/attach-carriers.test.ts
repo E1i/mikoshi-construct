@@ -14,7 +14,6 @@ const CARRIED_SCRIPT = /scripts\/construct\/[\w.-]+\.mjs/g
 const SCRIPTS = [
   'scripts/construct/implement.workflow.mjs',
   'scripts/construct/check-acceptance.mjs',
-  'scripts/construct/contract-paths.mjs',
 ]
 
 const RE_KEYED_TEMPLATES = [
@@ -46,8 +45,8 @@ describe('the carried commands read the attach record when there is no construct
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names eight targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(8)
+  it('names seven targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(7)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })
@@ -73,7 +72,6 @@ describe('the carriers are complete and documented', () => {
         .filter(op => op.target.endsWith('.md'))
         .flatMap(op => op.content.match(CARRIED_SCRIPT) ?? [])
       expect(named).toContain('scripts/construct/check-acceptance.mjs')
-      expect(named).toContain('scripts/construct/contract-paths.mjs')
       for (const script of new Set(named))
         expect(targets, script).toContain(script)
     }

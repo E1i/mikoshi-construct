@@ -37,8 +37,8 @@ repository's CLAUDE.md and `construct.json`.
    where `harness.command` comes from `construct.json`, or from `.construct/attach.json` when
    `construct.json` is absent (an attached repository), `harness.extra` lists any area-specific
    commands CLAUDE.md names for the files the task touches (usually empty), and
-   `harness.contractPaths` is the JSON array `node scripts/construct/contract-paths.mjs` prints from
-   the repository root, copied verbatim: `contracts.path` and `contracts.types` from `construct.json`
+   `harness.contractPaths` is the contract paths you read from the repository yourself:
+   `contracts.path` and `contracts.types` from `construct.json`
    when `contracts` is non-null, plus the comma-separated paths on a `Contract paths:` line in the
    repository's CLAUDE.md. `.construct/attach.json` records no contract paths, so in an attached
    repository only that CLAUDE.md line supplies them; absent both, the list is empty. The ladder
