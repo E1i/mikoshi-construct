@@ -4,6 +4,16 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.22.0
+
+### Minor Changes
+
+- [#231](https://github.com/E1i/mikoshi-construct/pull/231) [`8756aea`](https://github.com/E1i/mikoshi-construct/commit/8756aeaf1b0fdca1d856561112d619830ddec7e2) Thanks [@E1i](https://github.com/E1i)! - sync: `construct.json` moves to manifest version 6 (decision 0032). Every write of a block target (`AGENTS.md`, `CLAUDE.md`, `.gitignore`) by `init` or `sync --apply` now records the sha of the construct block's owned view and a snapshot of the vars it was written with. With these, `sync` reads such a target as `block-edited` (the block differs from what was written), `record-vars-edited` (the block is what was written but `vars` in `construct.json` changed since), `template-moved-on` (both as written, today's template renders differently; `--apply` writes it) or `keep`. A record cut before version 6 is never back-filled: where it reads `unknown`, sync says the record predates the fields that would answer, and running the construct again records them. `sync --json` gains the count keys `block-edited`, `record-vars-edited` and `template-moved-on`.
+
+### Patch Changes
+
+- [#229](https://github.com/E1i/mikoshi-construct/pull/229) [`807d1ef`](https://github.com/E1i/mikoshi-construct/commit/807d1ef07a6a749d3935f9c9dab1bbd91cb19500) Thanks [@E1i](https://github.com/E1i)! - release: a publish that awaits approval reads as pending, not as absent. The Release run publishes with `npm stage publish` (npm 11.15.0 or newer, which the job now installs) instead of `changeset publish`. It uploads `{version, stageId}` as the `release-stage` artifact, and `changeset tag` still writes the git tags and GitHub releases. Release verification downloads that record. If the version is absent from the registry and a stage record exists for it, the run prints the stage id with a notice to re-run this run after approval, then cancels itself: it ends grey, and Published smoke stays skipped. If the cancellation does not take effect, the run ends red, never green. If the version is absent with no stage record, it still fails with the same message as before.
+
 ## 0.21.0
 
 ### Minor Changes
