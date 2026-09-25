@@ -3,6 +3,7 @@ dist/
 *.log
 .DS_Store
 .construct/
+.construct/reports/vitest.json
 .eslintcache
 
 # construct:begin

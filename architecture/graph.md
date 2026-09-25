@@ -5,7 +5,7 @@ run `pnpm composition:render`; `pnpm composition:check` fails when the diagram a
 apart.
 
 <!-- composition:graph -->
-`construct graph` draws what a repository claims and the evidence under it. `modelPicture` and `modelGraph` in `src/commands/graph.ts` resolve the directory, read `construct.model.json` through `readModel` — which refuses a record written by a later build rather than reading it partially — and derive the state of every claim and hypothesis with `deriveModelState`, which looks only at the files the facts name. Everything after that is a rendering of that one reading, never a second derivation: `printGraph` writes the Mermaid text to stdout, and `--out` renders the same graph as one self-contained HTML file. A repository with no model, or a model holding nothing, is a state rather than an error — the picture carries where it stopped, `printGraph` says so in one line, and the command exits 0 having drawn nothing. The page is the only write and it goes to the path the flag names, never into the repository being read.
+`construct graph` draws what a repository claims and the evidence under it. `modelPicture` and `modelGraph` in `src/commands/graph.ts` resolve the directory, read `construct.model.json` through `readModel` — which refuses a record written by a later build rather than reading it partially — and derive the state of every claim and hypothesis with `deriveModelState`, which looks only at the files that file-kind facts name. It withholds a runner's report, because reading one needs the paths `construct.json` records and `graph` never reads `construct.json`; `graphOfModel` draws every report-backed fact, claim and hypothesis in the fixed class runtime-report. Everything after that is a rendering of that one reading, never a second derivation: `printGraph` writes the Mermaid text to stdout, and `--out` renders the same graph as one self-contained HTML file. A repository with no model, or a model holding nothing, is a state rather than an error — the picture carries where it stopped, `printGraph` says so in one line, and the command exits 0 having drawn nothing. The page is the only write and it goes to the path the flag names, never into the repository being read.
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
     schema["MODEL_FILE, modelVersion · a model ahead of the reader is refused"]
   end
   subgraph b_derive["Derive"]
-    state["deriveModelState · each claim and hypothesis against the facts named under it"]
+    state["deriveModelState · each claim and hypothesis against the facts named under it · a runner's report is withheld; report-backed entries are drawn as runtime-report"]
     graph["graphOfModel / pictureOfModel · nodes, edges, where the chain stops"]
   end
   subgraph b_render["Render"]

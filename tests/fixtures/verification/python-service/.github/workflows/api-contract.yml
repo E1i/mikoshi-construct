@@ -1,0 +1,36 @@
+name: API contract
+
+on:
+  pull_request:
+    paths:
+      - contracts/**
+
+permissions:
+  contents: read
+
+jobs:
+  breaking-changes:
+    name: Breaking changes against ${{ github.base_ref }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check whether the base branch has the contract
+        id: base
+        run: |
+          if git cat-file -e "origin/${{ github.base_ref }}:contracts/api/openapi.yaml" 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::contracts/api/openapi.yaml is not on origin/${{ github.base_ref }}; skipping the breaking-change comparison"
+          fi
+
+      - name: Compare with the base branch
+        if: steps.base.outputs.exists == 'true'
+        uses: oasdiff/oasdiff-action/breaking@v0
+        with:
+          base: origin/${{ github.base_ref }}:contracts/api/openapi.yaml
+          revision: HEAD:contracts/api/openapi.yaml
+          fail-on: ERR

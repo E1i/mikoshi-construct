@@ -4,9 +4,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { includeGlobs, matchesAnyGlob } from '../src/commands/doctor/runner.js'
+import { includeGlobs } from '../src/commands/doctor/runner.js'
 import { typecheckWarnings } from '../src/commands/doctor/typecheck.js'
 import { uncollectedTests } from '../src/commands/doctor/uncollected-tests.js'
+import { matchesAnyGlob } from '../src/model/glob.js'
 
 const COMMAND = 'pnpm run quality'
 

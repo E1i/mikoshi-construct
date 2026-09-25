@@ -1,10 +1,14 @@
 import { RecordAheadOfReader } from '../record-ahead.js'
 
 export const MODEL_FILE = 'construct.model.json'
-export const MODEL_VERSION = 1
+export const MODEL_VERSION = 2
+const OLDEST_READABLE_MODEL_VERSION = 1
 
-export const FACT_KINDS = ['file-exists', 'file-contains'] as const
+export const FACT_KINDS = ['file-exists', 'file-contains', 'file-lacks', 'report-covers', 'report-misses'] as const
 export type FactKind = (typeof FACT_KINDS)[number]
+
+const NEEDLE_KINDS: readonly FactKind[] = ['file-contains', 'file-lacks']
+export const REPORT_KINDS: readonly FactKind[] = ['report-covers', 'report-misses']
 
 export const ENFORCEMENT_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
 export type EnforcementLevel = (typeof ENFORCEMENT_LEVELS)[number]
@@ -18,6 +22,7 @@ export interface Fact {
   path: string
   authoredBy: EntryAuthor
   needle?: string
+  surface?: string[]
 }
 
 export interface Enforcement {
@@ -56,7 +61,7 @@ export interface RepositoryModel {
   hypotheses: Hypothesis[]
 }
 
-const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle']
+const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle', 'surface']
 const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
 const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification', 'checkId']
@@ -161,6 +166,13 @@ function supportedBy(name: string, record: Record<string, unknown>, where: strin
   return ids
 }
 
+function globs(name: string, record: Record<string, unknown>, where: string): string[] {
+  const value = record.surface
+  if (!Array.isArray(value) || value.length === 0 || !value.every(entry => typeof entry === 'string' && entry.trim() !== ''))
+    fail(name, `${where} needs a "surface" list of non-empty globs`)
+  return value as string[]
+}
+
 function parseFacts(name: string, raw: Record<string, unknown>): Fact[] {
   return list(name, raw, 'facts').map((entry, index) => {
     const where = `facts[${index}]`
@@ -173,14 +185,18 @@ function parseFacts(name: string, raw: Record<string, unknown>): Fact[] {
       authoredBy: member(name, text(name, entry, 'authoredBy', where), ENTRY_AUTHORS, 'authoredBy', where),
     }
     const needle = optionalText(name, entry, 'needle', where)
-    if (kind === 'file-contains') {
+    if (NEEDLE_KINDS.includes(kind)) {
       if (needle === undefined)
-        fail(name, `${where} of kind "file-contains" needs a non-empty "needle"`)
+        fail(name, `${where} of kind "${kind}" needs a non-empty "needle"`)
       fact.needle = needle
     }
     else if (needle !== undefined) {
-      fail(name, `${where} of kind "file-exists" must not carry a "needle"`)
+      fail(name, `${where} of kind "${kind}" must not carry a "needle"`)
     }
+    if (REPORT_KINDS.includes(kind))
+      fact.surface = globs(name, entry, `${where} of kind "${kind}"`)
+    else if (entry.surface !== undefined)
+      fail(name, `${where} of kind "${kind}" must not carry a "surface"`)
     return fact
   })
 }
@@ -250,7 +266,7 @@ export function parseModel(source: string, name: string): RepositoryModel {
   if (typeof raw.modelVersion === 'number' && raw.modelVersion > MODEL_VERSION)
     throw new RecordAheadOfReader(MODEL_FILE, 'modelVersion', raw.modelVersion, MODEL_VERSION)
   closed(name, raw, MODEL_PROPERTIES, 'the document')
-  if (raw.modelVersion !== MODEL_VERSION)
+  if (typeof raw.modelVersion !== 'number' || !Number.isInteger(raw.modelVersion) || raw.modelVersion < OLDEST_READABLE_MODEL_VERSION)
     fail(name, `the document needs "modelVersion": ${MODEL_VERSION}`)
 
   const facts = parseFacts(name, raw)

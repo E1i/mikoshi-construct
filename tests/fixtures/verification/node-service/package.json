@@ -1,0 +1,8 @@
+{
+  "name": "node-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "quality": "vitest run"
+  }
+}

@@ -1,0 +1,3 @@
+django>=5
+flask>=3
+pytest>=8

@@ -47,7 +47,8 @@ export interface Lore {
   baselineGapUnknown: string
   enforcement: string
   typecheckCaveat: string
-  harnessNotStaticallyCheckable: (command: string) => string
+  harnessCoverageUnknown: (command: string) => string
+  harnessDoesNotCover: (command: string) => string
   uncollectedTests: string
   unreadableFiles: string
   executesNothing: string
@@ -239,7 +240,8 @@ export const LORE: Lore = {
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'ENFORCEMENT TRACE',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
-  harnessNotStaticallyCheckable: (command: string) => `HARNESS UNKNOWN: \`${command}\` is not a package script, so this probe cannot check it statically and says nothing about whether it runs.`,
+  harnessCoverageUnknown: (command: string) => `HARNESS UNKNOWN: nothing observed \`${command}\` running this repository's own verification surface. It needs a harness-covers-target claim and a report newer than the surface.`,
+  harnessDoesNotCover: (command: string) => `HARNESS MISSES THE TARGET: the report shows \`${command}\` ran none of this repository's own verification surface. A green run here verified something else.`,
   uncollectedTests: 'TESTS THE RECORD CARRIES AND THE RUNNER NEVER COLLECTS.',
   unreadableFiles: 'FILES THE RECORD NAMES AND THIS PROBE COULD NOT OPEN: they are neither missing nor modified, and nothing is said about them.',
   executesNothing: 'NOTHING HERE IS EXECUTED: doctor reads files and runs nothing from the repository it inspects, so it does not speak about whether the harness passes.',
@@ -441,7 +443,8 @@ export const PLAIN_LORE: Lore = {
   baselineGapUnknown: 'What a sync would add or update cannot be established from this manifest: run `construct sync`.',
   enforcement: 'Enforcement',
   typecheckCaveat: 'Typecheck cannot carry this stack alone.',
-  harnessNotStaticallyCheckable: (command: string) => `Harness unknown: \`${command}\` is not a package script, so doctor cannot check it statically and says nothing about whether it runs.`,
+  harnessCoverageUnknown: (command: string) => `Harness coverage unknown: nothing observed \`${command}\` running this repository's own verification surface. It needs a harness-covers-target claim and a report newer than the surface.`,
+  harnessDoesNotCover: (command: string) => `Harness does not cover this repository: the report shows \`${command}\` ran none of its own verification surface. A green run here verified something else.`,
   uncollectedTests: 'Tests the record carries and the runner does not collect.',
   unreadableFiles: 'Files the record names that could not be read: they are neither missing nor modified, and nothing is said about them.',
   executesNothing: 'doctor executes nothing from the repository it inspects, so it does not speak about whether the harness passes.',

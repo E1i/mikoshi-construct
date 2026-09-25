@@ -158,12 +158,12 @@ describe('doctor\'s knowledge family is a projection of the model', () => {
   })
 
   it('holds no knowledge of its own where the repository carries no model, and says that is why', () => {
-    expect(projectKnowledge(null, scratch())).toEqual({ checks: [], hypotheses: [], youAreHere: { at: 'no-model' } })
+    expect(projectKnowledge(null, scratch())).toEqual({ checks: [], hypotheses: [], youAreHere: { at: 'no-model' }, stages: {} })
   })
 
   it('separates a model that carries no claim from no model at all, rather than leaving both an empty list', () => {
     const empty: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] }
-    expect(projectKnowledge(empty, scratch())).toEqual({ checks: [], hypotheses: [], youAreHere: { at: 'no-claim' } })
+    expect(projectKnowledge(empty, scratch())).toEqual({ checks: [], hypotheses: [], youAreHere: { at: 'no-claim' }, stages: {} })
     expect(projectKnowledge(null, scratch()).youAreHere).not.toEqual(projectKnowledge(empty, scratch()).youAreHere)
   })
 

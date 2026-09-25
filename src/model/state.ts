@@ -1,6 +1,7 @@
 import type { Fact, RepositoryModel } from './schema.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { evaluateCoverage } from './coverage.js'
 
 export const FACT_EVALUATIONS = ['holds', 'does-not-hold', 'unevaluable'] as const
 export type FactEvaluation = (typeof FACT_EVALUATIONS)[number]
@@ -24,28 +25,52 @@ export interface ClaimStages {
   verification: StageFinding
 }
 
+export type ModelEvidence
+  = | { reports: 'withheld' }
+    | { reports: 'read', constructPaths: readonly string[] }
+
+export const WITHHELD_EVIDENCE: ModelEvidence = { reports: 'withheld' }
+
 export interface ModelStateReport {
   facts: Record<string, FactEvaluation>
   hypotheses: Record<string, StageFinding>
   claims: Record<string, ClaimStages>
 }
 
-function evaluateFact(fact: Fact, root: string): FactEvaluation {
-  const target = path.join(root, fact.path)
+const NEGATED: Record<FactEvaluation, FactEvaluation> = {
+  'holds': 'does-not-hold',
+  'does-not-hold': 'holds',
+  'unevaluable': 'unevaluable',
+}
+
+function evaluateFile(fact: Fact, target: string): FactEvaluation {
+  if (!existsSync(target))
+    return fact.kind === 'file-lacks' ? 'unevaluable' : 'does-not-hold'
+  if (fact.kind === 'file-exists')
+    return 'holds'
+  const found = readFileSync(target, 'utf8').includes(fact.needle ?? '')
+  return found === (fact.kind === 'file-contains') ? 'holds' : 'does-not-hold'
+}
+
+function coverageOf(fact: Fact, root: string, evidence: ModelEvidence): FactEvaluation {
+  return evidence.reports === 'read' ? evaluateCoverage(fact, root, evidence.constructPaths) : 'unevaluable'
+}
+
+function evaluateFact(fact: Fact, root: string, evidence: ModelEvidence): FactEvaluation {
   try {
-    if (!existsSync(target))
-      return 'does-not-hold'
-    if (fact.kind === 'file-exists')
-      return 'holds'
-    return readFileSync(target, 'utf8').includes(fact.needle ?? '') ? 'holds' : 'does-not-hold'
+    if (fact.kind === 'report-covers')
+      return coverageOf(fact, root, evidence)
+    if (fact.kind === 'report-misses')
+      return NEGATED[coverageOf(fact, root, evidence)]
+    return evaluateFile(fact, path.join(root, fact.path))
   }
   catch {
     return 'unevaluable'
   }
 }
 
-export function evaluateFacts(model: RepositoryModel, root: string): Record<string, FactEvaluation> {
-  return Object.fromEntries(model.facts.map(fact => [fact.id, evaluateFact(fact, root)]))
+export function evaluateFacts(model: RepositoryModel, root: string, evidence: ModelEvidence = WITHHELD_EVIDENCE): Record<string, FactEvaluation> {
+  return Object.fromEntries(model.facts.map(fact => [fact.id, evaluateFact(fact, root, evidence)]))
 }
 
 function pathsOf(outcomes: readonly FactOutcome[], evaluation: Exclude<FactEvaluation, 'holds'>): string[] {
@@ -74,8 +99,8 @@ export function factOutcomes(facts: readonly Fact[], supportedBy: readonly strin
   })
 }
 
-export function deriveModelState(model: RepositoryModel, root: string): ModelStateReport {
-  const facts = evaluateFacts(model, root)
+export function deriveModelState(model: RepositoryModel, root: string, evidence: ModelEvidence = WITHHELD_EVIDENCE): ModelStateReport {
+  const facts = evaluateFacts(model, root, evidence)
   return {
     facts,
     hypotheses: Object.fromEntries(model.hypotheses.map(hypothesis => [hypothesis.id, resolveFinding(model.facts, hypothesis.supportedBy, facts)])),

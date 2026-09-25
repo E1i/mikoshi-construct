@@ -17,12 +17,18 @@ explained here.
 ## Facts — what can be pointed at
 
 A fact is something deterministic code can look at without judgement
-([decision 0015](decisions/0015-interpretation-stays-with-the-agent.md)). There are two kinds.
+([decision 0015](decisions/0015-interpretation-stays-with-the-agent.md)). There are five kinds.
 
 | Kind | What it asserts |
 |---|---|
 | `file-exists` | The file at `path` is present in the repository. |
 | `file-contains` | The file at `path` is present and contains the literal `needle`. |
+| `file-lacks` | The file at `path` was read and does not contain the literal `needle`; a missing file is `unevaluable`. |
+| `report-covers` | The runner's report at `path` lists at least one file of `surface` (globs, minus the construct's own paths) as executed. |
+| `report-misses` | The exact negation of `report-covers` over the same report and `surface`. |
+| `file-lacks` | The file at `path` was read and does not contain the literal `needle`; a missing file is `unevaluable`, never `holds`. |
+| `report-covers` | The runner's report at `path` lists at least one file of the `surface` globs as executed, minus the construct's own recorded paths ([decision 0033](decisions/0033-checked-means-the-target-was-verified.md)). |
+| `report-misses` | The exact negation of `report-covers` over the same report and `surface`: it holds where that does not hold, and is `unevaluable` where that is. |
 
 Everything else in the model — a claim, a hypothesis, an enforcement — stands on facts by naming
 their ids in `supportedBy`. Nothing stands on prose.
@@ -260,7 +266,9 @@ The block below is rendered from this repository's own `construct.model.json` by
 until it is rendered again. It is a third projection of the model beside `doctor` and the reports
 ([decision 0016](decisions/0016-the-model-is-the-source.md)) and holds nothing of its own: every
 state in it comes from `deriveModelState`, and a repository with no model renders a sentence saying
-so rather than an empty diagram.
+so rather than an empty diagram. The block is drawn by the same code as `construct graph`, so a
+reading that stands on a runner's report is withheld and reads `unevaluable` here; CI's `doctor` step
+reads it after the report is written.
 
 <!-- model:picture -->
 What this tool holds about the repository, and the files each reading stands on. A fact several entries stand on is drawn once, with one edge from each of them. Every state below is derived on read, never stored.
@@ -272,6 +280,7 @@ flowchart LR
     e_vulnerable_dependencies_are_visible["vulnerable-dependencies-are-visible<br/>enforcement L0 held<br/>verification held"]
     e_every_change_passes_the_harness["every-change-passes-the-harness<br/>enforcement L3 held<br/>verification held"]
     e_harness_steps["harness-steps<br/>enforcement L3 held<br/>verification held"]
+    e_harness_covers_target["harness-covers-target<br/>enforcement unknown, no fact named<br/>verification runtime report, read by doctor"]
   end
   subgraph hypotheses["Hypotheses"]
     e_the_command_list_is_stated_in_three_documents("the-command-list-is-stated-in-three-documents<br/>held")
@@ -335,6 +344,7 @@ flowchart LR
     f_harness_script_runs_privacy_check[/"package.json contains #quot;pnpm privacy:check#quot;<br/>holds"/]
     f_harness_script_runs_model_check[/"package.json contains #quot;pnpm model:check#quot;<br/>holds"/]
     f_harness_script_runs_docs_anchors[/"package.json contains #quot;pnpm docs:anchors#quot;<br/>holds"/]
+    f_vitest_report_covers_the_tests[/".construct/reports/vitest.json covers tests/**/*.test.ts<br/>runtime report, read by doctor"/]
   end
   e_no_committed_secret -->|"enforcement"| f_security_workflow
   e_no_committed_secret -->|"enforcement"| f_security_workflow_runs_gitleaks
@@ -351,6 +361,7 @@ flowchart LR
   e_harness_steps -->|"enforcement"| f_harness_script_runs_typecheck
   e_harness_steps -->|"enforcement"| f_harness_script_runs_tests
   e_harness_steps -->|"verification"| f_harness_manifest
+  e_harness_covers_target -->|"verification"| f_vitest_report_covers_the_tests
   e_the_command_list_is_stated_in_three_documents --> f_readme_states_the_harness_command
   e_the_command_list_is_stated_in_three_documents --> f_claude_md_states_the_harness_command
   e_the_command_list_is_stated_in_three_documents --> f_agents_md_states_the_harness_command

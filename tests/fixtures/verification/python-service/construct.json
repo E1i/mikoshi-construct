@@ -1,0 +1,225 @@
+{
+  "manifestVersion": 6,
+  "construct": "0.22.0",
+  "createdAt": "2026-09-25T08:02:48.252Z",
+  "preset": "monorepo",
+  "ai": "claude",
+  "review": null,
+  "harness": {
+    "command": "pnpm run quality"
+  },
+  "report": {
+    "usage": true
+  },
+  "contracts": {
+    "path": "contracts/api/openapi.yaml",
+    "types": "packages/shared/src/api/openapi.ts"
+  },
+  "vars": {
+    "projectName": "py-svc-assets",
+    "scope": "@py-svc-assets",
+    "nodeMajor": "24",
+    "contracts": "true",
+    "contractPath": "contracts/api/openapi.yaml",
+    "contractTypesOutput": "packages/shared/src/api/openapi.ts",
+    "compositionDir": "architecture/composition",
+    "harnessCommand": "pnpm run quality",
+    "packageManager": "pnpm",
+    "pnpmVersion": "12.4.2",
+    "reviewModel": "claude-sonnet-5",
+    "constructVersion": "0.22.0",
+    "contractTypesImport": "@py-svc-assets/shared",
+    "contractPathFromConfig": "../../../contracts/api/openapi.yaml",
+    "appRoot": "apps/api/",
+    "workspacePackages": "['@py-svc-assets/api', '@py-svc-assets/shared']",
+    "allowedWorkspaceImports": "{\n  'apps/api': ['@py-svc-assets/shared'],\n  'packages/shared': [],\n}"
+  },
+  "files": {
+    ".claude/agents/architect.md": "4aa2e01569635a2cfbb3a155d5c35e8b47a4421d2978d2eaad4e54cdd683f27a",
+    ".claude/agents/harness.md": "9ca4b0d3c9743cee1d7eaded9a0afeb5483da6043533e774d9a2ac66023846ae",
+    ".claude/agents/implementer.md": "9e774107e820819f97205b7338a70c7b314662921b7ebea3b37fc632a4d13623",
+    ".claude/commands/construct-discover.md": "5f8c7544f03bc32503820423f7e7e038fc2072b92c5cd53d4842556c4d54a7b1",
+    ".claude/commands/plan.md": "39ea0d308b5cc8926855eb8704f8c7d11977df03f9bc477808b56702cb92b886",
+    ".claude/rules/conventions.md": "1df1e43e746de65fff26bba2b90f6def7bd1c1b716c65b13ca437669ef1ab7d1",
+    ".claude/rules/secrets.md": "01bb9a99baeca88b7969d116bf6a96b57527d5f38dd56bdcecf8770313f33153",
+    ".claude/rules/tests.md": "f1db64dea1193e23e61f3b5c3f50e9e1d8468968f600d329903e31e2e93a630a",
+    ".claude/skills/implement/SKILL.md": "44d8a481ee0460b50c60069880c40e958fff7e573680c9f598e1e4b1fd55dc09",
+    ".editorconfig": "a91f1b150e3e82830fb1b4e16a9ef470daf5d71f9e1935a80fdceda8f3bccb8b",
+    ".github/workflows/api-contract.yml": "f47486d08721eeb07e2c5af4ab754442fbe791e0f25ef0583614e2a54643a3cf",
+    ".github/workflows/ci.yml": "ec3501a4b39506803f45a549344b81bf5fbbb723a1effa4b785fbcac8daffc72",
+    ".github/workflows/security.yml": "e81b04407549c5dc68b80c30fbdfe59704d4b2c7479b2af175f8f6200b0e8b39",
+    ".gitignore": "5b269ad20131ace603b9c72569df5ae66b1774dd7adf32f5d854077bc8fa4816",
+    ".gitleaks.toml": "dd3ffcaeb4e2f4a0b5ba98137796d2cd52f172d76a46af3f3a8b1a1143b72318",
+    ".nvmrc": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53",
+    ".vscode/settings.json": "ebe0b0a73dfb45bf5e8e07875cd4f730b884a0ec251dd77de76af4d1b7ed4e77",
+    "AGENTS.md": "c55ee68b7c39fca7d79cfaabde445658cab8337e6caed5586bceb06f825bd41e",
+    "architecture/checklists.md": "8de2c0a741de5fdeda9fa10254cd17bd3df56bb143d63d27625295ce44030d39",
+    "architecture/decisions/README.md": "35ea243acfb5f48f5550c2a387cd68453616a9e1f035c1a2c56662eb3729c43b",
+    "architecture/principles.md": "61a6b57a456cb8ee386cb30fb0f4c19342664f49c3535c32c587b436e8c44f74",
+    "architecture/security-invariants.md": "2f0da684a54b80d285c1b18c54b7cd7ca7aaf2df3ae851e4478490e183dd24c1",
+    "CLAUDE.md": "2d68d854ccdafd55dcff5e72979251e4aec808e582872789953cc4b9b4f7cafe",
+    "contracts/api/openapi.yaml": "12bfe1c0e8001cc24ce0a226939d6b2b21a33fd071900028c2ccff4371562507",
+    "eslint.config.mjs": "fc27aeca2a8dc6e72bf6139e2595604c45a9daf448d16db18d502386f30eb64f",
+    "package.json": "27daa675b89ea4478ff02fae29e603092f748708ffec424385f42d9c278511a4",
+    "packages/shared/package.json": "af7e285dbbb4d7a0e3e41d6de1e597b2a4d283e5181a46f04b4ab57ec2ea6b7e",
+    "packages/shared/src/api/openapi.ts": "65b56303b82a568d151c1acd67ff194b091348bd53e1bba12342597e2b59bbbb",
+    "packages/shared/src/index.ts": "a9f3ddce2c319087a928a01454f024c07cb6ca84a4911d95225b16cd2409ece4",
+    "packages/shared/tsconfig.build.json": "7af015449abb11a252d01c17dde799ab3fc7b1801b3fbdbaff47f6dc09598245",
+    "packages/shared/tsconfig.json": "b9554f5edd3814b9f335b79f61ee33162984efdb0c455d6c3f36b40b2fa0653d",
+    "pnpm-workspace.yaml": "a1dcb3b770b51a082e2df3e67c3b64ee7d77c6c6aa55dcdb4036e07bc7b09be5",
+    "redocly.yaml": "e1ffda0a1ccbf86177a4c7450414d4ef8195a278e59e25750678909089688d36",
+    "scripts/composition/check.ts": "e43b43089e39d13e03344170f2355a9e6a166d93f11922ac4ce5f458bbfb80f0",
+    "scripts/composition/files.ts": "d01a9045ef9f3f5bfdb8abeec062d152ea9afe903827f55d45eedc979f9bc146",
+    "scripts/composition/model.ts": "c5331c6af3527fbf71e80ec956f52c2af01ed3d7980a976bb093095d7a3dafef",
+    "scripts/composition/render.ts": "8df4b6098cbc0ee600bb930a4d9822a81d32af07b083d5a59cd54ec47f0d9eb9",
+    "scripts/composition/sync-docs.ts": "4514971c4d39b90e6080dd2057adfd5dd7cba3b6b8db2eb9af300aa5aed43c20",
+    "scripts/construct/check-acceptance.mjs": "f5554b7238b8cefb63ac3c84709fd3adef20413977916ca4fe467d9e3baa646d",
+    "scripts/construct/implement.workflow.mjs": "078acd3e3b8a449f388a803f1c89bcf2fcb14447a5d6e369120e1645bbb40fd1",
+    "scripts/contracts/types.mjs": "6d483419107000a473a012f8de909f8b488683da9c59427edd01bec6c09c1754",
+    "scripts/tests/composition/files.test.ts": "098d6026c0552598371fb6fa06bd59e603350d9628848a2d7e97642670455c06",
+    "scripts/tests/composition/model.test.ts": "65cec5b1dbe552fe65b5808156bc6a8f57ffd584e7a666d2976e66321ac846d8",
+    "scripts/tests/composition/render.test.ts": "2425a1b887e751442aac0d7e421f5915cb43d1a4d643007e02d9731241ff6e80",
+    "scripts/tests/contracts/security.test.ts": "1cb13c44d89f3754064b64259a6a0897a0c14992de6aecc53403ca9b007fb27b",
+    "tsconfig.base.json": "040735e3e4af80365d0b48aac9729f779a1f8d97addee940f39b85d84e0424ad",
+    "tsconfig.json": "2cd777662d7437549d2b339cd485a6d2db7e703eb358c252a2db56a360aba95a",
+    "vitest.config.ts": "5a1f831dff00ebb1d4d367f46cc264df5a4af15b6e4dd907100ff22251c59dca"
+  },
+  "variants": {
+    ".gitignore": "default",
+    "AGENTS.md": "default",
+    "CLAUDE.md": "default"
+  },
+  "blocks": {
+    ".gitignore": {
+      "ownedSha": "2a014a8248041343e32ccbcffe71840e98e7a84b17e49a97a1b4077d942e970e",
+      "vars": {
+        "projectName": "py-svc-assets",
+        "scope": "@py-svc-assets",
+        "nodeMajor": "24",
+        "contracts": "true",
+        "contractPath": "contracts/api/openapi.yaml",
+        "contractTypesOutput": "packages/shared/src/api/openapi.ts",
+        "compositionDir": "architecture/composition",
+        "harnessCommand": "pnpm run quality",
+        "packageManager": "pnpm",
+        "pnpmVersion": "12.4.2",
+        "reviewModel": "claude-sonnet-5",
+        "constructVersion": "0.22.0",
+        "contractTypesImport": "@py-svc-assets/shared",
+        "contractPathFromConfig": "../../../contracts/api/openapi.yaml",
+        "appRoot": "apps/api/",
+        "workspacePackages": "['@py-svc-assets/api', '@py-svc-assets/shared']",
+        "allowedWorkspaceImports": "{\n  'apps/api': ['@py-svc-assets/shared'],\n  'packages/shared': [],\n}"
+      }
+    },
+    "AGENTS.md": {
+      "ownedSha": "8d6cd9e96236a88117846c32fe3aab851b6a84d9aa3b0ae60563768a69cab4ee",
+      "vars": {
+        "projectName": "py-svc-assets",
+        "scope": "@py-svc-assets",
+        "nodeMajor": "24",
+        "contracts": "true",
+        "contractPath": "contracts/api/openapi.yaml",
+        "contractTypesOutput": "packages/shared/src/api/openapi.ts",
+        "compositionDir": "architecture/composition",
+        "harnessCommand": "pnpm run quality",
+        "packageManager": "pnpm",
+        "pnpmVersion": "12.4.2",
+        "reviewModel": "claude-sonnet-5",
+        "constructVersion": "0.22.0",
+        "contractTypesImport": "@py-svc-assets/shared",
+        "contractPathFromConfig": "../../../contracts/api/openapi.yaml",
+        "appRoot": "apps/api/",
+        "workspacePackages": "['@py-svc-assets/api', '@py-svc-assets/shared']",
+        "allowedWorkspaceImports": "{\n  'apps/api': ['@py-svc-assets/shared'],\n  'packages/shared': [],\n}"
+      }
+    },
+    "CLAUDE.md": {
+      "ownedSha": "326c4b5e6cdb80e100242ee9122bdefc819e84ef79aeae472774ceb0fc5875cd",
+      "vars": {
+        "projectName": "py-svc-assets",
+        "scope": "@py-svc-assets",
+        "nodeMajor": "24",
+        "contracts": "true",
+        "contractPath": "contracts/api/openapi.yaml",
+        "contractTypesOutput": "packages/shared/src/api/openapi.ts",
+        "compositionDir": "architecture/composition",
+        "harnessCommand": "pnpm run quality",
+        "packageManager": "pnpm",
+        "pnpmVersion": "12.4.2",
+        "reviewModel": "claude-sonnet-5",
+        "constructVersion": "0.22.0",
+        "contractTypesImport": "@py-svc-assets/shared",
+        "contractPathFromConfig": "../../../contracts/api/openapi.yaml",
+        "appRoot": "apps/api/",
+        "workspacePackages": "['@py-svc-assets/api', '@py-svc-assets/shared']",
+        "allowedWorkspaceImports": "{\n  'apps/api': ['@py-svc-assets/shared'],\n  'packages/shared': [],\n}"
+      }
+    }
+  },
+  "discovery": {
+    "baseSha": "e9e872a44a31a89ee1f28f868163689f344cd16e",
+    "filledAt": "2026-09-25T08:09:18.994Z",
+    "markers": {
+      "product": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "98d966b4122881947386919349571168bd219419ad241c777d04a9fcfb58b705"
+      },
+      "module-map": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "ab3be85478e974ed275bb1006d5069130045b0fe508d7f6664bec2690efe0289"
+      },
+      "commands": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "0ae6ea29591694121aacb6d8d7a40f2e5258ac9d37641b4d82f2dc8d3dd06132"
+      },
+      "composition-roots": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "26a9ed33ef461034ac11953d9d2bd38e93b6c2e3481f6912cdb83b5f1b474777"
+      },
+      "dependency-policy": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "cc4585221ca93e62d42ad816a8a25c07f969b3e613ec9c53aeecf5e9e3ab2334"
+      },
+      "high-effort-areas": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "14613a23208d48744ee5e82dfa4a9e710e1a7deec598c962c3f8746269c60dcb"
+      },
+      "composition": {
+        "file": "architecture/composition",
+        "authoredBy": "construct",
+        "sha": "9479f3b5235be494bd817711d09282fb50137f4cc4e3de74857e4618cd136b8c"
+      },
+      "security-invariants": {
+        "file": "architecture/security-invariants.md",
+        "authoredBy": "construct",
+        "sha": "380aae26aedb4e1ff2b1abc77f6a1d1281ffeb29fb60836b711a6f2ec79e853d"
+      },
+      "defects-vs-variance": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "68587796ccfdc0f3d7bb3c6751008d7ccd64b3c6b4cb3acec3b0b3280aa5e09c"
+      },
+      "open-questions": {
+        "file": "AGENTS.md",
+        "authoredBy": "construct",
+        "sha": "04e27b4c3511de539e85c44b7fe984fc25875cbbf3f2109f473f391cce2ca1c6"
+      }
+    }
+  },
+  "sync": null,
+  "policy": {
+    "workspaceImports": {
+      "apps/api": [
+        "@py-svc-assets/shared"
+      ],
+      "packages/shared": []
+    }
+  }
+}

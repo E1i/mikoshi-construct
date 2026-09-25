@@ -33,7 +33,7 @@ function jsonBlocks(source: string): string[] {
 }
 
 function factKindsNamed(source: string): string[] {
-  const inProse = [...source.matchAll(/`(file-[a-z-]+)`/g)].map(match => match[1])
+  const inProse = [...source.matchAll(/`((?:file|report)-[a-z-]+)`/g)].map(match => match[1])
   const inBlocks = jsonBlocks(source).flatMap(block => [...block.matchAll(/"kind": "([^"]+)"/g)].map(match => match[1]))
   return [...new Set([...inProse, ...inBlocks])].sort()
 }

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { modelGraph, pageOfGraph, writeGraphPage } from '../src/commands/graph.js'
 import { graphOfModel, mermaidFromGraph, PICTURE_STATES } from '../src/model/graph.js'
-import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
+import { MODEL_FILE, MODEL_VERSION, parseModel, REPORT_KINDS } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
 import { COLOUR_IS_NOT_STRENGTH, svgFromGraph } from '../src/model/svg.js'
 import { writeModel } from '../src/model/write.js'
@@ -163,8 +163,17 @@ describe('the page a person opens', () => {
   })
 
   it('draws those levels in one colour, which is the confusion the sentence names', () => {
-    const graph = graphOf(repositoryModel(), REPO_ROOT)
-    const statesOfClaims = new Set(graph.nodes.filter(node => node.kind === 'claim').map(node => node.state))
+    const model = repositoryModel()
+    const graph = graphOf(model, REPO_ROOT)
+    const claimNodes = graph.nodes.filter(node => node.kind === 'claim')
+    const reportFacts = new Set(model.facts.filter(fact => REPORT_KINDS.includes(fact.kind)).map(fact => fact.id))
+    const namingAReport = model.claims
+      .filter(claim => [claim.enforcement?.supportedBy ?? [], claim.verification?.supportedBy ?? []].flat().some(id => reportFacts.has(id)))
+      .map(claim => claim.id)
+    const counted = claimNodes.filter(node => (PICTURE_STATES as readonly string[]).includes(node.state))
+    const statesOfClaims = new Set(counted.map(node => node.state))
+
+    expect(claimNodes.filter(node => !counted.includes(node)).map(node => node.entryId)).toEqual(namingAReport)
 
     expect(
       statesOfClaims.size,

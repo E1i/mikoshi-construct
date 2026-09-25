@@ -1,0 +1,35 @@
+id: web
+title: Django web service
+description: manage.py loads web.settings, whose ROOT_URLCONF routes GET /health through web/urls.py.
+doc: architecture/web.md
+boundaries:
+  - id: web
+    label: services/web
+nodes:
+  - id: client
+    label: HTTP client
+  - id: manage
+    label: manage.py
+    path: services/web/manage.py
+    boundary: web
+  - id: settings
+    label: web.settings
+    path: services/web/web/settings.py
+    boundary: web
+  - id: urls
+    label: web.urls urlpatterns
+    path: services/web/web/urls.py
+    boundary: web
+edges:
+  - from: manage
+    to: settings
+    kind: wires
+    label: DJANGO_SETTINGS_MODULE
+  - from: settings
+    to: urls
+    kind: wires
+    label: ROOT_URLCONF
+  - from: client
+    to: urls
+    kind: route
+    label: /health

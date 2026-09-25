@@ -6,13 +6,14 @@ import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
-import { readManifest } from '../../manifest.js'
+import { readManifest, recordedShas } from '../../manifest.js'
+import { authoredByOwner } from '../../model/ownership.js'
 import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
 import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
 import { isIntact } from './families.js'
-import { harnessProblems, harnessReading, readHarnessFacts } from './harness.js'
+import { HARNESS_COVERAGE_CLAIM, harnessProblems, harnessReading, readHarnessFacts } from './harness.js'
 import { claimsNotCarried } from './not-carried.js'
 import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
@@ -52,7 +53,8 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   const provenance = discoveryProvenance(root, manifest, readings)
   const uncollected = uncollectedTests(root, manifest, readings)
   const model = readModel(root)
-  const knowledge = projectKnowledge(model, root)
+  const knowledge = projectKnowledge(model, root, authoredByOwner, { reports: 'read', constructPaths: Object.keys(recordedShas(manifest)) })
+  const harnessState = harnessReading(manifest.harness.command, knowledge.stages[HARNESS_COVERAGE_CLAIM]?.verification)
   const unreadableFiles = readings.files
   const intact: ProvenanceEvidence = {
     missingFiles: baseline.missingFiles,
@@ -60,7 +62,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     unreadableFiles,
     missingDiscovery: markers,
     provenance,
-    harness: harnessReading(harness),
+    harness: harnessState,
     harnessProblems: problems,
     uncollectedTests: uncollected,
     warnings: typecheckWarnings(manifest.preset, harness),
@@ -74,7 +76,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     unreadableFiles,
     missingDiscovery: markers,
     provenance,
-    harness: harnessReading(harness),
+    harness: harnessState,
     harnessProblems: problems,
     uncollectedTests: uncollected,
     warnings: typecheckWarnings(manifest.preset, harness),

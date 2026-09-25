@@ -1,0 +1,8 @@
+apis:
+  py-svc-assets@v1:
+    root: contracts/api/openapi.yaml
+extends:
+  - recommended
+rules:
+  operation-4xx-response: off
+  info-license: off

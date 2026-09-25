@@ -1,5 +1,5 @@
-import type { ModelGraph, PictureState } from './graph.js'
-import { PICTURE_STATES } from './graph.js'
+import type { ModelGraph, PictureClass } from './graph.js'
+import { PICTURE_CLASSES } from './graph.js'
 import { COLOUR_IS_NOT_STRENGTH, STATE_LEGEND, svgFromGraph } from './svg.js'
 
 export interface PageMeta {
@@ -19,9 +19,11 @@ const STYLE = `
   --held: light-dark(#1f7a4d, #4ec98a);
   --unsupported: light-dark(#b3261e, #ff8a80);
   --unknown: light-dark(#8a6d1f, #e3c46a);
+  --runtime-report: light-dark(#3b5bab, #8fa8f0);
   --held-fill: light-dark(#e9f7ef, #16302433);
   --unsupported-fill: light-dark(#fdecea, #3a191733);
   --unknown-fill: light-dark(#fdf5e2, #332c1233);
+  --runtime-report-fill: light-dark(#ebf0fb, #1a223a33);
 }
 * { box-sizing: border-box; }
 body {
@@ -40,6 +42,7 @@ svg { display: block; }
 .box.held { fill: var(--held-fill); stroke: var(--held); }
 .box.unsupported { fill: var(--unsupported-fill); stroke: var(--unsupported); }
 .box.unknown { fill: var(--unknown-fill); stroke: var(--unknown); }
+.box.runtime-report { fill: var(--runtime-report-fill); stroke: var(--runtime-report); stroke-dasharray: 4 3; }
 .label { font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--ink-dim); }
 .label.first { font-weight: 600; fill: var(--ink); }
 .heading { font: 600 12px/1 ui-sans-serif, system-ui, sans-serif; fill: var(--ink-dim); letter-spacing: 0.06em; text-transform: uppercase; }
@@ -48,12 +51,14 @@ svg { display: block; }
 .edge.held { stroke: var(--held); }
 .edge.unsupported { stroke: var(--unsupported); }
 .edge.unknown { stroke: var(--unknown); }
+.edge.runtime-report { stroke: var(--runtime-report); }
 ul.legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; padding: 0; margin: 1.25rem 0 0; }
 ul.legend li { display: flex; align-items: baseline; gap: 0.5rem; color: var(--ink-dim); font-size: 0.85rem; }
 ul.legend b { font-weight: 600; }
 ul.legend li[data-state='held'] b { color: var(--held); }
 ul.legend li[data-state='unsupported'] b { color: var(--unsupported); }
 ul.legend li[data-state='unknown'] b { color: var(--unknown); }
+ul.legend li[data-state='runtime-report'] b { color: var(--runtime-report); }
 p.legend-caveat { margin: 0.6rem 0 0; color: var(--ink-dim); font-size: 0.85rem; max-inline-size: 72ch; }
 footer { margin-block-start: 1.5rem; color: var(--ink-dim); font-size: 0.8rem; }
 `
@@ -66,8 +71,8 @@ function escaped(value: string): string {
     .replaceAll('"', '&quot;')
 }
 
-function legend(states: Set<PictureState>): string {
-  return PICTURE_STATES
+function legend(states: Set<PictureClass>): string {
+  return PICTURE_CLASSES
     .filter(state => states.has(state))
     .map(state => `      <li data-state="${state}"><b>${state}</b> — ${escaped(STATE_LEGEND[state])}</li>`)
     .join('\n')

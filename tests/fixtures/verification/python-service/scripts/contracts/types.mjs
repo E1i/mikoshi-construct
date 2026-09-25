@@ -1,0 +1,20 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import process from 'node:process'
+import { pathToFileURL } from 'node:url'
+import openapiTS, { astToString } from 'openapi-typescript'
+
+const CONTRACT = 'contracts/api/openapi.yaml'
+const OUTPUT = 'packages/shared/src/api/openapi.ts'
+
+const generated = astToString(await openapiTS(pathToFileURL(CONTRACT)))
+
+if (process.argv.includes('--check')) {
+  const committed = readFileSync(OUTPUT, 'utf8')
+  if (committed !== generated) {
+    console.error(`${OUTPUT} is out of date with ${CONTRACT}; run pnpm contracts:types`)
+    process.exit(1)
+  }
+}
+else {
+  writeFileSync(OUTPUT, generated)
+}

@@ -55,16 +55,16 @@ describe('doctor on a harness command that is not a package script', () => {
     expect(result?.harness).toEqual({ command: 'make check', state: 'unknown' })
     expect(result?.harnessProblems).toEqual([])
     expect(result?.ok).toBe(true)
-    expect(plainOutput(result as DoctorResult)).toContain('`make check` is not a package script')
+    expect(plainOutput(result as DoctorResult)).toContain('nothing observed `make check` running this repository\'s own verification surface')
   })
 
   it('still checks a package-manager command against the package.json scripts', () => {
     const missing = runDoctor(repositoryWith('pnpm run quality', null))
-    expect(missing?.harness).toEqual({ command: 'pnpm run quality', state: 'checked' })
+    expect(missing?.harness).toEqual({ command: 'pnpm run quality', state: 'unknown' })
     expect(missing?.harnessProblems).toEqual(['package.json is missing'])
     expect(missing?.ok).toBe(false)
     const present = runDoctor(repositoryWith('npm run quality', { scripts: { quality: 'eslint .' } }))
-    expect(present?.harness).toEqual({ command: 'npm run quality', state: 'checked' })
+    expect(present?.harness).toEqual({ command: 'npm run quality', state: 'unknown' })
     expect(present?.harnessProblems).toEqual([])
   })
 
