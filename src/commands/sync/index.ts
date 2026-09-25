@@ -1,6 +1,6 @@
 import type { PathClass, PathClassification } from '../../sync/classify.js'
 import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
-import { readManifest, recordSync, writeManifest } from '../../manifest.js'
+import { blocksWrittenWith, readManifest, recordSync, writeManifest } from '../../manifest.js'
 import { applyPlan } from '../../materialize/apply.js'
 import { PATH_CLASSES } from '../../sync/classify.js'
 import { replay } from '../../sync/replay.js'
@@ -51,6 +51,7 @@ export function applySync(root: string, version: string): SyncApplyReport | null
       toVersion: version,
       files: Object.fromEntries(writes.map(write => [write.target, write.ownedSha])),
       variants: Object.fromEntries(writes.flatMap(write => (write.variant == null ? [] : [[write.target, write.variant] as const]))),
+      blocks: blocksWrittenWith(Object.fromEntries(writes.filter(write => write.strategy === 'append-block').map(write => [write.target, write.ownedSha])), manifest.vars),
     }))
   }
 

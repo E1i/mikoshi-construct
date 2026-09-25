@@ -43,6 +43,8 @@ marker your repository has never filled, not because a sync ran.
 | `conflict` | Nothing, unless you want to. The file diverged from what was recorded, and which version is right is your decision. Diff it against the template if you want to see what you are declining. |
 | `merge-json` keys | Apply them by hand. `package.json` is compared key by key and never written — a new script or a moved dependency range is shown as a key so you can copy it. |
 | `unknown` | Leave it. On a repository materialized before 0.3.0 nothing records which template variant wrote the construct block, so `sync` will not write it — now or later. Editing the block by hand is the way to take the new form. |
+| `block-edited` | Nothing, unless you want to. The construct block differs from the block the last write recorded, so someone edited it; `sync` never overwrites it. |
+| `record-vars-edited` | Put the value back. The block is what the last write recorded, but a value under `vars` in `construct.json` differs from the one it was written with. Restore the recorded value, or run `construct init` again to re-render with the new one. |
 | `removed` | Nothing. A path you deleted stays deleted; `sync` never puts it back. |
 | `orphaned` | Nothing is required. The construct wrote it once and no longer produces it; keeping it costs nothing and deleting it is your call. |
 

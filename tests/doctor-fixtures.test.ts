@@ -130,6 +130,7 @@ function materializeFixture(name: string, options: FixtureOptions = {}): string 
     review: 'none',
     vars: VARS,
     written,
+    ownedShas: {},
     contracts: false,
     previous: null,
     policy: null,

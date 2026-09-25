@@ -160,7 +160,7 @@ describe('the replay renders with the variables the manifest recorded', () => {
 
     const stamped = replay({ root: dir, manifest, version: '99.0.0', facts: factsTheRepositoryEstablishes(dir) }).classifications.filter(entry => entry.class !== 'keep')
     expect(stamped.map(entry => entry.target)).toEqual(['AGENTS.md'])
-    expect(stamped[0].class).toBe('update')
+    expect(stamped[0].class).toBe('template-moved-on')
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain(`v${VERSION}`)
   })
 })

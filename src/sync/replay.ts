@@ -5,7 +5,7 @@ import type { PathClassification } from './classify.js'
 import type { EstablishedVariant } from './variant.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { recordedShas, recordedVariants } from '../manifest.js'
+import { recordedBlocks, recordedShas, recordedVariants } from '../manifest.js'
 import { NO_TREE_TO_PLAN_AGAINST, planMaterialize } from '../materialize/plan.js'
 import { sampleWasMaterialized } from '../materialize/sample.js'
 import { strategyFor } from '../materialize/strategies.js'
@@ -145,6 +145,6 @@ export function replay(input: ReplayInput): ReplayReport {
     present,
     produced,
     variants,
-    classifications: classifyRepository({ recorded, present, produced, variants }),
+    classifications: classifyRepository({ recorded, present, produced, variants, blocks: recordedBlocks(input.manifest), vars: input.manifest.vars }),
   }
 }

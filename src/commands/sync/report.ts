@@ -20,7 +20,7 @@ export const SYNC_JSON_SCHEMA_VERSION = 1
 
 export const SYNC_NO_MANIFEST_JSON = { schemaVersion: SYNC_JSON_SCHEMA_VERSION, state: 'no-manifest' } as const
 
-export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'conflict', 'unknown', 'removed', 'orphaned']
+export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'template-moved-on', 'conflict', 'block-edited', 'record-vars-edited', 'unknown', 'removed', 'orphaned']
 
 const CLASS_COLUMN = Math.max(...PATH_CLASSES.map(value => value.length)) + 2
 
@@ -62,11 +62,11 @@ function note(ui: Ui, entry: PathClassification): string {
     return keys.length === 0 ? '' : ui.lore.syncMergedKeys(keys)
   }
   if (entry.class === 'unknown')
-    return ui.lore.syncVariantUnknown(entry.shape ?? '')
+    return `${ui.lore.syncVariantUnknown(entry.shape ?? '')}; ${ui.lore.syncRecordPredatesBlockFields}`
   return entry.writeEffect == null ? '' : ui.lore.syncWriteEffect[entry.writeEffect] ?? ''
 }
 
-const COUNT_ORDER: PathClass[] = ['add', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'keep', 'foreign']
+const COUNT_ORDER: PathClass[] = ['add', 'update', 'template-moved-on', 'conflict', 'block-edited', 'record-vars-edited', 'unknown', 'removed', 'orphaned', 'keep', 'foreign']
 
 function printCounts(ui: Ui, report: SyncReport): void {
   ui.line(ui.theme.accent(ui.lore.syncClasses))

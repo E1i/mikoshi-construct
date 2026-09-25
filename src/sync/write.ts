@@ -5,7 +5,7 @@ import { substituteBlock } from '../materialize/strategies.js'
 import { isWritable } from './classify.js'
 import { ownedSha } from './ownership.js'
 
-export const PENDING_CLASSES: PathClass[] = ['add', 'update']
+export const PENDING_CLASSES: PathClass[] = ['add', 'update', 'template-moved-on']
 
 export interface PlannedWrite {
   target: string

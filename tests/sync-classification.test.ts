@@ -24,6 +24,9 @@ const OWNER_TEXT = 'what the owner wrote instead\n'
 
 const RECORDED_SHA = ownedSha(TARGET, RECORDED_TEXT)
 
+const WRITTEN_WITH = { projectName: 'scratch' }
+const WRITTEN_BLOCK = { ownedSha: ownedSha(BLOCK_TARGET, block('yesterday')), vars: WRITTEN_WITH }
+
 interface Row {
   cell: string
   state: PathState
@@ -60,6 +63,21 @@ const ROWS: Row[] = [
     cell: 'recorded yes, present yes, produced yes \u2014 a block target no evidence settles the variant of',
     state: { target: BLOCK_TARGET, recordedSha: RECORDED_SHA, present: block('yesterday'), produced: block('today'), variant: null },
     expected: 'unknown',
+  },
+  {
+    cell: 'recorded yes, present yes, produced yes \u2014 a block target whose recorded block differs from the block present',
+    state: { target: BLOCK_TARGET, recordedSha: RECORDED_SHA, present: block('by hand'), produced: block('today'), variant: ESTABLISHED, block: WRITTEN_BLOCK, vars: WRITTEN_WITH },
+    expected: 'block-edited',
+  },
+  {
+    cell: 'recorded yes, present yes, produced yes \u2014 a block target written as recorded whose record vars moved since',
+    state: { target: BLOCK_TARGET, recordedSha: RECORDED_SHA, present: block('yesterday'), produced: block('today'), variant: ESTABLISHED, block: WRITTEN_BLOCK, vars: { projectName: 'renamed' } },
+    expected: 'record-vars-edited',
+  },
+  {
+    cell: 'recorded yes, present yes, produced yes \u2014 a block target and record as written, the template renders differently',
+    state: { target: BLOCK_TARGET, recordedSha: RECORDED_SHA, present: block('yesterday'), produced: block('today'), variant: ESTABLISHED, block: WRITTEN_BLOCK, vars: WRITTEN_WITH },
+    expected: 'template-moved-on',
   },
   {
     cell: 'recorded yes, present no, produced yes',
@@ -195,10 +213,10 @@ describe('what sync may write is decided by the strategy, not by the class alone
       expect(isWritable({ target: 'package.json', strategy: 'merge-json', class: value, keys: [], writeEffect: null })).toBe(false)
   })
 
-  it('lets only add and update through for a file the construct writes whole or by block', () => {
+  it('lets only add, update and template-moved-on through for a file the construct writes whole or by block', () => {
     for (const strategy of ['create', 'append-block'] as const) {
       const writable = PATH_CLASSES.filter(value => isWritable({ target: 'x', strategy, class: value, keys: [], writeEffect: null }))
-      expect(writable).toEqual(['add', 'update'])
+      expect(writable).toEqual(['add', 'update', 'template-moved-on'])
     }
   })
 

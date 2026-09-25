@@ -182,6 +182,7 @@ it is read and never written back.
 | `harness`, `report`, `contracts`, `vars` | The harness command, the contract paths and the resolved template variables. |
 | `files` | One sha256 per file that run declared writing. |
 | `variants` | For each `append-block` target, which template form wrote it: `default` where the construct created the file, `existing` where the file was already there. |
+| `blocks` | For each `append-block` target the run wrote, the sha256 of the construct block's owned view (discovery bodies left out) and a snapshot of the `vars` it was written with, so `sync` can tell an edited block from an edited record. Measured at the write and never back-filled: a record from before manifest version 6 carries none. |
 | `policy` | The workspace import policy as structure, not as rendered source: one entry per package directory naming what it may import. What a run renders into `eslint.config.mjs` follows this, never the other way round. |
 | `discovery` | Where each marker lives, and who wrote it. |
 

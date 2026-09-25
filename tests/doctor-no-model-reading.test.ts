@@ -36,6 +36,7 @@ function repository(withModel: boolean): string {
     review: 'none',
     vars: VARS,
     written: [],
+    ownedShas: {},
     contracts: false,
     previous: null,
     policy: null,
