@@ -56,7 +56,7 @@ function runPinnedInit(presetId: PresetId, ai: AiTarget): string {
   const dir = scratch()
   const vars = presetVars(dir, presetId)
   const written = materialize(dir, presetId, ai, vars)
-  writeManifest(dir, buildManifest({ version: PINNED_VARS.constructVersion, preset: presetId, ai, review: 'none', vars, written, contracts: getPreset(presetId).contracts, previous: null, policy: null }))
+  writeManifest(dir, buildManifest({ version: PINNED_VARS.constructVersion, preset: presetId, ai, review: 'none', vars, written, ownedShas: {}, contracts: getPreset(presetId).contracts, previous: null, policy: null }))
   writeModel(dir, buildModel({ vars, contracts: getPreset(presetId).contracts, sample: sampleGroups(getPreset(presetId)).length > 0 }))
   return dir
 }

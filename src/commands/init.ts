@@ -14,9 +14,14 @@ import { repositoryCarriesTheSample } from '../materialize/sample.js'
 import { withoutStillbornClaims } from '../model/birth.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
 import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, keysGivenADefault, PRESET_LIST, sampleGroups, sampleMounts, workspacePackagesFor } from '../presets/index.js'
+import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { printDetectReport } from './soulkill.js'
+
+function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
+  return Object.fromEntries(written.filter(op => op.strategy === 'append-block').map(op => [op.target, ownedSha(op.target, op.content)]))
+}
 
 export interface InitOptions {
   dir: string
@@ -370,7 +375,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const changing = applied.filter(op => changesTheTree(root, op))
   const next = nextStepAfter(changing, vars)
   const written = applyPlan(root, plan.ops)
-  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, contracts: preset.contracts, previous, policy })
+  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, ownedShas: ownedShasOfBlocks(written), contracts: preset.contracts, previous, policy })
   writeManifest(root, manifest)
   const sample = sampleIsHere({ preset, vars, ai, review, omittedGroups: plan.omittedGroups, previous })
   const born = withoutStillbornClaims(buildModel({ vars, contracts: preset.contracts, sample }), existingModel, root)

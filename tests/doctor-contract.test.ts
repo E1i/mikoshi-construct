@@ -34,6 +34,7 @@ function emittedResult(): Record<string, unknown> {
     review: 'none',
     vars: VARS,
     written: [{ target: 'package.json', strategy: 'create', action: 'create', content }],
+    ownedShas: {},
     contracts: false,
     previous: null,
     policy: null,

@@ -28,7 +28,7 @@ function scratch(): string {
 }
 
 function currentManifest() {
-  return buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false, previous: null, policy: null })
+  return buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], ownedShas: {}, contracts: false, previous: null, policy: null })
 }
 
 function legacyRoot(): string {
@@ -106,6 +106,7 @@ describe('the manifest records what sync wrote, beside what init wrote', () => {
       toVersion: VARS.constructVersion,
       files: { 'AGENTS.md': 'sync-sha-of-agents' },
       variants: { 'AGENTS.md': 'existing' },
+      blocks: {},
     }
     return manifest
   }
@@ -149,7 +150,7 @@ describe('recording a sync run in the manifest', () => {
     before.construct = '0.1.0'
     const after = recordSync(before, { ranAt: RAN_AT, toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' }, variants: { 'AGENTS.md': 'existing' } })
 
-    expect(after.sync).toEqual({ ranAt: RAN_AT, fromVersion: '0.1.0', toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' }, variants: { 'AGENTS.md': 'existing' } })
+    expect(after.sync).toEqual({ ranAt: RAN_AT, fromVersion: '0.1.0', toVersion: VARS.constructVersion, files: { 'AGENTS.md': 'owned-sha' }, variants: { 'AGENTS.md': 'existing' }, blocks: {} })
     expect({ ...after, sync: null }).toEqual({ ...before, sync: null })
     expect(before.sync).toBeNull()
   })

@@ -35,6 +35,7 @@ function repositoryWith(harnessCommand: string, packageJson: Record<string, unkn
     review: 'none',
     vars: { ...VARS, harnessCommand },
     written: [],
+    ownedShas: {},
     contracts: false,
     previous: null,
     policy: null,

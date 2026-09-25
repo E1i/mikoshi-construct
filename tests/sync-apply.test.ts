@@ -142,7 +142,7 @@ describe('what sync plans to write', () => {
     return `# Mine\n\nprose\n\n${BLOCK_BEGIN}\n${body}\n${BLOCK_END}\n`
   }
 
-  it('plans a write exactly where isWritable holds: add and update, create and append-block, never a merged target', () => {
+  it('plans a write exactly where isWritable holds: add, update and template-moved-on, create and append-block, never a merged target', () => {
     for (const value of PATH_CLASSES) {
       for (const [strategy, target] of Object.entries(STRATEGY_TARGET) as [Strategy, string][]) {
         const classification: PathClassification = { target, strategy, class: value, keys: [], writeEffect: null }
@@ -150,10 +150,11 @@ describe('what sync plans to write', () => {
         const produced = { [target]: strategy === 'append-block' ? blockDocument('new') : 'produced' }
         const plan = planWrites({ classifications: [classification], present, produced })
 
-        const writable = (value === 'add' || value === 'update') && strategy !== 'merge-json'
+        const pending = ['add', 'update', 'template-moved-on'].includes(value)
+        const writable = pending && strategy !== 'merge-json'
         expect(isWritable(classification), `${value} ${strategy}`).toBe(writable)
         expect(plan.writes.map(write => write.target), `${value} ${strategy}`).toEqual(writable ? [target] : [])
-        expect(plan.refused.map(entry => entry.target), `${value} ${strategy}`).toEqual(writable || !['add', 'update'].includes(value) ? [] : [target])
+        expect(plan.refused.map(entry => entry.target), `${value} ${strategy}`).toEqual(writable || !pending ? [] : [target])
       }
     }
   })

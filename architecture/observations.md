@@ -26,6 +26,38 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-25 · Blindspot's first catch was its own decision claiming more than the code
+
+**Observed.** The first thing the Blindspot work (#213) caught was not drift in a repository. It was
+a mismatch between [decision 0032](decisions/0032-a-record-carries-what-it-was-written-with.md) and
+the code that implements it. The ladder implemented the code first, and the decision's text was then
+checked against it clause by clause. Three clauses said more than the code does:
+
+- **Pre-6 records.** The decision said a pre-6 record "stays `unknown` for its append-block targets".
+  The code keeps the reading such a record already had: `keep` or `update` wherever the variant is
+  recorded or established, and `unknown` only where nothing settles it. Taken literally, the text
+  would have stopped `sync --apply` from updating the block in every repository whose record predates
+  version 6.
+- **The template moved on.** This state was defined as "the block matches neither". Under the
+  decision's own first rule, that condition is *the block was edited*. The code reads *the template
+  moved on* only when the block matches its recorded sha and the `vars` match the snapshot.
+- **The record's `vars` were edited.** This state was defined by the block matching "what those old
+  `vars` would render". The code compares the block with its recorded sha and renders nothing, which
+  is what the decision's own first field promises.
+
+The decision was narrowed to the code in the same change that ships the code, so the two reach `main`
+in one commit.
+
+**The class.** This is the system lying to itself: a record that tells readers what the tool does,
+written before the tool existed and never checked against it. It was accepted and merged a day before
+the code, and nothing could have failed on it. The decision's "Enforced by" section names tests for
+the states, and those tests check the code, not the prose that describes it. Only reading the decision
+against the finished code found the three clauses.
+
+**What it supports.** One occurrence. It says that one decision merged ahead of its implementation
+claimed more than the implementation does. It says nothing about how often that happens, or about any
+other decision.
+
 ## 2026-09-24 · In the "d4" case the record drifted, not the block
 
 **Observed.** `AGENTS.md` carried "working on d4" inside the construct's own block, while

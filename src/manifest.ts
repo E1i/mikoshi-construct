@@ -8,7 +8,7 @@ import { DEFAULT_COMPOSITION_DIR } from './detect/existing.js'
 import { RecordAheadOfReader } from './record-ahead.js'
 
 export const MANIFEST_FILE = 'construct.json'
-export const MANIFEST_VERSION = 5
+export const MANIFEST_VERSION = 6
 
 export const DISCOVERY_MARKERS = [
   'product',
@@ -35,12 +35,18 @@ export interface DiscoveryRecord {
   markers: Record<DiscoveryMarker, MarkerProvenance>
 }
 
+export interface BlockRecord {
+  ownedSha: string
+  vars: Record<string, string>
+}
+
 export interface SyncRecord {
   ranAt: string
   fromVersion: string
   toVersion: string
   files: Record<string, string>
   variants: Record<string, TemplateVariant>
+  blocks: Record<string, BlockRecord>
 }
 
 export interface PolicyRecord {
@@ -60,6 +66,7 @@ export interface Manifest {
   vars: Record<string, string>
   files: Record<string, string>
   variants: Record<string, TemplateVariant>
+  blocks: Record<string, BlockRecord>
   discovery: DiscoveryRecord
   sync: SyncRecord | null
   policy: PolicyRecord | null
@@ -87,6 +94,7 @@ export function buildManifest(input: {
   review: ReviewProvider
   vars: TemplateVars
   written: FileOp[]
+  ownedShas: Record<string, string>
   contracts: boolean
   previous: Manifest | null
   policy: WorkspaceImports | null
@@ -113,6 +121,7 @@ export function buildManifest(input: {
     vars: input.vars,
     files,
     variants: { ...input.previous?.variants, ...variantsOf(input.written) },
+    blocks: { ...input.previous?.blocks, ...blocksWrittenWith(input.ownedShas, input.vars) },
     discovery: input.previous?.discovery ?? { baseSha: null, filledAt: null, markers },
     sync: input.previous?.sync ?? null,
     policy: input.policy == null ? input.previous?.policy ?? null : { workspaceImports: input.policy },
@@ -121,6 +130,20 @@ export function buildManifest(input: {
 
 function variantsOf(written: FileOp[]): Record<string, TemplateVariant> {
   return Object.fromEntries(written.flatMap(op => (op.variant == null ? [] : [[op.target, op.variant] as const])))
+}
+
+export function blocksWrittenWith(ownedShas: Record<string, string>, vars: Record<string, string>): Record<string, BlockRecord> {
+  return Object.fromEntries(Object.entries(ownedShas).map(([target, ownedSha]) => [target, { ownedSha, vars: { ...vars } }]))
+}
+
+function isBlockRecord(value: unknown): value is BlockRecord {
+  const candidate = value as Partial<BlockRecord> | null
+  return typeof candidate?.ownedSha === 'string' && typeof candidate.vars === 'object' && candidate.vars != null
+}
+
+function upgradeBlocks(raw: unknown): Record<string, BlockRecord> {
+  const value = (raw ?? {}) as Record<string, unknown>
+  return Object.fromEntries(Object.entries(value).flatMap(([target, block]) => (isBlockRecord(block) ? [[target, { ownedSha: block.ownedSha, vars: { ...block.vars } }] as const] : [])))
 }
 
 function isTemplateVariant(value: unknown): value is TemplateVariant {
@@ -161,6 +184,7 @@ function upgradeSync(raw: unknown): SyncRecord | null {
     toVersion: value.toVersion,
     files: typeof value.files === 'object' && value.files != null ? { ...value.files } : {},
     variants: upgradeVariants(value.variants),
+    blocks: upgradeBlocks(value.blocks),
   }
 }
 
@@ -184,6 +208,7 @@ export function upgradeManifest(raw: unknown): Manifest {
     ...manifest,
     manifestVersion: MANIFEST_VERSION,
     variants: upgradeVariants(manifest.variants),
+    blocks: upgradeBlocks(manifest.blocks),
     discovery: {
       baseSha: typeof discovery.baseSha === 'string' ? discovery.baseSha : null,
       filledAt: typeof discovery.filledAt === 'string' ? discovery.filledAt : null,
@@ -194,7 +219,7 @@ export function upgradeManifest(raw: unknown): Manifest {
   }
 }
 
-export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: string, files: Record<string, string>, variants?: Record<string, TemplateVariant> }): Manifest {
+export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: string, files: Record<string, string>, variants?: Record<string, TemplateVariant>, blocks?: Record<string, BlockRecord> }): Manifest {
   return {
     ...manifest,
     sync: {
@@ -203,6 +228,7 @@ export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: 
       toVersion: run.toVersion,
       files: { ...manifest.sync?.files, ...run.files },
       variants: { ...manifest.sync?.variants, ...run.variants },
+      blocks: { ...manifest.sync?.blocks, ...run.blocks },
     },
   }
 }
@@ -213,6 +239,10 @@ export function recordedShas(manifest: Manifest): Record<string, string> {
 
 export function recordedVariants(manifest: Manifest): Record<string, TemplateVariant> {
   return { ...manifest.variants, ...manifest.sync?.variants }
+}
+
+export function recordedBlocks(manifest: Manifest): Record<string, BlockRecord> {
+  return { ...manifest.blocks, ...manifest.sync?.blocks }
 }
 
 export function writeManifest(root: string, manifest: Manifest): void {

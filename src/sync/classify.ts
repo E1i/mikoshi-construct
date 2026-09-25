@@ -1,11 +1,12 @@
+import type { BlockRecord } from '../manifest.js'
 import type { Strategy } from '../materialize/strategies.js'
 import type { TemplateVariant } from '../materialize/templates.js'
 import type { OwnedKey } from './ownership.js'
 import type { EstablishedVariant } from './variant.js'
 import { strategyFor } from '../materialize/strategies.js'
-import { blockSpansDocument, carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedText } from './ownership.js'
+import { blockSpansDocument, carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedSha, ownedText } from './ownership.js'
 
-export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'foreign'] as const
+export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'foreign', 'block-edited', 'record-vars-edited', 'template-moved-on'] as const
 
 export type PathClass = (typeof PATH_CLASSES)[number]
 
@@ -19,6 +20,8 @@ export interface PathState {
   present: string | null
   produced: string | null
   variant?: EstablishedVariant | null
+  block?: BlockRecord | null
+  vars?: Record<string, string>
 }
 
 export interface PathClassification {
@@ -36,6 +39,8 @@ export interface RepositoryState {
   present: Record<string, string>
   produced: Record<string, string>
   variants?: Record<string, EstablishedVariant>
+  blocks?: Record<string, BlockRecord>
+  vars?: Record<string, string>
 }
 
 function classFromKeys(keys: OwnedKey[]): PathClass {
@@ -50,6 +55,21 @@ function compareDeclaredBlock(target: string, present: string, produced: string,
   if (variant == null)
     return 'unknown'
   return ownedText(target, present) === ownedText(target, produced) ? 'keep' : 'update'
+}
+
+function sameVars(snapshot: Record<string, string>, current: Record<string, string>): boolean {
+  const keys = [...new Set([...Object.keys(snapshot), ...Object.keys(current)])]
+  return keys.every(key => snapshot[key] === current[key])
+}
+
+function compareRecordedBlock(target: string, present: string, produced: string, block: BlockRecord, vars: Record<string, string>): PathClass {
+  if (!carriesConstructBlock(target, present))
+    return 'conflict'
+  if (ownedSha(target, present) !== block.ownedSha)
+    return 'block-edited'
+  if (!sameVars(block.vars, vars))
+    return 'record-vars-edited'
+  return ownedText(target, present) === ownedText(target, produced) ? 'keep' : 'template-moved-on'
 }
 
 function shapeSuggests(target: string, present: string): TemplateVariant {
@@ -97,13 +117,16 @@ export function classifyPath(state: PathState): PathClassification | null {
   if (recordedSha == null)
     return classified('conflict')
 
+  if (strategy === 'append-block' && state.block != null)
+    return classified(compareRecordedBlock(target, present, produced, state.block, state.vars ?? {}))
+
   if (strategy === 'append-block')
     return classified(compareDeclaredBlock(target, present, produced, variant))
 
   return classified(compareOwnedView(target, recordedSha, present, produced))
 }
 
-const WRITABLE_CLASSES = new Set<PathClass>(['add', 'update'])
+const WRITABLE_CLASSES = new Set<PathClass>(['add', 'update', 'template-moved-on'])
 const WRITABLE_STRATEGIES = new Set<Strategy>(['create', 'append-block'])
 
 function willBeWritten(strategy: Strategy, value: PathClass): boolean {
@@ -127,6 +150,8 @@ export function classifyRepository(state: RepositoryState): PathClassification[]
       present: state.present[target] ?? null,
       produced: state.produced[target] ?? null,
       variant: state.variants?.[target] ?? null,
+      block: state.blocks?.[target] ?? null,
+      vars: state.vars,
     })
     return classification == null ? [] : [classification]
   })

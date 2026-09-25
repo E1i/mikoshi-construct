@@ -36,7 +36,7 @@ function repositoryAfterDiscovery(bodies: Record<string, string>, written: Recor
   writeFileSync(path.join(root, 'AGENTS.md'), agentsWith(bodies))
   mkdirSync(path.join(root, 'architecture/composition'), { recursive: true })
   writeFileSync(path.join(root, 'architecture/composition/app.yaml'), 'id: app\n')
-  const manifest = buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false, previous: null, policy: null })
+  const manifest = buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], ownedShas: {}, contracts: false, previous: null, policy: null })
   for (const [marker, body] of Object.entries(written))
     manifest.discovery.markers[marker as 'product'] = { file: 'AGENTS.md', authoredBy: 'construct', sha: sha256(body) }
   manifest.discovery.markers.composition = { file: 'architecture/composition', authoredBy: 'construct', sha: sha256('app.yaml\nid: app\n') }
@@ -49,7 +49,7 @@ function repositoryAfterDiscovery(bodies: Record<string, string>, written: Recor
 function repositoryWithOneMarkerRecorded(marker: DiscoveryMarker, wrote: string, bodyNow: string): string {
   const root = mkdtempSync(path.join(tmpdir(), 'construct-provenance-'))
   writeFileSync(path.join(root, 'AGENTS.md'), agentsWith({ [marker]: bodyNow }))
-  const manifest = buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], contracts: false, previous: null, policy: null })
+  const manifest = buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], ownedShas: {}, contracts: false, previous: null, policy: null })
   manifest.discovery.markers[marker] = { file: 'AGENTS.md', authoredBy: 'construct', sha: sha256(wrote) }
   manifest.discovery.baseSha = 'c0ffee'
   manifest.discovery.filledAt = '2026-09-17T00:00:00.000Z'

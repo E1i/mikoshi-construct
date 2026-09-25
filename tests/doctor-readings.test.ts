@@ -89,6 +89,7 @@ function materialized(): string {
     review: 'none',
     vars: MANIFEST_VARS,
     written: [{ target: 'package.json', strategy: 'create', action: 'create', content }],
+    ownedShas: {},
     contracts: false,
     previous: null,
     policy: null,
