@@ -1,4 +1,5 @@
 import type { Manifest } from '../../manifest.js'
+import type { StageFinding } from '../../model/state.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { FileReadings } from './readings.js'
@@ -14,7 +15,16 @@ export interface HarnessFacts {
 const SCRIPT_REFERENCE = /(?:^|&&|\|\||;)\s*(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)/g
 const PACKAGE_SCRIPT_COMMAND = /^(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)$/
 
-export type HarnessState = 'checked' | 'unknown'
+export const HARNESS_STATES = ['checked', 'does-not-cover', 'unknown'] as const
+export type HarnessState = (typeof HARNESS_STATES)[number]
+
+export const HARNESS_COVERAGE_CLAIM = 'harness-covers-target'
+
+const HARNESS_STATE_OF: Record<StageFinding['state'], HarnessState> = {
+  held: 'checked',
+  unsupported: 'does-not-cover',
+  unknown: 'unknown',
+}
 
 export interface HarnessReading {
   command: string
@@ -62,8 +72,8 @@ function missingContractFiles(root: string, contracts: Manifest['contracts']): s
     .map(file => `${file} is missing (construct.json → contracts)`)
 }
 
-export function harnessReading(facts: HarnessFacts): HarnessReading {
-  return { command: facts.command, state: facts.script == null ? 'unknown' : 'checked' }
+export function harnessReading(command: string, coverage: StageFinding | undefined): HarnessReading {
+  return { command, state: coverage === undefined ? 'unknown' : HARNESS_STATE_OF[coverage.state] }
 }
 
 export function harnessProblems(root: string, manifest: Manifest, facts: HarnessFacts, readings: FileReadings = new FileReadings(root)): string[] {

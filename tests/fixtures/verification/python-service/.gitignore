@@ -1,0 +1,17 @@
+__pycache__/
+.venv/
+.pytest_cache/
+
+# construct:begin
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+.eslintcache
+.DS_Store
+.env
+.env.*
+!.env.example
+.construct/
+# construct:end

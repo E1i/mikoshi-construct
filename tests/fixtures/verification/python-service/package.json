@@ -1,0 +1,33 @@
+{
+  "name": "example-assets",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@12.4.2",
+  "scripts": {
+    "build": "echo building static assets",
+    "dev": "pnpm --filter @py-svc-assets/api dev",
+    "contracts:lint": "redocly lint",
+    "contracts:types": "node scripts/contracts/types.mjs",
+    "contracts:check": "pnpm contracts:lint && node scripts/contracts/types.mjs --check",
+    "quality": "pnpm contracts:check && pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test",
+    "composition:render": "tsx scripts/composition/sync-docs.ts",
+    "composition:check": "tsx scripts/composition/check.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci": "pnpm run quality"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "catalog:",
+    "@redocly/cli": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "openapi-typescript": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "yaml": "catalog:"
+  }
+}

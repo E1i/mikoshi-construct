@@ -287,13 +287,22 @@ false only when what `init` installed changed. Whether the harness command reall
 knowledge — the owner's `package.json` can drop `pnpm lint` with no construct file touched — so it
 is the `harness-steps` claim, rendered as a verdict like any other.
 
-`harness` names the command `construct.json` recorded and how far `doctor` could read it. A command of
-the form `pnpm`, `npm`, `yarn` or `bun`, optionally `run`, then one script name is a package script:
-its `state` is `checked`, and `harnessProblems` says whether `package.json` still carries that script.
-Any other command — `make check`, a shell script, a chain of several — is not a package script, and
-`doctor` executes nothing, so it cannot check it statically: its `state` is `unknown`, the output
-names the command, and neither a missing `package.json` nor a missing script is reported against it.
-`unknown` never makes `ok` false.
+`harness` names the command `construct.json` recorded and whether anything observed it running this
+repository's own verification surface ([decision 0033](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0033-checked-means-the-target-was-verified.md)).
+Its `state` is the projection of the verification stage of the claim `harness-covers-target`, which
+only discovery writes: the construct never does. That stage stands on a `report-covers` fact — a
+runner's report and the surface globs, minus every path `construct.json` records as the construct's
+own.
+
+| `state` | Meaning |
+|---|---|
+| `checked` | The report lists at least one surface file as executed. A failed file was run; a skipped one was not. Whether the harness passes is not said. |
+| `does-not-cover` | The report is complete, newer than every surface file, every entry in it maps to a repository path, and none of the surface files was executed. |
+| `unknown` | Anything else: no `harness-covers-target`, no report, a report older than a surface file, an entry that maps to no repository path, or a surface that matches no file. |
+
+`checked` no longer means the command is a package script. Whether `package.json` still carries the
+recorded script is `harnessProblems`, unchanged. Neither `does-not-cover` nor `unknown` makes `ok`
+false.
 
 That move changes what is rendered and not what is exited on: **a harness that no longer runs lint
 is an unsupported claim, not a problem**, and it leaves `ok` exactly where it was, because `ok`
@@ -1294,7 +1303,7 @@ npx mikoshi-construct graph --out picture.html
 That file is the whole picture. The graph is an inline SVG drawn from the same structure the Mermaid
 is serialized from, the styling is inline, and **nothing is fetched when you open it** — no CDN, no
 script, no network of any kind, from a `file://` URL or anywhere else. It is a few kilobytes, and it
-carries a legend for the three states and the state of each entry in the entry itself, in its colour
+carries a legend for the four classes — the three states and `runtime-report` — and the state of each entry in the entry itself, in its colour
 and in its own words. Under that legend the page says what the colour is **not**, and this reference
 repeats that line rather than restating it: *Colour carries the derived state and not the enforcement
 level: the same green covers an L0 claim nobody is obliged to read and an L3 claim that fails the
@@ -1304,7 +1313,9 @@ build, and each claim’s level is written inside it.*
 the file is written afterwards. Where a reading draws nothing, no file is written either.
 
 The states in the labels are the ones `doctor` reports, derived on read by the same code and stored
-nowhere. A claim carries its declared enforcement level and the state of each stage, a hypothesis
+nowhere, with one named exception: a fact of kind `report-covers` or `report-misses`, and every
+claim or hypothesis that names one, is drawn as `runtime-report` and never evaluated, because a
+report is written per run and never committed. `doctor` reads it at run time. A claim carries its declared enforcement level and the state of each stage, a hypothesis
 carries its state, and a fact carries whether it holds where it was read. A fact several entries
 stand on is drawn once, with one edge from each of them. `held` is not proof that the level is right,
 `unsupported` says the named evidence no longer matches and nothing more, and `unknown` says nothing

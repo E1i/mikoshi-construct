@@ -5,6 +5,7 @@ export interface ReportedTest {
   file: string
   titles: string[]
   failed: boolean
+  ran: boolean
 }
 
 export interface ReportedFile {
@@ -28,6 +29,7 @@ export interface Failure {
 }
 
 const FAILED = 'failed'
+const RAN = new Set(['passed', FAILED])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value)
@@ -56,7 +58,7 @@ function realpathOr(root: string): string {
 function reportedTest(file: string, value: unknown): ReportedTest | null {
   if (!isRecord(value) || !isStringList(value.ancestorTitles) || typeof value.title !== 'string' || typeof value.status !== 'string')
     return null
-  return { file, titles: [...value.ancestorTitles, value.title], failed: value.status === FAILED }
+  return { file, titles: [...value.ancestorTitles, value.title], failed: value.status === FAILED, ran: RAN.has(value.status) }
 }
 
 function reportedFile(root: string, value: unknown): ReportedFile | null {
@@ -103,6 +105,10 @@ export function failuresOf(report: TestReport): Failure[] {
       return [{ file: file.file, titles: null }]
     return failedTests
   })
+}
+
+export function wasExecuted(file: ReportedFile): boolean {
+  return file.failed || file.tests.some(test => test.ran)
 }
 
 export function testCount(report: TestReport): number {

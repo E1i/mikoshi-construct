@@ -1,0 +1,62 @@
+openapi: 3.1.0
+info:
+  title: py-svc-assets API
+  version: 0.1.0
+  description: What this service promises to its consumers. API changes start here; the implementation conforms to the contract and consumers read the generated types.
+security:
+  - {}
+servers:
+  - url: /
+    description: Same origin. Local development serves the contract on the port PORT names, 3000 by default.
+tags:
+  - name: public
+    description: Anonymous endpoints.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [public]
+      summary: Liveness
+      responses:
+        '200':
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: A dependency did not answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, service, time]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        service:
+          type: string
+        time:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string

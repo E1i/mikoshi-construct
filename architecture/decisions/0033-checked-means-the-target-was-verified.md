@@ -192,9 +192,9 @@ captured from a real run on that repository, not written by hand.
 | Clause | Witness (L3) | Wrong implementation it must catch |
 |---|---|---|
 | A green run of the construct's own tests is not `checked` (1) | ②a fixture, Vitest report, surface `tests/**/test_*.py` → `does-not-cover`. On `main` it reads `checked`, so the test is red today. | — |
-| The construct's own paths are never surface (1) | the same fixture with surface `**/*` → `unknown` (empty after subtraction), not `checked` | the subtraction removed → `checked` |
-| Skipped is not run (1) | the only surface entry in the report is skipped → `does-not-cover` | skipped entries counted as run → `checked` |
-| A failed element was run (1) | the surface entry failed → `checked` | outcome read instead of coverage → not `checked` |
+| The construct's own paths are never surface (1) | the same fixture with surface `**/*` → `does-not-cover`, not `checked`: the Python files remain after subtraction, and every file the real report executed is construct-recorded | the subtraction removed → `checked` |
+| Skipped is not run (1) | the Node fixture `tests/fixtures/verification/node-service`, whose only surface entry the report lists as skipped → `does-not-cover` | skipped entries counted as run → `checked` |
+| A failed element was run (1) | the same Node fixture, whose surface entry the report lists as failed → `checked` | outcome read instead of coverage → not `checked` |
 | `does-not-cover` never makes `ok` false (1) | the first row's fixture → `ok: true` | — |
 | No claim → `unknown` (4) | a fixture model without `harness-covers-target` → `unknown` | — |
 | The construct never writes the claim (4) | `init` on every available preset → the model carries no `harness-covers-target` | — |
@@ -206,7 +206,7 @@ captured from a real run on that repository, not written by hand.
 | `file-lacks` on a missing file is `unevaluable` (2) | missing file → `unknown`; file without needle → `held`; with needle → `unsupported` | a missing file read as `holds` → `held` |
 | `modelVersion` 2 (2) | a version 2 model read by a reader of version 1 → the ahead-of-reader state (0028); `contract:bump` over `formats.modelVersion` | — |
 | This repository reads `checked` on itself (Consequences) | a CI step writes the Vitest JSON report, runs `doctor --json` on this repository and fails unless `harness.state` is `checked` | the claim missing from this repository's model → `unknown`, and CI goes red |
-| Honesty on a non-Node repository (guarantee) | the ②a fixture never reads `checked`, and its coverage claim never reads `held`, under any of the rows above | — |
+| Honesty on a non-Node repository (guarantee) | on every variant of the ②a fixture in the rows above, `doctor` reads `does-not-cover` or `unknown` and never leaves its coverage claim `held`, and `construct graph` never draws that claim's verification `held` | — |
 
 **Not witnessed here, by design:** `checked` from a non-Node report. It is outside this record and is
 witnessed by the adapter that makes it reachable.

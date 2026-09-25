@@ -3,13 +3,16 @@ title: construct doctor composition
 description: >-
   `runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root, and it reads two
   separate authorities. From `construct.json`, through `upgradeManifest`, come the provenance
-  verdicts — baseline files, discovery markers, marker provenance, the harness script and contract
-  paths, the recorded tests the recorded runner config does not collect, and the version gap, which
+  verdicts — baseline files, discovery markers, marker provenance, the harness script steps and
+  contract paths, the construct's own recorded paths that a report fact's surface subtracts, the
+  recorded tests the recorded runner config does not collect, and the version gap, which
   replays today's templates through the sync engine's own classification and counts the paths a sync
   would add or update. From `construct.model.json` comes the knowledge family: every verdict renders
   a claim's enforcement, every hypothesis is read back against the facts named under it, and where
   the chain stops is the model's own `selectPath`, so `doctor` derives no state of its own and holds
-  none. A repository with no model gets no verdicts rather than an error. Both families fan into `printDoctor`, which states the boundary — nothing from the
+  none. `doctor` is the only reader that passes the recorded paths into the derivation, so it alone
+  reads a runner's report, and `harness.state` is the projection of the verification stage of the
+  claim `harness-covers-target`. A repository with no model gets no verdicts rather than an error. Both families fan into `printDoctor`, which states the boundary — nothing from the
   inspected repository is executed, so nothing is said about whether the harness passes — and ends
   with one you-are-here line. Provenance readings, the version gap and the knowledge family are
   reported, never gated: none sets an exit code, and a replay that cannot run leaves the count
@@ -55,7 +58,7 @@ nodes:
     path: src/commands/doctor/provenance.ts
     boundary: checks
   - id: harness
-    label: quality script steps · contract paths
+    label: harness.state from harness-covers-target's verification · quality script steps · contract paths
     path: src/commands/doctor/harness.ts
     boundary: checks
   - id: versionGap
@@ -89,6 +92,8 @@ edges:
   - {from: manifest, to: versionGap, kind: fan-out}
   - {from: manifest, to: uncollected, kind: fan-out}
   - {from: model, to: projection, kind: fan-out}
+  - {from: manifest, to: projection, kind: fan-out, label: recorded paths}
+  - {from: projection, to: harness, kind: sequence, label: harness-covers-target verification → harness.state}
   - {from: model, to: youAreHere, kind: fan-out}
   - {from: files, to: print, kind: fan-in}
   - {from: markers, to: print, kind: fan-in}

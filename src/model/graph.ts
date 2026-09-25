@@ -1,6 +1,7 @@
 import type { Claim, Fact, Hypothesis, RepositoryModel } from './schema.js'
 import type { ClaimStages, FactEvaluation, ModelStateReport, StageFinding } from './state.js'
 import { CHAIN_STAGES } from './path.js'
+import { REPORT_KINDS } from './schema.js'
 import { deriveModelState } from './state.js'
 
 export const PICTURE_READINGS = ['drawn', 'no-entry', 'no-model'] as const
@@ -32,12 +33,18 @@ export type PictureNodeKind = (typeof PICTURE_NODE_KINDS)[number]
 export const PICTURE_STATES = ['held', 'unsupported', 'unknown'] as const
 export type PictureState = (typeof PICTURE_STATES)[number]
 
+export const RUNTIME_REPORT = 'runtime-report'
+export type PictureClass = PictureState | typeof RUNTIME_REPORT
+export const PICTURE_CLASSES: readonly PictureClass[] = [...PICTURE_STATES, RUNTIME_REPORT]
+
+export const RUNTIME_REPORT_WORD = 'runtime report, read by doctor'
+
 export interface PictureNode {
   id: string
   entryId: string
   kind: PictureNodeKind
   lines: [string, ...string[]]
-  state: PictureState
+  state: PictureClass
 }
 
 export interface PictureEdge {
@@ -82,18 +89,49 @@ function stageWord(finding: StageFinding): string {
   return finding.state
 }
 
-function claimLines(claim: Claim, stages: ClaimStages): [string, ...string[]] {
+type ReportBacked = (supportedBy: readonly string[]) => boolean
+
+function reportBackedIn(model: RepositoryModel): ReportBacked {
+  const reportFacts = new Set(model.facts.filter(fact => REPORT_KINDS.includes(fact.kind)).map(fact => fact.id))
+  return supportedBy => supportedBy.some(id => reportFacts.has(id))
+}
+
+function claimLines(claim: Claim, stages: ClaimStages, reportBacked: ReportBacked): [string, ...string[]] {
   const level = claim.enforcement == null ? '' : `${claim.enforcement.level} `
-  return [claim.id, `enforcement ${level}${stageWord(stages.enforcement)}`, `verification ${stageWord(stages.verification)}`]
+  const word = (stage: 'enforcement' | 'verification'): string => reportBacked(claim[stage]?.supportedBy ?? []) ? RUNTIME_REPORT_WORD : stageWord(stages[stage])
+  return [claim.id, `enforcement ${level}${word('enforcement')}`, `verification ${word('verification')}`]
 }
 
-function hypothesisLines(hypothesis: Hypothesis, finding: StageFinding): [string, ...string[]] {
-  return [hypothesis.id, stageWord(finding)]
+function hypothesisLines(hypothesis: Hypothesis, finding: StageFinding, reportBacked: ReportBacked): [string, ...string[]] {
+  return [hypothesis.id, reportBacked(hypothesis.supportedBy) ? RUNTIME_REPORT_WORD : stageWord(finding)]
 }
 
-function factLines(fact: Fact, evaluation: FactEvaluation): [string, ...string[]] {
-  const needle = fact.needle == null ? '' : ` contains "${fact.needle}"`
-  return [`${fact.path}${needle}`, FACT_WORDS[evaluation]]
+function factSubject(fact: Fact): string {
+  if (fact.kind === 'file-contains')
+    return `${fact.path} contains "${fact.needle ?? ''}"`
+  if (fact.kind === 'file-lacks')
+    return `${fact.path} lacks "${fact.needle ?? ''}"`
+  if (fact.kind === 'report-covers')
+    return `${fact.path} covers ${(fact.surface ?? []).join(', ')}`
+  if (fact.kind === 'report-misses')
+    return `${fact.path} misses ${(fact.surface ?? []).join(', ')}`
+  return fact.path
+}
+
+function isReportFact(fact: Fact): boolean {
+  return REPORT_KINDS.includes(fact.kind)
+}
+
+function factLines(fact: Fact, derived: ModelStateReport): [string, ...string[]] {
+  return [factSubject(fact), isReportFact(fact) ? RUNTIME_REPORT_WORD : FACT_WORDS[derived.facts[fact.id] ?? 'unevaluable']]
+}
+
+function factClass(fact: Fact, derived: ModelStateReport): PictureClass {
+  return isReportFact(fact) ? RUNTIME_REPORT : FACT_STATES[derived.facts[fact.id] ?? 'unevaluable']
+}
+
+function claimNamesReport(claim: Claim, reportBacked: ReportBacked): boolean {
+  return CHAIN_STAGES.some(stage => reportBacked(claim[stage]?.supportedBy ?? []))
 }
 
 function worstOf(states: PictureState[]): PictureState {
@@ -106,28 +144,29 @@ export function graphOfModel(model: RepositoryModel, derived: ModelStateReport):
   const entries = mermaidIds('e', [...model.claims.map(claim => claim.id), ...model.hypotheses.map(hypothesis => hypothesis.id)])
   const facts = mermaidIds('f', model.facts.map(fact => fact.id))
   const stagesOf = (claim: Claim): ClaimStages => derived.claims[claim.id] ?? { enforcement: NOTHING_NAMED, verification: NOTHING_NAMED }
+  const reportBacked = reportBackedIn(model)
 
   const nodes: PictureNode[] = [
     ...model.claims.map((claim): PictureNode => ({
       id: entries.get(claim.id) ?? claim.id,
       entryId: claim.id,
       kind: 'claim',
-      lines: claimLines(claim, stagesOf(claim)),
-      state: worstOf([stagesOf(claim).enforcement.state, stagesOf(claim).verification.state]),
+      lines: claimLines(claim, stagesOf(claim), reportBacked),
+      state: claimNamesReport(claim, reportBacked) ? RUNTIME_REPORT : worstOf([stagesOf(claim).enforcement.state, stagesOf(claim).verification.state]),
     })),
     ...model.hypotheses.map((hypothesis): PictureNode => ({
       id: entries.get(hypothesis.id) ?? hypothesis.id,
       entryId: hypothesis.id,
       kind: 'hypothesis',
-      lines: hypothesisLines(hypothesis, derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED),
-      state: (derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED).state,
+      lines: hypothesisLines(hypothesis, derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED, reportBacked),
+      state: reportBacked(hypothesis.supportedBy) ? RUNTIME_REPORT : (derived.hypotheses[hypothesis.id] ?? NOTHING_NAMED).state,
     })),
     ...model.facts.map((fact): PictureNode => ({
       id: facts.get(fact.id) ?? fact.id,
       entryId: fact.id,
       kind: 'fact',
-      lines: factLines(fact, derived.facts[fact.id] ?? 'unevaluable'),
-      state: FACT_STATES[derived.facts[fact.id] ?? 'unevaluable'],
+      lines: factLines(fact, derived),
+      state: factClass(fact, derived),
     })),
   ]
 

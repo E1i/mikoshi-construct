@@ -1,0 +1,12 @@
+[project]
+name = "example-svc"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["django>=5", "flask>=3"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["services/web", "services/api"]

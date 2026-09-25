@@ -1,8 +1,8 @@
+import type { Failure } from '../../model/vitest-report.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { ApplyRefusal, ApplyResult } from './apply.js'
 import type { HardFailureCause, JudgeRefusal, JudgeResult } from './judge.js'
-import type { Failure } from './vitest-report.js'
 import { TEST_PATH_SEPARATOR } from './lines.js'
 import { copyPath } from './record.js'
 

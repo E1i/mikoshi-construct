@@ -1,7 +1,8 @@
 import type { Manifest } from '../../manifest.js'
 import { recordedShas } from '../../manifest.js'
+import { matchesAnyGlob } from '../../model/glob.js'
 import { FileReadings } from './readings.js'
-import { includeGlobs, matchesAnyGlob, RUNNER_CONFIG_FILES } from './runner.js'
+import { includeGlobs, RUNNER_CONFIG_FILES } from './runner.js'
 
 const TEST_FILE = /\.test\.[cm]?[jt]s$/
 

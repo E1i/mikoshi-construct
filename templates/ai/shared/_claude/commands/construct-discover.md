@@ -91,9 +91,10 @@ Work in this order:
     adopted answers both ways — a hypothesis standing on files the repository already committed reads
     `true`, one standing on a file `init` wrote reads `false`.
 
-    A fact is what code can look at without judgement, and there are two kinds and no third:
-    `file-exists` names a `path`, `file-contains` names a `path` and a literal `needle`. An
-    interpretation those two cannot support does not enter the model at all — it stays prose in the
+    A fact is what code can look at without judgement, and there are five kinds and no sixth:
+    `file-exists` names a `path`, `file-contains` and `file-lacks` name a `path` and a literal
+    `needle`, `report-covers` and `report-misses` name a runner's report as `path` and a `surface`
+    of globs. An interpretation those kinds cannot support does not enter the model at all — it stays prose in the
     marker where it belongs. *Service-oriented structure*, standing on four directories under `apps/`
     each holding a Dockerfile, is admissible; *the architecture is mature* is not. Where an
     interpretation looks as though it needs a third kind of fact, write that down under

@@ -1,4 +1,4 @@
-import type { ModelGraph, PictureNode, PictureNodeKind, PictureState } from './graph.js'
+import type { ModelGraph, PictureClass, PictureNode, PictureNodeKind } from './graph.js'
 
 const COLUMN_OF: Record<PictureNodeKind, number> = { claim: 0, hypothesis: 0, fact: 1 }
 const COLUMN_TITLES = ['Claims and hypotheses', 'Evidence']
@@ -203,8 +203,9 @@ export function svgFromGraph(graph: ModelGraph): string {
 
 export const COLOUR_IS_NOT_STRENGTH = 'Colour carries the derived state and not the enforcement level: the same green covers an L0 claim nobody is obliged to read and an L3 claim that fails the build, and each claim\u2019s level is written inside it.'
 
-export const STATE_LEGEND: Record<PictureState, string> = {
-  held: 'every fact named under it was read and holds',
-  unsupported: 'every fact was read and at least one does not hold',
-  unknown: 'no fact is named, or a named fact could not be read',
+export const STATE_LEGEND: Record<PictureClass, string> = {
+  'held': 'every fact named under it was read and holds',
+  'unsupported': 'every fact was read and at least one does not hold',
+  'unknown': 'no fact is named, or a named fact could not be read',
+  'runtime-report': 'stands on a runner\u2019s report, which doctor reads at run time and the picture never reads',
 }

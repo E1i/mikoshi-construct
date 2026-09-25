@@ -1,10 +1,10 @@
+import type { Failure, TestReport } from '../../model/vitest-report.js'
 import type { Prediction } from './lines.js'
 import type { MutationRecord } from './record.js'
-import type { Failure, TestReport } from './vitest-report.js'
 import { readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { failuresOf, readVitestReport, testCount, testsNamed } from '../../model/vitest-report.js'
 import { copyPath, forgetMutation, isSafeId, readCopy, readMutationRecord, sha256, writeBaseline } from './record.js'
-import { failuresOf, readVitestReport, testCount, testsNamed } from './vitest-report.js'
 
 export interface JudgeOptions {
   dir: string

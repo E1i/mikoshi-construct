@@ -1,0 +1,260 @@
+{
+  "modelVersion": 2,
+  "facts": [
+    {
+      "id": "security-workflow",
+      "kind": "file-exists",
+      "path": ".github/workflows/security.yml",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "security-workflow-runs-gitleaks",
+      "kind": "file-contains",
+      "path": ".github/workflows/security.yml",
+      "authoredBy": "construct",
+      "needle": "gitleaks"
+    },
+    {
+      "id": "gitleaks-config",
+      "kind": "file-exists",
+      "path": ".gitleaks.toml",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "security-workflow-audits-dependencies",
+      "kind": "file-contains",
+      "path": ".github/workflows/security.yml",
+      "authoredBy": "construct",
+      "needle": "pnpm audit --audit-level=high"
+    },
+    {
+      "id": "ci-workflow",
+      "kind": "file-exists",
+      "path": ".github/workflows/ci.yml",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "ci-workflow-runs-the-harness",
+      "kind": "file-contains",
+      "path": ".github/workflows/ci.yml",
+      "authoredBy": "construct",
+      "needle": "pnpm run quality"
+    },
+    {
+      "id": "eslint-config",
+      "kind": "file-exists",
+      "path": "eslint.config.mjs",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "security-invariants",
+      "kind": "file-exists",
+      "path": "architecture/security-invariants.md",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "harness-manifest",
+      "kind": "file-exists",
+      "path": "package.json",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "harness-script-runs-composition-check",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "construct",
+      "needle": "pnpm composition:check"
+    },
+    {
+      "id": "harness-script-runs-lint",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "construct",
+      "needle": "pnpm lint"
+    },
+    {
+      "id": "harness-script-runs-typecheck",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "construct",
+      "needle": "pnpm typecheck"
+    },
+    {
+      "id": "harness-script-runs-tests",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "construct",
+      "needle": "pnpm test"
+    },
+    {
+      "id": "contract-workflow",
+      "kind": "file-exists",
+      "path": ".github/workflows/api-contract.yml",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "contract-workflow-fails-on-a-breaking-change",
+      "kind": "file-contains",
+      "path": ".github/workflows/api-contract.yml",
+      "authoredBy": "construct",
+      "needle": "fail-on: ERR"
+    },
+    {
+      "id": "api-contract",
+      "kind": "file-exists",
+      "path": "contracts/api/openapi.yaml",
+      "authoredBy": "construct"
+    },
+    {
+      "id": "harness-script-runs-contracts-check",
+      "kind": "file-contains",
+      "path": "package.json",
+      "authoredBy": "construct",
+      "needle": "pnpm contracts:check"
+    },
+    {
+      "id": "harness-report-covers-python-tests",
+      "kind": "report-covers",
+      "path": "reports/vitest.json",
+      "authoredBy": "discovery",
+      "surface": [
+        "tests/**/test_*.py"
+      ]
+    },
+    {
+      "id": "harness-report-misses-python-tests",
+      "kind": "report-misses",
+      "path": "reports/vitest.json",
+      "authoredBy": "discovery",
+      "surface": [
+        "tests/**/test_*.py"
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "no-committed-secret",
+      "statement": "No secret, token or connection string is committed to this repository, including into gitignored files",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/security.yml runs gitleaks over the history on every push and pull request",
+        "level": "L3",
+        "supportedBy": [
+          "security-workflow",
+          "security-workflow-runs-gitleaks"
+        ]
+      },
+      "verification": {
+        "mechanism": ".gitleaks.toml keeps the default ruleset live for that scan",
+        "supportedBy": [
+          "gitleaks-config"
+        ]
+      }
+    },
+    {
+      "id": "vulnerable-dependencies-are-visible",
+      "statement": "Dependencies with known high-severity vulnerabilities are visible",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": "security.yml runs pnpm audit weekly and on pull requests under continue-on-error, so it reports into the log and its check is green whether or not a vulnerability was found; nobody is obliged to read it",
+        "level": "L0",
+        "supportedBy": [
+          "security-workflow",
+          "security-workflow-audits-dependencies"
+        ]
+      },
+      "verification": {
+        "mechanism": "architecture/security-invariants.md names the mechanism behind each invariant",
+        "supportedBy": [
+          "security-invariants"
+        ]
+      }
+    },
+    {
+      "id": "every-change-passes-the-harness",
+      "statement": "Lint, typecheck and tests pass on every change, as one command",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request and push to main",
+        "level": "L3",
+        "supportedBy": [
+          "ci-workflow",
+          "ci-workflow-runs-the-harness"
+        ]
+      },
+      "verification": {
+        "mechanism": "eslint.config.mjs is the single source of style for that run",
+        "supportedBy": [
+          "eslint-config"
+        ]
+      },
+      "checkId": "ci"
+    },
+    {
+      "id": "harness-steps",
+      "statement": "pnpm run quality runs contracts:check, composition:check, lint, typecheck and tests, rather than merely existing as a script",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/ci.yml runs pnpm run quality on every pull request, and package.json spells that command out as pnpm contracts:check, pnpm composition:check, pnpm lint, pnpm typecheck and pnpm test",
+        "level": "L3",
+        "supportedBy": [
+          "ci-workflow-runs-the-harness",
+          "harness-script-runs-contracts-check",
+          "harness-script-runs-composition-check",
+          "harness-script-runs-lint",
+          "harness-script-runs-typecheck",
+          "harness-script-runs-tests"
+        ]
+      },
+      "verification": {
+        "mechanism": "package.json is the file that command resolves against, so a step dropped from it is visible there",
+        "supportedBy": [
+          "harness-manifest"
+        ]
+      }
+    },
+    {
+      "id": "a-breaking-api-change-is-named-before-it-ships",
+      "statement": "A change that breaks the HTTP API is identified on the pull request that makes it, never discovered afterwards",
+      "authoredBy": "construct",
+      "enforcement": {
+        "mechanism": ".github/workflows/api-contract.yml runs oasdiff against the base branch and fails on a breaking change",
+        "level": "L3",
+        "supportedBy": [
+          "contract-workflow",
+          "contract-workflow-fails-on-a-breaking-change"
+        ]
+      },
+      "verification": {
+        "mechanism": "contracts/api/openapi.yaml is the contract that comparison reads",
+        "supportedBy": [
+          "api-contract"
+        ]
+      }
+    },
+    {
+      "id": "harness-covers-target",
+      "statement": "The harness runs this repository's own pytest suite under tests/",
+      "authoredBy": "discovery",
+      "enforcement": null,
+      "verification": {
+        "mechanism": "reports/vitest.json lists which files the harness executed",
+        "supportedBy": [
+          "harness-report-covers-python-tests"
+        ]
+      }
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "harness-misses-the-python-tests",
+      "statement": "pnpm run quality runs none of the pytest tests under tests/",
+      "authoredBy": "discovery",
+      "baseSha": "e9e872a44a31a89ee1f28f868163689f344cd16e",
+      "evidenceClean": true,
+      "supportedBy": [
+        "harness-report-misses-python-tests"
+      ]
+    }
+  ]
+}

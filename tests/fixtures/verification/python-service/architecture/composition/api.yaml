@@ -1,0 +1,26 @@
+id: api
+title: Flask API service
+description: The Flask app in services/api answers GET /health; total() is defined beside it and not yet routed.
+doc: architecture/api.md
+boundaries:
+  - id: api
+    label: services/api
+nodes:
+  - id: client
+    label: HTTP client
+  - id: app
+    label: Flask app
+    path: services/api/app.py
+    boundary: api
+  - id: health
+    label: GET /health
+    path: services/api/app.py
+    boundary: api
+edges:
+  - from: client
+    to: app
+    kind: sequence
+  - from: app
+    to: health
+    kind: route
+    label: /health

@@ -1,0 +1,26 @@
+minimumReleaseAgeExcludePrune: true
+
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - chokidar@4.0.3
+  - undici-types@6.21.0
+
+shellEmulator: true
+
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+
+catalog:
+  '@antfu/eslint-config': ^9.5.1
+  '@redocly/cli': ^2.52.0
+  '@types/node': ^24.0.0
+  eslint: ^10.10.0
+  openapi-typescript: ^7.13.0
+  tsx: ^4.23.13
+  typescript: ^5.9.3
+  vitest: ^5.0.0
+  yaml: ^2.9.1

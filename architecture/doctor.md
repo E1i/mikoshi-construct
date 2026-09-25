@@ -5,7 +5,7 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:doctor -->
-`runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root, and it reads two separate authorities. From `construct.json`, through `upgradeManifest`, come the provenance verdicts — baseline files, discovery markers, marker provenance, the harness script and contract paths, the recorded tests the recorded runner config does not collect, and the version gap, which replays today's templates through the sync engine's own classification and counts the paths a sync would add or update. From `construct.model.json` comes the knowledge family: every verdict renders a claim's enforcement, every hypothesis is read back against the facts named under it, and where the chain stops is the model's own `selectPath`, so `doctor` derives no state of its own and holds none. A repository with no model gets no verdicts rather than an error. Both families fan into `printDoctor`, which states the boundary — nothing from the inspected repository is executed, so nothing is said about whether the harness passes — and ends with one you-are-here line. Provenance readings, the version gap and the knowledge family are reported, never gated: none sets an exit code, and a replay that cannot run leaves the count unestablished rather than failing the command. `doctor` executes nothing from the repository it inspects and writes nothing, including the manifest it just normalised.
+`runDoctor(root)` in `src/commands/doctor/index.ts` is the composition root, and it reads two separate authorities. From `construct.json`, through `upgradeManifest`, come the provenance verdicts — baseline files, discovery markers, marker provenance, the harness script steps and contract paths, the construct's own recorded paths that a report fact's surface subtracts, the recorded tests the recorded runner config does not collect, and the version gap, which replays today's templates through the sync engine's own classification and counts the paths a sync would add or update. From `construct.model.json` comes the knowledge family: every verdict renders a claim's enforcement, every hypothesis is read back against the facts named under it, and where the chain stops is the model's own `selectPath`, so `doctor` derives no state of its own and holds none. `doctor` is the only reader that passes the recorded paths into the derivation, so it alone reads a runner's report, and `harness.state` is the projection of the verification stage of the claim `harness-covers-target`. A repository with no model gets no verdicts rather than an error. Both families fan into `printDoctor`, which states the boundary — nothing from the inspected repository is executed, so nothing is said about whether the harness passes — and ends with one you-are-here line. Provenance readings, the version gap and the knowledge family are reported, never gated: none sets an exit code, and a replay that cannot run leaves the count unestablished rather than failing the command. `doctor` executes nothing from the repository it inspects and writes nothing, including the manifest it just normalised.
 
 ```mermaid
 flowchart LR
@@ -21,7 +21,7 @@ flowchart LR
     files["baseline files · missing / modified (sha256)"]
     markers["discovery markers · placeholder or filled"]
     provenance["marker provenance · recorded sha vs the body today → construct / owner / unknown"]
-    harness["quality script steps · contract paths"]
+    harness["harness.state from harness-covers-target's verification · quality script steps · contract paths"]
     versionGap["version gap · materialized by / read by · sync classification counts add + update"]
     uncollected["uncollected tests · recorded tests outside the include of the recorded runner config"]
     projection["knowledge · one verdict per rendered claim and one reading per hypothesis, state from the facts each stands on"]
@@ -40,6 +40,8 @@ flowchart LR
   manifest -->|"fan-out"| versionGap
   manifest -->|"fan-out"| uncollected
   model -->|"fan-out"| projection
+  manifest -->|"recorded paths"| projection
+  projection -->|"harness-covers-target verification → harness.state"| harness
   model -->|"fan-out"| youAreHere
   files -->|"fan-in"| print
   markers -->|"fan-in"| print

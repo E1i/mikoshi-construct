@@ -1,0 +1,29 @@
+{
+  "modelVersion": 2,
+  "facts": [
+    {
+      "id": "harness-report-covers-the-tests",
+      "kind": "report-covers",
+      "path": "reports/vitest.json",
+      "authoredBy": "discovery",
+      "surface": [
+        "tests/**/*.test.js"
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "harness-covers-target",
+      "statement": "The harness runs this repository's own tests under tests/",
+      "authoredBy": "discovery",
+      "enforcement": null,
+      "verification": {
+        "mechanism": "reports/vitest.json lists which files the harness executed",
+        "supportedBy": [
+          "harness-report-covers-the-tests"
+        ]
+      }
+    }
+  ],
+  "hypotheses": []
+}
