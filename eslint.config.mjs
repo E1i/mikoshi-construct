@@ -50,6 +50,20 @@ const doctorReadsThroughOneReader = {
   },
 }
 
+const ATTACH_DECIDES_WITHOUT_THE_STACK = 'attach decides without reading the stack (0034): it refuses only a tree with nothing to attach to'
+
+const attachDecidesWithoutTheStack = {
+  files: ['src/commands/attach/**'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      patterns: [
+        ...dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns,
+        { group: ['../../detect', '../../detect/*'], allowImportNames: ['isEmptyDir'], message: ATTACH_DECIDES_WITHOUT_THE_STACK },
+      ],
+    }],
+  },
+}
+
 const ANTFU_RESTRICTED_SYNTAX = ['TSEnumDeclaration[const=true]', 'TSExportAssignment']
 
 const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts'
@@ -138,6 +152,7 @@ export default antfu(
   },
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
+  attachDecidesWithoutTheStack,
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,
   theRecordItselfMayReadBothHalves,
