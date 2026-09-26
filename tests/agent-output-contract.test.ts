@@ -125,6 +125,12 @@ describe('the harness reports what changed and never judges a contract change', 
     expect(verdict.required).toContain('changedFiles')
     expect(verdict.properties?.changedFiles).toEqual({ type: 'array', items: { type: 'string' } })
   })
+
+  it('lists changed files against the base sha, so a change the implementer committed is not hidden by HEAD', () => {
+    const agent = read('.claude/agents/harness.md')
+    expect(agent).toContain('`git diff --name-only <base>`')
+    expect(agent).not.toContain('git diff --name-only HEAD')
+  })
 })
 
 describe('the schema survives awkward values', () => {

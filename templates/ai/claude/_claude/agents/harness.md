@@ -34,8 +34,10 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `securityFinding` — the invariant that failed, empty when none.
 - `diffStat` — the output of `git diff --stat`, or why git could not be used.
 - `testsWeakened` — whether a test was deleted, renamed away, skipped or narrowed.
-- `changedFiles` — the output of `git diff --name-only HEAD` followed by the output of
-  `git ls-files --others --exclude-standard`, verbatim, one repository-relative path per entry. You
+- `changedFiles` — the output of `git diff --name-only <base>` followed by the output of
+  `git ls-files --others --exclude-standard`, verbatim, one repository-relative path per entry, where
+  `<base>` is the sha the prompt gives you, or `HEAD` on the base run, so a change the implementer
+  committed is still listed. You
   do not judge whether a contract changed; the caller derives that from this list.
 - `baseSha` — on the base run, the output of `git rev-parse HEAD`; afterwards, the sha the prompt
   gives you.
