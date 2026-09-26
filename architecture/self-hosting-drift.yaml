@@ -62,15 +62,11 @@ differences:
   - path: tsconfig.json
     kind: skipped-at-init
     reason: >-
-      Present before init ran, so init skipped it; this repository keeps one standalone tsconfig
-      instead of the template's base-plus-extends pair.
+      Present before init ran, so init skipped it; this repository's tsconfig.json extends the
+      template's tsconfig.base.json but adds tsup.config.ts to include and keeps only tests/fixtures
+      in exclude, instead of the template's node_modules/dist pair.
   - path: vitest.config.ts
     kind: skipped-at-init
     reason: >-
       Present before init ran, so init skipped it; this repository excludes the template fixtures and
       raises the test timeout for the init end-to-end suites.
-  - path: tsconfig.base.json
-    kind: absent-at-root
-    reason: >-
-      The template split tsconfig into a base and an extending file after init ran here; this
-      repository's single tsconfig.json has no base to extend, so the root has no such file.
