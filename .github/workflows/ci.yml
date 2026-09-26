@@ -42,7 +42,7 @@ jobs:
       - name: doctor reads this repository's harness as checked (decision 0033)
         run: |
           pnpm vitest run --reporter=json --outputFile=.construct/reports/vitest.json
-          pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json" || true
+          pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
           node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
       - run: pnpm build
       - name: Pack the publishable tarball

@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Low-effort implementer for a task with a statable acceptance criterion. Follows the neighbouring pattern under strict constraints, runs the harness, and returns a structured report instead of a guess.
-model: inherit
+model: sonnet
 effort: low
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
