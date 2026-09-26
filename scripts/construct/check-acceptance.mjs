@@ -6,9 +6,9 @@ const ACCEPTANCE_LABEL = /(?:^|\s)Acceptance:/
 const INVARIANTS_LABEL = /(?:^|\s)Invariants:/
 const IMMUTABLE_LABEL = /(?:^|\s)Immutable:/
 const SECTION_END = {
-  acceptance: /(?:^|\n|[.!?]\s*)(?:Mutations|Invariants|Immutable):/,
-  invariants: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Immutable):/,
-  immutable: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Invariants):/,
+  acceptance: /(?:^|\n|[.!?]\s*)(?:Mutations|Invariants|Immutable)(?:\s*\([^)]*\))?:/,
+  invariants: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Immutable)(?:\s*\([^)]*\))?:/,
+  immutable: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Invariants)(?:\s*\([^)]*\))?:/,
 }
 const QUOTED_PATH = /^`([^`]+)`$/
 const WITNESS_MARKER = '— witness:'

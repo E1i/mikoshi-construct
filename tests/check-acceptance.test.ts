@@ -95,6 +95,16 @@ describe('the agreed Immutable section', () => {
     expect(agreedInvariants(brief)).toEqual(['pnpm run quality stays green'])
   })
 
+  it('ends at Mutations whether its explanation follows on the next line or in parentheses before the colon', () => {
+    const head = 'Acceptance: the rule rejects the case — witness: `pnpm vitest run tests/rule.test.ts`.\nImmutable: `tests/rule.test.ts`; templates/.\n'
+    const nextLine = `${head}Mutations:\n(predicted before the run)\nM1 | drop the check | red: the rule test`
+    const parenthesised = `${head}Mutations (predicted before the run): M1 | drop the check | red: the rule test`
+
+    expect(agreedImmutable(nextLine)).toEqual(['tests/rule.test.ts', 'templates/'])
+    expect(agreedImmutable(parenthesised)).toEqual(['tests/rule.test.ts', 'templates/'])
+    expect(agreedInvariants('Acceptance: x — witness: `true`.\nInvariants: quality stays green.\nMutations (predicted before the run): M1 | y')).toEqual(['quality stays green'])
+  })
+
   it('stops when an immutable path dropped out before the call, and passes once it is carried', () => {
     const args = { acceptance: ['the rule rejects the case'], witnesses: [{ criterion: 'the rule rejects the case', command: 'pnpm vitest run tests/rule.test.ts' }], invariants: ['pnpm run quality stays green'] }
     const dropped = runCheck(brief, JSON.stringify({ ...args, immutable: ['tests/rule.test.ts'] }))

@@ -490,6 +490,15 @@ describe('done needs every acceptance item witnessed red before the change and g
     expect(result.attempts[0].reason).toContain('tests/rule.test.ts')
   })
 
+  it('fails on an immutable path the harness saw changed even when the implementer\'s report leaves it out', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/rule.test.ts'] }, {
+      implementer: [{ ...REPORT, files: ['a.ts'] }],
+      harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests/rule.test.ts'] }],
+    })
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'immutable changed' })
+  })
+
   it('reads an immutable path ending in / as everything under it, and nothing beside it', async () => {
     const under = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/'] }, { implementer: [REPORT], harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests/deep/rule.test.ts'] }] })
     const beside = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/'] }, { implementer: [REPORT], harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests-helpers/x.ts'] }] })
