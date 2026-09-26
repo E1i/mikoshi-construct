@@ -26,6 +26,58 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-27 · Ghosts, the first manual run: two sessions, two contours
+
+**Setup.** Ghosts is the name for two Claude sessions working this repository in parallel, coordinated
+by hand by the owner. On 2026-09-27 branch A (session `09eb60d6-…`) took the small CI and release
+queue, and branch B (session `52190339-…`) took #247. Each wrote only into its own worktrees. The two
+branches ran different contours: **A ran no ladder at all**, and **B ran its task through the ladder**.
+Their times measure different processes and are not compared with each other here.
+
+**Branch A, from its own session's report.** Each time runs from the creation of the task's worktree
+from `origin/main` to the merge. Each task had no ladder, 0 conflicts and left `contract/surface.json`
+untouched.
+
+| Task | Pull request | Time | Owner interventions | Rebuilds |
+|---|---|---|---|---|
+| `CI / required` | PR #251 | 7 min 08 s | 0 | 0 (already up to date) |
+| Stage command in the Release summary | PR #252 | 7 min 20 s; ready at 18:33Z, merged by the owner about a minute later | 0 | 0 |
+| `Immutable:` in the brief | PR #256 | 20 min 45 s; first ready on `4fc6b39`, again on `f99705a` after fixes | 1: two questions before the merge | 1, from its own push |
+| Move of `ci-required.test.ts` (XS) | PR #258 | 6 min 11 s | 0 | 0 (already up to date) |
+| Live check of PR #251 | PR #253, PR #254, PR #255, closed without merge | about 5 min | 0 | 0 |
+
+The PR #256 intervention cost one extra commit, a second gate and a second CI run. Each of the two
+questions exposed a defect: the diff was taken against `HEAD` instead of the base, and the tail of the
+brief leaked into `Immutable:`. PR #251 started before `main`'s protection was switched; every later
+pull request of A ran under the required contexts plus Secret scan, strict. The live check closed
+all four of PR #251's acceptance items against real pull requests.
+
+**Branch B, from the Workflow tool's own accounting and the ledger.** #247 took two ladder runs:
+
+| Run | Status | Time | Subagent tokens |
+|---|---|---|---|
+| `wf_ca6d1072-e41` | `base unverified` | 1028 s | 254,532 |
+| `wf_3b141596-05c` | `done` | 837 s | 239,330 |
+
+The first run's cause is under *The first live base unverified came from the environment the ladder
+was started in*. After the second run, the owner added a fourth mutation (a `construct.json`
+repository answered with an attached report). It left three doctor tests green, because a test
+helper turned the attached report into `null` and optional chaining made the assertions vacuous. It
+was fixed before the merge, in PR #260.
+
+**The owner's interventions outside the tasks, a category of their own:**
+
+- **The inventory of required contexts before the protection switch.** It paid off. Without it,
+  Secret scan would have dropped out of the required contexts, and docs-only pull requests would have
+  waited on the eight preset contexts.
+- **The live check of PR #251**, where the unit test proved the behaviour and the live pull requests
+  proved the wiring. It paid off as proof of the wiring and found no defect.
+
+**What it supports.** One day, one pair of sessions, and one pairing of contours. It records the
+interventions and whether each paid off; it does not say whether a ladder would have been faster or
+cheaper on A's tasks. A's figures come from A's own report and not from the ledger: when A read it,
+`construct cost` since 18:00Z listed only `wf_ca6d1072-e41`, a run of session B.
+
 ## 2026-09-27 · The surface gate reads a new variant, not a changed answer for the same repository
 
 **Observed.** The change that lets `doctor` read an attached repository (#247) added the variant
