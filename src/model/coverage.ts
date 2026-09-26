@@ -1,9 +1,10 @@
 import type { Fact } from './schema.js'
 import type { FactEvaluation } from './state.js'
-import type { ReportedFile } from './vitest-report.js'
+import type { ReportedFile, ReportUnreadable, TestReport } from './vitest-report.js'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { matchesAnyGlob } from './glob.js'
+import { readJunitReport } from './junit-report.js'
 import { readVitestReport, wasExecuted } from './vitest-report.js'
 
 const NEVER_SURFACE_DIRECTORIES = new Set(['.git', 'node_modules'])
@@ -29,11 +30,17 @@ function modifiedAt(root: string, file: string): number {
   return statSync(path.join(root, file)).mtimeMs
 }
 
+function readReport(fact: Fact, root: string, reportPath: string): TestReport | ReportUnreadable {
+  if (fact.format === 'junit-xml')
+    return readJunitReport(reportPath)
+  return readVitestReport(root, reportPath)
+}
+
 export function evaluateCoverage(fact: Fact, root: string, constructPaths: readonly string[]): FactEvaluation {
   const reportPath = path.join(root, fact.path)
   if (!existsSync(reportPath))
     return 'unevaluable'
-  const report = readVitestReport(root, reportPath)
+  const report = readReport(fact, root, reportPath)
   if ('unreadable' in report)
     return 'unevaluable'
   const surface = surfaceOf(fact, root, new Set(constructPaths))
