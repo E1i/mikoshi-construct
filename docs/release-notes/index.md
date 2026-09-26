@@ -4,6 +4,16 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.25.0
+
+### Minor Changes
+
+- [#256](https://github.com/E1i/mikoshi-construct/pull/256) [`b73b16e`](https://github.com/E1i/mikoshi-construct/commit/b73b16ed91a8aaa3805853ba64b22a4bcc22869e) Thanks [@E1i](https://github.com/E1i)! - templates: a brief can name `Immutable:` paths — files, or directories ending in `/` — that the change may not touch. `check-acceptance` stops when one is missing from the args, and the ladder fails a rung whose changed files include one as `immutable changed`, even with the harness green and every acceptance item witnessed.
+
+### Patch Changes
+
+- [#260](https://github.com/E1i/mikoshi-construct/pull/260) [`472adba`](https://github.com/E1i/mikoshi-construct/commit/472adba12013165398dea9b67c61943483ebb064) Thanks [@E1i](https://github.com/E1i)! - cli: doctor reads an attached repository (no construct.json, `.construct/attach.json` present) as `state: "attached"` with the harness command and its coverage state, instead of reporting no-manifest.
+
 ## 0.24.0
 
 ### Minor Changes
