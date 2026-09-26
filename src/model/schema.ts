@@ -1,7 +1,7 @@
 import { RecordAheadOfReader } from '../record-ahead.js'
 
 export const MODEL_FILE = 'construct.model.json'
-export const MODEL_VERSION = 2
+export const MODEL_VERSION = 3
 const OLDEST_READABLE_MODEL_VERSION = 1
 
 export const FACT_KINDS = ['file-exists', 'file-contains', 'file-lacks', 'report-covers', 'report-misses'] as const
@@ -9,6 +9,9 @@ export type FactKind = (typeof FACT_KINDS)[number]
 
 const NEEDLE_KINDS: readonly FactKind[] = ['file-contains', 'file-lacks']
 export const REPORT_KINDS: readonly FactKind[] = ['report-covers', 'report-misses']
+
+export const REPORT_FORMATS = ['vitest-json', 'junit-xml'] as const
+export type ReportFormat = (typeof REPORT_FORMATS)[number]
 
 export const ENFORCEMENT_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
 export type EnforcementLevel = (typeof ENFORCEMENT_LEVELS)[number]
@@ -23,6 +26,7 @@ export interface Fact {
   authoredBy: EntryAuthor
   needle?: string
   surface?: string[]
+  format?: ReportFormat
 }
 
 export interface Enforcement {
@@ -61,7 +65,7 @@ export interface RepositoryModel {
   hypotheses: Hypothesis[]
 }
 
-const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle', 'surface']
+const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle', 'surface', 'format']
 const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
 const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification', 'checkId']
@@ -193,10 +197,18 @@ function parseFacts(name: string, raw: Record<string, unknown>): Fact[] {
     else if (needle !== undefined) {
       fail(name, `${where} of kind "${kind}" must not carry a "needle"`)
     }
-    if (REPORT_KINDS.includes(kind))
+    if (REPORT_KINDS.includes(kind)) {
       fact.surface = globs(name, entry, `${where} of kind "${kind}"`)
-    else if (entry.surface !== undefined)
-      fail(name, `${where} of kind "${kind}" must not carry a "surface"`)
+      const format = optionalText(name, entry, 'format', where)
+      if (format !== undefined)
+        fact.format = member(name, format, REPORT_FORMATS, 'format', where)
+    }
+    else {
+      if (entry.surface !== undefined)
+        fail(name, `${where} of kind "${kind}" must not carry a "surface"`)
+      if (entry.format !== undefined)
+        fail(name, `${where} of kind "${kind}" must not carry a "format"`)
+    }
     return fact
   })
 }
