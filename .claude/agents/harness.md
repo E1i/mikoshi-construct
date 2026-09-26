@@ -37,3 +37,14 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `changedFiles` — the output of `git diff --name-only HEAD` followed by the output of
   `git ls-files --others --exclude-standard`, verbatim, one repository-relative path per entry. You
   do not judge whether a contract changed; the caller derives that from this list.
+- `baseSha` — on the base run, the output of `git rev-parse HEAD`; afterwards, the sha the prompt
+  gives you.
+- `baseInstall` — the install you ran in the base worktree and its exit code; an empty command and
+  exit `-1` when none ran. A base that was not installed cannot witness anything, so report that
+  rather than running the witnesses on it.
+- `witnesses` — one entry per witness the prompt names, empty when it names none: `criterion` and
+  `command` copied verbatim, `afterExitCode` (the command's exit code on the working tree),
+  `baseExitCode` and `baseExcerpt` (its exit code and last lines in a worktree of its own at the base
+  sha, created, installed and removed in one shell with the `trap` the prompt gives, so it goes even
+  when a step fails). You report exit codes; the ladder decides what they mean. The working tree has
+  one writer: never stash, check out, move or rewrite a file in it to reach the base.
