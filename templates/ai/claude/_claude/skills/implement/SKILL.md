@@ -21,7 +21,11 @@ repository's CLAUDE.md and `construct.json`.
    When `$ARGUMENTS` carries an `Acceptance:` section (from the label up to a line or sentence
    starting `Mutations:`, or the end), its items are the acceptance: split it on `;` and copy each
    item verbatim into `args.acceptance`, one item per element, in the agreed order. You may append
-   items of your own, but never rewrite, merge or drop an agreed one.
+   items of your own, but never rewrite, merge or drop an agreed one. Each item must be something a
+   command can show failing on the base and passing after the change: the ladder reports `done` only
+   when every item was witnessed that way (0027), so an item the base already satisfies — "the
+   harness is green", which the harness gate requires anyway — can never be witnessed and keeps the
+   run from `done`. A brief with no acceptance at all returns `blocked` before any agent runs.
 3. Before calling Workflow, check that the agreed acceptance reached the args: write `$ARGUMENTS`
    verbatim to `.construct/implement-agreed.txt` and the `args` object you are about to pass to
    `.construct/implement-args.json` (create the directory if needed; overwrite both), then run
@@ -53,16 +57,21 @@ repository's CLAUDE.md and `construct.json`.
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
    The design step runs inside the ladder, not before it, and its outcome is one of the `attempts`
    like any other. The statuses a run can return are:
-   - `done` — a rung passed the harness and every design step the run took completed.
-   - `degraded` — a rung passed the harness, but a design step was rejected by the schema and the
+   - `done` — a rung changed files, passed the harness, had every acceptance item witnessed red on
+     the base and green after the change, and every design step the run took completed. An
+     implementer that reports done with no changed file, or a green tree with nothing changed, is a
+     `no change` attempt and never `done`.
+   - `degraded` — a rung passed the harness and the witness, but a design step was rejected by the schema and the
      run continued without it. The result's `effort` is the class that actually executed.
    - `design incomplete` — a high-effort run whose architect was rejected by the schema. No
      implementer ran without a spec; the result carries the validator's text in `validationError` and
      the way out in `recovery`, which is a measured route rather than advice: re-running one class
      lower with the design written into the brief produced the design on three of the three occasions
      it has been tried on the construct's own repository.
-   - `failed` — every rung ran and the harness stayed red; `lastFailure` carries the excerpt.
-   - `blocked` — the last rung stopped on a question; `question` carries it verbatim.
+   - `failed` — every rung ran and none passed: the harness stayed red, the rung changed nothing, or
+     the acceptance was not witnessed; `lastFailure` carries the last reason.
+   - `blocked` — the last rung stopped on a question, or the brief carried no acceptance; `question`
+     carries it verbatim.
    - `base red` — the harness was red on the base before any change, so no rung ran; `lastFailure`
      carries the excerpt. Make the base green, or name what is red on purpose, before running again.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
@@ -84,7 +93,8 @@ repository's CLAUDE.md and `construct.json`.
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
-     blocked report and from a design the schema rejected.
+     rung that changed nothing (`no change`), from an acceptance not witnessed, from a blocked report
+     and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:
      - `stopped` / `environment` — it was failing on something outside the task, such as the

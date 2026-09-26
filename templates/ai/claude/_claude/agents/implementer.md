@@ -34,3 +34,7 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `files` — the paths you changed.
 - `harnessTail` — the last lines of the harness output, empty when blocked.
 - `question` — the single question when blocked, otherwise empty.
+- `witnesses` — one entry per acceptance criterion: `criterion`, the criterion text copied verbatim,
+  and `command`, one shell command that exits non-zero on the base code and zero after your change.
+  The run is done only when every criterion is witnessed that way; a criterion the base already
+  satisfies cannot be, so say so in `question` instead of inventing a command.

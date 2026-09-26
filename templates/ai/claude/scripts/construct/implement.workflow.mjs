@@ -5,7 +5,7 @@ export const meta = {
     { title: 'Preflight', detail: 'harness against the base before any change; a red base stops the run' },
     { title: 'Design', detail: 'architect inside the run, for high effort before the first rung and after a blocked or failed attempt' },
     { title: 'Implement', detail: 'implementer at the current rung' },
-    { title: 'Verify', detail: 'harness against the working tree' },
+    { title: 'Verify', detail: 'harness against the working tree, and each acceptance item witnessed red before the change and green after it' },
   ],
 }
 
@@ -17,19 +17,27 @@ const LADDERS = {
 
 const REPORT = {
   type: 'object',
-  required: ['status', 'summary', 'files', 'harnessTail', 'question'],
+  required: ['status', 'summary', 'files', 'harnessTail', 'question', 'witnesses'],
   properties: {
     status: { type: 'string', enum: ['done', 'failed', 'blocked'] },
     summary: { type: 'string' },
     files: { type: 'array', items: { type: 'string' } },
     harnessTail: { type: 'string' },
     question: { type: 'string' },
+    witnesses: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['criterion', 'command'],
+        properties: { criterion: { type: 'string' }, command: { type: 'string' } },
+      },
+    },
   },
 }
 
 const VERDICT = {
   type: 'object',
-  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles'],
+  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'witnesses'],
   properties: {
     passed: { type: 'boolean' },
     failureExcerpt: { type: 'string' },
@@ -37,6 +45,20 @@ const VERDICT = {
     diffStat: { type: 'string' },
     testsWeakened: { type: 'boolean' },
     changedFiles: { type: 'array', items: { type: 'string' } },
+    witnesses: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['criterion', 'command', 'redBefore', 'greenAfter', 'excerpt'],
+        properties: {
+          criterion: { type: 'string' },
+          command: { type: 'string' },
+          redBefore: { type: 'boolean' },
+          greenAfter: { type: 'boolean' },
+          excerpt: { type: 'string' },
+        },
+      },
+    },
   },
 }
 
@@ -55,6 +77,8 @@ const SPEC = {
 
 const DESIGN_RECOVERY = 'Re-run this task one class lower with the design written into the brief. That is the measured route out: three of three such re-runs on the construct\'s own repository produced the design the architect had failed to return. The run does not retry the design step itself, because a second agent entry pays for the exploration again.'
 
+const NO_ACCEPTANCE_QUESTION = 'Pass the acceptance from the brief in args.acceptance. The ladder reports done only when each item was witnessed red before the change and green after it, and with no item there is nothing to witness.'
+
 const HARNESS_COMMAND_QUESTION = 'Name the harness command: pass args.harness.command, taken from construct.json (harness.command) or, in an attached repository, from .construct/attach.json. Nothing is assumed.'
 
 const DEFAULT_RETRY_LIMIT = 0
@@ -68,6 +92,8 @@ for (const item of acceptance)
 const harness = { extra: [], contractPaths: [], ...(args.harness ?? {}) }
 if (typeof harness.command !== 'string' || harness.command === '')
   return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance }
+if (acceptance.length === 0)
+  return { status: 'blocked', attempts: [], question: NO_ACCEPTANCE_QUESTION, acceptance }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
@@ -108,12 +134,14 @@ async function ask(prompt, options) {
   return null
 }
 
-function harnessPrompt() {
+function harnessPrompt(witnesses) {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
+    `Witness each acceptance criterion with the command the implementer named for it:\n${witnesses.map(witness => `- ${witness.criterion}\n  command: ${witness.command}`).join('\n')}`,
+    'For each one, run the command on the working tree (greenAfter is true only when it exits 0). Then set aside every changed file the witness does not itself consist of, so the code under test is the base again, run the same command (redBefore is true only when it exits non-zero), and put every set-aside file back exactly as it was before you return. Copy the criterion text verbatim, and carry the output of the base run in excerpt.',
     'Verify the current working tree and return the verdict object.',
-  ].filter(Boolean).join('\n')
+  ].filter(Boolean).join('\n\n')
 }
 
 function architectPrompt(reason) {
@@ -130,6 +158,7 @@ function implementerPrompt(spec, feedback) {
     `Task: ${task}`,
     `Acceptance criteria:\n- ${(spec?.acceptance?.length ? spec.acceptance : acceptance).join('\n- ')}`,
     `Harness: ${harness.command}${harness.extra.length > 0 ? ` (plus ${harness.extra.join(' && ')})` : ''}`,
+    'For each acceptance criterion return a witness: the criterion text verbatim and one shell command that exits non-zero on the base code and zero after your change. The run is reported done only when every criterion is witnessed that way.',
     spec == null
       ? ''
       : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
@@ -144,6 +173,23 @@ let designComplete = false
 let designFailed = false
 let designError = ''
 const attempts = []
+
+const NO_CHANGE = 'The previous attempt changed no file. Implement the task; a report without a change is not done.'
+
+function unwitnessedItems(witnesses) {
+  return acceptance.filter(item => !witnesses.some(witness => witness.criterion === item && witness.redBefore === true && witness.greenAfter === true))
+}
+
+function unwitnessedReason(items) {
+  return `Not witnessed red before the change and green after it: ${items.join(' | ')}`
+}
+
+async function redesignBeforeLastRung(rung) {
+  if (rung !== rungs.length - 1)
+    return null
+  log(`rung ${rung}/${rungs.length} failed twice: architect redesigns before the last rung`)
+  return design(rung, `Two rungs have failed. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`, 'design before last rung')
+}
 
 function performedEffort(effort) {
   return designComplete ? effort : (EFFORT_WITHOUT_DESIGN[effort] ?? effort)
@@ -189,7 +235,7 @@ function preflightPrompt() {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    'This is the base before any change: nothing has been implemented yet, so no diff is expected and testsWeakened is false. Verify the current working tree and return the verdict object.',
+    'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Verify the current working tree and return the verdict object.',
   ].filter(Boolean).join('\n')
 }
 
@@ -242,26 +288,43 @@ for (const [index, effort] of rungs.entries()) {
     continue
   }
 
+  if (report.files.length === 0) {
+    feedback = NO_CHANGE
+    attempts.push({ rung, effort, outcome: 'no change', reason: 'the implementer reported no changed file', securityFinding: '' })
+    log(`rung ${rung} @ ${effort}: no change`)
+    const designed = await redesignBeforeLastRung(rung)
+    if (designed === false && args.effort === 'high')
+      return designIncomplete(effort)
+    continue
+  }
+
   phase('Verify')
   log(`rung ${rung}/${rungs.length} @ ${effort}: running ${harness.command}`)
-  const verdict = await ask(harnessPrompt(), {
+  const verdict = await ask(harnessPrompt(report.witnesses ?? []), {
     agentType: 'harness',
     effort: 'low',
     phase: 'Verify',
     label: `verify ${rung}/${rungs.length}`,
     schema: VERDICT,
   })
-  const passed = verdict?.passed === true && verdict.testsWeakened === false
+  const harnessPassed = verdict?.passed === true && verdict.testsWeakened === false
+  const unchanged = harnessPassed && verdict.changedFiles.length === 0
+  const unwitnessed = harnessPassed && !unchanged ? unwitnessedItems(verdict.witnesses ?? []) : []
+  const passed = harnessPassed && !unchanged && unwitnessed.length === 0
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
     : {
         rung,
         effort,
-        outcome: passed ? 'passed' : 'harness failed',
-        reason: passed ? '' : (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt),
+        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : 'acceptance not witnessed',
+        reason: passed
+          ? ''
+          : !harnessPassed
+              ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
+              : unchanged ? 'the harness saw no changed file' : unwitnessedReason(unwitnessed),
         securityFinding: verdict.securityFinding ?? '',
       })
-  log(`rung ${rung} @ ${effort}: ${passed ? 'harness passed' : 'harness failed'}`)
+  log(`rung ${rung} @ ${effort}: ${attempts.at(-1).outcome}`)
 
   if (passed) {
     return {
@@ -282,16 +345,15 @@ for (const [index, effort] of rungs.entries()) {
     ? `The harness produced no verdict the schema could validate: ${lastValidationError}`
     : verdict.testsWeakened
       ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.\n${verdict.failureExcerpt}`
-      : verdict.failureExcerpt
+      : !harnessPassed
+          ? verdict.failureExcerpt
+          : unchanged ? NO_CHANGE : `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
   if (verdict?.securityFinding)
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 
-  if (rung === rungs.length - 1) {
-    log(`rung ${rung}/${rungs.length} failed twice: architect redesigns before the last rung`)
-    const designed = await design(rung, `Two rungs have failed the harness. Latest failure:\n${feedback}\n\nDecide whether the approach, the contract or the boundary is wrong before the last attempt.`, 'design before last rung')
-    if (!designed && args.effort === 'high')
-      return designIncomplete(effort)
-  }
+  const designed = await redesignBeforeLastRung(rung)
+  if (designed === false && args.effort === 'high')
+    return designIncomplete(effort)
 }
 
 return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]), acceptance }

@@ -41,10 +41,17 @@ const SPEC = {
   files: ['scripts/construct/implement.workflow.mjs'],
 }
 
-const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '' }
-const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?' }
-const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'] }
-const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'] }
+const DEFAULT_ACCEPTANCE = ['the rule rejects the case']
+const WITNESS_COMMAND = 'pnpm vitest run tests/rule.test.ts'
+
+function witnessed(items: string[], outcome: { redBefore: boolean, greenAfter: boolean } = { redBefore: true, greenAfter: true }): unknown[] {
+  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, ...outcome, excerpt: outcome.redBefore ? '1 failed' : '1 passed' }))
+}
+
+const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '', witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: WITNESS_COMMAND }] }
+const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?', witnesses: [] }
+const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], witnesses: witnessed(DEFAULT_ACCEPTANCE) }
+const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], witnesses: [] }
 
 const REJECTED = new Error('SPEC: decision: missing')
 
@@ -58,7 +65,7 @@ async function run(args: Record<string, unknown>, replies: Record<string, Reply[
       throw reply
     return reply ?? null
   }
-  const result = await ladder()({ harness: { command: 'pnpm run quality' }, ...args }, agent, () => {}, () => {})
+  const result = await ladder()({ harness: { command: 'pnpm run quality' }, acceptance: DEFAULT_ACCEPTANCE, ...args }, agent, () => {}, () => {})
   return { result, calls }
 }
 
@@ -112,7 +119,7 @@ describe('the design step is part of the run', () => {
   })
 
   it('records a design that completed, so a run cannot claim high with nothing to show for the step', async () => {
-    const { result } = await run({ task: 't', acceptance: [], effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [GREEN] })
+    const { result } = await run({ task: 't', effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [GREEN] })
     expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['designed', 'passed'])
     expect(result.effort).toBe('high')
   })
@@ -205,7 +212,7 @@ describe('the ladder echoes the acceptance it received', () => {
 
   it('echoes the acceptance it received in a done result', async () => {
     const args = { task: 'add a rule', effort: 'low', acceptance: [ACCEPTANCE[0]] }
-    const { result } = await run(args, { implementer: [REPORT], harness: [GREEN] })
+    const { result } = await run(args, { implementer: [REPORT], harness: [{ ...GREEN, witnesses: witnessed(args.acceptance) }] })
 
     expect(result.status).toBe('done')
     expect(result.acceptance).toEqual(args.acceptance)
@@ -287,5 +294,87 @@ describe('the ladder derives contractChanged from the changed files, never from 
     })
 
     expect(result.contractChanged).toBe(false)
+  })
+})
+
+describe('done needs every acceptance item witnessed red before the change and green after it (#240)', () => {
+  const NOTHING_CHANGED = { ...GREEN, diffStat: '', changedFiles: [], witnesses: [] }
+  const EMPTY_REPORT = { ...REPORT, files: [], witnesses: [] }
+
+  it('does not report done for the shape of wf_c3fc5325-1c7: a report with no file and a green, unchanged tree', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'medium' }, {
+      implementer: [EMPTY_REPORT, EMPTY_REPORT, EMPTY_REPORT],
+      architect: [SPEC],
+      harness: [NOTHING_CHANGED, NOTHING_CHANGED, NOTHING_CHANGED],
+    })
+
+    expect(result.status).not.toBe('done')
+    expect(result.status).toBe('failed')
+  })
+
+  it('stops a rung whose implementer changed no file before it spends a harness run on it', async () => {
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [EMPTY_REPORT, REPORT],
+      harness: [GREEN],
+    })
+
+    expect(result.status).toBe('done')
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['no change', 'passed'])
+    expect(calls.map(call => call.agentType)).toEqual(['harness', 'implementer', 'implementer', 'harness'])
+  })
+
+  it('does not report done when the harness saw no changed file, whatever the implementer claims', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, changedFiles: [] }, GREEN],
+    })
+
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['no change', 'passed'])
+  })
+
+  it('does not report done when an acceptance item was already green on the base', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { redBefore: false, greenAfter: true }) }, GREEN],
+    })
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
+    expect(result.attempts[0].reason).toContain(DEFAULT_ACCEPTANCE[0])
+  })
+
+  it('does not report done when an acceptance item is still red after the change', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { redBefore: true, greenAfter: false }) }, GREEN],
+    })
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
+  })
+
+  it('names the item no witness covered, and counts only a criterion copied verbatim', async () => {
+    const acceptance = ['the reader parses the file', 'an empty file reads unknown']
+    const { result } = await run({ task: 'add a reader', effort: 'low', acceptance }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, witnesses: [...witnessed([acceptance[0]]), ...witnessed(['an empty file reads as unknown'])] }, { ...GREEN, witnesses: witnessed(acceptance) }],
+    })
+
+    expect(result.attempts[0].reason).toContain(acceptance[1])
+    expect(result.attempts[0].reason).not.toContain(acceptance[0])
+    expect(result.status).toBe('done')
+  })
+
+  it('gives the harness the witness commands the implementer named', async () => {
+    const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(calls[2].prompt).toContain(WITNESS_COMMAND)
+    expect(calls[2].prompt).toContain(DEFAULT_ACCEPTANCE[0])
+  })
+
+  it('returns blocked and calls no agent when the brief carries no acceptance', async () => {
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low', acceptance: [] }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.status).toBe('blocked')
+    expect(result.question).toContain('args.acceptance')
+    expect(calls).toEqual([])
   })
 })

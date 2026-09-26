@@ -26,6 +26,28 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-26 · The ladder reported done for a run that changed nothing
+
+**Observed.** Run `wf_c3fc5325-1c7` (a medium task: a JUnit reader for the coverage facts) returned
+`status: done` at its first rung. `changedFiles` was empty, `diffStat` and `harnessTail` were empty,
+and the tree was byte-identical before and after. The implementer wrote no file and reported `done`
+with a summary that answered a different request: its structure followed an owner message about
+another issue, sent to the session while the run was starting and absent from the run's brief. The
+harness passed the unchanged tree twice, before the rung and after it, and the ladder returned `done`
+because the only gate after a rung was the harness, which is green on the base by construction.
+
+**The record.** The ledger entry for the run says `done`, verbatim, as the implement skill requires.
+It is left as written. The ledger has no field that can say a recorded status was later found false,
+so the entry reads as a success to `construct cost` and to anyone reading it. That gap is part of
+issue #240.
+
+**What changed.** The ladder now reports `done` only when every acceptance item was witnessed red on
+the base and green after the change; a rung that changed no file is a `no change` attempt (#240).
+
+**What it supports.** One occurrence of a false `done`, with its mechanism read from the script. It
+does not establish how the other request reached the implementer, and says nothing about how often an
+implementer answers a message outside its brief.
+
 ## 2026-09-25 · Blindspot's first catch was its own decision claiming more than the code
 
 **Observed.** The first thing the Blindspot work (#213) caught was not drift in a repository. It was
