@@ -1,14 +1,18 @@
-# Three gates on every pull request and push to main.
+# Three gates, aggregated into the one required check `CI / required`.
 #
-# quality    — the repository's own harness: composition check, lint, typecheck, tests.
+# quality    — the repository's own harness: composition check, lint, typecheck, tests. Runs on every change.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
 #              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
-#              publish fails a user's first install (see CLAUDE.md, version ranges).
+#              publish fails a user's first install (see CLAUDE.md, version ranges). Skipped only for a
+#              docs-only pull request (every path under .changeset/, docs/ or CHANGELOG.md); a version
+#              pull request changes package.json, which templates embed, so it runs the full matrix.
 # contract-bump — the release bump the change requires: the semantic diff of contract/surface.json
 #              against the latest release tag reachable from HEAD, compared with the strongest
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
+# required   — red when any job failed or was cancelled, or was skipped other than acceptance on a
+#              docs-only pull request (scripts/ci/required.ts).
 #
 # Each acceptance leg installs the publishable tarball into a directory outside the repository and runs
 # the installed binary. That is what publishing ships: the externals tsup leaves out of dist/cli.js must
@@ -28,6 +32,30 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only -z HEAD^1 HEAD | xargs -0 pnpm exec tsx scripts/ci/docs-only.ts
+          else
+            pnpm exec tsx scripts/ci/docs-only.ts
+          fi
+
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -74,7 +102,8 @@ jobs:
           grep -qxF '  jsonKeys.doctor.noManifest.root: null → object' <<<"$out" || { echo 'the self-check reads no jsonKeys.doctor.noManifest.root: null → object'; exit 1; }
 
   acceptance:
-    needs: quality
+    needs: [changes, quality]
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -128,3 +157,19 @@ jobs:
         working-directory: ${{ runner.temp }}/acceptance
         run: |
           "$CONSTRUCT_BIN" doctor --plain
+
+  required:
+    needs: [changes, quality, contract-bump, acceptance]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: pnpm exec tsx scripts/ci/verdict.ts
