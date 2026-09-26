@@ -58,13 +58,12 @@ repository's CLAUDE.md and `construct.json`.
    exploration from scratch — measured at roughly three million billable tokens for an architect —
    and it cannot fix a contradiction in the task, because the agent may not change the task. Raise it
    only when a rejected response is expected to be a transient shape error rather than a bad brief.
-   The user's `/implement` invocation is the opt-in the tool requires. Call the Workflow only from a
-   turn whose only user message is that `/implement`: the runtime relays the message that triggered
-   the run to the ladder's agents as a request that outranks the computed brief, so a message sent in
-   the same turn becomes the implementer's task. The ladder cannot check this — the script sees no
-   transcript, and an agent call returns only the object its schema allows — so the rule holds by
-   discipline alone. After the run, the implementer's transcript in the session's
-   `subagents/workflows/<run>/` shows whether it received anything besides the computed prompt. Note the run identifier the
+   The user's `/implement` invocation is the opt-in the tool requires.
+   Precondition: start the ladder only from a turn whose only user message is the /implement invocation. The Workflow runtime relays the triggering user message into the implementer's input as a request that outranks the computed brief (observed in wf_c3fc5325-1c7). If a user message arrives in the turn you meant to start from, answer it first and start the ladder in a later turn.
+   The ladder cannot check this precondition — the script sees no transcript, and an agent call
+   returns only the object its schema allows — so it holds by discipline alone. After the run, the
+   implementer's transcript in the session's `subagents/workflows/<run>/` shows whether it received
+   anything besides the computed prompt. Note the run identifier the
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
    The design step runs inside the ladder, not before it, and its outcome is one of the `attempts`
    like any other. The statuses a run can return are:
