@@ -4,6 +4,23 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.24.0
+
+### Minor Changes
+
+- [#243](https://github.com/E1i/mikoshi-construct/pull/243) [`6aa1cc8`](https://github.com/E1i/mikoshi-construct/commit/6aa1cc8d5d7f20f3cf7a2224815dbc75f80381b5) Thanks [@E1i](https://github.com/E1i)! - A `report-covers` or `report-misses` fact carries a `format`: `vitest-json` (the default, read when
+  `format` is absent) or `junit-xml`. Point a `junit-xml` fact's `path` at a report produced by
+  `pytest -o junit_family=xunit1 --junitxml=<path>`; the reader takes a testcase's repository path only
+  from its `file` attribute, reads a `<skipped>` testcase as not run and `<failure>`/`<error>` as run,
+  and yields `unknown` coverage rather than throwing on a file it cannot parse. The model format goes to
+  `modelVersion` 3.
+
+### Patch Changes
+
+- [#245](https://github.com/E1i/mikoshi-construct/pull/245) [`67d7268`](https://github.com/E1i/mikoshi-construct/commit/67d7268b7b0fe1d64f18f44d75dccf0b837cdcec) Thanks [@E1i](https://github.com/E1i)! - `attach` no longer reads the stack. It refused a repository whose detected layout was `empty` or `unknown`, and that detector reads directory names: a Go repository with a `services/` directory attached, while the same repository without it was refused ([#232](https://github.com/E1i/mikoshi-construct/issues/232)). Now a repository with anything in it attaches whatever it is written in. Only a tree holding nothing but `.git` and the files an empty directory may hold is refused, as `Refused: this repository holds nothing to attach to.` `doctor` does not read an attached repository yet: it answers `No construct.json here`, so nothing reports whether the harness you name covers the code ([#247](https://github.com/E1i/mikoshi-construct/issues/247)).
+
+- [#244](https://github.com/E1i/mikoshi-construct/pull/244) [`5558437`](https://github.com/E1i/mikoshi-construct/commit/55584378c440699e841c44ba63f029335026663a) Thanks [@E1i](https://github.com/E1i)! - The implement skill says to start the ladder only from a turn whose only user message is the `/implement` itself. The Workflow runtime relays the message that triggered the run to the ladder's agents as a request that outranks the computed brief, so a message sent in the same turn becomes the implementer's task. The ladder cannot check this, and the skill says that the rule holds by discipline alone.
+
 ## 0.23.0
 
 ### Minor Changes
