@@ -15,7 +15,7 @@ flowchart LR
   end
   subgraph b_refuse["Refuse · before any write"]
     refusals["seven refusals, in order"]
-    detect["detect(dir) · layout"]
+    detect["isEmptyDir(dir)"]
     carrierset["ATTACH_CARRIERS"]
   end
   subgraph b_configure["Configure"]

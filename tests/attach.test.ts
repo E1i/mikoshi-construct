@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach } from '../src/commands/attach/index.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
+import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { ATTACH_CARRIERS, getPreset, groupsFor } from '../src/presets/index.js'
@@ -177,11 +178,11 @@ const REFUSALS: RefusalCase[] = [
     writeFileSync(path.join(dir, '.git'), 'gitdir: ../elsewhere/.git/worktrees/one\n')
   } },
   { name: 'construct.json is here', refusal: 'constructed', reason: PLAIN_LORE.attachRefusedConstructed, arrange: dir => writeFileSync(path.join(dir, 'construct.json'), '{}\n') },
-  { name: 'an empty directory', refusal: 'unsupported-stack', reason: PLAIN_LORE.attachRefusedUnsupportedStack, arrange: (dir) => {
+  { name: 'an empty directory', refusal: 'nothing-to-attach', reason: PLAIN_LORE.attachRefusedNothingToAttach, arrange: (dir) => {
     for (const entry of readdirSync(dir).filter(entry => entry !== '.git'))
       rmSync(path.join(dir, entry), { recursive: true })
   } },
-  { name: 'a directory with only a README', refusal: 'unsupported-stack', reason: PLAIN_LORE.attachRefusedUnsupportedStack, arrange: (dir) => {
+  { name: 'a directory with only a README', refusal: 'nothing-to-attach', reason: PLAIN_LORE.attachRefusedNothingToAttach, arrange: (dir) => {
     for (const entry of readdirSync(dir).filter(entry => entry !== '.git'))
       rmSync(path.join(dir, entry), { recursive: true })
     writeFileSync(path.join(dir, 'README.md'), '# only\n')
@@ -324,5 +325,44 @@ describe('the rollback removes only the block this run added to .git/info/exclud
 
     expect(rollback.excludeKept).toBe(true)
     expect(readFileSync(file, 'utf8')).toBe(edited)
+  })
+})
+
+function goRepository(withServices: boolean): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'construct-attach-go-'))
+  writeFileSync(path.join(dir, 'go.mod'), 'module example.com/billing\n\ngo 1.23\n')
+  writeFileSync(path.join(dir, 'Makefile'), 'check:\n\tgo vet ./... && go test ./...\n')
+  mkdirSync(path.join(dir, 'cmd/billing'), { recursive: true })
+  writeFileSync(path.join(dir, 'cmd/billing/main.go'), 'package main\n\nfunc main() {}\n')
+  mkdirSync(path.join(dir, 'internal/ledger'), { recursive: true })
+  writeFileSync(path.join(dir, 'internal/ledger/ledger.go'), 'package ledger\n')
+  if (withServices) {
+    mkdirSync(path.join(dir, 'services/billing'), { recursive: true })
+    writeFileSync(path.join(dir, 'services/billing/b.go'), 'package billing\n')
+  }
+  git(dir, 'init', '-q')
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-qm', 'base')
+  return dir
+}
+
+describe('attach decides without reading the stack (#232)', () => {
+  it('attaches a Go repository with a named harness, and detach returns it to what it was', async () => {
+    const dir = goRepository(false)
+    const before = listing(dir)
+
+    const result = await runAttach(ui, { dir, harness: 'make check', yes: true })
+
+    expect(result.status).toBe('done')
+    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect(listing(dir)).toEqual(before)
+  })
+
+  it('gives a Go repository the same decision with and without a services/ directory', async () => {
+    const without = await runAttach(ui, { dir: goRepository(false), harness: 'make check', yes: true })
+    const withServices = await runAttach(ui, { dir: goRepository(true), harness: 'make check', yes: true })
+
+    expect(without.status).toBe(withServices.status)
+    expect(without.refusal).toBe(withServices.refusal)
   })
 })

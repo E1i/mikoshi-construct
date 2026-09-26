@@ -29,8 +29,8 @@ nodes:
     path: src/commands/attach/refusals.ts
     boundary: refuse
   - id: detect
-    label: detect(dir) · layout
-    path: src/detect/index.ts
+    label: isEmptyDir(dir)
+    path: src/detect/layout.ts
     boundary: refuse
   - id: carrierset
     label: ATTACH_CARRIERS

@@ -52,7 +52,7 @@ Every refusal happens before anything is written. The full list with the exact o
 | not a git repository | Run it at the root of a git repository. |
 | `.git` is a file | You are in a worktree or a submodule. Run it in the main checkout; worktrees are not supported yet. |
 | `construct.json` is here | The repository already carries a construct. Use `sync` and `doctor`, not `attach`. |
-| the stack is not recognised | The directory is empty, or the detector finds no package manifest or source layout it knows. Only recognised stacks are supported. |
+| nothing to attach to | The directory holds only `.git` and files such as a README or a LICENSE. attach works on any stack; it needs something to attach to and a harness command. |
 | paths already exist | A file attach would create is already there, and it is yours. Move it aside or keep working without attach; attach never writes over it. |
 | `--yes` without `--harness` | Pass `--harness <command>`. |
 | `--ai cursor` or `both` | Not supported: a Cursor rule would apply to the whole tree. Use Claude Code. |
@@ -90,8 +90,10 @@ The remaining refusals, about the git index and the record, are listed with thei
 
 ## Limits
 
-- **Only a recognised stack.** An empty directory, or one the detector cannot read as a project, is
-  refused.
+- **Any stack.** attach does not read the stack: a repository with something in it is attached
+  whatever it is written in, and the harness command you name is the only stack-specific input.
+  Whether that harness covers the code is what `doctor` reports afterwards
+  ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md)).
 - **Claude Code only.** Cursor is refused.
 - **No worktrees or submodules.** A `.git` that is a file is refused.
 - **One attach at a time.** A second attach meets its own files and refuses with a collision; detach

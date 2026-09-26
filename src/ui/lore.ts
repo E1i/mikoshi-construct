@@ -126,7 +126,7 @@ export interface Lore {
   attachRefusedNoGit: string
   attachRefusedLinkedGit: string
   attachRefusedConstructed: string
-  attachRefusedUnsupportedStack: string
+  attachRefusedNothingToAttach: string
   attachRefusedCollision: (paths: string[]) => string
   attachRefusedNoHarness: string
   attachRefusedCursor: string
@@ -337,7 +337,7 @@ export const LORE: Lore = {
   attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
   attachRefusedLinkedGit: 'BREACH FAILED // LINKED NET: .git is a file',
   attachRefusedConstructed: 'BREACH FAILED // ALREADY CONSTRUCTED: construct.json is here',
-  attachRefusedUnsupportedStack: 'BREACH FAILED // ICE DETECTED: unsupported stack',
+  attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
   attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
   attachRefusedCursor: 'BREACH FAILED // CURSOR OUT OF SCOPE: alwaysApply rules govern the whole tree',
@@ -540,7 +540,7 @@ export const PLAIN_LORE: Lore = {
   attachRefusedNoGit: 'Refused: not a git repository.',
   attachRefusedLinkedGit: 'Refused: .git is a file (worktree or submodule); attach needs the .git directory.',
   attachRefusedConstructed: 'Refused: this repository already carries a construct; use init or sync.',
-  attachRefusedUnsupportedStack: 'Refused: this repository\'s stack is not recognised.',
+  attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
   attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
   attachRefusedCursor: 'Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.',

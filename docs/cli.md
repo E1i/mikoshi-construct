@@ -1034,7 +1034,7 @@ Every check runs before anything is written, in this order, and a refusal create
 | `<dir>/.git` does not exist | `Refused: not a git repository.` |
 | `<dir>/.git` is a file (a worktree or a submodule) | `Refused: .git is a file (worktree or submodule); attach needs the .git directory.` |
 | `construct.json` exists | `Refused: this repository already carries a construct; use init or sync.` |
-| the layout is `empty` or `unknown` | `Refused: this repository's stack is not recognised.` |
+| the directory holds nothing but `.git` and the files an empty directory may hold (`README.md`, `LICENSE`, editor settings) | `Refused: this repository holds nothing to attach to.` |
 | a path attach would create already exists | `Refused: N paths attach would create already exist:` followed by the paths |
 | `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.` |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
