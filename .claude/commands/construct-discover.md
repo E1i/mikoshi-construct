@@ -93,8 +93,11 @@ Work in this order:
 
     A fact is what code can look at without judgement, and there are five kinds and no sixth:
     `file-exists` names a `path`, `file-contains` and `file-lacks` name a `path` and a literal
-    `needle`, `report-covers` and `report-misses` name a runner's report as `path` and a `surface`
-    of globs. An interpretation those kinds cannot support does not enter the model at all — it stays prose in the
+    `needle`, `report-covers` and `report-misses` name a runner's report as `path`, a `surface` of
+    globs, and a `format`: `vitest-json` (the default, read when `format` is absent) or `junit-xml`.
+    Point a `junit-xml` fact's `path` at a report produced by
+    `pytest -o junit_family=xunit1 --junitxml=<path>` — the xunit1 shape the reader understands.
+    An interpretation those kinds cannot support does not enter the model at all — it stays prose in the
     marker where it belongs. *Service-oriented structure*, standing on four directories under `apps/`
     each holding a Dockerfile, is admissible; *the architecture is mature* is not. Where an
     interpretation looks as though it needs a third kind of fact, write that down under

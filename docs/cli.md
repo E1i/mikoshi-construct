@@ -294,6 +294,14 @@ only discovery writes: the construct never does. That stage stands on a `report-
 runner's report and the surface globs, minus every path `construct.json` records as the construct's
 own.
 
+A `report-covers` or `report-misses` fact carries a `format`: `vitest-json` (the default, read when
+`format` is absent) for a Vitest `--reporter=json` report, or `junit-xml` for a JUnit XML report.
+Point one at a pytest suite by running `pytest -o junit_family=xunit1 --junitxml=<path>`, the xunit1
+shape the reader understands, and record that `<path>` as the fact's `path` with `"format":
+"junit-xml"`. A testcase's repository path comes only from its `file` attribute; one with no `file`
+is unmapped, and coverage through it reads `unknown`. A `<skipped>` testcase did not run; `<failure>`
+and `<error>` did.
+
 | `state` | Meaning |
 |---|---|
 | `checked` | The report lists at least one surface file as executed. A failed file was run; a skipped one was not. Whether the harness passes is not said. |
