@@ -4,10 +4,13 @@ import { fileURLToPath } from 'node:url'
 
 const ACCEPTANCE_LABEL = /(?:^|\s)Acceptance:/
 const INVARIANTS_LABEL = /(?:^|\s)Invariants:/
+const IMMUTABLE_LABEL = /(?:^|\s)Immutable:/
 const SECTION_END = {
-  acceptance: /(?:^|\n|[.!?]\s*)(?:Mutations|Invariants):/,
-  invariants: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance):/,
+  acceptance: /(?:^|\n|[.!?]\s*)(?:Mutations|Invariants|Immutable):/,
+  invariants: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Immutable):/,
+  immutable: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Invariants):/,
 }
+const QUOTED_PATH = /^`([^`]+)`$/
 const WITNESS_MARKER = '— witness:'
 const QUOTED_COMMAND = /^`([^`]+)`$/
 
@@ -59,6 +62,10 @@ export function agreedInvariants(text) {
   return sectionItems(text, INVARIANTS_LABEL, SECTION_END.invariants) ?? []
 }
 
+export function agreedImmutable(text) {
+  return (sectionItems(text, IMMUTABLE_LABEL, SECTION_END.immutable) ?? []).map(item => QUOTED_PATH.exec(item)?.[1] ?? item)
+}
+
 export function argsAcceptance(json) {
   let args
   try {
@@ -85,7 +92,7 @@ export function argsWitnessing(json) {
   const witnesses = args?.witnesses ?? []
   if (!Array.isArray(witnesses) || witnesses.some(witness => typeof witness?.criterion !== 'string' || typeof witness?.command !== 'string'))
     throw new InputError('args.witnesses is not an array of { criterion, command } strings')
-  return { witnesses, invariants: stringArray(args, 'invariants') }
+  return { witnesses, invariants: stringArray(args, 'invariants'), immutable: stringArray(args, 'immutable') }
 }
 
 export function witnessProblems(agreed, witnesses) {
@@ -126,11 +133,12 @@ export function check(argv) {
     const acceptance = argsAcceptance(json)
     if (agreed == null)
       return { code: 0, stdout: ['The agreed line has no Acceptance: section; nothing was agreed to check.'], stderr: [] }
-    const { witnesses, invariants } = argsWitnessing(json)
+    const { witnesses, invariants, immutable } = argsWitnessing(json)
     const problems = [
       ...missingItems(agreed.map(item => item.criterion), acceptance),
       ...witnessProblems(agreed, witnesses),
       ...missingItems(agreedInvariants(text), invariants).map(item => `invariant missing from the args: ${item}`),
+      ...agreedImmutable(text).filter(item => !immutable.includes(item)).map(item => `immutable path missing from the args: ${item}`),
     ]
     if (problems.length > 0)
       return { code: 1, stdout: [], stderr: problems }

@@ -29,9 +29,12 @@ repository's CLAUDE.md and `construct.json`.
    the implementer only refers to it. **Invariants** (an `Invariants:` section, split the same way)
    are green before and after, such as "the harness is green"; the harness holds them and they
    go into `args.invariants` unwitnessed. An item the base already satisfies belongs in invariants,
-   because it can never be witnessed red. A `;` inside backticks does not split an item. A brief
+   because it can never be witnessed red. **Immutable** (an `Immutable:` section, split the same way)
+   names paths the change may not touch, each a file or, ending in `/`, a directory, with any
+   surrounding backticks dropped; they go into `args.immutable`, and a rung whose changed files include
+   one fails as `immutable changed`. A `;` inside backticks does not split an item. A brief
    with no acceptance, or an acceptance item with no witness, returns `blocked` before any agent runs.
-3. Before calling Workflow, check that the agreed acceptance, its witnesses and the invariants reached the args: write `$ARGUMENTS`
+3. Before calling Workflow, check that the agreed acceptance, its witnesses, the invariants and the immutable paths reached the args: write `$ARGUMENTS`
    verbatim to `.construct/implement-agreed.txt` and the `args` object you are about to pass to
    `.construct/implement-args.json` (create the directory if needed; overwrite both), then run
    `node scripts/construct/check-acceptance.mjs --agreed .construct/implement-agreed.txt --args .construct/implement-args.json`.
@@ -42,7 +45,7 @@ repository's CLAUDE.md and `construct.json`.
    one. On exit `0`, call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
-   `{ "task": ..., "acceptance": [...], "witnesses": [{ "criterion": ..., "command": ... }], "invariants": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...], "contractPaths": [...] } }`
+   `{ "task": ..., "acceptance": [...], "witnesses": [{ "criterion": ..., "command": ... }], "invariants": [...], "immutable": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...], "contractPaths": [...] } }`
    where `harness.command` comes from `construct.json`, or from `.construct/attach.json` when
    `construct.json` is absent (an attached repository), `harness.extra` lists any area-specific
    commands CLAUDE.md names for the files the task touches (usually empty), and
@@ -104,7 +107,8 @@ repository's CLAUDE.md and `construct.json`.
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
-     rung that changed nothing (`no change`), from an acceptance not witnessed, from a blocked report
+     rung that changed nothing (`no change`), from a rung that changed an immutable path
+     (`immutable changed`), from an acceptance not witnessed, from a blocked report
      and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:

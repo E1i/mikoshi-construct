@@ -12,11 +12,12 @@ interface CheckAcceptance {
   normalizeItem: (item: string) => string
   agreedItems: (text: string) => string[] | null
   agreedInvariants: (text: string) => string[]
+  agreedImmutable: (text: string) => string[]
   argsAcceptance: (json: string) => string[]
   missingItems: (agreed: string[], acceptance: string[]) => string[]
 }
 
-const { agreedInvariants, agreedItems, argsAcceptance, missingItems, normalizeItem } = await import(pathToFileURL(SCRIPT).href) as CheckAcceptance
+const { agreedImmutable, agreedInvariants, agreedItems, argsAcceptance, missingItems, normalizeItem } = await import(pathToFileURL(SCRIPT).href) as CheckAcceptance
 
 const AGREED = [
   '/implement Acceptance echo in the ladder:',
@@ -78,6 +79,30 @@ describe('the agreed Acceptance section', () => {
 
   it('is absent when the label is', () => {
     expect(agreedItems('/implement add a rule')).toBeNull()
+  })
+})
+
+describe('the agreed Immutable section', () => {
+  const brief = [
+    'Acceptance: the rule rejects the case — witness: `pnpm vitest run tests/rule.test.ts`.',
+    'Immutable: `tests/rule.test.ts`; templates/.',
+    'Invariants: pnpm run quality stays green.',
+  ].join('\n')
+
+  it('reads its paths without backticks and ends the acceptance and invariants before it', () => {
+    expect(agreedImmutable(brief)).toEqual(['tests/rule.test.ts', 'templates/'])
+    expect(agreedItems(brief)).toEqual(['the rule rejects the case'])
+    expect(agreedInvariants(brief)).toEqual(['pnpm run quality stays green'])
+  })
+
+  it('stops when an immutable path dropped out before the call, and passes once it is carried', () => {
+    const args = { acceptance: ['the rule rejects the case'], witnesses: [{ criterion: 'the rule rejects the case', command: 'pnpm vitest run tests/rule.test.ts' }], invariants: ['pnpm run quality stays green'] }
+    const dropped = runCheck(brief, JSON.stringify({ ...args, immutable: ['tests/rule.test.ts'] }))
+    const carried = runCheck(brief, JSON.stringify({ ...args, immutable: ['tests/rule.test.ts', 'templates/'] }))
+
+    expect(dropped.status).toBe(1)
+    expect(dropped.stderr).toContain('immutable path missing from the args: templates/')
+    expect(carried.status).toBe(0)
   })
 })
 
