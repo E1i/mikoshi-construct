@@ -1,5 +1,25 @@
 # mikoshi-construct
 
+## 0.23.0
+
+### Minor Changes
+
+- [#234](https://github.com/E1i/mikoshi-construct/pull/234) [`ef66481`](https://github.com/E1i/mikoshi-construct/commit/ef66481c4bb7e4452177a7c080cef609d1a86d58) Thanks [@E1i](https://github.com/E1i)! - Breaking: `doctor --json` `harness.state` gains `does-not-cover`, and `checked` changes meaning (decision 0033). It is now the projection of the verification stage of the discovery-written claim `harness-covers-target`: `checked` only when a Vitest JSON report lists a file of the repository's own verification surface as executed, `does-not-cover` when a complete, fresh report shows none of it ran, `unknown` otherwise. A consumer that read `checked` as "the command is a package script" now gets `unknown` on the same repository; `harnessProblems` and `ok` are unchanged. The model format goes to `modelVersion` 2 with the fact kinds `file-lacks`, `report-covers` and `report-misses`. `construct graph` draws report-backed entries in a fixed `runtime-report` class and never reads a report.
+
+### Patch Changes
+
+- [#239](https://github.com/E1i/mikoshi-construct/pull/239) [`36f7abc`](https://github.com/E1i/mikoshi-construct/commit/36f7abc9815cea1962b05bcf98bdcec193ba9fc5) Thanks [@E1i](https://github.com/E1i)! - The generated `.claude/agents/implementer.md` runs the implementer with `model: sonnet` instead of `inherit`, so the low-effort rung no longer runs on whatever model the session uses. The architect and harness agents still inherit. The Cursor channel is not affected. The Sonnet default is under observation; set `model: inherit` to go back.
+
+- [#241](https://github.com/E1i/mikoshi-construct/pull/241) [`dfd14aa`](https://github.com/E1i/mikoshi-construct/commit/dfd14aa5242c88c65173b1de9413643f007f51b8) Thanks [@E1i](https://github.com/E1i)! - The implement ladder reports `done` only when every acceptance item from the brief was witnessed failing on the base and passing after the change. Before, a green harness was enough, and a rung that changed nothing passed on a tree that was green by construction.
+  
+  - Each acceptance item ends with its witness, `` — witness: `<command>` ``. The witness is fixed in the brief before the run. The implementer only sees it and cannot substitute one, and `check-acceptance` stops a run whose args carry a different witness.
+  - The harness runs each witness twice: on the working tree, and against the base sha in a worktree of its own, never by stashing or rewriting files in the working tree.
+  - A brief now splits into acceptance, which must go from red to green and is the gate, and an `Invariants:` section, which stays green throughout and is held by the harness. An item such as "the harness is green" belongs in invariants.
+  - A base that cannot witness reads `base unverified` and ends the run, never red: no install ran or the install failed, or a witness could not run on the base because a command or a package is missing.
+  - A rung that changes no file is a `no change` attempt. A brief with no acceptance, or an acceptance item with no witness, returns `blocked` before any agent runs.
+
+- [#237](https://github.com/E1i/mikoshi-construct/pull/237) [`9f2e45a`](https://github.com/E1i/mikoshi-construct/commit/9f2e45a8b34ee27c535e4da18959fce0fb0109b1) Thanks [@E1i](https://github.com/E1i)! - A freshly initialised project installs again. Vitest 5.0.2 depends on `why-is-node-running ^3.2.1`, which resolved to 3.2.2 — a release published without the provenance 3.2.1 carries — and the generated `trustPolicy: no-downgrade` refused it, so `pnpm install` failed on every preset. The generated `pnpm-workspace.yaml` now overrides `why-is-node-running` to 3.2.1 rather than exempting 3.2.2 from the trust check. A project already initialised can add the same `overrides` entry to its `pnpm-workspace.yaml`.
+
 ## 0.22.0
 
 ### Minor Changes
