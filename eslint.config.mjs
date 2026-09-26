@@ -50,7 +50,7 @@ const doctorReadsThroughOneReader = {
   },
 }
 
-const ATTACH_DECIDES_WITHOUT_THE_STACK = 'attach decides without reading the stack (0034): it refuses only a tree with nothing to attach to, and whether the harness covers the target is doctor\'s to say after attach (0033)'
+const ATTACH_DECIDES_WITHOUT_THE_STACK = 'attach decides without reading the stack (0034): it refuses only a tree with nothing to attach to'
 
 const attachDecidesWithoutTheStack = {
   files: ['src/commands/attach/**'],

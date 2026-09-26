@@ -92,7 +92,8 @@ The remaining refusals, about the git index and the record, are listed with thei
 
 - **Any stack.** attach does not read the stack: a repository with something in it is attached
   whatever it is written in, and the harness command you name is the only stack-specific input.
-  Whether that harness covers the code is what `doctor` reports afterwards
+  Nothing checks yet whether that harness covers the code: `doctor` does not read an attached
+  repository
   ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md)).
 - **Claude Code only.** Cursor is refused.
 - **No worktrees or submodules.** A `.git` that is a file is refused.

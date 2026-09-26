@@ -10,6 +10,7 @@ import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach } from '../src/commands/attach/index.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { runDetach } from '../src/commands/detach/index.js'
+import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { ATTACH_CARRIERS, getPreset, groupsFor } from '../src/presets/index.js'
@@ -356,6 +357,24 @@ describe('attach decides without reading the stack (#232)', () => {
     expect(result.status).toBe('done')
     expect(runDetach(ui, { dir }).status).toBe('done')
     expect(listing(dir)).toEqual(before)
+  })
+
+  it('refuses a Go repository with --yes and no --harness as no-harness, and changes nothing', async () => {
+    const dir = goRepository(false)
+    const before = listing(dir)
+
+    const result = await runAttach(ui, { dir, harness: undefined, yes: true })
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('no-harness')
+    expect(listing(dir)).toEqual(before)
+  })
+
+  it('leaves doctor with no report on an attached Go repository, so nothing there reads checked', async () => {
+    const dir = goRepository(false)
+    expect((await runAttach(ui, { dir, harness: 'make check', yes: true })).status).toBe('done')
+
+    expect(runDoctor(dir)).toBeNull()
   })
 
   it('gives a Go repository the same decision with and without a services/ directory', async () => {
