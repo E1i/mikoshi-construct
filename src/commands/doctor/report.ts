@@ -1,6 +1,6 @@
 import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
-import type { DoctorResult } from './index.js'
+import type { AttachedReport, DoctorResult } from './index.js'
 import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerAuthorship, MarkerReading } from './provenance.js'
@@ -16,7 +16,7 @@ export const DOCTOR_EXIT = {
 
 export const DOCTOR_JSON_SCHEMA_VERSION = 1
 
-export function doctorJson(result: DoctorResult | null): Record<string, unknown> {
+export function doctorJson(result: DoctorResult | AttachedReport | null): Record<string, unknown> {
   if (result == null)
     return { schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, state: 'no-manifest' }
   return { schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, ...result }
@@ -193,10 +193,15 @@ function printYouAreHere(ui: Ui, placement: ClaimPlacement): void {
   ui.line(ui.theme.bold(placementLine(ui, placement)))
 }
 
-export function printDoctor(ui: Ui, result: DoctorResult | null): number {
+export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null): number {
   if (result == null) {
     ui.flatline('No construct.json here. Run `construct init` first.')
     return DOCTOR_EXIT.noManifest
+  }
+  if ('state' in result) {
+    ui.line(ui.theme.accent(ui.lore.doctorAttached))
+    ui.line(ui.theme.dim(`  ${ui.lore.doctorAttachedHarness(result.harness.command, result.harness.state)}`))
+    return DOCTOR_EXIT.ok
   }
   if (result.harnessProblems.length > 0)
     ui.glitch('Harness is broken.', result.harnessProblems)

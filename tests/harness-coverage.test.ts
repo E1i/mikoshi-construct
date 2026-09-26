@@ -124,7 +124,7 @@ function nodeService(report: 'skipped' | 'failed'): string {
 
 function doctor(root: string): DoctorResult {
   const result = runDoctor(root)
-  if (result == null)
+  if (result == null || 'state' in result)
     throw new Error(`${root} carries no construct.json`)
   return result
 }

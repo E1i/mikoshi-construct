@@ -11,6 +11,7 @@ import { buildManifest, writeManifest } from '../src/manifest.js'
 import { buildModel, writeModel } from '../src/model/write.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const HEALTHY = path.join(import.meta.dirname, 'fixtures/doctor/healthy')
 const CI_WORKFLOW = '.github/workflows/ci.yml'
@@ -162,7 +163,7 @@ describe('doctor on a repository built broken on purpose', () => {
   }
 
   it('reads a fact it could not evaluate as unknown, and never as a fact that does not hold', () => {
-    const verdict = verdictFor(runDoctor(repository('a-fact-that-cannot-be-evaluated')), BROKEN_CHECK)
+    const verdict = verdictFor(manifestResult(runDoctor(repository('a-fact-that-cannot-be-evaluated'))), BROKEN_CHECK)
 
     expect(verdict.state).toBe('unknown')
     expect(verdict.state).not.toBe('unsupported')
@@ -171,7 +172,7 @@ describe('doctor on a repository built broken on purpose', () => {
   })
 
   it('names no fact where the stage names none, rather than inventing one to blame', () => {
-    const verdict = verdictFor(runDoctor(repository('no-fact-named-under-the-stage')), BROKEN_CHECK)
+    const verdict = verdictFor(manifestResult(runDoctor(repository('no-fact-named-under-the-stage'))), BROKEN_CHECK)
 
     expect(verdict).toEqual(expect.objectContaining({ state: 'unknown', reason: 'no-fact-named' }))
     expect(verdict).not.toHaveProperty('doesNotHold')

@@ -370,11 +370,16 @@ describe('attach decides without reading the stack (#232)', () => {
     expect(listing(dir)).toEqual(before)
   })
 
-  it('leaves doctor with no report on an attached Go repository, so nothing there reads checked', async () => {
+  it('reads an attached Go repository as attached, never checked, without a report', async () => {
     const dir = goRepository(false)
     expect((await runAttach(ui, { dir, harness: 'make check', yes: true })).status).toBe('done')
 
-    expect(runDoctor(dir)).toBeNull()
+    const result = runDoctor(dir)
+    if (result == null || !('state' in result))
+      throw new Error('expected an attached report')
+    expect(result.state).toBe('attached')
+    expect(result.harness.command).toBe('make check')
+    expect(result.harness.state).not.toBe('checked')
   })
 
   it('gives a Go repository the same decision with and without a services/ directory', async () => {

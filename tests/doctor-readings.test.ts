@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const MANIFEST_VARS: TemplateVars = {
   projectName: 'readings-fixture',
@@ -100,7 +101,7 @@ function materialized(): string {
 describe('ok collapses toward inspection, so the two kinds of unknown part company', () => {
   it('stays true where there was nothing to inspect: no model means no verdicts and no gap in the run', () => {
     const root = materialized()
-    const verdict = runDoctor(root)
+    const verdict = manifestResult(runDoctor(root))
     expect(verdict?.checks).toEqual([])
     expect(verdict?.unreadableFiles).toEqual([])
     expect(verdict?.ok).toBe(true)
@@ -110,7 +111,7 @@ describe('ok collapses toward inspection, so the two kinds of unknown part compa
     const root = materialized()
     rmSync(path.join(root, 'package.json'))
     mkdirSync(path.join(root, 'package.json'), { recursive: true })
-    const verdict = runDoctor(root)
+    const verdict = manifestResult(runDoctor(root))
     expect(verdict?.unreadableFiles.map(entry => entry.split(' (')[0])).toContain('package.json')
     expect(verdict?.unreadableFiles.join('')).toContain('EISDIR')
     expect(verdict?.missingFiles).not.toContain('package.json')

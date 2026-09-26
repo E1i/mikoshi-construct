@@ -26,6 +26,45 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-27 · The surface gate reads a new variant, not a changed answer for the same repository
+
+**Observed.** The change that lets `doctor` read an attached repository (#247) added the variant
+`jsonKeys.doctor.attached` to `contract/surface.json`. `pnpm contract:bump` reported
+`required: patch (additive surface change)` with the single line `jsonKeys.doctor.attached added`, and
+the changeset declared patch. The same repository, attached and without `construct.json`, answered
+`{"schemaVersion":1,"state":"no-manifest"}` with exit 1 before the change, and after it an object whose
+`state` is `attached` and which carries a harness reading, with exit 0. The gate reported neither the
+change of `state` nor the change of exit code.
+
+**What it establishes.** Where the gate's boundary lies: it compares the recorded surface, which
+shapes exist and which keys each carries, and not which shape a given repository receives. A consumer
+that branched on `state: "no-manifest"` or on exit 1 for an attached repository reads differently
+after a change the gate classifies as additive. Whether that should raise the level is a question the
+gate cannot answer from the surface it records.
+
+**What it supports.** One change and one reading of `contract:bump`. It does not say that every new
+variant moves an existing input from one variant to another, nor how the gate would have to change to
+see it.
+
+## 2026-09-27 · The first live base unverified came from the environment the ladder was started in
+
+**Observed.** Run `wf_ca6d1072-e41` (#247, medium) returned `base unverified` after one rung. The
+session had been switched into the task's worktree with the `EnterWorktree` tool before the run, and
+in that mode git is refused outside the session's own worktree. Both witnesses begin with
+`git -C $D init` on a temporary directory, and the harness builds the base with `git worktree add` in
+another; the harness agent reported both refused, no base install ran, and every witness exit code
+came back as `-1` on both sides. The implementer reported `done`; the ladder did not. The switch into
+worktree mode was the recommendation of the Claude session that started the run, not a choice of any
+agent inside it. The task was run again, clean, as `wf_3b141596-05c` from a session whose working
+directory was the worktree, with no mode switch: both witnesses red on the base, green after.
+
+**What it establishes.** The gate behaved as specified: a base that cannot witness reads
+`base unverified`, never red and never `done`. This is the first time it fired on a real run rather
+than in a test, and the `done` the implementer reported did not pass through.
+
+**What it supports.** One run and its repeat. It shows one environment that prevents witnessing; it
+does not enumerate the others.
+
 ## 2026-09-27 · The runtime relays the triggering message to a ladder's agents, above their brief
 
 **Observed.** The implementer of `wf_c3fc5325-1c7` received two text messages. The first was a relay

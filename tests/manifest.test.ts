@@ -5,6 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, recordedShas, recordSync, upgradeManifest, writeManifest } from '../src/manifest.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const LEGACY_FIXTURE = path.join(import.meta.dirname, 'fixtures/manifest/legacy-0.1.x')
 
@@ -77,7 +78,7 @@ describe('a manifest written by 0.1.x still reads', () => {
   it('lets doctor run on a repository initialised before provenance existed, instead of joining a path with an object', () => {
     const root = legacyRoot()
     writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { quality: 'pnpm lint && pnpm typecheck && pnpm test' } }))
-    const result = runDoctor(root)
+    const result = manifestResult(runDoctor(root))
     expect(result).not.toBeNull()
     expect(result?.provenance.map(reading => reading.authorship)).toEqual(DISCOVERY_MARKERS.map(() => 'unrecorded'))
   })

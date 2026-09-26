@@ -10,6 +10,7 @@ import { readManifest, recordedShas } from '../../manifest.js'
 import { authoredByOwner } from '../../model/ownership.js'
 import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
+import { readAttachRecord } from '../attach/record.js'
 import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
 import { isIntact } from './families.js'
@@ -40,10 +41,20 @@ export interface DoctorResult {
   versionGap: VersionGap
 }
 
-export function runDoctor(root: string, version: string = VERSION): DoctorResult | null {
+export interface AttachedReport {
+  state: 'attached'
+  harness: HarnessReading
+}
+
+export function runDoctor(root: string, version: string = VERSION): DoctorResult | AttachedReport | null {
   const manifest = readManifest(root)
-  if (manifest == null)
-    return null
+  if (manifest == null) {
+    const record = readAttachRecord(root)
+    if (record == null)
+      return null
+    const knowledge = projectKnowledge(readModel(root), root, authoredByOwner, { reports: 'read', constructPaths: [] })
+    return { state: 'attached', harness: harnessReading(record.harness.command, knowledge.stages[HARNESS_COVERAGE_CLAIM]?.verification) }
+  }
 
   const readings = new FileReadings(root)
   const harness = readHarnessFacts(root, manifest.harness.command, readings)

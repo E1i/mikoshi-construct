@@ -10,6 +10,7 @@ import { buildModel, writeModel } from '../src/model/write.js'
 import { createUi } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const VARS: TemplateVars = {
   projectName: 'no-model-fixture',
@@ -95,8 +96,8 @@ describe('where there is no model, doctor says what writes one', () => {
   })
 
   it('does not move the exit code: an absent model is still not obstruction', () => {
-    const withModel = runDoctor(repository(true), '0.0.0-fixture')
-    const without = runDoctor(repository(false), '0.0.0-fixture')
+    const withModel = manifestResult(runDoctor(repository(true), '0.0.0-fixture'))
+    const without = manifestResult(runDoctor(repository(false), '0.0.0-fixture'))
 
     expect(without?.ok).toBe(withModel?.ok)
   })

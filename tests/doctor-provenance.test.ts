@@ -11,6 +11,7 @@ import { buildManifest, DISCOVERY_MARKERS, readManifest, sha256, upgradeManifest
 import { createUi } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const VARS: TemplateVars = {
   projectName: 'fixture',
@@ -95,13 +96,13 @@ describe('who a discovery marker belongs to is derived, never declared twice', (
 
   it('reads a rewritten marker as the owner\'s, with no command to run and nothing written back', () => {
     const root = repositoryAfterDiscovery({ product: 'The owner\'s own paragraph.' }, { product: 'What discovery wrote.' })
-    const readings = runDoctor(root)?.provenance ?? []
+    const readings = manifestResult(runDoctor(root))?.provenance ?? []
     expect(readings.find(reading => reading.marker === 'product')?.authorship).toBe('owner')
   })
 
   it('reads an unedited marker as the construct still talking to itself, and doctor names it without changing the exit code', () => {
     const root = repositoryAfterDiscovery({ product: 'What discovery wrote.' })
-    const result = runDoctor(root)
+    const result = manifestResult(runDoctor(root))
     expect(result?.provenance.find(reading => reading.marker === 'product')?.authorship).toBe('construct')
     expect(result?.provenance.find(reading => reading.marker === 'composition')?.authorship).toBe('construct')
     expect(result?.provenance.filter(reading => reading.authorship === 'unrecorded').map(reading => reading.marker)).toContain('module-map')

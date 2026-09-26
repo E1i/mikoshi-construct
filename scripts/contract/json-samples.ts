@@ -13,6 +13,7 @@ import { unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const FROZEN_010 = path.join(REPO_ROOT, 'tests/fixtures/sync/materialized-by-0.1.0')
+const EXISTING_MONOREPO = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
 const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT', 'CURSOR_TRACE_ID']
 const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), '.cache', 'node', 'corepack')
 const SAMPLE_PRESET = 'node-library'
@@ -135,6 +136,16 @@ function throughSymlinkRecordedAtRealPath(world: World): World {
   return { ...world, dir: link }
 }
 
+function attachedWorld(scratch: Scratch): World {
+  const world = scratch.world()
+  cpSync(EXISTING_MONOREPO, world.dir, { recursive: true })
+  spawnSync('git', ['init', '-q'], { cwd: world.dir })
+  const status = run(scratch.cli, ['attach', '--yes', '--harness', 'pnpm run quality'], world).status
+  if (status !== 0)
+    throw new Error(`attach exited ${status} while building the --json samples`)
+  return world
+}
+
 function withoutBaselineFile(world: World): World {
   rmSync(path.join(world.dir, 'architecture/principles.md'))
   return world
@@ -202,6 +213,7 @@ const SAMPLES: Sample[] = [
   { command: 'doctor', state: 'ok', args: ['doctor', '--json'], world: scratch => scratch.init() },
   { command: 'doctor', state: 'notOk', args: ['doctor', '--json'], world: scratch => withoutBaselineFile(scratch.init()) },
   { command: 'doctor', state: 'noManifest', args: ['doctor', '--json'], world: scratch => scratch.world() },
+  { command: 'doctor', state: 'attached', args: ['doctor', '--json'], world: scratch => attachedWorld(scratch) },
   { command: 'sync', state: 'upToDate', args: ['sync', '--json'], world: scratch => scratch.init() },
   { command: 'sync', state: 'pending', args: ['sync', '--json'], world: scratch => scratch.frozen010() },
   { command: 'sync', state: 'noManifest', args: ['sync', '--json'], world: scratch => scratch.world() },
@@ -229,7 +241,7 @@ const SAMPLES: Sample[] = [
 ]
 
 export const EXIT_TABLES: Record<string, Record<string, number>> = {
-  'doctor': DOCTOR_EXIT,
+  'doctor': { ...DOCTOR_EXIT, attached: DOCTOR_EXIT.ok },
   'sync': SYNC_EXIT,
   'sync --apply': SYNC_APPLY_EXIT,
   'cost': COST_EXIT,

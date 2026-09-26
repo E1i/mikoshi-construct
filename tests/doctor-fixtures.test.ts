@@ -13,6 +13,7 @@ import { MODEL_VERSION } from '../src/model/schema.js'
 import { buildModel, writeModel } from '../src/model/write.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures/doctor')
 const CONTROL = 'healthy'
@@ -170,7 +171,7 @@ function verdictFor(checks: CheckVerdict[], id: string): CheckVerdict {
 describe('doctor on the fixtures', () => {
   for (const [name, expectation] of Object.entries(FIXTURES)) {
     it(`${name}: ${expectation.lie}`, () => {
-      const result = runDoctor(materializeFixture(name))
+      const result = manifestResult(runDoctor(materializeFixture(name)))
       expect(result?.ok).toBe(expectation.ok)
       expect(result?.checks.map(check => check.claimId)).toEqual(modelClaims().map(claim => claim.id))
       for (const expected of expectation.checks) {
@@ -199,14 +200,14 @@ describe('doctor on the fixtures', () => {
   }
 
   it('carries the cause beside the file it could not read, so a second cause needs no second reading', () => {
-    const result = runDoctor(materializeFixture('unreadable-recorded-file'))
+    const result = manifestResult(runDoctor(materializeFixture('unreadable-recorded-file')))
     expect(result?.unreadableFiles).toHaveLength(1)
     expect(result?.unreadableFiles[0]).toMatch(/^tests\/harness\.test\.ts \(.+\)$/)
   })
 
   it('never claims L4, and renders every verdict from a claim the model carries', () => {
     for (const name of Object.keys(FIXTURES)) {
-      const checks = runDoctor(materializeFixture(name))?.checks ?? []
+      const checks = manifestResult(runDoctor(materializeFixture(name)))?.checks ?? []
       expect(checks.map(check => check.level)).not.toContain('L4')
       for (const check of checks) {
         expect(claimNamed(check.claimId)?.checkId ?? check.claimId).toBe(check.id)
@@ -217,8 +218,8 @@ describe('doctor on the fixtures', () => {
   })
 
   it('renders a harness that stopped running lint as a claim rather than a problem, so it lands where the control does rather than failing the run', () => {
-    const skipping = runDoctor(materializeFixture('harness-skips-lint'))
-    const control = runDoctor(materializeFixture(CONTROL))
+    const skipping = manifestResult(runDoctor(materializeFixture('harness-skips-lint')))
+    const control = manifestResult(runDoctor(materializeFixture(CONTROL)))
     expect(skipping?.harnessProblems).toEqual([])
     expect(skipping?.ok).toBe(control?.ok)
     expect(verdictFor(skipping?.checks ?? [], 'harness-steps').state).toBe('unsupported')
@@ -226,14 +227,14 @@ describe('doctor on the fixtures', () => {
   })
 
   it('completes with no verdict at all on a repository carrying no construct.model.json', () => {
-    const result = runDoctor(materializeFixture(CONTROL, { model: 'absent' }))
+    const result = manifestResult(runDoctor(materializeFixture(CONTROL, { model: 'absent' })))
     expect(result?.checks).toEqual([])
     expect(result?.youAreHere).toEqual({ at: 'no-model' })
     expect(result?.ok).toBe(true)
   })
 
   it('says nothing about uncollected tests where the construct never wrote the runner config', () => {
-    expect(runDoctor(materializeFixture('orphaned-construct-tests', { recordRunnerConfig: false }))?.uncollectedTests).toEqual([])
+    expect(manifestResult(runDoctor(materializeFixture('orphaned-construct-tests', { recordRunnerConfig: false })))?.uncollectedTests).toEqual([])
   })
 
   it('has one fixture directory per property doctor reports on, and one fixture per check id', () => {
