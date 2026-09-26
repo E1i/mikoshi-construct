@@ -372,6 +372,16 @@
       }
     },
     "doctor": {
+      "attached": {
+        "keys": [
+          "harness",
+          "harness.command",
+          "harness.state",
+          "schemaVersion",
+          "state"
+        ],
+        "root": "object"
+      },
       "noManifest": {
         "keys": [
           "schemaVersion",

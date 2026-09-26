@@ -10,6 +10,7 @@ import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 let reclassify: (classifications: PathClassification[]) => PathClassification[] = entries => entries
 
@@ -47,7 +48,7 @@ beforeEach(() => {
 describe('the version gap doctor reports', () => {
   it('names the version that materialized the repository and the version reading it', async () => {
     const dir = await materialized()
-    const result = runDoctor(dir, '9.9.9')
+    const result = manifestResult(runDoctor(dir, '9.9.9'))
     expect(result?.versionGap.materializedBy).toBe(VERSION)
     expect(result?.versionGap.readBy).toBe('9.9.9')
     expect(rendered(dir, '9.9.9').output).toContain(PLAIN_LORE.syncVersionGap(VERSION, '9.9.9'))
@@ -55,13 +56,13 @@ describe('the version gap doctor reports', () => {
 
   it('counts what a sync would add or update from the sync engine\'s own classification', async () => {
     const dir = await materialized()
-    expect(runDoctor(dir, VERSION)?.versionGap.pending).toBe(0)
+    expect(manifestResult(runDoctor(dir, VERSION))?.versionGap.pending).toBe(0)
 
     reclassify = entries => entries.map((entry, index) => (index === 0 ? { ...entry, class: 'add' as const } : entry))
-    expect(runDoctor(dir, VERSION)?.versionGap.pending).toBe(1)
+    expect(manifestResult(runDoctor(dir, VERSION))?.versionGap.pending).toBe(1)
 
     reclassify = entries => entries.map(entry => (entry.class === 'keep' ? { ...entry, class: 'update' as const } : entry))
-    const everyKeptPathPending = runDoctor(dir, VERSION)?.versionGap.pending ?? 0
+    const everyKeptPathPending = manifestResult(runDoctor(dir, VERSION))?.versionGap.pending ?? 0
     expect(everyKeptPathPending).toBeGreaterThan(1)
   })
 
@@ -75,8 +76,8 @@ describe('the version gap doctor reports', () => {
     const moved = rendered(dir, VERSION)
     expect(moved.output).toContain(PLAIN_LORE.baselineMoved(1))
     expect(moved.code).toBe(0)
-    expect(runDoctor(dir, VERSION)?.ok).toBe(true)
-    expect(runDoctor(dir, VERSION)?.checks).toHaveLength(readModel(dir)?.claims.length ?? 0)
+    expect(manifestResult(runDoctor(dir, VERSION))?.ok).toBe(true)
+    expect(manifestResult(runDoctor(dir, VERSION))?.checks).toHaveLength(readModel(dir)?.claims.length ?? 0)
   })
 
   it('says the gap cannot be established rather than failing when the replay cannot run', async () => {
@@ -85,7 +86,7 @@ describe('the version gap doctor reports', () => {
       throw new Error('the replay cannot render this manifest')
     }
     const { output, code } = rendered(dir, VERSION)
-    expect(runDoctor(dir, VERSION)?.versionGap.pending).toBeNull()
+    expect(manifestResult(runDoctor(dir, VERSION))?.versionGap.pending).toBeNull()
     expect(output).toContain(PLAIN_LORE.baselineGapUnknown)
     expect(code).toBe(0)
   })

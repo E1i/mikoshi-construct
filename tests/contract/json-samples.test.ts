@@ -20,6 +20,10 @@ if (args[0] === 'init') {
   writeFileSync(path.join(dir, 'construct.json'), '{}')
   process.exit(0)
 }
+if (args[0] === 'attach') {
+  writeFileSync(path.join(dir, 'construct.json'), '{}')
+  process.exit(0)
+}
 if (args[0] === 'doctor' && !existsSync(path.join(dir, 'construct.json'))) {
   process.stdout.write('TypeError: cannot read properties of null')
   process.exit(1)
@@ -43,7 +47,7 @@ describe('a JSON pair the tag cannot be sampled for', () => {
   it('is unbaselined at the level of that pair, names its command and state, and reads breaking', () => {
     const observed = tagJsonKeys(tagCli(root))
     const sampledOk = observed.doctor.ok as JsonSample
-    const head: Surface = { ...fixtureSurface(), jsonKeys: { doctor: { ok: sampledOk, notOk: sampledOk, noManifest: { root: 'object', keys: ['schemaVersion'] } } } }
+    const head: Surface = { ...fixtureSurface(), jsonKeys: { doctor: { ok: sampledOk, notOk: sampledOk, noManifest: { root: 'object', keys: ['schemaVersion'] }, attached: sampledOk } } }
     const base = { ...reading(fixtureSurface()), jsonKeys: { doctor: observed.doctor } }
     expect(requiredChange(base, head)).toEqual({
       level: 'breaking',

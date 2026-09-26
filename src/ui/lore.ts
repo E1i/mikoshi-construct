@@ -36,6 +36,8 @@ export interface Lore {
   glitch: string
   flatlined: string
   stable: string
+  doctorAttached: string
+  doctorAttachedHarness: (command: string, state: string) => string
   discoveryIncomplete: string
   provenance: string
   stillConstructAuthored: (count: number) => string
@@ -229,6 +231,8 @@ export const LORE: Lore = {
   glitch: 'GLITCH',
   flatlined: 'FLATLINED',
   stable: 'CONSTRUCT STABLE',
+  doctorAttached: 'ATTACHED // NO CONSTRUCT, NETRUN ONLY',
+  doctorAttachedHarness: (command: string, state: string) => `Harness \`${command}\` reads ${state}.`,
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'AUTHORSHIP TRACE',
   stillConstructAuthored: (count: number) => `Still the construct's own words: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
@@ -432,6 +436,8 @@ export const PLAIN_LORE: Lore = {
   glitch: 'WARNING',
   flatlined: 'ERROR',
   stable: 'OK',
+  doctorAttached: 'Attached (no construct.json).',
+  doctorAttachedHarness: (command: string, state: string) => `Harness \`${command}\` reads ${state}.`,
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'Discovery provenance',
   stillConstructAuthored: (count: number) => `Unchanged since discovery wrote them: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,

@@ -8,6 +8,7 @@ import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { buildManifest, writeManifest } from '../src/manifest.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const VARS: TemplateVars = {
   projectName: 'fixture',
@@ -51,7 +52,7 @@ function plainOutput(result: DoctorResult): string {
 
 describe('doctor on a harness command that is not a package script', () => {
   it('reports make check as not statically checkable, names it, and does not fail on package.json', () => {
-    const result = runDoctor(repositoryWith('make check', null))
+    const result = manifestResult(runDoctor(repositoryWith('make check', null)))
     expect(result?.harness).toEqual({ command: 'make check', state: 'unknown' })
     expect(result?.harnessProblems).toEqual([])
     expect(result?.ok).toBe(true)
@@ -59,17 +60,17 @@ describe('doctor on a harness command that is not a package script', () => {
   })
 
   it('still checks a package-manager command against the package.json scripts', () => {
-    const missing = runDoctor(repositoryWith('pnpm run quality', null))
+    const missing = manifestResult(runDoctor(repositoryWith('pnpm run quality', null)))
     expect(missing?.harness).toEqual({ command: 'pnpm run quality', state: 'unknown' })
     expect(missing?.harnessProblems).toEqual(['package.json is missing'])
     expect(missing?.ok).toBe(false)
-    const present = runDoctor(repositoryWith('npm run quality', { scripts: { quality: 'eslint .' } }))
+    const present = manifestResult(runDoctor(repositoryWith('npm run quality', { scripts: { quality: 'eslint .' } })))
     expect(present?.harness).toEqual({ command: 'npm run quality', state: 'unknown' })
     expect(present?.harnessProblems).toEqual([])
   })
 
   it('says nothing about an unchecked harness when the command is a package script', () => {
-    const result = runDoctor(repositoryWith('pnpm run quality', { scripts: { quality: 'eslint .' } }))
+    const result = manifestResult(runDoctor(repositoryWith('pnpm run quality', { scripts: { quality: 'eslint .' } })))
     expect(plainOutput(result as DoctorResult)).not.toContain('is not a package script')
   })
 })

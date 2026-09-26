@@ -9,6 +9,7 @@ import { runInit } from '../src/commands/init.js'
 import { readManifest } from '../src/manifest.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { manifestResult } from './doctor-manifest-result.js'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 
@@ -35,7 +36,7 @@ describe('construct init --yes --preset node-backend', () => {
     expect(Object.keys(manifest?.files ?? {})).toContain('CLAUDE.md')
     expect(manifest?.files['architecture/decisions/README.md']).toMatch(/^[0-9a-f]{8,}$/)
 
-    const doctor = runDoctor(dir)
+    const doctor = manifestResult(runDoctor(dir))
     expect(doctor?.ok).toBe(true)
     expect(doctor?.missingDiscovery).toContain('module-map')
     expect(doctor?.missingDiscovery).not.toContain('composition')
@@ -84,7 +85,7 @@ describe('construct init --yes --preset node-backend', () => {
     const again = readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')
     expect(again).toContain('| src | everything |')
     expect(again.match(/construct:begin/g)).toHaveLength(1)
-    expect(runDoctor(dir)?.missingDiscovery).not.toContain('module-map')
+    expect(manifestResult(runDoctor(dir))?.missingDiscovery).not.toContain('module-map')
   })
 })
 
@@ -215,7 +216,7 @@ describe('construct init --preset monorepo', () => {
     expect(readFileSync(path.join(dir, 'eslint.config.mjs'), 'utf8')).toContain('\'apps/api\': [\'@shop/shared\']')
     const manifest = readManifest(dir)
     expect(manifest?.contracts).toEqual({ path: 'contracts/api/openapi.yaml', types: 'packages/shared/src/api/openapi.ts' })
-    expect(runDoctor(dir)?.ok).toBe(true)
+    expect(manifestResult(runDoctor(dir))?.ok).toBe(true)
   })
 })
 
@@ -233,7 +234,7 @@ describe('construct init --preset node-frontend', () => {
     expect(agents).toContain('Always high, whatever discovery finds: `architecture/composition/`')
     expect(readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')).toContain('@AGENTS.md')
     expect(readManifest(dir)?.contracts).toBeNull()
-    expect(runDoctor(dir)?.ok).toBe(true)
+    expect(manifestResult(runDoctor(dir))?.ok).toBe(true)
   })
 })
 
@@ -250,8 +251,8 @@ describe('construct init on a directory that is not empty', () => {
     expect(existsSync(path.join(dir, 'scripts/tests/lint/syntax-policy.test.ts'))).toBe(false)
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { packageManager: string }
     expect(pkg.packageManager).toBe('pnpm@11.0.0')
-    expect(runDoctor(dir)?.ok).toBe(true)
-    expect(runDoctor(dir)?.missingDiscovery).toContain('composition')
+    expect(manifestResult(runDoctor(dir))?.ok).toBe(true)
+    expect(manifestResult(runDoctor(dir))?.missingDiscovery).toContain('composition')
   })
 })
 
@@ -260,7 +261,7 @@ describe('construct doctor and the contract', () => {
     const dir = scratch()
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     rmSync(path.join(dir, 'src/contracts/openapi.ts'))
-    const doctor = runDoctor(dir)
+    const doctor = manifestResult(runDoctor(dir))
     expect(doctor?.ok).toBe(false)
     expect(doctor?.harnessProblems).toEqual(['src/contracts/openapi.ts is missing (construct.json → contracts)'])
   })
@@ -290,7 +291,7 @@ describe('construct init on an existing monorepo', () => {
     expect(rewritten.sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'package.json', 'packages/shared/package.json'])
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8').startsWith('# example-monorepo\n')).toBe(true)
     expect(JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).version).toBe('1.4.0')
-    const doctor = runDoctor(dir)
+    const doctor = manifestResult(runDoctor(dir))
     expect(doctor?.ok).toBe(true)
     expect(doctor?.harnessProblems).toEqual([])
   })
@@ -377,6 +378,6 @@ describe('construct init on a repository that already documents itself', () => {
     const manifest = readManifest(dir)
     expect(manifest?.discovery.markers.composition.file).toBe('docs/architecture/composition')
     expect(existsSync(path.join(dir, 'architecture/composition'))).toBe(false)
-    expect(runDoctor(dir)?.missingDiscovery).not.toContain('composition')
+    expect(manifestResult(runDoctor(dir))?.missingDiscovery).not.toContain('composition')
   })
 })

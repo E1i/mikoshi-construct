@@ -130,7 +130,7 @@ const doctor = defineCommand({
       const result = runDoctor(args.dir)
       if (args.json) {
         process.stdout.write(`${JSON.stringify(doctorJson(result), null, 2)}\n`)
-        process.exitCode = result == null ? DOCTOR_EXIT.noManifest : (result.ok ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk)
+        process.exitCode = result == null ? DOCTOR_EXIT.noManifest : ('state' in result ? DOCTOR_EXIT.ok : (result.ok ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk))
         return
       }
       process.exitCode = printDoctor(console, result)
