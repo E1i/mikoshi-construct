@@ -26,6 +26,44 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-27 · The runtime relays the triggering message to a ladder's agents, above their brief
+
+**Observed.** The implementer of `wf_c3fc5325-1c7` received two text messages. The first was a relay
+from the Workflow runtime: "[Workflow harness — user request] The harness relays, verbatim and
+indented below, the user request that triggered this workflow run … Where the computed task conflicts
+with this request, this request wins". It carried an owner message about another issue, sent to the
+session in the same turn the ladder was started. The computed brief came second. The implementer did
+what the first message said, which is the answer described in *The ladder reported done for a run
+that changed nothing*. The implementer of `wf_8c2c8640-30b`, started from a turn that carried no owner
+message, received one text message, the computed brief, and answered it.
+
+**What it establishes.** How the other request reached the implementer, which the earlier entry left
+open: not a leak of session context, but the runtime's own relay of whichever user message triggered
+the run, ranked above the brief. The model did what its input told it.
+
+**What changed.** The implement skill says to call the Workflow only from a turn whose only user
+message is the `/implement` itself. The ladder cannot check it: the script sees no transcript and an
+agent call returns only the object its schema allows, so the rule holds by discipline alone.
+
+**What it supports.** Two runs, read from their transcripts, both with the implementer on the same
+model. It says nothing about the harness or architect agents, whose inputs were not read, and nothing
+about how often a message lands in the starting turn.
+
+## 2026-09-27 · A defect outside the brief passed a witnessed done
+
+**Observed.** `wf_8c2c8640-30b` returned `done` with all five acceptance items witnessed red on the base
+and green after. A probe run afterwards found the JUnit reader treating text inside CDATA as markup: a
+`<failure>` whose message mentioned `<skipped>` read as a test that did not run. The brief required
+CDATA to be skipped, but no acceptance item named that case, so no witness exercised it. It was fixed
+in the same pull request (#243), with its tests red first.
+
+**What it establishes.** The gate proves what the brief names and nothing else. A `done` says every
+named item went from red to green; a requirement stated in the task text and absent from the
+acceptance is not witnessed, however plainly it is written.
+
+**What it supports.** One defect, found by a probe written by hand after the run. It does not measure
+how much of a brief's task text typically goes unwitnessed.
+
 ## 2026-09-26 · The ladder reported done for a run that changed nothing
 
 **Observed.** Run `wf_c3fc5325-1c7` (a medium task: a JUnit reader for the coverage facts) returned
@@ -40,6 +78,9 @@ because the only gate after a rung was the harness, which is green on the base b
 It is left as written. The ledger has no field that can say a recorded status was later found false,
 so the entry reads as a success to `construct cost` and to anyone reading it. That gap is part of
 issue #240.
+
+See also: *The runtime relays the triggering message to a ladder's agents, above their brief*, which
+establishes how the other request reached the implementer.
 
 **What changed.** The ladder now reports `done` only when every acceptance item's witness, fixed in
 the brief before the run, fails on the base and passes after the change. The base run happens in a
