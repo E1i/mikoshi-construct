@@ -45,17 +45,19 @@ const SPEC = {
 const DEFAULT_ACCEPTANCE = ['the rule rejects the case']
 const WITNESS_COMMAND = 'pnpm vitest run tests/rule.test.ts'
 
-function witnessed(items: string[], outcome: { redBefore: boolean, greenAfter: boolean } = { redBefore: true, greenAfter: true }): unknown[] {
-  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, ...outcome, excerpt: outcome.redBefore ? '1 failed' : '1 passed' }))
+function witnessed(items: string[], outcome: { baseExitCode: number, afterExitCode: number, baseExcerpt?: string } = { baseExitCode: 1, afterExitCode: 0 }): unknown[] {
+  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, baseExcerpt: outcome.baseExitCode === 0 ? '1 passed' : '1 failed', ...outcome }))
 }
+
+const INSTALLED = { command: 'pnpm install --frozen-lockfile', exitCode: 0 }
 
 const BASE_SHA = '36f7abc9815cea1962b05bcf98bdcec193ba9fc5'
 const TAUTOLOGY = 'test -f a.ts'
 
 const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '' }
 const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?' }
-const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
-const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, witnesses: [] }
+const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
+const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses: [] }
 
 function fixedWitnesses(items: string[]): { criterion: string, command: string }[] {
   return items.map(criterion => ({ criterion, command: WITNESS_COMMAND }))
@@ -344,7 +346,7 @@ describe('done needs every acceptance item witnessed red before the change and g
   it('does not report done when an acceptance item was already green on the base', async () => {
     const { result } = await run({ task: 'add a reader', effort: 'low' }, {
       implementer: [REPORT, REPORT],
-      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { redBefore: false, greenAfter: true }) }, GREEN],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 0, afterExitCode: 0 }) }, GREEN],
     })
 
     expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
@@ -354,7 +356,7 @@ describe('done needs every acceptance item witnessed red before the change and g
   it('does not report done when an acceptance item is still red after the change', async () => {
     const { result } = await run({ task: 'add a reader', effort: 'low' }, {
       implementer: [REPORT, REPORT],
-      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { redBefore: true, greenAfter: false }) }, GREEN],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 1, afterExitCode: 1 }) }, GREEN],
     })
 
     expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
@@ -383,6 +385,58 @@ describe('done needs every acceptance item witnessed red before the change and g
     expect(calls[2].prompt).toContain('never stash, check out, move or rewrite a file in it')
   })
 
+  it('removes the base worktree even when a step fails', async () => {
+    const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(calls[2].prompt).toContain(`trap 'git worktree remove --force "$base"' EXIT`)
+  })
+
+  it('reads a base whose worktree was never installed as unverified and never done, even when every witness failed there', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, baseInstall: { command: '', exitCode: -1 }, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 1, afterExitCode: 0, baseExcerpt: 'Error: Cannot find module \'vitest\'' }) }, GREEN],
+    })
+
+    expect(result.status).toBe('base unverified')
+    expect(result.attempts.at(-1)).toMatchObject({ outcome: 'base environment' })
+  })
+
+  it('reads a witness the base cannot even run (exit 127) as unverified, not as red, whatever it printed', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 127, afterExitCode: 0, baseExcerpt: '' }) }, GREEN],
+    })
+
+    expect(result.status).toBe('base unverified')
+  })
+
+  it('reads a base whose install failed as unverified, even when the witness output there looks behavioural', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, baseInstall: { command: 'pnpm install --frozen-lockfile', exitCode: 1 }, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 1, afterExitCode: 0, baseExcerpt: '1 failed' }) }, GREEN],
+    })
+
+    expect(result.status).toBe('base unverified')
+  })
+
+  it('reads a missing package on the base as unverified even when the install reported success', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT, REPORT],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 1, afterExitCode: 0, baseExcerpt: 'Error: Cannot find package \'vitest\' imported from /tmp/base/vitest.config.ts' }) }, GREEN],
+    })
+
+    expect(result.status).toBe('base unverified')
+  })
+
+  it('counts a missing module of the change itself as a behavioural red', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [REPORT],
+      harness: [{ ...GREEN, witnesses: witnessed(DEFAULT_ACCEPTANCE, { baseExitCode: 1, afterExitCode: 0, baseExcerpt: 'Error: Cannot find module \'../src/model/junit-report.js\'' }) }],
+    })
+
+    expect(result.status).toBe('done')
+  })
+
   it('shows the implementer the witnesses fixed before it started, as commands it does not choose', async () => {
     const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
 
@@ -393,7 +447,7 @@ describe('done needs every acceptance item witnessed red before the change and g
   it('does not count a tautological witness the implementer substituted for the brief\'s', async () => {
     const { result } = await run({ task: 'add a reader', effort: 'low' }, {
       implementer: [{ ...REPORT, witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: TAUTOLOGY }] }, REPORT],
-      harness: [{ ...GREEN, witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: TAUTOLOGY, redBefore: true, greenAfter: true, excerpt: '' }] }, GREEN],
+      harness: [{ ...GREEN, witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: TAUTOLOGY, baseExitCode: 1, afterExitCode: 0, baseExcerpt: '' }] }, GREEN],
     })
 
     expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })

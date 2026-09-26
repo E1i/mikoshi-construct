@@ -29,7 +29,7 @@ const REPORT = {
 
 const VERDICT = {
   type: 'object',
-  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'baseSha', 'witnesses'],
+  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'baseSha', 'baseInstall', 'witnesses'],
   properties: {
     passed: { type: 'boolean' },
     failureExcerpt: { type: 'string' },
@@ -38,17 +38,22 @@ const VERDICT = {
     testsWeakened: { type: 'boolean' },
     changedFiles: { type: 'array', items: { type: 'string' } },
     baseSha: { type: 'string' },
+    baseInstall: {
+      type: 'object',
+      required: ['command', 'exitCode'],
+      properties: { command: { type: 'string' }, exitCode: { type: 'integer' } },
+    },
     witnesses: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['criterion', 'command', 'redBefore', 'greenAfter', 'excerpt'],
+        required: ['criterion', 'command', 'afterExitCode', 'baseExitCode', 'baseExcerpt'],
         properties: {
           criterion: { type: 'string' },
           command: { type: 'string' },
-          redBefore: { type: 'boolean' },
-          greenAfter: { type: 'boolean' },
-          excerpt: { type: 'string' },
+          afterExitCode: { type: 'integer' },
+          baseExitCode: { type: 'integer' },
+          baseExcerpt: { type: 'string' },
         },
       },
     },
@@ -75,6 +80,9 @@ const NO_ACCEPTANCE_QUESTION = 'Pass the acceptance from the brief in args.accep
 const UNWITNESSED_BRIEF = 'Every acceptance item needs its witness fixed in the brief before the run, in args.witnesses as { criterion, command } with the criterion copied verbatim. No witness for:'
 
 const NO_BASE_SHA = 'the harness reported no base sha, so no witness can run against the base'
+
+const SHELL_CANNOT_RUN = [126, 127]
+const MISSING_TOOL = /command not found|Cannot find (?:module|package) '(?![./])[^']+'|ERR_MODULE_NOT_FOUND[^\n]*'(?![./])[^']+'/
 
 const HARNESS_COMMAND_QUESTION = 'Name the harness command: pass args.harness.command, taken from construct.json (harness.command) or, in an attached repository, from .construct/attach.json. Nothing is assumed.'
 
@@ -141,7 +149,7 @@ function harnessPrompt(baseSha) {
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     `Witness each acceptance criterion with the command the brief fixed for it:\n${witnesses.map(witness => `- ${witness.criterion}\n  command: ${witness.command}`).join('\n')}`,
-    `For each one, run the command in the working tree: greenAfter is true only when it exits 0. Then run it against the base in a worktree of its own, outside the repository: \`git worktree add --detach <a new temporary directory> ${baseSha}\`, install dependencies there the way the harness would, run the same command in it (redBefore is true only when it exits non-zero), and remove it with \`git worktree remove --force\`. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion and the command verbatim, and carry the output of the base run in excerpt.`,
+    `For each one, run the command in the working tree and report its exit code as afterExitCode. Then run it against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && <witness>\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion and the command verbatim.`,
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
 }
@@ -179,9 +187,31 @@ const attempts = []
 
 const NO_CHANGE = 'The previous attempt changed no file. Implement the task; a report without a change is not done.'
 
+function observedFor(fixed, observed) {
+  return observed.find(witness => witness.criterion === fixed.criterion && witness.command === fixed.command)
+}
+
+function failedOnEnvironment(witness) {
+  return SHELL_CANNOT_RUN.includes(witness.baseExitCode) || MISSING_TOOL.test(witness.baseExcerpt ?? '')
+}
+
+function baseEnvironmentProblem(verdict) {
+  const install = verdict.baseInstall
+  if (install == null || install.command === '' || install.exitCode !== 0)
+    return `the base worktree was not installed (${install?.command || 'no install command ran'}, exit ${install?.exitCode ?? 'none'}), so a red witness there says nothing about behaviour`
+  const environmental = witnesses.filter(fixed => {
+    const witness = observedFor(fixed, verdict.witnesses ?? [])
+    return witness != null && failedOnEnvironment(witness)
+  })
+  return environmental.length === 0 ? null : `a witness could not run on the base for a reason outside the change: ${environmental.map(fixed => fixed.criterion).join(' | ')}`
+}
+
 function unwitnessedItems(observed) {
   return witnesses
-    .filter(fixed => !observed.some(witness => witness.criterion === fixed.criterion && witness.command === fixed.command && witness.redBefore === true && witness.greenAfter === true))
+    .filter((fixed) => {
+      const witness = observedFor(fixed, observed)
+      return witness == null || witness.afterExitCode !== 0 || witness.baseExitCode === 0
+    })
     .map(fixed => fixed.criterion)
 }
 
@@ -317,6 +347,11 @@ for (const [index, effort] of rungs.entries()) {
   })
   const harnessPassed = verdict?.passed === true && verdict.testsWeakened === false
   const unchanged = harnessPassed && verdict.changedFiles.length === 0
+  const environment = harnessPassed && !unchanged ? baseEnvironmentProblem(verdict) : null
+  if (environment != null) {
+    attempts.push({ rung, effort, outcome: 'base environment', reason: environment, securityFinding: verdict.securityFinding ?? '' })
+    return { status: 'base unverified', attempts, validationError: environment, acceptance, invariants }
+  }
   const unwitnessed = harnessPassed && !unchanged ? unwitnessedItems(verdict.witnesses ?? []) : []
   const passed = harnessPassed && !unchanged && unwitnessed.length === 0
   attempts.push(verdict == null
