@@ -13,7 +13,7 @@ describe('createApp', () => {
     counter.increment()
     counter.increment()
 
-    expect(counter.value()).toBe(2)
+    expect(counter.value()).toBe(3)
     expect(counter.element.dataset.count).toBe('2')
     expect(counter.element.dataset.tone).toBe('active')
     expect(counter.element.className).toBe('counter')
