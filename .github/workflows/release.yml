@@ -19,7 +19,8 @@
 # A staged version is installable only once a human approves it, so the stage id is uploaded as the
 # release-stage artifact: Release verification reads it to tell a publish awaiting approval from one
 # that is absent. `changeset tag` then writes the git-tag report the action turns into tags and
-# GitHub releases, which `changeset publish` wrote before.
+# GitHub releases, which `changeset publish` wrote before. The last step writes `npm stage approve <id>`
+# into the run summary, with the id from that record, or says nothing was staged.
 
 name: Release
 
@@ -74,3 +75,7 @@ jobs:
           name: release-stage
           path: release-stage.json
           if-no-files-found: ignore
+
+      - name: Stage command in the summary
+        if: always()
+        run: pnpm exec tsx scripts/release/stage-summary.ts

@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readStageRecord, stageFor, stageIdFrom } from '../../release/stage.js'
+import { readStageRecord, stageFor, stageIdFrom, stageSummary } from '../../release/stage.js'
 
 const STAGE_ID = '0f8e2c1a-5b7d-4e3f-9a21-6c4d8b0e7f12'
 
@@ -49,5 +49,21 @@ describe('the stage record the verification reads', () => {
     expect(stageFor(record, '0.3.0')).toBe(record)
     expect(stageFor(record, '0.4.0')).toBeUndefined()
     expect(stageFor(undefined, '0.3.0')).toBeUndefined()
+  })
+})
+
+describe('the approve command in the Release summary', () => {
+  it('gives npm stage approve with the stage id, never the package specifier', () => {
+    const summary = stageSummary({ version: '0.3.0', stageId: STAGE_ID }, 'mikoshi-construct')
+
+    expect(summary).toContain(`npm stage approve ${STAGE_ID}\n`)
+    expect(summary).not.toContain('npm stage approve mikoshi-construct')
+  })
+
+  it('says nothing was staged and gives no command when there is no stage', () => {
+    const summary = stageSummary(undefined, 'mikoshi-construct')
+
+    expect(summary).toContain('Nothing was staged')
+    expect(summary).not.toContain('npm stage approve')
   })
 })

@@ -35,3 +35,16 @@ export function readStageRecord(file: string): StageRecord | undefined {
 export function stageFor(record: StageRecord | undefined, version: string): StageRecord | undefined {
   return record?.version === version ? record : undefined
 }
+
+export function stageSummary(stage: StageRecord | undefined, packageName: string): string {
+  if (!stage)
+    return 'Nothing was staged in this run, so there is nothing to approve.\n'
+  return [
+    `${packageName}@${stage.version} is staged as ${stage.stageId} and awaits approval:`,
+    '',
+    '```sh',
+    `npm stage approve ${stage.stageId}`,
+    '```',
+    '',
+  ].join('\n')
+}
