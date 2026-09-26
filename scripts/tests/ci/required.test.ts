@@ -1,11 +1,11 @@
-import type { JobResult, Needs } from '../scripts/ci/required.js'
+import type { JobResult, Needs } from '../../ci/required.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import YAML from 'yaml'
-import { blockingJobs, DOCS_ONLY_JOB, isDocsOnly, SKIPPED_WHEN_DOCS_ONLY } from '../scripts/ci/required.js'
+import { blockingJobs, DOCS_ONLY_JOB, isDocsOnly, SKIPPED_WHEN_DOCS_ONLY } from '../../ci/required.js'
 
-const REPO_ROOT = path.resolve(import.meta.dirname, '..')
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
 interface Job { needs?: string | string[], if?: string, steps: { run?: string }[], outputs?: Record<string, string> }
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
