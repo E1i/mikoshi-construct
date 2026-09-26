@@ -15,6 +15,7 @@ interface LadderResult {
   lastFailure?: string
   acceptance?: string[]
   invariants?: string[]
+  immutable?: string[]
   contractChanged?: boolean
   changedFiles?: string[]
 }
@@ -476,6 +477,44 @@ describe('done needs every acceptance item witnessed red before the change and g
     expect(result.status).toBe('done')
     expect(result.invariants).toEqual(invariants)
     expect(calls[1].prompt).toContain(invariants[0])
+  })
+
+  it('fails a rung whose changed files include a path the brief made immutable, even with the harness green and the acceptance witnessed', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/rule.test.ts'] }, {
+      implementer: [REPORT],
+      harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests/rule.test.ts'] }],
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.attempts[0]).toMatchObject({ outcome: 'immutable changed' })
+    expect(result.attempts[0].reason).toContain('tests/rule.test.ts')
+  })
+
+  it('fails on an immutable path the harness saw changed even when the implementer\'s report leaves it out', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/rule.test.ts'] }, {
+      implementer: [{ ...REPORT, files: ['a.ts'] }],
+      harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests/rule.test.ts'] }],
+    })
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'immutable changed' })
+  })
+
+  it('reads an immutable path ending in / as everything under it, and nothing beside it', async () => {
+    const under = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/'] }, { implementer: [REPORT], harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests/deep/rule.test.ts'] }] })
+    const beside = await run({ task: 'add a reader', effort: 'low', immutable: ['tests/'] }, { implementer: [REPORT], harness: [{ ...GREEN, changedFiles: ['a.ts', 'tests-helpers/x.ts'] }] })
+
+    expect(under.result.attempts[0]).toMatchObject({ outcome: 'immutable changed' })
+    expect(beside.result.status).toBe('done')
+  })
+
+  it('shows the implementer the immutable paths and echoes them in the result', async () => {
+    const immutable = ['tests/rule.test.ts']
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low', immutable }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.status).toBe('done')
+    expect(result.immutable).toEqual(immutable)
+    expect(calls[1].prompt).toContain('must not change')
+    expect(calls[1].prompt).toContain(immutable[0])
   })
 
   it('returns blocked and calls no agent when the brief carries no acceptance', async () => {

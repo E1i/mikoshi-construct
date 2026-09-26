@@ -93,17 +93,18 @@ const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 const task = args.task
 const acceptance = args.acceptance ?? []
 const invariants = args.invariants ?? []
+const immutable = args.immutable ?? []
 const witnesses = (args.witnesses ?? []).filter(witness => acceptance.includes(witness.criterion))
 for (const item of acceptance)
   log(`acceptance: ${item}`)
 const harness = { extra: [], contractPaths: [], ...(args.harness ?? {}) }
 if (typeof harness.command !== 'string' || harness.command === '')
-  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance, invariants }
+  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance, invariants, immutable }
 if (acceptance.length === 0)
-  return { status: 'blocked', attempts: [], question: NO_ACCEPTANCE_QUESTION, acceptance, invariants }
+  return { status: 'blocked', attempts: [], question: NO_ACCEPTANCE_QUESTION, acceptance, invariants, immutable }
 const withoutWitness = acceptance.filter(item => !witnesses.some(witness => witness.criterion === item))
 if (withoutWitness.length > 0)
-  return { status: 'blocked', attempts: [], question: `${UNWITNESSED_BRIEF} ${withoutWitness.join(' | ')}`, acceptance, invariants }
+  return { status: 'blocked', attempts: [], question: `${UNWITNESSED_BRIEF} ${withoutWitness.join(' | ')}`, acceptance, invariants, immutable }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
@@ -170,6 +171,7 @@ function implementerPrompt(spec, feedback) {
     `Harness: ${harness.command}${harness.extra.length > 0 ? ` (plus ${harness.extra.join(' && ')})` : ''}`,
     `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change:\n${witnesses.map(witness => `- ${witness.criterion}\n  witness: ${witness.command}`).join('\n')}`,
     invariants.length > 0 ? `Invariants, true before your change and still true after it (the harness holds them):\n- ${invariants.join('\n- ')}` : '',
+    immutable.length > 0 ? `Immutable paths, which you must not change; a rung that changes one fails (a path ending in / covers everything under it):\n- ${immutable.join('\n- ')}` : '',
     spec == null
       ? ''
       : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
@@ -213,6 +215,14 @@ function unwitnessedItems(observed) {
       return witness == null || witness.afterExitCode !== 0 || witness.baseExitCode === 0
     })
     .map(fixed => fixed.criterion)
+}
+
+function isImmutable(file) {
+  return immutable.some(entry => entry.endsWith('/') ? file.startsWith(entry) : file === entry)
+}
+
+function immutableReason(files) {
+  return `Changed a path the brief made immutable: ${files.join(' | ')}. Restore it to the base and reach the acceptance without changing it.`
 }
 
 function unwitnessedReason(items) {
@@ -285,11 +295,11 @@ const base = await ask(preflightPrompt(), {
   schema: VERDICT,
 })
 if (base == null)
-  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError, acceptance, invariants }
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError, acceptance, invariants, immutable }
 if (typeof base.baseSha !== 'string' || base.baseSha === '')
-  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: NO_BASE_SHA }], validationError: NO_BASE_SHA, acceptance, invariants }
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: NO_BASE_SHA }], validationError: NO_BASE_SHA, acceptance, invariants, immutable }
 if (base.passed !== true)
-  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants }
+  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants, immutable }
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
@@ -317,7 +327,7 @@ for (const [index, effort] of rungs.entries()) {
   if (report.status === 'blocked') {
     attempts.push({ rung, effort, outcome: 'blocked', reason: report.question, question: report.question })
     if (rung === rungs.length)
-      return { status: 'blocked', question: report.question, attempts, acceptance, invariants }
+      return { status: 'blocked', question: report.question, attempts, acceptance, invariants, immutable }
     const designed = await design(rung, `The implementer stopped on this question:\n${report.question}`, `design after blocked ${rung}`)
     if (!designed && args.effort === 'high')
       return designIncomplete(effort, report.question)
@@ -350,21 +360,22 @@ for (const [index, effort] of rungs.entries()) {
   const environment = harnessPassed && !unchanged ? baseEnvironmentProblem(verdict) : null
   if (environment != null) {
     attempts.push({ rung, effort, outcome: 'base environment', reason: environment, securityFinding: verdict.securityFinding ?? '' })
-    return { status: 'base unverified', attempts, validationError: environment, acceptance, invariants }
+    return { status: 'base unverified', attempts, validationError: environment, acceptance, invariants, immutable }
   }
+  const touchedImmutable = harnessPassed && !unchanged ? verdict.changedFiles.filter(isImmutable) : []
   const unwitnessed = harnessPassed && !unchanged ? unwitnessedItems(verdict.witnesses ?? []) : []
-  const passed = harnessPassed && !unchanged && unwitnessed.length === 0
+  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unwitnessed.length === 0
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
     : {
         rung,
         effort,
-        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : 'acceptance not witnessed',
+        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : 'acceptance not witnessed',
         reason: passed
           ? ''
           : !harnessPassed
               ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
-              : unchanged ? 'the harness saw no changed file' : unwitnessedReason(unwitnessed),
+              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unwitnessedReason(unwitnessed),
         securityFinding: verdict.securityFinding ?? '',
       })
   log(`rung ${rung} @ ${effort}: ${attempts.at(-1).outcome}`)
@@ -382,6 +393,7 @@ for (const [index, effort] of rungs.entries()) {
       diffStat: verdict.diffStat,
       acceptance,
       invariants,
+      immutable,
     }
   }
 
@@ -391,7 +403,7 @@ for (const [index, effort] of rungs.entries()) {
       ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.\n${verdict.failureExcerpt}`
       : !harnessPassed
           ? verdict.failureExcerpt
-          : unchanged ? NO_CHANGE : `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
+          : unchanged ? NO_CHANGE : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
   if (verdict?.securityFinding)
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 
@@ -400,4 +412,4 @@ for (const [index, effort] of rungs.entries()) {
     return designIncomplete(effort)
 }
 
-return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]), acceptance, invariants }
+return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]), acceptance, invariants, immutable }
