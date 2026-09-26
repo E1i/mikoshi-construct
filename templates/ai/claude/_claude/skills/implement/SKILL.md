@@ -21,12 +21,17 @@ repository's CLAUDE.md and `construct.json`.
    When `$ARGUMENTS` carries an `Acceptance:` section (from the label up to a line or sentence
    starting `Mutations:`, or the end), its items are the acceptance: split it on `;` and copy each
    item verbatim into `args.acceptance`, one item per element, in the agreed order. You may append
-   items of your own, but never rewrite, merge or drop an agreed one. Each item must be something a
-   command can show failing on the base and passing after the change: the ladder reports `done` only
-   when every item was witnessed that way (0027), so an item the base already satisfies — "the
-   harness is green", which the harness gate requires anyway — can never be witnessed and keeps the
-   run from `done`. A brief with no acceptance at all returns `blocked` before any agent runs.
-3. Before calling Workflow, check that the agreed acceptance reached the args: write `$ARGUMENTS`
+   items of your own, but never rewrite, merge or drop an agreed one. The brief splits what it asks
+   for in two. **Acceptance** is red before the change and green after it, and it is the gate: each
+   item ends with its witness, `— witness: \`<command>\``, a command that exits non-zero on the base
+   and zero after the change. The witness is fixed in the brief before the run (0027); you copy it
+   into `args.witnesses` as `{ "criterion": ..., "command": ... }` and never write or change one, and
+   the implementer only refers to it. **Invariants** (an `Invariants:` section, split the same way)
+   are green before and after, such as "the harness is green"; the harness holds them and they
+   go into `args.invariants` unwitnessed. An item the base already satisfies belongs in invariants,
+   because it can never be witnessed red. A `;` inside backticks does not split an item. A brief
+   with no acceptance, or an acceptance item with no witness, returns `blocked` before any agent runs.
+3. Before calling Workflow, check that the agreed acceptance, its witnesses and the invariants reached the args: write `$ARGUMENTS`
    verbatim to `.construct/implement-agreed.txt` and the `args` object you are about to pass to
    `.construct/implement-args.json` (create the directory if needed; overwrite both), then run
    `node scripts/construct/check-acceptance.mjs --agreed .construct/implement-agreed.txt --args .construct/implement-args.json`.
@@ -37,7 +42,7 @@ repository's CLAUDE.md and `construct.json`.
    one. On exit `0`, call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
    script lives with the project's scripts, not under `.claude/`) and `args` as
    a JSON object:
-   `{ "task": ..., "acceptance": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...], "contractPaths": [...] } }`
+   `{ "task": ..., "acceptance": [...], "witnesses": [{ "criterion": ..., "command": ... }], "invariants": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...], "contractPaths": [...] } }`
    where `harness.command` comes from `construct.json`, or from `.construct/attach.json` when
    `construct.json` is absent (an attached repository), `harness.extra` lists any area-specific
    commands CLAUDE.md names for the files the task touches (usually empty), and
@@ -57,8 +62,9 @@ repository's CLAUDE.md and `construct.json`.
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
    The design step runs inside the ladder, not before it, and its outcome is one of the `attempts`
    like any other. The statuses a run can return are:
-   - `done` — a rung changed files, passed the harness, had every acceptance item witnessed red on
-     the base and green after the change, and every design step the run took completed. An
+   - `done` — a rung changed files, passed the harness, had every acceptance item's witness from the
+     brief fail on the base (run in a worktree of its own at the base sha) and pass on the working
+     tree, and every design step the run took completed. An
      implementer that reports done with no changed file, or a green tree with nothing changed, is a
      `no change` attempt and never `done`.
    - `degraded` — a rung passed the harness and the witness, but a design step was rejected by the schema and the
@@ -70,8 +76,8 @@ repository's CLAUDE.md and `construct.json`.
      it has been tried on the construct's own repository.
    - `failed` — every rung ran and none passed: the harness stayed red, the rung changed nothing, or
      the acceptance was not witnessed; `lastFailure` carries the last reason.
-   - `blocked` — the last rung stopped on a question, or the brief carried no acceptance; `question`
-     carries it verbatim.
+   - `blocked` — the last rung stopped on a question, or the brief carried no acceptance or an
+     acceptance item with no witness; `question` carries it verbatim.
    - `base red` — the harness was red on the base before any change, so no rung ran; `lastFailure`
      carries the excerpt. Make the base green, or name what is red on purpose, before running again.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung

@@ -37,8 +37,11 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `changedFiles` — the output of `git diff --name-only HEAD` followed by the output of
   `git ls-files --others --exclude-standard`, verbatim, one repository-relative path per entry. You
   do not judge whether a contract changed; the caller derives that from this list.
+- `baseSha` — on the base run, the output of `git rev-parse HEAD`; afterwards, the sha the prompt
+  gives you.
 - `witnesses` — one entry per witness the prompt names, empty when it names none: `criterion` and
-  `command` copied verbatim, `greenAfter` (the command exits 0 on the working tree), `redBefore`
-  (with every changed file the witness does not itself consist of set aside, so the code is the
-  base again, the command exits non-zero), and `excerpt`, the last lines of that base run. Put every
-  set-aside file back exactly as it was before you return.
+  `command` copied verbatim, `greenAfter` (the command exits 0 on the working tree), `redBefore` (the
+  command exits non-zero in a worktree of its own at the base sha, created with
+  `git worktree add --detach` outside the repository and removed afterwards), and `excerpt`, the last
+  lines of that base run. The working tree has one writer: never stash, check out, move or rewrite a
+  file in it to reach the base.

@@ -67,7 +67,6 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
     files: [`tests/agent-output-contract.test.ts ${AWKWARD}`],
     harnessTail: `pnpm run quality ${AWKWARD}`,
     question: '',
-    witnesses: [{ criterion: `the reader parses ${AWKWARD}`, command: 'pnpm vitest run tests/reader.test.ts' }],
   },
   VERDICT: {
     passed: true,
@@ -76,6 +75,7 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
     diffStat: ` 2 files changed ${AWKWARD}`,
     testsWeakened: false,
     changedFiles: [`contract/surface.json ${AWKWARD}`],
+    baseSha: '36f7abc9815cea1962b05bcf98bdcec193ba9fc5',
     witnesses: [{ criterion: `the reader parses ${AWKWARD}`, command: 'pnpm vitest run tests/reader.test.ts', redBefore: true, greenAfter: true, excerpt: `1 failed ${AWKWARD}` }],
   },
 }

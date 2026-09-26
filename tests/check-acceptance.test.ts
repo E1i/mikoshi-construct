@@ -11,19 +11,30 @@ const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts/construct/check-
 interface CheckAcceptance {
   normalizeItem: (item: string) => string
   agreedItems: (text: string) => string[] | null
+  agreedInvariants: (text: string) => string[]
   argsAcceptance: (json: string) => string[]
   missingItems: (agreed: string[], acceptance: string[]) => string[]
 }
 
-const { agreedItems, argsAcceptance, missingItems, normalizeItem } = await import(pathToFileURL(SCRIPT).href) as CheckAcceptance
+const { agreedInvariants, agreedItems, argsAcceptance, missingItems, normalizeItem } = await import(pathToFileURL(SCRIPT).href) as CheckAcceptance
 
 const AGREED = [
   '/implement Acceptance echo in the ladder:',
   'the ladder echoes what it received.',
-  'Acceptance: a ladder-run test shows `acceptance` equal to the args; the template copy is byte-identical;',
-  '  minor changeset starting `templates:`.',
+  'Acceptance: a ladder-run test shows `acceptance` equal to the args — witness: `pnpm vitest run tests/ladder-run.test.ts -t echoes`;',
+  'the template copy is byte-identical — witness: `cmp a.mjs b.mjs; test $? -eq 0`;',
+  '  minor changeset starting `templates:` — witness: `grep -l templates: .changeset/*.md`.',
+  'Invariants: pnpm run quality stays green.',
   'Mutations: M1 | the echo only in `done` | red: the failed test',
 ].join('\n')
+
+const WITNESSES = [
+  { criterion: 'a ladder-run test shows `acceptance` equal to the args', command: 'pnpm vitest run tests/ladder-run.test.ts -t echoes' },
+  { criterion: 'the template copy is byte-identical', command: 'cmp a.mjs b.mjs; test $? -eq 0' },
+  { criterion: 'minor changeset starting `templates:`', command: 'grep -l templates: .changeset/*.md' },
+]
+
+const INVARIANTS = ['pnpm run quality stays green']
 
 const ITEMS = [
   'a ladder-run test shows `acceptance` equal to the args',
@@ -48,8 +59,13 @@ function runCheck(agreed: string, args: string): { status: number | null, stdout
 }
 
 describe('the agreed Acceptance section', () => {
-  it('runs from the label to Mutations, split on semicolons, trimmed of a trailing period', () => {
+  it('runs from the label to Invariants or Mutations, split on semicolons outside backticks, without the witness', () => {
     expect(agreedItems(AGREED)).toEqual(ITEMS)
+  })
+
+  it('reads the Invariants section apart from the acceptance', () => {
+    expect(agreedInvariants(AGREED)).toEqual(INVARIANTS)
+    expect(agreedInvariants('Acceptance: one')).toEqual([])
   })
 
   it('runs to the end of the text when no Mutations follow', () => {
@@ -83,17 +99,39 @@ describe('matching agreed items against args.acceptance', () => {
 
 describe('the check the skill runs before the Workflow call', () => {
   it('stops when an agreed item dropped out before the call', () => {
-    const result = runCheck(AGREED, JSON.stringify({ task: 't', acceptance: [ITEMS[0], ITEMS[2]] }))
+    const result = runCheck(AGREED, JSON.stringify({ task: 't', acceptance: [ITEMS[0], ITEMS[2]], witnesses: WITNESSES, invariants: INVARIANTS }))
 
     expect(result.status).toBe(1)
     expect(result.stderr.split('\n').filter(Boolean)).toEqual([ITEMS[1]])
   })
 
-  it('passes when every agreed item is in the args verbatim', () => {
-    const result = runCheck(AGREED, JSON.stringify({ task: 't', acceptance: [...ITEMS, 'an item the skill added'] }))
+  it('passes when every agreed item is in the args verbatim with the brief\'s witness, and every invariant is carried', () => {
+    const result = runCheck(AGREED, JSON.stringify({ task: 't', acceptance: [...ITEMS, 'an item the skill added'], witnesses: WITNESSES, invariants: INVARIANTS }))
 
     expect(result.status).toBe(0)
     expect(result.stderr).toBe('')
+  })
+
+  it('stops when an agreed item carries no witness in the brief', () => {
+    const result = runCheck('Acceptance: the reader parses the file', JSON.stringify({ task: 't', acceptance: ['the reader parses the file'], witnesses: [{ criterion: 'the reader parses the file', command: 'true' }] }))
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('no witness in the brief: the reader parses the file')
+  })
+
+  it('stops when the args carry a witness other than the brief\'s, such as a tautology', () => {
+    const substituted = WITNESSES.map((witness, index) => index === 1 ? { ...witness, command: 'test -f b.mjs' } : witness)
+    const result = runCheck(AGREED, JSON.stringify({ task: 't', acceptance: ITEMS, witnesses: substituted, invariants: INVARIANTS }))
+
+    expect(result.status).toBe(1)
+    expect(result.stderr.split('\n').filter(Boolean)).toEqual([`the witness in the args is not the brief's: ${ITEMS[1]}`])
+  })
+
+  it('stops when an agreed invariant is missing from the args', () => {
+    const result = runCheck(AGREED, JSON.stringify({ task: 't', acceptance: ITEMS, witnesses: WITNESSES }))
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(`invariant missing from the args: ${INVARIANTS[0]}`)
   })
 
   it('passes and says so when the agreed line has no Acceptance section', () => {

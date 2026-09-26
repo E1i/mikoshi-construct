@@ -14,6 +14,7 @@ interface LadderResult {
   question?: string
   lastFailure?: string
   acceptance?: string[]
+  invariants?: string[]
   contractChanged?: boolean
   changedFiles?: string[]
 }
@@ -48,10 +49,17 @@ function witnessed(items: string[], outcome: { redBefore: boolean, greenAfter: b
   return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, ...outcome, excerpt: outcome.redBefore ? '1 failed' : '1 passed' }))
 }
 
-const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '', witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: WITNESS_COMMAND }] }
-const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?', witnesses: [] }
-const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], witnesses: witnessed(DEFAULT_ACCEPTANCE) }
-const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], witnesses: [] }
+const BASE_SHA = '36f7abc9815cea1962b05bcf98bdcec193ba9fc5'
+const TAUTOLOGY = 'test -f a.ts'
+
+const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '' }
+const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?' }
+const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
+const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, witnesses: [] }
+
+function fixedWitnesses(items: string[]): { criterion: string, command: string }[] {
+  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND }))
+}
 
 const REJECTED = new Error('SPEC: decision: missing')
 
@@ -65,7 +73,8 @@ async function run(args: Record<string, unknown>, replies: Record<string, Reply[
       throw reply
     return reply ?? null
   }
-  const result = await ladder()({ harness: { command: 'pnpm run quality' }, acceptance: DEFAULT_ACCEPTANCE, ...args }, agent, () => {}, () => {})
+  const acceptance = (args.acceptance as string[] | undefined) ?? DEFAULT_ACCEPTANCE
+  const result = await ladder()({ harness: { command: 'pnpm run quality' }, acceptance, witnesses: fixedWitnesses(acceptance), ...args }, agent, () => {}, () => {})
   return { result, calls }
 }
 
@@ -363,11 +372,56 @@ describe('done needs every acceptance item witnessed red before the change and g
     expect(result.status).toBe('done')
   })
 
-  it('gives the harness the witness commands the implementer named', async () => {
+  it('gives the harness the witness commands the brief fixed, and the base sha to run them at in a worktree of its own', async () => {
     const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
 
     expect(calls[2].prompt).toContain(WITNESS_COMMAND)
     expect(calls[2].prompt).toContain(DEFAULT_ACCEPTANCE[0])
+    expect(calls[2].prompt).toContain(`git worktree add --detach`)
+    expect(calls[2].prompt).toContain(BASE_SHA)
+    expect(calls[2].prompt).not.toContain('set aside')
+    expect(calls[2].prompt).toContain('never stash, check out, move or rewrite a file in it')
+  })
+
+  it('shows the implementer the witnesses fixed before it started, as commands it does not choose', async () => {
+    const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(calls[1].prompt).toContain(WITNESS_COMMAND)
+    expect(calls[1].prompt).toContain('fixed in the brief')
+  })
+
+  it('does not count a tautological witness the implementer substituted for the brief\'s', async () => {
+    const { result } = await run({ task: 'add a reader', effort: 'low' }, {
+      implementer: [{ ...REPORT, witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: TAUTOLOGY }] }, REPORT],
+      harness: [{ ...GREEN, witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: TAUTOLOGY, redBefore: true, greenAfter: true, excerpt: '' }] }, GREEN],
+    })
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
+  })
+
+  it('returns blocked and calls no agent when an acceptance item has no witness in the brief', async () => {
+    const acceptance = ['the reader parses the file', 'an empty file reads unknown']
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low', acceptance, witnesses: fixedWitnesses([acceptance[0]]) }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.status).toBe('blocked')
+    expect(result.question).toContain(acceptance[1])
+    expect(calls).toEqual([])
+  })
+
+  it('names a base that reported no sha as unverified, since no witness could run against it', async () => {
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT] }, { ...GREEN, baseSha: '' })
+
+    expect(result.status).toBe('base unverified')
+    expect(calls.map(call => call.agentType)).toEqual(['harness'])
+  })
+
+  it('passes the invariants through to the implementer and echoes them, without witnessing them', async () => {
+    const invariants = ['pnpm run quality stays green']
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low', invariants }, { implementer: [REPORT], harness: [GREEN] })
+
+    expect(result.status).toBe('done')
+    expect(result.invariants).toEqual(invariants)
+    expect(calls[1].prompt).toContain(invariants[0])
   })
 
   it('returns blocked and calls no agent when the brief carries no acceptance', async () => {

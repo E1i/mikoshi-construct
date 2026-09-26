@@ -41,8 +41,9 @@ It is left as written. The ledger has no field that can say a recorded status wa
 so the entry reads as a success to `construct cost` and to anyone reading it. That gap is part of
 issue #240.
 
-**What changed.** The ladder now reports `done` only when every acceptance item was witnessed red on
-the base and green after the change; a rung that changed no file is a `no change` attempt (#240).
+**What changed.** The ladder now reports `done` only when every acceptance item's witness, fixed in
+the brief before the run, fails on the base and passes after the change. The base run happens in a
+worktree of its own, and a rung that changed no file is a `no change` attempt (#240).
 
 **What it supports.** One occurrence of a false `done`, with its mechanism read from the script. It
 does not establish how the other request reached the implementer, and says nothing about how often an

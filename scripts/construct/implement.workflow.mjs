@@ -17,27 +17,19 @@ const LADDERS = {
 
 const REPORT = {
   type: 'object',
-  required: ['status', 'summary', 'files', 'harnessTail', 'question', 'witnesses'],
+  required: ['status', 'summary', 'files', 'harnessTail', 'question'],
   properties: {
     status: { type: 'string', enum: ['done', 'failed', 'blocked'] },
     summary: { type: 'string' },
     files: { type: 'array', items: { type: 'string' } },
     harnessTail: { type: 'string' },
     question: { type: 'string' },
-    witnesses: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['criterion', 'command'],
-        properties: { criterion: { type: 'string' }, command: { type: 'string' } },
-      },
-    },
   },
 }
 
 const VERDICT = {
   type: 'object',
-  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'witnesses'],
+  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'baseSha', 'witnesses'],
   properties: {
     passed: { type: 'boolean' },
     failureExcerpt: { type: 'string' },
@@ -45,6 +37,7 @@ const VERDICT = {
     diffStat: { type: 'string' },
     testsWeakened: { type: 'boolean' },
     changedFiles: { type: 'array', items: { type: 'string' } },
+    baseSha: { type: 'string' },
     witnesses: {
       type: 'array',
       items: {
@@ -79,6 +72,10 @@ const DESIGN_RECOVERY = 'Re-run this task one class lower with the design writte
 
 const NO_ACCEPTANCE_QUESTION = 'Pass the acceptance from the brief in args.acceptance. The ladder reports done only when each item was witnessed red before the change and green after it, and with no item there is nothing to witness.'
 
+const UNWITNESSED_BRIEF = 'Every acceptance item needs its witness fixed in the brief before the run, in args.witnesses as { criterion, command } with the criterion copied verbatim. No witness for:'
+
+const NO_BASE_SHA = 'the harness reported no base sha, so no witness can run against the base'
+
 const HARNESS_COMMAND_QUESTION = 'Name the harness command: pass args.harness.command, taken from construct.json (harness.command) or, in an attached repository, from .construct/attach.json. Nothing is assumed.'
 
 const DEFAULT_RETRY_LIMIT = 0
@@ -87,13 +84,18 @@ const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
 const acceptance = args.acceptance ?? []
+const invariants = args.invariants ?? []
+const witnesses = (args.witnesses ?? []).filter(witness => acceptance.includes(witness.criterion))
 for (const item of acceptance)
   log(`acceptance: ${item}`)
 const harness = { extra: [], contractPaths: [], ...(args.harness ?? {}) }
 if (typeof harness.command !== 'string' || harness.command === '')
-  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance }
+  return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance, invariants }
 if (acceptance.length === 0)
-  return { status: 'blocked', attempts: [], question: NO_ACCEPTANCE_QUESTION, acceptance }
+  return { status: 'blocked', attempts: [], question: NO_ACCEPTANCE_QUESTION, acceptance, invariants }
+const withoutWitness = acceptance.filter(item => !witnesses.some(witness => witness.criterion === item))
+if (withoutWitness.length > 0)
+  return { status: 'blocked', attempts: [], question: `${UNWITNESSED_BRIEF} ${withoutWitness.join(' | ')}`, acceptance, invariants }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
@@ -134,13 +136,13 @@ async function ask(prompt, options) {
   return null
 }
 
-function harnessPrompt(witnesses) {
+function harnessPrompt(baseSha) {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    `Witness each acceptance criterion with the command the implementer named for it:\n${witnesses.map(witness => `- ${witness.criterion}\n  command: ${witness.command}`).join('\n')}`,
-    'For each one, run the command on the working tree (greenAfter is true only when it exits 0). Then set aside every changed file the witness does not itself consist of, so the code under test is the base again, run the same command (redBefore is true only when it exits non-zero), and put every set-aside file back exactly as it was before you return. Copy the criterion text verbatim, and carry the output of the base run in excerpt.',
-    'Verify the current working tree and return the verdict object.',
+    `Witness each acceptance criterion with the command the brief fixed for it:\n${witnesses.map(witness => `- ${witness.criterion}\n  command: ${witness.command}`).join('\n')}`,
+    `For each one, run the command in the working tree: greenAfter is true only when it exits 0. Then run it against the base in a worktree of its own, outside the repository: \`git worktree add --detach <a new temporary directory> ${baseSha}\`, install dependencies there the way the harness would, run the same command in it (redBefore is true only when it exits non-zero), and remove it with \`git worktree remove --force\`. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion and the command verbatim, and carry the output of the base run in excerpt.`,
+    `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
 }
 
@@ -158,7 +160,8 @@ function implementerPrompt(spec, feedback) {
     `Task: ${task}`,
     `Acceptance criteria:\n- ${(spec?.acceptance?.length ? spec.acceptance : acceptance).join('\n- ')}`,
     `Harness: ${harness.command}${harness.extra.length > 0 ? ` (plus ${harness.extra.join(' && ')})` : ''}`,
-    'For each acceptance criterion return a witness: the criterion text verbatim and one shell command that exits non-zero on the base code and zero after your change. The run is reported done only when every criterion is witnessed that way.',
+    `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change:\n${witnesses.map(witness => `- ${witness.criterion}\n  witness: ${witness.command}`).join('\n')}`,
+    invariants.length > 0 ? `Invariants, true before your change and still true after it (the harness holds them):\n- ${invariants.join('\n- ')}` : '',
     spec == null
       ? ''
       : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
@@ -176,8 +179,10 @@ const attempts = []
 
 const NO_CHANGE = 'The previous attempt changed no file. Implement the task; a report without a change is not done.'
 
-function unwitnessedItems(witnesses) {
-  return acceptance.filter(item => !witnesses.some(witness => witness.criterion === item && witness.redBefore === true && witness.greenAfter === true))
+function unwitnessedItems(observed) {
+  return witnesses
+    .filter(fixed => !observed.some(witness => witness.criterion === fixed.criterion && witness.command === fixed.command && witness.redBefore === true && witness.greenAfter === true))
+    .map(fixed => fixed.criterion)
 }
 
 function unwitnessedReason(items) {
@@ -228,6 +233,7 @@ function designIncomplete(effort, question) {
     question: question ?? '',
     lastFailure: feedback ?? '',
     acceptance,
+    invariants,
   }
 }
 
@@ -235,7 +241,7 @@ function preflightPrompt() {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Verify the current working tree and return the verdict object.',
+    'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Return the output of `git rev-parse HEAD` as baseSha. Verify the current working tree and return the verdict object.',
   ].filter(Boolean).join('\n')
 }
 
@@ -249,9 +255,11 @@ const base = await ask(preflightPrompt(), {
   schema: VERDICT,
 })
 if (base == null)
-  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError, acceptance }
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError, acceptance, invariants }
+if (typeof base.baseSha !== 'string' || base.baseSha === '')
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: NO_BASE_SHA }], validationError: NO_BASE_SHA, acceptance, invariants }
 if (base.passed !== true)
-  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance }
+  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants }
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
@@ -279,7 +287,7 @@ for (const [index, effort] of rungs.entries()) {
   if (report.status === 'blocked') {
     attempts.push({ rung, effort, outcome: 'blocked', reason: report.question, question: report.question })
     if (rung === rungs.length)
-      return { status: 'blocked', question: report.question, attempts, acceptance }
+      return { status: 'blocked', question: report.question, attempts, acceptance, invariants }
     const designed = await design(rung, `The implementer stopped on this question:\n${report.question}`, `design after blocked ${rung}`)
     if (!designed && args.effort === 'high')
       return designIncomplete(effort, report.question)
@@ -300,7 +308,7 @@ for (const [index, effort] of rungs.entries()) {
 
   phase('Verify')
   log(`rung ${rung}/${rungs.length} @ ${effort}: running ${harness.command}`)
-  const verdict = await ask(harnessPrompt(report.witnesses ?? []), {
+  const verdict = await ask(harnessPrompt(base.baseSha), {
     agentType: 'harness',
     effort: 'low',
     phase: 'Verify',
@@ -338,6 +346,7 @@ for (const [index, effort] of rungs.entries()) {
       changedFiles: verdict.changedFiles,
       diffStat: verdict.diffStat,
       acceptance,
+      invariants,
     }
   }
 
@@ -356,4 +365,4 @@ for (const [index, effort] of rungs.entries()) {
     return designIncomplete(effort)
 }
 
-return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]), acceptance }
+return { status: 'failed', attempts, lastFailure: feedback, effort: performedEffort(rungs[rungs.length - 1]), acceptance, invariants }
