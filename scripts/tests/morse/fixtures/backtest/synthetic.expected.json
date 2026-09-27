@@ -1,0 +1,41 @@
+{
+  "rows": 6,
+  "excluded": [
+    106
+  ],
+  "matrix": {
+    "ladder": {
+      "fact": 2,
+      "noFact": 1
+    },
+    "cheap": {
+      "fact": 1,
+      "noFact": 1
+    }
+  },
+  "byRule": {
+    "instructions": {
+      "fact": 0,
+      "noFact": 0
+    },
+    "tests-shrunk": {
+      "fact": 1,
+      "noFact": 0
+    },
+    "src": {
+      "fact": 1,
+      "noFact": 0
+    },
+    "docs-only": {
+      "fact": 1,
+      "noFact": 1
+    },
+    "doubt": {
+      "fact": 0,
+      "noFact": 1
+    }
+  },
+  "missed": [
+    104
+  ]
+}

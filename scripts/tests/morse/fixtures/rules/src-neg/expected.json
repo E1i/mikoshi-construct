@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "doubt",
+  "why": [
+    "scripts/docs/anchors.ts"
+  ]
+}

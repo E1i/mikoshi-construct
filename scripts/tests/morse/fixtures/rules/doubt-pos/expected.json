@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "doubt",
+  "why": [
+    "package.json"
+  ]
+}
