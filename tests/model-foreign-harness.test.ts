@@ -37,15 +37,18 @@ describe('a claim naming a foreign harness names only what it can know', () => {
     expect(claim?.verification?.supportedBy).toEqual(['eslint-config'])
   })
 
-  it('is not born with a foreign harness', () => {
+  it('writes neither the lint-policy claim nor the facts only it stands on with a foreign harness', () => {
     const model = buildModel({ vars: VARS, contracts: false, sample: true })
 
     expect(model.claims.map(claim => claim.id)).not.toContain('lint-policy')
+    expect(model.facts.map(fact => fact.id)).not.toContain('lint-policy-test')
+    expect(model.facts.map(fact => fact.id)).not.toContain('lint-policy-test-loads-eslint')
   })
 
-  it('is born by default', () => {
+  it('writes the lint-policy claim and its facts by default', () => {
     const model = buildModel({ vars: { ...VARS, harnessCommand: DEFAULT_HARNESS }, contracts: false, sample: true })
 
     expect(model.claims.map(claim => claim.id)).toContain('lint-policy')
+    expect(model.facts.map(fact => fact.id)).toEqual(expect.arrayContaining(['lint-policy-test', 'lint-policy-test-loads-eslint']))
   })
 })
