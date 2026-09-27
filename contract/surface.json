@@ -101,6 +101,9 @@
         "dryRun": {
           "type": "boolean"
         },
+        "harness": {
+          "type": "string"
+        },
         "johnny": {
           "type": "boolean"
         },

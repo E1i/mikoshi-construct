@@ -12,6 +12,7 @@ OPTIONS
                  --name=<name>    Project name (defaults to the directory name)                            
              --review=<review>    AI code review on pull requests: claude | none (default: none)           
   --reviewModel=<review_model>    Model for the review workflow (default: claude-sonnet-5)                 
+           --harness=<harness>    The harness command the ladder verifies with; nothing is assumed         
                      -y, --yes    Non-interactive: take defaults and skip the confirmation (Default: false)
                       --dryRun    Print the plan, write nothing (Default: false)                           
 

@@ -32,6 +32,7 @@ export interface InitOptions {
   name?: string
   review?: string
   reviewModel?: string
+  harness?: string
 }
 
 export interface InitResult {
@@ -298,6 +299,8 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ui.line(ui.theme.dim(`  ${ui.lore.recordAnswered(answeredByTheRecord)}`))
   ui.line()
 
+  const harnessCommand = options.harness ?? previous?.harness?.command ?? 'pnpm run quality'
+
   const recordedPolicy = previous?.policy?.workspaceImports ?? null
   const policy = preset.policy?.(report, projectName, recordedPolicy) ?? null
   const policyKeysAdded = preset.policy == null ? [] : keysGivenADefault(workspacePackagesFor(report, projectName), recordedPolicy)
@@ -310,7 +313,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     contractPath: 'contracts/api/openapi.yaml',
     contractTypesOutput: 'src/contracts/openapi.ts',
     compositionDir: report.existing.compositionDir ?? DEFAULT_COMPOSITION_DIR,
-    harnessCommand: 'pnpm run quality',
+    harnessCommand,
     packageManager: 'pnpm',
     pnpmVersion: report.pnpmVersion ?? '',
     reviewModel,
