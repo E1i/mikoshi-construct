@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok occupied-out gh-fails'
+KINDS='ok occupied-out gh-fails unknown-field missing-field git-fails'
 HEAD_AWAITING=1111111111111111111111111111111111111111
 HEAD_PASSED=2222222222222222222222222222222222222222
 QUEUED_ROWS='a #271 b #280'
@@ -58,6 +58,7 @@ EOF
 
 This header is not part of the approved text and is never copied into a snapshot.
 Design: a label in the header is not the brief's.
+/implementation notes: this header line is not the /implement text.
 
 ---
 
@@ -126,11 +127,48 @@ EOF
 }
 
 write_queue() {
-  local W=$1
+  local W=$1 kind=$2 repo=$1/repo owner_merges wt_key=worktree
+  owner_merges="\"ownerMerges\": \"$W/handoff/owner-merges.md\","
+  case $kind in
+    unknown-field) wt_key=wroktree ;;
+    missing-field) owner_merges='' ;;
+    git-fails) repo=$W/not-a-repo && mkdir -p "$repo" ;;
+  esac
   cat >"$W/queue.json" <<EOF
-{ "repo": "$W/repo", "status": "$W/handoff/status.md", "ownerMerges": "$W/handoff/owner-merges.md",
-  "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "worktree": "$W/wt-a" }, { "id": "271", "issue": 1 }, { "id": "b",
+{ "repo": "$repo", "status": "$W/handoff/status.md", $owner_merges
+  "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "$wt_key": "$W/wt-a" }, { "id": "271", "issue": 1 }, { "id": "b",
   "brief": "$W/handoff/brief-b.md" }, { "id": "280", "issue": 2 } ] }
+EOF
+}
+
+write_fs_spy() {
+  cat >"$1/.world/fs-spy.mjs" <<'EOF'
+import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+
+const log = process.env.FS_SPY_LOG
+const scope = process.env.FS_SPY_SCOPE
+function record(op, from, to) {
+  if (!log || !scope)
+    return
+  if (![from, to].some(p => typeof p === 'string' && p.startsWith(scope)))
+    return
+  fs.appendFileSync(log, `${JSON.stringify({ op, from, to: to ?? null })}\n`)
+}
+function wrap(target, name, op) {
+  const original = target[name]
+  if (typeof original !== 'function')
+    return
+  target[name] = function (...args) {
+    record(op, String(args[0]), typeof args[1] === 'string' ? args[1] : undefined)
+    return original.apply(this, args)
+  }
+}
+for (const [name, op] of [['mkdtempSync', 'mkdtemp'], ['mkdtemp', 'mkdtemp'], ['renameSync', 'rename'], ['rename', 'rename'], ['cpSync', 'cp'], ['cp', 'cp']])
+  wrap(fs, name, op)
+for (const [name, op] of [['mkdtemp', 'mkdtemp'], ['rename', 'rename'], ['cp', 'cp']])
+  wrap(fs.promises, name, op)
+syncBuiltinESMExports()
 EOF
 }
 
@@ -175,7 +213,8 @@ new_world() {
   write_repo "$W"
   write_handoff "$W"
   write_gh "$W" "$kind"
-  write_queue "$W"
+  write_queue "$W" "$kind"
+  write_fs_spy "$W"
   write_expected "$W"
   if [ "$kind" = occupied-out ]; then
     mkdir -p "$W/snapshot"
@@ -220,20 +259,51 @@ check_refused() {
       grep -qF 'gh pr list' "$W/collect.out" || fail "collect.out does not name the call 'gh pr list'"
       [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
       ;;
+    unknown-field)
+      grep -qF 'wroktree' "$W/collect.out" || fail "collect.out does not name the unknown field 'wroktree'"
+      [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
+      ;;
+    missing-field)
+      grep -qF 'ownerMerges' "$W/collect.out" || fail "collect.out does not name the missing field 'ownerMerges'"
+      [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
+      ;;
+    git-fails)
+      grep -qF 'git' "$W/collect.out" && grep -qF 'ls-files' "$W/collect.out" || fail "collect.out does not name the call 'git … ls-files'"
+      [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
+      ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
   esac
   entries=$(cd "$W" && ls -A | grep -vx -e collect.out -e shred.json || true)
   [ "$entries" = "$(cat "$W/.world/entries-before")" ] || fail "entries next to the snapshot changed: before '$(tr '\n' ' ' <"$W/.world/entries-before")', now '$(echo "$entries" | tr '\n' ' ')'"
 }
 
+check_rename() {
+  local W=$1
+  [ -f "$W/.world/fs-spy.log" ] || fail "no $W/.world/fs-spy.log: run the collector with NODE_OPTIONS=--import $W/.world/fs-spy.mjs, FS_SPY_LOG and FS_SPY_SCOPE"
+  node - "$W" <<'EOF' || fail "$(cat "$W/.world/rename-failure")"
+const fs = require('node:fs')
+const path = require('node:path')
+const W = process.argv[2]
+const out = path.join(W, 'snapshot')
+const failWith = (m) => { fs.writeFileSync(`${W}/.world/rename-failure`, m); process.exit(1) }
+const ops = fs.readFileSync(`${W}/.world/fs-spy.log`, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))
+const temps = ops.filter(o => o.op === 'mkdtemp' && path.dirname(o.from) === W)
+if (temps.length !== 1) failWith(`${temps.length} temporary directories created next to ${out}, not 1: ${JSON.stringify(ops)}`)
+const renames = ops.filter(o => o.op === 'rename' && o.to === out)
+if (renames.length !== 1 || !renames[0].from.startsWith(temps[0].from)) failWith(`${out} was not produced by one rename of the temporary directory ${temps[0].from}*: ${JSON.stringify(ops)}`)
+const copies = ops.filter(o => o.op === 'cp')
+if (copies.length > 0) failWith(`a directory copy ran: ${JSON.stringify(copies)}`)
+EOF
+}
+
 CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
-  check-snapshot | check-shredded | check-refused)
+  check-snapshot | check-shredded | check-refused | check-rename)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<snapshot|shredded|refused> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<snapshot|shredded|refused|rename> <world>" >&2; exit 2 ;;
 esac
