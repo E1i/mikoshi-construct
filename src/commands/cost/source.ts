@@ -17,7 +17,7 @@ export interface CostReading {
 export interface CostSource {
   runtime: Runtime
   readable: () => boolean
-  read: (cwd: string) => CostReading
+  read: (cwd: string, ledgerRuns: string[]) => CostReading
 }
 
 export interface CostReport {

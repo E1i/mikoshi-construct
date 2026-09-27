@@ -65,26 +65,48 @@ function directories(parent: string): string[] {
   return readdirSync(parent).map(name => path.join(parent, name)).filter(entry => statSync(entry).isDirectory())
 }
 
+function workflowsDir(sessionDir: string): string {
+  return path.join(sessionDir, 'subagents', 'workflows')
+}
+
 function collectRuns(sessionDir: string): WorkflowRun[] {
-  return directories(path.join(sessionDir, 'subagents', 'workflows')).map((dir) => {
-    const agents = readdirSync(dir)
-      .filter(file => file.startsWith('agent-') && file.endsWith('.jsonl'))
-      .map((file) => {
-        const metaPath = path.join(dir, file.replace(/\.jsonl$/, '.meta.json'))
-        const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as { description?: string, agentType?: string } : {}
-        return { label: meta.description ?? path.basename(file), type: meta.agentType ?? '?', usage: readUsage(path.join(dir, file)) }
-      })
-    const total = emptyUsage()
-    for (const agent of agents)
-      add(total, agent.usage)
-    return { session: path.basename(sessionDir), run: path.basename(dir), startedAt: statSync(dir).mtime.toISOString(), agents, total }
-  })
+  return directories(workflowsDir(sessionDir)).map(dir => runOf(sessionDir, dir))
+}
+
+function runOf(sessionDir: string, dir: string): WorkflowRun {
+  const agents = readdirSync(dir)
+    .filter(file => file.startsWith('agent-') && file.endsWith('.jsonl'))
+    .map((file) => {
+      const metaPath = path.join(dir, file.replace(/\.jsonl$/, '.meta.json'))
+      const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as { description?: string, agentType?: string } : {}
+      return { label: meta.description ?? path.basename(file), type: meta.agentType ?? '?', usage: readUsage(path.join(dir, file)) }
+    })
+  const total = emptyUsage()
+  for (const agent of agents)
+    add(total, agent.usage)
+  return { session: path.basename(sessionDir), run: path.basename(dir), startedAt: statSync(dir).mtime.toISOString(), agents, total }
+}
+
+function byStart(a: WorkflowRun, b: WorkflowRun): number {
+  return a.startedAt.localeCompare(b.startedAt)
+}
+
+function runsNamedUnderOtherKeys(named: string[], key: string, projectsDir: string): WorkflowRun[] {
+  if (named.length === 0)
+    return []
+  return directories(projectsDir)
+    .filter(project => path.basename(project) !== key)
+    .flatMap(directories)
+    .flatMap(session => named
+      .map(run => path.join(workflowsDir(session), run))
+      .filter(dir => existsSync(dir))
+      .map(dir => runOf(session, dir)))
 }
 
 export function collectWorkflowRuns(cwd: string, projectsDir = claudeProjectsDir()): WorkflowRun[] {
   return directories(path.join(projectsDir, projectKey(cwd)))
     .flatMap(collectRuns)
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+    .sort(byStart)
 }
 
 function resolvedPath(cwd: string): string | null {
@@ -127,12 +149,14 @@ export class ClaudeCodeCostSource implements CostSource {
     return existsSync(this.projectsDir)
   }
 
-  read(cwd: string): CostReading {
+  read(cwd: string, ledgerRuns: string[] = []): CostReading {
     const key = projectKey(cwd)
-    if (existsSync(path.join(this.projectsDir, key))) {
-      const runs = collectWorkflowRuns(cwd, this.projectsDir)
+    const own = collectWorkflowRuns(cwd, this.projectsDir)
+    const found = new Set(own.map(run => run.run))
+    const elsewhere = runsNamedUnderOtherKeys(ledgerRuns.filter(run => !found.has(run)), key, this.projectsDir)
+    const runs = [...own, ...elsewhere].sort(byStart)
+    if (existsSync(path.join(this.projectsDir, key)) || elsewhere.length > 0)
       return { status: runs.length > 0 ? 'ok' : 'empty', runs, key, candidates: [] }
-    }
     const recorded = recordedElsewhere(cwd, key, this.projectsDir)
     if (recorded.length > 0)
       return { status: 'mismatch', runs: [], key, candidates: recorded }

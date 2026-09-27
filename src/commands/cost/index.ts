@@ -23,7 +23,7 @@ export function costReport(cwd: string, options: { projectsDir?: string, env?: N
   const source: CostSource | null = runtime === 'claude-code' ? new ClaudeCodeCostSource(options.projectsDir) : null
   if (source == null || !source.readable())
     return { status: 'unsupported', runtime, version, ...(reported ? { ledger: withoutTokenTotals(ledger) } : {}) }
-  const result = source.read(cwd)
+  const result = source.read(cwd, reading.entries.map(entry => entry.run).filter(run => run != null))
   const joinable = result.status === 'ok' || result.status === 'empty'
   return {
     runtime,
