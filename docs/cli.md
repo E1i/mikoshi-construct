@@ -1268,7 +1268,14 @@ ledger.
 
 Where the runtime exposes session data, `cost` joins ledger entries to runtime runs on `run` and
 reports the drift in both directions — never by pairing entries to sessions chronologically, which
-would be a guess dressed as a finding:
+would be a guess dressed as a finding.
+
+Claude Code files a session under the directory it was started in, so a ladder run from a session
+started in a git worktree sits under the worktree's key, not this directory's. A run the ledger names
+and this directory's sessions do not hold is looked up by its `run` identifier under every other key,
+and joined where it is found — including after the worktree is removed, since the session data stays.
+Only runs the ledger names are taken from other keys; a session elsewhere that no entry names is never
+counted here.
 
 | Finding | Meaning |
 |---|---|
@@ -1285,7 +1292,7 @@ because `0` is a number and it would be a lie.
 |---|---|---|
 | `ok` | `0` | Runs were read and printed. |
 | `empty` | `0` | The runtime is readable and this directory has no recorded runs. |
-| `mismatch` | `1` | No directory for the looked-up project key, but the path this directory resolves to — or the main worktree it belongs to — has one. The report names the key that was looked up. |
+| `mismatch` | `1` | No directory for the looked-up project key and no run the ledger names found under another key, but the path this directory resolves to — or the main worktree it belongs to — has one. The report names the key that was looked up. |
 | `unknown` | `1` | Sibling keys look like this repository without settling it; the report says so rather than guessing. |
 | `unsupported` | `3` | This runtime does not expose per-run token usage. |
 

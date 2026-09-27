@@ -20,8 +20,8 @@ function workspace(): string {
   return realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-repo-')))
 }
 
-function recordRun(projects: string, cwd: string): string {
-  const run = path.join(projects, projectKey(cwd), 'session-1', 'subagents', 'workflows', 'wf_abc')
+function recordRun(projects: string, cwd: string, id = 'wf_abc'): string {
+  const run = path.join(projects, projectKey(cwd), 'session-1', 'subagents', 'workflows', id)
   mkdirSync(run, { recursive: true })
   writeFileSync(path.join(run, 'agent-1.jsonl'), `${line('sonnet', { input_tokens: 100, cache_read_input_tokens: 400, output_tokens: 50 })}not json\n${line('sonnet', { input_tokens: 10, output_tokens: 5 })}`)
   writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'implement 1/4 @ low', agentType: 'implementer' }))
@@ -264,6 +264,33 @@ describe('the run ledger', () => {
     expect(exit).toBe(COST_EXIT.ok)
     expect(text).toContain('1 entries with no session, 1 sessions with no entry, 0 entries with no run id')
     expect(text).toContain('wf_gone')
+  })
+
+  it('joins an entry to the run of a worktree session after the worktree is gone, from the main checkout', () => {
+    const projects = projectsRoot()
+    const main = workspace()
+    recordRun(projects, main)
+    const removedWorktree = path.join(path.dirname(main), 'mc-removed-worktree')
+    recordRun(projects, removedWorktree, 'wf_worktree')
+    recordRun(projects, removedWorktree, 'wf_not_in_this_ledger')
+    writeLedger(main, [JSON.stringify(ledgerEntry()), JSON.stringify(ledgerEntry({ run: 'wf_worktree' }))])
+
+    const report = costReport(main, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(report.status).toBe('ok')
+    expect(report.runs!.map(run => run.run).sort()).toEqual(['wf_abc', 'wf_worktree'])
+    expect(report.reconciliation).toEqual({ entriesWithoutSession: [], sessionsWithoutEntry: [], unjoinable: 0 })
+  })
+
+  it('joins an entry to a run recorded under another directory even when this directory has no session of its own', () => {
+    const projects = projectsRoot()
+    const main = workspace()
+    recordRun(projects, path.join(path.dirname(main), 'mc-removed-worktree'), 'wf_worktree')
+    writeLedger(main, [JSON.stringify(ledgerEntry({ run: 'wf_worktree' }))])
+
+    const report = costReport(main, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(report.status).toBe('ok')
+    expect(report.runs!.map(run => run.run)).toEqual(['wf_worktree'])
+    expect(report.reconciliation).toEqual({ entriesWithoutSession: [], sessionsWithoutEntry: [], unjoinable: 0 })
   })
 
   it('counts an entry without a run identifier as unjoinable rather than pairing it with a session', () => {
