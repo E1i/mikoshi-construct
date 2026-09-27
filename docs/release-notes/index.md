@@ -4,6 +4,23 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.25.1
+
+### Patch Changes
+
+- [#264](https://github.com/E1i/mikoshi-construct/pull/264) [`8e737a8`](https://github.com/E1i/mikoshi-construct/commit/8e737a84655644b75ff64f9b503e3bc438bc8cc7) Thanks [@E1i](https://github.com/E1i)! - cli: `construct cost` joins a ledger entry to its run when the run's session was started in a git worktree. Claude Code files a session under the directory it started in, so a ladder run from a worktree session read as `entriesWithoutSession` from the main checkout, and stayed that way after the worktree was removed. A run the ledger names and this directory's sessions do not hold is now looked up by its `run` identifier under every other project key; only runs the ledger names are taken from there.
+
+- [#272](https://github.com/E1i/mikoshi-construct/pull/272) [`7b9dfcb`](https://github.com/E1i/mikoshi-construct/commit/7b9dfcbeeb166f088dbc29e05aba7eba057e99d4) Thanks [@E1i](https://github.com/E1i)! - cli: with a harness command the user named, `construct.model.json` no longer claims what that command runs. `every-change-passes-the-harness` states `<command> passes on every change` with no verification when the harness is not `pnpm run quality`, instead of always claiming lint, typecheck and tests pass with an ESLint verification it cannot know holds; `lint-policy` is not born at all, since it names a pnpm script and a test file the harness command may not run.
+
+- [#270](https://github.com/E1i/mikoshi-construct/pull/270) [`95b53d9`](https://github.com/E1i/mikoshi-construct/commit/95b53d9b958877407ffd25a95c29506684bd29e3) Thanks [@E1i](https://github.com/E1i)! - cli: `init` takes `--harness <command>`, as `attach` does. Without it, a repeated `init` keeps the command recorded in `construct.json` by the previous run, and a first `init` still defaults to `pnpm run quality`. The `harness-steps` claim — which spells out the pnpm scripts the harness command runs — is only born when the harness command is `pnpm run quality`; any other command leaves that claim unwritten, since the construct cannot know what it runs.
+
+- [#273](https://github.com/E1i/mikoshi-construct/pull/273) [`8c67db5`](https://github.com/E1i/mikoshi-construct/commit/8c67db50709febf69a4a17b1850546e7f94ea4df) Thanks [@E1i](https://github.com/E1i)! - cli: `mutate judge` takes `--format vitest-json` (the default) or `--format junit-xml`, so a JUnit
+  XML report from any runner can stand in for Vitest's json reporter. A JUnit report is refused,
+  naming the missing run start time, when none of its `<testsuite>` elements carries a `timestamp`
+  attribute — the file's own modification time is never used as a stand-in.
+
+- [#274](https://github.com/E1i/mikoshi-construct/pull/274) [`86c9fdb`](https://github.com/E1i/mikoshi-construct/commit/86c9fdb711e16c5429790a7eb1f4869deb46aebf) Thanks [@E1i](https://github.com/E1i)! - cli: with a harness command other than `pnpm run quality`, `construct.model.json` no longer carries the facts `lint-policy-test` and `lint-policy-test-loads-eslint`, which only the `lint-policy` claim stood on and which that harness leaves unwritten.
+
 ## 0.25.0
 
 ### Minor Changes
