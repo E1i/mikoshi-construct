@@ -1,0 +1,68 @@
+{
+  "vocabulary": [
+    "need code change",
+    "need test report",
+    "need base replay",
+    "need mutation",
+    "need generated artifact",
+    "need contract diff",
+    "need brief parsing",
+    "need judgement",
+    "need transcript inspection",
+    "need environment matrix",
+    "need live CI observation",
+    "need remote status observation",
+    "need registry observation",
+    "need merge",
+    "need human gate",
+    "need byte-exact transfer",
+    "need ledger join",
+    "need isolated workspace",
+    "need settings read",
+    "need shared state write",
+    "need tracker write",
+    "need witness validation"
+  ],
+  "rows": [
+    {
+      "task": "#301",
+      "paths": {
+        "write": [
+          "src/alpha.ts"
+        ],
+        "immutable": [
+          "docs/"
+        ]
+      },
+      "effort": "low",
+      "verification": [
+        "need test report",
+        "need base replay",
+        "need mutation",
+        "need transcript inspection",
+        "need witness validation"
+      ],
+      "class": "R2",
+      "why": [
+        "K1 Effort: low"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [],
+        "worktree": "../mc-301",
+        "locks": [],
+        "executor": "ladder",
+        "merge": "auto",
+        "capabilities": [
+          "need code change",
+          "need brief parsing",
+          "need merge",
+          "need isolated workspace"
+        ],
+        "notes": []
+      },
+      "unresolved": []
+    }
+  ],
+  "notChecked": []
+}

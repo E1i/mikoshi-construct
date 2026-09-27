@@ -1,0 +1,106 @@
+{
+  "vocabulary": [
+    "need code change",
+    "need test report",
+    "need base replay",
+    "need mutation",
+    "need generated artifact",
+    "need contract diff",
+    "need brief parsing",
+    "need judgement",
+    "need transcript inspection",
+    "need environment matrix",
+    "need live CI observation",
+    "need remote status observation",
+    "need registry observation",
+    "need merge",
+    "need human gate",
+    "need byte-exact transfer",
+    "need ledger join",
+    "need isolated workspace",
+    "need settings read",
+    "need shared state write",
+    "need tracker write",
+    "need witness validation"
+  ],
+  "rows": [
+    {
+      "task": "#301",
+      "paths": {
+        "write": [
+          "src/other.ts"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [],
+      "class": null,
+      "why": [
+        "S3 parallel with #302",
+        "K4 code: src/other.ts"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#302"
+        ],
+        "worktree": "../mc-301",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": [
+        {
+          "level": "REASONING_REQUIRED",
+          "reason": "no Effort, no witness, writes code: R1 or R1.5",
+          "source": "K4"
+        }
+      ]
+    },
+    {
+      "task": "#302",
+      "paths": {
+        "write": [
+          "contract/surface.json"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [
+        "need generated artifact",
+        "need contract diff"
+      ],
+      "class": null,
+      "why": [
+        "S3 parallel with #301",
+        "K4 code: contract/surface.json"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#301"
+        ],
+        "worktree": "../mc-302",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": [
+        {
+          "level": "REASONING_REQUIRED",
+          "reason": "no Effort, no witness, writes code: R1 or R1.5",
+          "source": "K4"
+        }
+      ]
+    }
+  ],
+  "notChecked": []
+}

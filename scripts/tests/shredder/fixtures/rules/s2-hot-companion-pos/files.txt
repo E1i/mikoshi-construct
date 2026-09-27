@@ -1,0 +1,4 @@
+contract/surface.json
+src/other.ts
+src/program.ts
+tests/fixtures/cli-help/main.txt

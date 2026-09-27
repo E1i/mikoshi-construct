@@ -1,0 +1,11 @@
+[
+  {
+    "number": 400,
+    "title": "chore: version packages",
+    "runsAwaitingApproval": false,
+    "files": [
+      "CHANGELOG.md",
+      "package.json"
+    ]
+  }
+]

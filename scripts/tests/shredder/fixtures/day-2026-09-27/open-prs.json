@@ -1,0 +1,17 @@
+[
+  {
+    "number": 265,
+    "title": "chore: version packages",
+    "runsAwaitingApproval": true,
+    "files": [
+      ".changeset/cost-joins-worktree-sessions.md",
+      ".changeset/foreign-harness-claims-name-only-what-is-known.md",
+      ".changeset/init-takes-the-harness-command.md",
+      ".changeset/judge-reads-junit-reports.md",
+      ".changeset/lint-policy-facts-follow-the-claim.md",
+      "CHANGELOG.md",
+      "docs/release-notes/index.md",
+      "package.json"
+    ]
+  }
+]
