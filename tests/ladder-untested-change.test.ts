@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+import crypto from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -26,13 +28,18 @@ function ladder(): (...values: unknown[]) => Promise<LadderResult> {
 
 const DEFAULT_ACCEPTANCE = ['the rule rejects the case']
 const WITNESS_COMMAND = 'pnpm vitest run tests/rule.test.ts'
+const WITNESS_SHA256 = crypto.createHash('sha256').update(WITNESS_COMMAND).digest('hex')
 
 function witnessed(items: string[]): unknown[] {
-  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, baseExcerpt: '1 failed', baseExitCode: 1, afterExitCode: 0 }))
+  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, ranSha256: WITNESS_SHA256, baseExcerpt: '1 failed', baseExitCode: 1, afterExitCode: 0 }))
 }
 
 function fixedWitnesses(items: string[]): { criterion: string, command: string }[] {
   return items.map(criterion => ({ criterion, command: WITNESS_COMMAND }))
+}
+
+function fixedWitnessDigests(items: string[]): { criterion: string, base64: string, sha256: string }[] {
+  return items.map(criterion => ({ criterion, base64: Buffer.from(WITNESS_COMMAND).toString('base64'), sha256: WITNESS_SHA256 }))
 }
 
 const INSTALLED = { command: 'pnpm install --frozen-lockfile', exitCode: 0 }
@@ -59,7 +66,7 @@ async function run(changedFiles: string[], rungVerdicts: unknown[] = []): Promis
       throw reply
     return reply ?? null
   }
-  return ladder()({ harness: { command: 'pnpm run quality' }, acceptance: DEFAULT_ACCEPTANCE, witnesses: fixedWitnesses(DEFAULT_ACCEPTANCE), effort: 'low' }, agent, () => {}, () => {})
+  return ladder()({ harness: { command: 'pnpm run quality' }, acceptance: DEFAULT_ACCEPTANCE, witnesses: fixedWitnesses(DEFAULT_ACCEPTANCE), witnessDigests: fixedWitnessDigests(DEFAULT_ACCEPTANCE), effort: 'low' }, agent, () => {}, () => {})
 }
 
 describe('a rung that changes source with no test is never done', () => {

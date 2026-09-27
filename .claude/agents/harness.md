@@ -44,8 +44,12 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `baseInstall` — the install you ran in the base worktree and its exit code; an empty command and
   exit `-1` when none ran. A base that was not installed cannot witness anything, so report that
   rather than running the witnesses on it.
-- `witnesses` — one entry per witness the prompt names, empty when it names none: `criterion` and
-  `command` copied verbatim, `afterExitCode` (the command's exit code on the working tree),
+- `witnesses` — one entry per witness the prompt names, empty when it names none. Each witness is
+  given to you only as base64, one script per criterion, so you never choose or edit it: in a scratch
+  directory of your own, `<dir>`, run exactly `printf %s <base64> | base64 --decode >
+  <dir>/witness-N.sh`, then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. Report
+  the sha256 that `shasum` printed as `ranSha256` and the decoded script's own text as `command`,
+  `criterion` copied verbatim, `afterExitCode` (the script's exit code on the working tree),
   `baseExitCode` and `baseExcerpt` (its exit code and last lines in a worktree of its own at the base
   sha, created, installed and removed in one shell with the `trap` the prompt gives, so it goes even
   when a step fails). You report exit codes; the ladder decides what they mean. The working tree has
