@@ -84,7 +84,7 @@ the order of the kinds in the file), free-writers, and release-gate. Path lists 
 | S3 | Other tasks have a path set disjoint from this one | `S3 parallel with <tasks>` | `parallelWith` |
 | S4 | A `chore: version packages` PR with `runsAwaitingApproval: false` is open | `S4 PR #N` | lock `no merge until PR #N` |
 | S5 | A status row in `writing` or `reviewing` has the task's worktree as its tree (compared as written) | `S5 window X: <tree>` | lock `tree held by window X` |
-| S6 | — | no entry | Constrains what an edge can point at: only a task still in the queue or a PR still open |
+| S6 | — | no entry | Constrains what an edge can point at: only a task still in the queue or a PR still open. A merged predecessor is absent from both, so no edge remains |
 | K1 | The effort is not null | `K1 Effort: <effort>` | class `R2`, executor `ladder` |
 | K2 | No effort and at least one witness | `K2 witnesses: <n>` | class `R1.5` |
 | K3 | No effort, no witness, and every path is a `.md` outside `.claude/` and `templates/`, or is under `tests/` | `K3 docs: <paths>` | class `R1` |
@@ -101,7 +101,14 @@ order.
 
 A task with no path set gets no S or K3/K4 rule and no contour. K1 and K2 still apply, because they do not read paths.
 
-The corpus has no `release-gate` row, and no rules fixture covers release-gate, S3 or S6 on its own.
+Coverage outside the named twins:
+
+- S3 is covered by `rules/s1-overlap-neg`, where the two disjoint tasks list each other in `parallelWith`.
+- S6 is covered by `rules/s6-wait-merged-pos`. Its predecessors, a queued task and an open PR, keep their edges. In
+  `-neg` both are gone, as they would be once merged, and no edge remains.
+- release-gate is covered by `rules/release-gate-pos`, where the policy names the task's `#N`: the note is added and no
+  DECISION_REQUIRED is raised. In `-neg` it names another number, and no note is added. The corpus has no
+  `release-gate` row.
 
 ## `--json` shape
 

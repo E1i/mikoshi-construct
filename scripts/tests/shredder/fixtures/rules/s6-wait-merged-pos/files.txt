@@ -1,0 +1,2 @@
+docs/alpha.md
+docs/beta.md
