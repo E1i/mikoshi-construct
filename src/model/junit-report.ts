@@ -1,7 +1,8 @@
-import type { ReportedFile, ReportUnreadable, TestReport } from './vitest-report.js'
+import type { ReportedFile, ReportUnreadable, TestReport } from './test-report.js'
 import { readFileSync } from 'node:fs'
 
 const UNMAPPED_FILE = '/junit-testcase-with-no-file-attribute'
+const TESTSUITE_PATTERN = /<testsuite\b([^>]*)>/g
 
 const ENTITIES: Record<string, string> = {
   '&lt;': '<',
@@ -37,12 +38,21 @@ function reportedFileFrom(attributesText: string, body: string | undefined): Rep
   return { file, failed, tests: [{ file, titles: [attributes.classname, attributes.name].filter((value): value is string => Boolean(value)), failed, ran: !skipped }] }
 }
 
+function startTimeOf(markup: string): number | null {
+  const times = [...markup.matchAll(TESTSUITE_PATTERN)]
+    .map(match => attributesOf(match[1]).timestamp)
+    .filter((value): value is string => Boolean(value))
+    .map(value => new Date(value).getTime())
+    .filter(value => !Number.isNaN(value))
+  return times.length === 0 ? null : Math.min(...times)
+}
+
 export function parseJunitReport(text: string): TestReport | ReportUnreadable {
   const markup = text.replace(CHARACTER_DATA_AND_COMMENTS, '')
   const files = [...markup.matchAll(TESTCASE_PATTERN)].map(match => reportedFileFrom(match[1], match[2]))
   if (files.length === 0)
     return { unreadable: 'the report carries no <testcase> element' }
-  return { startTime: 0, files }
+  return { startTime: startTimeOf(markup), files }
 }
 
 export function readJunitReport(reportPath: string): TestReport | ReportUnreadable {

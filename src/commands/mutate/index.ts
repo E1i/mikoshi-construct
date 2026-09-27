@@ -1,4 +1,5 @@
-import type { Failure } from '../../model/vitest-report.js'
+import type { ReportFormat } from '../../model/schema.js'
+import type { Failure } from '../../model/test-report.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { ApplyRefusal, ApplyResult } from './apply.js'
@@ -6,6 +7,7 @@ import type { HardFailureCause, JudgeRefusal, JudgeResult } from './judge.js'
 import { TEST_PATH_SEPARATOR } from './lines.js'
 import { copyPath } from './record.js'
 
+export type { ReportFormat }
 export { applyMutation } from './apply.js'
 export { runJudge } from './judge.js'
 

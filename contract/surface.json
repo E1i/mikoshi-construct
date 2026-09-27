@@ -167,6 +167,9 @@
         "dir": {
           "type": "string"
         },
+        "format": {
+          "type": "string"
+        },
         "id": {
           "type": "string"
         },
