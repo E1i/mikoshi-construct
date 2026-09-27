@@ -1,0 +1,17 @@
+{
+  "args": {
+    "task": "Keep the witness marker inside a command (#f).",
+    "effort": "low",
+    "acceptance": [
+      "the log line is kept"
+    ],
+    "witnesses": [
+      {
+        "criterion": "the log line is kept",
+        "command": "grep -q '— witness: kept' log.txt"
+      }
+    ],
+    "invariants": [],
+    "immutable": []
+  }
+}
