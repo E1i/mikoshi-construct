@@ -47,13 +47,14 @@ const VERDICT = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['criterion', 'command', 'afterExitCode', 'baseExitCode', 'baseExcerpt'],
+        required: ['criterion', 'command', 'afterExitCode', 'baseExitCode', 'baseExcerpt', 'ranSha256'],
         properties: {
           criterion: { type: 'string' },
           command: { type: 'string' },
           afterExitCode: { type: 'integer' },
           baseExitCode: { type: 'integer' },
           baseExcerpt: { type: 'string' },
+          ranSha256: { type: 'string' },
         },
       },
     },
@@ -79,6 +80,8 @@ const NO_ACCEPTANCE_QUESTION = 'Pass the acceptance from the brief in args.accep
 
 const UNWITNESSED_BRIEF = 'Every acceptance item needs its witness fixed in the brief before the run, in args.witnesses as { criterion, command } with the criterion copied verbatim. No witness for:'
 
+const UNDIGESTED_BRIEF = 'Every acceptance item needs its witness digest fixed in the brief before the run, in args.witnessDigests as { criterion, base64, sha256 } with the criterion copied verbatim. No digest for:'
+
 const NO_BASE_SHA = 'the harness reported no base sha, so no witness can run against the base'
 
 const SHELL_CANNOT_RUN = [126, 127]
@@ -91,10 +94,12 @@ const DESIGN_EFFORT = 'xhigh'
 const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
+const briefDesign = typeof args.design === 'string' ? args.design : null
 const acceptance = args.acceptance ?? []
 const invariants = args.invariants ?? []
 const immutable = args.immutable ?? []
 const witnesses = (args.witnesses ?? []).filter(witness => acceptance.includes(witness.criterion))
+const witnessDigests = (args.witnessDigests ?? []).filter(digest => acceptance.includes(digest.criterion))
 for (const item of acceptance)
   log(`acceptance: ${item}`)
 const harness = { extra: [], contractPaths: [], ...(args.harness ?? {}) }
@@ -105,6 +110,9 @@ if (acceptance.length === 0)
 const withoutWitness = acceptance.filter(item => !witnesses.some(witness => witness.criterion === item))
 if (withoutWitness.length > 0)
   return { status: 'blocked', attempts: [], question: `${UNWITNESSED_BRIEF} ${withoutWitness.join(' | ')}`, acceptance, invariants, immutable }
+const withoutDigest = acceptance.filter(item => !witnessDigests.some(digest => digest.criterion === item))
+if (withoutDigest.length > 0)
+  return { status: 'blocked', attempts: [], question: `${UNDIGESTED_BRIEF} ${withoutDigest.join(' | ')}`, acceptance, invariants, immutable }
 const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
@@ -145,12 +153,24 @@ async function ask(prompt, options) {
   return null
 }
 
+function witnessDigestOf(witness) {
+  return witnessDigests.find(digest => digest.criterion === witness.criterion)
+}
+
+function witnessScriptLines(digest, n) {
+  return [
+    `printf %s ${digest.base64} | base64 --decode > <dir>/witness-${n}.sh`,
+    `shasum -a 256 <dir>/witness-${n}.sh`,
+    `bash <dir>/witness-${n}.sh`,
+  ].join('\n')
+}
+
 function harnessPrompt(baseSha) {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    `Witness each acceptance criterion with the command the brief fixed for it:\n${witnesses.map(witness => `- ${witness.criterion}\n  command: ${witness.command}`).join('\n')}`,
-    `For each one, run the command in the working tree and report its exit code as afterExitCode. Then run it against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && <witness>\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion and the command verbatim.`,
+    `Witness each acceptance criterion. Each witness is given only as base64, one script per criterion; in a scratch directory of your own, <dir>, decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
+    `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256, and the decoded script's own text as command. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
 }
@@ -159,6 +179,7 @@ function architectPrompt(reason) {
   return [
     `Task: ${task}`,
     acceptance.length > 0 ? `Acceptance criteria so far:\n- ${acceptance.join('\n- ')}` : '',
+    briefDesign == null ? '' : `Design from the brief:\n${briefDesign}`,
     reason,
     'Return the design spec object.',
   ].filter(Boolean).join('\n\n')
@@ -172,6 +193,7 @@ function implementerPrompt(spec, feedback) {
     `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change:\n${witnesses.map(witness => `- ${witness.criterion}\n  witness: ${witness.command}`).join('\n')}`,
     invariants.length > 0 ? `Invariants, true before your change and still true after it (the harness holds them):\n- ${invariants.join('\n- ')}` : '',
     immutable.length > 0 ? `Immutable paths, which you must not change; a rung that changes one fails (a path ending in / covers everything under it):\n- ${immutable.join('\n- ')}` : '',
+    briefDesign == null ? '' : `Design from the brief:\n${briefDesign}`,
     spec == null
       ? ''
       : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
@@ -217,6 +239,18 @@ function unwitnessedItems(observed) {
     .map(fixed => fixed.criterion)
 }
 
+function unrunVerbatimItems(observed) {
+  return witnesses
+    .filter((fixed) => {
+      const witness = observedFor(fixed, observed)
+      if (witness == null)
+        return false
+      const digest = witnessDigestOf(fixed)
+      return digest == null || witness.ranSha256 !== digest.sha256
+    })
+    .map(fixed => fixed.criterion)
+}
+
 function isImmutable(file) {
   return immutable.some(entry => entry.endsWith('/') ? file.startsWith(entry) : file === entry)
 }
@@ -227,6 +261,10 @@ function immutableReason(files) {
 
 function unwitnessedReason(items) {
   return `Not witnessed red before the change and green after it: ${items.join(' | ')}`
+}
+
+function unrunVerbatimReason(items) {
+  return `Witness not run verbatim: ${items.join(' | ')}`
 }
 
 const CODE_EXTENSION = '(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)'
@@ -380,22 +418,23 @@ for (const [index, effort] of rungs.entries()) {
     return { status: 'base unverified', attempts, validationError: environment, acceptance, invariants, immutable }
   }
   const touchedImmutable = harnessPassed && !unchanged ? verdict.changedFiles.filter(isImmutable) : []
-  const unwitnessed = harnessPassed && !unchanged ? unwitnessedItems(verdict.witnesses ?? []) : []
+  const unrun = harnessPassed && !unchanged && touchedImmutable.length === 0 ? unrunVerbatimItems(verdict.witnesses ?? []) : []
+  const unwitnessed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 ? unwitnessedItems(verdict.witnesses ?? []) : []
   const changedSourceFiles = harnessPassed && !unchanged ? verdict.changedFiles.filter(isSourceFile) : []
-  const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unwitnessed.length === 0
+  const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0
     && changedSourceFiles.length > 0 && !verdict.changedFiles.some(isTestFile)
-  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unwitnessed.length === 0 && !untested
+  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0 && !untested
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
     : {
         rung,
         effort,
-        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unwitnessed.length > 0 ? 'acceptance not witnessed' : 'untested change',
+        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unrun.length > 0 ? 'witness not run verbatim' : unwitnessed.length > 0 ? 'acceptance not witnessed' : 'untested change',
         reason: passed
           ? ''
           : !harnessPassed
               ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
-              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untestedReason(changedSourceFiles),
+              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unrun.length > 0 ? unrunVerbatimReason(unrun) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untestedReason(changedSourceFiles),
         securityFinding: verdict.securityFinding ?? '',
       })
   log(`rung ${rung} @ ${effort}: ${attempts.at(-1).outcome}`)
@@ -427,9 +466,11 @@ for (const [index, effort] of rungs.entries()) {
             ? NO_CHANGE
             : touchedImmutable.length > 0
               ? immutableReason(touchedImmutable)
-              : unwitnessed.length > 0
-                ? `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
-                : `${untestedReason(changedSourceFiles)} Ship the matching test in the same change.`
+              : unrun.length > 0
+                ? `${unrunVerbatimReason(unrun)} Decode the witness exactly as given and run it unedited.`
+                : unwitnessed.length > 0
+                  ? `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
+                  : `${untestedReason(changedSourceFiles)} Ship the matching test in the same change.`
   if (verdict?.securityFinding)
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 

@@ -1,14 +1,17 @@
+import { Buffer } from 'node:buffer'
+import { spawnSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const LABEL = /(Effort|Acceptance|Invariants|Immutable):|(Mutations)(?:\s*\([^)]*\))?:/g
+const LABEL = /(Effort|Acceptance|Invariants|Immutable|Design):|(Mutations)(?:\s*\([^)]*\))?:/g
 const SENTENCE_END = /[.!?]\s+$/
 const FIRST_WORD = /\w+/
 const IMPLEMENT_PREFIX = '/implement '
 const QUOTED_PATH = /^`([^`]+)`$/
-const QUOTED_COMMAND = /^`.+`$/
+const QUOTED_COMMAND = /^`[\s\S]+`$/
 const WITNESS_MARKER = '— witness:'
 const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
 
@@ -60,6 +63,21 @@ function sectionItems(text, name) {
   return body == null ? null : splitOutsideBackticks(body).map(normalizeItem).filter(item => item !== '')
 }
 
+function trimItemEdges(item) {
+  const trimmed = item.trim()
+  return trimmed.endsWith('.') && !insideBackticks(trimmed, trimmed.length - 1) ? trimmed.slice(0, -1) : trimmed
+}
+
+function sectionItemsRaw(text, name) {
+  const body = sectionBody(text, name)
+  return body == null ? null : splitOutsideBackticks(body).map(trimItemEdges).filter(item => item !== '')
+}
+
+function briefDesign(text) {
+  const body = sectionBody(text, 'Design')
+  return body == null ? null : body.trim()
+}
+
 function lastMarkerOutsideBackticks(item) {
   let marker = item.lastIndexOf(WITNESS_MARKER)
   while (marker !== -1 && insideBackticks(item, marker))
@@ -71,15 +89,15 @@ export function readWitness(item) {
   const marker = lastMarkerOutsideBackticks(item)
   const quoted = marker === -1 ? '' : item.slice(marker + WITNESS_MARKER.length).trim()
   if (!QUOTED_COMMAND.test(quoted))
-    return { criterion: item, command: null, problem: 'no witness' }
+    return { criterion: normalizeItem(item), command: null, problem: 'no witness' }
   const command = quoted.slice(1, -1)
   if (command.includes('`'))
-    return { criterion: item, command: null, problem: 'backtick' }
+    return { criterion: normalizeItem(item), command: null, problem: 'backtick' }
   return { criterion: normalizeItem(item.slice(0, marker)), command, problem: null }
 }
 
 export function agreedWitnesses(text) {
-  return sectionItems(text, 'Acceptance')?.map(readWitness) ?? null
+  return sectionItemsRaw(text, 'Acceptance')?.map(readWitness) ?? null
 }
 
 export function agreedItems(text) {
@@ -103,6 +121,19 @@ function briefEffort(text) {
   return FIRST_WORD.exec(sectionBody(text, 'Effort') ?? '')?.[0] ?? ''
 }
 
+function bashSyntaxProblem(command) {
+  const result = spawnSync('bash', ['-n', '-c', command], { encoding: 'utf8' })
+  return result.status === 0 ? null : (result.stderr ?? '').trim()
+}
+
+function witnessDigest({ criterion, command }) {
+  return {
+    criterion,
+    base64: Buffer.from(command, 'utf8').toString('base64'),
+    sha256: crypto.createHash('sha256').update(command, 'utf8').digest('hex'),
+  }
+}
+
 export function buildArgs(text) {
   const agreed = agreedWitnesses(text)
   if (agreed == null)
@@ -110,13 +141,21 @@ export function buildArgs(text) {
   const refused = agreed.filter(item => item.problem != null)
   if (refused.length > 0)
     throw new InputError(refused.map(item => `${item.problem}: ${item.criterion}`).join('\n'))
+  const unparseable = agreed
+    .map(({ criterion, command }) => ({ criterion, problem: bashSyntaxProblem(command) }))
+    .filter(item => item.problem != null)
+  if (unparseable.length > 0)
+    throw new InputError(unparseable.map(({ criterion, problem }) => `${criterion}\nbash -n\n${problem}`).join('\n'))
+  const design = briefDesign(text)
   return {
     task: briefTask(text),
     effort: briefEffort(text),
     acceptance: agreed.map(item => item.criterion),
     witnesses: agreed.map(({ criterion, command }) => ({ criterion, command })),
+    witnessDigests: agreed.map(witnessDigest),
     invariants: agreedInvariants(text),
     immutable: agreedImmutable(text),
+    ...(design == null ? {} : { design }),
   }
 }
 
