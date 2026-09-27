@@ -4,6 +4,10 @@ Each directory here is a **snapshot**: everything Shredder reads, and the `expec
 `day-2026-09-27/` is the corpus, the day's seven tasks. `rules/<id>-pos/` makes exactly rule `<id>` fire. `rules/<id>-neg/`
 is its twin, differing only in the input the rule reads, where the rule must not fire.
 
+The pair `rules/<id>-pos` and `rules/<id>-neg` is the test of rule `<id>`. There are no separate unit tests for the
+rules: `scripts/tests/shredder/cli.test.ts` runs every directory under `rules/` against its `expected.json`, so a rule
+is covered exactly when its pair is here.
+
 Every `expected.json` was written by hand from an independent reading of its inputs. None was produced by running
 Shredder. The corpus was checked against the frozen hand-run matrix of 2026-09-27 and against
 `gh pr view <N> --json files` for PR #264, PR #270, PR #272, PR #273, PR #274, PR #275 and PR #276.
