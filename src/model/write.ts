@@ -130,8 +130,6 @@ function sampleFacts(): Fact[] {
 }
 
 function sampleClaims(harnessCommand: string): Claim[] {
-  if (!isConstructQualityHarness(harnessCommand))
-    return []
   return [
     {
       id: 'lint-policy',
@@ -181,10 +179,11 @@ function contractClaims(contractPath: string): Claim[] {
 
 export function buildModel(input: ModelInput): RepositoryModel {
   const { harnessCommand, contractPath } = input.vars
+  const lintPolicy = input.sample && isConstructQualityHarness(harnessCommand)
   return {
     modelVersion: MODEL_VERSION,
-    facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : [], ...input.sample ? sampleFacts() : []],
-    claims: [...baselineClaims(harnessCommand, input.contracts), ...input.contracts ? contractClaims(contractPath) : [], ...input.sample ? sampleClaims(harnessCommand) : []],
+    facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : [], ...lintPolicy ? sampleFacts() : []],
+    claims: [...baselineClaims(harnessCommand, input.contracts), ...input.contracts ? contractClaims(contractPath) : [], ...lintPolicy ? sampleClaims(harnessCommand) : []],
     hypotheses: [],
   }
 }
