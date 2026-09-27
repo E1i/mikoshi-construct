@@ -396,12 +396,15 @@ check_journal() {
 const fs = require('node:fs')
 const [W, sha, kind, s1, s2] = process.argv.slice(2)
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/journal-failure`, message); process.exit(1) }
-const journal = `${W}/main/.construct/ghosts.jsonl`
+const journal = `${W}/handoff/ghosts.jsonl`
 if (!fs.existsSync(journal)) failWith(`no ${journal}`)
+for (const inRepo of [`${W}/main/.construct/ghosts.jsonl`, `${W}/wt-g1/.construct/ghosts.jsonl`, `${W}/wt-g2/.construct/ghosts.jsonl`])
+  if (fs.existsSync(inRepo)) failWith(`the journal is written inside a repository: ${inRepo}`)
 const lines = fs.readFileSync(journal, 'utf8').split('\n').filter(line => line !== '')
 if (lines.length !== 2) failWith(`${lines.length} lines in ${journal}, not 2`)
 const rows = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
-const KEYS = ['task', 'session', 'baseSha', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
+const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
+const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
 for (const [id, session] of [['g1', s1], ['g2', s2]]) {
   const found = rows.filter(row => row.task === id)
@@ -414,7 +417,10 @@ for (const [id, session] of [['g1', s1], ['g2', s2]]) {
   const noResult = installFailed || (kind === 'no-result' && id === 'g2')
   const matrixRow = kind === 'with-matrix' ? matrix.rows.find(r => r.task === id) : undefined
   const result = noResult ? null : JSON.parse(fs.readFileSync(`${W}/.world/result-${id}.json`, 'utf8'))
+  if (typeof row.ts !== 'string' || !ISO_Z.test(row.ts)) failWith(`${id}: ts is ${JSON.stringify(row.ts)}, not an ISO time ending in Z`)
   const want = {
+    event: 'task',
+    ts: row.ts,
     task: id,
     session: installFailed ? null : session,
     baseSha: sha,
