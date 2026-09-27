@@ -9,6 +9,8 @@ export const AI_TARGET_LABELS: Record<AiTarget, string> = {
   both: 'Claude Code, Cursor',
 }
 
+export const AI_TARGETS = Object.keys(AI_TARGET_LABELS) as AiTarget[]
+
 export interface TemplateVars extends Record<string, string> {
   projectName: string
   scope: string
@@ -223,6 +225,8 @@ export const ATTACH_CARRIERS = {
 } as const
 
 export type ReviewProvider = 'claude' | 'none'
+
+export const REVIEW_PROVIDERS: ReviewProvider[] = ['claude', 'none']
 
 export const DEFAULT_REVIEW_MODEL = 'claude-sonnet-5'
 

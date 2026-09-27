@@ -3,7 +3,12 @@
     "attach": {
       "flags": {
         "ai": {
-          "type": "string"
+          "options": [
+            "claude",
+            "cursor",
+            "both"
+          ],
+          "type": "enum"
         },
         "dir": {
           "type": "string"
@@ -93,7 +98,12 @@
     "init": {
       "flags": {
         "ai": {
-          "type": "string"
+          "options": [
+            "claude",
+            "cursor",
+            "both"
+          ],
+          "type": "enum"
         },
         "dir": {
           "type": "string"
@@ -114,10 +124,20 @@
           "type": "boolean"
         },
         "preset": {
-          "type": "string"
+          "options": [
+            "node-backend",
+            "node-frontend",
+            "node-library",
+            "monorepo"
+          ],
+          "type": "enum"
         },
         "review": {
-          "type": "string"
+          "options": [
+            "claude",
+            "none"
+          ],
+          "type": "enum"
         },
         "reviewModel": {
           "type": "string"
@@ -168,7 +188,11 @@
           "type": "string"
         },
         "format": {
-          "type": "string"
+          "options": [
+            "vitest-json",
+            "junit-xml"
+          ],
+          "type": "enum"
         },
         "id": {
           "type": "string"
@@ -1025,5 +1049,5 @@
       ]
     }
   },
-  "surfaceVersion": 2
+  "surfaceVersion": 3
 }

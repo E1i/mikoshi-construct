@@ -32,7 +32,7 @@ const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the so
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
 
-export const SURFACE_VERSION = 2
+export const SURFACE_VERSION = 3
 
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/runs.jsonl',
@@ -46,6 +46,7 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 export interface Flag {
   type: string
   alias?: string
+  options?: string[]
 }
 
 export type CommandSurface = { flags: Record<string, Flag> } | { aliasOf: string }
@@ -102,7 +103,13 @@ function flagsOf(args: CommandDef['args']): Record<string, Flag> {
   return Object.fromEntries(Object.entries(args as ArgsDef).map(([name, arg]) => {
     const declared = 'alias' in arg ? arg.alias : undefined
     const alias = Array.isArray(declared) ? declared.join(',') : declared
-    return [name, alias == null ? { type: String(arg.type ?? 'string') } : { type: String(arg.type ?? 'string'), alias }]
+    const options = 'options' in arg ? arg.options : undefined
+    const flag: Flag = { type: String(arg.type ?? 'string') }
+    if (alias != null)
+      flag.alias = alias
+    if (options != null)
+      flag.options = options
+    return [name, flag]
   }))
 }
 
