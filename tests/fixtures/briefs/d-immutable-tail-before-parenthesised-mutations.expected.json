@@ -1,0 +1,22 @@
+{
+  "args": {
+    "task": "Make the rule reject the case (#256).",
+    "effort": "low",
+    "acceptance": [
+      "the rule rejects the case"
+    ],
+    "witnesses": [
+      {
+        "criterion": "the rule rejects the case",
+        "command": "pnpm vitest run tests/rule.test.ts"
+      }
+    ],
+    "invariants": [
+      "quality stays green"
+    ],
+    "immutable": [
+      "tests/rule.test.ts",
+      "templates/"
+    ]
+  }
+}

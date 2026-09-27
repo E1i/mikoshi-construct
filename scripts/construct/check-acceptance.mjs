@@ -1,18 +1,16 @@
 import { readFileSync, realpathSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const ACCEPTANCE_LABEL = /(?:^|\s)Acceptance:/
-const INVARIANTS_LABEL = /(?:^|\s)Invariants:/
-const IMMUTABLE_LABEL = /(?:^|\s)Immutable:/
-const SECTION_END = {
-  acceptance: /(?:^|\n|[.!?]\s*)(?:Mutations|Invariants|Immutable)(?:\s*\([^)]*\))?:/,
-  invariants: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Immutable)(?:\s*\([^)]*\))?:/,
-  immutable: /(?:^|\n|[.!?]\s*)(?:Mutations|Acceptance|Invariants)(?:\s*\([^)]*\))?:/,
-}
+const LABEL = /(Effort|Acceptance|Invariants|Immutable):|(Mutations)(?:\s*\([^)]*\))?:/g
+const SENTENCE_END = /[.!?]\s+$/
+const FIRST_WORD = /\w+/
+const IMPLEMENT_PREFIX = '/implement '
 const QUOTED_PATH = /^`([^`]+)`$/
+const QUOTED_COMMAND = /^`.+`$/
 const WITNESS_MARKER = '— witness:'
-const QUOTED_COMMAND = /^`([^`]+)`$/
+const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
 
 export class InputError extends Error {}
 
@@ -34,24 +32,54 @@ function splitOutsideBackticks(body) {
   return items
 }
 
-function sectionItems(text, label, end) {
-  const found = label.exec(text)
-  if (found == null)
-    return null
-  const section = text.slice(found.index + found[0].length)
-  const stop = end.exec(section)
-  const body = stop == null ? section : section.slice(0, stop.index)
-  return splitOutsideBackticks(body).map(normalizeItem).filter(item => item !== '')
+function insideBackticks(text, index) {
+  return (text.slice(0, index).match(/`/g)?.length ?? 0) % 2 === 1
 }
 
-function withWitness(item) {
-  const marker = item.lastIndexOf(WITNESS_MARKER)
-  const command = marker === -1 ? null : QUOTED_COMMAND.exec(item.slice(marker + WITNESS_MARKER.length).trim())?.[1]
-  return command == null ? { criterion: item, command: null } : { criterion: normalizeItem(item.slice(0, marker)), command }
+function isLabel(text, index) {
+  const before = text.slice(text.lastIndexOf('\n', index - 1) + 1, index)
+  return (before.trim() === '' || SENTENCE_END.test(before)) && !insideBackticks(before, before.length)
+}
+
+export function briefLabels(text) {
+  return [...text.matchAll(LABEL)]
+    .filter(found => isLabel(text, found.index))
+    .map(found => ({ name: found[1] ?? found[2], start: found.index, end: found.index + found[0].length }))
+}
+
+function sectionBody(text, name) {
+  const labels = briefLabels(text)
+  const index = labels.findIndex(label => label.name === name)
+  if (index === -1)
+    return null
+  return text.slice(labels[index].end, labels[index + 1]?.start ?? text.length)
+}
+
+function sectionItems(text, name) {
+  const body = sectionBody(text, name)
+  return body == null ? null : splitOutsideBackticks(body).map(normalizeItem).filter(item => item !== '')
+}
+
+function lastMarkerOutsideBackticks(item) {
+  let marker = item.lastIndexOf(WITNESS_MARKER)
+  while (marker !== -1 && insideBackticks(item, marker))
+    marker = item.lastIndexOf(WITNESS_MARKER, marker - 1)
+  return marker
+}
+
+export function readWitness(item) {
+  const marker = lastMarkerOutsideBackticks(item)
+  const quoted = marker === -1 ? '' : item.slice(marker + WITNESS_MARKER.length).trim()
+  if (!QUOTED_COMMAND.test(quoted))
+    return { criterion: item, command: null, problem: 'no witness' }
+  const command = quoted.slice(1, -1)
+  if (command.includes('`'))
+    return { criterion: item, command: null, problem: 'backtick' }
+  return { criterion: normalizeItem(item.slice(0, marker)), command, problem: null }
 }
 
 export function agreedWitnesses(text) {
-  return sectionItems(text, ACCEPTANCE_LABEL, SECTION_END.acceptance)?.map(withWitness) ?? null
+  return sectionItems(text, 'Acceptance')?.map(readWitness) ?? null
 }
 
 export function agreedItems(text) {
@@ -59,11 +87,73 @@ export function agreedItems(text) {
 }
 
 export function agreedInvariants(text) {
-  return sectionItems(text, INVARIANTS_LABEL, SECTION_END.invariants) ?? []
+  return sectionItems(text, 'Invariants') ?? []
 }
 
 export function agreedImmutable(text) {
-  return (sectionItems(text, IMMUTABLE_LABEL, SECTION_END.immutable) ?? []).map(item => QUOTED_PATH.exec(item)?.[1] ?? item)
+  return (sectionItems(text, 'Immutable') ?? []).map(item => QUOTED_PATH.exec(item)?.[1] ?? item)
+}
+
+function briefTask(text) {
+  const firstLine = (text.split('\n').find(line => line.trim() !== '') ?? '').trim()
+  return firstLine.startsWith(IMPLEMENT_PREFIX) ? firstLine.slice(IMPLEMENT_PREFIX.length).trim() : firstLine
+}
+
+function briefEffort(text) {
+  return FIRST_WORD.exec(sectionBody(text, 'Effort') ?? '')?.[0] ?? ''
+}
+
+export function buildArgs(text) {
+  const agreed = agreedWitnesses(text)
+  if (agreed == null)
+    throw new InputError('the brief has no Acceptance: section')
+  const refused = agreed.filter(item => item.problem != null)
+  if (refused.length > 0)
+    throw new InputError(refused.map(item => `${item.problem}: ${item.criterion}`).join('\n'))
+  return {
+    task: briefTask(text),
+    effort: briefEffort(text),
+    acceptance: agreed.map(item => item.criterion),
+    witnesses: agreed.map(({ criterion, command }) => ({ criterion, command })),
+    invariants: agreedInvariants(text),
+    immutable: agreedImmutable(text),
+  }
+}
+
+function readRecord(file) {
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  }
+  catch {
+    return null
+  }
+  try {
+    return JSON.parse(text)
+  }
+  catch (error) {
+    throw new InputError(`${file} is not valid JSON: ${error.message}`)
+  }
+}
+
+function claudeContractPaths(root) {
+  let text
+  try {
+    text = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')
+  }
+  catch {
+    return []
+  }
+  return (CONTRACT_PATHS_LINE.exec(text)?.[1] ?? '').split(',').map(item => item.trim())
+}
+
+export function repositoryHarness(root) {
+  const record = readRecord(path.join(root, 'construct.json')) ?? readRecord(path.join(root, '.construct', 'attach.json'))
+  const command = record?.harness?.command
+  if (typeof command !== 'string')
+    throw new InputError('no harness command: neither construct.json nor .construct/attach.json names one')
+  const recorded = record.contracts == null ? [] : [record.contracts.path, record.contracts.types]
+  return { command, extra: [], contractPaths: [...recorded, ...claudeContractPaths(root)].filter(item => typeof item === 'string' && item !== '') }
 }
 
 export function argsAcceptance(json) {
@@ -151,12 +241,26 @@ export function check(argv) {
   }
 }
 
+export function build(argv) {
+  try {
+    const text = readInput(option(argv, '--brief'))
+    const args = { ...buildArgs(text), harness: repositoryHarness(process.cwd()) }
+    return { code: 0, stdout: [JSON.stringify(args)], stderr: [] }
+  }
+  catch (error) {
+    if (error instanceof InputError)
+      return { code: 2, stdout: [], stderr: error.message.split('\n') }
+    throw error
+  }
+}
+
 function isEntry() {
   return process.argv[1] != null && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 }
 
 if (isEntry()) {
-  const result = check(process.argv.slice(2))
+  const [mode, ...rest] = process.argv.slice(2)
+  const result = mode === 'build' ? build(rest) : check(process.argv.slice(2))
   for (const line of result.stdout)
     process.stdout.write(`${line}\n`)
   for (const line of result.stderr)

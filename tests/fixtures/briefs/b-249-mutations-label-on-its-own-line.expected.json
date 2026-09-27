@@ -1,0 +1,37 @@
+{
+  "args": {
+    "task": "init takes the harness command from --harness, as attach does, and assumes none when it is given (#249).",
+    "effort": "medium",
+    "acceptance": [
+      "init --harness \"make check\" on an empty directory records harness.command \"make check\" in construct.json and the CI workflow runs make check",
+      "a second init without --harness keeps the recorded \"make check\"",
+      "with --harness \"make check\" construct.model.json has no harness-steps claim and no claim names pnpm run quality"
+    ],
+    "witnesses": [
+      {
+        "criterion": "init --harness \"make check\" on an empty directory records harness.command \"make check\" in construct.json and the CI workflow runs make check",
+        "command": "D=$(mktemp -d) && pnpm exec tsx src/cli.ts init --yes --preset node-library --dir $D --harness \"make check\" >/dev/null && node -e 'const fs=require(\"node:fs\");const m=JSON.parse(fs.readFileSync(process.argv[1]+\"/construct.json\",\"utf8\"));const ci=fs.readFileSync(process.argv[1]+\"/.github/workflows/ci.yml\",\"utf8\");if(m.harness?.command!==\"make check\"||!/run: make check\\s*$/m.test(ci)){console.error(JSON.stringify(m.harness));process.exit(1)}' $D"
+      },
+      {
+        "criterion": "a second init without --harness keeps the recorded \"make check\"",
+        "command": "D=$(mktemp -d) && pnpm exec tsx src/cli.ts init --yes --preset node-library --dir $D --harness \"make check\" >/dev/null && pnpm exec tsx src/cli.ts init --yes --dir $D >/dev/null && node -e 'const m=JSON.parse(require(\"node:fs\").readFileSync(process.argv[1]+\"/construct.json\",\"utf8\"));if(m.harness?.command!==\"make check\"){console.error(JSON.stringify(m.harness));process.exit(1)}' $D"
+      },
+      {
+        "criterion": "with --harness \"make check\" construct.model.json has no harness-steps claim and no claim names pnpm run quality",
+        "command": "D=$(mktemp -d) && pnpm exec tsx src/cli.ts init --yes --preset node-library --dir $D --harness \"make check\" >/dev/null && node -e 'const m=JSON.parse(require(\"node:fs\").readFileSync(process.argv[1]+\"/construct.model.json\",\"utf8\"));const bad=m.claims.filter(c=>c.id===\"harness-steps\"||JSON.stringify(c).includes(\"pnpm run quality\"));if(bad.length>0){console.error(bad.map(c=>c.id).join(\",\"));process.exit(1)}' $D"
+      }
+    ],
+    "invariants": [
+      "`pnpm run quality` is green",
+      "init without --harness and without a record writes harness.command \"pnpm run quality\" and the harness-steps claim, exactly as before (`D=$(mktemp -d) && pnpm exec tsx src/cli.ts init --yes --preset node-library --dir $D >/dev/null && node -e 'const fs=require(\"node:fs\");const m=JSON.parse(fs.readFileSync(process.argv[1]+\"/construct.json\",\"utf8\"));const mo=JSON.parse(fs.readFileSync(process.argv[1]+\"/construct.model.json\",\"utf8\"));if(m.harness?.command!==\"pnpm run quality\"||!mo.claims.some(c=>c.id===\"harness-steps\")){process.exit(1)}' $D`)",
+      "an empty directory → init --yes --preset <each preset> → pnpm install → pnpm run quality is green",
+      "attach behaves exactly as before",
+      "contract/surface.json changes only through `pnpm contract:update`"
+    ],
+    "immutable": [
+      "src/commands/attach/",
+      "src/commands/doctor/",
+      "tests/attach.test.ts"
+    ]
+  }
+}

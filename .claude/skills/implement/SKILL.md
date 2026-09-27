@@ -18,44 +18,36 @@ repository's CLAUDE.md and `construct.json`.
    contract already defined is `low`.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
-   When `$ARGUMENTS` carries an `Acceptance:` section (from the label up to a line or sentence
-   starting `Mutations:`, or the end), its items are the acceptance: split it on `;` and copy each
-   item verbatim into `args.acceptance`, one item per element, in the agreed order. You may append
-   items of your own, but never rewrite, merge or drop an agreed one. The brief splits what it asks
-   for in two. **Acceptance** is red before the change and green after it, and it is the gate: each
-   item ends with its witness, `— witness: \`<command>\``, a command that exits non-zero on the base
-   and zero after the change. The witness is fixed in the brief before the run (0027); you copy it
-   into `args.witnesses` as `{ "criterion": ..., "command": ... }` and never write or change one, and
-   the implementer only refers to it. **Invariants** (an `Invariants:` section, split the same way)
-   are green before and after, such as "the harness is green"; the harness holds them and they
-   go into `args.invariants` unwitnessed. An item the base already satisfies belongs in invariants,
-   because it can never be witnessed red. **Immutable** (an `Immutable:` section, split the same way)
-   names paths the change may not touch, each a file or, ending in `/`, a directory, with any
-   surrounding backticks dropped; they go into `args.immutable`, and a rung whose changed files include
-   one fails as `immutable changed`. A `;` inside backticks does not split an item. A brief
-   with no acceptance, or an acceptance item with no witness, returns `blocked` before any agent runs.
-3. Before calling Workflow, check that the agreed acceptance, its witnesses, the invariants and the immutable paths reached the args: write `$ARGUMENTS`
-   verbatim to `.construct/implement-agreed.txt` and the `args` object you are about to pass to
-   `.construct/implement-args.json` (create the directory if needed; overwrite both), then run
-   `node scripts/construct/check-acceptance.mjs --agreed .construct/implement-agreed.txt --args .construct/implement-args.json`.
-   On any non-zero exit — `1` for an agreed item missing from the args, `2` for an unreadable file or
-   malformed args, or Node's own failure when the script is absent — stop: do not call Workflow, tell
-   the user which agreed item is missing by relaying the script's stderr verbatim, and write no line to
+   The args come from one deterministic parser, never from you: write `$ARGUMENTS` verbatim to
+   `.construct/implement-agreed.txt` (create the directory if needed; overwrite it) and run
+   `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json`.
+   The build prints the whole args object: `task` (the brief's first line, without a leading
+   `/implement `), `effort` (the first word after `Effort:`), `acceptance`, `witnesses`,
+   `invariants`, `immutable` and `harness`. A label counts at the start of a line or right after the
+   end of a sentence; the same word elsewhere in prose, or inside backticks, is text. The brief splits
+   what it asks for in two. **Acceptance** is red before the change and green after it, and it is the
+   gate: each item ends with its witness, `— witness: \`<command>\``, a command that exits non-zero on
+   the base and zero after the change. The witness is fixed in the brief before the run (0027); the
+   build carries it into `args.witnesses` as `{ "criterion": ..., "command": ... }`, and the
+   implementer only refers to it. **Invariants** are green before and after, such as "the harness is
+   green"; the harness holds them and they reach `args.invariants` unwitnessed. An item the base
+   already satisfies belongs in invariants, because it can never be witnessed red. **Immutable** names
+   paths the change may not touch, each a file or, ending in `/`, a directory, and a rung whose changed
+   files include one fails as `immutable changed`. `harness.command` comes from `construct.json`, or
+   from `.construct/attach.json` when `construct.json` is absent (an attached repository);
+   `harness.contractPaths` is `contracts.path` and `contracts.types` from `construct.json` when
+   `contracts` is non-null, plus the comma-separated paths on a `Contract paths:` line in the
+   repository's CLAUDE.md. The ladder derives the result's `contractChanged` from it: true only when a
+   path in the harness's `changedFiles` equals one of these exactly.
+3. The build is the only check that the brief reached the args. On a non-zero exit it has refused the
+   brief — no `Acceptance:` section, an acceptance item with no witness (`no witness`), a witness
+   holding a backtick (`backtick`), no harness command, or an unreadable file — and printed nothing on
+   stdout: stop, do not call Workflow, relay its stderr verbatim, and write no line to
    `.construct/runs.jsonl`, because there is no Workflow run identifier and step 4 forbids inventing
-   one. On exit `0`, call the Workflow tool with `scriptPath` set to `scripts/construct/implement.workflow.mjs` (the ladder
-   script lives with the project's scripts, not under `.claude/`) and `args` as
-   a JSON object:
-   `{ "task": ..., "acceptance": [...], "witnesses": [{ "criterion": ..., "command": ... }], "invariants": [...], "immutable": [...], "effort": "low|medium|high", "harness": { "command": ..., "extra": [...], "contractPaths": [...] } }`
-   where `harness.command` comes from `construct.json`, or from `.construct/attach.json` when
-   `construct.json` is absent (an attached repository), `harness.extra` lists any area-specific
-   commands CLAUDE.md names for the files the task touches (usually empty), and
-   `harness.contractPaths` is the contract paths you read from the repository yourself:
-   `contracts.path` and `contracts.types` from `construct.json`
-   when `contracts` is non-null, plus the comma-separated paths on a `Contract paths:` line in the
-   repository's CLAUDE.md. `.construct/attach.json` records no contract paths, so in an attached
-   repository only that CLAUDE.md line supplies them; absent both, the list is empty. The ladder
-   derives the result's `contractChanged` from it: true only when a path in the harness's
-   `changedFiles` equals one of these exactly. `retryLimit` is optional
+   one. On exit `0`, call the Workflow tool with `scriptPath` set to
+   `scripts/construct/implement.workflow.mjs` (the ladder script lives with the project's scripts, not
+   under `.claude/`) and `args` set to the JSON in `.construct/implement-args.json`, unchanged: never
+   add, rewrite, merge or drop an item. The one field you may add is `retryLimit`. It is optional
    and defaults to `0`: a rejected response is not re-asked, and the run stops with the validator's
    error so a person reads it. Each retry is a whole new agent call that repeats the agent's
    exploration from scratch — measured at roughly three million billable tokens for an architect —

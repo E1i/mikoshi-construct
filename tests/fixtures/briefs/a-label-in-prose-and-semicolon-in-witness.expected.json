@@ -1,0 +1,28 @@
+{
+  "args": {
+    "task": "Make the thing refuse (#1).",
+    "effort": "medium",
+    "acceptance": [
+      "the first item holds",
+      "the second item (with a parenthesis) holds"
+    ],
+    "witnesses": [
+      {
+        "criterion": "the first item holds",
+        "command": "test 1 -eq 1; test 2 -eq 2"
+      },
+      {
+        "criterion": "the second item (with a parenthesis) holds",
+        "command": "true"
+      }
+    ],
+    "invariants": [
+      "`pnpm run quality` is green",
+      "nothing else changes (not even this)"
+    ],
+    "immutable": [
+      "src/a.ts",
+      "tests/b/"
+    ]
+  }
+}
