@@ -1,5 +1,11 @@
 # mikoshi-construct
 
+## 0.26.0
+
+### Minor Changes
+
+- [#276](https://github.com/E1i/mikoshi-construct/pull/276) [`7614b0a`](https://github.com/E1i/mikoshi-construct/commit/7614b0abdef3b7b04abc7357d637e321f8839926) Thanks [@E1i](https://github.com/E1i)! - cli: every command refuses a flag it does not declare, and `init --preset`, `init --ai`, `init --review`, `attach --ai` and `mutate judge --format` refuse a value outside their options, before anything is read or written: the usage is printed, stderr names every unknown flag as it was typed (or the flag, the value and every allowed one), and the exit code is 1. A script that passed a misspelt or unsupported flag and had it silently ignored now fails; drop or correct the flag. `contract/surface.json` records the options of each enumerable flag, as an optional field (`surfaceVersion` stays 2: a file without it records flags that had no options), and `contract:bump` reads an option removed as breaking and an option added as additive. Previously `mutate judge --format junit` was read as the default Vitest JSON and reported the report as not JSON; it is now refused naming `vitest-json` and `junit-xml`.
+
 ## 0.25.1
 
 ### Patch Changes
