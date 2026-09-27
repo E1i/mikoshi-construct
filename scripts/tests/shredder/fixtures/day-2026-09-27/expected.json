@@ -1,0 +1,440 @@
+{
+  "vocabulary": [
+    "need code change",
+    "need test report",
+    "need base replay",
+    "need mutation",
+    "need generated artifact",
+    "need contract diff",
+    "need brief parsing",
+    "need judgement",
+    "need transcript inspection",
+    "need environment matrix",
+    "need live CI observation",
+    "need remote status observation",
+    "need registry observation",
+    "need merge",
+    "need human gate",
+    "need byte-exact transfer",
+    "need ledger join",
+    "need isolated workspace",
+    "need settings read",
+    "need shared state write",
+    "need tracker write",
+    "need witness validation"
+  ],
+  "rows": [
+    {
+      "task": "#263",
+      "paths": {
+        "write": [
+          "docs/cli.md",
+          "src/commands/cost/claude-code.ts",
+          "src/commands/cost/index.ts",
+          "src/commands/cost/ledger.ts",
+          "src/commands/cost/report.ts",
+          "src/commands/cost/runtime.ts",
+          "src/commands/cost/source.ts",
+          "src/commands/cost/usage.ts",
+          "tests/cost.test.ts",
+          "tests/runtime-externals.test.ts"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [],
+      "class": null,
+      "why": [
+        "S3 parallel with #249, #267, xs-lint-policy, #266, contributing",
+        "K4 code: src/commands/cost/claude-code.ts, src/commands/cost/index.ts, src/commands/cost/ledger.ts, src/commands/cost/report.ts, src/commands/cost/runtime.ts, src/commands/cost/source.ts, src/commands/cost/usage.ts"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#249",
+          "#267",
+          "xs-lint-policy",
+          "#266",
+          "contributing"
+        ],
+        "worktree": "../mc-263",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": [
+        {
+          "level": "REASONING_REQUIRED",
+          "reason": "no Effort, no witness, writes code: R1 or R1.5",
+          "source": "K4"
+        }
+      ]
+    },
+    {
+      "task": "#249",
+      "paths": {
+        "write": [
+          "construct.json",
+          "contract/surface.json",
+          "src/commands/init.ts",
+          "src/model/write.ts",
+          "src/program.ts",
+          "src/ui/lore.ts",
+          "tests/fixtures/cli-help/attach.txt",
+          "tests/fixtures/cli-help/cost.txt",
+          "tests/fixtures/cli-help/detach.txt",
+          "tests/fixtures/cli-help/doctor.txt",
+          "tests/fixtures/cli-help/graph.txt",
+          "tests/fixtures/cli-help/init.txt",
+          "tests/fixtures/cli-help/main.txt",
+          "tests/fixtures/cli-help/mutate-apply.txt",
+          "tests/fixtures/cli-help/mutate-judge.txt",
+          "tests/fixtures/cli-help/soulkill.txt",
+          "tests/fixtures/cli-help/sync.txt",
+          "tests/init-convergence.test.ts",
+          "tests/init-foreign-stack.test.ts",
+          "tests/init-record.test.ts",
+          "tests/init.test.ts"
+        ],
+        "immutable": [
+          "src/commands/attach/",
+          "src/commands/doctor/",
+          "tests/attach.test.ts"
+        ]
+      },
+      "effort": "medium",
+      "verification": [
+        "need test report",
+        "need base replay",
+        "need mutation",
+        "need generated artifact",
+        "need contract diff",
+        "need transcript inspection",
+        "need witness validation"
+      ],
+      "class": "R2",
+      "why": [
+        "S3 parallel with #263, contributing",
+        "K1 Effort: medium"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#263",
+          "contributing"
+        ],
+        "worktree": "../mc-249-init-harness",
+        "locks": [],
+        "executor": "ladder",
+        "merge": "auto",
+        "capabilities": [
+          "need code change",
+          "need brief parsing",
+          "need merge",
+          "need isolated workspace"
+        ],
+        "notes": []
+      },
+      "unresolved": []
+    },
+    {
+      "task": "#267",
+      "paths": {
+        "write": [
+          "eslint.config.mjs",
+          "package.json",
+          "src/model/write.ts"
+        ],
+        "immutable": [
+          "src/program.ts",
+          "src/commands/init.ts",
+          "tests/init-harness.test.ts",
+          "tests/model-birth.test.ts",
+          "contract/"
+        ]
+      },
+      "effort": "low",
+      "verification": [
+        "need test report",
+        "need base replay",
+        "need mutation",
+        "need transcript inspection",
+        "need witness validation"
+      ],
+      "class": "R2",
+      "why": [
+        "S1 after #249: src/model/write.ts",
+        "S3 parallel with #263, b4, #266, contributing",
+        "K1 Effort: low"
+      ],
+      "contour": {
+        "after": [
+          "#249"
+        ],
+        "parallelWith": [
+          "#263",
+          "b4",
+          "#266",
+          "contributing"
+        ],
+        "worktree": "../mc-267-model-write",
+        "locks": [],
+        "executor": "ladder",
+        "merge": "auto",
+        "capabilities": [
+          "need code change",
+          "need brief parsing",
+          "need merge",
+          "need isolated workspace"
+        ],
+        "notes": []
+      },
+      "unresolved": []
+    },
+    {
+      "task": "b4",
+      "paths": {
+        "write": [
+          "contract/surface.json",
+          "docs/cli.md",
+          "src/commands/mutate/index.ts",
+          "src/commands/mutate/judge.ts",
+          "src/model/coverage.ts",
+          "src/model/junit-report.ts",
+          "src/model/vitest-report.ts",
+          "src/program.ts",
+          "src/ui/lore.ts",
+          "tests/fixtures/cli-help/attach.txt",
+          "tests/fixtures/cli-help/cost.txt",
+          "tests/fixtures/cli-help/detach.txt",
+          "tests/fixtures/cli-help/doctor.txt",
+          "tests/fixtures/cli-help/graph.txt",
+          "tests/fixtures/cli-help/init.txt",
+          "tests/fixtures/cli-help/main.txt",
+          "tests/fixtures/cli-help/mutate-apply.txt",
+          "tests/fixtures/cli-help/mutate-judge.txt",
+          "tests/fixtures/cli-help/soulkill.txt",
+          "tests/fixtures/cli-help/sync.txt",
+          "tests/junit-report.test.ts"
+        ],
+        "immutable": [
+          "tests/mutate-judge.test.ts",
+          "tests/mutate-apply.test.ts",
+          "tests/mutate-world.ts",
+          "tests/fixtures/verification/"
+        ]
+      },
+      "effort": "medium",
+      "verification": [
+        "need test report",
+        "need base replay",
+        "need mutation",
+        "need generated artifact",
+        "need contract diff",
+        "need transcript inspection",
+        "need witness validation"
+      ],
+      "class": "R2",
+      "why": [
+        "S1 after #263: docs/cli.md",
+        "S2 after #249: contract/surface.json, src/program.ts, src/ui/lore.ts",
+        "S3 parallel with #267, xs-lint-policy, contributing",
+        "K1 Effort: medium"
+      ],
+      "contour": {
+        "after": [
+          "#263",
+          "#249"
+        ],
+        "parallelWith": [
+          "#267",
+          "xs-lint-policy",
+          "contributing"
+        ],
+        "worktree": "../mc-mutate-report",
+        "locks": [],
+        "executor": "ladder",
+        "merge": "auto",
+        "capabilities": [
+          "need code change",
+          "need brief parsing",
+          "need merge",
+          "need isolated workspace"
+        ],
+        "notes": []
+      },
+      "unresolved": []
+    },
+    {
+      "task": "xs-lint-policy",
+      "paths": {
+        "write": [
+          "src/model/write.ts"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [],
+      "class": null,
+      "why": [
+        "S1 after #249: src/model/write.ts",
+        "S1 after #267: src/model/write.ts",
+        "S3 parallel with #263, b4, #266, contributing",
+        "K4 code: src/model/write.ts"
+      ],
+      "contour": {
+        "after": [
+          "#249",
+          "#267"
+        ],
+        "parallelWith": [
+          "#263",
+          "b4",
+          "#266",
+          "contributing"
+        ],
+        "worktree": "../mc-xs-lint-policy",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": [
+        {
+          "level": "REASONING_REQUIRED",
+          "reason": "no Effort, no witness, writes code: R1 or R1.5",
+          "source": "K4"
+        }
+      ]
+    },
+    {
+      "task": "#266",
+      "paths": {
+        "write": [
+          "contract/surface.json",
+          "scripts/contract/bump.ts",
+          "scripts/contract/surface.ts",
+          "src/commands/init.ts",
+          "src/program.ts",
+          "src/ui/lore.ts",
+          "tests/fixtures/cli-help/attach.txt",
+          "tests/fixtures/cli-help/cost.txt",
+          "tests/fixtures/cli-help/detach.txt",
+          "tests/fixtures/cli-help/doctor.txt",
+          "tests/fixtures/cli-help/graph.txt",
+          "tests/fixtures/cli-help/init.txt",
+          "tests/fixtures/cli-help/main.txt",
+          "tests/fixtures/cli-help/mutate-apply.txt",
+          "tests/fixtures/cli-help/mutate-judge.txt",
+          "tests/fixtures/cli-help/soulkill.txt",
+          "tests/fixtures/cli-help/sync.txt",
+          "tests/init-convergence.test.ts",
+          "tests/init-foreign-stack.test.ts",
+          "tests/init-record.test.ts"
+        ],
+        "immutable": [
+          "tests/attach.test.ts",
+          "tests/init.test.ts",
+          "tests/mutate-judge.test.ts",
+          "tests/mutate-judge-junit.test.ts"
+        ]
+      },
+      "effort": "medium",
+      "verification": [
+        "need test report",
+        "need base replay",
+        "need mutation",
+        "need generated artifact",
+        "need contract diff",
+        "need transcript inspection",
+        "need witness validation"
+      ],
+      "class": "R2",
+      "why": [
+        "S2 after #249: contract/surface.json, src/program.ts, src/ui/lore.ts",
+        "S2 after b4: contract/surface.json, src/program.ts, src/ui/lore.ts",
+        "S3 parallel with #263, #267, xs-lint-policy, contributing",
+        "K1 Effort: medium"
+      ],
+      "contour": {
+        "after": [
+          "#249",
+          "b4"
+        ],
+        "parallelWith": [
+          "#263",
+          "#267",
+          "xs-lint-policy",
+          "contributing"
+        ],
+        "worktree": "../mc-266-flags",
+        "locks": [],
+        "executor": "ladder",
+        "merge": "auto",
+        "capabilities": [
+          "need code change",
+          "need brief parsing",
+          "need merge",
+          "need isolated workspace"
+        ],
+        "notes": []
+      },
+      "unresolved": []
+    },
+    {
+      "task": "contributing",
+      "paths": {
+        "write": [
+          "CONTRIBUTING.md"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [
+        "need test report"
+      ],
+      "class": "R1",
+      "why": [
+        "S3 parallel with #263, #249, #267, b4, xs-lint-policy, #266",
+        "K3 docs: CONTRIBUTING.md",
+        "free-writers: 2 free, runnable 3"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#263",
+          "#249",
+          "#267",
+          "b4",
+          "xs-lint-policy",
+          "#266"
+        ],
+        "worktree": "../mc-contributing",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": [
+        {
+          "level": "DECISION_REQUIRED",
+          "reason": "open a window",
+          "source": "open a window"
+        }
+      ]
+    }
+  ],
+  "notChecked": [
+    "new-write-path"
+  ]
+}
