@@ -1,0 +1,14 @@
+[
+  {
+    "path": "src/a.ts",
+    "status": "M",
+    "additions": 2,
+    "deletions": 1
+  },
+  {
+    "path": "tests/a.test.ts",
+    "status": "M",
+    "additions": 1,
+    "deletions": 3
+  }
+]

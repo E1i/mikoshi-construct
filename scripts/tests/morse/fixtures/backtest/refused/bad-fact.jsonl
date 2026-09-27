@@ -1,0 +1,3 @@
+{"number": 201, "title": "docs only", "files": [{"path": "docs/a.md", "status": "M", "additions": 2, "deletions": 1}], "fact": false, "factSource": "synthetic"}
+{"number": 206, "title": "a fact that is a word", "files": [{"path": "src/e.ts", "status": "M", "additions": 2, "deletions": 1}], "fact": "yes", "factSource": "synthetic"}
+{"number": 202, "title": "src change", "files": [{"path": "src/a.ts", "status": "M", "additions": 2, "deletions": 1}], "fact": true, "factSource": "synthetic"}

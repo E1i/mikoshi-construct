@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "doubt",
+  "why": [
+    "lib/a.specs.ts.snap"
+  ]
+}

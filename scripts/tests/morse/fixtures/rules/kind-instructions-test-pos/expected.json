@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "instructions",
+  "why": [
+    ".claude/tests/a.test.ts"
+  ]
+}
