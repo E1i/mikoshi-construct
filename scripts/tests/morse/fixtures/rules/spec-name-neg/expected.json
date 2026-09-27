@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "doubt",
+  "why": [
+    "lib/api.specs.js"
+  ]
+}

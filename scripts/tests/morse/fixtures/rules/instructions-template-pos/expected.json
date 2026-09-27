@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "instructions",
+  "why": [
+    "templates/ai/claude/_claude/skills/implement/SKILL.md"
+  ]
+}
