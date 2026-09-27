@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists'
+NUMERIC_ID=272
+SEALED_PATH_TAIL=/usr/bin:/bin
 FAILING_EXIT=3
 
 fail() {
@@ -25,6 +27,18 @@ origin_sha() {
   git -C "$1/origin.git" rev-parse main
 }
 
+ids_for_kind() {
+  if [ "$1" = numeric-id ]; then echo "g1 $NUMERIC_ID"; else echo 'g1 g2'; fi
+}
+
+ids_of() {
+  cat "$1/.world/ids"
+}
+
+write_approval() {
+  printf 'approved /implement text sha256: %s (2026-09-27, world)\n' "$(implement_sha "$1/handoff/brief-$2.md")" >"$1/handoff/brief-$2.approved-sha256"
+}
+
 write_brief() {
   local W=$1 id=$2 text
   cat >"$W/handoff/brief-$id.md" <<EOF
@@ -43,7 +57,14 @@ Acceptance: the ghost prints hello — witness: \`echo "hello $id"\`
 EOF
   text=$(cat "$W/handoff/brief-$id.md")
   printf '%s' "$text" >"$W/handoff/brief-$id.md"
-  printf 'approved /implement text sha256: %s (2026-09-27, world)\n' "$(implement_sha "$W/handoff/brief-$id.md")" >"$W/handoff/brief-$id.approved-sha256"
+  write_approval "$W" "$id"
+}
+
+insert_header_implement_line() {
+  local W=$1 id=$2
+  awk 'NR == 4 { print "/implement regex wrapped out of the header prose above, not the text to run" } { print }' "$W/handoff/brief-$id.md" >"$W/.world/brief-$id.two"
+  printf '%s' "$(cat "$W/.world/brief-$id.two")" >"$W/handoff/brief-$id.md"
+  write_approval "$W" "$id"
 }
 
 write_status() {
@@ -79,6 +100,9 @@ write_results() {
   printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":9.99,"num_turns":99,"duration_ms":99999,"usage":{"input_tokens":999,"output_tokens":999}}' >"$W/.world/result-g1-early.json"
   printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"num_turns":7,"duration_ms":1000,"usage":{"input_tokens":11,"output_tokens":22,"cache_read_input_tokens":33}}' >"$W/.world/result-g1.json"
   printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.25,"num_turns":3,"duration_ms":500,"usage":{"input_tokens":44,"output_tokens":55}}' >"$W/.world/result-g2.json"
+  if [ "$(cat "$W/.world/kind")" = numeric-id ]; then
+    printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.75,"num_turns":5,"duration_ms":700,"usage":{"input_tokens":66,"output_tokens":77}}' >"$W/.world/result-$NUMERIC_ID.json"
+  fi
 }
 
 write_stub() {
@@ -125,6 +149,18 @@ if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --frozen-lockfile ]; then
   printf '%s\0' "$@" >"$dir/pnpm-argv"
   pwd -P >"$dir/pnpm-cwd"
   echo "stub install in $ghost"
+  if [ "$(cat "$W/.world/kind")" = session-unspawnable ] && [ "$ghost" = wt-g2 ]; then
+    waited=0
+    while [ ! -f "$W/stub/wt-g1/argv" ]; do
+      if [ "$waited" -ge 300 ]; then
+        echo 'stub install gave up: the session of g1 did not start while g2 was installing' >&2
+        exit 1
+      fi
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+    rm -f "$W/bin/claude"
+  fi
   if [ "$(cat "$W/.world/kind")" = install-fails ] && [ "$ghost" = wt-g2 ]; then
     echo 'stub install failed: lockfile out of date' >&2
     exit 1
@@ -135,6 +171,17 @@ fi
 exec "$REAL_PNPM" "$@"
 EOF
   chmod +x "$W/bin/pnpm"
+}
+
+seal_path() {
+  local W=$1 kind=$2
+  ln -s "$(command -v node)" "$W/bin/node"
+  ln -s "$(command -v git)" "$W/bin/git"
+  case $kind in
+    install-unspawnable) rm "$W/bin/pnpm" ;;
+    session-unspawnable) mv "$W/bin/claude" "$W/.world/claude" && ln -s "$W/.world/claude" "$W/bin/claude" ;;
+  esac
+  echo "$W/bin:$SEALED_PATH_TAIL" >"$W/.world/sealed-path"
 }
 
 write_matrix() {
@@ -151,13 +198,32 @@ write_matrix() {
 EOF
 }
 
+write_numeric_matrix() {
+  local W=$1
+  cat >"$W/matrix.json" <<EOF
+{
+  "vocabulary": [],
+  "rows": [
+    { "task": "$NUMERIC_ID", "class": "R7 bare-number decoy", "contour": { "after": [], "parallelWith": [], "worktree": "../mc-decoy-bare", "locks": [], "executor": "ladder", "merge": "auto", "capabilities": [], "notes": ["decoy"] } },
+    { "task": "#g1", "class": "R8 hash-prefix decoy", "contour": { "after": [], "parallelWith": [], "worktree": "../mc-decoy-hash", "locks": [], "executor": "ladder", "merge": "auto", "capabilities": [], "notes": ["decoy"] } },
+    { "task": "#$NUMERIC_ID", "class": "R3", "contour": { "after": ["PR #2"], "parallelWith": ["g1"], "worktree": "../mc-$NUMERIC_ID", "locks": [], "executor": "ladder", "merge": "owner", "capabilities": [], "notes": [] } },
+    { "task": "g1", "class": "R2", "contour": { "after": ["PR #1"], "parallelWith": [], "worktree": "../mc-g1", "locks": [], "executor": "ladder", "merge": "auto", "capabilities": ["need code change"], "notes": [] } }
+  ],
+  "notChecked": []
+}
+EOF
+}
+
 write_tasks() {
-  local W=$1 kind=$2 matrix=''
-  [ "$kind" = with-matrix ] && matrix="\"matrix\": \"$W/matrix.json\", "
+  local W=$1 kind=$2 matrix='' id sep='' entries=''
+  case $kind in with-matrix | numeric-id) matrix="\"matrix\": \"$W/matrix.json\", " ;; esac
+  for id in $(ids_of "$W"); do
+    entries="$entries$sep  { \"id\": \"$id\", \"brief\": \"$W/handoff/brief-$id.md\", \"worktree\": \"$W/wt-$id\", \"branch\": \"ghost/$id\" }"
+    sep=$',\n'
+  done
   cat >"$W/tasks.json" <<EOF
 { "repo": "$W/main", "status": "$W/handoff/status.md", "out": "$W/handoff", $matrix"tasks": [
-  { "id": "g1", "brief": "$W/handoff/brief-g1.md", "worktree": "$W/wt-g1", "branch": "ghost/g1" },
-  { "id": "g2", "brief": "$W/handoff/brief-g2.md", "worktree": "$W/wt-g2", "branch": "ghost/g2" }
+$entries
 ] }
 EOF
 }
@@ -181,19 +247,22 @@ new_world() {
   git_quiet -C "$W/.world/seed" commit -am two
   git_quiet -C "$W/.world/seed" push origin HEAD:main
 
-  write_brief "$W" g1
-  write_brief "$W" g2
+  ids_for_kind "$kind" >"$W/.world/ids"
+  for id in $(ids_of "$W"); do write_brief "$W" "$id"; done
   case $kind in
     tampered) sed -i.bak 's/^\/implement Ghost g2:/\/implement Ghost g3:/' "$W/handoff/brief-g2.md" && rm "$W/handoff/brief-g2.md.bak" ;;
     unapproved) rm "$W/handoff/brief-g2.approved-sha256" ;;
     occupied) mkdir -p "$W/wt-g2" && echo occupied >"$W/wt-g2/keep.txt" ;;
     trailing-newline) printf '\n\n\n' >>"$W/handoff/brief-g2.md" ;;
+    two-implement) insert_header_implement_line "$W" g2 ;;
+    journal-exists) printf '%s\n' '{"event":"review","task":"g0","verdict":"changes","ts":"2026-09-27T20:00:00.000Z"}' >"$W/handoff/ghosts.jsonl" && cp "$W/handoff/ghosts.jsonl" "$W/.world/ghosts.jsonl" ;;
   esac
   echo "$kind" >"$W/.world/kind"
   write_status "$W" "$kind"
   write_results "$W"
   write_stub "$W"
-  write_matrix "$W"
+  case $kind in install-unspawnable | session-unspawnable) seal_path "$W" "$kind" ;; esac
+  if [ "$kind" = numeric-id ]; then write_numeric_matrix "$W"; else write_matrix "$W"; fi
   write_tasks "$W" "$kind"
 
   cp "$W/handoff/status.md" "$W/.world/status.md"
@@ -225,7 +294,7 @@ check_decision() {
   [ -f "$W/launch.out" ] || fail "no $W/launch.out"
   grep -qx 'DECISION: open 2 sessions' "$W/launch.out" || fail "no line 'DECISION: open 2 sessions'"
   sha=$(origin_sha "$W")
-  for id in g1 g2; do
+  for id in $(ids_of "$W"); do
     output_has "$W" "$W/handoff/brief-$id.md"
     output_has "$W" "$W/wt-$id"
     output_has "$W" "ghost/$id"
@@ -265,14 +334,36 @@ check_refused() {
       output_has "$W" "ghost-g1"
       output_has "$W" "writing"
       ;;
+    two-implement)
+      check_refused_two_implement "$W"
+      ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
   esac
+}
+
+names_every_number() {
+  local line=$1 numbers=$2 n
+  line=$(echo "$line" | sed -E 's/[0-9a-f-]{7,}//g')
+  for n in $numbers; do
+    echo "$line" | grep -Eq "(^|[^0-9])$n([^0-9]|\$)" || return 1
+  done
+}
+
+check_refused_two_implement() {
+  local W=$1 numbers line found=no
+  numbers=$(grep -n '^/implement ' "$W/handoff/brief-g2.md" | cut -d: -f1 | tr '\n' ' ')
+  [ "$(echo $numbers | wc -w | tr -d ' ')" = 2 ] || fail "the world's brief-g2.md does not have two /implement lines: $numbers"
+  while IFS= read -r line; do
+    if names_every_number "${line//$W/}" "$numbers"; then found=yes; fi
+  done < <(grep -F 'brief-g2.md' "$W/launch.out" || true)
+  [ "$found" = yes ] || fail "no line of launch.out names brief-g2.md with the line numbers of its /implement lines ($numbers)"
+  ! grep -qF 'brief-g1.md' "$W/launch.out" || fail "launch.out names brief-g1.md, whose one /implement line is approved: $(grep -F 'brief-g1.md' "$W/launch.out" | head -n 1)"
 }
 
 check_launched() {
   local W=$1 sha id wt prompt session sessions=''
   sha=$(origin_sha "$W")
-  for id in g1 g2; do
+  for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
     [ -d "$wt" ] || fail "$id: no worktree $wt"
     [ "$(git -C "$wt" rev-parse --abbrev-ref HEAD)" = "ghost/$id" ] || fail "$id: worktree is not on branch ghost/$id"
@@ -300,7 +391,7 @@ window_table_lines() {
 check_rows() {
   local W=$1 sha id wt row count session exit_code
   sha=$(origin_sha "$W")
-  for id in g1 g2; do
+  for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
     [ -f "$W/stub/wt-$id/status-at-start" ] || fail "$id: the stub did not run"
     row=$(grep -F "| ghost-$id | $wt | writing | " "$W/stub/wt-$id/status-at-start" || true)
@@ -324,7 +415,7 @@ check_rows() {
 
 check_report() {
   local W=$1 id
-  for id in g1 g2; do
+  for id in $(ids_of "$W"); do
     [ -f "$W/handoff/ghost-$id.jsonl" ] || fail "$id: no $W/handoff/ghost-$id.jsonl"
     [ -f "$W/stub/wt-$id/stdout" ] || fail "$id: the stub did not run"
     cmp -s "$W/stub/wt-$id/stdout" "$W/handoff/ghost-$id.jsonl" || fail "$id: ghost-$id.jsonl is not the stub's stdout byte for byte"
@@ -340,6 +431,26 @@ install_fails_for() {
   [ "$(kind_of "$1")" = install-fails ] && [ "$2" = g2 ]
 }
 
+install_unspawnable_for() {
+  [ "$(kind_of "$1")" = install-unspawnable ]
+}
+
+session_unspawnable_for() {
+  [ "$(kind_of "$1")" = session-unspawnable ] && [ "$2" = g2 ]
+}
+
+INSTALL_SPAWN_ERROR='spawn pnpm ENOENT'
+SESSION_SPAWN_ERROR='spawn claude ENOENT'
+
+expected_outcome() {
+  local W=$1 id=$2
+  if install_fails_for "$W" "$id"; then echo 'install failed: exit 1'
+  elif install_unspawnable_for "$W" "$id"; then echo "install failed: $INSTALL_SPAWN_ERROR"
+  elif session_unspawnable_for "$W" "$id"; then echo "session failed: $SESSION_SPAWN_ERROR"
+  else expected_ladder "$W" "$id"
+  fi
+}
+
 expected_ladder() {
   local W=$1 id=$2 kind
   kind=$(kind_of "$W")
@@ -352,9 +463,19 @@ expected_ladder() {
 
 check_ladder() {
   local W=$1 id row part
-  for id in g1 g2; do
+  for id in $(ids_of "$W"); do
     row=$(grep -F "| ghost-$id |" "$W/handoff/status.md" || true)
     case $row in "| ghost-$id | $W/wt-$id | free | "*) ;; *) fail "$id: no free row: $row" ;; esac
+    if install_unspawnable_for "$W" "$id"; then
+      part="| install failed: $INSTALL_SPAWN_ERROR; log $W/handoff/ghost-$id.install.log | "
+      echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
+      continue
+    fi
+    if session_unspawnable_for "$W" "$id"; then
+      part="| session failed: $SESSION_SPAWN_ERROR | "
+      echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
+      continue
+    fi
     if install_fails_for "$W" "$id"; then
       for part in 'install failed: exit 1' "log $W/handoff/ghost-$id.install.log"; do
         echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
@@ -369,9 +490,15 @@ check_ladder() {
 
 check_install() {
   local W=$1 id wt dir
-  for id in g1 g2; do
+  for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
     dir="$W/stub/wt-$id"
+    if install_unspawnable_for "$W" "$id"; then
+      [ ! -e "$W/bin/pnpm" ] || fail "the world is broken: $W/bin/pnpm exists in an install-unspawnable world"
+      [ ! -e "$dir/argv" ] || fail "$id: a session started although its install could not be spawned"
+      [ ! -e "$W/handoff/ghost-$id.jsonl" ] || fail "$id: a report exists although no session started"
+      continue
+    fi
     [ -f "$dir/pnpm-argv" ] || fail "$id: pnpm install did not run in $wt"
     read_argv "$dir/pnpm-argv"
     [ "${ARGV[*]}" = 'install --frozen-lockfile' ] || fail "$id: the install argv is '${ARGV[*]}', not 'install --frozen-lockfile'"
@@ -382,6 +509,9 @@ check_install() {
       [ -f "$W/handoff/ghost-$id.install.log" ] || fail "$id: no install log $W/handoff/ghost-$id.install.log"
       grep -qF 'stub install failed: lockfile out of date' "$W/handoff/ghost-$id.install.log" || fail "$id: the install log lacks the install's stderr"
       grep -qF "stub install in wt-$id" "$W/handoff/ghost-$id.install.log" || fail "$id: the install log lacks the install's stdout"
+    elif session_unspawnable_for "$W" "$id"; then
+      [ ! -e "$W/bin/claude" ] || fail "the world is broken: $W/bin/claude still exists after the install of $id"
+      [ ! -e "$dir/argv" ] || fail "$id: a session ran although claude could not be spawned"
     else
       [ -f "$dir/installed-at-start" ] || fail "$id: the session did not start"
       [ "$(cat "$dir/installed-at-start")" = yes ] || fail "$id: the session started before the install finished"
@@ -392,40 +522,52 @@ check_install() {
 check_journal() {
   local W=$1 sha
   sha=$(origin_sha "$W")
-  node - "$W" "$sha" "$(kind_of "$W")" "$(session_of_or_null "$W" g1)" "$(session_of_or_null "$W" g2)" <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
+  local pairs='' id
+  for id in $(ids_of "$W"); do pairs="$pairs $id=$(session_of_or_null "$W" "$id")"; done
+  node - "$W" "$sha" "$(kind_of "$W")" $pairs <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
 const fs = require('node:fs')
-const [W, sha, kind, s1, s2] = process.argv.slice(2)
+const [W, sha, kind, ...pairs] = process.argv.slice(2)
+const tasks = pairs.map(pair => pair.split('='))
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/journal-failure`, message); process.exit(1) }
 const journal = `${W}/handoff/ghosts.jsonl`
 if (!fs.existsSync(journal)) failWith(`no ${journal}`)
 for (const inRepo of [`${W}/main/.construct/ghosts.jsonl`, `${W}/wt-g1/.construct/ghosts.jsonl`, `${W}/wt-g2/.construct/ghosts.jsonl`])
   if (fs.existsSync(inRepo)) failWith(`the journal is written inside a repository: ${inRepo}`)
-const lines = fs.readFileSync(journal, 'utf8').split('\n').filter(line => line !== '')
-if (lines.length !== 2) failWith(`${lines.length} lines in ${journal}, not 2`)
+const seedFile = `${W}/.world/ghosts.jsonl`
+const seed = fs.existsSync(seedFile) ? fs.readFileSync(seedFile, 'utf8') : ''
+const text = fs.readFileSync(journal, 'utf8')
+if (!text.startsWith(seed)) failWith(`${journal} does not start with the lines it held before the launch, byte for byte`)
+const seedLines = seed.split('\n').filter(line => line !== '').length
+const lines = text.split('\n').filter(line => line !== '').slice(seedLines)
+if (lines.length !== tasks.length) failWith(`${lines.length} lines appended to ${journal}, not ${tasks.length}`)
 const rows = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
 const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
-for (const [id, session] of [['g1', s1], ['g2', s2]]) {
+for (const [id, session] of tasks) {
   const found = rows.filter(row => row.task === id)
   if (found.length !== 1) failWith(`${found.length} journal lines for task ${id}, not 1`)
   const row = found[0]
   const keys = Object.keys(row).sort().join(',')
   if (keys !== [...KEYS].sort().join(',')) failWith(`${id}: the keys are ${keys}, not ${[...KEYS].sort().join(',')}`)
   const installFailed = kind === 'install-fails' && id === 'g2'
-  const noLadder = installFailed || (kind === 'no-ladder' && id === 'g2')
-  const noResult = installFailed || (kind === 'no-result' && id === 'g2')
-  const matrixRow = kind === 'with-matrix' ? matrix.rows.find(r => r.task === id) : undefined
+  const installUnspawnable = kind === 'install-unspawnable'
+  const sessionUnspawnable = kind === 'session-unspawnable' && id === 'g2'
+  const noSession = installFailed || installUnspawnable || sessionUnspawnable
+  const noLadder = noSession || (kind === 'no-ladder' && id === 'g2')
+  const noResult = noSession || (kind === 'no-result' && id === 'g2')
+  const matrixKey = /^[0-9]+$/.test(id) ? `#${id}` : id
+  const matrixRow = kind === 'with-matrix' || kind === 'numeric-id' ? matrix.rows.find(r => r.task === matrixKey) : undefined
   const result = noResult ? null : JSON.parse(fs.readFileSync(`${W}/.world/result-${id}.json`, 'utf8'))
   if (typeof row.ts !== 'string' || !ISO_Z.test(row.ts)) failWith(`${id}: ts is ${JSON.stringify(row.ts)}, not an ISO time ending in Z`)
   const want = {
     event: 'task',
     ts: row.ts,
     task: id,
-    session: installFailed ? null : session,
+    session: noSession ? null : session,
     baseSha: sha,
-    install: installFailed ? 1 : 0,
-    exit: installFailed ? null : (kind === 'failing' && id === 'g2' ? 3 : 0),
+    install: installFailed ? 1 : (installUnspawnable ? null : 0),
+    exit: noSession ? null : (kind === 'failing' && id === 'g2' ? 3 : 0),
     ladder: noLadder ? 'no ladder run' : (kind === 'failing' && id === 'g2' ? 'failed' : 'done'),
     run: noLadder ? null : `run-${id}`,
     iterations: noLadder ? null : (id === 'g1' ? 2 : 1),
@@ -446,6 +588,17 @@ for (const [id, session] of [['g1', s1], ['g2', s2]]) {
 EOF
 }
 
+check_summary() {
+  local W=$1 id lines want
+  for id in $(ids_of "$W"); do
+    lines=$(grep -E "^$id: " "$W/launch.out" || true)
+    [ -n "$lines" ] || fail "$id: launch.out has no line starting '$id: '"
+    [ "$(echo "$lines" | wc -l | tr -d ' ')" = 1 ] || fail "$id: launch.out has more than one line starting '$id: ': $lines"
+    want=$(expected_outcome "$W" "$id")
+    echo "$lines" | grep -qF -- "$want" || fail "$id: the launcher's line lacks '$want': $lines"
+  done
+}
+
 session_of_or_null() {
   if [ -f "$1/stub/wt-$2/argv" ]; then session_of "$1" "$2"; else echo null; fi
 }
@@ -453,11 +606,11 @@ session_of_or_null() {
 CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
-  check-decision | check-untouched | check-refused | check-launched | check-rows | check-report | check-ladder | check-install | check-journal)
+  check-decision | check-untouched | check-refused | check-launched | check-rows | check-report | check-ladder | check-install | check-journal | check-summary)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<decision|untouched|refused|launched|rows|report|ladder|install|journal> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<decision|untouched|refused|launched|rows|report|ladder|install|journal|summary> <world>" >&2; exit 2 ;;
 esac
