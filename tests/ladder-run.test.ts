@@ -272,18 +272,18 @@ describe('the ladder derives contractChanged from the changed files, never from 
   it('is true when changedFiles contains a path contractPaths names', async () => {
     const { result } = await run({ task: 'add a command', effort: 'low', ...withContract }, {
       implementer: [REPORT],
-      harness: [{ ...GREEN, changedFiles: ['src/program.ts', CONTRACT] }],
+      harness: [{ ...GREEN, changedFiles: ['src/program.ts', CONTRACT, 'tests/program.test.ts'] }],
     })
 
     expect(result.status).toBe('done')
     expect(result.contractChanged).toBe(true)
-    expect(result.changedFiles).toEqual(['src/program.ts', CONTRACT])
+    expect(result.changedFiles).toEqual(['src/program.ts', CONTRACT, 'tests/program.test.ts'])
   })
 
   it('is false when only other files changed, even when the agent claims a contract change', async () => {
     const { result } = await run({ task: 'fix a typo', effort: 'low', ...withContract }, {
       implementer: [REPORT],
-      harness: [{ ...GREEN, changedFiles: ['src/ui/lore.ts'], contractChanged: true }],
+      harness: [{ ...GREEN, changedFiles: ['src/ui/lore.ts', 'tests/ui/lore.test.ts'], contractChanged: true }],
     })
 
     expect(result.status).toBe('done')

@@ -66,7 +66,10 @@ repository's CLAUDE.md and `construct.json`.
      brief fail on the base (run in a worktree of its own at the base sha) and pass on the working
      tree, and every design step the run took completed. An
      implementer that reports done with no changed file, or a green tree with nothing changed, is a
-     `no change` attempt and never `done`.
+     `no change` attempt and never `done`. A rung whose changed files include a source file (a path
+     with a `src/` segment ending in `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` or `.cjs`,
+     not `.d.ts`) and no test file (a path with a `tests/` segment named `*.test.` with one of those
+     extensions) is an `untested change` attempt, never `done`, and its reason names the source files.
    - `degraded` — a rung passed the harness and the witness, but a design step was rejected by the schema and the
      run continued without it. The result's `effort` is the class that actually executed.
    - `design incomplete` — a high-effort run whose architect was rejected by the schema. No
@@ -100,8 +103,8 @@ repository's CLAUDE.md and `construct.json`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
      rung that changed nothing (`no change`), from a rung that changed an immutable path
-     (`immutable changed`), from an acceptance not witnessed, from a blocked report
-     and from a design the schema rejected.
+     (`immutable changed`), from a rung that changed source with no test (`untested change`), from
+     an acceptance not witnessed, from a blocked report and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:
      - `stopped` / `environment` — it was failing on something outside the task, such as the
