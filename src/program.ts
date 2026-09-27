@@ -39,6 +39,7 @@ const init = defineCommand({
     name: { type: 'string', description: 'Project name (defaults to the directory name)' },
     review: { type: 'string', description: 'AI code review on pull requests: claude | none (default: none)' },
     reviewModel: { type: 'string', description: `Model for the review workflow (default: ${DEFAULT_REVIEW_MODEL})` },
+    harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
     dryRun: { type: 'boolean', description: 'Print the plan, write nothing', default: false },
   },
@@ -47,7 +48,7 @@ const init = defineCommand({
     console.banner(VERSION, args.johnny)
     try {
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, yes: args.yes, dryRun: args.dryRun }, prompter)
+      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, harness: args.harness, yes: args.yes, dryRun: args.dryRun }, prompter)
       process.exitCode = INIT_EXIT[result.status]
     }
     catch (error) {

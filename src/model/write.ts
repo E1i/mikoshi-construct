@@ -17,6 +17,7 @@ const CI_WORKFLOW = '.github/workflows/ci.yml'
 const CONTRACT_WORKFLOW = '.github/workflows/api-contract.yml'
 const MANIFEST = 'package.json'
 const LINT_POLICY_TEST = 'scripts/tests/lint/syntax-policy.test.ts'
+const PNPM_QUALITY = 'pnpm run quality'
 
 function baselineFacts(harnessCommand: string): Fact[] {
   return [
@@ -111,7 +112,7 @@ function baselineClaims(harnessCommand: string, contracts: boolean): Claim[] {
       },
       checkId: 'ci',
     },
-    harnessStepsClaim(harnessCommand, contracts),
+    ...harnessCommand === PNPM_QUALITY ? [harnessStepsClaim(harnessCommand, contracts)] : [],
   ]
 }
 
