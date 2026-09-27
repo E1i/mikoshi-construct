@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HEADS='docs src shrunk skill other rename-test rename-doc binary-test binary-other'
+HEADS='docs src shrunk skill other rename-test rename-doc binary-test binary-other src-shrunk empty-test-deleted empty-test-added quoted-doc quoted-src'
+TAB=$(printf '\t')
 FIXTURES=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd "$FIXTURES/../../../.." && pwd -P)
 CLI="$REPO_ROOT/scripts/morse/cli.ts"
@@ -37,6 +38,7 @@ new_world() {
   printf 'one\ntwo\n' >"$W/repo/docs/guide.md"
   echo 'export const a = 1' >"$W/repo/src/a.ts"
   printf 'first\nsecond\nthird\n' >"$W/repo/tests/a.test.ts"
+  : >"$W/repo/tests/empty.test.ts"
   echo 'export const x = 1' >"$W/repo/scripts/x.ts"
   echo '# skill' >"$W/repo/.claude/skills/s/SKILL.md"
   printf 'PNG\000\001\002\003' >"$W/repo/tests/fixtures/logo.bin"
@@ -75,6 +77,22 @@ new_world() {
   printf 'PNG\000\014\015\016' >"$W/repo/assets/logo.bin"
   commit_head "$W" binary-other
 
+  echo 'export const a = 3' >"$W/repo/src/a.ts"
+  printf 'first\nthird\n' >"$W/repo/tests/a.test.ts"
+  commit_head "$W" src-shrunk
+
+  git_quiet -C "$W/repo" rm tests/empty.test.ts
+  commit_head "$W" empty-test-deleted
+
+  : >"$W/repo/tests/new.test.ts"
+  commit_head "$W" empty-test-added
+
+  echo 'a tab in the name' >"$W/repo/docs/tab${TAB}name.md"
+  commit_head "$W" quoted-doc
+
+  echo 'export const t = 1' >"$W/repo/src/tab${TAB}name.ts"
+  commit_head "$W" quoted-src
+
   expect_line "$W" docs cheap docs-only '".changeset/one.md","docs/guide.md"'
   expect_line "$W" src ladder src '"src/a.ts"'
   expect_line "$W" shrunk ladder tests-shrunk '"tests/a.test.ts"'
@@ -84,6 +102,11 @@ new_world() {
   expect_line "$W" rename-doc cheap docs-only '"docs/guide.md","docs/manual.md"'
   expect_line "$W" binary-test ladder tests-shrunk '"tests/fixtures/logo.bin"'
   expect_line "$W" binary-other ladder doubt '"assets/logo.bin"'
+  expect_line "$W" src-shrunk ladder tests-shrunk '"tests/a.test.ts"'
+  expect_line "$W" empty-test-deleted ladder tests-shrunk '"tests/empty.test.ts"'
+  expect_line "$W" empty-test-added ladder doubt '"tests/new.test.ts"'
+  expect_line "$W" quoted-doc cheap docs-only '"docs/tab\tname.md"'
+  expect_line "$W" quoted-src ladder src '"src/tab\tname.ts"'
   echo world >"$W/.world/kind"
   echo "$W"
 }
@@ -216,6 +239,48 @@ check_classify_empty() {
   cat "$out" "$err" | grep -qiF 'the diff is empty' || fail "the refusal does not say the diff is empty: $(cat "$err")"
 }
 
+check_order() {
+  (cd "$REPO_ROOT" && pnpm exec tsx "$FIXTURES/order-probe.mjs") || fail "the rule order is not read from RULES"
+}
+
+check_suite() {
+  local report=${1:?usage: world.sh check-suite <vitest.json>}
+  [ -f "$report" ] || fail "no $report"
+  node -e '
+const fs = require("node:fs")
+const path = require("node:path")
+const [report, fixtures, heads, suite] = process.argv.slice(1)
+const r = JSON.parse(fs.readFileSync(report, "utf8"))
+const passed = new Set(r.testResults.flatMap(f => f.assertionResults).filter(t => t.status === "passed").map(t => t.title))
+const required = [
+  ...fs.readdirSync(path.join(fixtures, "rules")).sort().map(d => `rule ${d}`),
+  "rule order follows RULES",
+  "classify refuses an empty list",
+  ...heads.split(" ").filter(Boolean).map(h => `predict ${h}`),
+  "predict without --repo",
+  "predict refuses a missing --journal",
+  "predict refuses an empty diff",
+  "predict refuses an unknown revision",
+  "predict refuses a failing append",
+  "backtest synthetic",
+  ...fs.readdirSync(path.join(fixtures, "backtest", "refused")).filter(f => f.endsWith(".jsonl")).sort().map(f => `backtest refuses ${f.slice(0, -6)}`),
+]
+const lacking = required.filter(t => passed.has(t) === false)
+const problems = []
+if (r.success !== true)
+  problems.push("the suite did not pass")
+if (lacking.length > 0)
+  problems.push(`no passing test titled: ${lacking.join("; ")}`)
+const text = fs.existsSync(suite) ? fs.readFileSync(suite, "utf8") : ""
+if (text.includes("synthetic.expected.json") === false)
+  problems.push(`${suite} does not compare the backtest with synthetic.expected.json`)
+if (problems.length > 0) {
+  process.stderr.write(`world.sh check-suite: ${problems.join("\n")}\n`)
+  process.exit(1)
+}
+' "$report" "$FIXTURES" "$HEADS" "$REPO_ROOT/scripts/tests/morse/cli.test.ts"
+}
+
 CHECK=${1:-}
 case $CHECK in
   new) new_world ;;
@@ -231,5 +296,7 @@ case $CHECK in
   check-backtest) check_backtest ;;
   check-backtest-refused) check_backtest_refused "${2:?usage: world.sh check-backtest-refused <case>}" ;;
   check-classify-empty) check_classify_empty ;;
-  *) echo "usage: world.sh new | world.sh heads | world.sh check-<predicted|refused|empty|no-journal|unprinted|anchor> <world> [...] | world.sh check-<rules|backtest|classify-empty> | world.sh check-backtest-refused <case>" >&2; exit 2 ;;
+  check-order) check_order ;;
+  check-suite) check_suite "${2:?usage: world.sh check-suite <vitest.json>}" ;;
+  *) echo "usage: world.sh new | world.sh heads | world.sh check-<predicted|refused|empty|no-journal|unprinted|anchor> <world> [...] | world.sh check-<rules|backtest|classify-empty|order> | world.sh check-suite <vitest.json> | world.sh check-backtest-refused <case>" >&2; exit 2 ;;
 esac

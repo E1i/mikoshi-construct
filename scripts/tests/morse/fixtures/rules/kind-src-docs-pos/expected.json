@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "src",
+  "why": [
+    "src/README.md"
+  ]
+}
