@@ -1,0 +1,14 @@
+[
+  {
+    "path": "docs/diagram.svg",
+    "status": "M",
+    "additions": 1,
+    "deletions": 1
+  },
+  {
+    "path": "docs/cli.md",
+    "status": "M",
+    "additions": 2,
+    "deletions": 1
+  }
+]

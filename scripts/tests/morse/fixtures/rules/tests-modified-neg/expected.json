@@ -1,0 +1,8 @@
+{
+  "verdict": "ladder",
+  "rule": "doubt",
+  "why": [
+    "tests/doctor.test.ts",
+    "tests/grow.test.ts"
+  ]
+}

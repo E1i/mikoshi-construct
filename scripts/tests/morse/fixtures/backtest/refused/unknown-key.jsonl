@@ -1,0 +1,3 @@
+{"number": 201, "title": "docs only", "files": [{"path": "docs/a.md", "status": "M", "additions": 2, "deletions": 1}], "fact": false, "factSource": "synthetic"}
+{"number": 203, "title": "an unknown key", "files": [{"path": "src/b.ts", "status": "M", "additions": 2, "deletions": 1}], "fact": true, "factSource": "synthetic", "labels": ["x"]}
+{"number": 202, "title": "src change", "files": [{"path": "src/a.ts", "status": "M", "additions": 2, "deletions": 1}], "fact": true, "factSource": "synthetic"}

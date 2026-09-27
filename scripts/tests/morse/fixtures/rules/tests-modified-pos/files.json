@@ -1,0 +1,14 @@
+[
+  {
+    "path": "tests/doctor.test.ts",
+    "status": "M",
+    "additions": 5,
+    "deletions": 1
+  },
+  {
+    "path": "tests/grow.test.ts",
+    "status": "A",
+    "additions": 10,
+    "deletions": 0
+  }
+]
