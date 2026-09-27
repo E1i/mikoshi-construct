@@ -72,7 +72,8 @@ same_json() {
 
 check_predicted() {
   local W=$1 journal n i
-  journal="$W/repo/.construct/morse.jsonl"
+  journal="$W/morse.jsonl"
+  [ ! -e "$W/repo/.construct/morse.jsonl" ] || fail "a journal was written inside the repository"
   [ -f "$journal" ] || fail "no $journal"
   n=$(wc -l <"$journal" | tr -d ' ')
   [ "$n" = 5 ] || fail "$n lines in $journal, not 5"
@@ -88,11 +89,24 @@ check_predicted() {
   done
 }
 
+no_journal_anywhere() {
+  local W=$1 found
+  found=$(find "$W" -name 'morse.jsonl' -not -path "$W/.world/*" | head -n 1)
+  [ -z "$found" ] || fail "a journal was written: $found"
+}
+
 check_empty() {
   local W=$1
   [ -f "$W/predict.out" ] || fail "no $W/predict.out"
   grep -qi 'empty' "$W/predict.out" || fail "predict.out does not say the diff is empty"
-  [ ! -e "$W/repo/.construct/morse.jsonl" ] || fail "a line was appended for an empty diff"
+  no_journal_anywhere "$W"
+}
+
+check_no_journal() {
+  local W=$1
+  [ -f "$W/predict.out" ] || fail "no $W/predict.out"
+  grep -qF -- '--journal' "$W/predict.out" || fail "predict.out does not name the missing --journal"
+  no_journal_anywhere "$W"
 }
 
 check_rules() {
@@ -119,13 +133,13 @@ CHECK=${1:-}
 case $CHECK in
   new) new_world ;;
   heads) echo "$HEADS" ;;
-  check-predicted | check-empty)
+  check-predicted | check-empty | check-no-journal)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
-    "check_$fn" "$W"
+    "check_${fn//-/_}" "$W"
     ;;
   check-rules) check_rules ;;
   check-backtest) check_backtest ;;
-  *) echo "usage: world.sh new | world.sh heads | world.sh check-<predicted|empty> <world> | world.sh check-<rules|backtest>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new | world.sh heads | world.sh check-<predicted|empty|no-journal> <world> | world.sh check-<rules|backtest>" >&2; exit 2 ;;
 esac
