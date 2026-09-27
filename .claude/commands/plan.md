@@ -17,8 +17,18 @@ Rules:
 - Where a criterion can fail against the repository as it stands, show it failing before the change
   is made. A criterion first run after the implementation cannot tell a change that worked from one
   that was never needed.
+- When a task's brief has a Design, every line of it — and every case a line lists — is held by a
+  should / should-not witness pair or fixture pair. Before the brief goes for approval, its author
+  checks it line by line, Design line → witness, and names the witness for each; a Design line no
+  witness holds is given one or removed. A ladder can finish `done` with an unwitnessed Design line
+  never implemented.
 - Order tasks so the contract and composition changes come first, then implementation, then anything
   that consumes the new behaviour.
+- Independent tasks run in parallel by default. Tasks whose write contours (the files and trees they
+  write) do not intersect and that do not need each other's results are planned and run in parallel:
+  subagents for reviews, checks and brief preparation; separate sessions or worktrees for
+  implementation. A task is sequential only when it shares a write resource with another (the same
+  tree or file) or needs another's result, and the plan says which in one line.
 - Classify each task `low`, `medium` or `high` with the rules in `architecture/principles.md`
   (Reasoning budget); a task touching a high-effort area, the contract, a composition model, the
   dependency policy or a security invariant is `high`.
