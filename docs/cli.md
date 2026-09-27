@@ -905,9 +905,16 @@ construct mutate judge --id M2 --report m2.json
 
 | Subcommand | Options | What it does |
 |---|---|---|
-| `mutate judge --baseline` | `--report <file>`, `--json` | Records a well-formed report in which nothing failed as `.construct/mutations/baseline.json`, with the report's `startTime`. A red, empty or unreadable report is refused and nothing is written. |
+| `mutate judge --baseline` | `--report <file>`, `--format <vitest-json\|junit-xml>`, `--json` | Records a well-formed report in which nothing failed as `.construct/mutations/baseline.json`, with the report's run start time. A red, empty or unreadable report is refused and nothing is written. |
 | `mutate apply` | `--from <file>`, `--id <id>`, `--json` | Applies the line with that id: one `find` → `replace` in one file, after copying the original to `.construct/mutations/<id>.orig` and recording `<id>.json` (the file's sha256 before and after, `appliedAt`, the prediction). |
-| `mutate judge` | `--id <id>`, `--report <file>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. |
+| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. |
+
+`--format` names how `--report` is written, and defaults to `vitest-json`: Vitest's own `--reporter=json
+--outputFile=<file>`, whose run start time is its top-level `startTime`. `--format junit-xml` reads a
+JUnit XML report from any runner; its run start time is the earliest `timestamp` attribute across its
+`<testsuite>` elements, parsed as a date. A JUnit report with no such timestamp is refused, naming the
+missing run start time — never the report file's own modification time, which says when the file was
+written, not when the run started.
 
 A mutation line starts with `M`; every other line of `--from` is ignored. Backtick-delimited strings
 are taken literally.

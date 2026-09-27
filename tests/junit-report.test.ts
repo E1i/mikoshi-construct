@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseJunitReport } from '../src/model/junit-report.js'
-import { wasExecuted } from '../src/model/vitest-report.js'
+import { wasExecuted } from '../src/model/test-report.js'
 
 function ok(report: ReturnType<typeof parseJunitReport>): asserts report is Exclude<ReturnType<typeof parseJunitReport>, { unreadable: string }> {
   if ('unreadable' in report)

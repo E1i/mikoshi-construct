@@ -1,3 +1,4 @@
+import type { ReportFormat } from './commands/mutate/index.js'
 import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
@@ -250,18 +251,19 @@ const mutateApply = defineCommand({
 })
 
 const mutateJudge = defineCommand({
-  meta: { name: 'judge', description: 'Restore the mutated file from its copy and judge the outcome from a Vitest JSON report, or record a green report as the baseline' },
+  meta: { name: 'judge', description: 'Restore the mutated file from its copy and judge the outcome from a test report, or record a green report as the baseline' },
   args: {
     ...commonArgs,
     id: { type: 'string', description: 'The id of the applied mutation to restore and judge' },
     baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
-    report: { type: 'string', description: 'The Vitest JSON report the runner wrote with the json reporter' },
+    report: { type: 'string', description: 'The test report the runner wrote, in the format named by --format' },
+    format: { type: 'string', description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
   },
   run({ args }) {
     const console = ui(args, args.json ? stderrWriter : stdoutWriter)
     const failed = reported(console, () => {
-      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline })
+      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format as ReportFormat })
       if (args.json) {
         process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
         process.exitCode = judgeExit(result)

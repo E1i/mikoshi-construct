@@ -1,9 +1,10 @@
-import type { Failure, TestReport } from '../../model/vitest-report.js'
+import type { ReportFormat } from '../../model/schema.js'
+import type { Failure, ReportUnreadable, TestReport } from '../../model/test-report.js'
 import type { Prediction } from './lines.js'
 import type { MutationRecord } from './record.js'
 import { readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { failuresOf, readVitestReport, testCount, testsNamed } from '../../model/vitest-report.js'
+import { failuresOf, readTestReport, testCount, testsNamed } from '../../model/test-report.js'
 import { copyPath, forgetMutation, isSafeId, readCopy, readMutationRecord, sha256, writeBaseline } from './record.js'
 
 export interface JudgeOptions {
@@ -11,6 +12,7 @@ export interface JudgeOptions {
   report?: string
   id?: string
   baseline?: boolean
+  format?: ReportFormat
 }
 
 export type JudgeRefusal
@@ -43,8 +45,19 @@ function refused(refusal: JudgeRefusal, detail = '', failures: Failure[] = []): 
   return { status: 'refused', refusal, detail, failures }
 }
 
-export function recordBaseline(root: string, reportPath: string): JudgeResult {
-  const report = readVitestReport(root, reportPath)
+type TimedReport = TestReport & { startTime: number }
+
+function readReport(format: ReportFormat, root: string, reportPath: string): TimedReport | ReportUnreadable {
+  const report = readTestReport(format, root, reportPath)
+  if ('unreadable' in report)
+    return report
+  if (report.startTime == null)
+    return { unreadable: 'the report names no run start time' }
+  return { ...report, startTime: report.startTime }
+}
+
+export function recordBaseline(root: string, reportPath: string, format: ReportFormat = 'vitest-json'): JudgeResult {
+  const report = readReport(format, root, reportPath)
   if ('unreadable' in report)
     return refused('report-unreadable', report.unreadable)
   const failures = failuresOf(report)
@@ -96,7 +109,7 @@ function outcomeOf(prediction: Prediction, report: TestReport, failures: Failure
   return { outcome: failures.length === 0 ? 'nothing-red' : 'other-red', matched: false }
 }
 
-export function judgeMutation(root: string, id: string, reportPath: string): JudgeResult {
+export function judgeMutation(root: string, id: string, reportPath: string, format: ReportFormat = 'vitest-json'): JudgeResult {
   if (!isSafeId(id))
     return refused('unsafe-id', id)
   const record = readMutationRecord(root, id)
@@ -108,7 +121,7 @@ export function judgeMutation(root: string, id: string, reportPath: string): Jud
   if (currentSha(target) !== record.mutatedSha)
     return hardFailure('file-changed')
 
-  const report = readVitestReport(root, reportPath)
+  const report = readReport(format, root, reportPath)
   const cause = restored(root, record, target)
   if (cause != null)
     return hardFailure(cause)
@@ -131,9 +144,10 @@ export function runJudge(options: JudgeOptions): JudgeResult {
   if (options.report == null || options.report === '')
     return refused('no-mode')
   const reportPath = path.resolve(options.report)
+  const format = options.format ?? 'vitest-json'
   if (options.baseline === true && options.id == null)
-    return recordBaseline(root, reportPath)
+    return recordBaseline(root, reportPath, format)
   if (options.baseline !== true && options.id != null)
-    return judgeMutation(root, options.id, reportPath)
+    return judgeMutation(root, options.id, reportPath, format)
   return refused('no-mode')
 }
