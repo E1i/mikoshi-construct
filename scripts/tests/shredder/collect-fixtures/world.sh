@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok occupied-out gh-fails unknown-field missing-field git-fails'
+KINDS='ok occupied-out gh-pr-fails gh-issue-fails gh-run-fails unknown-task-field missing-top-field unknown-top-field missing-task-field git-fails'
 HEAD_AWAITING=1111111111111111111111111111111111111111
 HEAD_PASSED=2222222222222222222222222222222222222222
 QUEUED_ROWS='a #271 b #280'
@@ -53,6 +53,8 @@ EOF
 | own-instructions | `.claude/**`, `scripts/construct/**` | the agent's own working instructions | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that init or attach writes | — |
 EOF
+  printf 'Bytes that are not UTF-8: \377\376 end\n' >>"$W/handoff/status.md"
+  printf 'Bytes that are not UTF-8: \377\376\300 end\n' >>"$W/handoff/owner-merges.md"
   cat >"$W/handoff/brief-a.md" <<'EOF'
 # Brief a (world fixture)
 
@@ -103,16 +105,18 @@ case \$args in
   *' issue view '*)
     n=\$(arg_after view "\$@")
     case \$n in
-      1) printf '%s\n' '{"title":"Collect the docs","body":"Something to collect.\n\nPaths: \`docs/guide.md\`; \`src/b.ts\`\n\nMore prose."}' ;;
+      1) [ "\$kind" = gh-issue-fails ] && { echo 'gh stub: issue view failed' >&2; exit 1; }
+         printf '%s\n' '{"title":"Collect the docs","body":"Something to collect.\n\nPaths: \`docs/guide.md\`; \`src/b.ts\`\n\nMore prose."}' ;;
       2) printf '%s\n' '{"title":"Unknown paths","body":"No paths yet.\nThe Paths: line is missing on purpose."}' ;;
       *) echo "gh stub: no issue \$n" >&2; exit 1 ;;
     esac
     ;;
   *' pr list '*)
-    [ "\$kind" = gh-fails ] && { echo 'gh stub: pr list failed' >&2; exit 1; }
+    [ "\$kind" = gh-pr-fails ] && { echo 'gh stub: pr list failed' >&2; exit 1; }
     printf '%s\n' '[{"files":[{"additions":1,"deletions":0,"path":"src/a.ts"}],"headRefOid":"$HEAD_AWAITING","number":11,"title":"Change a"},{"files":[{"additions":2,"deletions":1,"path":"docs/guide.md"},{"additions":1,"deletions":0,"path":"README.md"}],"headRefOid":"$HEAD_PASSED","number":12,"title":"Docs"}]'
     ;;
   *' run list '*)
+    [ "\$kind" = gh-run-fails ] && { echo 'gh stub: run list failed' >&2; exit 1; }
     sha=\$(arg_after --commit "\$@")
     case \$sha in
       $HEAD_AWAITING) printf '%s\n' '[{"conclusion":"success"},{"conclusion":"action_required"}]' ;;
@@ -127,16 +131,18 @@ EOF
 }
 
 write_queue() {
-  local W=$1 kind=$2 repo=$1/repo owner_merges wt_key=worktree
+  local W=$1 kind=$2 repo=$1/repo owner_merges wt_key=worktree extra_key='' b_id='"id": "b",'
   owner_merges="\"ownerMerges\": \"$W/handoff/owner-merges.md\","
   case $kind in
-    unknown-field) wt_key=wroktree ;;
-    missing-field) owner_merges='' ;;
+    unknown-task-field) wt_key=wroktree ;;
+    missing-top-field) owner_merges='' ;;
+    unknown-top-field) extra_key='"reviewers": [],' ;;
+    missing-task-field) b_id='' ;;
     git-fails) repo=$W/not-a-repo && mkdir -p "$repo" ;;
   esac
   cat >"$W/queue.json" <<EOF
-{ "repo": "$repo", "status": "$W/handoff/status.md", $owner_merges
-  "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "$wt_key": "$W/wt-a" }, { "id": "271", "issue": 1 }, { "id": "b",
+{ "repo": "$repo", "status": "$W/handoff/status.md", $owner_merges $extra_key
+  "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "$wt_key": "$W/wt-a" }, { "id": "271", "issue": 1 }, { $b_id
   "brief": "$W/handoff/brief-b.md" }, { "id": "280", "issue": 2 } ] }
 EOF
 }
@@ -247,7 +253,7 @@ check_shredded() {
 }
 
 check_refused() {
-  local W=$1 kind entries
+  local W=$1 kind entries call key
   [ -f "$W/collect.out" ] || fail "no $W/collect.out"
   kind=$(cat "$W/.world/kind")
   case $kind in
@@ -255,16 +261,27 @@ check_refused() {
       grep -qF -- "$W/snapshot" "$W/collect.out" || grep -qi 'exist' "$W/collect.out" || fail "collect.out names neither $W/snapshot nor that it exists"
       diff -r "$W/.world/snapshot-before" "$W/snapshot" >/dev/null 2>&1 || fail "$W/snapshot changed"
       ;;
-    gh-fails)
-      grep -qF 'gh pr list' "$W/collect.out" || fail "collect.out does not name the call 'gh pr list'"
+    gh-pr-fails | gh-issue-fails | gh-run-fails)
+      case $kind in
+        gh-pr-fails) call='gh pr list' ;;
+        gh-issue-fails) call='gh issue view' ;;
+        *) call='gh run list' ;;
+      esac
+      grep -qF "$call" "$W/collect.out" || fail "collect.out does not name the call '$call'"
       [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
       ;;
-    unknown-field)
-      grep -qF 'wroktree' "$W/collect.out" || fail "collect.out does not name the unknown field 'wroktree'"
+    unknown-task-field | unknown-top-field)
+      key=reviewers
+      [ "$kind" = unknown-top-field ] || key=wroktree
+      grep -qF "$key" "$W/collect.out" || fail "collect.out does not name the unknown field '$key'"
       [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
       ;;
-    missing-field)
+    missing-top-field)
       grep -qF 'ownerMerges' "$W/collect.out" || fail "collect.out does not name the missing field 'ownerMerges'"
+      [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
+      ;;
+    missing-task-field)
+      grep -qw 'id' "$W/collect.out" || fail "collect.out does not name the missing task field 'id'"
       [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
       ;;
     git-fails)
@@ -296,14 +313,27 @@ if (copies.length > 0) failWith(`a directory copy ran: ${JSON.stringify(copies)}
 EOF
 }
 
+check_bytes() {
+  local W=$1 f
+  for f in status.md owner-merges.md; do
+    [ -f "$W/snapshot/$f" ] || fail "no $W/snapshot/$f"
+    node -e 'const fs=require("node:fs");const raw=Buffer.from([0xff,0xfe]);const replacement=Buffer.from([0xef,0xbf,0xbd]);const given=fs.readFileSync(process.argv[1]);const got=fs.readFileSync(process.argv[2]);if(!given.includes(raw))process.exit(3);if(got.includes(replacement))process.exit(4);if(!got.includes(raw))process.exit(5)' "$W/handoff/$f" "$W/snapshot/$f" || case $? in
+      3) fail "the world's $f carries no invalid UTF-8 bytes 0xff 0xfe" ;;
+      4) fail "$f in the snapshot carries U+FFFD: its invalid UTF-8 bytes were replaced" ;;
+      *) fail "$f in the snapshot lost the invalid UTF-8 bytes 0xff 0xfe" ;;
+    esac
+    cmp -s "$W/handoff/$f" "$W/snapshot/$f" || fail "$f in the snapshot is not byte for byte the queue's $f"
+  done
+}
+
 CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
-  check-snapshot | check-shredded | check-refused | check-rename)
+  check-snapshot | check-shredded | check-refused | check-rename | check-bytes)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<snapshot|shredded|refused|rename> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<snapshot|shredded|refused|rename|bytes> <world>" >&2; exit 2 ;;
 esac
