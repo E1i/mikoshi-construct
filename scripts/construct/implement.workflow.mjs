@@ -229,6 +229,23 @@ function unwitnessedReason(items) {
   return `Not witnessed red before the change and green after it: ${items.join(' | ')}`
 }
 
+const CODE_EXTENSION = '(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)'
+const SOURCE_FILE = new RegExp(`(?:^|/)src/.*\\.${CODE_EXTENSION}$`)
+const DECLARATION_FILE = /\.d\.ts$/
+const TEST_FILE = new RegExp(`(?:^|/)tests/(?:.*/)?[^/]+\\.test\\.${CODE_EXTENSION}$`)
+
+function isTestFile(file) {
+  return TEST_FILE.test(file)
+}
+
+function isSourceFile(file) {
+  return SOURCE_FILE.test(file) && !DECLARATION_FILE.test(file)
+}
+
+function untestedReason(files) {
+  return `Changed source with no test: ${files.join(' | ')}`
+}
+
 async function redesignBeforeLastRung(rung) {
   if (rung !== rungs.length - 1)
     return null
@@ -364,18 +381,21 @@ for (const [index, effort] of rungs.entries()) {
   }
   const touchedImmutable = harnessPassed && !unchanged ? verdict.changedFiles.filter(isImmutable) : []
   const unwitnessed = harnessPassed && !unchanged ? unwitnessedItems(verdict.witnesses ?? []) : []
-  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unwitnessed.length === 0
+  const changedSourceFiles = harnessPassed && !unchanged ? verdict.changedFiles.filter(isSourceFile) : []
+  const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unwitnessed.length === 0
+    && changedSourceFiles.length > 0 && !verdict.changedFiles.some(isTestFile)
+  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unwitnessed.length === 0 && !untested
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
     : {
         rung,
         effort,
-        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : 'acceptance not witnessed',
+        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unwitnessed.length > 0 ? 'acceptance not witnessed' : 'untested change',
         reason: passed
           ? ''
           : !harnessPassed
               ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
-              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unwitnessedReason(unwitnessed),
+              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untestedReason(changedSourceFiles),
         securityFinding: verdict.securityFinding ?? '',
       })
   log(`rung ${rung} @ ${effort}: ${attempts.at(-1).outcome}`)
@@ -403,7 +423,13 @@ for (const [index, effort] of rungs.entries()) {
       ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.\n${verdict.failureExcerpt}`
       : !harnessPassed
           ? verdict.failureExcerpt
-          : unchanged ? NO_CHANGE : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
+          : unchanged
+            ? NO_CHANGE
+            : touchedImmutable.length > 0
+              ? immutableReason(touchedImmutable)
+              : unwitnessed.length > 0
+                ? `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
+                : `${untestedReason(changedSourceFiles)} Ship the matching test in the same change.`
   if (verdict?.securityFinding)
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 
