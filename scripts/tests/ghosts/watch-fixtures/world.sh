@@ -6,6 +6,7 @@ TAIL_BYTES=262144
 STALE_SECONDS=7200
 STUB_SECONDS=300
 FILLER_LINES=300
+PREFIX='[ghosts:watch] '
 
 fail() {
   echo "watch world.sh $CHECK: $*" >&2
@@ -277,9 +278,9 @@ check_frames() {
   local W=$1 mode=$2 kind
   kind=$(cat "$W/.world/kind")
   [ -f "$W/.world/run-exit" ] || fail "the watch was not run through run-for (no $W/.world/run-exit)"
-  node - "$W" "$mode" "$(expected_g1 "$kind")" <<'EOF' || fail "$(cat "$W/.world/check-failure" 2>/dev/null)"
+  node - "$W" "$mode" "$(expected_g1 "$kind")" "$PREFIX" <<'EOF' || fail "$(cat "$W/.world/check-failure" 2>/dev/null)"
 const fs = require('node:fs')
-const [W, mode, g1Spec] = process.argv.slice(2)
+const [W, mode, g1Spec, prefix] = process.argv.slice(2)
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/check-failure`, message); process.exit(1) }
 const exit = fs.readFileSync(`${W}/.world/run-exit`, 'utf8').trim()
 const stdout = fs.readFileSync(`${W}/watch.out`, 'utf8')
@@ -290,14 +291,15 @@ if (stdout.includes('\u001b')) failWith('stdout contains an escape sequence')
 for (const text of [stdout, stderr]) {
   if (text.includes('SECRET-')) failWith(`the output shows report content: ${text.slice(text.indexOf('SECRET-'), text.indexOf('SECRET-') + 40)}`)
 }
-const header = /^ghosts:watch \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/
+const header = /^\[ghosts:watch\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/
 const lines = stdout.split('\n')
 if (lines.at(-1) === '') lines.pop()
 const frames = []
 for (const line of lines) {
   if (header.test(line)) { frames.push([]); continue }
   if (frames.length === 0) failWith(`a line before the first frame header: ${line}`)
-  frames.at(-1).push(line)
+  if (line.startsWith(prefix) === false) failWith(`a task line without the prefix '${prefix}': ${line}`)
+  frames.at(-1).push(line.slice(prefix.length))
 }
 const reportPath = `${W}/handoff/ghost-g1.jsonl`
 const nowMs = Date.now()
@@ -330,16 +332,33 @@ for (const rows of complete) { checkRow(rows[0], 'g1'); checkRow(rows[1], 'g2') 
 if (mode === 'once' && frames.length !== 1) failWith(`${frames.length} frames printed, not exactly 1`)
 if (mode === 'every' && complete.length < 2) failWith(`${complete.length} complete frames printed with --every, not at least 2`)
 EOF
+  check_prefix "$W"
 }
 
 check_readonly() {
   local W=$1
   [ -f "$W/.world/run-exit" ] || fail "the watch was not run through run-for (no $W/.world/run-exit)"
-  grep -q '^ghost-g1 | ' "$W/watch.out" || fail "no ghost-g1 line in the watch output, so nothing was read"
+  grep -qF "${PREFIX}ghost-g1 | " "$W/watch.out" || fail "no ghost-g1 line in the watch output, so nothing was read"
   snapshot "$W" >"$W/.world/snapshot-after.json"
   if ! cmp -s "$W/.world/snapshot.json" "$W/.world/snapshot-after.json"; then
     fail "the world changed while the watch ran: $(diff "$W/.world/snapshot.json" "$W/.world/snapshot-after.json" | grep '^[<>]' | tr '\n' ' ' | cut -c1-600)"
   fi
+}
+
+check_prefix() {
+  local W=$1 file line count=0
+  [ -f "$W/.world/run-exit" ] || fail "the watch was not run through run-for (no $W/.world/run-exit)"
+  for file in "$W/watch.out" "$W/watch.err"; do
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -z "$line" ] && continue
+      count=$((count + 1))
+      case $line in
+        "$PREFIX"*) ;;
+        *) fail "a line of $(basename "$file") lacks the prefix '$PREFIX': $(printf '%s' "$line" | cut -c1-200)" ;;
+      esac
+    done <"$file"
+  done
+  [ "$count" -gt 0 ] || fail "the watch printed nothing, so no line carries the prefix"
 }
 
 check_refused() {
@@ -349,7 +368,7 @@ check_refused() {
   case $exit in
     0|killed|signal*|error*) fail "the watch was not refused: run-exit '$exit'" ;;
   esac
-  if grep -Eq '^(ghosts:watch |ghost-)' "$W/watch.out"; then fail "a refused watch printed a frame: $(head -n 3 "$W/watch.out" | tr '\n' ' ')"; fi
+  if grep -Eq '^(\[ghosts:watch\] )?(frame |ghosts:watch |ghost-)' "$W/watch.out"; then fail "a refused watch printed a frame: $(head -n 3 "$W/watch.out" | tr '\n' ' ')"; fi
   grep -qF -- "$word" "$W/watch.err" || fail "the refusal does not name '$word': $(head -c 400 "$W/watch.err")"
 }
 
@@ -363,6 +382,7 @@ case $CHECK in
   check-once) trap 'stop_stubs "$WORLD"' EXIT; check_frames "${2:?world}" once ;;
   check-every) trap 'stop_stubs "$WORLD"' EXIT; check_frames "${2:?world}" every ;;
   check-readonly) trap 'stop_stubs "$WORLD"' EXIT; check_readonly "${2:?world}" ;;
+  check-prefix) trap 'stop_stubs "$WORLD"' EXIT; check_prefix "${2:?world}" ;;
   check-refused) trap 'stop_stubs "$WORLD"' EXIT; check_refused "${2:?world}" "${3:?word}" ;;
-  *) echo "usage: world.sh new <kind> | kinds | run-for <world> <seconds> <command...> | stop <world> | check-once <world> | check-every <world> | check-readonly <world> | check-refused <world> <word>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <kind> | kinds | run-for <world> <seconds> <command...> | stop <world> | check-once <world> | check-every <world> | check-readonly <world> | check-prefix <world> | check-refused <world> <word>" >&2; exit 2 ;;
 esac
