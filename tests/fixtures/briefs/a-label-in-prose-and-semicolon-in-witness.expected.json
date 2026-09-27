@@ -13,7 +13,7 @@
       },
       {
         "criterion": "the second item (with a parenthesis) holds",
-        "command": "node -e 'process.exit(0)'"
+        "command": "true"
       }
     ],
     "invariants": [
