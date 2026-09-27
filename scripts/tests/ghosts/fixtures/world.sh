@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline'
 FAILING_EXIT=3
 
 fail() {
@@ -14,16 +14,11 @@ git_quiet() {
 }
 
 implement_sha() {
-  sed -n '/^\/implement /,$p' "$1" | shasum -a 256 | cut -c1-64
+  printf '%s' "$(sed -n '/^\/implement /,$p' "$1")" | shasum -a 256 | cut -c1-64
 }
 
 approved_sha() {
   sed -n 's/.*sha256: *\([0-9a-f]\{64\}\).*/\1/p' "$1" | head -n 1
-}
-
-stub_stdout() {
-  printf '{"type":"system","subtype":"init","ghost":"%s"}\n' "$1"
-  printf '{"type":"result","subtype":"success","ghost":"%s"}\n' "$1"
 }
 
 origin_sha() {
@@ -31,7 +26,7 @@ origin_sha() {
 }
 
 write_brief() {
-  local W=$1 id=$2
+  local W=$1 id=$2 text
   cat >"$W/handoff/brief-$id.md" <<EOF
 # Brief $id (world fixture)
 
@@ -46,6 +41,8 @@ Design:
 
 Acceptance: the ghost prints hello — witness: \`echo "hello $id"\`
 EOF
+  text=$(cat "$W/handoff/brief-$id.md")
+  printf '%s' "$text" >"$W/handoff/brief-$id.md"
   printf 'approved /implement text sha256: %s (2026-09-27, world)\n' "$(implement_sha "$W/handoff/brief-$id.md")" >"$W/handoff/brief-$id.approved-sha256"
 }
 
@@ -77,30 +74,88 @@ EOF
   } >"$W/handoff/status.md"
 }
 
+write_results() {
+  local W=$1
+  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":9.99,"num_turns":99,"duration_ms":99999,"usage":{"input_tokens":999,"output_tokens":999}}' >"$W/.world/result-g1-early.json"
+  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"num_turns":7,"duration_ms":1000,"usage":{"input_tokens":11,"output_tokens":22,"cache_read_input_tokens":33}}' >"$W/.world/result-g1.json"
+  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.25,"num_turns":3,"duration_ms":500,"usage":{"input_tokens":44,"output_tokens":55}}' >"$W/.world/result-g2.json"
+}
+
 write_stub() {
-  local W=$1 kind=$2 failing_basename=none
-  [ "$kind" = failing ] && failing_basename=wt-g2
-  cat >"$W/bin/claude" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-dir='$W/stub'/"\$(basename "\$PWD")"
-mkdir -p "\$dir"
-printf '%s\0' "\$@" >"\$dir/argv"
-pwd -P >"\$dir/cwd"
-printf '%s\n' "\${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" >"\$dir/ceiling"
-cp '$W/handoff/status.md' "\$dir/status-at-start"
-printf '{"type":"system","subtype":"init","ghost":"%s"}\n' "\$(basename "\$PWD")"
-printf '{"type":"result","subtype":"success","ghost":"%s"}\n' "\$(basename "\$PWD")"
-[ "\$(basename "\$PWD")" = '$failing_basename' ] && exit $FAILING_EXIT
+  local W=$1
+  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\n' "$W" "$FAILING_EXIT" >"$W/bin/claude"
+  cat >>"$W/bin/claude" <<'EOF'
+ghost=$(basename "$PWD")
+id=${ghost#wt-}
+kind=$(cat "$W/.world/kind")
+dir="$W/stub/$ghost"
+mkdir -p "$dir"
+printf '%s\0' "$@" >"$dir/argv"
+pwd -P >"$dir/cwd"
+printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" >"$dir/ceiling"
+cp "$W/handoff/status.md" "$dir/status-at-start"
+if [ -f "$PWD/.ghost-installed" ]; then echo yes; else echo no; fi >"$dir/installed-at-start"
+: >"$dir/stdout"
+emit() { printf '%s\n' "$1" >>"$dir/stdout"; printf '%s\n' "$1"; }
+emit "{\"type\":\"system\",\"subtype\":\"init\",\"ghost\":\"$ghost\"}"
+[ "$id" = g1 ] && emit "$(cat "$W/.world/result-g1-early.json")"
+emit "{\"type\":\"assistant\",\"ghost\":\"$ghost\"}"
+status=done
+[ "$kind" = failing ] && [ "$id" = g2 ] && status=failed
+[ "$kind" = no-ladder ] && [ "$id" = g2 ] && status=none
+if [ "$status" != none ]; then
+  attempts='[{"rung":"low","outcome":"done"}]'
+  [ "$id" = g1 ] && attempts='[{"rung":"low","outcome":"harness failed"},{"rung":"medium","outcome":"done"}]'
+  printf '{"run":"run-%s","at":"2026-09-27T20:00:00.000Z","task":"Ghost %s","effort":"low","status":"%s","rung":"low","attempts":%s}\n' "$id" "$id" "$status" "$attempts" >>"$PWD/.construct/runs.jsonl"
+fi
+if ! { [ "$kind" = no-result ] && [ "$id" = g2 ]; }; then
+  emit "$(cat "$W/.world/result-$id.json")"
+fi
+[ "$kind" = failing ] && [ "$id" = g2 ] && exit "$FAILING_EXIT"
 exit 0
 EOF
   chmod +x "$W/bin/claude"
+
+  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nREAL_PNPM=%q\n' "$W" "$(command -v pnpm)" >"$W/bin/pnpm"
+  cat >>"$W/bin/pnpm" <<'EOF'
+if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --frozen-lockfile ]; then
+  ghost=$(basename "$PWD")
+  dir="$W/stub/$ghost"
+  mkdir -p "$dir"
+  printf '%s\0' "$@" >"$dir/pnpm-argv"
+  pwd -P >"$dir/pnpm-cwd"
+  echo "stub install in $ghost"
+  if [ "$(cat "$W/.world/kind")" = install-fails ] && [ "$ghost" = wt-g2 ]; then
+    echo 'stub install failed: lockfile out of date' >&2
+    exit 1
+  fi
+  touch "$PWD/.ghost-installed"
+  exit 0
+fi
+exec "$REAL_PNPM" "$@"
+EOF
+  chmod +x "$W/bin/pnpm"
+}
+
+write_matrix() {
+  local W=$1
+  cat >"$W/matrix.json" <<'EOF'
+{
+  "vocabulary": [],
+  "rows": [
+    { "task": "g0", "class": "R1", "contour": { "after": [], "parallelWith": [], "worktree": "../mc-g0", "locks": [], "executor": "ladder", "merge": "auto", "capabilities": [], "notes": [] } },
+    { "task": "g1", "class": "R2", "contour": { "after": ["PR #1"], "parallelWith": [], "worktree": "../mc-g1", "locks": [], "executor": "ladder", "merge": "auto", "capabilities": ["need code change"], "notes": [] } }
+  ],
+  "notChecked": []
+}
+EOF
 }
 
 write_tasks() {
-  local W=$1
+  local W=$1 kind=$2 matrix=''
+  [ "$kind" = with-matrix ] && matrix="\"matrix\": \"$W/matrix.json\", "
   cat >"$W/tasks.json" <<EOF
-{ "repo": "$W/main", "status": "$W/handoff/status.md", "out": "$W/handoff", "tasks": [
+{ "repo": "$W/main", "status": "$W/handoff/status.md", "out": "$W/handoff", $matrix"tasks": [
   { "id": "g1", "brief": "$W/handoff/brief-g1.md", "worktree": "$W/wt-g1", "branch": "ghost/g1" },
   { "id": "g2", "brief": "$W/handoff/brief-g2.md", "worktree": "$W/wt-g2", "branch": "ghost/g2" }
 ] }
@@ -116,7 +171,9 @@ new_world() {
   git_quiet init --bare "$W/origin.git"
   git_quiet clone "$W/origin.git" "$W/.world/seed"
   echo one >"$W/.world/seed/file.txt"
-  git_quiet -C "$W/.world/seed" add file.txt
+  mkdir -p "$W/.world/seed/.construct"
+  printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":"low","outcome":"done"}]}' >"$W/.world/seed/.construct/runs.jsonl"
+  git_quiet -C "$W/.world/seed" add file.txt .construct/runs.jsonl
   git_quiet -C "$W/.world/seed" commit -m one
   git_quiet -C "$W/.world/seed" push origin HEAD:main
   git_quiet clone "$W/origin.git" "$W/main"
@@ -130,12 +187,15 @@ new_world() {
     tampered) sed -i.bak 's/^\/implement Ghost g2:/\/implement Ghost g3:/' "$W/handoff/brief-g2.md" && rm "$W/handoff/brief-g2.md.bak" ;;
     unapproved) rm "$W/handoff/brief-g2.approved-sha256" ;;
     occupied) mkdir -p "$W/wt-g2" && echo occupied >"$W/wt-g2/keep.txt" ;;
+    trailing-newline) printf '\n\n\n' >>"$W/handoff/brief-g2.md" ;;
   esac
-  write_status "$W" "$kind"
-  write_stub "$W" "$kind"
-  write_tasks "$W"
-
   echo "$kind" >"$W/.world/kind"
+  write_status "$W" "$kind"
+  write_results "$W"
+  write_stub "$W"
+  write_matrix "$W"
+  write_tasks "$W" "$kind"
+
   cp "$W/handoff/status.md" "$W/.world/status.md"
   (cd "$W" && ls -d wt-* 2>/dev/null || true) >"$W/.world/wt-before"
   echo "$W"
@@ -266,19 +326,132 @@ check_report() {
   local W=$1 id
   for id in g1 g2; do
     [ -f "$W/handoff/ghost-$id.jsonl" ] || fail "$id: no $W/handoff/ghost-$id.jsonl"
-    stub_stdout "wt-$id" | cmp -s - "$W/handoff/ghost-$id.jsonl" || fail "$id: ghost-$id.jsonl is not the stub's stdout byte for byte"
+    [ -f "$W/stub/wt-$id/stdout" ] || fail "$id: the stub did not run"
+    cmp -s "$W/stub/wt-$id/stdout" "$W/handoff/ghost-$id.jsonl" || fail "$id: ghost-$id.jsonl is not the stub's stdout byte for byte"
     grep -F "| ghost-$id |" "$W/handoff/status.md" | grep -qF "report $W/handoff/ghost-$id.jsonl" || fail "$id: the free row does not name $W/handoff/ghost-$id.jsonl"
   done
+}
+
+kind_of() {
+  cat "$1/.world/kind"
+}
+
+install_fails_for() {
+  [ "$(kind_of "$1")" = install-fails ] && [ "$2" = g2 ]
+}
+
+expected_ladder() {
+  local W=$1 id=$2 kind
+  kind=$(kind_of "$W")
+  if install_fails_for "$W" "$id"; then echo 'no ladder run'
+  elif [ "$kind" = no-ladder ] && [ "$id" = g2 ]; then echo 'no ladder run'
+  elif [ "$kind" = failing ] && [ "$id" = g2 ]; then echo 'ladder failed'
+  else echo 'ladder done'
+  fi
+}
+
+check_ladder() {
+  local W=$1 id row part
+  for id in g1 g2; do
+    row=$(grep -F "| ghost-$id |" "$W/handoff/status.md" || true)
+    case $row in "| ghost-$id | $W/wt-$id | free | "*) ;; *) fail "$id: no free row: $row" ;; esac
+    if install_fails_for "$W" "$id"; then
+      for part in 'install failed: exit 1' "log $W/handoff/ghost-$id.install.log"; do
+        echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
+      done
+      ! echo "$row" | grep -qF 'session ' || fail "$id: the free row names a session although none started: $row"
+      continue
+    fi
+    part="exit $(expected_exit "$W" "$id"); $(expected_ladder "$W" "$id"); report $W/handoff/ghost-$id.jsonl; session $(session_of "$W" "$id")"
+    echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
+  done
+}
+
+check_install() {
+  local W=$1 id wt dir
+  for id in g1 g2; do
+    wt="$W/wt-$id"
+    dir="$W/stub/wt-$id"
+    [ -f "$dir/pnpm-argv" ] || fail "$id: pnpm install did not run in $wt"
+    read_argv "$dir/pnpm-argv"
+    [ "${ARGV[*]}" = 'install --frozen-lockfile' ] || fail "$id: the install argv is '${ARGV[*]}', not 'install --frozen-lockfile'"
+    [ "$(cat "$dir/pnpm-cwd")" = "$wt" ] || fail "$id: the install ran in $(cat "$dir/pnpm-cwd"), not $wt"
+    if install_fails_for "$W" "$id"; then
+      [ ! -e "$dir/argv" ] || fail "$id: a session started although its install failed"
+      [ ! -e "$W/handoff/ghost-$id.jsonl" ] || fail "$id: a report exists although no session started"
+      [ -f "$W/handoff/ghost-$id.install.log" ] || fail "$id: no install log $W/handoff/ghost-$id.install.log"
+      grep -qF 'stub install failed: lockfile out of date' "$W/handoff/ghost-$id.install.log" || fail "$id: the install log lacks the install's stderr"
+      grep -qF "stub install in wt-$id" "$W/handoff/ghost-$id.install.log" || fail "$id: the install log lacks the install's stdout"
+    else
+      [ -f "$dir/installed-at-start" ] || fail "$id: the session did not start"
+      [ "$(cat "$dir/installed-at-start")" = yes ] || fail "$id: the session started before the install finished"
+    fi
+  done
+}
+
+check_journal() {
+  local W=$1 sha
+  sha=$(origin_sha "$W")
+  node - "$W" "$sha" "$(kind_of "$W")" "$(session_of_or_null "$W" g1)" "$(session_of_or_null "$W" g2)" <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
+const fs = require('node:fs')
+const [W, sha, kind, s1, s2] = process.argv.slice(2)
+const failWith = (message) => { fs.writeFileSync(`${W}/.world/journal-failure`, message); process.exit(1) }
+const journal = `${W}/main/.construct/ghosts.jsonl`
+if (!fs.existsSync(journal)) failWith(`no ${journal}`)
+const lines = fs.readFileSync(journal, 'utf8').split('\n').filter(line => line !== '')
+if (lines.length !== 2) failWith(`${lines.length} lines in ${journal}, not 2`)
+const rows = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
+const KEYS = ['task', 'session', 'baseSha', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
+const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
+for (const [id, session] of [['g1', s1], ['g2', s2]]) {
+  const found = rows.filter(row => row.task === id)
+  if (found.length !== 1) failWith(`${found.length} journal lines for task ${id}, not 1`)
+  const row = found[0]
+  const keys = Object.keys(row).sort().join(',')
+  if (keys !== [...KEYS].sort().join(',')) failWith(`${id}: the keys are ${keys}, not ${[...KEYS].sort().join(',')}`)
+  const installFailed = kind === 'install-fails' && id === 'g2'
+  const noLadder = installFailed || (kind === 'no-ladder' && id === 'g2')
+  const noResult = installFailed || (kind === 'no-result' && id === 'g2')
+  const matrixRow = kind === 'with-matrix' ? matrix.rows.find(r => r.task === id) : undefined
+  const result = noResult ? null : JSON.parse(fs.readFileSync(`${W}/.world/result-${id}.json`, 'utf8'))
+  const want = {
+    task: id,
+    session: installFailed ? null : session,
+    baseSha: sha,
+    install: installFailed ? 1 : 0,
+    exit: installFailed ? null : (kind === 'failing' && id === 'g2' ? 3 : 0),
+    ladder: noLadder ? 'no ladder run' : (kind === 'failing' && id === 'g2' ? 'failed' : 'done'),
+    run: noLadder ? null : `run-${id}`,
+    iterations: noLadder ? null : (id === 'g1' ? 2 : 1),
+    class: matrixRow ? matrixRow.class : null,
+    contour: matrixRow ? matrixRow.contour : null,
+    resultLine: noResult ? 'missing' : 'present',
+    total_cost_usd: result ? result.total_cost_usd : null,
+    num_turns: result ? result.num_turns : null,
+    duration_ms: result ? result.duration_ms : null,
+    usage: result ? result.usage : null,
+    review: null,
+  }
+  for (const key of KEYS) {
+    if (JSON.stringify(row[key]) !== JSON.stringify(want[key]))
+      failWith(`${id}: ${key} is ${JSON.stringify(row[key])}, not ${JSON.stringify(want[key])}`)
+  }
+}
+EOF
+}
+
+session_of_or_null() {
+  if [ -f "$1/stub/wt-$2/argv" ]; then session_of "$1" "$2"; else echo null; fi
 }
 
 CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
-  check-decision | check-untouched | check-refused | check-launched | check-rows | check-report)
+  check-decision | check-untouched | check-refused | check-launched | check-rows | check-report | check-ladder | check-install | check-journal)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<decision|untouched|refused|launched|rows|report> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<decision|untouched|refused|launched|rows|report|ladder|install|journal> <world>" >&2; exit 2 ;;
 esac
