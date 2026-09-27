@@ -19,6 +19,10 @@ const MANIFEST = 'package.json'
 const LINT_POLICY_TEST = 'scripts/tests/lint/syntax-policy.test.ts'
 const PNPM_QUALITY = 'pnpm run quality'
 
+function isConstructQualityHarness(harnessCommand: string): boolean {
+  return harnessCommand === PNPM_QUALITY
+}
+
 function baselineFacts(harnessCommand: string): Fact[] {
   return [
     { id: 'security-workflow', kind: 'file-exists', path: SECURITY_WORKFLOW, authoredBy: 'construct' },
@@ -99,20 +103,22 @@ function baselineClaims(harnessCommand: string, contracts: boolean): Claim[] {
     },
     {
       id: 'every-change-passes-the-harness',
-      statement: 'Lint, typecheck and tests pass on every change, as one command',
+      statement: isConstructQualityHarness(harnessCommand) ? 'Lint, typecheck and tests pass on every change, as one command' : `${harnessCommand} passes on every change`,
       authoredBy: 'construct',
       enforcement: {
         mechanism: `${CI_WORKFLOW} runs ${harnessCommand} on every pull request and push to main`,
         level: 'L3',
         supportedBy: ['ci-workflow', 'ci-workflow-runs-the-harness'],
       },
-      verification: {
-        mechanism: 'eslint.config.mjs is the single source of style for that run',
-        supportedBy: ['eslint-config'],
-      },
+      verification: isConstructQualityHarness(harnessCommand)
+        ? {
+            mechanism: 'eslint.config.mjs is the single source of style for that run',
+            supportedBy: ['eslint-config'],
+          }
+        : null,
       checkId: 'ci',
     },
-    ...harnessCommand === PNPM_QUALITY ? [harnessStepsClaim(harnessCommand, contracts)] : [],
+    ...isConstructQualityHarness(harnessCommand) ? [harnessStepsClaim(harnessCommand, contracts)] : [],
   ]
 }
 
@@ -124,6 +130,8 @@ function sampleFacts(): Fact[] {
 }
 
 function sampleClaims(harnessCommand: string): Claim[] {
+  if (!isConstructQualityHarness(harnessCommand))
+    return []
   return [
     {
       id: 'lint-policy',
