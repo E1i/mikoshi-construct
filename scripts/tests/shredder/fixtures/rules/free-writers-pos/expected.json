@@ -1,0 +1,102 @@
+{
+  "vocabulary": [
+    "need code change",
+    "need test report",
+    "need base replay",
+    "need mutation",
+    "need generated artifact",
+    "need contract diff",
+    "need brief parsing",
+    "need judgement",
+    "need transcript inspection",
+    "need environment matrix",
+    "need live CI observation",
+    "need remote status observation",
+    "need registry observation",
+    "need merge",
+    "need human gate",
+    "need byte-exact transfer",
+    "need ledger join",
+    "need isolated workspace",
+    "need settings read",
+    "need shared state write",
+    "need tracker write",
+    "need witness validation"
+  ],
+  "rows": [
+    {
+      "task": "#301",
+      "paths": {
+        "write": [
+          "docs/alpha.md"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [
+        "need test report"
+      ],
+      "class": "R1",
+      "why": [
+        "S3 parallel with #302",
+        "K3 docs: docs/alpha.md"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#302"
+        ],
+        "worktree": "../mc-301",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": []
+    },
+    {
+      "task": "#302",
+      "paths": {
+        "write": [
+          "docs/beta.md"
+        ],
+        "immutable": []
+      },
+      "effort": null,
+      "verification": [
+        "need test report"
+      ],
+      "class": "R1",
+      "why": [
+        "S3 parallel with #301",
+        "K3 docs: docs/beta.md",
+        "free-writers: 1 free, runnable 2"
+      ],
+      "contour": {
+        "after": [],
+        "parallelWith": [
+          "#301"
+        ],
+        "worktree": "../mc-302",
+        "locks": [],
+        "executor": "direct",
+        "merge": "auto",
+        "capabilities": [
+          "need merge"
+        ],
+        "notes": []
+      },
+      "unresolved": [
+        {
+          "level": "DECISION_REQUIRED",
+          "reason": "open a window",
+          "source": "open a window"
+        }
+      ]
+    }
+  ],
+  "notChecked": []
+}
