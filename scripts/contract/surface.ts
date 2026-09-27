@@ -32,7 +32,7 @@ const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the so
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
 
-export const SURFACE_VERSION = 3
+export const SURFACE_VERSION = 2
 
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/runs.jsonl',
