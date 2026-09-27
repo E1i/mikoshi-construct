@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+import crypto from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -45,9 +47,10 @@ const SPEC = {
 
 const DEFAULT_ACCEPTANCE = ['the rule rejects the case']
 const WITNESS_COMMAND = 'pnpm vitest run tests/rule.test.ts'
+const WITNESS_SHA256 = crypto.createHash('sha256').update(WITNESS_COMMAND).digest('hex')
 
 function witnessed(items: string[], outcome: { baseExitCode: number, afterExitCode: number, baseExcerpt?: string } = { baseExitCode: 1, afterExitCode: 0 }): unknown[] {
-  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, baseExcerpt: outcome.baseExitCode === 0 ? '1 passed' : '1 failed', ...outcome }))
+  return items.map(criterion => ({ criterion, command: WITNESS_COMMAND, ranSha256: WITNESS_SHA256, baseExcerpt: outcome.baseExitCode === 0 ? '1 passed' : '1 failed', ...outcome }))
 }
 
 const INSTALLED = { command: 'pnpm install --frozen-lockfile', exitCode: 0 }
@@ -64,6 +67,10 @@ function fixedWitnesses(items: string[]): { criterion: string, command: string }
   return items.map(criterion => ({ criterion, command: WITNESS_COMMAND }))
 }
 
+function fixedWitnessDigests(items: string[]): { criterion: string, base64: string, sha256: string }[] {
+  return items.map(criterion => ({ criterion, base64: Buffer.from(WITNESS_COMMAND).toString('base64'), sha256: WITNESS_SHA256 }))
+}
+
 const REJECTED = new Error('SPEC: decision: missing')
 
 async function run(args: Record<string, unknown>, replies: Record<string, Reply[]>, base: Reply = GREEN): Promise<{ result: LadderResult, calls: AgentCall[] }> {
@@ -77,7 +84,7 @@ async function run(args: Record<string, unknown>, replies: Record<string, Reply[
     return reply ?? null
   }
   const acceptance = (args.acceptance as string[] | undefined) ?? DEFAULT_ACCEPTANCE
-  const result = await ladder()({ harness: { command: 'pnpm run quality' }, acceptance, witnesses: fixedWitnesses(acceptance), ...args }, agent, () => {}, () => {})
+  const result = await ladder()({ harness: { command: 'pnpm run quality' }, acceptance, witnesses: fixedWitnesses(acceptance), witnessDigests: fixedWitnessDigests(acceptance), ...args }, agent, () => {}, () => {})
   return { result, calls }
 }
 
@@ -378,7 +385,7 @@ describe('done needs every acceptance item witnessed red before the change and g
   it('gives the harness the witness commands the brief fixed, and the base sha to run them at in a worktree of its own', async () => {
     const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
 
-    expect(calls[2].prompt).toContain(WITNESS_COMMAND)
+    expect(calls[2].prompt).not.toContain(WITNESS_COMMAND)
     expect(calls[2].prompt).toContain(DEFAULT_ACCEPTANCE[0])
     expect(calls[2].prompt).toContain(`git worktree add --detach`)
     expect(calls[2].prompt).toContain(BASE_SHA)

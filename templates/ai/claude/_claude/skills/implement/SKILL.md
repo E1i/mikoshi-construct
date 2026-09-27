@@ -23,13 +23,19 @@ repository's CLAUDE.md and `construct.json`.
    `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json`.
    The build prints the whole args object: `task` (the brief's first line, without a leading
    `/implement `), `effort` (the first word after `Effort:`), `acceptance`, `witnesses`,
-   `invariants`, `immutable` and `harness`. A label counts at the start of a line or right after the
+   `witnessDigests`, `invariants`, `immutable`, `harness` and, when the brief carries a `Design:`
+   section, `design` as `args.design` (its body, verbatim). A label counts at the start of a line or right after the
    end of a sentence; the same word elsewhere in prose, or inside backticks, is text. The brief splits
    what it asks for in two. **Acceptance** is red before the change and green after it, and it is the
    gate: each item ends with its witness, `— witness: \`<command>\``, a command that exits non-zero on
    the base and zero after the change. The witness is fixed in the brief before the run (0027); the
-   build carries it into `args.witnesses` as `{ "criterion": ..., "command": ... }`, and the
-   implementer only refers to it. **Invariants** are green before and after, such as "the harness is
+   build carries it into `args.witnesses` as `{ "criterion": ..., "command": ... }` verbatim (double
+   spaces, tabs and newlines inside the backticks survive), refuses one `bash -n` rejects before
+   calling any agent, and carries its base64 and sha256 into `args.witnessDigests` as `{ "criterion":
+   ..., "base64": ..., "sha256": ... }` of the raw command, never the normalised criterion; the
+   implementer refers to `args.witnesses`, and the harness agent only ever sees `args.witnessDigests`'
+   base64, never the raw command, so it cannot run anything but what the brief fixed. **Invariants**
+   are green before and after, such as "the harness is
    green"; the harness holds them and they reach `args.invariants` unwitnessed. An item the base
    already satisfies belongs in invariants, because it can never be witnessed red. **Immutable** names
    paths the change may not touch, each a file or, ending in `/`, a directory, and a rung whose changed
@@ -63,10 +69,14 @@ repository's CLAUDE.md and `construct.json`.
    The design step runs inside the ladder, not before it, and its outcome is one of the `attempts`
    like any other. The statuses a run can return are:
    - `done` — a rung changed files, passed the harness, had every acceptance item's witness from the
-     brief fail on the base (run in a worktree of its own at the base sha) and pass on the working
-     tree, and every design step the run took completed. An
+     brief run verbatim (its `ranSha256` matching `args.witnessDigests`' sha256) and fail on the base
+     (run in a worktree of its own at the base sha) and pass on the working tree, and every design step
+     the run took completed. An
      implementer that reports done with no changed file, or a green tree with nothing changed, is a
-     `no change` attempt and never `done`. A rung whose changed files include a source file (a path
+     `no change` attempt and never `done`. A rung whose harness ran a witness the sha256 does not match
+     — a substituted, edited or unrun script — is a `witness not run verbatim` attempt, checked after
+     an immutable path and before an unwitnessed acceptance, and never `done`. A rung whose changed
+     files include a source file (a path
      with a `src/` segment ending in `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` or `.cjs`,
      not `.d.ts`) and no test file (a path with a `tests/` segment named `*.test.` with one of those
      extensions) is an `untested change` attempt, never `done`, and its reason names the source files.
