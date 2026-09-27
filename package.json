@@ -50,6 +50,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:pending": "tsx scripts/docs/build-pending.ts",
     "docs:preview": "vitepress preview docs",
+    "ghosts:launch": "tsx scripts/ghosts/launch.ts",
     "lint": "eslint .",
     "model:check": "tsx scripts/model/check.ts",
     "model:render": "tsx scripts/model/sync-docs.ts",
