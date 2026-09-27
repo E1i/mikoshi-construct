@@ -65,6 +65,19 @@ Point every range in a template at the previous release, not the latest. Users r
 `minimumReleaseAge`; a range that only matches today's publish fails their first install. The
 places a bump touches are listed in CLAUDE.md.
 
+## After a release
+
+A release is done when these five checks pass, run once the staged publish has been approved. `<V>`
+is the released version, `<M>` the merge commit of the version pull request.
+
+1. `npm view mikoshi-construct dist-tags.latest --prefer-online` prints `<V>`.
+2. `npm stage list` finds no staged package.
+3. The tag `v<V>` points at `<M>`, and its GitHub release is published.
+4. The Release verification run on `<M>` reports that `<V>` is on the registry and installable, and
+   Published smoke is green.
+5. `npx mikoshi-construct@<V> --version`, run from a scratch directory outside this repository,
+   prints `<V>`.
+
 ## Reporting a discovery that went wrong
 
 If `/construct-discover` filled a marker with something false, open a "Discovery report" issue with
