@@ -1,0 +1,8 @@
+{
+  "verdict": "cheap",
+  "rule": "docs-only",
+  "why": [
+    "docs/cli.md",
+    "docs/diagram.svg"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "doubt",
+  "why": [
+    "templates/ai/cursor/_cursor/rules/construct.mdc"
+  ]
+}

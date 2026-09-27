@@ -1,0 +1,7 @@
+{
+  "verdict": "cheap",
+  "rule": "docs-only",
+  "why": [
+    "docs/AGENTS.md"
+  ]
+}
