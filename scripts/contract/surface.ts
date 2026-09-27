@@ -46,6 +46,7 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 export interface Flag {
   type: string
   alias?: string
+  options?: string[]
 }
 
 export type CommandSurface = { flags: Record<string, Flag> } | { aliasOf: string }
@@ -102,7 +103,13 @@ function flagsOf(args: CommandDef['args']): Record<string, Flag> {
   return Object.fromEntries(Object.entries(args as ArgsDef).map(([name, arg]) => {
     const declared = 'alias' in arg ? arg.alias : undefined
     const alias = Array.isArray(declared) ? declared.join(',') : declared
-    return [name, alias == null ? { type: String(arg.type ?? 'string') } : { type: String(arg.type ?? 'string'), alias }]
+    const options = 'options' in arg ? arg.options : undefined
+    const flag: Flag = { type: String(arg.type ?? 'string') }
+    if (alias != null)
+      flag.alias = alias
+    if (options != null)
+      flag.options = options
+    return [name, flag]
   }))
 }
 

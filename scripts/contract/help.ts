@@ -43,9 +43,15 @@ function flagOf(option: string): [string, Flag] {
   const parsed = OPTION.exec(option.trim().split(COLUMN_GAP)[0])
   if (parsed == null)
     throw new Error(`--help prints an option line that is not a flag: ${option.trim()}`)
-  const type = parsed[3] == null ? 'boolean' : parsed[4].includes('|') ? 'enum' : 'string'
+  const isEnum = parsed[3] != null && parsed[4].includes('|')
+  const type = parsed[3] == null ? 'boolean' : isEnum ? 'enum' : 'string'
   const aliases = parsed[1].split(', ').filter(alias => alias !== '').map(alias => alias.slice(1))
-  return [parsed[2], aliases.length === 0 ? { type } : { type, alias: aliases.join(',') }]
+  const flag: Flag = { type }
+  if (aliases.length > 0)
+    flag.alias = aliases.join(',')
+  if (isEnum)
+    flag.options = parsed[4].split('|')
+  return [parsed[2], flag]
 }
 
 function withoutNegations(flags: [string, Flag][]): [string, Flag][] {

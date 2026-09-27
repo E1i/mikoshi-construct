@@ -5,6 +5,7 @@ import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
 import path from 'node:path'
 import { sha256 } from '../../manifest.js'
+import { AI_TARGETS } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
 import { directoriesToCreate, planCarriers } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
@@ -41,8 +42,6 @@ export const ATTACH_EXIT: Record<AttachResult['status'], number> = {
   aborted: 1,
 }
 
-const AI_TARGETS = ['claude', 'cursor', 'both']
-
 const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, paths: string[]) => string> = {
   'no-git': lore => lore.attachRefusedNoGit,
   'linked-git': lore => lore.attachRefusedLinkedGit,
@@ -73,7 +72,7 @@ function aborted(): AttachResult {
 
 export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Prompter): Promise<AttachResult> {
   const root = path.resolve(options.dir)
-  if (options.ai != null && !AI_TARGETS.includes(options.ai))
+  if (options.ai != null && !(AI_TARGETS as readonly string[]).includes(options.ai))
     throw new Error(`unknown AI target "${options.ai}" (claude | cursor | both)`)
 
   const refusal = refusalFor(root, options)

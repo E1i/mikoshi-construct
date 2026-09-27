@@ -74,6 +74,22 @@ describe('requiredChange classifies the difference between two surfaces', () => 
     expect(change).toEqual({ level: 'additive', reasons: ['commands.init.flags.yes.alias: y added'] })
   })
 
+  it('an allowed value removed from an enumerable flag is breaking', () => {
+    const change = changeFrom(
+      (base) => { base.commands.init = { flags: { preset: { type: 'enum', options: ['node-library', 'monorepo'] } } } },
+      (head) => { head.commands.init = { flags: { preset: { type: 'enum', options: ['node-library'] } } } },
+    )
+    expect(change).toEqual({ level: 'breaking', reasons: ['commands.init.flags.preset.options: monorepo removed'] })
+  })
+
+  it('an allowed value added to an enumerable flag is additive', () => {
+    const change = changeFrom(
+      (base) => { base.commands.init = { flags: { preset: { type: 'enum', options: ['node-library'] } } } },
+      (head) => { head.commands.init = { flags: { preset: { type: 'enum', options: ['node-library', 'monorepo'] } } } },
+    )
+    expect(change).toEqual({ level: 'additive', reasons: ['commands.init.flags.preset.options: monorepo added'] })
+  })
+
   it('an exit code value change is breaking', () => {
     const exitOkBecomesThree: Edit = (head) => {
       head.exits.doctor.ok = 3

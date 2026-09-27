@@ -80,7 +80,7 @@ function aliasDiff(at: string, base: string | undefined, head: string | undefine
 }
 
 function flagDiff(at: string, base: Flag, head: Flag): Change[] {
-  return [...valueDiff(`${at}.type`, base.type, head.type), ...aliasDiff(`${at}.alias`, base.alias, head.alias)]
+  return [...valueDiff(`${at}.type`, base.type, head.type), ...aliasDiff(`${at}.alias`, base.alias, head.alias), ...setDiff(`${at}.options`, base.options ?? [], head.options ?? [])]
 }
 
 function outsideDiff(at: string, base: string[], head: string[]): Change[] {

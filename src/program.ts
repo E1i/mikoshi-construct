@@ -1,21 +1,23 @@
-import type { ReportFormat } from './commands/mutate/index.js'
+import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
-import { defineCommand } from 'citty'
+import { defineCommand, showUsage } from 'citty'
 import { ATTACH_EXIT, runAttach } from './commands/attach/index.js'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
-import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, runJudge } from './commands/mutate/index.js'
+import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
 import { FAILED_EXIT, flatlineFor, reported } from './failure.js'
-import { DEFAULT_REVIEW_MODEL, PRESET_IDS } from './presets/index.js'
+import { typedSpellings, unknownFlags } from './known-flags.js'
+import { AI_TARGETS, DEFAULT_REVIEW_MODEL, PRESET_IDS, REVIEW_PROVIDERS } from './presets/index.js'
 import { createUi, stderrWriter, stdoutWriter } from './ui/console.js'
+import { LORE, PLAIN_LORE } from './ui/lore.js'
 
 import { createClackPrompter } from './ui/prompts.js'
 import { resolveTheme } from './ui/theme.js'
@@ -31,14 +33,42 @@ function ui(args: { plain: boolean, johnny: boolean }, write = stdoutWriter) {
   return createUi(resolveTheme({ plain: args.plain, johnny: args.johnny }), write)
 }
 
-const init = defineCommand({
+const ROOT_META = {
+  name: 'construct',
+  version: VERSION,
+  description: 'mikoshi-construct — bootstrap for AI-native software projects',
+}
+
+const MUTATE_META = { name: 'mutate', description: 'Apply a named wrong implementation and judge it from the report the runner hands over; runs no test itself' }
+
+function withKnownFlags<T extends ArgsDef>(def: CommandDef<T>, parentMeta: CommandMeta): CommandDef<T> {
+  const { run, args } = def
+  if (run == null || args == null || typeof args !== 'object')
+    return def
+  const argsDef = args as T
+  const wrapped: CommandDef<T> = {
+    ...def,
+    run: async (context) => {
+      const unknown = unknownFlags(argsDef, context.args as unknown as Record<string, unknown>)
+      if (unknown.length === 0)
+        return run(context)
+      const plain = resolveTheme({ plain: context.args.plain as boolean | undefined, johnny: context.args.johnny as boolean | undefined }).name === 'plain'
+      await showUsage(wrapped as CommandDef, { meta: parentMeta })
+      console.error((plain ? PLAIN_LORE : LORE).unknownFlag(typedSpellings(unknown, context.rawArgs)))
+      process.exitCode = FAILED_EXIT
+    },
+  }
+  return wrapped
+}
+
+const init = withKnownFlags(defineCommand({
   meta: { name: 'init', description: 'Materialize the construct: architecture, contracts, harness, AI instructions' },
   args: {
     ...commonArgs,
-    preset: { type: 'string', description: `Preset: ${PRESET_IDS.join(' | ')}` },
-    ai: { type: 'string', description: 'AI target: claude | cursor | both (default: claude)' },
+    preset: { type: 'enum', options: PRESET_IDS, description: `Preset: ${PRESET_IDS.join(' | ')}` },
+    ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude | cursor | both (default: claude)' },
     name: { type: 'string', description: 'Project name (defaults to the directory name)' },
-    review: { type: 'string', description: 'AI code review on pull requests: claude | none (default: none)' },
+    review: { type: 'enum', options: REVIEW_PROVIDERS, description: 'AI code review on pull requests: claude | none (default: none)' },
     reviewModel: { type: 'string', description: `Model for the review workflow (default: ${DEFAULT_REVIEW_MODEL})` },
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
@@ -57,14 +87,14 @@ const init = defineCommand({
       process.exitCode = FAILED_EXIT
     }
   },
-})
+}), ROOT_META)
 
-const attach = defineCommand({
+const attach = withKnownFlags(defineCommand({
   meta: { name: 'attach', description: 'Attach the /plan and /implement carriers to a repository the construct did not write, hidden through .git/info/exclude (alias: jack-in)' },
   args: {
     ...commonArgs,
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
-    ai: { type: 'string', description: 'AI target: claude (cursor and both are refused)' },
+    ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
   },
   async run({ args }) {
@@ -80,9 +110,9 @@ const attach = defineCommand({
       process.exitCode = FAILED_EXIT
     }
   },
-})
+}), ROOT_META)
 
-const detach = defineCommand({
+const detach = withKnownFlags(defineCommand({
   meta: { name: 'detach', description: 'Remove what attach wrote and nothing else: the recorded files, their empty directories, the exclude block and the record (alias: jack-out)' },
   args: commonArgs,
   run({ args }) {
@@ -97,9 +127,9 @@ const detach = defineCommand({
       process.exitCode = FAILED_EXIT
     }
   },
-})
+}), ROOT_META)
 
-const soulkill = defineCommand({
+const soulkill = withKnownFlags(defineCommand({
   meta: { name: 'soulkill', description: 'Extract the facts about a repository without writing anything (alias: inspect, capture)' },
   args: {
     ...commonArgs,
@@ -118,9 +148,9 @@ const soulkill = defineCommand({
     console.line()
     printDetectReport(console, report)
   },
-})
+}), ROOT_META)
 
-const doctor = defineCommand({
+const doctor = withKnownFlags(defineCommand({
   meta: { name: 'doctor', description: 'Check that the construct baseline and discovery are intact' },
   args: {
     ...commonArgs,
@@ -140,9 +170,9 @@ const doctor = defineCommand({
     if (failed !== 0)
       process.exitCode = failed
   },
-})
+}), ROOT_META)
 
-const cost = defineCommand({
+const cost = withKnownFlags(defineCommand({
   meta: { name: 'cost', description: 'Token usage of the /implement runs recorded for this directory (from Claude Code session data)' },
   args: {
     ...commonArgs,
@@ -163,9 +193,9 @@ const cost = defineCommand({
     if (failed !== 0)
       process.exitCode = failed
   },
-})
+}), ROOT_META)
 
-const graph = defineCommand({
+const graph = withKnownFlags(defineCommand({
   meta: { name: 'graph', description: 'Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout' },
   args: {
     ...commonArgs,
@@ -184,9 +214,9 @@ const graph = defineCommand({
     if (failed !== 0)
       process.exitCode = failed
   },
-})
+}), ROOT_META)
 
-const sync = defineCommand({
+const sync = withKnownFlags(defineCommand({
   meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; --apply writes what it owns' },
   args: {
     ...commonArgs,
@@ -224,9 +254,9 @@ const sync = defineCommand({
     if (failed !== 0)
       process.exitCode = failed
   },
-})
+}), ROOT_META)
 
-const mutateApply = defineCommand({
+const mutateApply = withKnownFlags(defineCommand({
   meta: { name: 'apply', description: 'Apply one named wrong implementation from a brief: one find → replace in one file, with a copy and a record in .construct/mutations/' },
   args: {
     ...commonArgs,
@@ -248,22 +278,22 @@ const mutateApply = defineCommand({
     if (failed !== 0)
       process.exitCode = failed
   },
-})
+}), MUTATE_META)
 
-const mutateJudge = defineCommand({
+const mutateJudge = withKnownFlags(defineCommand({
   meta: { name: 'judge', description: 'Restore the mutated file from its copy and judge the outcome from a test report, or record a green report as the baseline' },
   args: {
     ...commonArgs,
     id: { type: 'string', description: 'The id of the applied mutation to restore and judge' },
     baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
     report: { type: 'string', description: 'The test report the runner wrote, in the format named by --format' },
-    format: { type: 'string', description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
+    format: { type: 'enum', options: [...REPORT_FORMATS], description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
   },
   run({ args }) {
     const console = ui(args, args.json ? stderrWriter : stdoutWriter)
     const failed = reported(console, () => {
-      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format as ReportFormat })
+      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format })
       if (args.json) {
         process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
         process.exitCode = judgeExit(result)
@@ -274,10 +304,10 @@ const mutateJudge = defineCommand({
     if (failed !== 0)
       process.exitCode = failed
   },
-})
+}), MUTATE_META)
 
 const mutate = defineCommand({
-  meta: { name: 'mutate', description: 'Apply a named wrong implementation and judge it from the report the runner hands over; runs no test itself' },
+  meta: MUTATE_META,
   subCommands: {
     apply: mutateApply,
     judge: mutateJudge,
@@ -285,11 +315,7 @@ const mutate = defineCommand({
 })
 
 export const main = defineCommand({
-  meta: {
-    name: 'construct',
-    version: VERSION,
-    description: 'mikoshi-construct — bootstrap for AI-native software projects',
-  },
+  meta: ROOT_META,
   subCommands: {
     init,
     attach,

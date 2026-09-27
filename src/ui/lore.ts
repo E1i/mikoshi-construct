@@ -28,6 +28,7 @@ export interface Lore {
   nameInvalid: string
   cancelled: string
   needsTerminal: string
+  unknownFlag: (flags: string[]) => string
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => string
   confirm: string
   dryRun: string
@@ -223,6 +224,7 @@ export const LORE: Lore = {
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
   cancelled: 'Netrunner jacked out. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
+  unknownFlag: (flags: string[]) => `BREACH FAILED // UNKNOWN ICE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not wired into this command; nothing was written`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `BREACH FAILED // WRONG CHROME: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written`,
   confirm: 'Inject Construct into repository?',
   dryRun: 'DRY RUN — nothing was written.',
@@ -428,6 +430,7 @@ export const PLAIN_LORE: Lore = {
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
   cancelled: 'Cancelled. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
+  unknownFlag: (flags: string[]) => `Unknown ${flags.length === 1 ? 'flag' : 'flags'}: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not part of this command; nothing was written.`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `Refused: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written.`,
   confirm: 'Write these files?',
   dryRun: 'Dry run — nothing was written.',

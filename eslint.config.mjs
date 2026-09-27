@@ -12,8 +12,9 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/sync': ['manifest', 'materialize', 'presets'],
   'src/ui': ['presets'],
   'src/failure.ts': ['record-ahead', 'ui'],
+  'src/known-flags.ts': [],
   'src/commands': ['detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
-  'src/program.ts': ['commands', 'detect', 'failure', 'presets', 'ui', 'version'],
+  'src/program.ts': ['commands', 'detect', 'failure', 'known-flags', 'presets', 'ui', 'version'],
   'src/cli.ts': ['program'],
 }
 
