@@ -1,0 +1,14 @@
+[
+  {
+    "path": "docs/cli.md",
+    "status": "M",
+    "additions": 2,
+    "deletions": 1
+  },
+  {
+    "path": "src/program.ts",
+    "status": "M",
+    "additions": 2,
+    "deletions": 1
+  }
+]

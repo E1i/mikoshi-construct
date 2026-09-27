@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "instructions",
+  "why": [
+    "scripts/construct/implement.workflow.mjs"
+  ]
+}

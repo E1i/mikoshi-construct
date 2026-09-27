@@ -1,0 +1,7 @@
+{
+  "verdict": "ladder",
+  "rule": "tests-shrunk",
+  "why": [
+    "tests/doctor.test.ts"
+  ]
+}

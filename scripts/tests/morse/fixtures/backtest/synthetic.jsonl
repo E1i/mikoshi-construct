@@ -1,0 +1,6 @@
+{"number": 101, "title": "docs only, nothing found", "files": [{"path": "docs/a.md", "status": "M", "additions": 2, "deletions": 1}], "fact": false, "factSource": "synthetic"}
+{"number": 102, "title": "src change, something found", "files": [{"path": "src/a.ts", "status": "M", "additions": 2, "deletions": 1}], "fact": true, "factSource": "synthetic"}
+{"number": 103, "title": "a test shrunk, something found", "files": [{"path": "tests/a.test.ts", "status": "M", "additions": 0, "deletions": 4}], "fact": true, "factSource": "synthetic"}
+{"number": 104, "title": "docs only, something found", "files": [{"path": "docs/b.md", "status": "M", "additions": 2, "deletions": 1}], "fact": true, "factSource": "synthetic"}
+{"number": 105, "title": "package.json, nothing found", "files": [{"path": "package.json", "status": "M", "additions": 2, "deletions": 1}], "fact": false, "factSource": "synthetic"}
+{"number": 106, "title": "no fact recorded", "files": [{"path": "src/b.ts", "status": "M", "additions": 2, "deletions": 1}], "fact": null, "factSource": "synthetic"}

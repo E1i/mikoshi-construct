@@ -1,0 +1,9 @@
+{
+  "verdict": "cheap",
+  "rule": "docs-only",
+  "why": [
+    ".changeset/quiet-owls.md",
+    "README.md",
+    "docs/cli.md"
+  ]
+}

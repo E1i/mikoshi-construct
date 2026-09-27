@@ -1,0 +1,14 @@
+[
+  {
+    "path": "src/a.ts",
+    "status": "M",
+    "additions": 2,
+    "deletions": 1
+  },
+  {
+    "path": "scripts/construct/implement.workflow.mjs",
+    "status": "M",
+    "additions": 2,
+    "deletions": 1
+  }
+]
