@@ -1,7 +1,7 @@
 import type { AttemptView, Stage } from './derive.js'
 import type { Next } from './next.js'
 import type { BoardView } from './render.js'
-import { stageText } from './derive.js'
+import { isSuperseded, stageText } from './derive.js'
 import { rowOf, unknownTally } from './row.js'
 
 export const JSON_FORMAT = 'board/1'
@@ -32,6 +32,7 @@ function attemptJson(view: AttemptView, live: boolean, board: BoardView): unknow
     pr: prJson(view),
     ci: details?.ci ?? null,
     files: details?.files ?? null,
+    superseded: view.attempt.supersededEvent === undefined ? null : { by: view.attempt.supersededEvent.by, ts: view.attempt.supersededEvent.ts },
     derived: {
       path: view.path,
       category: view.category,
@@ -64,6 +65,6 @@ export function boardJson(board: BoardView): Record<string, unknown> {
       }
     }),
     edges: board.edges ?? null,
-    unknown: Object.fromEntries(unknownTally(board.tasks.flatMap(task => task.attempts))),
+    unknown: Object.fromEntries(unknownTally(board.tasks.flatMap(task => task.attempts).filter(view => !isSuperseded(view)))),
   }
 }

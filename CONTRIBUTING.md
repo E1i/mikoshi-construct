@@ -73,14 +73,44 @@ places a bump touches are listed in CLAUDE.md.
 
 ## Scripts
 
-Four maintainer scripts run the Ghost workflow described in [AGENTS.md](AGENTS.md). None of them is
-a verdict on a change, so they sit outside the harness, each with its reason, in
-`tests/harness-membership.test.ts`. Paths below are placeholders: `<repo>` for a checkout,
+Every script in `package.json` has a row here, and `tests/contributing-scripts.test.ts` fails when a
+script has no row or a row names a script that no longer exists. `pnpm run quality` is the gate; the
+scripts it runs are marked "in the harness". Every other script sits outside the harness with its
+reason in `tests/harness-membership.test.ts`. The three `ghosts:*` scripts and `board` run the Ghost
+workflow described in [AGENTS.md](AGENTS.md). Paths below are placeholders: `<repo>` for a checkout,
 `<scratchpad>` for the directory outside the repository that holds briefs, tasks files, `status.md`
 and the journal, `<worktree>` for a Ghost's worktree.
 
 | Script | What it does | How to run it |
 |---|---|---|
+| `pnpm run quality` | The harness: `composition:check`, `model:check`, `privacy:check`, `lint`, `typecheck`, `test`, `docs:build`, `docs:pending` and `docs:anchors`, in that order, stopping at the first failure. | `pnpm run quality` |
+| `pnpm run ci` | An alias of `quality`; `run` is needed because bare `pnpm ci` is pnpm's install builtin. | `pnpm run ci` |
+| `pnpm composition:check` | In the harness. Checks each composition model under `architecture/composition/`: named after its id, every path it names exists, its rendered doc current. | `pnpm composition:check` |
+| `pnpm composition:render` | Rewrites the rendered flow docs from the composition models; `composition:check` is its gate. | `pnpm composition:render` |
+| `pnpm model:check` | In the harness. Checks that the picture of `construct.model.json` in `architecture/model.md` is current. | `pnpm model:check` |
+| `pnpm model:render` | Rewrites that picture from `construct.model.json`; `model:check` is its gate. | `pnpm model:render` |
+| `pnpm privacy:check` | In the harness. Fails on a home path or an unlisted domain in templates, docs, README or fixtures. | `pnpm privacy:check` |
+| `pnpm lint` | In the harness. ESLint over the repository; it is the only formatter. | `pnpm lint` |
+| `pnpm lint:fix` | ESLint with `--fix`, the way to fix style; `lint` is its gate. | `pnpm lint:fix` |
+| `pnpm typecheck` | In the harness. `tsc --noEmit`. | `pnpm typecheck` |
+| `pnpm test` | In the harness. Vitest over `tests/` and `scripts/tests/`, once. | `pnpm test [<file>]` |
+| `pnpm test:watch` | The same tests in watch mode. | `pnpm test:watch [<file>]` |
+| `pnpm docs:build` | In the harness. Builds the VitePress site in `docs/`. | `pnpm docs:build` |
+| `pnpm docs:pending` | In the harness. Builds a copy of the docs with the pending changesets rendered into the release index, so a changeset that breaks the site fails before the release does. | `pnpm docs:pending` |
+| `pnpm docs:anchors` | In the harness, after `docs:build`. Fails when an anchored nav or sidebar link does not resolve to a rendered heading. | `pnpm docs:anchors` |
+| `pnpm docs:dev` | Serves the docs locally with reload. | `pnpm docs:dev` |
+| `pnpm docs:preview` | Serves the built docs locally. | `pnpm docs:preview` |
+| `pnpm dev` | Runs the CLI from source; bare `pnpm dev` prints the usage. | `pnpm dev <command> [flags]`, for example `pnpm dev doctor --dir <repo>` |
+| `pnpm build` | Bundles the CLI with tsup into `dist/cli.js`. | `pnpm build` |
+| `pnpm contract:update` | The only writer of `contract/surface.json`, the recorded command-line surface; `tests/contract/` is its gate. | `pnpm contract:update` |
+| `pnpm contract:bump` | Compares `contract/surface.json` with the surface at the last release tag and fails when the pending changesets declare a weaker bump than the change requires. Outside the harness because it needs the tags and full history; CI runs it in its own job. | `pnpm contract:bump [--base <ref> --head <ref>]` |
+| `pnpm bench:architect` | The architect benchmark. It calls the Anthropic API and costs real money, so it runs only with `--yes`. | `pnpm bench:architect --yes [--rounds <n>] [--out <file>]` |
+| `pnpm changeset` | Adds a changeset: the bump level and the release-note line for a change. | `pnpm changeset` |
+| `pnpm version-packages` | Applies the pending changesets to the version and changelog, then renders the release notes. The release workflow runs it. | `pnpm version-packages` |
+| `pnpm release-notes:render` | Rewrites the rendered release notes under `docs/release-notes/` from the changelog. | `pnpm release-notes:render` |
+| `pnpm release` | Builds, stages the publish on npm and tags the release. The release workflow runs it; a publish cannot be undone. | `pnpm release` |
+| `pnpm release:verify` | Polls the registry until the version in `package.json` is installable. The release workflow runs it after a publish. | `pnpm release:verify` |
+| `pnpm prepublishOnly` | The npm hook that builds before a publish; not run by hand. | run by npm |
 | `pnpm ghosts:hash` | Prints the sha256 of a brief's `/implement` text, the hash the owner approves. | `pnpm ghosts:hash <scratchpad>/brief-<task>.md` |
 | `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256`, prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
 | `pnpm ghosts:watch` | Prints one read-only line per task of a tasks file: report age, last tool, ledger stage and whether the session is alive. | `pnpm ghosts:watch --tasks <scratchpad>/tasks-<batch>.json [--every <seconds>]` |

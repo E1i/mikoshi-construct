@@ -223,7 +223,17 @@ function categoryOf(attempt: Attempt, merged: boolean): Category {
   return task === undefined ? 'idle' : 'waiting'
 }
 
+function supersededFacts(attempt: Attempt): Stage[] {
+  const event = attempt.supersededEvent
+  return event === undefined ? [] : [{ name: 'superseded', ...fact(`by ${event.by}`, `journal event:superseded, ${new Date(event.ts).toISOString()}`) }]
+}
+
 function viewAttempt(attempt: Attempt, prs: PrList): AttemptView {
+  const view = viewPathAttempt(attempt, prs)
+  return { ...view, facts: [...view.facts, ...supersededFacts(attempt)] }
+}
+
+function viewPathAttempt(attempt: Attempt, prs: PrList): AttemptView {
   const cheapPath = cheapPathOf(attempt)
   if (cheapPath !== undefined)
     return viewCheapAttempt(attempt, cheapPath, prs)
@@ -273,10 +283,14 @@ export function deriveTasks(attempts: Attempt[], prs: PrList): TaskView[] {
   }).sort((a, b) => orderKey(a.live) - orderKey(b.live))
 }
 
+export function isSuperseded(view: AttemptView): boolean {
+  return view.attempt.supersededEvent !== undefined
+}
+
 export function summarize(tasks: TaskView[], now: Date): Summary {
   const counts = { running: 0, waiting: 0, blocked: 0 }
   let longest: Summary['longest']
-  for (const task of tasks) {
+  for (const task of tasks.filter(candidate => !isSuperseded(candidate.live))) {
     const { category, startedAt } = task.live
     if (category !== 'running' && category !== 'waiting' && category !== 'blocked')
       continue
@@ -293,8 +307,9 @@ export function summarize(tasks: TaskView[], now: Date): Summary {
 export function selectShown(tasks: TaskView[], all: boolean): TaskView[] {
   if (all)
     return tasks
-  const open = tasks.filter(task => OPEN_CATEGORIES.includes(task.live.category))
-  const merged = tasks
+  const current = tasks.filter(task => !isSuperseded(task.live))
+  const open = current.filter(task => OPEN_CATEGORIES.includes(task.live.category))
+  const merged = current
     .filter(task => task.live.category === 'merged')
     .sort((a, b) => b.live.mergedAt!.getTime() - a.live.mergedAt!.getTime())
     .slice(0, MERGED_SHOWN)
