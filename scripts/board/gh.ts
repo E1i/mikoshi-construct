@@ -52,6 +52,19 @@ export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
   return { kind: 'none' }
 }
 
+export function lookupPrNumber(list: PrList, number: number | undefined): PrLookup {
+  if (number === undefined)
+    return { kind: 'unknown', missing: 'pr; the journal event:path line records none' }
+  if (list.kind === 'failed')
+    return { kind: 'unknown', missing: 'pr; the gh query failed' }
+  const pr = list.prs.find(candidate => candidate.number === number)
+  if (pr !== undefined)
+    return { kind: 'found', pr }
+  if (list.truncated)
+    return { kind: 'unknown', missing: `pr #${number}; the gh list stopped at ${PR_LIST_LIMIT}` }
+  return { kind: 'unknown', missing: `pr #${number}; not in the gh list` }
+}
+
 export function prChecks(gh: GhRunner, repo: string, pr: PullRequest): string {
   let checks: Check[]
   try {

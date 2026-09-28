@@ -1,13 +1,14 @@
 import type { PrList, PrLookup } from './gh.js'
-import type { Attempt } from './handoff.js'
+import type { Attempt, PathEvent } from './handoff.js'
 import path from 'node:path'
-import { lookupPr } from './gh.js'
+import { lookupPr, lookupPrNumber } from './gh.js'
 
 export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'idle'
 
 export const OPEN_CATEGORIES: readonly Category[] = ['running', 'waiting', 'blocked']
 export const MERGED_SHOWN = 5
 
+const CHEAP_PATH = 'cheap'
 const RUNNING_STATES = ['writing', 'reviewing', 'reading']
 const LOCAL_STAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/
 
@@ -116,7 +117,47 @@ function mergedStage(attempt: Attempt, pr: PrLookup): string {
 function readyStage(attempt: Attempt, merged: boolean): string {
   if (!merged && changesRequested(attempt))
     return '— (last review verdict changes)'
-  return unknown('ready; no record type exists for it')
+  return unknown('ready; recorded only on the cheap path, journal event:path')
+}
+
+function cheapPathOf(attempt: Attempt): PathEvent | undefined {
+  return attempt.pathEvent?.path === CHEAP_PATH ? attempt.pathEvent : undefined
+}
+
+function pathStamp(pathEvent: PathEvent, field: 'started' | 'ready'): string {
+  const at = pathEvent[field]
+  return at === undefined ? unknown(`${field}; the journal event:path line records none`) : done(at, 'journal event:path')
+}
+
+function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): string {
+  if (pr.kind !== 'found')
+    return unknown(pr.kind === 'unknown' ? pr.missing : `pr #${pathEvent.pr}`)
+  return `#${pr.pr.number} ${pr.pr.state}${pathEvent.sha === undefined ? '' : ` (journal event:path, sha ${pathEvent.sha.slice(0, 7)})`}`
+}
+
+function cheapCategoryOf(pathEvent: PathEvent, merged: boolean): Category {
+  if (merged)
+    return 'merged'
+  return pathEvent.ready === undefined ? 'running' : 'waiting'
+}
+
+function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList): AttemptView {
+  const pr = lookupPrNumber(prs, pathEvent.pr)
+  const mergedAt = mergedAtOf(attempt, pr)
+  return {
+    attempt,
+    pr,
+    stages: [
+      { name: 'started', text: pathStamp(pathEvent, 'started') },
+      { name: 'ready', text: pathStamp(pathEvent, 'ready') },
+      { name: 'pr', text: cheapPrStage(pathEvent, pr) },
+      { name: 'merged', text: mergedStage(attempt, pr) },
+    ],
+    facts: [],
+    category: cheapCategoryOf(pathEvent, mergedAt !== undefined),
+    startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
+    mergedAt,
+  }
 }
 
 function prFact(attempt: Attempt, pr: PrLookup): string {
@@ -155,6 +196,9 @@ function categoryOf(attempt: Attempt, merged: boolean): Category {
 }
 
 function viewAttempt(attempt: Attempt, prs: PrList): AttemptView {
+  const cheapPath = cheapPathOf(attempt)
+  if (cheapPath !== undefined)
+    return viewCheapAttempt(attempt, cheapPath, prs)
   const pr = lookupPr(prs, attempt.branch)
   const mergedAt = mergedAtOf(attempt, pr)
   const merged = mergedAt !== undefined

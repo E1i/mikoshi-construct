@@ -3,6 +3,7 @@ import { onTheHarnessRoute, packageScripts, reachedByHarness } from './package-s
 
 const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bench:architect': 'a benchmark run on demand, not a verdict on a change',
+  'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',
   'changeset': 'an authoring tool',
   'composition:render': 'a writer; composition:check is its gate',

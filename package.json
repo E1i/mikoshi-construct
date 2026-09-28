@@ -38,6 +38,7 @@
   },
   "scripts": {
     "bench:architect": "tsx scripts/bench/run.ts",
+    "board": "tsx scripts/board/board.ts",
     "build": "tsup",
     "changeset": "changeset",
     "ci": "pnpm run quality",
