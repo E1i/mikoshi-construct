@@ -8,7 +8,7 @@ const FIXTURES = path.join(import.meta.dirname, 'fixtures')
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 
 function run(dir: string, extraArgs: string[] = []): { status: number, stdout: string, stderr: string } {
-  const result = execFileSync('pnpm', ['exec', 'tsx', CLI, dir, ...extraArgs], { cwd: REPO_ROOT, encoding: 'utf8' })
+  const result = execFileSync('pnpm', ['exec', 'tsx', CLI, dir, ...extraArgs], { cwd: REPO_ROOT, encoding: 'utf8', stdio: 'pipe' })
   return { status: 0, stdout: result, stderr: '' }
 }
 
