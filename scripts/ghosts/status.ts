@@ -88,7 +88,8 @@ export function ghostRowSessionId(statusText: string, id: string): string | unde
   const row = statusText.split('\n').find(line => line.startsWith(marker))
   if (row === undefined)
     return undefined
-  const match = /\bsession (\S+)/.exec(row)
+  const cells = row.split('|').map(cell => cell.trim())
+  const match = /(?:, |; )session (\S+)$/.exec(cells[6] ?? '')
   return match?.[1]
 }
 
