@@ -1,0 +1,20 @@
+{
+  "rows": [
+    {
+      "task": "a",
+      "class": "low",
+      "contour": {
+        "after": []
+      }
+    },
+    {
+      "task": "b",
+      "class": "low",
+      "contour": {
+        "after": [
+          "a"
+        ]
+      }
+    }
+  ]
+}
