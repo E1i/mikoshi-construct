@@ -1,3 +1,4 @@
+import type { SpawnSyncReturns } from 'node:child_process'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -20,6 +21,8 @@ interface Queue {
   ownerMerges: string
   tasks: QueueTask[]
 }
+
+const OUTPUT_LIMIT_BYTES = 1024 ** 3
 
 const TOP_KEYS = ['repo', 'status', 'ownerMerges', 'tasks']
 const TASK_KEYS = ['id', 'brief', 'worktree', 'issue']
@@ -64,7 +67,7 @@ function parseTask(queuePath: string, index: number, raw: unknown): QueueTask {
 
   if (!nonEmptyString(raw.brief))
     refuse(`${queuePath}: ${label}: 'brief' must be a non-empty string`)
-  const task: BriefTask = { id: raw.id, kind: 'brief', brief: raw.brief }
+  const task: BriefTask = { id: raw.id, kind: 'brief', brief: path.resolve(path.dirname(queuePath), raw.brief) }
   if ('worktree' in raw) {
     if (!nonEmptyString(raw.worktree))
       refuse(`${queuePath}: ${label}: 'worktree' must be a non-empty string`)
@@ -95,10 +98,11 @@ function parseQueue(queuePath: string, raw: unknown): Queue {
   if (!Array.isArray(raw.tasks))
     refuse(`${queuePath}: 'tasks' must be an array`)
 
+  const queueDir = path.dirname(queuePath)
   return {
-    repo: raw.repo,
-    status: raw.status,
-    ownerMerges: raw.ownerMerges,
+    repo: path.resolve(queueDir, raw.repo),
+    status: path.resolve(queueDir, raw.status),
+    ownerMerges: path.resolve(queueDir, raw.ownerMerges),
     tasks: raw.tasks.map((task, index) => parseTask(queuePath, index, task)),
   }
 }
@@ -120,18 +124,26 @@ function ghEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-function runGit(repo: string, args: string[]): string {
-  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' })
-  if (result.status !== 0)
-    refuse(`git ${args.join(' ')} failed in ${repo}: ${(result.stderr || result.stdout || '').trim()}`)
+function checkedOutput(call: string, repo: string, result: SpawnSyncReturns<string>): string {
+  if (result.error !== undefined || result.status !== 0)
+    refuse(`${call} failed in ${repo}: ${(result.error?.message || result.stderr || result.stdout || '').trim()}`)
   return result.stdout
 }
 
-function runGh(repo: string, args: string[]): string {
-  const result = spawnSync('gh', args, { cwd: repo, encoding: 'utf8', env: ghEnv() })
-  if (result.status !== 0)
-    refuse(`gh ${args.join(' ')} failed in ${repo}: ${(result.stderr || result.stdout || '').trim()}`)
-  return result.stdout
+function runGit(repo: string, args: string[]): string {
+  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: OUTPUT_LIMIT_BYTES })
+  return checkedOutput(`git ${args.join(' ')}`, repo, result)
+}
+
+function runGhJson<T>(repo: string, args: string[]): T {
+  const call = `gh ${args.join(' ')}`
+  const output = checkedOutput(call, repo, spawnSync('gh', args, { cwd: repo, encoding: 'utf8', env: ghEnv(), maxBuffer: OUTPUT_LIMIT_BYTES }))
+  try {
+    return JSON.parse(output) as T
+  }
+  catch (error) {
+    return refuse(`${call} in ${repo} did not return JSON: ${(error as Error).message}`)
+  }
 }
 
 function listTrackedFiles(repo: string): string[] {
@@ -147,13 +159,11 @@ interface RawPr {
 }
 
 function fetchOpenPrs(repo: string): RawPr[] {
-  const output = runGh(repo, ['pr', 'list', '--state', 'open', '--limit', '1000', '--json', 'number,title,headRefOid,files'])
-  return JSON.parse(output) as RawPr[]
+  return runGhJson<RawPr[]>(repo, ['pr', 'list', '--state', 'open', '--limit', '1000', '--json', 'number,title,headRefOid,files'])
 }
 
 function hasAwaitingRun(repo: string, sha: string): boolean {
-  const output = runGh(repo, ['run', 'list', '--commit', sha, '--limit', '1000', '--json', 'conclusion'])
-  const runs = JSON.parse(output) as { conclusion: string }[]
+  const runs = runGhJson<{ conclusion: string }[]>(repo, ['run', 'list', '--commit', sha, '--limit', '1000', '--json', 'conclusion'])
   return runs.some(run => run.conclusion === 'action_required')
 }
 
@@ -205,8 +215,7 @@ function writeTasks(tmpDir: string, queue: Queue): void {
       writeFileSync(path.join(tasksDir, fileName), briefText(task.brief, task.worktree))
       return
     }
-    const output = runGh(queue.repo, ['issue', 'view', String(task.issue), '--json', 'title,body'])
-    const { title, body } = JSON.parse(output) as { title: string, body: string }
+    const { title, body } = runGhJson<{ title: string, body: string }>(queue.repo, ['issue', 'view', String(task.issue), '--json', 'title,body'])
     writeFileSync(path.join(tasksDir, fileName), issueText(title, body))
   })
 }
@@ -250,6 +259,11 @@ function main(): void {
   catch (error) {
     rmSync(tmpDir, { recursive: true, force: true })
     throw error
+  }
+
+  if (existsSync(outPath)) {
+    rmSync(tmpDir, { recursive: true, force: true })
+    refuse(`${outPath} appeared during the run`)
   }
 
   try {
