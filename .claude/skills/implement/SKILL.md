@@ -52,9 +52,10 @@ repository's CLAUDE.md and `construct.json`.
    CLAUDE.md makes the build refuse, naming the line and saying `moved to AGENTS.md`. The ladder
    derives the result's `contractChanged` from `harness.contractPaths`: true only when a path in the
    harness's `changedFiles` equals one of these exactly. When `harness.contractPaths` is non-empty and
-   `harness.contractCheck` is non-empty, the check is declared: the harness agent runs it after the
+   `harness.contractCheck` is a non-empty string, the check is declared: the harness agent runs it after the
    harness command passes, and a rung whose declared check is red or unreported is `contract check
-   failed`, never `done`.
+   failed`, never `done`; a red check's reason names the command and its exit code, followed by its
+   last lines when it reported any.
 3. The build is the only check that the brief reached the args. On a non-zero exit it has refused the
    brief — no `Acceptance:` section, an acceptance item with no witness (`no witness`), a witness
    holding a backtick (`backtick`), no harness command, a `Contract paths:` or `Contract check:` line
@@ -88,8 +89,8 @@ repository's CLAUDE.md and `construct.json`.
      `no change` attempt and never `done`. A rung whose harness ran a witness the sha256 does not match
      — a substituted, edited or unrun script — is a `witness not run verbatim` attempt, checked after
      an immutable path and before an unwitnessed acceptance, and never `done`. A reported witness is
-     matched to the brief's by its criterion and its `ranSha256`; the `command` the harness reports is
-     informational and never decides the outcome. A rung whose changed
+     matched to the brief's by its criterion and its `ranSha256`, and the harness is not asked to report
+     the witness's command. A rung whose changed
      files include a source file (a path
      with a `src/` segment ending in `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` or `.cjs`,
      not `.d.ts`) and no test file (a path with a `tests/` segment named `*.test.` with one of those

@@ -21,6 +21,8 @@ Choose each task's contour before anything else: the cheapest one that yields th
   the risk. When the contour is not obvious, estimate it briefly first. The cheap path keeps CI and the
   repository's merge rules.
 - The rules below on briefs and witnesses apply to ladder-path tasks.
+- A task is never done twice. The brief proves the witnesses are executable (byte-identical, `bash -n`,
+  red on the base for a behavioural reason) and does not implement the task. If the implementation is already done and proven by the witnesses, it becomes the pull request; a separate implementer does not repeat it.
 
 Rules:
 
@@ -91,5 +93,24 @@ Rules:
 - If the feature is ambiguous about a contract or a boundary, put one precise question first and stop
   after it; do not plan on a guess.
 
-Output the tasks as a numbered list; for each, one line `/implement <task> — acceptance: …; effort:
-<class>` that can be pasted as-is. Do not implement anything.
+Output the tasks as a numbered list. A ladder-path task is the full skeleton of its brief, in the shape
+the `/implement` build turns into args, filled in so it can be pasted as-is:
+
+```text
+/implement <the task in one sentence>
+
+Effort: <low|medium|high> — <one-line reason>
+
+Design:
+- <a decision the implementation must follow>
+
+Acceptance: <a criterion, red on the base and green after the change> — witness: `<command>`; <the next criterion> — witness: `<command>`
+
+Invariants: <what is green before and after the change>
+
+Immutable: <a path the change may not touch>; <a directory, ending in />
+```
+
+Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
+task carries no design. A cheap-path task is one line, `<task> — acceptance: …; effort: <class>`. Do not
+implement anything.

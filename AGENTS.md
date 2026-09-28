@@ -577,6 +577,8 @@ Morse is not introduced. The classification is not designed in advance: after a 
 product changes, those changes and the cases where the cheap path proved insufficient are reviewed,
 and the rule is revised from them.
 
+After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
+
 ## Ghosts
 
 A Ghost, a ladder run in a session of its own, is started only by `pnpm ghosts:launch`, which checks
