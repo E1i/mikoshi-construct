@@ -1,0 +1,73 @@
+{
+  "repo": "repo",
+  "status": "status.md",
+  "out": ".",
+  "tasks": [
+    {
+      "id": "alpha-1",
+      "brief": "brief-alpha.md",
+      "worktree": "worktrees/alpha-1",
+      "branch": "ghost/alpha-1"
+    },
+    {
+      "id": "alpha-2",
+      "brief": "brief-alpha.md",
+      "worktree": "worktrees/alpha-2",
+      "branch": "ghost/alpha-2"
+    },
+    {
+      "id": "beta-1",
+      "brief": "brief-beta.md",
+      "worktree": "worktrees/beta-1",
+      "branch": "ghost/beta-1"
+    },
+    {
+      "id": "gamma-1",
+      "brief": "brief-gamma.md",
+      "worktree": "worktrees/gamma-1",
+      "branch": "ghost/gamma-1"
+    },
+    {
+      "id": "delta-1",
+      "brief": "brief-delta.md",
+      "worktree": "worktrees/delta-1",
+      "branch": "ghost/delta-1"
+    },
+    {
+      "id": "m1",
+      "brief": "brief-m1.md",
+      "worktree": "worktrees/m1",
+      "branch": "ghost/m1"
+    },
+    {
+      "id": "m2",
+      "brief": "brief-m2.md",
+      "worktree": "worktrees/m2",
+      "branch": "ghost/m2"
+    },
+    {
+      "id": "m3",
+      "brief": "brief-m3.md",
+      "worktree": "worktrees/m3",
+      "branch": "ghost/m3"
+    },
+    {
+      "id": "m4",
+      "brief": "brief-m4.md",
+      "worktree": "worktrees/m4",
+      "branch": "ghost/m4"
+    },
+    {
+      "id": "m5",
+      "brief": "brief-m5.md",
+      "worktree": "worktrees/m5",
+      "branch": "ghost/m5"
+    },
+    {
+      "id": "m6",
+      "brief": "brief-m6.md",
+      "worktree": "worktrees/m6",
+      "branch": "ghost/m6"
+    }
+  ]
+}
