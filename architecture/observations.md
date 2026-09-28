@@ -26,6 +26,29 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-28 · The witness procedure's first live run: it held; the report step did not
+
+**What was observed.** The fixed procedure from PR #301 and PR #307 — the harness decodes each witness
+from base64, records its sha256, and runs it as `bash <dir>/witness-N.sh` from a directory made once
+with `mktemp -d` outside the repository — ran for the first time on a real ladder: run
+`wf_423e0cfb-8b8`, for #283 and #319, two rungs, nine witnesses. On both rungs every witness was
+decoded and run as fixed, every recorded sha256 equalled the digest the ladder handed over, and the
+directory was made once and reached by its absolute path after the `cd` into the base worktree. Every
+witness exited 1 on the base, for a behavioural reason, and 0 after the change. The owner accepted the
+procedure on this run.
+
+**What failed was the step after it.** The verify prompt asks the harness to report each witness's
+decoded text as its `command`. On rung 1 the harness paraphrased that field for eight of the nine
+witnesses; the ninth, a short loop, it copied. The ladder matches an observed witness to the agreed one
+by criterion and `command` text, found no match for the eight, and ended the rung `acceptance not
+witnessed` — a false label on witnesses whose sha256 matched and which had run red then green. Rung 2,
+on the unchanged tree, read the scripts back, copied them, and passed. The wasted rung cost about 2.1M
+tokens by `construct cost`.
+
+**Boundary.** One run, one repository, one harness model; nothing here is a rate. It shows that once
+the sha256 matches, the copied `command` carries no information the match lacks and is the fragile
+part; the matching rule itself is changed in the brief for #279 and #280, not here.
+
 ## 2026-09-27 · The Shredder signal, refined: the live front, one time scale, instruments kept apart
 
 Three refinements to *The Shredder signal: splitting ladder tasks for parallel runs is not needed*, from
