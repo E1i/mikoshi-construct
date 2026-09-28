@@ -87,7 +87,9 @@ repository's CLAUDE.md and `construct.json`.
      implementer that reports done with no changed file, or a green tree with nothing changed, is a
      `no change` attempt and never `done`. A rung whose harness ran a witness the sha256 does not match
      — a substituted, edited or unrun script — is a `witness not run verbatim` attempt, checked after
-     an immutable path and before an unwitnessed acceptance, and never `done`. A rung whose changed
+     an immutable path and before an unwitnessed acceptance, and never `done`. A reported witness is
+     matched to the brief's by its criterion and its `ranSha256`; the `command` the harness reports is
+     informational and never decides the outcome. A rung whose changed
      files include a source file (a path
      with a `src/` segment ending in `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` or `.cjs`,
      not `.d.ts`) and no test file (a path with a `tests/` segment named `*.test.` with one of those
@@ -106,7 +108,13 @@ repository's CLAUDE.md and `construct.json`.
    - `base red` — the harness was red on the base before any change, so no rung ran; `lastFailure`
      carries the excerpt. Make the base green, or name what is red on purpose, before running again.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
-     ran; `validationError` carries the validator's text.
+     ran; `validationError` carries the validator's text. It is also the status of a rung whose
+     witness is invalid (outcome `witness invalid`, checked after a witness not run verbatim and
+     before an unwitnessed acceptance): after the change the witness exited 126 or 127, exited 2 with
+     a shell syntax error, or failed with the same exit code and the same last lines as on the base
+     once every temporary path is replaced by `<tmp>`. No implementation can turn such a witness
+     green, so the run stops at that rung, with no higher rung and no design step, and the reason
+     names the witness; `validationError` carries it.
    - `stopped` — the run was stopped from outside before it returned, so the runtime gave no result.
      It is the one status the script never returns; you write it.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
@@ -126,8 +134,8 @@ repository's CLAUDE.md and `construct.json`.
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
      rung that changed nothing (`no change`), from a rung that changed an immutable path
      (`immutable changed`), from a rung that changed source with no test (`untested change`), from a
-     rung whose declared contract check was red or unreported (`contract check failed`), from
-     an acceptance not witnessed, from a blocked report and from a design the schema rejected.
+     rung whose declared contract check was red or unreported (`contract check failed`), from an
+     invalid witness (`witness invalid`), from an acceptance not witnessed, from a blocked report and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:
      - `stopped` / `environment` — it was failing on something outside the task, such as the

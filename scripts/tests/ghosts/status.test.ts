@@ -74,6 +74,17 @@ describe('ghostRowSessionId', () => {
     expect(ghostRowSessionId(withRow, 'g1')).toBe('sess-1')
   })
 
+  it('reads the id only from the field the launcher writes it in, whatever session words a path or a brief name carries', () => {
+    const writing = writingRow({ id: 'g1', worktree: '/w/session wt/g1', baseSha: 'a', start: 't', briefFileName: 'brief session notes.md', sessionId: 'sess-1' })
+    expect(ghostRowSessionId(upsertGhostRow(STATUS, 'g1', writing), 'g1')).toBe('sess-1')
+
+    const free = freeRow({ id: 'g1', worktree: '/w/session wt/g1', headSha: 'a', start: 't', end: 't2', outcome: sessionOutcome(0, 'done', '/w/session x/ghost-g1.jsonl', 'sess-1') })
+    expect(ghostRowSessionId(upsertGhostRow(STATUS, 'g1', free), 'g1')).toBe('sess-1')
+
+    const installFailed = freeRow({ id: 'g1', worktree: '/w/session wt/g1', headSha: 'a', start: 't', end: 't2', outcome: installFailedOutcome(1, '/w/session x/ghost-g1.install.log') })
+    expect(ghostRowSessionId(upsertGhostRow(STATUS, 'g1', installFailed), 'g1')).toBeUndefined()
+  })
+
   it('is undefined when there is no row for the id, even though a longer id has one', () => {
     const row12 = writingRow({ id: 'g12', worktree: '/w/wt-g12', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 'sess-12' })
     const withRow = upsertGhostRow(STATUS, 'g12', row12)

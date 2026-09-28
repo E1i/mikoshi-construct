@@ -7,7 +7,14 @@ export function reportAgeSeconds(reportPath: string): number | null {
   if (!existsSync(reportPath))
     return null
   const stat = statSync(reportPath)
-  return Math.floor((Date.now() - stat.mtimeMs) / 1000)
+  return Math.trunc((Date.now() - stat.mtimeMs) / 1000)
+}
+
+export function reportAgeField(reportPath: string): string {
+  const age = reportAgeSeconds(reportPath)
+  if (age === null)
+    return 'no report'
+  return age < 0 ? 'report in the future' : `report ${age}s`
 }
 
 function readTail(reportPath: string): string | null {
