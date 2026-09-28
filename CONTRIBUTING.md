@@ -63,7 +63,17 @@ Nothing enforces this; it is kept by review.
 3. Ship the generated artifacts pre-generated (contract types, rendered composition docs) so the
    harness is green at first run; regenerate them in a scratch project and copy back.
 4. Add the preset to the acceptance matrix in `.github/workflows/ci.yml` and to the README table.
-5. `pnpm changeset` — `minor`, summary starting with `templates:`.
+5. `pnpm changeset` — `minor`, one line starting with `templates:` (see [Changesets](#changesets)).
+
+## Changesets
+
+A changeset is one line, written from the user's point of view: what someone who runs the CLI or
+opens a generated project now gets, and, when they must act, what to do. Details — the design, the
+cases, the files touched — go in the pull request, and the release note links to it:
+`@changesets/changelog-github` puts the pull request link, the commit and the author in front of the
+line when the version pull request is built, so the line never writes them itself. Start the line
+with `cli:` or `templates:` and pick the bump as [.changeset/README.md](.changeset/README.md) says.
+`tests/changesets-one-line.test.ts` fails when a pending changeset's summary runs past one line.
 
 ## Version ranges
 
