@@ -94,7 +94,7 @@ const DESIGN_EFFORT = 'xhigh'
 const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
-const briefDesign = typeof args.design === 'string' ? args.design : null
+const briefDesign = typeof args.design === 'string' && args.design !== '' ? args.design : null
 const acceptance = args.acceptance ?? []
 const invariants = args.invariants ?? []
 const immutable = args.immutable ?? []
@@ -165,11 +165,13 @@ function witnessScriptLines(digest, n) {
   ].join('\n')
 }
 
+const WITNESS_DIR_LINE = 'Make <dir> once, before the first witness, with mktemp -d, and write the absolute path it printed wherever <dir> stands: it lies outside the repository, so it still resolves after the cd into the base worktree and adds no file to the working tree.'
+
 function harnessPrompt(baseSha) {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    `Witness each acceptance criterion. Each witness is given only as base64, one script per criterion; in a scratch directory of your own, <dir>, decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
+    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. Each witness is given only as base64, one script per criterion; decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
     `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256, and the decoded script's own text as command. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
