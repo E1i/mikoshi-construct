@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import YAML from 'yaml'
-import { blockingJobs, DOCS_ONLY_JOB, isDocsOnly, SKIPPED_WHEN_DOCS_ONLY } from '../../ci/required.js'
+import { blockingJobs, CLASSIFY_JOB, SKIPPED_ON_FAST_PATH } from '../../ci/required.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -11,60 +11,52 @@ interface Job { needs?: string | string[], if?: string, steps: { run?: string }[
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
 
-function needs(docsOnly: boolean, results: Partial<Record<string, JobResult>> = {}): Needs {
+const SKIPPED = Object.fromEntries(SKIPPED_ON_FAST_PATH.map(job => [job, 'skipped'])) as Record<string, JobResult>
+
+function needs(fastPath: boolean, results: Partial<Record<string, JobResult>> = {}): Needs {
   return {
-    [DOCS_ONLY_JOB]: { result: 'success', outputs: { 'docs-only': String(docsOnly) } },
+    [CLASSIFY_JOB]: { result: 'success', outputs: { 'fast-path': String(fastPath) } },
     'quality': { result: results.quality ?? 'success' },
+    'package': { result: results.package ?? 'success' },
     'contract-bump': { result: results['contract-bump'] ?? 'success' },
-    [SKIPPED_WHEN_DOCS_ONLY]: { result: results[SKIPPED_WHEN_DOCS_ONLY] ?? 'success' },
+    'acceptance': { result: results.acceptance ?? 'success' },
   }
 }
 
-describe('docs-only classification', () => {
-  it('reads a pull request of changesets, docs and the changelog as docs-only', () => {
-    expect(isDocsOnly(['.changeset/a.md'])).toBe(true)
-    expect(isDocsOnly(['.changeset/a.md', 'docs/guide/x.md', 'CHANGELOG.md'])).toBe(true)
-  })
-
-  it('reads package.json, which templates embed as the construct version, as not docs-only', () => {
-    expect(isDocsOnly(['.changeset/a.md', 'CHANGELOG.md', 'package.json'])).toBe(false)
-  })
-
-  it('reads a near-miss path as not docs-only', () => {
-    expect(isDocsOnly(['docs.md'])).toBe(false)
-    expect(isDocsOnly(['templates/docs/x.md'])).toBe(false)
-    expect(isDocsOnly(['CHANGELOG.md.bak'])).toBe(false)
-  })
-
-  it('reads no paths at all as not docs-only', () => {
-    expect(isDocsOnly([])).toBe(false)
-  })
-})
-
 describe('the required verdict', () => {
-  it('is green on a docs-only pull request whose preset matrix was skipped', () => {
-    expect(blockingJobs(needs(true, { [SKIPPED_WHEN_DOCS_ONLY]: 'skipped' }))).toEqual([])
+  it('is green on the fast path with the package and the preset matrix skipped', () => {
+    expect(blockingJobs(needs(true, SKIPPED))).toEqual([])
   })
 
-  it('is red when the preset matrix was skipped on a pull request that is not docs-only', () => {
-    expect(blockingJobs(needs(false, { [SKIPPED_WHEN_DOCS_ONLY]: 'skipped' }))).toEqual([`${SKIPPED_WHEN_DOCS_ONLY}: skipped`])
+  it('is red when the package or the preset matrix was skipped on the full path', () => {
+    expect(blockingJobs(needs(false, SKIPPED))).toEqual(['package: skipped', 'acceptance: skipped'])
+    expect(blockingJobs(needs(false, { acceptance: 'skipped' }))).toEqual(['acceptance: skipped'])
   })
 
-  it('is red when a preset job failed or was cancelled', () => {
-    expect(blockingJobs(needs(false, { [SKIPPED_WHEN_DOCS_ONLY]: 'failure' }))).toEqual([`${SKIPPED_WHEN_DOCS_ONLY}: failure`])
-    expect(blockingJobs(needs(false, { [SKIPPED_WHEN_DOCS_ONLY]: 'cancelled' }))).toEqual([`${SKIPPED_WHEN_DOCS_ONLY}: cancelled`])
+  it('is red when a preset job failed or was cancelled, whether or not quality passed', () => {
+    expect(blockingJobs(needs(false, { acceptance: 'failure' }))).toEqual(['acceptance: failure'])
+    expect(blockingJobs(needs(false, { acceptance: 'cancelled' }))).toEqual(['acceptance: cancelled'])
+    expect(blockingJobs(needs(false, { quality: 'failure', acceptance: 'failure' }))).toEqual(['quality: failure', 'acceptance: failure'])
   })
 
-  it('is red when quality fails on a docs-only pull request', () => {
-    expect(blockingJobs(needs(true, { quality: 'failure', [SKIPPED_WHEN_DOCS_ONLY]: 'skipped' }))).toEqual(['quality: failure'])
+  it('is red when quality fails and the preset matrix passes', () => {
+    expect(blockingJobs(needs(false, { quality: 'failure' }))).toEqual(['quality: failure'])
   })
 
-  it('accepts no skip other than the preset matrix on a docs-only pull request', () => {
-    expect(blockingJobs(needs(true, { 'quality': 'skipped', 'contract-bump': 'skipped' }))).toEqual(['quality: skipped', 'contract-bump: skipped'])
+  it('is red when quality fails on the fast path', () => {
+    expect(blockingJobs(needs(true, { ...SKIPPED, quality: 'failure' }))).toEqual(['quality: failure'])
+  })
+
+  it('accepts no skip other than the package and the preset matrix on the fast path', () => {
+    expect(blockingJobs(needs(true, { ...SKIPPED, 'quality': 'skipped', 'contract-bump': 'skipped' }))).toEqual(['quality: skipped', 'contract-bump: skipped'])
+  })
+
+  it('is red when the package failed and left the preset matrix skipped', () => {
+    expect(blockingJobs(needs(false, { package: 'failure', acceptance: 'skipped' }))).toEqual(['package: failure', 'acceptance: skipped'])
   })
 
   it('is red when the classification itself failed', () => {
-    expect(blockingJobs({ ...needs(false, { [SKIPPED_WHEN_DOCS_ONLY]: 'skipped' }), [DOCS_ONLY_JOB]: { result: 'failure', outputs: {} } })).toEqual([`${DOCS_ONLY_JOB}: failure`, `${SKIPPED_WHEN_DOCS_ONLY}: skipped`])
+    expect(blockingJobs({ ...needs(false, SKIPPED), [CLASSIFY_JOB]: { result: 'failure', outputs: {} } })).toEqual([`${CLASSIFY_JOB}: failure`, 'package: skipped', 'acceptance: skipped'])
   })
 
   it('is red when it was given no job results', () => {
@@ -81,12 +73,22 @@ describe('ci.yml wiring', () => {
     expect(workflow.jobs.required!.steps.map(step => step.run ?? '').join('\n')).toContain('scripts/ci/verdict.ts')
   })
 
-  it('skips only the preset matrix on docs-only, and quality runs the docs build on every change', () => {
+  it('skips only the package and the preset matrix on the fast path, and quality runs the docs build on every change', () => {
     const conditional = Object.entries(workflow.jobs).filter(([, job]) => job.if !== undefined).map(([name]) => name)
-    expect(conditional.sort()).toEqual([SKIPPED_WHEN_DOCS_ONLY, 'required'].sort())
-    expect(workflow.jobs[SKIPPED_WHEN_DOCS_ONLY]!.if).toBe(`needs.${DOCS_ONLY_JOB}.outputs.docs-only != 'true'`)
-    expect(workflow.jobs[DOCS_ONLY_JOB]!.outputs).toHaveProperty('docs-only')
+    expect(conditional.sort()).toEqual([...SKIPPED_ON_FAST_PATH, 'required'].sort())
+    for (const job of SKIPPED_ON_FAST_PATH)
+      expect(workflow.jobs[job]!.if).toBe(`needs.${CLASSIFY_JOB}.outputs.fast-path != 'true'`)
+    expect(workflow.jobs[CLASSIFY_JOB]!.outputs).toHaveProperty('fast-path')
     expect(workflow.jobs.quality!.steps.map(step => step.run ?? '')).toContain('pnpm run quality')
     expect(manifest.scripts.quality).toContain('pnpm docs:pending')
+  })
+
+  it('starts the preset matrix beside quality rather than after it', () => {
+    expect(workflow.jobs.quality!.needs).toBeUndefined()
+    expect([workflow.jobs.acceptance!.needs].flat()).not.toContain('quality')
+  })
+
+  it('classifies a renamed file by both of its paths', () => {
+    expect(workflow.jobs[CLASSIFY_JOB]!.steps.map(step => step.run ?? '').join('\n')).toContain('--no-renames')
   })
 })
