@@ -56,3 +56,6 @@ Return these fields; the runtime validates the shape against the schema it gives
   sha, created, installed and removed in one shell with the `trap` the prompt gives, so it goes even
   when a step fails). You report exit codes; the ladder decides what they mean. The working tree has
   one writer: never stash, check out, move or rewrite a file in it to reach the base.
+- `contractCheck` — only when the prompt names a contract check: after the harness command passed,
+  run that command in the working tree and report `command` as given, `exitCode` and `excerpt`, its
+  last lines. When the prompt names no contract check, leave the field out.
