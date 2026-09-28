@@ -1,7 +1,6 @@
 /* eslint-disable test/prefer-lowercase-title */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
@@ -60,7 +59,7 @@ describe('shredder collector', () => {
     expect(run(world).status).toBe(0)
     const content = taskFile(world, '01-a.brief.md')
     expect(content).not.toContain('This header is not part of the approved text')
-    expect(content).not.toMatch(/^\/implementation/)
+    expect(content).not.toMatch(/^\/implementation/m)
   })
 
   it('P2 should keep the Paths: line from an issue that has one', () => {
@@ -197,7 +196,6 @@ describe('shredder collector', () => {
     const ops = readFileSync(fsSpyLog, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as { op: string, from: string, to: string | null })
     const created = ops.filter(op => op.op === 'mkdtemp' && path.dirname(op.from) === world)
     expect(created).toHaveLength(1)
-    expect(path.dirname(created[0]!.from)).not.toBe(tmpdir())
     expect(ops.some(op => op.op === 'cp')).toBe(false)
   })
 
@@ -220,6 +218,7 @@ describe('shredder collector', () => {
     expect(result.status).not.toBe(0)
     expect(`${result.stdout}${result.stderr}`).not.toContain(outDir)
     expect(readFileSync(path.join(outDir, 'keep.txt'), 'utf8')).toBe('keep\n')
+    expect(readdirSync(outDir)).toEqual(['keep.txt'])
   })
 
   it('P12 should accept a brief task with a worktree and issue tasks whose shape is well-formed', () => {
@@ -247,6 +246,7 @@ describe('shredder collector', () => {
     const world = newWorld('many-prs')
     expect(run(world).status).toBe(0)
     const prs = JSON.parse(readFileSync(path.join(world, 'snapshot', 'open-prs.json'), 'utf8')) as { number: number, runsAwaitingApproval: boolean }[]
+    expect(prs).toHaveLength(31)
     expect(prs.find(pr => pr.number === 11)?.runsAwaitingApproval).toBe(true)
   })
 
@@ -275,6 +275,8 @@ describe('shredder collector', () => {
     writeCollectOut(world, result)
     expect(result.status).toBe(0)
     worldCheck('check-rename', world)
+    const before = readFileSync(path.join(world, '.world', 'entries-before'), 'utf8').split('\n').filter(Boolean)
+    expect(readdirSync(world).sort()).toEqual([...before, 'collect.out', 'snapshot'].sort())
   })
 
   it('P15 should not leave a temporary directory when the rename fails, naming the rename and leaving --out untouched', () => {
@@ -302,5 +304,42 @@ describe('shredder collector', () => {
       expect(line.endsWith('GH_REPO=')).toBe(true)
       expect(line).not.toContain(`cwd=${REPO_ROOT} `)
     }
+  })
+})
+
+describe('shredder collector outside the Design (#337)', () => {
+  it('should read a gh output larger than the default 1 MiB buffer', () => {
+    const world = newWorld('large-output')
+    expect(run(world).status).toBe(0)
+    const prs = JSON.parse(readFileSync(path.join(world, 'snapshot', 'open-prs.json'), 'utf8')) as { title: string }[]
+    expect(prs[0]!.title).toHaveLength(2_000_000)
+  })
+
+  it('should name the error of a call that could not start, and leave nothing', () => {
+    const world = newWorld('repo-missing')
+    expect(run(world).status).not.toBe(0)
+    worldCheck('check-refused', world)
+  })
+
+  it('should name the gh call whose output is not JSON, and leave nothing', () => {
+    for (const kind of ['gh-pr-garbled', 'gh-issue-garbled', 'gh-run-garbled']) {
+      const world = newWorld(kind)
+      expect(run(world).status).not.toBe(0)
+      worldCheck('check-refused', world)
+    }
+  })
+
+  it('should not replace an empty directory that appears at --out during the run', () => {
+    const world = newWorld('empty-out-appears')
+    const result = runCollector(world, { NODE_OPTIONS: `--import ${path.join(world, '.world', 'empty-out-appears.mjs')}` })
+    writeCollectOut(world, result)
+    expect(result.status).not.toBe(0)
+    worldCheck('check-refused', world)
+  })
+
+  it('should resolve the queue\'s relative paths against the queue file\'s directory, not the caller\'s', () => {
+    const world = newWorld('relative-paths')
+    expect(run(world).status).toBe(0)
+    worldCheck('check-snapshot', world)
   })
 })

@@ -24,6 +24,11 @@ Shredder. The corpus was checked against the frozen hand-run matrix of 2026-09-2
 | `owner-merges.md` | The owner-merged kinds (header starts `\| kind \| paths (globs) \|`) |
 | `expected.json` | The expected `--json` output. Shredder does not read it |
 
+A live snapshot is written by `scripts/shredder/collect.ts --queue <file> --out <dir>`. The queue's `repo`, `status`,
+`ownerMerges` and `brief` paths resolve against the directory of the queue file, never the caller's working directory,
+so a queue means the same thing wherever it is run from. `worktree` is copied into the brief's `Worktree:` line as
+written.
+
 `NN` is the queue order. A task's name is `#<id>` when `<id>` is all digits, otherwise `<id>` itself (`b4`,
 `xs-lint-policy`).
 
