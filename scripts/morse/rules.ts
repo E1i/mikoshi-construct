@@ -13,12 +13,12 @@ export type Verdict = 'ladder' | 'cheap'
 
 export interface Prediction {
   verdict: Verdict
-  rule: string
+  rule: RuleId
   why: string[]
 }
 
-export interface Rule {
-  id: string
+export interface Rule<Id extends string = string> {
+  id: Id
   verdict: Verdict
   fires: (files: ChangedFile[]) => string[] | null
 }
@@ -34,7 +34,7 @@ function isInstructions(path: string): boolean {
 
 function isTest(path: string): boolean {
   const segments = path.split('/')
-  if (segments.includes('tests'))
+  if (segments.slice(0, -1).includes('tests'))
     return true
   if (path.startsWith('e2e/'))
     return true
@@ -76,7 +76,7 @@ function testShrunk(file: ChangedFile): boolean {
   return file.deletions > 0
 }
 
-export const RULES: Rule[] = [
+export const RULES = [
   {
     id: 'instructions',
     verdict: 'ladder',
@@ -117,9 +117,11 @@ export const RULES: Rule[] = [
       return matches.length > 0 ? sortedPaths(matches) : null
     },
   },
-]
+] as const satisfies readonly Rule[]
 
-export function classify(files: ChangedFile[], rules: Rule[] = RULES): Prediction {
+export type RuleId = (typeof RULES)[number]['id']
+
+export function classify(files: ChangedFile[], rules: readonly Rule<RuleId>[] = RULES): Prediction {
   if (files.length === 0)
     throw new MorseRefusal('the diff is empty')
 

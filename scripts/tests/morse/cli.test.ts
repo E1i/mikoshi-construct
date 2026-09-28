@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -32,6 +32,14 @@ function sha(w: string, name: string): string {
 
 function expectedLine(w: string, head: string): unknown {
   return JSON.parse(readFileSync(path.join(w, '.world', 'expect', head), 'utf8'))
+}
+
+function gitQuiet(repo: string, args: string[]): string {
+  return execFileSync('git', ['-c', 'user.name=world', '-c', 'user.email=world@example.invalid', '-c', 'commit.gpgsign=false', '-C', repo, ...args], { encoding: 'utf8' })
+}
+
+function repoUntouched(w: string): void {
+  expect(gitQuiet(path.join(w, 'repo'), ['status', '--porcelain', '--untracked-files=all'])).toBe('')
 }
 
 const HEADS = execFileSync('bash', [WORLD_SH, 'heads'], { encoding: 'utf8' }).trim().split(' ')
@@ -93,6 +101,8 @@ describe('morse predict', () => {
     const result = run(['predict', '--repo', path.join(w, 'repo'), '--base', base, '--head', target, '--task', 't-src'])
     expect(result.status).not.toBe(0)
     expect(`${result.stdout}${result.stderr}`).toContain('--journal')
+    expect(readdirSync(w).sort()).toEqual(['.world', 'repo', 'sha'])
+    repoUntouched(w)
   })
 
   it('predict refuses an empty diff', () => {
@@ -102,6 +112,7 @@ describe('morse predict', () => {
     const result = run(['predict', '--repo', path.join(w, 'repo'), '--base', base, '--head', base, '--task', 't-empty', '--journal', journal])
     expect(result.status).not.toBe(0)
     expect(`${result.stdout}${result.stderr}`.toLowerCase()).toContain('the diff is empty')
+    expect(existsSync(journal)).toBe(false)
   })
 
   it('predict refuses an unknown revision', () => {
@@ -111,6 +122,47 @@ describe('morse predict', () => {
     const result = run(['predict', '--repo', path.join(w, 'repo'), '--base', base, '--head', 'no-such-rev', '--task', 't-unknown', '--journal', journal])
     expect(result.status).not.toBe(0)
     expect(`${result.stdout}${result.stderr}`).toContain('no-such-rev')
+    expect(existsSync(journal)).toBe(false)
+  })
+
+  it('predict refuses a journal inside the repository', () => {
+    const w = world()
+    const base = sha(w, 'base')
+    const target = sha(w, 'src')
+    const journal = path.join(w, 'repo', 'docs', 'morse.jsonl')
+    const result = run(['predict', '--repo', path.join(w, 'repo'), '--base', base, '--head', target, '--task', 't-src', '--journal', journal])
+    expect(result.status).not.toBe(0)
+    expect(`${result.stdout}${result.stderr}`).toContain(journal)
+    expect(existsSync(journal)).toBe(false)
+    repoUntouched(w)
+  })
+
+  it('predict refuses a journal inside the working directory\'s repository', () => {
+    const w = world()
+    const here = world()
+    const base = sha(w, 'base')
+    const target = sha(w, 'src')
+    const journal = path.join(here, 'repo', 'morse.jsonl')
+    const result = run(['predict', '--repo', path.join(w, 'repo'), '--base', base, '--head', target, '--task', 't-src', '--journal', journal], path.join(here, 'repo'))
+    expect(result.status).not.toBe(0)
+    expect(`${result.stdout}${result.stderr}`).toContain(journal)
+    expect(existsSync(journal)).toBe(false)
+    repoUntouched(here)
+  })
+
+  it('predict refuses a typechange', () => {
+    const w = world()
+    const repo = path.join(w, 'repo')
+    const base = sha(w, 'base')
+    rmSync(path.join(repo, 'src', 'a.ts'))
+    symlinkSync('../README.md', path.join(repo, 'src', 'a.ts'))
+    gitQuiet(repo, ['commit', '-q', '-am', 'typechange'])
+    const target = gitQuiet(repo, ['rev-parse', 'HEAD']).trim()
+    const journal = path.join(w, 'morse.jsonl')
+    const result = run(['predict', '--repo', repo, '--base', base, '--head', target, '--task', 't-typechange', '--journal', journal])
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('unhandled git status T for src/a.ts')
+    expect(existsSync(journal)).toBe(false)
   })
 
   it('predict refuses a failing append', () => {
@@ -122,6 +174,7 @@ describe('morse predict', () => {
     const result = run(['predict', '--repo', path.join(w, 'repo'), '--base', base, '--head', target, '--task', 't-src', '--journal', jdir])
     expect(result.status).not.toBe(0)
     expect(result.stdout).not.toContain('"task"')
+    expect(readdirSync(jdir)).toEqual([])
   })
 })
 
