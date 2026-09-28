@@ -84,7 +84,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm ghosts:hash` | Prints the sha256 of a brief's `/implement` text, the hash the owner approves. | `pnpm ghosts:hash <scratchpad>/brief-<task>.md` |
 | `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256`, prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
 | `pnpm ghosts:watch` | Prints one read-only line per task of a tasks file: report age, last tool, ledger stage and whether the session is alive. | `pnpm ghosts:watch --tasks <scratchpad>/tasks-<batch>.json [--every <seconds>]` |
-| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`. | `pnpm board --dir <scratchpad> [--all] [--repo <owner>/<name>]` |
+| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`: one line per task by default, one task's card with a task id, everything as JSON with `--json`. | `pnpm board --dir <scratchpad> [<task-id>] [--all] [--json] [--repo <owner>/<name>]` |
 
 `ghosts:hash`:
 
@@ -106,16 +106,29 @@ DECISION: open 1 sessions
 [ghosts:watch] ghost-demo-1 | report 0s | tool Bash | stage implementing r-0001 | process dead
 ```
 
-`board`, one cheap-path task out of the full output, which opens with a summary line and the
-definitions of every stage:
+`board`, run on the test fixtures with `gh` stubbed; a task id in place of the list prints that task's
+card with every attempt, stage and fact, and `--json` prints all of it for an agent:
 
 ```text
-task c-open (derived) live c-open waiting
-  c-open live waiting
-    started done 2026-09-28T09:00:00.000Z (journal event:path)
-    ready done 2026-09-28T09:15:00.000Z (journal event:path)
-    pr #22 OPEN, ci green 2026-09-28T09:20:00Z on 2222222
-    merged — (PR #22 OPEN)
+running 1, waiting 11, blocked 1, the longest — 113 min (n-red)
+# TASK · PATH · STAGE · AGE · NEXT — TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR's CI and architecture/owner-merges.md
+# pnpm board <task-id> prints one task's card with every attempt; --json prints everything; hidden: 3 tasks, --all shows them
+l-1 · ladder · ghost · 2h23m · verdict (window)
+n-red · cheap · ready · 1h43m · a fix (window): CI red
+n-owner · cheap · ready · 1h43m · Eli's merge
+n-auto · cheap · ready · 1h43m · auto-merge (window arms it)
+n-nofiles · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
+n-closed · cheap · ready · 1h43m · a decision (window): PR closed unmerged
+n-pending · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
+n-release · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
+n-lost · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
+s-stopped · ladder · ghost · 2h53m · a new attempt (window)
+s-nopr · ladder · review · 2h43m · a PR (window)
+c-open · cheap · ready · clock skew (22m ahead) · CI
+c-noready · cheap · started · clock skew (1h07m ahead) · ready (window)
+c-gh · cheap · merged · 13m · —
+c-journal · cheap · merged · 53m · —
+UNKNOWN: brief.written ×1, brief.approved ×3, review.started ×2, ready ×4, merge ×6, pr ×5
 ```
 
 ## After a release

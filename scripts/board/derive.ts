@@ -12,13 +12,19 @@ const CHEAP_PATH = 'cheap'
 const RUNNING_STATES = ['writing', 'reviewing', 'reading']
 const LOCAL_STAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/
 
-export interface Stage {
-  name: string
-  text: string
-}
+export type StageBody
+  = | { state: 'done', at: string, source: string }
+    | { state: 'not', reason: string }
+    | { state: 'unknown', missing: string }
+    | { state: 'fact', value: string, source?: string }
+
+export type Stage = { name: string } & StageBody
+
+export type TaskPath = 'ladder' | 'cheap'
 
 export interface AttemptView {
   attempt: Attempt
+  path: TaskPath
   pr: PrLookup
   stages: Stage[]
   facts: Stage[]
@@ -38,31 +44,52 @@ export interface Summary {
   longest: { minutes: number, task: string } | undefined
 }
 
-export function isUnknown(text: string): boolean {
-  return text.startsWith('UNKNOWN')
+export function stageText(body: StageBody): string {
+  switch (body.state) {
+    case 'done':
+      return `done ${body.at} (${body.source})`
+    case 'not':
+      return `— (${body.reason})`
+    case 'unknown':
+      return `UNKNOWN (missing: ${body.missing})`
+    case 'fact':
+      return body.source === undefined ? body.value : `${body.value} (${body.source})`
+  }
 }
 
-function done(at: Date | string, detail: string): string {
-  return `done ${new Date(at).toISOString()} (${detail})`
+export function unknownEvent(missing: string): string {
+  return missing.split(';')[0]!.split(' ')[0]!
 }
 
-function unknown(missing: string): string {
-  return `UNKNOWN (missing: ${missing})`
+function done(at: Date | string, source: string): StageBody {
+  return { state: 'done', at: new Date(at).toISOString(), source }
+}
+
+function unknown(missing: string): StageBody {
+  return { state: 'unknown', missing }
+}
+
+function not(reason: string): StageBody {
+  return { state: 'not', reason }
+}
+
+function fact(value: string, source?: string): StageBody {
+  return source === undefined ? { state: 'fact', value } : { state: 'fact', value, source }
 }
 
 function localStamp(text: string | undefined): Date | undefined {
   return text !== undefined && LOCAL_STAMP.test(text) ? new Date(text.replace(' ', 'T')) : undefined
 }
 
-function isRunningRow(attempt: Attempt): boolean {
+export function isRunningRow(attempt: Attempt): boolean {
   return attempt.row !== undefined && RUNNING_STATES.includes(attempt.row.state)
 }
 
-function changesRequested(attempt: Attempt): boolean {
+export function changesRequested(attempt: Attempt): boolean {
   return attempt.reviewEvent?.verdict === 'changes'
 }
 
-function briefStage(attempt: Attempt): string {
+function briefStage(attempt: Attempt): StageBody {
   if (attempt.brief === undefined)
     return unknown('brief.written; no tasks file names a brief')
   if (attempt.briefWrittenAt === undefined)
@@ -70,25 +97,25 @@ function briefStage(attempt: Attempt): string {
   return done(attempt.briefWrittenAt, `file mtime, ${path.basename(attempt.brief)}`)
 }
 
-function approvedStage(attempt: Attempt): string {
+function approvedStage(attempt: Attempt): StageBody {
   if (attempt.approval === undefined)
     return unknown('brief.approved')
   return done(attempt.approval.at, `file mtime; text ${attempt.approval.sha8 ?? '?'}…`)
 }
 
-function ghostStage(attempt: Attempt): string {
+function ghostStage(attempt: Attempt): StageBody {
   if (attempt.taskEvent !== undefined)
     return done(attempt.taskEvent.ts, `ladder ${attempt.taskEvent.ladder}, exit ${attempt.taskEvent.exit}`)
   if (isRunningRow(attempt))
-    return `— (not finished; status.md ${attempt.row!.state})`
+    return not(`not finished; status.md ${attempt.row!.state}`)
   return unknown('task')
 }
 
-function reviewStage(attempt: Attempt): string {
+function reviewStage(attempt: Attempt): StageBody {
   if (attempt.reviewEvent !== undefined)
     return done(attempt.reviewEvent.ts, `verdict ${attempt.reviewEvent.verdict}`)
   if (attempt.taskEvent === undefined && isRunningRow(attempt))
-    return '— (not reached; the ghost is running)'
+    return not('not reached; the ghost is running')
   return unknown('review.started')
 }
 
@@ -100,23 +127,23 @@ function mergedAtOf(attempt: Attempt, pr: PrLookup): Date | undefined {
   return undefined
 }
 
-function mergedStage(attempt: Attempt, pr: PrLookup): string {
+function mergedStage(attempt: Attempt, pr: PrLookup): StageBody {
   if (attempt.mergeEvent !== undefined)
     return done(attempt.mergeEvent.ts, `journal, by ${attempt.mergeEvent.by}, ${attempt.mergeEvent.commit.slice(0, 7)}`)
   if (pr.kind === 'found' && pr.pr.mergedAt !== null)
     return done(pr.pr.mergedAt, `gh PR #${pr.pr.number}, ${pr.pr.mergeCommit?.oid.slice(0, 7) ?? '?'}`)
   if (changesRequested(attempt))
-    return '— (not merged; last review verdict changes)'
+    return not('not merged; last review verdict changes')
   if (pr.kind === 'none')
-    return `— (no PR for ${attempt.branch})`
+    return not(`no PR for ${attempt.branch}`)
   if (pr.kind === 'found')
-    return `— (PR #${pr.pr.number} ${pr.pr.state})`
+    return not(`PR #${pr.pr.number} ${pr.pr.state}`)
   return unknown(`merge; ${pr.missing}`)
 }
 
-function readyStage(attempt: Attempt, merged: boolean): string {
+function readyStage(attempt: Attempt, merged: boolean): StageBody {
   if (!merged && changesRequested(attempt))
-    return '— (last review verdict changes)'
+    return not('last review verdict changes')
   return unknown('ready; recorded only on the cheap path, journal event:path')
 }
 
@@ -124,15 +151,15 @@ function cheapPathOf(attempt: Attempt): PathEvent | undefined {
   return attempt.pathEvent?.path === CHEAP_PATH ? attempt.pathEvent : undefined
 }
 
-function pathStamp(pathEvent: PathEvent, field: 'started' | 'ready'): string {
+function pathStamp(pathEvent: PathEvent, field: 'started' | 'ready'): StageBody {
   const at = pathEvent[field]
   return at === undefined ? unknown(`${field}; the journal event:path line records none`) : done(at, 'journal event:path')
 }
 
-function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): string {
+function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): StageBody {
   if (pr.kind !== 'found')
     return unknown(pr.kind === 'unknown' ? pr.missing : `pr #${pathEvent.pr}`)
-  return `#${pr.pr.number} ${pr.pr.state}${pathEvent.sha === undefined ? '' : ` (journal event:path, sha ${pathEvent.sha.slice(0, 7)})`}`
+  return fact(`#${pr.pr.number} ${pr.pr.state}`, pathEvent.sha === undefined ? undefined : `journal event:path, sha ${pathEvent.sha.slice(0, 7)}`)
 }
 
 function cheapCategoryOf(pathEvent: PathEvent, merged: boolean): Category {
@@ -146,12 +173,13 @@ function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList): 
   const mergedAt = mergedAtOf(attempt, pr)
   return {
     attempt,
+    path: 'cheap',
     pr,
     stages: [
-      { name: 'started', text: pathStamp(pathEvent, 'started') },
-      { name: 'ready', text: pathStamp(pathEvent, 'ready') },
-      { name: 'pr', text: cheapPrStage(pathEvent, pr) },
-      { name: 'merged', text: mergedStage(attempt, pr) },
+      { name: 'started', ...pathStamp(pathEvent, 'started') },
+      { name: 'ready', ...pathStamp(pathEvent, 'ready') },
+      { name: 'pr', ...cheapPrStage(pathEvent, pr) },
+      { name: 'merged', ...mergedStage(attempt, pr) },
     ],
     facts: [],
     category: cheapCategoryOf(pathEvent, mergedAt !== undefined),
@@ -160,26 +188,26 @@ function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList): 
   }
 }
 
-function prFact(attempt: Attempt, pr: PrLookup): string {
+function prFact(attempt: Attempt, pr: PrLookup): StageBody {
   if (pr.kind === 'found')
-    return `#${pr.pr.number} ${pr.pr.state}`
+    return fact(`#${pr.pr.number} ${pr.pr.state}`)
   if (pr.kind === 'none')
-    return `— (no PR for ${attempt.branch})`
+    return not(`no PR for ${attempt.branch}`)
   return unknown(pr.missing)
 }
 
-function statusFact(attempt: Attempt): string {
+function statusFact(attempt: Attempt): StageBody {
   if (attempt.row === undefined)
     return unknown(`status.md row ghost-${attempt.id}`)
-  return `${attempt.row.state}, start ${attempt.row.start}, updated ${attempt.row.updated}`
+  return fact(`${attempt.row.state}, start ${attempt.row.start}, updated ${attempt.row.updated}`)
 }
 
-function ledgerFact(attempt: Attempt): string {
+function ledgerFact(attempt: Attempt): StageBody {
   if (attempt.ledger === 'unreadable')
     return unknown('ledger line; runs.jsonl unreadable')
   if (attempt.ledger === null)
     return unknown(`ledger line${attempt.worktree === undefined ? '; no worktree recorded' : ` in ${attempt.worktree}`}`)
-  return `${attempt.ledger.status} ${attempt.ledger.run}`
+  return fact(`${attempt.ledger.status} ${attempt.ledger.run}`)
 }
 
 function categoryOf(attempt: Attempt, merged: boolean): Category {
@@ -204,24 +232,29 @@ function viewAttempt(attempt: Attempt, prs: PrList): AttemptView {
   const merged = mergedAt !== undefined
   return {
     attempt,
+    path: 'ladder',
     pr,
     stages: [
-      { name: 'brief', text: briefStage(attempt) },
-      { name: 'approved', text: approvedStage(attempt) },
-      { name: 'ghost', text: ghostStage(attempt) },
-      { name: 'review', text: reviewStage(attempt) },
-      { name: 'ready', text: readyStage(attempt, merged) },
-      { name: 'merged', text: mergedStage(attempt, pr) },
+      { name: 'brief', ...briefStage(attempt) },
+      { name: 'approved', ...approvedStage(attempt) },
+      { name: 'ghost', ...ghostStage(attempt) },
+      { name: 'review', ...reviewStage(attempt) },
+      { name: 'ready', ...readyStage(attempt, merged) },
+      { name: 'merged', ...mergedStage(attempt, pr) },
     ],
     facts: [
-      { name: 'pr', text: prFact(attempt, pr) },
-      { name: 'status.md', text: statusFact(attempt) },
-      { name: 'ledger', text: ledgerFact(attempt) },
+      { name: 'pr', ...prFact(attempt, pr) },
+      { name: 'status.md', ...statusFact(attempt) },
+      { name: 'ledger', ...ledgerFact(attempt) },
     ],
     category: categoryOf(attempt, merged),
     startedAt: localStamp(attempt.row?.start),
     mergedAt,
   }
+}
+
+export function latestStage(view: AttemptView): Extract<Stage, { state: 'done' }> | undefined {
+  return view.stages.filter((stage): stage is Extract<Stage, { state: 'done' }> => stage.state === 'done').at(-1)
 }
 
 function orderKey(view: AttemptView): number {
@@ -250,9 +283,9 @@ export function summarize(tasks: TaskView[], now: Date): Summary {
     counts[category] += 1
     if (startedAt === undefined)
       continue
-    const minutes = Math.round((now.getTime() - startedAt.getTime()) / 60_000)
+    const minutes = Math.floor((now.getTime() - startedAt.getTime()) / 60_000)
     if (longest === undefined || minutes > longest.minutes)
-      longest = { minutes, task: task.name }
+      longest = { minutes, task: task.live.attempt.id }
   }
   return { counts, longest }
 }

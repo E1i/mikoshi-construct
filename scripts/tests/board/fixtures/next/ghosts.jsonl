@@ -1,0 +1,11 @@
+{"event":"task","ts":"2026-09-28T06:00:00.000Z","task":"s-stopped","baseSha":"base","session":null,"install":0,"run":null,"iterations":1,"class":null,"contour":null,"resultLine":"present","total_cost_usd":null,"num_turns":null,"duration_ms":null,"usage":null,"review":null,"exit":0,"ladder":"base red"}
+{"event":"task","ts":"2026-09-28T06:00:00.000Z","task":"s-nopr","baseSha":"base","session":null,"install":0,"run":null,"iterations":1,"class":null,"contour":null,"resultLine":"present","total_cost_usd":null,"num_turns":null,"duration_ms":null,"usage":null,"review":null,"exit":0,"ladder":"done"}
+{"event":"review","task":"s-nopr","verdict":"pass","ts":"2026-09-28T06:10:00.000Z"}
+{"event":"path","task":"n-red","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":30,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-owner","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":31,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-auto","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":32,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-nofiles","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":33,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-closed","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":34,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-pending","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":35,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-release","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":36,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"n-lost","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":99,"ts":"2026-09-28T07:10:00.000Z"}
