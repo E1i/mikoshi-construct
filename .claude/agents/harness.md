@@ -50,8 +50,7 @@ Return these fields; the runtime validates the shape against the schema it gives
   and adds no file to the working tree. Each witness is given to you only as base64, one script per
   criterion, so you never choose or edit it: run exactly `printf %s <base64> | base64 --decode >
   <dir>/witness-N.sh`, then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. Report
-  the sha256 that `shasum` printed as `ranSha256` and the decoded script's own text as `command`,
-  `criterion` copied verbatim, `afterExitCode` and `afterExcerpt` (the script's exit code and last lines on the working tree),
+  the sha256 that `shasum` printed as `ranSha256`, `criterion` copied verbatim, `afterExitCode` and `afterExcerpt` (the script's exit code and last lines on the working tree),
   `baseExitCode` and `baseExcerpt` (its exit code and last lines in a worktree of its own at the base
   sha, created, installed and removed in one shell with the `trap` the prompt gives, so it goes even
   when a step fails). You report exit codes; the ladder decides what they mean. The working tree has

@@ -47,10 +47,9 @@ const VERDICT = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['criterion', 'command', 'afterExitCode', 'afterExcerpt', 'baseExitCode', 'baseExcerpt', 'ranSha256'],
+        required: ['criterion', 'afterExitCode', 'afterExcerpt', 'baseExitCode', 'baseExcerpt', 'ranSha256'],
         properties: {
           criterion: { type: 'string' },
-          command: { type: 'string' },
           afterExitCode: { type: 'integer' },
           afterExcerpt: { type: 'string' },
           baseExitCode: { type: 'integer' },
@@ -117,7 +116,7 @@ const witnessDigests = (args.witnessDigests ?? []).filter(digest => acceptance.i
 for (const item of acceptance)
   log(`acceptance: ${item}`)
 const harness = { extra: [], contractPaths: [], contractCheck: '', ...(args.harness ?? {}) }
-const contractDeclared = harness.contractPaths.length > 0 && harness.contractCheck !== ''
+const contractDeclared = harness.contractPaths.length > 0 && typeof harness.contractCheck === 'string' && harness.contractCheck !== ''
 if (typeof harness.command !== 'string' || harness.command === '')
   return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance, invariants, immutable }
 if (acceptance.length === 0)
@@ -187,7 +186,7 @@ function harnessPrompt(baseSha) {
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. Each witness is given only as base64, one script per criterion; decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
-    `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256, and the decoded script's own text as command. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
+    `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
@@ -327,7 +326,10 @@ function untestedReason(files) {
 }
 
 function contractCheckReason(check) {
-  return check == null ? 'the harness did not report the contract check' : check.excerpt
+  if (check == null)
+    return 'the harness did not report the contract check'
+  const exited = `${harness.contractCheck} exited ${check.exitCode}`
+  return check.excerpt === '' ? exited : `${exited}\n${check.excerpt}`
 }
 
 async function redesignBeforeLastRung(rung) {
