@@ -1,7 +1,9 @@
 # Security invariants
 
 Security is its own review dimension. Each invariant names what enforces it; `review` means the
-reviewer is the only check, so weigh those the most. A finding that recurs is an architectural
+reviewer is the only check, so weigh those the most. `Enforced by` names the mechanism and what it
+matches (the lint block and its selectors, the test file, the workflow job), never a bare tool name
+such as `lint`, `CI` or `tests`, and it changes in the same change as the mechanism. A finding that recurs is an architectural
 problem: move the protection to a shared boundary and add a check rather than fixing the symptom
 again. Method: [principles.md § Security](principles.md#security).
 

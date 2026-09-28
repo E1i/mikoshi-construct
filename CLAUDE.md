@@ -26,6 +26,8 @@ Acceptance for any change touching `templates/` or `src/materialize`: an empty d
 `construct init --yes --preset <preset>` → `pnpm install` → `pnpm run quality` is green, with no manual
 edits. Run it before reporting done.
 
+pnpm 12.4.2, the pinned `packageManager`, rejects `pnpm -s`; write `pnpm --silent` or `pnpm exec`.
+
 ## Layout
 
 | Path | What it is |
@@ -99,12 +101,41 @@ edits. Run it before reporting done.
 - Every user-facing string lives in `src/ui/lore.ts` with a `PLAIN_LORE` counterpart; `--plain` must
   produce output with no lore and no emoji.
 
+## User-facing lines
+
+Beyond the lore rule above: a low or partial reading names what would raise it, so it does not read
+as a failure where nothing failed. Check a line by reading it as the person in the exact state that
+prints it, and ask whether a fast reading inverts the action they should take next. When one symptom
+has several causes and the evidence in hand already carries one cause's signature, the line states
+that cause instead of listing the others as guesses. Two renderings of one value (plain and lore,
+text and `--json`) are projections, not duplication. "Engram" is a lore name with no fixed meaning:
+engineering documents neither define nor use it; the per-run record is the run record
+([architecture/run-record.md](architecture/run-record.md)), and `construct.json` is the model.
+
 ## Decisions
 
 `architecture/decisions/` holds one record per decision that shapes what this tool may claim —
 context, decision, consequences, and the level at which it is enforced. Read it before re-opening a
 question it already answers, and add a record rather than restating a decision in a plan or a
-commit message.
+commit message. A decision taken under uncertainty also records what would reverse it.
+
+A rule that governs the project lives in the repository, merged into the base a branch is cut from:
+a rule held in an agent's memory or in an open pull request does not exist for that branch. Cite only
+identifiers whose definition is merged (a record, a pull request, an issue), never a version number,
+which the release pull request creates last; cite the record itself instead. Before recording an
+observation that cites a pull request, an issue or a record, open it and confirm it says what the
+entry claims.
+
+## Published claims
+
+Before a release note, a changeset, a README line or a record is published: a note that lands several
+changes leads with the order of actions, above all where honest new output looks like breakage; a
+claim that work already planned will make false is corrected in the change that lands that work; a
+stale figure is removed or given a producer, never re-typed with today's value; each claim is checked
+against what it rests on and whether that was verified outside this tree; a derived figure names every
+input, constants such as prices and rates included; and a change that makes a record authoritative
+instead of recomputed says that its errors now persist until both the artifact and the record are
+repaired.
 
 ## Conventions
 
@@ -113,21 +144,85 @@ enforcement levels, the in-universe vocabulary, the discovery markers — lives 
 test reads it from there and asserts the document explains every member. The document is the second
 reader, never a second copy: a test that restates the list only proves the copy matches the copy.
 
-**An open version pull request is a lock on `main`.** While a `changeset-release/main` pull request
-is open, nothing else merges to `main`. The changesets action keeps that branch in sync by
-force-pushing it whenever `main` moves, and a force-push discards the workflow approval already
-granted to it and restarts the required checks — with ten required contexts, every unrelated merge
-costs the maintainer another approval and keeps the release unmergeable for longer. Finished work
-waits on its branch until the release lands.
+**An approved version pull request is a lock on `main`.** Once the workflow runs of a
+`changeset-release/main` pull request have been approved, nothing else merges to `main`. The
+changesets action keeps that branch in sync by force-pushing it whenever `main` moves, and a
+force-push discards the workflow approval already granted to it and restarts the required checks —
+with ten required contexts, every unrelated merge after approval costs the maintainer another approval
+and keeps the release unmergeable for longer. Before approval there is nothing to discard: a merge
+rebuilds the branch, which then carries both changesets into one release. Runs waiting at
+`action_required` mean the lock is not yet in force. Once it is, finished work waits on its branch
+until the release lands. Never approve the workflow runs on the release branch yourself: that approval
+is the human gate on the release path.
 
 No comments in source, including JSDoc. ESLint (`@antfu/eslint-config`) is the only formatter; fix
 style with `pnpm lint:fix`, never by hand. Tests live in `tests/`, never beside source, and every
-changed logic module ships its test in the same change. `detect` returns facts; anything that needs
-judgement is a discovery marker for the agent, not code in the CLI. Do not commit; the working tree is
-reviewed first.
+changed logic module ships its test in the same change. A fixture suite keeps its expectations in one
+table keyed by fixture name and loops over it, as the per-role table in the presets'
+`syntax-policy.test.ts` does, so a fixture with no row or a row with no fixture is detectable. `detect`
+returns facts; anything that needs judgement is a discovery marker for the agent, not code in the CLI.
+Who commits depends on the scope, below.
+
+## Coordinating window
+
+The implementer inside the `/implement` ladder never commits (step 6 of the implement skill); the
+working tree it leaves is reviewed first. The coordinating window, the session working in
+E1i/mikoshi-construct on the owner's behalf, commits, pushes and merges under the merge-authority rules
+in [architecture/owner-merges.md](architecture/owner-merges.md); the kinds the owner merges are listed
+there, and nowhere else.
+
+- A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the
+  result, never chained with what it guards; then commit, push and open the pull request;
+  `gh pr update-branch <N> -R E1i/mikoshi-construct`; and
+  `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`.
+- A pull request of an owner-merged kind: report "ready at sha X", naming the head that was gated
+  locally and whose CI is green. Any later push voids it, a merge of `main` into the branch included.
+  While CI runs, write "ready at X once CI on X is green". The owner merges.
+
+One task, one branch, one pull request, one changeset, and never a commit on `main`. Independent
+branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit
+prefix over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, never into
+branch names, and the launcher names a Ghost's branch itself. A change under `templates/`, or one that
+changes what the published CLI does for a user, is a `minor` changeset.
+
+Every agent message starts with its role in square brackets, on its own first line: `[miko]` for the
+window's messages to the owner; `[review:<task>]`, `[brief:<task>]` or `[scan:<task>]` for a
+subagent's final report, and every subagent prompt says which. A Ghost's report is to start
+`[ghost:<task-id>]`, a change to the implement skill that is pending in its own brief. A pull request
+is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
+and issue bodies.
+
+## Ghosts
+
+A Ghost, a ladder run in a session of its own, is started only by `pnpm ghosts:launch`, which checks
+the owner's approval against the brief's hash (`pnpm ghosts:hash`). There is no hand route around it.
+A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
+recorded as a row of the `policy` table in `status.md` before the session opens.
+
+Window state lives in `status.md`, outside the repository, one row per window; each window edits only
+its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
+line `done` means the ladder finished, not that the tree was released, and until then others only read
+it. A row marked `(by A)` was written by window A on another window's behalf and stands until that
+window writes its own. Free writers are counted from the rows whose state is `free`. The `policy` table
+holds the owner's decisions; only the owner, or a window at the owner's explicit instruction, edits
+it, and a row whose condition is met gets "fulfilled, awaiting the owner's decision" appended, never a
+rewrite.
+
+A task is named by its component and its brief's version ("Launcher v0.1.1", "Ladder v5 (#271)"), an
+issue number only in parentheses. A launch attempt lives in the journal, never in the name, and a batch
+is named by its contents.
+
+## Reviewing a run
 
 A report on a pull request here ends with the compact matrix described in
 [architecture/code-matrix.md](architecture/code-matrix.md), over its four common rules and any the brief declares.
+
+Mutations go only through `construct mutate apply` / `judge` (read `construct mutate --help` for the
+current flags), never through a hand-rolled copy and restore, and a red-on-base check runs in a
+disposable worktree, never by swapping files in the ladder's tree. A changed test is shown intact by a
+mutation it caught before the change, run on the old and the new version with the prediction written
+first; an agent's reading that a test was not weakened is not a witness. When an allow-list or an
+accepted set grows, construct the case the growth could mask and run it.
 
 <!-- construct:begin -->
 ## Construct

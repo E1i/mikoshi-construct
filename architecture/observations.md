@@ -26,6 +26,25 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-09-27 · The Shredder signal, refined: the live front, one time scale, instruments kept apart
+
+Three refinements to *The Shredder signal: splitting ladder tasks for parallel runs is not needed*, from
+window C's two measurements of 2026-09-27 over the night's and the day's tasks. That entry is not
+edited ([decision 0021](decisions/0021-a-record-of-the-past-is-not-edited.md)); these change what its P
+means when it is measured again.
+
+- **P is computed over the live front only.** Only unmerged tasks count, and the version pull request is
+  left out: it touches `package.json`, which glues every task into one component. Counted that way the
+  day's P was 1.67; counted with the version pull request, 1.00.
+- **One time scale per task: task start → merge.** Task start is the creation of the worktree or the
+  start of the ladder, whichever comes first. Pull request opened → merge understates ladder tasks: for
+  #247 the ladder alone took 1865 s, against 277 s on that scale.
+- **The instruments are reported separately, never summed.** The live-front P reached at most 1.675 on
+  [T] and 1.50 on [W], window C's two instruments, both by #267 ∥ B4.
+
+**Boundary.** One day's tasks, measured by one window; nothing here is a rate. The refinements define
+how P is taken; they do not revisit the earlier entry's verdict.
+
 ## 2026-09-27 · Ghosts, the first manual run: two sessions, two contours
 
 **Setup.** Ghosts is the name for two Claude sessions working this repository in parallel, coordinated
