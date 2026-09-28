@@ -3,6 +3,7 @@ import type { ProcessRow } from './watch-process.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { parseEverySeconds, sleep } from './every.js'
 import { ghostRowSessionId } from './status.js'
 import { readTasksFile } from './tasks.js'
 import { readLedgerStage } from './watch-ledger.js'
@@ -45,14 +46,7 @@ function parseArgs(argv: string[]): Args {
   if (tasksFile === undefined)
     throw new Error('--tasks is required: usage --tasks <file> [--every <seconds>]')
 
-  let everySeconds: number | undefined
-  if (everyRaw !== undefined) {
-    if (!/^\d+$/.test(everyRaw) || Number(everyRaw) < 1)
-      throw new Error(`--every must be a whole number of seconds of at least 1, got '${everyRaw}'`)
-    everySeconds = Number(everyRaw)
-  }
-
-  return { tasksFile, everySeconds }
+  return { tasksFile, everySeconds: everyRaw === undefined ? undefined : parseEverySeconds(everyRaw) }
 }
 
 function taskLine(task: Task, out: string, statusText: string | undefined, processes: ProcessRow[]): string {
@@ -79,10 +73,6 @@ function drawFrame(tasksData: TasksFile): void {
   const processes = listProcesses()
   for (const task of tasksData.tasks)
     print(taskLine(task, tasksData.out, statusText, processes))
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 async function main(): Promise<void> {

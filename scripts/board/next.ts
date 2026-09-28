@@ -11,7 +11,6 @@ export const NEXT_BY_SITUATION = {
   'ghost-running': 'the Ghost\'s run',
   'verdict': 'verdict (window)',
   'new-attempt': 'a new attempt (window)',
-  'cheap-ready': 'ready (window)',
   'pr': 'a PR (window)',
   'pr-unknown': 'UNKNOWN (the PR is not readable)',
   'pr-closed': 'a decision (window): PR closed unmerged',
@@ -95,6 +94,6 @@ export function nextOf(view: AttemptView, details: PrDetails | undefined, kinds:
   if (view.attempt.supersededEvent !== undefined)
     return next('superseded', `by ${view.attempt.supersededEvent.by}`)
   if (view.path === 'cheap')
-    return view.attempt.pathEvent?.ready === undefined ? next('cheap-ready') : prNext(view, details, kinds)
+    return view.attempt.pathEvent?.pr === undefined ? next('pr', 'the journal event:path line records no PR') : prNext(view, details, kinds)
   return ladderNext(view, details, kinds)
 }

@@ -30,7 +30,6 @@ export interface PathEvent {
   task: string
   path: string
   started?: string
-  ready?: string
   pr?: number
   sha?: string
   ts: string
