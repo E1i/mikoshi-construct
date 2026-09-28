@@ -16,6 +16,7 @@ const MATRIX = path.join(FIXTURES, 'matrix')
 const CHEAP = path.join(FIXTURES, 'cheap')
 const NEXT = path.join(FIXTURES, 'next')
 const SKEW = path.join(FIXTURES, 'skew')
+const SUPERSEDED = path.join(FIXTURES, 'superseded')
 const BOARD = path.join(REPO_ROOT, 'scripts/board/board.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date('2026-09-28T12:00')
@@ -235,7 +236,7 @@ describe('board: summary, edges and prefixes', () => {
 
 describe('board: read only', () => {
   it('writes nothing into the handoff directory and runs only gh pr list and gh pr view', () => {
-    const before = [snapshot(BASIC), snapshot(MATRIX), snapshot(CHEAP), snapshot(NEXT), snapshot(SKEW)]
+    const before = [snapshot(BASIC), snapshot(MATRIX), snapshot(CHEAP), snapshot(NEXT), snapshot(SKEW), snapshot(SUPERSEDED)]
     const calls: string[][] = []
     board(['--dir', BASIC], stubGh(calls))
     board(['--dir', BASIC, '--all'], stubGh(calls))
@@ -244,7 +245,8 @@ describe('board: read only', () => {
     board(['--dir', BASIC, 'alpha-1'], stubGh(calls))
     board(['--dir', BASIC, '--json'], stubGh(calls))
     board(['--dir', NEXT, '--json'], stubGh(calls))
-    expect([snapshot(BASIC), snapshot(MATRIX), snapshot(CHEAP), snapshot(NEXT), snapshot(SKEW)]).toEqual(before)
+    board(['--dir', SUPERSEDED, '--json'], stubGh(calls))
+    expect([snapshot(BASIC), snapshot(MATRIX), snapshot(CHEAP), snapshot(NEXT), snapshot(SKEW), snapshot(SUPERSEDED)]).toEqual(before)
     expect(new Set(calls.map(args => args.slice(0, 2).join(' ')))).toEqual(new Set(['pr list', 'pr view']))
   })
 })
@@ -272,6 +274,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     { dir: NEXT, id: 'n-nofiles', path: 'cheap', stage: 'ready', situation: 'merge-unknown' },
     { dir: NEXT, id: 'n-closed', path: 'cheap', stage: 'ready', situation: 'pr-closed' },
     { dir: NEXT, id: 'n-lost', path: 'cheap', stage: 'ready', situation: 'pr-unknown' },
+    { dir: SUPERSEDED, id: '271-2', path: 'ladder', stage: 'ghost', situation: 'superseded' },
   ] as { dir: string, id: string, path: string, stage: string, situation: keyof typeof NEXT_BY_SITUATION }[])('$id: $path at $stage waits for $situation', ({ dir, id, path: taskPath, stage, situation }) => {
     const cells = rowOf(board(['--dir', dir, '--all']).stdout, id)
     expect(cells).toHaveLength(5)
@@ -279,7 +282,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'cheap-ready', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'cheap-ready', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 
@@ -361,6 +364,37 @@ describe('board <task-id>: the expanded card of one task', () => {
   it('names why NEXT is Eli\'s merge', () => {
     const { stdout } = board(['--dir', NEXT, 'n-owner'])
     expect(stdout).toContain('next Eli\'s merge (derived; owner-merges own-instructions: .claude/skills/implement/SKILL.md)')
+  })
+})
+
+describe('board: an attempt a journal event:superseded names', () => {
+  it.each([
+    { name: 'the default', argv: [] as string[], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-4'], hidden: 'hidden: 2 tasks (2 superseded), --all shows them', unknown: 'UNKNOWN: ready ×1, pr ×1, merge ×1' },
+    { name: '--all', argv: ['--all'], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-2', '271-3', '271-4'], hidden: 'hidden: none', unknown: 'UNKNOWN: ready ×1, pr ×1, merge ×1' },
+  ])('$name leaves it out of the summary and the UNKNOWN tally, and lists it only with --all', ({ argv, summary, shown, hidden, unknown }) => {
+    const { stdout } = board(['--dir', SUPERSEDED, ...argv])
+    expect(stdout[0].startsWith(summary) && stdout[0].endsWith('271-4)')).toBe(true)
+    expect(rows(stdout).map(cells => cells[0]).sort()).toEqual(shown)
+    expect(stdout[2].endsWith(hidden)).toBe(true)
+    expect(stdout.at(-1)).toBe(unknown)
+  })
+
+  it('names the successor in the card, as a fact and in NEXT', () => {
+    const { stdout } = board(['--dir', SUPERSEDED, '271-2'])
+    expect(attemptBlock(stdout, '271-2').at(-1)).toBe('    superseded by 271-4 (journal event:superseded, 2026-09-28T07:00:00.000Z)')
+    expect(stdout).toContain('next — (superseded) (derived; by 271-4)')
+    expect(stdout.at(-1)).toBe('UNKNOWN: brief.written ×1, brief.approved ×1, review.started ×1, ready ×1, merge ×1')
+  })
+
+  it('carries the relation in --json and keeps the superseded attempts out of its UNKNOWN tally', () => {
+    const json = JSON.parse(board(['--dir', SUPERSEDED, '--json']).stdout[0])
+    const attempts = Object.fromEntries(json.tasks.flatMap((task: any) => task.attempts).map((attempt: any) => [attempt.id, attempt]))
+    expect(attempts['271-2'].superseded).toEqual({ by: '271-4', ts: '2026-09-28T07:00:00.000Z' })
+    expect(attempts['271-3'].superseded).toEqual({ by: '271-4', ts: '2026-09-28T07:00:00.000Z' })
+    expect(attempts['271-4'].superseded).toBeNull()
+    expect(attempts['271-2'].derived.next).toEqual({ situation: 'superseded', text: '— (superseded)', why: 'by 271-4' })
+    expect(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live)).toEqual(['271-4'])
+    expect(json.unknown).toEqual({ ready: 1, pr: 1, merge: 1 })
   })
 })
 
