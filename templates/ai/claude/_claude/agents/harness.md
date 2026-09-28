@@ -22,7 +22,10 @@ different tree.
 When git is usable, also inspect `git diff` (staged and unstaged) for:
 
 - a deleted or renamed file under any `tests/` directory;
-- `.skip(` or `.only(` added to a test.
+- `.skip(` or `.only(` added to a test;
+- a pytest skip or expected failure added to a test: `@pytest.mark.skip`, `@pytest.mark.skipif` or
+  `@pytest.mark.xfail`, with or without parentheses after it, or a `pytest.skip(` or `pytest.xfail(`
+  call.
 
 Report the security leg separately from the rest when a failure comes from a security lint rule,
 a contract security test or the secret scan, so the reader sees the invariant, not just the tool.
