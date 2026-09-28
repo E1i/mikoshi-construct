@@ -124,7 +124,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm ghosts:hash` | Prints the sha256 of a brief's `/implement` text, the hash the owner approves. | `pnpm ghosts:hash <scratchpad>/brief-<task>.md` |
 | `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256`, prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
 | `pnpm ghosts:watch` | Prints one read-only line per task of a tasks file: report age, last tool, ledger stage and whether the session is alive. | `pnpm ghosts:watch --tasks <scratchpad>/tasks-<batch>.json [--every <seconds>]` |
-| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`: one line per task by default, one task's card with a task id, everything as JSON with `--json`. | `pnpm board --dir <scratchpad> [<task-id>] [--all] [--json] [--repo <owner>/<name>]` |
+| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`: one line per task by default, one task's card with a task id, everything as JSON with `--json`. A task is ready when the `required` check is green on its pull request's current head; `--every` reprints the view until interrupted. | `pnpm board --dir <scratchpad> [<task-id>] [--all] [--json] [--every <seconds>] [--repo <owner>/<name>]` |
 
 `ghosts:hash`:
 
@@ -146,29 +146,32 @@ DECISION: open 1 sessions
 [ghosts:watch] ghost-demo-1 | report 0s | tool Bash | stage implementing r-0001 | process dead
 ```
 
-`board`, run on the test fixtures with `gh` stubbed; a task id in place of the list prints that task's
-card with every attempt, stage and fact, and `--json` prints all of it for an agent:
+`board`, run on the `next` and `cheap` test fixtures together with `gh` stubbed and now at
+2026-09-28T12:00:00Z; a task id in place of the list prints that task's card with every attempt,
+stage and fact, `--json` prints all of it for an agent, and `--every` heads each frame with
+`[board] frame <time>`:
 
 ```text
-running 1, waiting 11, blocked 1, the longest — 113 min (n-red)
+running 7, waiting 6, blocked 1, the longest — 300 min (n-red)
 # TASK · PATH · STAGE · AGE · NEXT — TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR's CI and architecture/owner-merges.md
 # pnpm board <task-id> prints one task's card with every attempt; --json prints everything; hidden: 3 tasks, --all shows them
-l-1 · ladder · ghost · 2h23m · verdict (window)
-n-red · cheap · ready · 1h43m · a fix (window): CI red
-n-owner · cheap · ready · 1h43m · Eli's merge
-n-auto · cheap · ready · 1h43m · auto-merge (window arms it)
-n-nofiles · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
-n-closed · cheap · ready · 1h43m · a decision (window): PR closed unmerged
-n-pending · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
-n-release · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
-n-lost · cheap · ready · 1h43m · UNKNOWN (the PR is not readable)
-s-stopped · ladder · ghost · 2h53m · a new attempt (window)
-s-nopr · ladder · review · 2h43m · a PR (window)
-c-open · cheap · ready · clock skew (22m ahead) · CI
-c-noready · cheap · started · clock skew (1h07m ahead) · ready (window)
-c-gh · cheap · merged · 13m · —
-c-journal · cheap · merged · 53m · —
-UNKNOWN: brief.written ×1, brief.approved ×3, review.started ×2, ready ×4, merge ×6, pr ×5
+l-1 · ladder · ghost · 5h30m · verdict (window)
+n-red · cheap · started · 5h00m · a fix (window): CI red
+n-owner · cheap · ready · 4h40m · Eli's merge
+n-auto · cheap · ready · 4h40m · auto-merge (window arms it)
+n-nofiles · cheap · ready · 4h40m · merge (UNKNOWN whether Eli's or auto-merge)
+n-closed · cheap · started · 5h00m · a decision (window): PR closed unmerged
+n-pending · cheap · started · 5h00m · CI
+n-release · cheap · ready · 4h40m · Eli's merge
+n-lost · cheap · started · 5h00m · UNKNOWN (the PR is not readable)
+n-pushed · cheap · started · 5h00m · CI
+c-open · cheap · started · 3h00m · CI
+c-noready · cheap · started · 2h00m · a PR (window)
+s-stopped · ladder · ghost · 6h00m · a new attempt (window)
+s-nopr · ladder · review · 5h50m · a PR (window)
+c-gh · cheap · merged · 3h20m · —
+c-journal · cheap · merged · 4h00m · —
+UNKNOWN: brief.written ×1, brief.approved ×3, review.started ×2, ready ×3, merge ×3, pr ×2
 ```
 
 ## After a release

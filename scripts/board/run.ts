@@ -1,8 +1,9 @@
 import type { OwnerMergeKind } from '../shredder/reader.js'
-import type { AttemptView, TaskView } from './derive.js'
-import type { GhRunner, PrDetails } from './gh.js'
+import type { AttemptView, ChecksOf, TaskView } from './derive.js'
+import type { GhRunner, PrDetails, PullRequest } from './gh.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { parseEverySeconds } from '../ghosts/every.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
 import { deriveTasks, selectShown, summarize } from './derive.js'
 import { listPrs, prDetails } from './gh.js'
@@ -12,7 +13,7 @@ import { nextOf } from './next.js'
 import { renderBoard, renderCard } from './render.js'
 
 export const PREFIX = '[board] '
-export const USAGE = 'usage: tsx scripts/board/board.ts --dir <handoff dir> [<task-id>] [--all] [--json] [--repo E1i/mikoshi-construct]'
+export const USAGE = 'usage: tsx scripts/board/board.ts --dir <handoff dir> [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct]'
 const DEFAULT_REPO = 'E1i/mikoshi-construct'
 const OWNER_MERGES = path.resolve(import.meta.dirname, '../../architecture/owner-merges.md')
 
@@ -25,6 +26,7 @@ export interface BoardResult {
   stdout: string[]
   stderr: string[]
   exitCode: number
+  everySeconds?: number
 }
 
 interface Args {
@@ -33,6 +35,7 @@ interface Args {
   all: boolean
   json: boolean
   id: string | undefined
+  everySeconds: number | undefined
 }
 
 function parseArgs(argv: string[]): Args | string {
@@ -41,6 +44,7 @@ function parseArgs(argv: string[]): Args | string {
   let all = false
   let json = false
   let id: string | undefined
+  let everySeconds: number | undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--all') {
@@ -52,14 +56,24 @@ function parseArgs(argv: string[]): Args | string {
     else if (!arg.startsWith('-') && id === undefined) {
       id = arg
     }
-    else if (arg === '--dir' || arg === '--repo') {
+    else if (arg === '--dir' || arg === '--repo' || arg === '--every') {
       const value = argv[index + 1]
       if (value === undefined || value.startsWith('--'))
         return `${arg} needs a value; ${USAGE}`
-      if (arg === '--dir')
+      if (arg === '--dir') {
         dir = value
-      else
+      }
+      else if (arg === '--repo') {
         repo = value
+      }
+      else {
+        try {
+          everySeconds = parseEverySeconds(value)
+        }
+        catch (error) {
+          return `${(error as Error).message}; ${USAGE}`
+        }
+      }
       index += 1
     }
     else {
@@ -70,7 +84,7 @@ function parseArgs(argv: string[]): Args | string {
     return `--dir is required; ${USAGE}`
   if (json && id !== undefined)
     return `--json prints every task; drop '${id}' or --json; ${USAGE}`
-  return { dir, repo, all, json, id }
+  return { dir, repo, all, json, id, everySeconds }
 }
 
 function refuse(message: string): BoardResult {
@@ -90,13 +104,49 @@ function findTask(tasks: TaskView[], id: string): TaskView | undefined {
   return tasks.find(task => task.name === id || task.attempts.some(view => view.attempt.id === id))
 }
 
-function fetchDetails(gh: GhRunner, repo: string, views: AttemptView[]): Map<string, PrDetails> {
-  const details = new Map<string, PrDetails>()
-  for (const view of views) {
-    if (view.pr.kind === 'found')
-      details.set(view.attempt.id, prDetails(gh, repo, view.pr.pr))
+class ChecksCache {
+  private readonly read = new Map<number, PrDetails>()
+
+  constructor(private readonly gh: GhRunner, private readonly repo: string) {}
+
+  fetch(pr: PullRequest): PrDetails {
+    if (!this.read.has(pr.number))
+      this.read.set(pr.number, prDetails(this.gh, this.repo, pr))
+    return this.read.get(pr.number)!
   }
-  return details
+
+  readonly unmerged: ChecksOf = pr => pr.mergedAt === null ? this.fetch(pr) : this.read.get(pr.number)
+
+  readonly fetched: ChecksOf = pr => this.read.get(pr.number)
+
+  byAttempt(views: AttemptView[]): Map<string, PrDetails> {
+    const details = new Map<string, PrDetails>()
+    for (const view of views) {
+      if (view.pr.kind === 'found')
+        details.set(view.attempt.id, this.fetch(view.pr.pr))
+    }
+    return details
+  }
+}
+
+interface Selection {
+  card: TaskView | undefined
+  shown: TaskView[]
+}
+
+function select(tasks: TaskView[], args: Args): Selection {
+  return {
+    card: args.id === undefined ? undefined : findTask(tasks, args.id),
+    shown: selectShown(tasks, args.all && !args.json),
+  }
+}
+
+function fetchedViews(tasks: TaskView[], { card, shown }: Selection, args: Args): AttemptView[] {
+  if (args.json)
+    return tasks.flatMap(task => task.attempts)
+  if (card !== undefined)
+    return card.attempts
+  return shown.map(task => task.live)
 }
 
 export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
@@ -108,19 +158,15 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
 
   const handoff = readHandoff(args.dir)
   const prs = listPrs(deps.gh, args.repo)
-  const tasks = deriveTasks(handoff.attempts, prs)
-  const card = args.id === undefined ? undefined : findTask(tasks, args.id)
-  if (args.id !== undefined && card === undefined)
+  const checks = new ChecksCache(deps.gh, args.repo)
+  const firstPass = deriveTasks(handoff.attempts, prs, checks.unmerged)
+  const firstSelection = select(firstPass, args)
+  if (args.id !== undefined && firstSelection.card === undefined)
     return refuse(`no task or attempt '${args.id}' in ${args.dir}`)
-  const shown = selectShown(tasks, args.all && !args.json)
-  let fetched: AttemptView[]
-  if (args.json)
-    fetched = tasks.flatMap(task => task.attempts)
-  else if (card !== undefined)
-    fetched = card.attempts
-  else
-    fetched = shown.map(task => task.live)
-  const details = fetchDetails(deps.gh, args.repo, fetched)
+  checks.byAttempt(fetchedViews(firstPass, firstSelection, args))
+  const tasks = deriveTasks(handoff.attempts, prs, checks.fetched)
+  const { card, shown } = select(tasks, args)
+  const details = checks.byAttempt(fetchedViews(tasks, { card, shown }, args))
   const kinds = readKinds()
 
   const stderr = handoff.warnings.map(warning => `${PREFIX}${warning}`)
@@ -145,5 +191,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     stdout = renderCard(card, view)
   else
     stdout = renderBoard(view)
-  return { stdout, stderr, exitCode: 0 }
+  if (args.everySeconds === undefined)
+    return { stdout, stderr, exitCode: 0 }
+  return { stdout: [`${PREFIX}frame ${deps.now.toISOString()}`, ...stdout], stderr, exitCode: 0, everySeconds: args.everySeconds }
 }

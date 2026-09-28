@@ -1,6 +1,8 @@
 import type { GhRunner } from '../../board/gh.js'
-import { spawnSync } from 'node:child_process'
-import { readdirSync, statSync } from 'node:fs'
+import type { BoardResult } from '../../board/run.js'
+import { spawn, spawnSync } from 'node:child_process'
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
@@ -34,17 +36,27 @@ const PRS = [
   { number: 34, headRefName: 'n-closed', headRefOid: '3434343434', state: 'CLOSED', mergedAt: null, mergeCommit: null },
   { number: 35, headRefName: 'n-pending', headRefOid: '3535353535', state: 'OPEN', mergedAt: null, mergeCommit: null },
   { number: 36, headRefName: 'n-release', title: 'chore: version packages', headRefOid: '3636363636', state: 'OPEN', mergedAt: null, mergeCommit: null },
+  { number: 37, headRefName: 'n-pushed', headRefOid: '3737373737', state: 'OPEN', mergedAt: null, mergeCommit: null },
 ]
 
-const GREEN = [{ name: 'quality', status: 'COMPLETED', conclusion: 'SUCCESS', completedAt: '2026-09-28T07:20:00Z' }]
+function green(completedAt: string): unknown[] {
+  return [
+    { name: 'quality', status: 'COMPLETED', conclusion: 'SUCCESS', completedAt },
+    { name: 'required', status: 'COMPLETED', conclusion: 'SUCCESS', completedAt },
+  ]
+}
 
-const VIEWS: Record<string, { statusCheckRollup: unknown[], files?: { path: string }[] }> = {
-  30: { statusCheckRollup: [{ name: 'quality', status: 'COMPLETED', conclusion: 'FAILURE' }], files: [{ path: 'src/cli.ts' }] },
+const GREEN = green('2026-09-28T07:20:00Z')
+
+const VIEWS: Record<string, { headRefOid?: string, statusCheckRollup: unknown[], files?: { path: string }[] }> = {
+  21: { statusCheckRollup: green('2026-09-28T08:20:00Z') },
+  30: { statusCheckRollup: [{ name: 'quality', status: 'COMPLETED', conclusion: 'FAILURE' }, { name: 'required', status: 'COMPLETED', conclusion: 'FAILURE' }], files: [{ path: 'src/cli.ts' }] },
   31: { statusCheckRollup: GREEN, files: [{ path: 'src/cli.ts' }, { path: '.claude/skills/implement/SKILL.md' }] },
   32: { statusCheckRollup: GREEN, files: [{ path: 'src/cli.ts' }] },
   33: { statusCheckRollup: GREEN },
-  35: { statusCheckRollup: [{ name: 'quality', status: 'IN_PROGRESS' }], files: [{ path: 'src/cli.ts' }] },
+  35: { statusCheckRollup: [{ name: 'quality', status: 'IN_PROGRESS' }, { name: 'required', status: 'QUEUED' }], files: [{ path: 'src/cli.ts' }] },
   36: { statusCheckRollup: GREEN, files: [{ path: 'package.json' }] },
+  37: { headRefOid: '3737373737', statusCheckRollup: [{ name: 'quality', status: 'IN_PROGRESS' }], files: [{ path: 'src/cli.ts' }] },
 }
 
 function stubGh(calls: string[][] = []): GhRunner {
@@ -62,7 +74,7 @@ const failingGh: GhRunner = () => {
   throw new Error('offline')
 }
 
-function board(argv: string[], gh: GhRunner = stubGh()): { stdout: string[], stderr: string[], exitCode: number } {
+function board(argv: string[], gh: GhRunner = stubGh()): BoardResult {
   return runBoard(argv, { gh, now: NOW })
 }
 
@@ -126,7 +138,7 @@ describe('board: — for what did not happen, UNKNOWN naming the missing record'
     { id: 'delta-1', stage: 'merged', expected: '— (no PR for ghost/delta-1)' },
     { id: 'delta-1', stage: 'pr', expected: '— (no PR for ghost/delta-1)' },
     { id: 'delta-1', stage: 'review', expected: 'UNKNOWN (missing: review.started)' },
-    { id: 'alpha-2', stage: 'ready', expected: 'UNKNOWN (missing: ready; recorded only on the cheap path, journal event:path)' },
+    { id: 'alpha-2', stage: 'ready', expected: '— (no checks recorded on a2a2a2a)' },
     { id: 'alpha-2', stage: 'merged', expected: '— (PR #2 OPEN)' },
     { id: 'gamma-1', stage: 'ghost', expected: '— (not finished; status.md writing)' },
     { id: 'm6', stage: 'merged', expected: `done 2026-09-27T06:30:00.000Z (journal, by owner, ${'6'.repeat(7)})` },
@@ -141,20 +153,20 @@ describe('board: — for what did not happen, UNKNOWN naming the missing record'
   })
 })
 
-describe('board: the cheap path reads started, ready, pr and merged from the journal event:path line', () => {
+describe('board: the cheap path reads started, pr and merged from the journal event:path line, and ready from CI', () => {
   it.each([
     { id: 'c-journal', stage: 'started', expected: 'done 2026-09-28T07:00:00.000Z (journal event:path)' },
-    { id: 'c-journal', stage: 'ready', expected: 'done 2026-09-28T07:30:00.000Z (journal event:path)' },
+    { id: 'c-journal', stage: 'ready', expected: '— (no checks recorded on 2020202)' },
     { id: 'c-journal', stage: 'pr', expected: '#20 MERGED (journal event:path, sha 2020202), ci — (no checks recorded on 2020202)' },
     { id: 'c-journal', stage: 'merged', expected: `done 2026-09-28T08:00:00.000Z (journal, by owner, abcdefa)` },
-    { id: 'c-gh', stage: 'ready', expected: 'done 2026-09-28T08:20:00.000Z (journal event:path)' },
+    { id: 'c-gh', stage: 'ready', expected: 'done 2026-09-28T08:20:00.000Z (CI required green on 2121212)' },
     { id: 'c-gh', stage: 'merged', expected: `done 2026-09-28T08:40:00.000Z (gh PR #21, ${'9'.repeat(7)})` },
     { id: 'c-open', stage: 'pr', expected: '#22 OPEN, ci — (no checks recorded on 2222222)' },
     { id: 'c-open', stage: 'merged', expected: '— (PR #22 OPEN)' },
-    { id: 'c-noready', stage: 'ready', expected: 'UNKNOWN (missing: ready; the journal event:path line records none)' },
+    { id: 'c-noready', stage: 'ready', expected: 'UNKNOWN (missing: ready; pr; the journal event:path line records none)' },
     { id: 'c-noready', stage: 'pr', expected: 'UNKNOWN (missing: pr; the journal event:path line records none)' },
     { id: 'c-noready', stage: 'merged', expected: 'UNKNOWN (missing: merge; pr; the journal event:path line records none)' },
-    { id: 'l-1', stage: 'ready', expected: 'UNKNOWN (missing: ready; recorded only on the cheap path, journal event:path)' },
+    { id: 'l-1', stage: 'ready', expected: 'UNKNOWN (missing: ready; branch; no tasks file names one)' },
   ])('$id $stage reads $expected', ({ id, stage, expected }) => {
     expect(stageOf(CHEAP, id, stage)).toBe(expected)
   })
@@ -162,7 +174,7 @@ describe('board: the cheap path reads started, ready, pr and merged from the jou
   it.each([
     { id: 'c-journal', category: 'merged' },
     { id: 'c-gh', category: 'merged' },
-    { id: 'c-open', category: 'waiting' },
+    { id: 'c-open', category: 'running' },
     { id: 'c-noready', category: 'running' },
   ])('$id prints only the cheap-path stages and is $category', ({ id, category }) => {
     const block = attemptBlock(board(['--dir', CHEAP, id]).stdout, id)
@@ -179,11 +191,90 @@ describe('board: the cheap path reads started, ready, pr and merged from the jou
     expect(stageOf(CHEAP, 'c-open', 'pr', failingGh)).toBe('UNKNOWN (missing: pr; the gh query failed)')
   })
 
-  it('states in the card definitions that ready is recorded only on the cheap path', () => {
+  it('states in the card definitions that ready is derived from CI and not from the journal', () => {
     const { stdout } = board(['--dir', CHEAP, 'c-open'])
-    expect(stdout.filter(line => line.includes('ready is recorded only on the cheap path'))).toHaveLength(1)
+    expect(stdout.filter(line => line.startsWith('# ready is derived from CI') && line.includes('a journal ready field is not read'))).toHaveLength(1)
     expect(stdout.filter(line => line.startsWith('#') && line.includes('no event exists'))).toEqual([])
   })
+})
+
+describe('board: ready is CI on the PR\'s current head, never the journal', () => {
+  it.each([
+    { id: 'n-auto', ready: 'done 2026-09-28T07:20:00.000Z (CI required green on 3232323)', category: 'waiting', note: 'green, and its journal line carries no ready' },
+    { id: 'n-red', ready: '— (CI red (quality, required) on 3030303)', category: 'running', note: 'red, although its journal line carries ready' },
+    { id: 'n-pending', ready: '— (CI pending (2 of 2) on 3535353)', category: 'running', note: 'running' },
+    { id: 'n-pushed', ready: '— (CI pending (required not reported) on 3737373)', category: 'running', note: 'a new head whose required check has not reported, although its journal line carries ready and an older sha' },
+  ])('$id reads $ready: $note', ({ id, ready, category }) => {
+    const block = attemptBlock(board(['--dir', NEXT, id]).stdout, id)
+    expect(block[0]).toBe(`  ${id} live ${category}`)
+    expect(block.find(line => line.startsWith('    ready '))).toBe(`    ready ${ready}`)
+  })
+
+  it('makes a task not ready once a push makes a new head, until CI on that head is green', () => {
+    const pushed: GhRunner = (args) => {
+      if (args[1] === 'list')
+        return JSON.stringify(PRS.map(pr => pr.number === 32 ? { ...pr, headRefOid: '4242424242' } : pr))
+      if (args[1] === 'view' && args[2] === '32')
+        return JSON.stringify({ headRefOid: '4242424242', statusCheckRollup: [{ name: 'quality', status: 'IN_PROGRESS' }, { name: 'required', status: 'QUEUED' }], files: [{ path: 'src/cli.ts' }] })
+      return stubGh()(args)
+    }
+    const before = rowOf(board(['--dir', NEXT]).stdout, 'n-auto')
+    expect([before[2], before[4]]).toEqual(['ready', NEXT_BY_SITUATION['auto-merge']])
+    const after = board(['--dir', NEXT, 'n-auto'], pushed).stdout
+    expect(attemptBlock(after, 'n-auto')[0]).toBe('  n-auto live running')
+    expect(attemptBlock(after, 'n-auto')).toContain('    ready — (CI pending (2 of 2) on 4242424)')
+    expect(rowOf(after, 'n-auto')[4]).toBe(NEXT_BY_SITUATION.ci)
+  })
+})
+
+describe('board --every: reprint the view until interrupted', () => {
+  it.each([
+    { name: 'a missing value', argv: ['--every'] },
+    { name: 'a flag as its value', argv: ['--every', '--all'] },
+    { name: 'a non-numeric value', argv: ['--every', 'soon'] },
+    { name: 'a fraction', argv: ['--every', '1.5'] },
+    { name: 'zero', argv: ['--every', '0'] },
+    { name: 'a negative value', argv: ['--every', '-5'] },
+  ])('refuses $name, naming --every', ({ argv }) => {
+    const { stdout, stderr, exitCode } = board(['--dir', BASIC, ...argv])
+    expect(exitCode).toBe(1)
+    expect(stdout).toEqual([])
+    expect(stderr).toHaveLength(1)
+    expect(stderr[0].startsWith('[board] --every ')).toBe(true)
+  })
+
+  it('heads each frame with the time it was drawn and hands the interval to the loop', () => {
+    const { stdout, exitCode, everySeconds } = board(['--dir', BASIC, '--every', '2'])
+    expect(exitCode).toBe(0)
+    expect(everySeconds).toBe(2)
+    expect(stdout[0]).toBe(`[board] frame ${NOW.toISOString()}`)
+    expect(stdout.slice(1)).toEqual(board(['--dir', BASIC]).stdout)
+  })
+
+  it('redraws from the script until it is interrupted', async () => {
+    const bin = mkdtempSync(path.join(tmpdir(), 'board-every-'))
+    writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nif [ "$2" = list ]; then echo \'[]\'; else echo \'{}\'; fi\n', { mode: 0o755 })
+    try {
+      const child = spawn(process.execPath, [TSX_CLI, BOARD, '--dir', BASIC, '--every', '1'], { env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
+      let stdout = ''
+      child.stdout.on('data', (chunk) => {
+        stdout += String(chunk)
+      })
+      const exited = new Promise(resolve => child.on('exit', resolve))
+      await new Promise(resolve => setTimeout(resolve, 4500))
+      expect(child.exitCode).toBeNull()
+      child.kill('SIGTERM')
+      await exited
+      const lines = stdout.split('\n')
+      const headers = lines.flatMap((line, index) => /^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(line) ? [index] : [])
+      expect(headers.length).toBeGreaterThanOrEqual(2)
+      for (const index of headers)
+        expect(lines[index + 1]).toMatch(/^running \d+, waiting \d+, blocked \d+, the longest — /)
+    }
+    finally {
+      rmSync(bin, { recursive: true, force: true })
+    }
+  }, 20_000)
 })
 
 describe('board: summary, edges and prefixes', () => {
@@ -263,17 +354,18 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     { dir: NEXT, id: 's-launch', path: 'ladder', stage: 'approved', situation: 'launch' },
     { dir: NEXT, id: 's-stopped', path: 'ladder', stage: 'ghost', situation: 'new-attempt' },
     { dir: NEXT, id: 's-nopr', path: 'ladder', stage: 'review', situation: 'pr' },
-    { dir: CHEAP, id: 'c-noready', path: 'cheap', stage: 'started', situation: 'cheap-ready' },
-    { dir: CHEAP, id: 'c-open', path: 'cheap', stage: 'ready', situation: 'ci' },
+    { dir: CHEAP, id: 'c-noready', path: 'cheap', stage: 'started', situation: 'pr' },
+    { dir: CHEAP, id: 'c-open', path: 'cheap', stage: 'started', situation: 'ci' },
     { dir: CHEAP, id: 'c-journal', path: 'cheap', stage: 'merged', situation: 'merged' },
-    { dir: NEXT, id: 'n-red', path: 'cheap', stage: 'ready', situation: 'ci-red' },
-    { dir: NEXT, id: 'n-pending', path: 'cheap', stage: 'ready', situation: 'ci' },
+    { dir: NEXT, id: 'n-red', path: 'cheap', stage: 'started', situation: 'ci-red' },
+    { dir: NEXT, id: 'n-pending', path: 'cheap', stage: 'started', situation: 'ci' },
+    { dir: NEXT, id: 'n-pushed', path: 'cheap', stage: 'started', situation: 'ci' },
     { dir: NEXT, id: 'n-owner', path: 'cheap', stage: 'ready', situation: 'owner-merge' },
     { dir: NEXT, id: 'n-release', path: 'cheap', stage: 'ready', situation: 'owner-merge' },
     { dir: NEXT, id: 'n-auto', path: 'cheap', stage: 'ready', situation: 'auto-merge' },
     { dir: NEXT, id: 'n-nofiles', path: 'cheap', stage: 'ready', situation: 'merge-unknown' },
-    { dir: NEXT, id: 'n-closed', path: 'cheap', stage: 'ready', situation: 'pr-closed' },
-    { dir: NEXT, id: 'n-lost', path: 'cheap', stage: 'ready', situation: 'pr-unknown' },
+    { dir: NEXT, id: 'n-closed', path: 'cheap', stage: 'started', situation: 'pr-closed' },
+    { dir: NEXT, id: 'n-lost', path: 'cheap', stage: 'started', situation: 'pr-unknown' },
     { dir: SUPERSEDED, id: '271-2', path: 'ladder', stage: 'ghost', situation: 'superseded' },
   ] as { dir: string, id: string, path: string, stage: string, situation: keyof typeof NEXT_BY_SITUATION }[])('$id: $path at $stage waits for $situation', ({ dir, id, path: taskPath, stage, situation }) => {
     const cells = rowOf(board(['--dir', dir, '--all']).stdout, id)
@@ -282,7 +374,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'cheap-ready', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 
@@ -337,8 +429,8 @@ describe('board: the UNKNOWN tally line', () => {
   it.each([
     { name: 'the default', argv: ['--dir', CHEAP], expected: 'UNKNOWN: brief.written ×1, brief.approved ×1, review.started ×1, ready ×2, merge ×2, pr ×1' },
     { name: 'a card', argv: ['--dir', CHEAP, 'c-journal'], expected: 'UNKNOWN: none' },
-    { name: 'the ladder', argv: ['--dir', BASIC], expected: 'UNKNOWN: ready ×8, brief.approved ×8, brief.written ×7, review.started ×6' },
-    { name: 'PRs missing from the gh list', argv: ['--dir', NEXT], expected: 'UNKNOWN: pr ×1, merge ×1, brief.approved ×2, review.started ×1, ready ×2' },
+    { name: 'the ladder', argv: ['--dir', BASIC], expected: 'UNKNOWN: brief.approved ×8, brief.written ×7, review.started ×6' },
+    { name: 'PRs missing from the gh list', argv: ['--dir', NEXT], expected: 'UNKNOWN: ready ×1, pr ×1, merge ×1, brief.approved ×2, review.started ×1' },
   ])('ends $name with one tally of the events that occur', ({ argv, expected }) => {
     const { stdout } = board(argv)
     expect(stdout.at(-1)).toBe(expected)
@@ -433,9 +525,9 @@ describe('board --json: the full output for agents', () => {
     const alpha2 = json.tasks.flatMap((task: any) => task.attempts).find((attempt: any) => attempt.id === 'alpha-2')
     const byName = Object.fromEntries(alpha2.stages.map((stage: any) => [stage.name, stage]))
     expect(byName.review).toMatchObject({ state: 'done', at: '2026-09-28T07:10:00.000Z', source: 'verdict pass' })
-    expect(byName.ready).toMatchObject({ state: 'unknown', missing: 'ready; recorded only on the cheap path, journal event:path' })
+    expect(byName.ready).toMatchObject({ state: 'not', reason: 'no checks recorded on a2a2a2a' })
     expect(byName.merged).toMatchObject({ state: 'not', reason: 'PR #2 OPEN' })
     expect(alpha2.derived.next).toEqual({ situation: 'ci', text: 'CI', why: '— (no checks recorded on a2a2a2a)' })
-    expect(json.unknown).toEqual({ 'brief.written': 8, 'brief.approved': 9, 'review.started': 7, 'ready': 9 })
+    expect(json.unknown).toEqual({ 'brief.written': 8, 'brief.approved': 9, 'review.started': 7 })
   })
 })

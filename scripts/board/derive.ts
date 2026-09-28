@@ -1,7 +1,7 @@
-import type { PrList, PrLookup } from './gh.js'
+import type { PrDetails, PrList, PrLookup, PullRequest } from './gh.js'
 import type { Attempt, PathEvent } from './handoff.js'
 import path from 'node:path'
-import { lookupPr, lookupPrNumber } from './gh.js'
+import { lookupPr, lookupPrNumber, REQUIRED_CHECK } from './gh.js'
 
 export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'idle'
 
@@ -21,6 +21,8 @@ export type StageBody
 export type Stage = { name: string } & StageBody
 
 export type TaskPath = 'ladder' | 'cheap'
+
+export type ChecksOf = (pr: PullRequest) => PrDetails | undefined
 
 export interface AttemptView {
   attempt: Attempt
@@ -141,19 +143,48 @@ function mergedStage(attempt: Attempt, pr: PrLookup): StageBody {
   return unknown(`merge; ${pr.missing}`)
 }
 
-function readyStage(attempt: Attempt, merged: boolean): StageBody {
+function detailsOf(pr: PrLookup, checksOf: ChecksOf): PrDetails | undefined {
+  return pr.kind === 'found' ? checksOf(pr.pr) : undefined
+}
+
+function isReady(details: PrDetails | undefined): boolean {
+  return details?.ci.state === 'green'
+}
+
+function ciReadyStage(pr: PrLookup, details: PrDetails | undefined): StageBody {
+  if (pr.kind === 'unknown')
+    return unknown(`ready; ${pr.missing}`)
+  if (pr.kind === 'none')
+    return not('no PR')
+  if (details === undefined)
+    return unknown(`ready; the checks of PR #${pr.pr.number} were not read`)
+  const { ci } = details
+  switch (ci.state) {
+    case 'green':
+      return ci.greenAt === undefined ? fact(`CI ${REQUIRED_CHECK} green on ${ci.head}`, 'gh checks, no completedAt') : done(ci.greenAt, `CI ${REQUIRED_CHECK} green on ${ci.head}`)
+    case 'unknown':
+      return unknown('ready; checks; the gh query failed')
+    case 'none':
+      return not(`no checks recorded on ${ci.head}`)
+    default:
+      return not(`CI ${ci.text}`)
+  }
+}
+
+function readyStage(attempt: Attempt, merged: boolean, pr: PrLookup, details: PrDetails | undefined): StageBody {
   if (!merged && changesRequested(attempt))
     return not('last review verdict changes')
-  return unknown('ready; recorded only on the cheap path, journal event:path')
+  if (pr.kind === 'none')
+    return not(`no PR for ${attempt.branch}`)
+  return ciReadyStage(pr, details)
 }
 
 function cheapPathOf(attempt: Attempt): PathEvent | undefined {
   return attempt.pathEvent?.path === CHEAP_PATH ? attempt.pathEvent : undefined
 }
 
-function pathStamp(pathEvent: PathEvent, field: 'started' | 'ready'): StageBody {
-  const at = pathEvent[field]
-  return at === undefined ? unknown(`${field}; the journal event:path line records none`) : done(at, 'journal event:path')
+function startedStage(pathEvent: PathEvent): StageBody {
+  return pathEvent.started === undefined ? unknown('started; the journal event:path line records none') : done(pathEvent.started, 'journal event:path')
 }
 
 function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): StageBody {
@@ -162,27 +193,28 @@ function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): StageBody {
   return fact(`#${pr.pr.number} ${pr.pr.state}`, pathEvent.sha === undefined ? undefined : `journal event:path, sha ${pathEvent.sha.slice(0, 7)}`)
 }
 
-function cheapCategoryOf(pathEvent: PathEvent, merged: boolean): Category {
+function cheapCategoryOf(merged: boolean, details: PrDetails | undefined): Category {
   if (merged)
     return 'merged'
-  return pathEvent.ready === undefined ? 'running' : 'waiting'
+  return isReady(details) ? 'waiting' : 'running'
 }
 
-function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList): AttemptView {
+function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, checksOf: ChecksOf): AttemptView {
   const pr = lookupPrNumber(prs, pathEvent.pr)
+  const details = detailsOf(pr, checksOf)
   const mergedAt = mergedAtOf(attempt, pr)
   return {
     attempt,
     path: 'cheap',
     pr,
     stages: [
-      { name: 'started', ...pathStamp(pathEvent, 'started') },
-      { name: 'ready', ...pathStamp(pathEvent, 'ready') },
+      { name: 'started', ...startedStage(pathEvent) },
+      { name: 'ready', ...ciReadyStage(pr, details) },
       { name: 'pr', ...cheapPrStage(pathEvent, pr) },
       { name: 'merged', ...mergedStage(attempt, pr) },
     ],
     facts: [],
-    category: cheapCategoryOf(pathEvent, mergedAt !== undefined),
+    category: cheapCategoryOf(mergedAt !== undefined, details),
     startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
     mergedAt,
   }
@@ -228,15 +260,15 @@ function supersededFacts(attempt: Attempt): Stage[] {
   return event === undefined ? [] : [{ name: 'superseded', ...fact(`by ${event.by}`, `journal event:superseded, ${new Date(event.ts).toISOString()}`) }]
 }
 
-function viewAttempt(attempt: Attempt, prs: PrList): AttemptView {
-  const view = viewPathAttempt(attempt, prs)
+function viewAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): AttemptView {
+  const view = viewPathAttempt(attempt, prs, checksOf)
   return { ...view, facts: [...view.facts, ...supersededFacts(attempt)] }
 }
 
-function viewPathAttempt(attempt: Attempt, prs: PrList): AttemptView {
+function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): AttemptView {
   const cheapPath = cheapPathOf(attempt)
   if (cheapPath !== undefined)
-    return viewCheapAttempt(attempt, cheapPath, prs)
+    return viewCheapAttempt(attempt, cheapPath, prs, checksOf)
   const pr = lookupPr(prs, attempt.branch)
   const mergedAt = mergedAtOf(attempt, pr)
   const merged = mergedAt !== undefined
@@ -249,7 +281,7 @@ function viewPathAttempt(attempt: Attempt, prs: PrList): AttemptView {
       { name: 'approved', ...approvedStage(attempt) },
       { name: 'ghost', ...ghostStage(attempt) },
       { name: 'review', ...reviewStage(attempt) },
-      { name: 'ready', ...readyStage(attempt, merged) },
+      { name: 'ready', ...readyStage(attempt, merged, pr, detailsOf(pr, checksOf)) },
       { name: 'merged', ...mergedStage(attempt, pr) },
     ],
     facts: [
@@ -271,11 +303,11 @@ function orderKey(view: AttemptView): number {
   return (view.startedAt ?? view.attempt.tasksFileMtime)?.getTime() ?? Number.NEGATIVE_INFINITY
 }
 
-export function deriveTasks(attempts: Attempt[], prs: PrList): TaskView[] {
+export function deriveTasks(attempts: Attempt[], prs: PrList, checksOf: ChecksOf): TaskView[] {
   const groups = new Map<string, AttemptView[]>()
   for (const attempt of attempts) {
     const key = attempt.brief ?? `attempt:${attempt.id}`
-    groups.set(key, [...(groups.get(key) ?? []), viewAttempt(attempt, prs)])
+    groups.set(key, [...(groups.get(key) ?? []), viewAttempt(attempt, prs, checksOf)])
   }
   return [...groups].map(([key, views]) => {
     const ordered = views.sort((a, b) => orderKey(a) - orderKey(b))
