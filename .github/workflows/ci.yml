@@ -17,7 +17,8 @@
 #              against the latest release tag reachable from HEAD, compared with the strongest
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
 # required   — red when any job failed or was cancelled, or was skipped other than package and
-#              acceptance on the fast path (scripts/ci/required.ts).
+#              acceptance on the fast path. The job runs scripts/ci/verdict.ts, which applies the
+#              rule blockingJobs in scripts/ci/required.ts to the needs of this job.
 #
 # The fast path is a pull request whose every changed path is on the allow-list in
 # scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated

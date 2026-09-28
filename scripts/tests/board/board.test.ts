@@ -1,7 +1,7 @@
 import type { GhRunner } from '../../board/gh.js'
 import type { BoardResult } from '../../board/run.js'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -150,6 +150,32 @@ describe('board: — for what did not happen, UNKNOWN naming the missing record'
     const { stderr } = board(['--dir', BASIC], failingGh)
     expect(stageOf(BASIC, 'delta-1', 'merged', failingGh)).toBe('UNKNOWN (missing: merge; pr; the gh query failed)')
     expect(stderr).toEqual(['[board] gh pr list failed; every PR fact is UNKNOWN'])
+  })
+})
+
+describe('board: the ledger stage reads the last line of the worktree ledger', () => {
+  function withLedgers(ledgers: Record<string, string>): string {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-ledger-'))
+    cpSync(BASIC, dir, { recursive: true })
+    for (const [id, text] of Object.entries(ledgers)) {
+      mkdirSync(path.join(dir, 'worktrees', id, '.construct'), { recursive: true })
+      writeFileSync(path.join(dir, 'worktrees', id, '.construct', 'runs.jsonl'), text)
+    }
+    return dir
+  }
+
+  it.each([
+    { name: 'a complete last line', text: `${JSON.stringify({ run: 'run-1', status: 'done' })}\n`, expected: 'done run-1' },
+    { name: 'a half-written last line', text: `${JSON.stringify({ run: 'run-1', status: 'done' })}\n{"run":"run-2","sta`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl last line still being written)' },
+    { name: 'a broken line before the last', text: `{"run":"run-1","sta\n${JSON.stringify({ run: 'run-2', status: 'done' })}\n`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl unreadable)' },
+  ])('$name reads $expected', ({ text, expected }) => {
+    const dir = withLedgers({ 'alpha-2': text })
+    try {
+      expect(stageOf(dir, 'alpha-2', 'ledger')).toBe(expected)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
