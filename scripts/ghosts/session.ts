@@ -34,6 +34,14 @@ export interface SpawnSessionParams {
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
   const outFd = openSync(params.stdoutPath, 'w')
   const errFd = openSync(params.stderrPath, 'w')
+  let closed = false
+  const closeOnce = (): void => {
+    if (!closed) {
+      closed = true
+      closeSync(outFd)
+      closeSync(errFd)
+    }
+  }
 
   return new Promise((resolve, reject) => {
     const child = spawn('claude', sessionArgv(params.sessionId, params.prompt), {
@@ -43,14 +51,12 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
     })
 
     child.on('error', (error) => {
-      closeSync(outFd)
-      closeSync(errFd)
+      closeOnce()
       reject(error)
     })
 
     child.on('close', (code) => {
-      closeSync(outFd)
-      closeSync(errFd)
+      closeOnce()
       resolve(code ?? 1)
     })
   })

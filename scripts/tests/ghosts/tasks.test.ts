@@ -40,6 +40,22 @@ describe('parseTasksFile', () => {
     expect(() => parseTasksFile(JSON.stringify(object))).toThrow(/unknown field 'extra'/)
   })
 
+  it('accepts an optional top-level matrix', () => {
+    const object = { ...JSON.parse(VALID) as Record<string, unknown>, matrix: '/w/matrix.json' }
+    const parsed = parseTasksFile(JSON.stringify(object))
+    expect(parsed.matrix).toBe('/w/matrix.json')
+  })
+
+  it('leaves matrix undefined when absent', () => {
+    const parsed = parseTasksFile(VALID)
+    expect(parsed.matrix).toBeUndefined()
+  })
+
+  it('still refuses an unknown top-level field alongside a matrix, naming it', () => {
+    const object = { ...JSON.parse(VALID) as Record<string, unknown>, matrix: '/w/matrix.json', matrx: '/w/oops.json' }
+    expect(() => parseTasksFile(JSON.stringify(object))).toThrow(/unknown field 'matrx'/)
+  })
+
   it('refuses a non-array tasks field', () => {
     const object = { ...JSON.parse(VALID) as Record<string, unknown>, tasks: 'nope' }
     expect(() => parseTasksFile(JSON.stringify(object))).toThrow(/tasks: expected an array/)

@@ -16,9 +16,7 @@ export interface FreeRowParams {
   headSha: string
   start: string
   end: string
-  exitCode: number
-  reportPath: string
-  sessionId: string
+  outcome: string
 }
 
 export function writingRow(params: WritingRowParams): string {
@@ -26,7 +24,24 @@ export function writingRow(params: WritingRowParams): string {
 }
 
 export function freeRow(params: FreeRowParams): string {
-  return `| ghost-${params.id} | ${params.worktree} | free | ${params.headSha} | ${params.start} | exit ${params.exitCode}; report ${params.reportPath}; session ${params.sessionId} | ${params.end} |`
+  return `| ghost-${params.id} | ${params.worktree} | free | ${params.headSha} | ${params.start} | ${params.outcome} | ${params.end} |`
+}
+
+export function sessionOutcome(exitCode: number, ladderStatus: string, reportPath: string, sessionId: string): string {
+  const ladderText = ladderStatus === 'no ladder run' ? 'no ladder run' : `ladder ${ladderStatus}`
+  return `exit ${exitCode}; ${ladderText}; report ${reportPath}; session ${sessionId}`
+}
+
+export function installFailedOutcome(exitCode: number, logPath: string): string {
+  return `install failed: exit ${exitCode}; log ${logPath}`
+}
+
+export function installUnspawnableOutcome(message: string, logPath: string): string {
+  return `install failed: ${message}; log ${logPath}`
+}
+
+export function sessionUnspawnableOutcome(message: string): string {
+  return `session failed: ${message}`
 }
 
 function ghostRowMarker(id: string): string {
