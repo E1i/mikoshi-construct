@@ -46,6 +46,12 @@ test file from a nested worktree, once, and was not reproduced* in
 [observations.md](architecture/observations.md)). So the rule stands on its own and does not end
 with #204.
 
+A new task gets a new worktree from `origin/main`, for example
+`git worktree add -b <branch> ../<name> origin/main`; nobody writes in the main checkout. Before
+removing a worktree, check `git -C <path> status --porcelain` and list its ignored files
+(`git -C <path> status --porcelain --ignored`): `git worktree remove` deletes them without asking, and
+an ignored `.construct/runs.jsonl` inside it may be the only copy of a ledger line.
+
 Nothing enforces this; it is kept by review.
 
 ## Adding a preset

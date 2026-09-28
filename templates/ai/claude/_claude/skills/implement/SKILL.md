@@ -15,7 +15,10 @@ repository's CLAUDE.md and `construct.json`.
    that names or must touch a high-effort area, the API contract, a composition model, the
    dependency policy or the security invariants is `high`. A new endpoint, a new integration or a
    change across several modules is `medium`. Everything with an existing pattern to copy and a
-   contract already defined is `low`.
+   contract already defined is `low`. What a `high` task requires, because of what it touches, is a
+   design before any implementation; once that design is settled, the task is carried out as `medium`
+   implementation tasks, each with the design attached as its `Design:`. A brief that is one of those
+   tasks is `medium`, and the one-line reason says whose design it carries.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
    The args come from one deterministic parser, never from you: write `$ARGUMENTS` verbatim to
@@ -60,6 +63,7 @@ repository's CLAUDE.md and `construct.json`.
    and it cannot fix a contradiction in the task, because the agent may not change the task. Raise it
    only when a rejected response is expected to be a transient shape error rather than a bad brief.
    The user's `/implement` invocation is the opt-in the tool requires.
+   Precondition: start the ladder only from a session whose working directory is the task's own worktree, and never after switching into a worktree with `EnterWorktree`: that mode refuses git outside the worktree, so the witnesses and the base worktree cannot run and the run ends `base unverified`. Before the run, a `harness` agent can check in seconds that `git -C "$(mktemp -d)" init -q` and `git worktree add --detach <tmp> <base sha>` work from where the run starts.
    Precondition: start the ladder only from a turn whose only user message is the /implement invocation. The Workflow runtime relays the triggering user message into the implementer's input as a request that outranks the computed brief (observed in wf_c3fc5325-1c7). If a user message arrives in the turn you meant to start from, answer it first and start the ladder in a later turn.
    The ladder cannot check this precondition — the script sees no transcript, and an agent call
    returns only the object its schema allows — so it holds by discipline alone. After the run, the
@@ -155,4 +159,6 @@ repository's CLAUDE.md and `construct.json`.
    say so, and figures from `construct cost` carry the `version` that command reports, which is the
    version of the binary on the PATH and not necessarily the sources you are working in. A relayed
    number that does not say what measured it is not written down.
-6. Never commit. The user reviews the working tree first.
+6. Never commit. The user reviews the working tree first. After `done` the tree is only read: a
+   change made in it afterwards, a refactor included, is outside the evidence the ladder produced, so
+   it goes into the brief's Design and through the ladder again.
