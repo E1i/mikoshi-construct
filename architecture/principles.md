@@ -113,3 +113,7 @@ repeatedly or the task is ambiguous.
 - **Escalate by evidence**: low → retry low with the failure in hand → medium → high. Ambiguity at
   any rung goes to design, never to a guess. Reserve the ladder for tasks with a statable acceptance
   criterion; one-line edits stay inline.
+- **The cheapest contour that gives the required proof.** Mikoshi does not mean every change goes
+  through Mikoshi. It means that for each change the cheapest contour that yields the proof the
+  change requires is chosen: an ordinary session, the harness and CI when an ordinary test proves
+  the result; the ladder with its witnesses only when it does not.
