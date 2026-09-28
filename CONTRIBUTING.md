@@ -71,6 +71,53 @@ Point every range in a template at the previous release, not the latest. Users r
 `minimumReleaseAge`; a range that only matches today's publish fails their first install. The
 places a bump touches are listed in CLAUDE.md.
 
+## Scripts
+
+Four maintainer scripts run the Ghost workflow described in [AGENTS.md](AGENTS.md). None of them is
+a verdict on a change, so they sit outside the harness, each with its reason, in
+`tests/harness-membership.test.ts`. Paths below are placeholders: `<repo>` for a checkout,
+`<scratchpad>` for the directory outside the repository that holds briefs, tasks files, `status.md`
+and the journal, `<worktree>` for a Ghost's worktree.
+
+| Script | What it does | How to run it |
+|---|---|---|
+| `pnpm ghosts:hash` | Prints the sha256 of a brief's `/implement` text, the hash the owner approves. | `pnpm ghosts:hash <scratchpad>/brief-<task>.md` |
+| `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256`, prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
+| `pnpm ghosts:watch` | Prints one read-only line per task of a tasks file: report age, last tool, ledger stage and whether the session is alive. | `pnpm ghosts:watch --tasks <scratchpad>/tasks-<batch>.json [--every <seconds>]` |
+| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`. | `pnpm board --dir <scratchpad> [--all] [--repo <owner>/<name>]` |
+
+`ghosts:hash`:
+
+```text
+9bc59ac574a7bba0f6e23109c509071a9484c050fb5e181ef769ebbeba043a93
+```
+
+`ghosts:launch`, answered with anything but `yes`, which exits 1 and opens nothing:
+
+```text
+DECISION: open 1 sessions
+  demo-2: /implement <scratchpad>/brief-demo.md (approved 9bc59ac) -> <worktree> on ghost/demo-2 @ b736fed, report <scratchpad>/ghost-demo-2.jsonl, session <uuid>
+```
+
+`ghosts:watch`:
+
+```text
+[ghosts:watch] frame 2026-09-28T08:37:03.173Z
+[ghosts:watch] ghost-demo-1 | report 0s | tool Bash | stage implementing r-0001 | process dead
+```
+
+`board`, one cheap-path task out of the full output, which opens with a summary line and the
+definitions of every stage:
+
+```text
+task c-open (derived) live c-open waiting
+  c-open live waiting
+    started done 2026-09-28T09:00:00.000Z (journal event:path)
+    ready done 2026-09-28T09:15:00.000Z (journal event:path)
+    pr #22 OPEN, ci green 2026-09-28T09:20:00Z on 2222222
+    merged — (PR #22 OPEN)
+```
+
 ## After a release
 
 A release is done when these five checks pass, run once the staged publish has been approved. `<V>`

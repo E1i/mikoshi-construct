@@ -14,6 +14,7 @@ const QUOTED_PATH = /^`([^`]+)`$/
 const QUOTED_COMMAND = /^`[\s\S]+`$/
 const WITNESS_MARKER = '— witness:'
 const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
+const CONTRACT_CHECK_LINE = /^Contract check:(.*)$/m
 
 export class InputError extends Error {}
 
@@ -179,15 +180,34 @@ function readRecord(file) {
   }
 }
 
-function claudeContractPaths(root) {
-  let text
+function readIfPresent(file) {
   try {
-    text = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')
+    return readFileSync(file, 'utf8')
   }
   catch {
-    return []
+    return ''
   }
-  return (CONTRACT_PATHS_LINE.exec(text)?.[1] ?? '').split(',').map(item => item.trim())
+}
+
+function agentsContractLine(root, regex) {
+  const agents = readIfPresent(path.join(root, 'AGENTS.md'))
+  const found = regex.exec(agents)
+  if (found != null)
+    return found[1].trim()
+  const claude = readIfPresent(path.join(root, 'CLAUDE.md'))
+  const foundInClaude = regex.exec(claude)
+  if (foundInClaude != null)
+    throw new InputError(`${foundInClaude[0].trim()}\nmoved to AGENTS.md`)
+  return null
+}
+
+function agentsContractPaths(root) {
+  const line = agentsContractLine(root, CONTRACT_PATHS_LINE)
+  return line == null ? [] : line.split(',').map(item => item.trim()).filter(item => item !== '')
+}
+
+function agentsContractCheck(root) {
+  return agentsContractLine(root, CONTRACT_CHECK_LINE) ?? ''
 }
 
 export function repositoryHarness(root) {
@@ -196,7 +216,12 @@ export function repositoryHarness(root) {
   if (typeof command !== 'string')
     throw new InputError('no harness command: neither construct.json nor .construct/attach.json names one')
   const recorded = record.contracts == null ? [] : [record.contracts.path, record.contracts.types]
-  return { command, extra: [], contractPaths: [...recorded, ...claudeContractPaths(root)].filter(item => typeof item === 'string' && item !== '') }
+  return {
+    command,
+    extra: [],
+    contractPaths: [...recorded, ...agentsContractPaths(root)].filter(item => typeof item === 'string' && item !== ''),
+    contractCheck: agentsContractCheck(root),
+  }
 }
 
 export function argsAcceptance(json) {

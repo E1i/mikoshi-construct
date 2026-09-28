@@ -7,6 +7,21 @@ Decompose `$ARGUMENTS` into tasks for the reasoning-budget ladder. Use the `arch
 decomposition when the feature touches a contract, a composition model, a high-effort area from
 CLAUDE.md or a security invariant; otherwise reason it out directly.
 
+Choose each task's contour before anything else: the cheapest one that yields the proof the task needs
+([architecture/principles.md](../../architecture/principles.md), Reasoning budget).
+
+- **Cheap path**: an ordinary session, the harness and CI, with no brief, no witnesses and no mutations.
+  It fits docs and comments, cosmetics and naming, a one-file change with its local test, and a small
+  fix that an ordinary test proves directly.
+- **Ladder path**: a brief with witnesses, run by `/implement`. It fits a change to the workflow's own
+  mechanism, a result that needs a separate red-before or positive-control witness, several independent
+  surfaces, unattended or parallel work, and a case where an ordinary test cannot rule out a specific
+  incorrect way of doing it.
+- Never choose the ladder only because a task entered this workflow: the price of the proof matches
+  the risk. When the contour is not obvious, estimate it briefly first. The cheap path keeps CI and the
+  repository's merge rules.
+- The rules below on briefs and witnesses apply to ladder-path tasks.
+
 Rules:
 
 - Two to six tasks. Each task is independently verifiable by the harness and leaves the tree green.

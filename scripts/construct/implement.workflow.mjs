@@ -58,6 +58,15 @@ const VERDICT = {
         },
       },
     },
+    contractCheck: {
+      type: 'object',
+      required: ['command', 'exitCode', 'excerpt'],
+      properties: {
+        command: { type: 'string' },
+        exitCode: { type: 'integer' },
+        excerpt: { type: 'string' },
+      },
+    },
   },
 }
 
@@ -102,7 +111,8 @@ const witnesses = (args.witnesses ?? []).filter(witness => acceptance.includes(w
 const witnessDigests = (args.witnessDigests ?? []).filter(digest => acceptance.includes(digest.criterion))
 for (const item of acceptance)
   log(`acceptance: ${item}`)
-const harness = { extra: [], contractPaths: [], ...(args.harness ?? {}) }
+const harness = { extra: [], contractPaths: [], contractCheck: '', ...(args.harness ?? {}) }
+const contractDeclared = harness.contractPaths.length > 0 && harness.contractCheck !== ''
 if (typeof harness.command !== 'string' || harness.command === '')
   return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance, invariants, immutable }
 if (acceptance.length === 0)
@@ -173,6 +183,7 @@ function harnessPrompt(baseSha) {
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. Each witness is given only as base64, one script per criterion; decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
     `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256, and the decoded script's own text as command. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
+    contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
 }
@@ -284,6 +295,10 @@ function isSourceFile(file) {
 
 function untestedReason(files) {
   return `Changed source with no test: ${files.join(' | ')}`
+}
+
+function contractCheckReason(check) {
+  return check == null ? 'the harness did not report the contract check' : check.excerpt
 }
 
 async function redesignBeforeLastRung(rung) {
@@ -425,18 +440,20 @@ for (const [index, effort] of rungs.entries()) {
   const changedSourceFiles = harnessPassed && !unchanged ? verdict.changedFiles.filter(isSourceFile) : []
   const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0
     && changedSourceFiles.length > 0 && !verdict.changedFiles.some(isTestFile)
-  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0 && !untested
+  const contractCheckFailed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0 && !untested
+    && contractDeclared && (verdict.contractCheck == null || verdict.contractCheck.exitCode !== 0)
+  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0 && !untested && !contractCheckFailed
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
     : {
         rung,
         effort,
-        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unrun.length > 0 ? 'witness not run verbatim' : unwitnessed.length > 0 ? 'acceptance not witnessed' : 'untested change',
+        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unrun.length > 0 ? 'witness not run verbatim' : unwitnessed.length > 0 ? 'acceptance not witnessed' : untested ? 'untested change' : 'contract check failed',
         reason: passed
           ? ''
           : !harnessPassed
               ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
-              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unrun.length > 0 ? unrunVerbatimReason(unrun) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untestedReason(changedSourceFiles),
+              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unrun.length > 0 ? unrunVerbatimReason(unrun) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untested ? untestedReason(changedSourceFiles) : contractCheckReason(verdict.contractCheck),
         securityFinding: verdict.securityFinding ?? '',
       })
   log(`rung ${rung} @ ${effort}: ${attempts.at(-1).outcome}`)
@@ -472,7 +489,9 @@ for (const [index, effort] of rungs.entries()) {
                 ? `${unrunVerbatimReason(unrun)} Decode the witness exactly as given and run it unedited.`
                 : unwitnessed.length > 0
                   ? `${unwitnessedReason(unwitnessed)} Each criterion needs a command that fails on the base and passes after the change.`
-                  : `${untestedReason(changedSourceFiles)} Ship the matching test in the same change.`
+                  : untested
+                    ? `${untestedReason(changedSourceFiles)} Ship the matching test in the same change.`
+                    : contractCheckReason(verdict.contractCheck)
   if (verdict?.securityFinding)
     feedback = `Security invariant failed: ${verdict.securityFinding}\n${feedback}`
 

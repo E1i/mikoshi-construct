@@ -178,26 +178,64 @@ describe('an acceptance item', () => {
 describe('the harness in the built args', () => {
   const brief = 'Task.\nAcceptance: one holds — witness: `true`'
 
-  it('comes from construct.json, with its contracts and the Contract paths line in CLAUDE.md', () => {
+  it('comes from construct.json, with its contracts and the Contract paths line in AGENTS.md', () => {
     const dir = scratch({
       'construct.json': JSON.stringify({ harness: { command: 'pnpm run quality' }, contracts: { path: 'contract/openapi.yaml', types: 'src/contracts/openapi.ts' } }),
-      'CLAUDE.md': '# Project\n\nContract paths: contract/surface.json, contract/events.json\n',
+      'AGENTS.md': '# Project\n\nContract paths: contract/surface.json, contract/events.json\n',
     })
 
     expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({
       command: 'pnpm run quality',
       extra: [],
       contractPaths: ['contract/openapi.yaml', 'src/contracts/openapi.ts', 'contract/surface.json', 'contract/events.json'],
+      contractCheck: '',
     })
   })
 
-  it('comes from .construct/attach.json when construct.json is absent, with contract paths from CLAUDE.md only', () => {
+  it('comes from .construct/attach.json when construct.json is absent, with contract paths from AGENTS.md only', () => {
     const dir = scratch({
       '.construct/attach.json': JSON.stringify({ harness: { command: 'make check' } }),
-      'CLAUDE.md': 'Contract paths: api/openapi.yaml\n',
+      'AGENTS.md': 'Contract paths: api/openapi.yaml\n',
     })
 
-    expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({ command: 'make check', extra: [], contractPaths: ['api/openapi.yaml'] })
+    expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({ command: 'make check', extra: [], contractPaths: ['api/openapi.yaml'], contractCheck: '' })
+  })
+
+  it('reads Contract paths and Contract check from AGENTS.md', () => {
+    const dir = scratch({
+      'construct.json': JSON.stringify({ harness: { command: 'make check' }, contracts: { path: 'api/openapi.yaml', types: 'src/api.ts' } }),
+      'AGENTS.md': '<!-- construct:end -->\n\nContract paths: contract/surface.json, contract/events.json\nContract check: make contract-marker-283\n',
+      'CLAUDE.md': 'Contract paths: claude/only.json\nContract check: make claude-marker\n',
+    })
+
+    expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({
+      command: 'make check',
+      extra: [],
+      contractPaths: ['api/openapi.yaml', 'src/api.ts', 'contract/surface.json', 'contract/events.json'],
+      contractCheck: 'make contract-marker-283',
+    })
+  })
+
+  it('refuses a contract line found only in CLAUDE.md', () => {
+    const pathsResult = buildIn(scratch({
+      ...CONSTRUCTED,
+      'AGENTS.md': '<!-- construct:end -->\n',
+      'CLAUDE.md': 'Contract paths: contract/surface.json\n',
+    }), brief)
+    expect(pathsResult.status).not.toBe(0)
+    expect(pathsResult.stdout).toBe('')
+    expect(pathsResult.stderr).toContain('Contract paths: contract/surface.json')
+    expect(pathsResult.stderr).toContain('moved to AGENTS.md')
+
+    const checkResult = buildIn(scratch({
+      ...CONSTRUCTED,
+      'AGENTS.md': '<!-- construct:end -->\n\nContract paths: contract/surface.json\n',
+      'CLAUDE.md': 'Contract check: pnpm contract:bump\n',
+    }), brief)
+    expect(checkResult.status).not.toBe(0)
+    expect(checkResult.stdout).toBe('')
+    expect(checkResult.stderr).toContain('Contract check: pnpm contract:bump')
+    expect(checkResult.stderr).toContain('moved to AGENTS.md')
   })
 
   it('is refused when neither record names a harness command', () => {

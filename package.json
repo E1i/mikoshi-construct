@@ -38,6 +38,7 @@
   },
   "scripts": {
     "bench:architect": "tsx scripts/bench/run.ts",
+    "board": "tsx scripts/board/board.ts",
     "build": "tsup",
     "changeset": "changeset",
     "ci": "pnpm run quality",
@@ -52,6 +53,7 @@
     "docs:preview": "vitepress preview docs",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",
     "ghosts:launch": "tsx scripts/ghosts/launch.ts",
+    "ghosts:watch": "tsx scripts/ghosts/watch.ts",
     "lint": "eslint .",
     "model:check": "tsx scripts/model/check.ts",
     "model:render": "tsx scripts/model/sync-docs.ts",

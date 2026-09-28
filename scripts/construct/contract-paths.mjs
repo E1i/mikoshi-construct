@@ -12,11 +12,14 @@ export function manifestContractPaths(manifest) {
   return [contracts.path, contracts.types].filter(entry => typeof entry === 'string' && entry !== '')
 }
 
-export function claudeContractPaths(text) {
-  const line = CONTRACT_PATHS_LINE.exec(text)
-  if (line == null)
-    return []
-  return line[1].split(',').map(entry => entry.trim()).filter(entry => entry !== '')
+export function agentsContractPaths(agentsText, claudeText) {
+  const found = CONTRACT_PATHS_LINE.exec(agentsText ?? '')
+  if (found != null)
+    return found[1].split(',').map(entry => entry.trim()).filter(entry => entry !== '')
+  const foundInClaude = CONTRACT_PATHS_LINE.exec(claudeText ?? '')
+  if (foundInClaude != null)
+    throw new Error(`${foundInClaude[0].trim()}\nmoved to AGENTS.md`)
+  return []
 }
 
 function readIfPresent(file) {
@@ -25,10 +28,11 @@ function readIfPresent(file) {
 
 export function contractPaths(root) {
   const manifest = readIfPresent(path.join(root, 'construct.json'))
+  const agents = readIfPresent(path.join(root, 'AGENTS.md'))
   const claude = readIfPresent(path.join(root, 'CLAUDE.md'))
   const paths = [
     ...(manifest == null ? [] : manifestContractPaths(JSON.parse(manifest))),
-    ...(claude == null ? [] : claudeContractPaths(claude)),
+    ...agentsContractPaths(agents, claude),
   ]
   return [...new Set(paths)]
 }
@@ -37,5 +41,12 @@ function isEntry() {
   return process.argv[1] != null && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 }
 
-if (isEntry())
-  process.stdout.write(`${JSON.stringify(contractPaths(process.cwd()))}\n`)
+if (isEntry()) {
+  try {
+    process.stdout.write(`${JSON.stringify(contractPaths(process.cwd()))}\n`)
+  }
+  catch (error) {
+    process.stderr.write(`${error.message}\n`)
+    process.exitCode = 1
+  }
+}
