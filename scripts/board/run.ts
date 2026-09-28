@@ -13,13 +13,15 @@ import { nextOf } from './next.js'
 import { renderBoard, renderCard } from './render.js'
 
 export const PREFIX = '[board] '
-export const USAGE = 'usage: tsx scripts/board/board.ts --dir <handoff dir> [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct]'
+export const USAGE = 'usage: tsx scripts/board/board.ts [--dir <handoff dir>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct]'
 const DEFAULT_REPO = 'E1i/mikoshi-construct'
+export const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
 const OWNER_MERGES = path.resolve(import.meta.dirname, '../../architecture/owner-merges.md')
 
 export interface BoardDeps {
   gh: GhRunner
   now: Date
+  defaultDir: string
 }
 
 export interface BoardResult {
@@ -31,6 +33,7 @@ export interface BoardResult {
 
 interface Args {
   dir: string
+  dirIsDefault: boolean
   repo: string
   all: boolean
   json: boolean
@@ -38,7 +41,7 @@ interface Args {
   everySeconds: number | undefined
 }
 
-function parseArgs(argv: string[]): Args | string {
+function parseArgs(argv: string[], defaultDir: string): Args | string {
   let dir: string | undefined
   let repo = DEFAULT_REPO
   let all = false
@@ -80,11 +83,9 @@ function parseArgs(argv: string[]): Args | string {
       return `unknown argument '${arg}'; ${USAGE}`
     }
   }
-  if (dir === undefined)
-    return `--dir is required; ${USAGE}`
   if (json && id !== undefined)
     return `--json prints every task; drop '${id}' or --json; ${USAGE}`
-  return { dir, repo, all, json, id, everySeconds }
+  return { dir: dir ?? defaultDir, dirIsDefault: dir === undefined, repo, all, json, id, everySeconds }
 }
 
 function refuse(message: string): BoardResult {
@@ -150,11 +151,14 @@ function fetchedViews(tasks: TaskView[], { card, shown }: Selection, args: Args)
 }
 
 export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
-  const args = parseArgs(argv)
+  const args = parseArgs(argv, deps.defaultDir)
   if (typeof args === 'string')
     return refuse(args)
-  if (!existsSync(args.dir) || !statSync(args.dir).isDirectory())
+  if (!existsSync(args.dir) || !statSync(args.dir).isDirectory()) {
+    if (args.dirIsDefault)
+      return refuse(`no handoff directory at ${args.dir}, the default; pass --dir <dir>, set ${HANDOFF_DIR_VARIABLE}, or link ${args.dir} to it`)
     return refuse(`no such directory: ${args.dir}`)
+  }
 
   const handoff = readHandoff(args.dir)
   const prs = listPrs(deps.gh, args.repo)

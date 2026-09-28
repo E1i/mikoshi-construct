@@ -559,6 +559,10 @@ subagent's final report, and every subagent prompt says which. A Ghost's report 
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
 and issue bodies.
 
+A question about the state of the work — "status", "what's there", "where are we", in any language — is answered as
+`/status` answers it ([.claude/commands/status.md](.claude/commands/status.md)). Every report on the state of tasks
+starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
+
 ## Choosing the contour: cheap path or ladder path
 
 The principle is *The cheapest contour that gives the required proof* in
