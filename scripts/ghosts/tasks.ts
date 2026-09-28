@@ -12,9 +12,12 @@ export interface TasksFile {
   status: string
   out: string
   tasks: Task[]
+  matrix: string | undefined
 }
 
-const TOP_LEVEL_KEYS = ['repo', 'status', 'out', 'tasks'] as const
+const REQUIRED_TOP_LEVEL_KEYS = ['repo', 'status', 'out', 'tasks'] as const
+const OPTIONAL_TOP_LEVEL_KEYS = ['matrix'] as const
+const TOP_LEVEL_KEYS = [...REQUIRED_TOP_LEVEL_KEYS, ...OPTIONAL_TOP_LEVEL_KEYS] as const
 const TASK_KEYS = ['id', 'brief', 'worktree', 'branch'] as const
 
 function assertPlainObject(value: unknown, where: string): asserts value is Record<string, unknown> {
@@ -22,12 +25,12 @@ function assertPlainObject(value: unknown, where: string): asserts value is Reco
     throw new Error(`${where}: expected a JSON object`)
 }
 
-function assertKeys(object: Record<string, unknown>, allowed: readonly string[], where: string): void {
+function assertKeys(object: Record<string, unknown>, allowed: readonly string[], required: readonly string[], where: string): void {
   for (const key of Object.keys(object)) {
     if (!allowed.includes(key))
       throw new Error(`${where}: unknown field '${key}'`)
   }
-  for (const key of allowed) {
+  for (const key of required) {
     if (!(key in object))
       throw new Error(`${where}: missing field '${key}'`)
   }
@@ -42,7 +45,7 @@ function assertString(value: unknown, where: string): string {
 function parseTask(raw: unknown, index: number): Task {
   const where = `tasks[${index}]`
   assertPlainObject(raw, where)
-  assertKeys(raw, TASK_KEYS, where)
+  assertKeys(raw, TASK_KEYS, TASK_KEYS, where)
   return {
     id: assertString(raw.id, `${where} field id`),
     brief: assertString(raw.brief, `${where} field brief`),
@@ -61,18 +64,19 @@ export function parseTasksFile(raw: string): TasksFile {
   }
 
   assertPlainObject(parsed, 'tasks file')
-  assertKeys(parsed, TOP_LEVEL_KEYS, 'tasks file')
+  assertKeys(parsed, TOP_LEVEL_KEYS, REQUIRED_TOP_LEVEL_KEYS, 'tasks file')
 
   const repo = assertString(parsed.repo, 'tasks file field repo')
   const status = assertString(parsed.status, 'tasks file field status')
   const out = assertString(parsed.out, 'tasks file field out')
+  const matrix = parsed.matrix === undefined ? undefined : assertString(parsed.matrix, 'tasks file field matrix')
 
   if (!Array.isArray(parsed.tasks))
     throw new Error('tasks file field tasks: expected an array')
 
   const tasks = parsed.tasks.map((task, index) => parseTask(task, index))
 
-  return { repo, status, out, tasks }
+  return { repo, status, out, tasks, matrix }
 }
 
 export function readTasksFile(filePath: string): TasksFile {
