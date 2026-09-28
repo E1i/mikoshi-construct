@@ -239,6 +239,8 @@ function ledgerFact(attempt: Attempt): StageBody {
     return unknown('ledger line; runs.jsonl unreadable')
   if (attempt.ledger === null)
     return unknown(`ledger line${attempt.worktree === undefined ? '; no worktree recorded' : ` in ${attempt.worktree}`}`)
+  if (attempt.ledger.kind === 'writing')
+    return unknown('ledger line; runs.jsonl last line still being written')
   return fact(`${attempt.ledger.status} ${attempt.ledger.run}`)
 }
 

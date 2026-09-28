@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='base stale alive no-ledger no-tool no-report near-tool far-tool no-row'
+KINDS='base stale alive no-ledger no-tool no-report near-tool far-tool no-row ledger-writing ps-fails'
 TAIL_BYTES=262144
 STALE_SECONDS=7200
 STUB_SECONDS=300
 FILLER_LINES=300
 PREFIX='[ghosts:watch] '
+PS_UNKNOWN='process unknown (ps failed: Command failed: ps -Ao pid=,args=)'
 
 fail() {
   echo "watch world.sh $CHECK: $*" >&2
@@ -115,6 +116,14 @@ write_ledgers() {
     printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":"low","outcome":"done"}]}'
     printf '%s\n' '{"run":"run-g1","at":"2026-09-28T10:00:00.000Z","task":"Ghost g1","effort":"medium","status":"failed","rung":"medium","attempts":[{"rung":"low","outcome":"harness failed"},{"rung":"medium","outcome":"failed"}]}'
   } >"$W/wt-g1/.construct/runs.jsonl"
+  if [ "$kind" = ledger-writing ]; then
+    printf '%s' '{"run":"run-g1b","at":"2026-09-28T11:00:00.000Z","task":"Gh' >>"$W/wt-g1/.construct/runs.jsonl"
+  fi
+}
+
+write_failing_ps() {
+  printf '%s\n' '#!/usr/bin/env bash' "echo 'ps: stub failure' >&2" 'exit 1' >"$1/bin/ps"
+  chmod +x "$1/bin/ps"
 }
 
 write_status() {
@@ -221,6 +230,7 @@ new_world() {
   write_report "$W" "$kind"
   check_tail_layout "$W" "$kind"
   [ "$kind" = alive ] && start_stub "$W"
+  [ "$kind" = ps-fails ] && write_failing_ps "$W"
   snapshot "$W" >"$W/.world/snapshot.json"
   trap - EXIT
   echo "$W"
@@ -241,9 +251,10 @@ remove_world() {
 }
 
 run_for() {
-  local W=$1 seconds=$2
+  local W=$1 seconds=$2 path=$PATH
   shift 2
-  node - "$W" "$seconds" "$@" <<'EOF'
+  [ "$(cat "$W/.world/kind")" = ps-fails ] && path="$W/bin:$PATH"
+  PATH=$path node - "$W" "$seconds" "$@" <<'EOF'
 const fs = require('node:fs')
 const { spawn } = require('node:child_process')
 const [W, seconds, command, ...args] = process.argv.slice(2)
@@ -277,7 +288,16 @@ expected_g1() {
     no-ledger) echo 'age|tool Grep|stage no ledger lines|process dead' ;;
     alive) echo 'age|tool Grep|stage failed run-g1|process alive' ;;
     no-row) echo 'age|tool Grep|stage failed run-g1|process no session' ;;
+    ledger-writing) echo 'age|tool Grep|ledger: writing|process dead' ;;
+    ps-fails) echo "age|tool Grep|stage failed run-g1|$PS_UNKNOWN" ;;
     *) echo 'age|tool Grep|stage failed run-g1|process dead' ;;
+  esac
+}
+
+expected_g2() {
+  case $1 in
+    ps-fails) echo "no report|tool none|stage no ledger lines|$PS_UNKNOWN" ;;
+    *) echo 'no report|tool none|stage no ledger lines|process dead' ;;
   esac
 }
 
@@ -285,9 +305,9 @@ check_frames() {
   local W=$1 mode=$2 kind
   kind=$(cat "$W/.world/kind")
   [ -f "$W/.world/run-exit" ] || fail "the watch was not run through run-for (no $W/.world/run-exit)"
-  node - "$W" "$mode" "$(expected_g1 "$kind")" "$PREFIX" <<'EOF' || fail "$(cat "$W/.world/check-failure" 2>/dev/null)"
+  node - "$W" "$mode" "$(expected_g1 "$kind")" "$(expected_g2 "$kind")" "$PREFIX" <<'EOF' || fail "$(cat "$W/.world/check-failure" 2>/dev/null)"
 const fs = require('node:fs')
-const [W, mode, g1Spec, prefix] = process.argv.slice(2)
+const [W, mode, g1Spec, g2Spec, prefix] = process.argv.slice(2)
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/check-failure`, message); process.exit(1) }
 const exit = fs.readFileSync(`${W}/.world/run-exit`, 'utf8').trim()
 const stdout = fs.readFileSync(`${W}/watch.out`, 'utf8')
@@ -312,7 +332,7 @@ const reportPath = `${W}/handoff/ghost-g1.jsonl`
 const nowMs = Date.now()
 const expected = {
   g1: g1Spec.split('|'),
-  g2: ['no report', 'tool none', 'stage no ledger lines', 'process dead'],
+  g2: g2Spec.split('|'),
 }
 const checkRow = (row, id) => {
   const fields = row.split(' | ')

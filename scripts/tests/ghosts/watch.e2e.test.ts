@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,8 +9,6 @@ const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/watch-fixtures/world.sh
 const WATCH = path.join(REPO_ROOT, 'scripts/ghosts/watch.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 
-const KINDS = ['base', 'stale', 'alive', 'no-ledger', 'no-tool', 'no-report', 'near-tool', 'far-tool', 'no-row']
-
 const createdWorlds: string[] = []
 
 function world(...args: string[]): string {
@@ -18,6 +17,8 @@ function world(...args: string[]): string {
     throw new Error(`world.sh ${args.join(' ')} exited ${result.status}: ${result.stderr}`)
   return result.stdout.trim()
 }
+
+const KINDS = world('kinds').split(' ')
 
 function newWorld(kind: string): string {
   const w = world('new', kind)
@@ -41,6 +42,14 @@ describe('ghosts watch, end to end through the stub', () => {
     const w = newWorld(kind)
     runFor(w, 30, ['--tasks', path.join(w, 'tasks.json')])
     world('check-once', w)
+  })
+
+  it('refuses a malformed ledger line before the last, naming the file and the line', () => {
+    const w = newWorld('base')
+    const runs = path.join(w, 'wt-g1', '.construct', 'runs.jsonl')
+    writeFileSync(runs, `{"run":"run-old","status":"do\n${JSON.stringify({ run: 'run-g1', status: 'failed' })}\n`)
+    runFor(w, 30, ['--tasks', path.join(w, 'tasks.json')])
+    world('check-refused', w, `${runs} line 1`)
   })
 
   it('redraws with --every until it is interrupted', () => {
