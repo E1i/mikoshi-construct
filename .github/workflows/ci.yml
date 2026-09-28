@@ -1,15 +1,18 @@
-# Four gates, aggregated into the one required check `CI / required`.
+# Gates aggregated into the one required check `CI / required`.
 #
-# quality    — the repository's own harness: composition check, lint, typecheck, tests, docs build. Runs
-#              on every change, the fast path included, because most of its steps read docs/ and
-#              architecture/*.md.
+# checks · lint · typecheck · vitest (two shards) · docs — the steps of package.json's `quality`,
+#              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
+#              that list. They run on every change, the fast path included, because most of them read
+#              docs/ and architecture/*.md.
+# harness-report — merges the two shards' reports and checks that doctor reads this repository's
+#              harness as checked (decision 0033).
 # package    — builds and packs the publishable tarball the acceptance legs install.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
 #              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
 #              publish fails a user's first install (see CLAUDE.md, version ranges). It waits on
-#              package, not on quality, so the two run side by side.
+#              package, not on the quality jobs, so they run side by side.
 # contract-bump — the release bump the change requires: the semantic diff of contract/surface.json
 #              against the latest release tag reachable from HEAD, compared with the strongest
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
@@ -63,7 +66,7 @@ jobs:
             pnpm exec tsx scripts/ci/classify.ts
           fi
 
-  quality:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -73,12 +76,102 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run quality
+      - run: pnpm composition:check
+      - run: pnpm model:check
+      - run: pnpm privacy:check
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v6
+        with:
+          path: .eslintcache
+          key: eslint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: eslint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+      - run: pnpm lint --cache --cache-strategy content
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v6
+        with:
+          path: node_modules/.cache/tsc
+          key: tsc-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: tsc-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+      - run: pnpm typecheck --incremental --tsBuildInfoFile node_modules/.cache/tsc/typecheck.tsbuildinfo
+
+  vitest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: vitest ${{ matrix.shard }}/2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test --shard=${{ matrix.shard }}/2 --reporter=default --reporter=blob
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: .vitest/blob/
+          include-hidden-files: true
+          retention-days: 1
+
+  harness-report:
+    needs: vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vitest-blob-*
+          path: .vitest/blob/
+          merge-multiple: true
       - name: doctor reads this repository's harness as checked (decision 0033)
         run: |
-          pnpm vitest run --reporter=json --outputFile=.construct/reports/vitest.json
+          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json
           pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
           node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:build
+      - run: pnpm docs:pending
+      - run: pnpm docs:anchors
 
   package:
     needs: changes
@@ -179,7 +272,7 @@ jobs:
           "$CONSTRUCT_BIN" doctor --plain
 
   required:
-    needs: [changes, quality, package, contract-bump, acceptance]
+    needs: [changes, checks, lint, typecheck, vitest, harness-report, docs, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-latest
     steps:

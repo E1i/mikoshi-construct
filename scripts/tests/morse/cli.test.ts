@@ -13,7 +13,7 @@ interface Run { status: number, stdout: string, stderr: string }
 
 function run(args: string[], cwd: string = REPO_ROOT): Run {
   try {
-    const stdout = execFileSync(TSX, [CLI, ...args], { cwd, encoding: 'utf8' })
+    const stdout = execFileSync(TSX, [CLI, ...args], { cwd, encoding: 'utf8', stdio: 'pipe' })
     return { status: 0, stdout, stderr: '' }
   }
   catch (error) {
