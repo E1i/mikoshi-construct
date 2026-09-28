@@ -540,9 +540,11 @@ there, and nowhere else.
   result, never chained with what it guards; then commit, push and open the pull request;
   `gh pr update-branch <N> -R E1i/mikoshi-construct`; and
   `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`.
-- A pull request of an owner-merged kind: report "ready at sha X", naming the head that was gated
-  locally and whose CI is green. Any later push voids it, a merge of `main` into the branch included.
-  While CI runs, write "ready at X once CI on X is green". The owner merges.
+- A pull request of an owner-merged kind: gate it locally the same way, commit, push and open it; the
+  owner merges. It is ready when CI on its current head is green, and that is the whole definition:
+  ready is derived from CI, never announced as an event of its own. A later push, a merge of `main`
+  into the branch included, makes a new head, and the pull request is ready again only once CI on that
+  head is green. `pnpm board` derives ready the same way.
 
 One task, one branch, one pull request, one changeset, and never a commit on `main`. Independent
 branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit
@@ -559,7 +561,6 @@ and issue bodies.
 
 ## Choosing the contour: cheap path or ladder path
 
-A trial rule, adopted 2026-09-28 and revised at the evening review of that day; it is not settled.
 The principle is *The cheapest contour that gives the required proof* in
 [architecture/principles.md](architecture/principles.md), and the first step of `/plan`
 ([.claude/commands/plan.md](.claude/commands/plan.md)) applies it: for each new task the contour is
@@ -573,16 +574,19 @@ The journal, which lives outside the repository, gets one line per task naming t
 was chosen: `{"event":"path","task","path","reason",…}`, with `path` either `cheap` or `ladder`.
 `pnpm board` reads these lines.
 
-Morse is not introduced. The classification is not designed in advance: after a few days of merged
-product changes, those changes and the cases where the cheap path proved insufficient are reviewed,
-and the rule is revised from them.
+Morse is not introduced, and the classification is not designed in advance.
 
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
+This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
+keeps, changes or drops it.
 
 ## Ghosts
 
 A Ghost, a ladder run in a session of its own, is started only by `pnpm ghosts:launch`, which checks
 the owner's approval against the brief's hash (`pnpm ghosts:hash`). There is no hand route around it.
+Approving a brief's hash is the permission to launch: the coordinating window then launches the Ghost
+itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`, which prints the
+decision and opens nothing.
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
 recorded as a row of the `policy` table in `status.md` before the session opens.
 
@@ -610,3 +614,7 @@ disposable worktree, never by swapping files in the ladder's tree. A changed tes
 mutation it caught before the change, run on the old and the new version with the prediction written
 first; an agent's reading that a test was not weakened is not a witness. When an allow-list or an
 accepted set grows, construct the case the growth could mask and run it.
+
+The coordinating window gives the verdict. A small divergence from the brief is merged, with a
+follow-up issue that names it. Opening an issue is never forbidden, but once more than ten are open,
+the evening triage takes each one: close it, fold it into a wave, or drop it.
