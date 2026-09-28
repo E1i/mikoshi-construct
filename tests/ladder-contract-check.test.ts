@@ -145,4 +145,59 @@ describe('the declared contract check', () => {
     const harnessPrompts = (run_: { calls: AgentCall[] }) => run_.calls.filter(call => call.agentType === 'harness').map(call => call.prompt)
     expect(harnessPrompts(withCheck)).toEqual(harnessPrompts(withoutCheck))
   })
+
+  it('a red contract check with an empty excerpt names the command and its exit code', async () => {
+    const { result, calls } = await run(DECLARED_HARNESS, [verdict({ command: CONTRACT_CHECK_COMMAND, exitCode: 1, excerpt: '' }), GREEN_CHECK])
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'contract check failed', reason: `${CONTRACT_CHECK_COMMAND} exited 1` })
+    expect(calls.filter(call => call.agentType === 'implementer')[1].prompt).toContain(`${CONTRACT_CHECK_COMMAND} exited 1`)
+  })
+
+  it('a red contract check with an excerpt names the command and its exit code before the excerpt', async () => {
+    const { result } = await run(DECLARED_HARNESS, [RED_CHECK, GREEN_CHECK])
+
+    expect(result.attempts[0].reason).toBe(`${CONTRACT_CHECK_COMMAND} exited 1\n${CONTRACT_CHECK_EXCERPT}`)
+  })
+})
+
+function harnessPrompts(calls: AgentCall[]): string[] {
+  return calls.filter(call => call.agentType === 'harness').map(call => call.prompt)
+}
+
+describe('the contract check changes the harness prompts only when declared', () => {
+  const UNDECLARED: Record<string, Record<string, unknown>> = {
+    'no contract paths and an empty check': { contractPaths: [], contractCheck: '' },
+    'contract paths and an empty check': { contractPaths: ['contract/surface.json'], contractCheck: '' },
+    'a check and no contract paths': { contractPaths: [], contractCheck: CONTRACT_CHECK_COMMAND },
+    'contract paths and an undefined check': { contractPaths: ['contract/surface.json'], contractCheck: undefined },
+    'contract paths and a null check': { contractPaths: ['contract/surface.json'], contractCheck: null },
+    'contract paths and a numeric check': { contractPaths: ['contract/surface.json'], contractCheck: 1 },
+  }
+
+  for (const [name, harness] of Object.entries(UNDECLARED)) {
+    it(`${name} leaves every harness prompt byte-identical to a run with no contract, and needs no check to be done`, async () => {
+      const baseline = await run({}, [verdict()])
+      const undeclared = await run(harness, [verdict()])
+
+      expect(harnessPrompts(undeclared.calls)).toEqual(harnessPrompts(baseline.calls))
+      expect(harnessPrompts(undeclared.calls).join('\n')).not.toContain('contract check')
+      expect(undeclared.result.attempts.map(attempt => attempt.outcome)).toEqual(['passed'])
+    })
+  }
+
+  it('a declared check is named in the verify prompt and not in the preflight prompt', async () => {
+    const { calls } = await run(DECLARED_HARNESS, [GREEN_CHECK])
+    const [preflight, verify] = harnessPrompts(calls)
+
+    expect(verify).toContain(CONTRACT_CHECK_COMMAND)
+    expect(preflight).not.toContain(CONTRACT_CHECK_COMMAND)
+    expect(preflight).toBe(harnessPrompts((await run({}, [verdict()])).calls)[0])
+  })
+
+  it('pnpm contract:bump as the check declares it', async () => {
+    const { result, calls } = await run({ contractPaths: ['contract/surface.json'], contractCheck: 'pnpm contract:bump' }, [NO_CHECK_REPORTED, verdict({ command: 'pnpm contract:bump', exitCode: 0, excerpt: '' })])
+
+    expect(harnessPrompts(calls)[1]).toContain('A contract check is declared for this repository: pnpm contract:bump.')
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['contract check failed', 'passed'])
+  })
 })

@@ -222,12 +222,42 @@ describe('the Design from the brief reaches both prompts', () => {
   })
 })
 
-describe('the verdict schema always requires ranSha256', () => {
-  it('requires ranSha256 in the verdict schema', () => {
-    const source = readFileSync(path.join(REPO_ROOT, WORKFLOW), 'utf8')
-    const match = /required:\s*\[[^\]]*'ranSha256'[^\]]*\]/.exec(source)
+interface WitnessSchema {
+  required: string[]
+  properties: Record<string, unknown>
+}
 
-    expect(match).not.toBeNull()
-    expect(match?.[0].endsWith('\'ranSha256\']')).toBe(true)
+async function verifySchema(): Promise<{ witness: WitnessSchema, prompt: string }> {
+  const calls: { prompt: string, options: { agentType: string, schema?: { properties: { witnesses: { items: WitnessSchema } } } } }[] = []
+  const queues: Record<string, unknown[]> = { architect: [], implementer: [REPORT], harness: [green([]), green(witness())] }
+  const agent = async (prompt: string, options: { agentType: string }): Promise<unknown> => {
+    calls.push({ prompt, options })
+    return queues[options.agentType].shift() ?? null
+  }
+  await ladder()({
+    harness: { command: 'pnpm run quality' },
+    task: 't',
+    acceptance: [CRITERION],
+    witnesses: [{ criterion: CRITERION, command: COMMAND }],
+    witnessDigests: [{ criterion: CRITERION, base64: BASE64, sha256: SHA256 }],
+    effort: 'low',
+  }, agent, () => {}, () => {})
+  const verify = calls.filter(call => call.options.agentType === 'harness')[1]
+  return { witness: verify.options.schema!.properties.witnesses.items, prompt: verify.prompt }
+}
+
+describe('the verdict schema the ladder hands the harness', () => {
+  it('requires ranSha256 for every witness', async () => {
+    const { witness } = await verifySchema()
+
+    expect(witness.required).toContain('ranSha256')
+  })
+
+  it('neither requires nor asks for the witness command, which the ladder does not read', async () => {
+    const { witness, prompt } = await verifySchema()
+
+    expect(witness.required).not.toContain('command')
+    expect(Object.keys(witness.properties)).not.toContain('command')
+    expect(prompt).not.toMatch(/as command\b/)
   })
 })
