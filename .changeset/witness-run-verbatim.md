@@ -1,5 +1,0 @@
----
-"mikoshi-construct": minor
----
-
-templates: the `/implement` ladder now runs every witness verbatim. The build keeps a witness command byte for byte (double spaces, tabs and newlines inside the backticks survive), refuses one `bash -n` rejects before calling any agent with the item, `bash -n` and bash's own message, and prints `witnessDigests` — each witness's criterion, base64 and sha256 of the raw command — alongside `witnesses`. The verify prompt gives the harness agent each witness only as base64, in three fixed lines (decode, `shasum -a 256`, run), never the raw command; the verdict schema now requires `ranSha256`, and a rung whose reported sha256 does not match the digest is `witness not run verbatim`, checked after an immutable path and before an unwitnessed acceptance, never `done`. A brief's `Design:` section, when present, is carried verbatim into `args.design` and into the architect's and implementer's prompts; a run whose witness has no digest in `args.witnessDigests` is blocked before any agent.
