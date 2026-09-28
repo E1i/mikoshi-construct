@@ -23,4 +23,3 @@ coverage/
 docs/.vitepress/cache
 docs/.vitepress/dist
 /bench/
-/.docs-pending/
