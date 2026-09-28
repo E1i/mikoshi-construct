@@ -39,14 +39,18 @@ function insideBackticks(text, index) {
   return (text.slice(0, index).match(/`/g)?.length ?? 0) % 2 === 1
 }
 
-function isLabel(text, index) {
+function isLabel(text, index, name) {
   const before = text.slice(text.lastIndexOf('\n', index - 1) + 1, index)
-  return (before.trim() === '' || SENTENCE_END.test(before)) && !insideBackticks(before, before.length)
+  if (insideBackticks(before, before.length))
+    return false
+  if (name === 'Design')
+    return before.trim() === ''
+  return before.trim() === '' || SENTENCE_END.test(before)
 }
 
 export function briefLabels(text) {
   return [...text.matchAll(LABEL)]
-    .filter(found => isLabel(text, found.index))
+    .filter(found => isLabel(text, found.index, found[1] ?? found[2]))
     .map(found => ({ name: found[1] ?? found[2], start: found.index, end: found.index + found[0].length }))
 }
 
