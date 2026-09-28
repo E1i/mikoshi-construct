@@ -1,18 +1,25 @@
-# Three gates, aggregated into the one required check `CI / required`.
+# Four gates, aggregated into the one required check `CI / required`.
 #
-# quality    — the repository's own harness: composition check, lint, typecheck, tests. Runs on every change.
+# quality    — the repository's own harness: composition check, lint, typecheck, tests, docs build. Runs
+#              on every change, the fast path included, because most of its steps read docs/ and
+#              architecture/*.md.
+# package    — builds and packs the publishable tarball the acceptance legs install.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
 #              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
-#              publish fails a user's first install (see CLAUDE.md, version ranges). Skipped only for a
-#              docs-only pull request (every path under .changeset/, docs/ or CHANGELOG.md); a version
-#              pull request changes package.json, which templates embed, so it runs the full matrix.
+#              publish fails a user's first install (see CLAUDE.md, version ranges). It waits on
+#              package, not on quality, so the two run side by side.
 # contract-bump — the release bump the change requires: the semantic diff of contract/surface.json
 #              against the latest release tag reachable from HEAD, compared with the strongest
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
-# required   — red when any job failed or was cancelled, or was skipped other than acceptance on a
-#              docs-only pull request (scripts/ci/required.ts).
+# required   — red when any job failed or was cancelled, or was skipped other than package and
+#              acceptance on the fast path (scripts/ci/required.ts).
+#
+# The fast path is a pull request whose every changed path is on the allow-list in
+# scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated
+# project contains those files, so package and acceptance are skipped; every other job runs.
+# merge_group and push always take the full path.
 #
 # Each acceptance leg installs the publishable tarball into a directory outside the repository and runs
 # the installed binary. That is what publishing ships: the externals tsup leaves out of dist/cli.js must
@@ -35,7 +42,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      docs-only: ${{ steps.classify.outputs.docs-only }}
+      fast-path: ${{ steps.classify.outputs.fast-path }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -51,9 +58,9 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$EVENT" = pull_request ]; then
-            git diff --name-only -z HEAD^1 HEAD | xargs -0 pnpm exec tsx scripts/ci/docs-only.ts
+            git diff --name-only --no-renames -z HEAD^1 HEAD | xargs -0 pnpm exec tsx scripts/ci/classify.ts
           else
-            pnpm exec tsx scripts/ci/docs-only.ts
+            pnpm exec tsx scripts/ci/classify.ts
           fi
 
   quality:
@@ -72,6 +79,19 @@ jobs:
           pnpm vitest run --reporter=json --outputFile=.construct/reports/vitest.json
           pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
           node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
+
+  package:
+    needs: changes
+    if: needs.changes.outputs.fast-path != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Pack the publishable tarball
         run: pnpm pack --pack-destination "$RUNNER_TEMP/package"
@@ -102,8 +122,8 @@ jobs:
           grep -qxF '  jsonKeys.doctor.noManifest.root: null → object' <<<"$out" || { echo 'the self-check reads no jsonKeys.doctor.noManifest.root: null → object'; exit 1; }
 
   acceptance:
-    needs: [changes, quality]
-    if: needs.changes.outputs.docs-only != 'true'
+    needs: [changes, package]
+    if: needs.changes.outputs.fast-path != 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -159,7 +179,7 @@ jobs:
           "$CONSTRUCT_BIN" doctor --plain
 
   required:
-    needs: [changes, quality, contract-bump, acceptance]
+    needs: [changes, quality, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-latest
     steps:
