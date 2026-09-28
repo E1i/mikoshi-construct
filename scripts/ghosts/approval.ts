@@ -13,6 +13,23 @@ export function extractImplementText(content: string): string | undefined {
   return content.slice(index)
 }
 
+export function canonicalImplementText(content: string): string | undefined {
+  const text = extractImplementText(content)
+  if (text === undefined)
+    return undefined
+  return text.replace(/\n+$/, '')
+}
+
+export function implementLineNumbers(content: string): number[] {
+  const numbers: number[] = []
+  const lines = content.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].startsWith('/implement '))
+      numbers.push(index + 1)
+  }
+  return numbers
+}
+
 export function sha256Hex(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
@@ -28,7 +45,16 @@ export function extractApprovedHash(content: string): string | undefined {
 
 export function checkApproval(briefPath: string): ApprovalCheck {
   const content = readFileSync(briefPath, 'utf8')
-  const text = extractImplementText(content)
+
+  const lineNumbers = implementLineNumbers(content)
+  if (lineNumbers.length > 1) {
+    return {
+      ok: false,
+      reason: `${briefPath}: more than one line starts with '/implement ' (lines ${lineNumbers.join(', ')})`,
+    }
+  }
+
+  const text = canonicalImplementText(content)
   if (text === undefined)
     return { ok: false, reason: `${briefPath}: no line starting with '/implement ' in the brief` }
 
