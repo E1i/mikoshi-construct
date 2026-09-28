@@ -25,6 +25,17 @@ export interface MergeEvent {
   ts: string
 }
 
+export interface PathEvent {
+  event: 'path'
+  task: string
+  path: string
+  started?: string
+  ready?: string
+  pr?: number
+  sha?: string
+  ts: string
+}
+
 export interface StatusRow {
   state: string
   start: string
@@ -49,6 +60,7 @@ export interface Attempt {
   taskEvent: TaskEvent | undefined
   reviewEvent: ReviewEvent | undefined
   mergeEvent: MergeEvent | undefined
+  pathEvent: PathEvent | undefined
 }
 
 export interface Handoff {
@@ -57,7 +69,7 @@ export interface Handoff {
   warnings: string[]
 }
 
-type JournalLine = TaskEvent | ReviewEvent | MergeEvent
+type JournalLine = TaskEvent | ReviewEvent | MergeEvent | PathEvent
 
 interface Named {
   brief: string | undefined
@@ -189,6 +201,7 @@ export function readHandoff(dir: string): Handoff {
     taskEvent: lastOf(id, 'task'),
     reviewEvent: lastOf(id, 'review'),
     mergeEvent: lastOf(id, 'merge'),
+    pathEvent: lastOf(id, 'path'),
   }))
 
   return { attempts, edges: edgesFrom(dir, tasksFiles, warnings), warnings }
