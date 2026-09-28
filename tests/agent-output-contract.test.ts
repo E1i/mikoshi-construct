@@ -6,6 +6,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow.mjs'
 const AGENT_DIRS = ['.claude/agents', 'templates/ai/claude/_claude/agents']
 const SCHEMA_OF_AGENT = { architect: 'SPEC', implementer: 'REPORT', harness: 'VERDICT' } as const
+const ROLE_AGENTS_OF_DIR: Record<string, string[]> = { '.claude/agents': ['brief', 'review', 'scan'] }
 
 interface Schema {
   type: string
@@ -85,9 +86,11 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
 
 describe('the output contract is declared once, by the schema', () => {
   for (const directory of AGENT_DIRS) {
-    const agents = readdirSync(path.join(REPO_ROOT, directory)).filter(entry => entry.endsWith('.md')).map(entry => entry.replace(/\.md$/, ''))
-    it(`${directory} holds an agent file for every schema the ladder passes`, () => {
-      expect(agents.sort()).toEqual(Object.keys(SCHEMA_OF_AGENT).sort())
+    const roleAgents = ROLE_AGENTS_OF_DIR[directory] ?? []
+    const files = readdirSync(path.join(REPO_ROOT, directory)).filter(entry => entry.endsWith('.md')).map(entry => entry.replace(/\.md$/, ''))
+    const agents = files.filter(agent => !roleAgents.includes(agent))
+    it(`${directory} holds an agent file for every schema the ladder passes, and besides them only its declared role agents`, () => {
+      expect(files.sort()).toEqual([...Object.keys(SCHEMA_OF_AGENT), ...roleAgents].sort())
     })
 
     for (const agent of agents) {
