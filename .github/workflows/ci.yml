@@ -257,7 +257,25 @@ jobs:
 
       - name: Apply the release-age policy
         if: matrix.release-age != 0
-        run: echo "minimum-release-age=${{ matrix.release-age }}" >> "$RUNNER_TEMP/acceptance/.npmrc"
+        working-directory: ${{ runner.temp }}/acceptance
+        run: |
+          printf 'minimumReleaseAge: %s\n' "${{ matrix.release-age }}" >> pnpm-workspace.yaml
+
+      - name: The release-age policy refuses a version younger than it
+        if: matrix.release-age != 0
+        working-directory: ${{ runner.temp }}/acceptance
+        env:
+          RELEASE_AGE_MINUTES: ${{ matrix.release-age }}
+        run: |
+          version=$(npm view typescript@next version)
+          age=$(npm view typescript time --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(Math.floor((Date.now()-Date.parse(JSON.parse(s)[process.argv[1]]))/60000)))' "$version")
+          if [ "$age" -ge "$RELEASE_AGE_MINUTES" ]; then echo "no probe: typescript@$version is $age minutes old, not younger than $RELEASE_AGE_MINUTES"; exit 1; fi
+          probe=$(mktemp -d)
+          cp pnpm-workspace.yaml "$probe/"
+          echo '{"name":"release-age-probe","private":true}' > "$probe/package.json"
+          if (cd "$probe" && pnpm add "typescript@$version") > "$probe/add.log" 2>&1; then cat "$probe/add.log"; echo "the policy let typescript@$version in at $age minutes old"; exit 1; fi
+          grep -q ERR_PNPM_NO_MATURE_MATCHING_VERSION "$probe/add.log" || { cat "$probe/add.log"; echo "pnpm add failed for another reason"; exit 1; }
+          echo "refused typescript@$version at $age minutes old: ERR_PNPM_NO_MATURE_MATCHING_VERSION"
 
       - name: pnpm install
         working-directory: ${{ runner.temp }}/acceptance
