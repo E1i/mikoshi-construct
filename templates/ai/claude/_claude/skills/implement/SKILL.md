@@ -46,11 +46,19 @@ repository's CLAUDE.md and `construct.json`.
    from `.construct/attach.json` when `construct.json` is absent (an attached repository);
    `harness.contractPaths` is `contracts.path` and `contracts.types` from `construct.json` when
    `contracts` is non-null, plus the comma-separated paths on a `Contract paths:` line in the
-   repository's CLAUDE.md. The ladder derives the result's `contractChanged` from it: true only when a
-   path in the harness's `changedFiles` equals one of these exactly.
+   repository's AGENTS.md. `harness.contractCheck` is the command on a `Contract check:` line there, or
+   `''` when there is none. Both lines live in AGENTS.md after its `construct:end` line, where `sync`
+   keeps them. CLAUDE.md is not a source: a `Contract paths:` or `Contract check:` line found only in
+   CLAUDE.md makes the build refuse, naming the line and saying `moved to AGENTS.md`. The ladder
+   derives the result's `contractChanged` from `harness.contractPaths`: true only when a path in the
+   harness's `changedFiles` equals one of these exactly. When `harness.contractPaths` is non-empty and
+   `harness.contractCheck` is non-empty, the check is declared: the harness agent runs it after the
+   harness command passes, and a rung whose declared check is red or unreported is `contract check
+   failed`, never `done`.
 3. The build is the only check that the brief reached the args. On a non-zero exit it has refused the
    brief — no `Acceptance:` section, an acceptance item with no witness (`no witness`), a witness
-   holding a backtick (`backtick`), no harness command, or an unreadable file — and printed nothing on
+   holding a backtick (`backtick`), no harness command, a `Contract paths:` or `Contract check:` line
+   found only in CLAUDE.md (`moved to AGENTS.md`), or an unreadable file — and printed nothing on
    stdout: stop, do not call Workflow, relay its stderr verbatim, and write no line to
    `.construct/runs.jsonl`, because there is no Workflow run identifier and step 4 forbids inventing
    one. On exit `0`, call the Workflow tool with `scriptPath` set to
@@ -117,7 +125,8 @@ repository's CLAUDE.md and `construct.json`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
      rung that changed nothing (`no change`), from a rung that changed an immutable path
-     (`immutable changed`), from a rung that changed source with no test (`untested change`), from
+     (`immutable changed`), from a rung that changed source with no test (`untested change`), from a
+     rung whose declared contract check was red or unreported (`contract check failed`), from
      an acceptance not witnessed, from a blocked report and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:

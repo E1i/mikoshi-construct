@@ -388,6 +388,9 @@ them as rules.
 <!-- /construct:discover:open-questions -->
 <!-- construct:end -->
 
+Contract paths: contract/surface.json
+Contract check: pnpm contract:bump
+
 ## Layout
 
 | Path | What it is |
