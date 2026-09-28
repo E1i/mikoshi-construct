@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { freeRow, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
+import { freeRow, ghostRowSessionId, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
 
 const STATUS = `# Ghosts — window status
 
@@ -58,6 +58,27 @@ describe('ghostRowState', () => {
 
   it('is undefined when there is no row for the id', () => {
     expect(ghostRowState(STATUS, 'g1')).toBeUndefined()
+  })
+})
+
+describe('ghostRowSessionId', () => {
+  it('reads the session id out of a writing row', () => {
+    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 'sess-1' })
+    const withRow = upsertGhostRow(STATUS, 'g1', row)
+    expect(ghostRowSessionId(withRow, 'g1')).toBe('sess-1')
+  })
+
+  it('reads the session id out of a free row', () => {
+    const row = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'a', start: 't', end: 't2', outcome: sessionOutcome(0, 'done', '/w/handoff/ghost-g1.jsonl', 'sess-1') })
+    const withRow = upsertGhostRow(STATUS, 'g1', row)
+    expect(ghostRowSessionId(withRow, 'g1')).toBe('sess-1')
+  })
+
+  it('is undefined when there is no row for the id, even though a longer id has one', () => {
+    const row12 = writingRow({ id: 'g12', worktree: '/w/wt-g12', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 'sess-12' })
+    const withRow = upsertGhostRow(STATUS, 'g12', row12)
+    expect(ghostRowSessionId(withRow, 'g1')).toBeUndefined()
+    expect(ghostRowSessionId(withRow, 'g12')).toBe('sess-12')
   })
 })
 

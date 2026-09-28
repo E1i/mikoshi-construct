@@ -83,6 +83,15 @@ export function ghostRowState(statusText: string, id: string): string | undefine
   return cells[3]
 }
 
+export function ghostRowSessionId(statusText: string, id: string): string | undefined {
+  const marker = ghostRowMarker(id)
+  const row = statusText.split('\n').find(line => line.startsWith(marker))
+  if (row === undefined)
+    return undefined
+  const match = /\bsession (\S+)/.exec(row)
+  return match?.[1]
+}
+
 let queue: Promise<void> = Promise.resolve()
 
 function withStatusLock<T>(task: () => Promise<T>): Promise<T> {
