@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok occupied-out gh-pr-fails gh-issue-fails gh-run-fails unknown-task-field missing-top-field unknown-top-field missing-task-field git-fails task-brief-and-issue task-worktree-on-issue task-wrong-type top-wrong-type many-prs out-appears'
+KINDS='ok occupied-out gh-pr-fails gh-issue-fails gh-run-fails unknown-task-field missing-top-field unknown-top-field missing-task-field git-fails task-brief-and-issue task-worktree-on-issue task-wrong-type top-wrong-type many-prs out-appears large-output repo-missing gh-pr-garbled gh-issue-garbled gh-run-garbled empty-out-appears relative-paths'
 DECOYS='faithful status-as-text owner-merges-as-text unnamed-gh-issue unnamed-gh-run leftover-on-failure lenient-missing-top lenient-missing-task lenient-unknown-task lenient-unknown-top'
 HEAD_AWAITING=1111111111111111111111111111111111111111
 HEAD_PASSED=2222222222222222222222222222222222222222
 HEAD_OTHER=3333333333333333333333333333333333333333
 NON_ASCII_PATH=$(printf 'docs/caf\303\251.md')
 QUEUED_ROWS='a #271 b #280'
+LARGE_TITLE_BYTES=2000000
 
 fail() {
   echo "world.sh $CHECK: $*" >&2
@@ -138,8 +139,13 @@ awaiting_runs() {
   fi
   printf '%s\n' '{"conclusion":"action_required"}'
 }
+garbled() {
+  [ "\$kind" = "gh-\$1-garbled" ] && { echo 'gh stub: this is not JSON'; exit 0; }
+  return 0
+}
 case \$args in
   *' issue view '*)
+    garbled issue
     n=\$(arg_after view "\$@")
     case \$n in
       1) [ "\$kind" = gh-issue-fails ] && { echo 'gh stub: issue view failed' >&2; exit 1; }
@@ -150,10 +156,13 @@ case \$args in
     ;;
   *' pr list '*)
     [ "\$kind" = gh-pr-fails ] && { echo 'gh stub: pr list failed' >&2; exit 1; }
+    garbled pr
+    [ "\$kind" = large-output ] && { printf '[{"files":[],"headRefOid":"$HEAD_OTHER","number":12,"title":"%s"}]\n' "\$(head -c $LARGE_TITLE_BYTES /dev/zero | tr '\\0' x)"; exit 0; }
     prs | json_array "\$(limit_or 30 "\$@")"
     ;;
   *' run list '*)
     [ "\$kind" = gh-run-fails ] && { echo 'gh stub: run list failed' >&2; exit 1; }
+    garbled run
     sha=\$(arg_after --commit "\$@")
     case \$sha in
       $HEAD_AWAITING) awaiting_runs | json_array "\$(limit_or 20 "\$@")" ;;
@@ -177,6 +186,7 @@ write_queue() {
     unknown-top-field) extra_key='"reviewers": [],' ;;
     missing-task-field) b_id='' ;;
     git-fails) repo=$W/not-a-repo && mkdir -p "$repo" ;;
+    repo-missing) repo=$W/no-such-repo ;;
     task-brief-and-issue) task_271="$task_271, \"brief\": \"$W/handoff/brief-b.md\"" ;;
     task-worktree-on-issue) task_280="$task_280, \"worktree\": \"$W/wt-280\"" ;;
     task-wrong-type) task_271='"id": "271", "issue": "1"' ;;
@@ -187,6 +197,10 @@ write_queue() {
   "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "$wt_key": "$W/wt-a" }, { $task_271 }, { $b_id
   "brief": "$W/handoff/brief-b.md" }, { $task_280 } ] }
 EOF
+  if [ "$kind" = relative-paths ]; then
+    sed -e "s|\"$W/repo\"|\"repo\"|" -e "s|\"$W/handoff/|\"handoff/|g" "$W/queue.json" >"$W/.world/queue.json"
+    mv "$W/.world/queue.json" "$W/queue.json"
+  fi
 }
 
 write_fs_spy() {
@@ -247,6 +261,24 @@ syncBuiltinESMExports()
 EOF
 }
 
+write_empty_out_appears() {
+  cat >"$1/.world/empty-out-appears.mjs" <<EOF
+import fs from 'node:fs'
+import path from 'node:path'
+import { syncBuiltinESMExports } from 'node:module'
+
+const out = '$1/snapshot'
+const original = fs.mkdtempSync
+fs.mkdtempSync = function (...args) {
+  const created = original.apply(this, args)
+  if (path.dirname(path.resolve(String(args[0]))) === path.dirname(out))
+    fs.mkdirSync(out)
+  return created
+}
+syncBuiltinESMExports()
+EOF
+}
+
 write_expected() {
   local W=$1 E=$1/expected
   mkdir -p "$E/tasks"
@@ -291,6 +323,7 @@ new_world() {
   write_queue "$W" "$kind"
   write_fs_spy "$W"
   write_out_appears "$W"
+  write_empty_out_appears "$W"
   write_expected "$W"
   if [ "$kind" = occupied-out ]; then
     mkdir -p "$W/snapshot"
@@ -331,10 +364,10 @@ check_refused() {
       grep -qF -- "$W/snapshot" "$W/collect.out" || grep -qi 'exist' "$W/collect.out" || fail "collect.out names neither $W/snapshot nor that it exists"
       diff -r "$W/.world/snapshot-before" "$W/snapshot" >/dev/null 2>&1 || fail "$W/snapshot changed"
       ;;
-    gh-pr-fails | gh-issue-fails | gh-run-fails)
+    gh-pr-fails | gh-issue-fails | gh-run-fails | gh-pr-garbled | gh-issue-garbled | gh-run-garbled)
       case $kind in
-        gh-pr-fails) call='gh pr list' ;;
-        gh-issue-fails) call='gh issue view' ;;
+        gh-pr-*) call='gh pr list' ;;
+        gh-issue-*) call='gh issue view' ;;
         *) call='gh run list' ;;
       esac
       grep -qF "$call" "$W/collect.out" || fail "collect.out does not name the call '$call'"
@@ -352,6 +385,10 @@ check_refused() {
       ;;
     missing-task-field)
       grep -qw 'id' "$W/collect.out" || fail "collect.out does not name the missing task field 'id'"
+      [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
+      ;;
+    repo-missing)
+      grep -qF 'ls-files' "$W/collect.out" && grep -qF 'ENOENT' "$W/collect.out" || fail "collect.out does not name the call 'git … ls-files' and its error ENOENT"
       [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
       ;;
     git-fails)
@@ -373,6 +410,11 @@ check_refused() {
     out-appears)
       grep -qi 'rename' "$W/collect.out" || fail "collect.out does not name the failing rename"
       [ "$(cd "$W/snapshot" 2>/dev/null && ls -A)" = raced.txt ] || fail "the directory that appeared at $W/snapshot during the run was changed: '$(ls -A "$W/snapshot" 2>/dev/null | tr '\n' ' ')'"
+      appeared=snapshot
+      ;;
+    empty-out-appears)
+      grep -qF -- "$W/snapshot" "$W/collect.out" || fail "collect.out does not name $W/snapshot"
+      [ -d "$W/snapshot" ] && [ -z "$(ls -A "$W/snapshot")" ] || fail "the empty directory that appeared at $W/snapshot during the run was replaced: '$(ls -A "$W/snapshot" 2>/dev/null | tr '\n' ' ')'"
       appeared=snapshot
       ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
