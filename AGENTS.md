@@ -557,6 +557,26 @@ subagent's final report, and every subagent prompt says which. A Ghost's report 
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
 and issue bodies.
 
+## Choosing the contour: cheap path or ladder path
+
+A trial rule, adopted 2026-09-28 and revised at the evening review of that day; it is not settled.
+The principle is *The cheapest contour that gives the required proof* in
+[architecture/principles.md](architecture/principles.md), and the first step of `/plan`
+([.claude/commands/plan.md](.claude/commands/plan.md)) applies it: for each new task the contour is
+chosen before anything else, the cheap path (an ordinary session in its own worktree, `pnpm run
+quality`, a pull request and CI, with no brief, witnesses, mutations or Ghost) or the ladder path (a
+brief, witnesses and a Ghost). What fits each is listed there and not repeated here. The ladder is
+not the default, and the cheap path keeps its discipline: CI and
+[architecture/owner-merges.md](architecture/owner-merges.md) apply to it unchanged.
+
+The journal, which lives outside the repository, gets one line per task naming the path and why it
+was chosen: `{"event":"path","task","path","reason",…}`, with `path` either `cheap` or `ladder`.
+`pnpm board` reads these lines.
+
+Morse is not introduced. The classification is not designed in advance: after a few days of merged
+product changes, those changes and the cases where the cheap path proved insufficient are reviewed,
+and the rule is revised from them.
+
 ## Ghosts
 
 A Ghost, a ladder run in a session of its own, is started only by `pnpm ghosts:launch`, which checks
