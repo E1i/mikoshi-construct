@@ -113,4 +113,17 @@ describe('the build puts the brief\'s Design section verbatim into the args as d
       expect(Object.keys(JSON.parse(child.stdout))).not.toContain('design')
     }
   })
+
+  it('counts Design only at the start of a line', () => {
+    const midLine = build('/implement Keep a mid-line label in its item (#1).\n\nEffort: low.\n\nAcceptance: the first item holds. Design: surprise — witness: `true`')
+
+    expect(midLine.status).toBe(0)
+    const midLineArgs = JSON.parse(midLine.stdout)
+    expect(midLineArgs.witnesses).toEqual([{ criterion: 'the first item holds. Design: surprise', command: 'true' }])
+    expect(Object.keys(midLineArgs)).not.toContain('design')
+
+    const lineStart = build('/implement Carry the Design (#1).\n\nEffort: low.\n\nDesign:\n- one owner\n\nAcceptance: the item holds — witness: `true`')
+
+    expect(JSON.parse(lineStart.stdout).design).toBe('- one owner')
+  })
 })
