@@ -1,0 +1,20 @@
+{
+  "repo": "repo",
+  "status": "status.md",
+  "out": ".",
+  "matrix": "matrix.json",
+  "tasks": [
+    {
+      "id": "a",
+      "brief": "brief-a.md",
+      "worktree": "worktrees/a",
+      "branch": "ghost/a"
+    },
+    {
+      "id": "b",
+      "brief": "brief-b.md",
+      "worktree": "worktrees/b",
+      "branch": "ghost/b"
+    }
+  ]
+}
