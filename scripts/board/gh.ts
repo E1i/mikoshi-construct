@@ -4,6 +4,7 @@ export type GhRunner = (args: string[]) => string
 
 export interface PullRequest {
   number: number
+  title?: string
   headRefName: string
   headRefOid: string
   state: string
@@ -31,7 +32,7 @@ export const execGh: GhRunner = args => execFileSync('gh', args, { encoding: 'ut
 
 export function listPrs(gh: GhRunner, repo: string): PrList {
   try {
-    const prs = JSON.parse(gh(['pr', 'list', '-R', repo, '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', 'number,headRefName,headRefOid,state,mergedAt,mergeCommit'])) as PullRequest[]
+    const prs = JSON.parse(gh(['pr', 'list', '-R', repo, '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', 'number,title,headRefName,headRefOid,state,mergedAt,mergeCommit'])) as PullRequest[]
     return { kind: 'listed', prs, truncated: prs.length >= PR_LIST_LIMIT }
   }
   catch {
@@ -65,26 +66,36 @@ export function lookupPrNumber(list: PrList, number: number | undefined): PrLook
   return { kind: 'unknown', missing: `pr #${number}; not in the gh list` }
 }
 
-export function prChecks(gh: GhRunner, repo: string, pr: PullRequest): string {
-  let checks: Check[]
-  try {
-    checks = (JSON.parse(gh(['pr', 'view', String(pr.number), '-R', repo, '--json', 'statusCheckRollup'])) as { statusCheckRollup?: Check[] }).statusCheckRollup ?? []
-  }
-  catch {
-    return 'UNKNOWN (missing: checks; the gh query failed)'
-  }
-  const sha = pr.headRefOid.slice(0, 7)
+export type CiState = 'none' | 'pending' | 'red' | 'green' | 'unknown'
+
+export interface PrDetails {
+  ci: { state: CiState, text: string }
+  files: string[] | undefined
+}
+
+function ciOf(checks: Check[], sha: string): PrDetails['ci'] {
   if (checks.length === 0)
-    return `— (no checks recorded on ${sha})`
+    return { state: 'none', text: `— (no checks recorded on ${sha})` }
   const pending = checks.filter(check => check.status !== undefined && check.status !== 'COMPLETED')
   if (pending.length > 0)
-    return `pending (${pending.length} of ${checks.length}) on ${sha}`
+    return { state: 'pending', text: `pending (${pending.length} of ${checks.length}) on ${sha}` }
   const failing = checks.filter((check) => {
     const outcome = check.conclusion ?? check.state
     return outcome !== undefined && outcome !== '' && !PASSING.includes(outcome)
   })
   if (failing.length > 0)
-    return `red (${failing.map(check => check.name ?? '?').join(', ')}) on ${sha}`
+    return { state: 'red', text: `red (${failing.map(check => check.name ?? '?').join(', ')}) on ${sha}` }
   const last = checks.map(check => check.completedAt).filter(Boolean).sort().at(-1)
-  return last === undefined ? `green on ${sha}` : `green ${last} on ${sha}`
+  return { state: 'green', text: last === undefined ? `green on ${sha}` : `green ${last} on ${sha}` }
+}
+
+export function prDetails(gh: GhRunner, repo: string, pr: PullRequest): PrDetails {
+  let view: { statusCheckRollup?: Check[], files?: { path: string }[] }
+  try {
+    view = JSON.parse(gh(['pr', 'view', String(pr.number), '-R', repo, '--json', 'statusCheckRollup,files'])) as typeof view
+  }
+  catch {
+    return { ci: { state: 'unknown', text: 'UNKNOWN (missing: checks; the gh query failed)' }, files: undefined }
+  }
+  return { ci: ciOf(view.statusCheckRollup ?? [], pr.headRefOid.slice(0, 7)), files: view.files?.map(file => file.path) }
 }
