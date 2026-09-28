@@ -1,4 +1,4 @@
-import type { ChangedFile } from './rules.js'
+import type { ChangedFile, RuleId } from './rules.js'
 import { classify, MorseRefusal, RULES } from './rules.js'
 
 interface PrRecord {
@@ -20,7 +20,7 @@ export interface BacktestResult {
   rows: number
   excluded: number[]
   matrix: { ladder: Bucket, cheap: Bucket }
-  byRule: Record<string, Bucket>
+  byRule: Record<RuleId, Bucket>
   missed: number[]
 }
 
@@ -74,9 +74,7 @@ export function runBacktest(text: string): BacktestResult {
   const excluded: number[] = []
   const missed: number[] = []
   const matrix = { ladder: emptyBucket(), cheap: emptyBucket() }
-  const byRule: Record<string, Bucket> = {}
-  for (const rule of RULES)
-    byRule[rule.id] = emptyBucket()
+  const byRule = Object.fromEntries(RULES.map(rule => [rule.id, emptyBucket()])) as Record<RuleId, Bucket>
 
   for (const record of records) {
     if (record.fact === null) {
