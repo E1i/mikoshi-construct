@@ -3,16 +3,25 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const WORLD_SH = path.join(import.meta.dirname, 'collect-fixtures', 'world.sh')
 const COLLECT_TS = path.join(REPO_ROOT, 'scripts', 'shredder', 'collect.ts')
 const COLLECTOR = process.env.SHREDDER_COLLECTOR
 
+const createdWorlds: string[] = []
+
 function newWorld(kind: string): string {
-  return execFileSync('bash', [WORLD_SH, 'new', kind], { encoding: 'utf8' }).trim()
+  const world = execFileSync('bash', [WORLD_SH, 'new', kind], { encoding: 'utf8' }).trim()
+  createdWorlds.push(world)
+  return world
 }
+
+afterEach(() => {
+  while (createdWorlds.length > 0)
+    execFileSync('bash', [WORLD_SH, 'clean', createdWorlds.pop()!], { encoding: 'utf8' })
+})
 
 function worldCheck(check: string, world: string): void {
   execFileSync('bash', [WORLD_SH, check, world], { encoding: 'utf8' })

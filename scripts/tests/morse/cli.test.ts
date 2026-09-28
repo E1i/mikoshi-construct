@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CLI = path.join(REPO_ROOT, 'scripts', 'morse', 'cli.ts')
@@ -22,9 +22,18 @@ function run(args: string[], cwd: string = REPO_ROOT): Run {
   }
 }
 
+const createdWorlds: string[] = []
+
 function world(): string {
-  return execFileSync('bash', [WORLD_SH, 'new'], { encoding: 'utf8' }).trim()
+  const w = execFileSync('bash', [WORLD_SH, 'new'], { encoding: 'utf8' }).trim()
+  createdWorlds.push(w)
+  return w
 }
+
+afterEach(() => {
+  while (createdWorlds.length > 0)
+    execFileSync('bash', [WORLD_SH, 'clean', createdWorlds.pop()!], { encoding: 'utf8' })
+})
 
 function sha(w: string, name: string): string {
   return readFileSync(path.join(w, 'sha', name), 'utf8').trim()

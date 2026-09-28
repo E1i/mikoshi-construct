@@ -15,6 +15,10 @@ git_quiet() {
   git -c user.name=world -c user.email=world@example.invalid -c commit.gpgsign=false -c init.defaultBranch=main "$@" >/dev/null 2>&1
 }
 
+remove_world() {
+  rm -rf "$1"
+}
+
 implement_sha() {
   printf '%s' "$(sed -n '/^\/implement /,$p' "$1")" | shasum -a 256 | cut -c1-64
 }
@@ -232,6 +236,7 @@ new_world() {
   local kind=$1 W
   case " $KINDS " in *" $kind "*) ;; *) echo "world.sh new: unknown kind '$kind' (one of: $KINDS)" >&2; exit 2 ;; esac
   W=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/ghost-world.XXXXXX")" && pwd -P)
+  trap "remove_world $(printf %q "$W")" EXIT
   mkdir -p "$W/.world" "$W/handoff" "$W/bin" "$W/stub"
 
   git_quiet init --bare "$W/origin.git"
@@ -267,6 +272,7 @@ new_world() {
 
   cp "$W/handoff/status.md" "$W/.world/status.md"
   (cd "$W" && ls -d wt-* 2>/dev/null || true) >"$W/.world/wt-before"
+  trap - EXIT
   echo "$W"
 }
 
@@ -606,11 +612,16 @@ session_of_or_null() {
 CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
+  clean)
+    W=${2:?usage: world.sh clean <world>}
+    [ -f "$W/.world/kind" ] || fail "$W is not a world"
+    remove_world "$W"
+    ;;
   check-decision | check-untouched | check-refused | check-launched | check-rows | check-report | check-ladder | check-install | check-journal | check-summary)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<decision|untouched|refused|launched|rows|report|ladder|install|journal|summary> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh clean <world> | world.sh check-<decision|untouched|refused|launched|rows|report|ladder|install|journal|summary> <world>" >&2; exit 2 ;;
 esac

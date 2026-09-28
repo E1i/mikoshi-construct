@@ -209,6 +209,7 @@ new_world() {
   local kind=$1 W id
   case " $KINDS " in *" $kind "*) ;; *) echo "world.sh new: unknown kind '$kind' (one of: $KINDS)" >&2; exit 2 ;; esac
   W=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/watch-world.XXXXXX")" && pwd -P)
+  trap "remove_world $(printf %q "$W")" EXIT
   mkdir -p "$W/.world" "$W/handoff" "$W/bin" "$W/repo" "$W/wt-g1" "$W/wt-g2"
   echo "$kind" >"$W/.world/kind"
   : >"$W/.world/pids"
@@ -221,6 +222,7 @@ new_world() {
   check_tail_layout "$W" "$kind"
   [ "$kind" = alive ] && start_stub "$W"
   snapshot "$W" >"$W/.world/snapshot.json"
+  trap - EXIT
   echo "$W"
 }
 
@@ -231,6 +233,11 @@ stop_stubs() {
     [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
   done <"$W/.world/pids"
   : >"$W/.world/pids"
+}
+
+remove_world() {
+  stop_stubs "$1"
+  rm -rf "$1"
 }
 
 run_for() {
@@ -378,11 +385,15 @@ case $CHECK in
   new) new_world "${2:?kind}" ;;
   kinds) echo "$KINDS" ;;
   run-for) shift; run_for "$@" ;;
-  stop) stop_stubs "${2:?world}" ;;
+  clean)
+    W=${2:?world}
+    [ -f "$W/.world/kind" ] || fail "$W is not a world"
+    remove_world "$W"
+    ;;
   check-once) trap 'stop_stubs "$WORLD"' EXIT; check_frames "${2:?world}" once ;;
   check-every) trap 'stop_stubs "$WORLD"' EXIT; check_frames "${2:?world}" every ;;
   check-readonly) trap 'stop_stubs "$WORLD"' EXIT; check_readonly "${2:?world}" ;;
   check-prefix) trap 'stop_stubs "$WORLD"' EXIT; check_prefix "${2:?world}" ;;
   check-refused) trap 'stop_stubs "$WORLD"' EXIT; check_refused "${2:?world}" "${3:?word}" ;;
-  *) echo "usage: world.sh new <kind> | kinds | run-for <world> <seconds> <command...> | stop <world> | check-once <world> | check-every <world> | check-readonly <world> | check-prefix <world> | check-refused <world> <word>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <kind> | kinds | run-for <world> <seconds> <command...> | clean <world> | check-once <world> | check-every <world> | check-readonly <world> | check-prefix <world> | check-refused <world> <word>" >&2; exit 2 ;;
 esac
