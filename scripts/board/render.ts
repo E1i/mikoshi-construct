@@ -1,7 +1,7 @@
 import type { AttemptView, Summary, TaskView } from './derive.js'
 import type { PrDetails } from './gh.js'
 import type { Age, NextOf, Row } from './row.js'
-import { MERGED_SHOWN, stageText } from './derive.js'
+import { isSuperseded, MERGED_SHOWN, stageText } from './derive.js'
 import { rowOf, unknownTally } from './row.js'
 
 export interface BoardView {
@@ -33,6 +33,7 @@ export const DEFINITIONS = [
   '# waiting = not merged, not running, not blocked, and a journal event:task exists (ladder finished, nothing after it recorded); on the cheap path, not merged and ready recorded',
   '# summary = over live attempts only; longest = now minus the status.md start (on the cheap path, the event:path started), among running, waiting and blocked; an attempt without a start is not measured',
   `# shown: tasks whose live attempt is running, waiting or blocked, and the last ${MERGED_SHOWN} merged; --all shows every task`,
+  '# superseded = a journal event:superseded names the attempt and the attempt that replaced it (by); a task whose live attempt is superseded is left out of the summary, the default list and the list\'s UNKNOWN tally, and every superseded attempt out of --json\'s; --all lists it, NEXT reads — (superseded); its card counts its own UNKNOWN and names the successor, as --json does',
   '# edge = contour.after of the Shredder matrix a tasks file names; UNKNOWN without one',
   ROW_DEFINITION,
 ]
@@ -73,7 +74,9 @@ export function unknownLine(views: AttemptView[]): string {
 
 function hiddenLine(view: BoardView): string {
   const hidden = view.tasks.length - view.shown.length
-  return `# pnpm board <task-id> prints one task's card with every attempt; --json prints everything; hidden: ${hidden === 0 ? 'none' : `${hidden} tasks, --all shows them`}`
+  const superseded = view.tasks.filter(task => isSuperseded(task.live)).length
+  const among = superseded === 0 ? '' : ` (${superseded} superseded)`
+  return `# pnpm board <task-id> prints one task's card with every attempt; --json prints everything; hidden: ${hidden === 0 ? 'none' : `${hidden} tasks${among}, --all shows them`}`
 }
 
 export function renderBoard(view: BoardView): string[] {
@@ -82,7 +85,7 @@ export function renderBoard(view: BoardView): string[] {
     ROW_DEFINITION,
     hiddenLine(view),
     ...view.shown.map(task => rowLine(rowOf(task, view.nextOf, view.now))),
-    unknownLine(view.shown.map(task => task.live)),
+    unknownLine(view.shown.map(task => task.live).filter(live => !isSuperseded(live))),
   ]
 }
 

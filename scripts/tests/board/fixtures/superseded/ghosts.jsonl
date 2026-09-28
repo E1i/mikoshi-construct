@@ -1,0 +1,4 @@
+{"event":"task","ts":"2026-09-28T06:00:00.000Z","task":"271-2","baseSha":"base","session":null,"install":0,"run":null,"iterations":1,"class":null,"contour":null,"resultLine":"present","total_cost_usd":null,"num_turns":null,"duration_ms":null,"usage":null,"review":null,"exit":0,"ladder":"base red"}
+{"event":"superseded","task":"271-2","by":"271-4","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"superseded","task":"271-3","by":"271-4","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"path","task":"271-4","path":"cheap","started":"2026-09-28T07:05:00Z","ts":"2026-09-28T07:05:00.000Z"}

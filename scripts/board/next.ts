@@ -22,6 +22,7 @@ export const NEXT_BY_SITUATION = {
   'auto-merge': 'auto-merge (window arms it)',
   'merge-unknown': 'merge (UNKNOWN whether Eli\'s or auto-merge)',
   'merged': '—',
+  'superseded': '— (superseded)',
 } as const
 
 export type Situation = keyof typeof NEXT_BY_SITUATION
@@ -91,6 +92,8 @@ function ladderNext(view: AttemptView, details: PrDetails | undefined, kinds: Ow
 export function nextOf(view: AttemptView, details: PrDetails | undefined, kinds: OwnerMergeKind[] | undefined): Next {
   if (view.mergedAt !== undefined)
     return next('merged')
+  if (view.attempt.supersededEvent !== undefined)
+    return next('superseded', `by ${view.attempt.supersededEvent.by}`)
   if (view.path === 'cheap')
     return view.attempt.pathEvent?.ready === undefined ? next('cheap-ready') : prNext(view, details, kinds)
   return ladderNext(view, details, kinds)
