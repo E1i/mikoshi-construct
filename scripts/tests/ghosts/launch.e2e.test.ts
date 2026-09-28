@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
@@ -24,6 +24,17 @@ function launch(worldDir: string, answer: string): { status: number | null } {
   })
   writeFileSync(path.join(worldDir, 'launch.out'), `${result.stdout}${result.stderr}`)
   return { status: result.status }
+}
+
+function launchFrom(worldDir: string, cwd: string, answer: string): { status: number | null, output: string } {
+  const bin = path.join(worldDir, 'bin')
+  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(worldDir, 'tasks.json')], {
+    cwd,
+    input: `${answer}\n`,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  return { status: result.status, output: `${result.stdout}${result.stderr}` }
 }
 
 function launchSealed(worldDir: string, answer: string): { status: number | null } {
@@ -137,6 +148,31 @@ describe('ghosts launch, end to end through the stub', () => {
     expect(status).toBe(0)
     world('check-journal', w)
     world('check-install', w)
+  })
+
+  it('refuses a relative out before any worktree or row is touched, naming the field', () => {
+    const w = world('new', 'ok')
+    const tasksPath = path.join(w, 'tasks.json')
+    writeFileSync(tasksPath, JSON.stringify({ ...JSON.parse(readFileSync(tasksPath, 'utf8')) as object, out: 'handoff' }))
+    const { status, output } = launchFrom(w, w, 'yes')
+    expect(status).toBe(1)
+    expect(output).toContain('tasks file field out: expected an absolute path')
+    expect(output).not.toContain('DECISION:')
+    world('check-untouched', w)
+  })
+
+  it.each([
+    { name: 'missing', spoil: (file: string) => rmSync(file) },
+    { name: 'unparsable', spoil: (file: string) => writeFileSync(file, '{ not json') },
+  ])('refuses a $name matrix file before any worktree or row is touched, naming its path', ({ spoil }) => {
+    const w = world('new', 'with-matrix')
+    const matrixPath = path.join(w, 'matrix.json')
+    spoil(matrixPath)
+    const { status, output } = launchFrom(w, REPO_ROOT, 'yes')
+    expect(status).toBe(1)
+    expect(output).toContain(`matrix ${matrixPath}:`)
+    expect(output).not.toContain('DECISION:')
+    world('check-untouched', w)
   })
 
   it('appends the journal after the lines it already held', () => {
