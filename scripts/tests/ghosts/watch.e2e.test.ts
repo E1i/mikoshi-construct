@@ -32,7 +32,7 @@ function runFor(w: string, seconds: number, extraArgs: string[]): void {
 afterEach(() => {
   while (createdWorlds.length > 0) {
     const w = createdWorlds.pop()!
-    world('stop', w)
+    world('clean', w)
   }
 })
 

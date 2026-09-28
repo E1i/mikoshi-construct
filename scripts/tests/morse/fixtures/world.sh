@@ -16,6 +16,10 @@ git_quiet() {
   git -c user.name=world -c user.email=world@example.invalid -c commit.gpgsign=false -c init.defaultBranch=main "$@" >/dev/null 2>&1
 }
 
+remove_world() {
+  rm -rf "$1"
+}
+
 commit_head() {
   local W=$1 name=$2
   git_quiet -C "$W/repo" add -A
@@ -33,6 +37,7 @@ expect_line() {
 new_world() {
   local W
   W=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/morse-world.XXXXXX")" && pwd -P)
+  trap "remove_world $(printf %q "$W")" EXIT
   mkdir -p "$W/.world/expect" "$W/sha" "$W/repo/docs" "$W/repo/src" "$W/repo/tests/fixtures" "$W/repo/scripts" "$W/repo/.claude/skills/s" "$W/repo/.changeset" "$W/repo/assets"
   echo '# world' >"$W/repo/README.md"
   printf 'one\ntwo\n' >"$W/repo/docs/guide.md"
@@ -108,6 +113,7 @@ new_world() {
   expect_line "$W" quoted-doc cheap docs-only '"docs/tab\tname.md"'
   expect_line "$W" quoted-src ladder src '"src/tab\tname.ts"'
   echo world >"$W/.world/kind"
+  trap - EXIT
   echo "$W"
 }
 
@@ -188,18 +194,21 @@ check_anchor() {
 }
 
 check_rules() {
-  local d name out
+  local d name out got
+  got=$(mktemp "${TMPDIR:-/tmp}/morse-rule-got.XXXXXX")
+  trap "rm -f $(printf %q "$got")" EXIT
   for d in "$FIXTURES"/rules/*/; do
     name=$(basename "$d")
     out=$(cd "$REPO_ROOT" && pnpm exec tsx "$CLI" classify --files "$d/files.json" 2>&1) || fail "$name: classify exited non-zero: $out"
-    printf '%s\n' "$out" >"${TMPDIR:-/tmp}/morse-rule-got.json"
-    same_json "${TMPDIR:-/tmp}/morse-rule-got.json" "$d/expected.json" || fail "$name: got $out, expected $(tr -d '\n ' <"$d/expected.json")"
+    printf '%s\n' "$out" >"$got"
+    same_json "$got" "$d/expected.json" || fail "$name: got $out, expected $(tr -d '\n ' <"$d/expected.json")"
   done
 }
 
 check_backtest() {
   local dir first second
   dir=$(mktemp -d "${TMPDIR:-/tmp}/morse-backtest.XXXXXX")
+  trap "rm -rf $(printf %q "$dir")" EXIT
   first=$(cd "$REPO_ROOT" && pnpm exec tsx "$CLI" backtest --prs "$FIXTURES/backtest/synthetic.jsonl" 2>/dev/null) || fail "backtest exited non-zero"
   second=$(cd "$REPO_ROOT" && pnpm exec tsx "$CLI" backtest --prs "$FIXTURES/backtest/synthetic.jsonl" 2>/dev/null) || fail "backtest exited non-zero on the second run"
   [ "$first" = "$second" ] || fail "two runs over the same input differ"
@@ -214,6 +223,7 @@ check_backtest_refused() {
   [ -f "$input" ] && [ -f "$names" ] || fail "no refused case $case"
   out=$(mktemp "${TMPDIR:-/tmp}/morse-refused-out.XXXXXX")
   err=$(mktemp "${TMPDIR:-/tmp}/morse-refused-err.XXXXXX")
+  trap "rm -f $(printf %q "$out") $(printf %q "$err")" EXIT
   status=0
   (cd "$REPO_ROOT" && pnpm exec tsx "$CLI" backtest --prs "$input" >"$out" 2>"$err") || status=$?
   [ "$status" -ne 0 ] || fail "$case: backtest accepted the file: $(tr -d '\n ' <"$out")"
@@ -230,6 +240,7 @@ check_classify_empty() {
   local out err status
   out=$(mktemp "${TMPDIR:-/tmp}/morse-classify-out.XXXXXX")
   err=$(mktemp "${TMPDIR:-/tmp}/morse-classify-err.XXXXXX")
+  trap "rm -f $(printf %q "$out") $(printf %q "$err")" EXIT
   status=0
   (cd "$REPO_ROOT" && pnpm exec tsx "$CLI" classify --files "$FIXTURES/classify/empty.json" >"$out" 2>"$err") || status=$?
   [ "$status" -ne 0 ] || fail "classify accepted an empty list: $(cat "$out")"
@@ -284,6 +295,11 @@ if (problems.length > 0) {
 CHECK=${1:-}
 case $CHECK in
   new) new_world ;;
+  clean)
+    W=${2:?usage: world.sh clean <world>}
+    [ -f "$W/.world/kind" ] || fail "$W is not a world"
+    remove_world "$W"
+    ;;
   heads) echo "$HEADS" ;;
   check-predicted | check-refused | check-empty | check-no-journal | check-unprinted | check-anchor)
     W=${2:?usage: world.sh $CHECK <world>}
@@ -298,5 +314,5 @@ case $CHECK in
   check-classify-empty) check_classify_empty ;;
   check-order) check_order ;;
   check-suite) check_suite "${2:?usage: world.sh check-suite <vitest.json>}" ;;
-  *) echo "usage: world.sh new | world.sh heads | world.sh check-<predicted|refused|empty|no-journal|unprinted|anchor> <world> [...] | world.sh check-<rules|backtest|classify-empty|order> | world.sh check-suite <vitest.json> | world.sh check-backtest-refused <case>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new | world.sh clean <world> | world.sh heads | world.sh check-<predicted|refused|empty|no-journal|unprinted|anchor> <world> [...] | world.sh check-<rules|backtest|classify-empty|order> | world.sh check-suite <vitest.json> | world.sh check-backtest-refused <case>" >&2; exit 2 ;;
 esac

@@ -2,18 +2,28 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
 const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
 
+const createdWorlds: string[] = []
+
 function world(...args: string[]): string {
   const result = spawnSync('bash', [WORLD, ...args], { encoding: 'utf8' })
   if (result.status !== 0)
     throw new Error(`world.sh ${args.join(' ')} exited ${result.status}: ${result.stderr}`)
-  return result.stdout.trim()
+  const output = result.stdout.trim()
+  if (args[0] === 'new')
+    createdWorlds.push(output)
+  return output
 }
+
+afterEach(() => {
+  while (createdWorlds.length > 0)
+    world('clean', createdWorlds.pop()!)
+})
 
 function launch(worldDir: string, answer: string): { status: number | null } {
   const bin = path.join(worldDir, 'bin')

@@ -19,6 +19,10 @@ git_quiet() {
   git -c user.name=world -c user.email=world@example.invalid -c commit.gpgsign=false -c init.defaultBranch=main "$@" >/dev/null 2>&1
 }
 
+remove_world() {
+  rm -rf "$1"
+}
+
 write_repo() {
   local W=$1
   mkdir -p "$W/repo/src" "$W/repo/tests" "$W/repo/docs"
@@ -316,6 +320,7 @@ new_world() {
   local kind=$1 W
   case " $KINDS " in *" $kind "*) ;; *) echo "world.sh new: unknown kind '$kind' (one of: $KINDS)" >&2; exit 2 ;; esac
   W=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/collect-world.XXXXXX")" && pwd -P)
+  trap "remove_world $(printf %q "$W")" EXIT
   mkdir -p "$W/.world"
   write_repo "$W"
   write_handoff "$W"
@@ -332,6 +337,7 @@ new_world() {
   fi
   echo "$kind" >"$W/.world/kind"
   (cd "$W" && ls -A) >"$W/.world/entries-before"
+  trap - EXIT
   echo "$W"
 }
 
@@ -460,6 +466,7 @@ new_decoy() {
   case " $DECOYS " in *" $name "*) ;; *) echo "world.sh decoy: unknown decoy '$name' (one of: $DECOYS)" >&2; exit 2 ;; esac
   real="$(pwd -P)/scripts/shredder/collect.ts"
   D=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/collect-decoy.XXXXXX")" && pwd -P)
+  trap "remove_world $(printf %q "$D")" EXIT
   printf 'const DECOY = %s\nconst REAL = %s\n' "'$name'" "'$real'" >"$D/$name.mjs"
   cat >>"$D/$name.mjs" <<'EOF'
 import { spawnSync } from 'node:child_process'
@@ -506,6 +513,8 @@ process.stdout.write(output[0])
 process.stderr.write(output[1])
 process.exit(run.status ?? 1)
 EOF
+  : >"$D/.decoy"
+  trap - EXIT
   echo "$D/$name.mjs"
 }
 
@@ -513,11 +522,17 @@ CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
   decoy) new_decoy "${2:?usage: world.sh decoy <$DECOYS>}" ;;
+  clean)
+    W=${2:?usage: world.sh clean <world|decoy.mjs>}
+    [ -f "$W" ] && W=$(dirname "$W")
+    [ -f "$W/.world/kind" ] || [ -f "$W/.decoy" ] || fail "$W is neither a world nor a decoy"
+    remove_world "$W"
+    ;;
   check-snapshot | check-shredded | check-refused | check-rename | check-bytes)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh decoy <${DECOYS// /|}> | world.sh check-<snapshot|shredded|refused|rename|bytes> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh decoy <${DECOYS// /|}> | world.sh clean <world|decoy.mjs> | world.sh check-<snapshot|shredded|refused|rename|bytes> <world>" >&2; exit 2 ;;
 esac
