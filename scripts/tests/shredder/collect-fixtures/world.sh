@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok occupied-out gh-pr-fails gh-issue-fails gh-run-fails unknown-task-field missing-top-field unknown-top-field missing-task-field git-fails'
+KINDS='ok occupied-out gh-pr-fails gh-issue-fails gh-run-fails unknown-task-field missing-top-field unknown-top-field missing-task-field git-fails task-brief-and-issue task-worktree-on-issue task-wrong-type top-wrong-type many-prs out-appears'
+DECOYS='faithful status-as-text owner-merges-as-text unnamed-gh-issue unnamed-gh-run leftover-on-failure lenient-missing-top lenient-missing-task lenient-unknown-task lenient-unknown-top'
 HEAD_AWAITING=1111111111111111111111111111111111111111
 HEAD_PASSED=2222222222222222222222222222222222222222
+HEAD_OTHER=3333333333333333333333333333333333333333
+NON_ASCII_PATH=$(printf 'docs/caf\303\251.md')
 QUEUED_ROWS='a #271 b #280'
 
 fail() {
@@ -22,8 +25,10 @@ write_repo() {
   echo 'export const a = 1' >"$W/repo/src/a.ts"
   echo 'export const b = 2' >"$W/repo/src/b.ts"
   echo 'guide' >"$W/repo/docs/guide.md"
+  echo 'accents' >"$W/repo/$NON_ASCII_PATH"
   echo 'test' >"$W/repo/tests/a.test.ts"
   git_quiet -C "$W/repo" init
+  git_quiet -C "$W/repo" config core.quotePath true
   git_quiet -C "$W/repo" add README.md docs src tests
   git_quiet -C "$W/repo" commit -m world
   echo 'not tracked' >"$W/repo/untracked.txt"
@@ -93,6 +98,7 @@ write_gh() {
 set -euo pipefail
 kind='$kind'
 args=" \$* "
+printf 'cwd=%s GH_REPO=%s\n' "\$(pwd -P)" "\${GH_REPO-}" >>'$W/.world/gh-calls.log'
 arg_after() {
   local want=\$1 prev=
   shift
@@ -100,6 +106,37 @@ arg_after() {
     [ "\$prev" = "\$want" ] && { echo "\$a"; return; }
     prev=\$a
   done
+}
+limit_or() {
+  local given=\$1 a
+  shift
+  for a in "\$@"; do
+    case \$a in --limit=*) given=\${a#--limit=} ;; esac
+  done
+  a=\$(arg_after --limit "\$@")
+  [ -n "\$a" ] || a=\$(arg_after -L "\$@")
+  echo "\${a:-\$given}"
+}
+json_array() {
+  local items
+  items=\$(head -n "\$1" | paste -sd, -)
+  printf '[%s]\n' "\$items"
+}
+prs() {
+  printf '%s\n' '{"files":[{"additions":1,"deletions":0,"path":"src/a.ts"}],"headRefOid":"$HEAD_AWAITING","number":11,"title":"Change a"}' '{"files":[{"additions":2,"deletions":1,"path":"docs/guide.md"},{"additions":1,"deletions":0,"path":"README.md"}],"headRefOid":"$HEAD_PASSED","number":12,"title":"Docs"}'
+  if [ "\$kind" = many-prs ]; then
+    for n in \$(seq 13 41); do
+      printf '{"files":[{"additions":1,"deletions":0,"path":"tests/a.test.ts"}],"headRefOid":"$HEAD_OTHER","number":%s,"title":"More %s"}\n' "\$n" "\$n"
+    done
+  fi
+}
+awaiting_runs() {
+  if [ "\$kind" = many-prs ]; then
+    for n in \$(seq 1 20); do printf '%s\n' '{"conclusion":"success"}'; done
+  else
+    printf '%s\n' '{"conclusion":"success"}'
+  fi
+  printf '%s\n' '{"conclusion":"action_required"}'
 }
 case \$args in
   *' issue view '*)
@@ -113,13 +150,13 @@ case \$args in
     ;;
   *' pr list '*)
     [ "\$kind" = gh-pr-fails ] && { echo 'gh stub: pr list failed' >&2; exit 1; }
-    printf '%s\n' '[{"files":[{"additions":1,"deletions":0,"path":"src/a.ts"}],"headRefOid":"$HEAD_AWAITING","number":11,"title":"Change a"},{"files":[{"additions":2,"deletions":1,"path":"docs/guide.md"},{"additions":1,"deletions":0,"path":"README.md"}],"headRefOid":"$HEAD_PASSED","number":12,"title":"Docs"}]'
+    prs | json_array "\$(limit_or 30 "\$@")"
     ;;
   *' run list '*)
     [ "\$kind" = gh-run-fails ] && { echo 'gh stub: run list failed' >&2; exit 1; }
     sha=\$(arg_after --commit "\$@")
     case \$sha in
-      $HEAD_AWAITING) printf '%s\n' '[{"conclusion":"success"},{"conclusion":"action_required"}]' ;;
+      $HEAD_AWAITING) awaiting_runs | json_array "\$(limit_or 20 "\$@")" ;;
       $HEAD_PASSED) printf '%s\n' '[{"conclusion":"success"}]' ;;
       *) printf '%s\n' '[]' ;;
     esac
@@ -131,19 +168,24 @@ EOF
 }
 
 write_queue() {
-  local W=$1 kind=$2 repo=$1/repo owner_merges wt_key=worktree extra_key='' b_id='"id": "b",'
+  local W=$1 kind=$2 repo=$1/repo owner_merges wt_key=worktree extra_key='' b_id='"id": "b",' status task_271='"id": "271", "issue": 1' task_280='"id": "280", "issue": 2'
   owner_merges="\"ownerMerges\": \"$W/handoff/owner-merges.md\","
+  status="\"$W/handoff/status.md\""
   case $kind in
     unknown-task-field) wt_key=wroktree ;;
     missing-top-field) owner_merges='' ;;
     unknown-top-field) extra_key='"reviewers": [],' ;;
     missing-task-field) b_id='' ;;
     git-fails) repo=$W/not-a-repo && mkdir -p "$repo" ;;
+    task-brief-and-issue) task_271="$task_271, \"brief\": \"$W/handoff/brief-b.md\"" ;;
+    task-worktree-on-issue) task_280="$task_280, \"worktree\": \"$W/wt-280\"" ;;
+    task-wrong-type) task_271='"id": "271", "issue": "1"' ;;
+    top-wrong-type) status=7 ;;
   esac
   cat >"$W/queue.json" <<EOF
-{ "repo": "$repo", "status": "$W/handoff/status.md", $owner_merges $extra_key
-  "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "$wt_key": "$W/wt-a" }, { "id": "271", "issue": 1 }, { $b_id
-  "brief": "$W/handoff/brief-b.md" }, { "id": "280", "issue": 2 } ] }
+{ "repo": "$repo", "status": $status, $owner_merges $extra_key
+  "tasks": [ { "id": "a", "brief": "$W/handoff/brief-a.md", "$wt_key": "$W/wt-a" }, { $task_271 }, { $b_id
+  "brief": "$W/handoff/brief-b.md" }, { $task_280 } ] }
 EOF
 }
 
@@ -178,6 +220,33 @@ syncBuiltinESMExports()
 EOF
 }
 
+write_out_appears() {
+  cat >"$1/.world/out-appears.mjs" <<EOF
+import fs from 'node:fs'
+import path from 'node:path'
+import { syncBuiltinESMExports } from 'node:module'
+
+const out = '$1/snapshot'
+function appear(to) {
+  if (typeof to !== 'string' || path.resolve(to) !== out)
+    return
+  fs.mkdirSync(out, { recursive: true })
+  fs.writeFileSync(path.join(out, 'raced.txt'), 'appeared during the run\\n')
+}
+function wrap(target, name) {
+  const original = target[name]
+  target[name] = function (...args) {
+    appear(args[1])
+    return original.apply(this, args)
+  }
+}
+wrap(fs, 'renameSync')
+wrap(fs, 'rename')
+wrap(fs.promises, 'rename')
+syncBuiltinESMExports()
+EOF
+}
+
 write_expected() {
   local W=$1 E=$1/expected
   mkdir -p "$E/tasks"
@@ -185,7 +254,7 @@ write_expected() {
   printf '# Collect the docs\n\nPaths: `docs/guide.md`; `src/b.ts`\n' >"$E/tasks/02-271.issue.md"
   cp "$W/handoff/brief-b.md" "$E/tasks/03-b.brief.md"
   printf '# Unknown paths\n' >"$E/tasks/04-280.issue.md"
-  printf '%s\n' README.md docs/guide.md src/a.ts src/b.ts tests/a.test.ts >"$E/files.txt"
+  printf '%s\n' README.md "$NON_ASCII_PATH" docs/guide.md src/a.ts src/b.ts tests/a.test.ts >"$E/files.txt"
   cat >"$E/open-prs.json" <<'EOF'
 [
   {
@@ -221,6 +290,7 @@ new_world() {
   write_gh "$W" "$kind"
   write_queue "$W" "$kind"
   write_fs_spy "$W"
+  write_out_appears "$W"
   write_expected "$W"
   if [ "$kind" = occupied-out ]; then
     mkdir -p "$W/snapshot"
@@ -253,7 +323,7 @@ check_shredded() {
 }
 
 check_refused() {
-  local W=$1 kind entries call key
+  local W=$1 kind entries call key appeared=collect.out
   [ -f "$W/collect.out" ] || fail "no $W/collect.out"
   kind=$(cat "$W/.world/kind")
   case $kind in
@@ -288,9 +358,26 @@ check_refused() {
       grep -qF 'git' "$W/collect.out" && grep -qF 'ls-files' "$W/collect.out" || fail "collect.out does not name the call 'git … ls-files'"
       [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
       ;;
+    task-brief-and-issue | task-worktree-on-issue | task-wrong-type | top-wrong-type)
+      case $kind in
+        task-brief-and-issue) key='brief issue' ;;
+        task-worktree-on-issue) key=worktree ;;
+        task-wrong-type) key=issue ;;
+        *) key=status ;;
+      esac
+      for k in $key; do
+        grep -qw -- "$k" "$W/collect.out" || fail "collect.out does not name the key '$k'"
+      done
+      [ ! -e "$W/snapshot" ] || fail "$W/snapshot exists"
+      ;;
+    out-appears)
+      grep -qi 'rename' "$W/collect.out" || fail "collect.out does not name the failing rename"
+      [ "$(cd "$W/snapshot" 2>/dev/null && ls -A)" = raced.txt ] || fail "the directory that appeared at $W/snapshot during the run was changed: '$(ls -A "$W/snapshot" 2>/dev/null | tr '\n' ' ')'"
+      appeared=snapshot
+      ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
   esac
-  entries=$(cd "$W" && ls -A | grep -vx -e collect.out -e shred.json || true)
+  entries=$(cd "$W" && ls -A | grep -vx -e collect.out -e shred.json -e "$appeared" || true)
   [ "$entries" = "$(cat "$W/.world/entries-before")" ] || fail "entries next to the snapshot changed: before '$(tr '\n' ' ' <"$W/.world/entries-before")', now '$(echo "$entries" | tr '\n' ' ')'"
 }
 
@@ -326,14 +413,69 @@ check_bytes() {
   done
 }
 
+new_decoy() {
+  local name=$1 real D
+  case " $DECOYS " in *" $name "*) ;; *) echo "world.sh decoy: unknown decoy '$name' (one of: $DECOYS)" >&2; exit 2 ;; esac
+  real="$(pwd -P)/scripts/shredder/collect.ts"
+  D=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/collect-decoy.XXXXXX")" && pwd -P)
+  printf 'const DECOY = %s\nconst REAL = %s\n' "'$name'" "'$real'" >"$D/$name.mjs"
+  cat >>"$D/$name.mjs" <<'EOF'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import process from 'node:process'
+
+const args = process.argv.slice(2)
+const out = args[args.indexOf('--out') + 1]
+const queueAt = args.indexOf('--queue') + 1
+const TASK_KEYS = ['id', 'brief', 'worktree', 'issue']
+const TOP_KEYS = ['repo', 'status', 'ownerMerges', 'tasks']
+
+function lenientQueue(queue) {
+  if (DECOY === 'lenient-missing-top' && !('ownerMerges' in queue))
+    queue.ownerMerges = queue.status
+  if (DECOY === 'lenient-missing-task')
+    queue.tasks.forEach((task, index) => { task.id ??= `task-${index}` })
+  if (DECOY === 'lenient-unknown-task')
+    queue.tasks.forEach(task => Object.keys(task).filter(key => !TASK_KEYS.includes(key)).forEach(key => delete task[key]))
+  if (DECOY === 'lenient-unknown-top')
+    Object.keys(queue).filter(key => !TOP_KEYS.includes(key)).forEach(key => delete queue[key])
+  return queue
+}
+
+if (DECOY.startsWith('lenient-')) {
+  const queue = lenientQueue(JSON.parse(fs.readFileSync(args[queueAt], 'utf8')))
+  args[queueAt] = path.join(fs.mkdtempSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'queue-')), 'queue.json')
+  fs.writeFileSync(args[queueAt], JSON.stringify(queue))
+}
+const run = spawnSync(process.execPath, [...process.execArgv, REAL, ...args], { encoding: 'utf8' })
+let output = [run.stdout, run.stderr]
+if (DECOY === 'unnamed-gh-issue')
+  output = output.map(text => text.replace(/(gh )?issue view/g, 'a call'))
+if (DECOY === 'unnamed-gh-run')
+  output = output.map(text => text.replace(/(gh )?run list/g, 'a call'))
+if (DECOY === 'leftover-on-failure' && run.status !== 0)
+  fs.mkdtempSync(path.join(path.dirname(path.resolve(out)), '.leftover-'))
+for (const [decoy, file] of [['status-as-text', 'status.md'], ['owner-merges-as-text', 'owner-merges.md']]) {
+  if (DECOY === decoy && run.status === 0)
+    fs.writeFileSync(path.join(out, file), fs.readFileSync(path.join(out, file), 'utf8'))
+}
+process.stdout.write(output[0])
+process.stderr.write(output[1])
+process.exit(run.status ?? 1)
+EOF
+  echo "$D/$name.mjs"
+}
+
 CHECK=${1:-}
 case $CHECK in
   new) new_world "${2:?usage: world.sh new <$KINDS>}" ;;
+  decoy) new_decoy "${2:?usage: world.sh decoy <$DECOYS>}" ;;
   check-snapshot | check-shredded | check-refused | check-rename | check-bytes)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh check-<snapshot|shredded|refused|rename|bytes> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh decoy <${DECOYS// /|}> | world.sh check-<snapshot|shredded|refused|rename|bytes> <world>" >&2; exit 2 ;;
 esac
