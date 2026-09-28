@@ -11,15 +11,14 @@ interface Job { needs?: string | string[], if?: string, steps: { run?: string }[
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
 
+const OTHER_JOBS = ['checks', 'lint', 'typecheck', 'vitest', 'harness-report', 'docs', 'package', 'contract-bump', 'acceptance']
+
 const SKIPPED = Object.fromEntries(SKIPPED_ON_FAST_PATH.map(job => [job, 'skipped'])) as Record<string, JobResult>
 
 function needs(fastPath: boolean, results: Partial<Record<string, JobResult>> = {}): Needs {
   return {
     [CLASSIFY_JOB]: { result: 'success', outputs: { 'fast-path': String(fastPath) } },
-    'quality': { result: results.quality ?? 'success' },
-    'package': { result: results.package ?? 'success' },
-    'contract-bump': { result: results['contract-bump'] ?? 'success' },
-    'acceptance': { result: results.acceptance ?? 'success' },
+    ...Object.fromEntries(OTHER_JOBS.map(job => [job, { result: results[job] ?? 'success' }])),
   }
 }
 
@@ -33,22 +32,27 @@ describe('the required verdict', () => {
     expect(blockingJobs(needs(false, { acceptance: 'skipped' }))).toEqual(['acceptance: skipped'])
   })
 
-  it('is red when a preset job failed or was cancelled, whether or not quality passed', () => {
+  it('is red when a preset job failed or was cancelled, whether or not the quality jobs passed', () => {
     expect(blockingJobs(needs(false, { acceptance: 'failure' }))).toEqual(['acceptance: failure'])
     expect(blockingJobs(needs(false, { acceptance: 'cancelled' }))).toEqual(['acceptance: cancelled'])
-    expect(blockingJobs(needs(false, { quality: 'failure', acceptance: 'failure' }))).toEqual(['quality: failure', 'acceptance: failure'])
+    expect(blockingJobs(needs(false, { lint: 'failure', acceptance: 'failure' }))).toEqual(['lint: failure', 'acceptance: failure'])
   })
 
-  it('is red when quality fails and the preset matrix passes', () => {
-    expect(blockingJobs(needs(false, { quality: 'failure' }))).toEqual(['quality: failure'])
+  it('is red when one shard of vitest fails and the preset matrix passes', () => {
+    expect(blockingJobs(needs(false, { vitest: 'failure' }))).toEqual(['vitest: failure'])
   })
 
-  it('is red when quality fails on the fast path', () => {
-    expect(blockingJobs(needs(true, { ...SKIPPED, quality: 'failure' }))).toEqual(['quality: failure'])
+  it('is red when a quality job fails on the fast path', () => {
+    expect(blockingJobs(needs(true, { ...SKIPPED, docs: 'failure' }))).toEqual(['docs: failure'])
+    expect(blockingJobs(needs(true, { ...SKIPPED, 'harness-report': 'cancelled' }))).toEqual(['harness-report: cancelled'])
   })
 
   it('accepts no skip other than the package and the preset matrix on the fast path', () => {
-    expect(blockingJobs(needs(true, { ...SKIPPED, 'quality': 'skipped', 'contract-bump': 'skipped' }))).toEqual(['quality: skipped', 'contract-bump: skipped'])
+    expect(blockingJobs(needs(true, { ...SKIPPED, 'checks': 'skipped', 'contract-bump': 'skipped' }))).toEqual(['checks: skipped', 'contract-bump: skipped'])
+  })
+
+  it('reads a quality job skipped on the full path as red', () => {
+    expect(blockingJobs(needs(false, { typecheck: 'skipped', vitest: 'skipped' }))).toEqual(['typecheck: skipped', 'vitest: skipped'])
   })
 
   it('is red when the package failed and left the preset matrix skipped', () => {
@@ -73,19 +77,23 @@ describe('ci.yml wiring', () => {
     expect(workflow.jobs.required!.steps.map(step => step.run ?? '').join('\n')).toContain('scripts/ci/verdict.ts')
   })
 
-  it('skips only the package and the preset matrix on the fast path, and quality runs the docs build on every change', () => {
+  it('skips only the package and the preset matrix on the fast path, and the docs job runs the docs build on every change', () => {
     const conditional = Object.entries(workflow.jobs).filter(([, job]) => job.if !== undefined).map(([name]) => name)
     expect(conditional.sort()).toEqual([...SKIPPED_ON_FAST_PATH, 'required'].sort())
     for (const job of SKIPPED_ON_FAST_PATH)
       expect(workflow.jobs[job]!.if).toBe(`needs.${CLASSIFY_JOB}.outputs.fast-path != 'true'`)
     expect(workflow.jobs[CLASSIFY_JOB]!.outputs).toHaveProperty('fast-path')
-    expect(workflow.jobs.quality!.steps.map(step => step.run ?? '')).toContain('pnpm run quality')
+    expect(workflow.jobs.docs!.steps.map(step => step.run ?? '')).toEqual(expect.arrayContaining(['pnpm docs:build', 'pnpm docs:pending']))
     expect(manifest.scripts.quality).toContain('pnpm docs:pending')
   })
 
-  it('starts the preset matrix beside quality rather than after it', () => {
-    expect(workflow.jobs.quality!.needs).toBeUndefined()
-    expect([workflow.jobs.acceptance!.needs].flat()).not.toContain('quality')
+  it('starts the preset matrix beside the quality jobs rather than after them', () => {
+    const acceptanceNeeds = [workflow.jobs.acceptance!.needs].flat()
+    for (const job of ['checks', 'lint', 'typecheck', 'vitest', 'docs']) {
+      expect(workflow.jobs[job]!.needs).toBeUndefined()
+      expect(acceptanceNeeds).not.toContain(job)
+    }
+    expect(acceptanceNeeds).not.toContain('harness-report')
   })
 
   it('classifies a renamed file by both of its paths', () => {

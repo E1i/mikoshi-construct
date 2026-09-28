@@ -281,9 +281,12 @@ describe('this repository reads checked on itself', () => {
     expect(facts).toEqual([expect.objectContaining({ kind: 'report-covers', path: SELF_REPORT, surface: ['tests/**/*.test.ts'], authoredBy: 'discovery' })])
   })
 
-  it('writes that report in CI\'s quality job and fails unless doctor reads checked', () => {
-    const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: { quality: { steps: { run?: string }[] } } }
-    const runs = workflow.jobs.quality.steps.map(step => step.run ?? '').join('\n')
+  it('writes that report in CI\'s harness-report job from the vitest shards and fails unless doctor reads checked', () => {
+    const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, { needs?: string | string[], steps: { run?: string }[] }> }
+    const job = workflow.jobs['harness-report']!
+    expect([job.needs].flat()).toContain('vitest')
+    const runs = job.steps.map(step => step.run ?? '').join('\n')
+    expect(runs).toContain('vitest run --merge-reports')
     expect(runs).toContain(`--reporter=json --outputFile=${SELF_REPORT}`)
     expect(runs).toContain('doctor --json')
     expect(runs).toContain('"checked"')
