@@ -74,8 +74,8 @@ const failingGh: GhRunner = () => {
   throw new Error('offline')
 }
 
-function board(argv: string[], gh: GhRunner = stubGh()): BoardResult {
-  return runBoard(argv, { gh, now: NOW })
+function board(argv: string[], gh: GhRunner = stubGh(), defaultDir = path.join(FIXTURES, 'absent')): BoardResult {
+  return runBoard(argv, { gh, now: NOW, defaultDir })
 }
 
 function attemptBlock(stdout: string[], id: string): string[] {
@@ -329,7 +329,7 @@ describe('board: summary, edges and prefixes', () => {
   })
 
   it.each([
-    { name: 'no --dir', argv: [] as string[], names: '--dir is required' },
+    { name: 'no --dir and no default directory', argv: [] as string[], names: `no handoff directory at ${path.join(FIXTURES, 'absent')}, the default` },
     { name: 'an unknown argument', argv: ['--dir', BASIC, '--bogus'], names: '\'--bogus\'' },
     { name: 'a missing directory', argv: ['--dir', path.join(FIXTURES, 'absent')], names: 'no such directory' },
     { name: 'an unknown task id', argv: ['--dir', BASIC, 'zeta-1'], names: 'no task or attempt \'zeta-1\'' },
@@ -343,11 +343,17 @@ describe('board: summary, edges and prefixes', () => {
     expect(stderr[0]).toContain(names)
   })
 
-  it('carries the [board] prefix on a usage error from the script itself', () => {
-    const result = spawnSync(process.execPath, [TSX_CLI, BOARD], { encoding: 'utf8' })
+  it('reads the default directory when --dir is not given, and --dir overrides it', () => {
+    expect(board([], stubGh(), BASIC)).toEqual(board(['--dir', BASIC]))
+    expect(board(['--dir', CHEAP], stubGh(), BASIC)).toEqual(board(['--dir', CHEAP]))
+  })
+
+  it('takes the default directory from CONSTRUCT_HANDOFF_DIR in the script itself, with the [board] prefix on its refusal', () => {
+    const absent = path.join(FIXTURES, 'absent')
+    const result = spawnSync(process.execPath, [TSX_CLI, BOARD], { encoding: 'utf8', env: { ...process.env, CONSTRUCT_HANDOFF_DIR: absent } })
     expect(result.status).toBe(1)
     expect(result.stdout).toBe('')
-    expect(result.stderr.startsWith('[board] --dir is required; usage:')).toBe(true)
+    expect(result.stderr.startsWith(`[board] no handoff directory at ${absent}, the default;`)).toBe(true)
   })
 })
 
