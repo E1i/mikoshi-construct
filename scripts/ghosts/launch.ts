@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
+import { writeAgreedText } from './agreed.js'
 import { checkApproval, sha256Hex } from './approval.js'
 import { runInstall } from './install.js'
 import { appendJournalLine } from './journal.js'
@@ -183,6 +184,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   const start = timestamp()
 
   execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, ctx.baseSha], { stdio: 'pipe' })
+  writeAgreedText(task.worktree, task.approvedText)
 
   await writeGhostRow(ctx.statusPath, task.id, writingRow({
     id: task.id,
