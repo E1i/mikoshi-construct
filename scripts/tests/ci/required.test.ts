@@ -7,11 +7,11 @@ import { blockingJobs, CLASSIFY_JOB, SKIPPED_ON_FAST_PATH } from '../../ci/requi
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-interface Job { needs?: string | string[], if?: string, steps: { run?: string }[], outputs?: Record<string, string> }
+interface Job { name?: string, needs?: string | string[], if?: string, steps: { run?: string }[], outputs?: Record<string, string> }
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
 
-const OTHER_JOBS = ['checks', 'lint', 'typecheck', 'vitest', 'harness-report', 'docs', 'package', 'contract-bump', 'acceptance']
+const OTHER_JOBS = ['checks', 'lint', 'typecheck', 'vitest', 'docs', 'package', 'contract-bump', 'acceptance']
 
 const SKIPPED = Object.fromEntries(SKIPPED_ON_FAST_PATH.map(job => [job, 'skipped'])) as Record<string, JobResult>
 
@@ -44,7 +44,7 @@ describe('the required verdict', () => {
 
   it('is red when a quality job fails on the fast path', () => {
     expect(blockingJobs(needs(true, { ...SKIPPED, docs: 'failure' }))).toEqual(['docs: failure'])
-    expect(blockingJobs(needs(true, { ...SKIPPED, 'harness-report': 'cancelled' }))).toEqual(['harness-report: cancelled'])
+    expect(blockingJobs(needs(true, { ...SKIPPED, 'contract-bump': 'cancelled' }))).toEqual(['contract-bump: cancelled'])
   })
 
   it('accepts no skip other than the package and the preset matrix on the fast path', () => {
@@ -93,7 +93,13 @@ describe('ci.yml wiring', () => {
       expect(workflow.jobs[job]!.needs).toBeUndefined()
       expect(acceptanceNeeds).not.toContain(job)
     }
-    expect(acceptanceNeeds).not.toContain('harness-report')
+  })
+
+  it('names no conditional job by a matrix expression, which a skipped job shows unexpanded', () => {
+    const conditional = Object.values(workflow.jobs).filter(job => job.if !== undefined && job.if !== 'always()')
+    expect(conditional.length).toBeGreaterThan(0)
+    for (const job of conditional)
+      expect(job.name ?? '').not.toContain('matrix.')
   })
 
   it('classifies a renamed file by both of its paths', () => {

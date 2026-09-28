@@ -4,8 +4,6 @@
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md.
-# harness-report — merges the two shards' reports and checks that doctor reads this repository's
-#              harness as checked (decision 0033).
 # package    — builds and packs the publishable tarball the acceptance legs install.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
 #              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
@@ -18,7 +16,10 @@
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
 # required   — red when any job failed or was cancelled, or was skipped other than package and
 #              acceptance on the fast path. The job runs scripts/ci/verdict.ts, which applies the
-#              rule blockingJobs in scripts/ci/required.ts to the needs of this job.
+#              rule blockingJobs in scripts/ci/required.ts to the needs of this job; once every need
+#              is green it merges the vitest shards' reports and checks that doctor reads this
+#              repository's harness as checked (decision 0033), in the same job so the tail after
+#              the slowest shard is one job, not two.
 #
 # The fast path is a pull request whose every changed path is on the allow-list in
 # scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated
@@ -138,28 +139,6 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
-  harness-report:
-    needs: vitest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: vitest-blob-*
-          path: .vitest/blob/
-          merge-multiple: true
-      - name: doctor reads this repository's harness as checked (decision 0033)
-        run: |
-          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json
-          pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
-          node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
-
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -229,7 +208,6 @@ jobs:
           - preset: node-backend
             node: 24
             release-age: 1440
-    name: ${{ matrix.preset }} · node ${{ matrix.node }}${{ matrix.release-age != 0 && ' · minimumReleaseAge' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -296,7 +274,7 @@ jobs:
           "$CONSTRUCT_BIN" doctor --plain
 
   required:
-    needs: [changes, checks, lint, typecheck, vitest, harness-report, docs, package, contract-bump, acceptance]
+    needs: [changes, checks, lint, typecheck, vitest, docs, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -310,3 +288,13 @@ jobs:
       - env:
           NEEDS: ${{ toJSON(needs) }}
         run: pnpm exec tsx scripts/ci/verdict.ts
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vitest-blob-*
+          path: .vitest/blob/
+          merge-multiple: true
+      - name: doctor reads this repository's harness as checked (decision 0033)
+        run: |
+          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json
+          pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
+          node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
