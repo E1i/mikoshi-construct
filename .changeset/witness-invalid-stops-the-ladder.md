@@ -1,5 +1,0 @@
----
-"mikoshi-construct": minor
----
-
-templates: a `/implement` witness that cannot be witnessed is no longer read as a red one. When, after the change, a witness exits 126 or 127, exits 2 with a shell syntax error, or fails with the same exit code and the same last lines as on the base (temporary paths replaced by `<tmp>`), the rung's outcome is `witness invalid`, its reason names the witness, and the ladder stops at once with `base unverified`: no higher rung and no design step, since no implementation could turn that witness green. The harness agent now reports each witness's last lines on the working tree as `afterExcerpt`. A witness red on the base and green after, or red after with a different failure, is decided as before. A reported witness is now matched to the brief's by its criterion and its `ranSha256`: the `command` the harness copies back is informational, so a paraphrased command no longer turns a witnessed criterion into `acceptance not witnessed`, and a sha that differs is `witness not run verbatim` whatever command is reported.
