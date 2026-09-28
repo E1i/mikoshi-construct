@@ -69,6 +69,47 @@ async function run(args: Record<string, unknown>, harnessReplies: unknown[]): Pr
   return { result, calls }
 }
 
+async function callLadder(args: Record<string, unknown>, queueOverrides: { architect?: unknown[], implementer?: unknown[], harness?: unknown[] }): Promise<{ result: LadderResult, calls: AgentCall[] }> {
+  const calls: AgentCall[] = []
+  const queues: Record<string, unknown[]> = {
+    architect: queueOverrides.architect ?? [],
+    implementer: queueOverrides.implementer ?? [REPORT, REPORT, REPORT, REPORT],
+    harness: queueOverrides.harness ?? [green([])],
+  }
+  const agent = async (prompt: string, options: { agentType: string }): Promise<unknown> => {
+    calls.push({ agentType: options.agentType, prompt })
+    return queues[options.agentType].shift() ?? null
+  }
+  const result = await ladder()({
+    harness: { command: 'pnpm run quality' },
+    task: 't',
+    acceptance: [CRITERION],
+    witnesses: [{ criterion: CRITERION, command: COMMAND }],
+    witnessDigests: [{ criterion: CRITERION, base64: BASE64, sha256: SHA256 }],
+    effort: 'low',
+    ...args,
+  }, agent, () => {}, () => {})
+  return { result, calls }
+}
+
+const CRITERION_B = 'the second item holds'
+const COMMAND_B = 'echo verbatim-marker-271-b'
+const SHA256_B = crypto.createHash('sha256').update(COMMAND_B).digest('hex')
+const BASE64_B = Buffer.from(COMMAND_B, 'utf8').toString('base64')
+
+function witnessPair(): Record<string, unknown>[] {
+  return [
+    { criterion: CRITERION, command: COMMAND, ranSha256: SHA256, baseExitCode: 1, afterExitCode: 0, baseExcerpt: '1 failed' },
+    { criterion: CRITERION_B, command: COMMAND_B, ranSha256: SHA256_B, baseExitCode: 1, afterExitCode: 0, baseExcerpt: '1 failed' },
+  ]
+}
+
+const WITNESS_DIR_LINE = 'Make <dir> once, before the first witness, with mktemp -d, and write the absolute path it printed wherever <dir> stands: it lies outside the repository, so it still resolves after the cd into the base worktree and adds no file to the working tree.'
+
+const SPEC = { decision: 'd', contractChanges: '', compositionChanges: '', constraints: [], acceptance: [CRITERION], files: [] }
+
+const DESIGN_TEXT = '- keep it local\n- one owner'
+
 describe('a run whose witness has no digest is blocked before any agent', () => {
   it('blocks with a question naming the criterion, and proceeds to done once the digest is carried', async () => {
     const missing = await run({ witnessDigests: [] }, [green(witness())])
@@ -129,5 +170,64 @@ describe('witness not run verbatim is checked after an immutable path and before
     const { result } = await run({ immutable: ['a.ts'] }, [green(witness({ ranSha256: '0'.repeat(64) }))])
 
     expect(result.attempts[0].outcome).toBe('immutable changed')
+  })
+})
+
+describe('the verify prompt makes <dir> once with mktemp -d', () => {
+  it('makes <dir> once with mktemp -d, before the first witness, and never a scratch directory of its own', async () => {
+    const { calls } = await callLadder({
+      acceptance: [CRITERION, CRITERION_B],
+      witnesses: [{ criterion: CRITERION, command: COMMAND }, { criterion: CRITERION_B, command: COMMAND_B }],
+      witnessDigests: [{ criterion: CRITERION, base64: BASE64, sha256: SHA256 }, { criterion: CRITERION_B, base64: BASE64_B, sha256: SHA256_B }],
+    }, { harness: [green([]), green(witnessPair())] })
+    const verify = calls.filter(call => call.agentType === 'harness')[1]?.prompt ?? ''
+
+    expect(verify.split(WITNESS_DIR_LINE).length - 1).toBe(1)
+    expect(verify).not.toContain('scratch directory of your own')
+  })
+})
+
+describe('the Design from the brief reaches both prompts', () => {
+  it('carries the Design into the architect prompt and the implementer prompt', async () => {
+    const { calls } = await callLadder({ effort: 'high', design: DESIGN_TEXT }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
+    const architect = calls.find(call => call.agentType === 'architect')?.prompt ?? ''
+    const implementer = calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
+    const block = `Design from the brief:\n${DESIGN_TEXT}`
+
+    expect(architect).toContain(block)
+    expect(implementer).toContain(block)
+  })
+
+  it('puts no Design block in either prompt without a design', async () => {
+    const { calls } = await callLadder({ effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
+    const architect = calls.find(call => call.agentType === 'architect')?.prompt ?? ''
+    const implementer = calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
+
+    expect(architect).not.toContain('Design from the brief:')
+    expect(implementer).not.toContain('Design from the brief:')
+  })
+
+  it('puts no Design block in either prompt for an empty design', async () => {
+    const withoutDesign = await callLadder({ effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
+    const emptyDesign = await callLadder({ effort: 'high', design: '' }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
+    const archNone = withoutDesign.calls.find(call => call.agentType === 'architect')?.prompt ?? ''
+    const implNone = withoutDesign.calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
+    const archEmpty = emptyDesign.calls.find(call => call.agentType === 'architect')?.prompt ?? ''
+    const implEmpty = emptyDesign.calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
+
+    expect(archEmpty).not.toContain('Design from the brief:')
+    expect(implEmpty).not.toContain('Design from the brief:')
+    expect(archEmpty).toBe(archNone)
+    expect(implEmpty).toBe(implNone)
+  })
+})
+
+describe('the verdict schema always requires ranSha256', () => {
+  it('requires ranSha256 in the verdict schema', () => {
+    const source = readFileSync(path.join(REPO_ROOT, WORKFLOW), 'utf8')
+    const match = /required:\s*\[[^\]]*'ranSha256'[^\]]*\]/.exec(source)
+
+    expect(match).not.toBeNull()
+    expect(match?.[0].endsWith('\'ranSha256\']')).toBe(true)
   })
 })

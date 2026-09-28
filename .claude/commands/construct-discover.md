@@ -65,8 +65,9 @@ Work in this order:
    `pnpm composition:render`, and confirm `pnpm composition:check` passes.
 10. **`security-invariants`** (`architecture/security-invariants.md`): rows in the form
    `Invariant | Enforced by` for the system-specific invariants — ownership checks, role middleware,
-   integer money, closed DTOs. Name the lint rule, test or scanner that enforces each; write `review`
-   only when nothing mechanical exists yet, and prefer adding the check to writing the word.
+   integer money, closed DTOs. Name the mechanism that enforces each and what it matches (the lint
+   block and its selectors, the test file, the scanner or workflow job), never a bare tool name; write
+   `review` only when nothing mechanical exists yet, and prefer adding the check to writing the word.
 11. **`defects-vs-variance`** and **`open-questions`** (AGENTS.md): what a reviewer must flag here
     beyond the baseline list, and what looks like a convention but is not consistently applied.
 12. **Write what you concluded, into the model.** A marker is prose answering *what is where*; a

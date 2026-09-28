@@ -44,9 +44,11 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `baseInstall` — the install you ran in the base worktree and its exit code; an empty command and
   exit `-1` when none ran. A base that was not installed cannot witness anything, so report that
   rather than running the witnesses on it.
-- `witnesses` — one entry per witness the prompt names, empty when it names none. Each witness is
-  given to you only as base64, one script per criterion, so you never choose or edit it: in a scratch
-  directory of your own, `<dir>`, run exactly `printf %s <base64> | base64 --decode >
+- `witnesses` — one entry per witness the prompt names, empty when it names none. Make `<dir>` once,
+  before the first witness, with `mktemp -d`, and write the absolute path it printed wherever `<dir>`
+  stands: it lies outside the repository, so it still resolves after the `cd` into the base worktree
+  and adds no file to the working tree. Each witness is given to you only as base64, one script per
+  criterion, so you never choose or edit it: run exactly `printf %s <base64> | base64 --decode >
   <dir>/witness-N.sh`, then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. Report
   the sha256 that `shasum` printed as `ranSha256` and the decoded script's own text as `command`,
   `criterion` copied verbatim, `afterExitCode` (the script's exit code on the working tree),
