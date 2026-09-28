@@ -7,7 +7,7 @@ import { ghostRowSessionId } from './status.js'
 import { readTasksFile } from './tasks.js'
 import { readLedgerStage } from './watch-ledger.js'
 import { isSessionAlive, listProcesses } from './watch-process.js'
-import { lastToolName, reportAgeSeconds } from './watch-report.js'
+import { lastToolName, reportAgeField } from './watch-report.js'
 
 const PREFIX = '[ghosts:watch] '
 
@@ -29,15 +29,17 @@ function parseArgs(argv: string[]): Args {
   let tasksFile: string | undefined
   let everyRaw: string | undefined
 
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === '--tasks') {
-      tasksFile = argv[index + 1]
-      index += 1
-    }
-    else if (argv[index] === '--every') {
-      everyRaw = argv[index + 1]
-      index += 1
-    }
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index]
+    const value = argv[index + 1]
+    if (flag !== '--tasks' && flag !== '--every')
+      throw new Error(`unknown argument '${flag}': usage --tasks <file> [--every <seconds>]`)
+    if (value === undefined || value.startsWith('--'))
+      throw new Error(`${flag} needs a value, got ${value === undefined ? 'nothing' : `the flag '${value}'`}`)
+    if (flag === '--tasks')
+      tasksFile = value
+    else
+      everyRaw = value
   }
 
   if (tasksFile === undefined)
@@ -55,8 +57,7 @@ function parseArgs(argv: string[]): Args {
 
 function taskLine(task: Task, out: string, statusText: string | undefined, processes: ProcessRow[]): string {
   const reportPath = path.join(out, `ghost-${task.id}.jsonl`)
-  const age = reportAgeSeconds(reportPath)
-  const reportField = age === null ? 'no report' : `report ${age}s`
+  const reportField = reportAgeField(reportPath)
   const tool = lastToolName(reportPath)
   const toolField = `tool ${tool ?? 'none'}`
 

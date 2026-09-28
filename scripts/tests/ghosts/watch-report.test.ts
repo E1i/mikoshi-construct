@@ -1,8 +1,8 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { lastToolName, reportAgeSeconds } from '../../ghosts/watch-report.js'
+import { lastToolName, reportAgeField, reportAgeSeconds } from '../../ghosts/watch-report.js'
 
 function reportPath(): { dir: string, report: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-watch-report-'))
@@ -20,6 +20,27 @@ describe('reportAgeSeconds', () => {
     writeFileSync(report, '{}\n')
     expect(reportAgeSeconds(report)).toBeGreaterThanOrEqual(-1)
     expect(reportAgeSeconds(report)).toBeLessThan(5)
+  })
+})
+
+describe('reportAgeField', () => {
+  it('says no report when the report is absent', () => {
+    const { report } = reportPath()
+    expect(reportAgeField(report)).toBe('no report')
+  })
+
+  it('names the age in seconds of a report written just now', () => {
+    const { report } = reportPath()
+    writeFileSync(report, '{}\n')
+    expect(reportAgeField(report)).toMatch(/^report [0-4]s$/)
+  })
+
+  it('shows a report written in the future as a clock skew, never a negative age', () => {
+    const { report } = reportPath()
+    writeFileSync(report, '{}\n')
+    const inAnHour = new Date(Date.now() + 3_600_000)
+    utimesSync(report, inAnHour, inAnHour)
+    expect(reportAgeField(report)).toBe('report in the future')
   })
 })
 
