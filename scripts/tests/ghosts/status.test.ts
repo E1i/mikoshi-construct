@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { freeRow, ghostRowState, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
+import { freeRow, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
 
 const STATUS = `# Ghosts — window status
 
@@ -32,7 +32,7 @@ describe('upsertGhostRow', () => {
     const writing = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'abc1234', start: '2026-09-27 20:00', briefFileName: 'brief-g1.md', sessionId: 'sess-1' })
     const withRow = upsertGhostRow(STATUS, 'g1', writing)
 
-    const free = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'def5678', start: '2026-09-27 20:00', end: '2026-09-27 20:05', exitCode: 0, reportPath: '/w/handoff/ghost-g1.jsonl', sessionId: 'sess-1' })
+    const free = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'def5678', start: '2026-09-27 20:00', end: '2026-09-27 20:05', outcome: sessionOutcome(0, 'done', '/w/handoff/ghost-g1.jsonl', 'sess-1') })
     const withFreeRow = upsertGhostRow(withRow, 'g1', free)
 
     expect(withFreeRow.split('\n').filter(line => line.includes('ghost-g1'))).toEqual([free])
@@ -71,7 +71,7 @@ describe('writeGhostRow', () => {
     await writeGhostRow(statusPath, 'g1', writing)
     expect(readFileSync(statusPath, 'utf8')).toBe(upsertGhostRow(STATUS, 'g1', writing))
 
-    const free = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'b', start: 't', end: 't2', exitCode: 0, reportPath: '/w/handoff/ghost-g1.jsonl', sessionId: 's' })
+    const free = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'b', start: 't', end: 't2', outcome: sessionOutcome(0, 'done', '/w/handoff/ghost-g1.jsonl', 's') })
     await writeGhostRow(statusPath, 'g1', free)
     expect(readFileSync(statusPath, 'utf8')).toBe(upsertGhostRow(STATUS, 'g1', free))
   })
@@ -89,5 +89,37 @@ describe('writeGhostRow', () => {
     const content = readFileSync(statusPath, 'utf8')
     expect(content).toContain(rowG1)
     expect(content).toContain(rowG2)
+  })
+})
+
+describe('sessionOutcome', () => {
+  it('says "no ladder run" in place of "ladder <status>" when there is no new line', () => {
+    expect(sessionOutcome(0, 'no ladder run', '/w/handoff/ghost-g1.jsonl', 'sess-1'))
+      .toBe('exit 0; no ladder run; report /w/handoff/ghost-g1.jsonl; session sess-1')
+  })
+
+  it('carries the ladder status otherwise', () => {
+    expect(sessionOutcome(3, 'failed', '/w/handoff/ghost-g1.jsonl', 'sess-1'))
+      .toBe('exit 3; ladder failed; report /w/handoff/ghost-g1.jsonl; session sess-1')
+  })
+})
+
+describe('installFailedOutcome', () => {
+  it('names the exit code and the log path', () => {
+    expect(installFailedOutcome(1, '/w/handoff/ghost-g1.install.log'))
+      .toBe('install failed: exit 1; log /w/handoff/ghost-g1.install.log')
+  })
+})
+
+describe('installUnspawnableOutcome', () => {
+  it('names the spawn error message and the log path', () => {
+    expect(installUnspawnableOutcome('spawn pnpm ENOENT', '/w/handoff/ghost-g1.install.log'))
+      .toBe('install failed: spawn pnpm ENOENT; log /w/handoff/ghost-g1.install.log')
+  })
+})
+
+describe('sessionUnspawnableOutcome', () => {
+  it('names the spawn error message', () => {
+    expect(sessionUnspawnableOutcome('spawn claude ENOENT')).toBe('session failed: spawn claude ENOENT')
   })
 })

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
@@ -21,6 +21,17 @@ function launch(worldDir: string, answer: string): { status: number | null } {
     input: `${answer}\n`,
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  writeFileSync(path.join(worldDir, 'launch.out'), `${result.stdout}${result.stderr}`)
+  return { status: result.status }
+}
+
+function launchSealed(worldDir: string, answer: string): { status: number | null } {
+  const sealedPath = readFileSync(path.join(worldDir, '.world', 'sealed-path'), 'utf8').trim()
+  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(worldDir, 'tasks.json')], {
+    input: `${answer}\n`,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: sealedPath },
   })
   writeFileSync(path.join(worldDir, 'launch.out'), `${result.stdout}${result.stderr}`)
   return { status: result.status }
@@ -59,12 +70,40 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-untouched', w)
   })
 
+  it('refuses a brief with two /implement lines before any listing, naming both line numbers', () => {
+    const w = world('new', 'two-implement')
+    const { status } = launch(w, 'yes')
+    expect(status).not.toBe(0)
+    world('check-refused', w)
+    world('check-untouched', w)
+  })
+
   it('launches every task after yes, with the documented argv and prompt', () => {
     const w = world('new', 'ok')
     const { status } = launch(w, 'yes')
     expect(status).toBe(0)
     world('check-launched', w)
     world('check-report', w)
+    world('check-ladder', w)
+    world('check-install', w)
+    world('check-journal', w)
+    world('check-summary', w)
+  })
+
+  it('still launches a brief that gained trailing newlines after approval, with the canonical text as the prompt', () => {
+    const w = world('new', 'trailing-newline')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-launched', w)
+  })
+
+  it('reads an all-digit id from its #<id> matrix row, never the bare <id> row', () => {
+    const w = world('new', 'numeric-id')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-launched', w)
+    world('check-ladder', w)
+    world('check-journal', w)
   })
 
   it('carries a writing row and then a free row with the exit code, whatever it is', () => {
@@ -72,5 +111,68 @@ describe('ghosts launch, end to end through the stub', () => {
     const { status } = launch(w, 'yes')
     expect(status).not.toBe(0)
     world('check-rows', w)
+    world('check-ladder', w)
+    world('check-summary', w)
+  })
+
+  it('reads no new ladder line as "no ladder run", even though an older line exists and the stream reports success', () => {
+    const w = world('new', 'no-ladder')
+    const { status } = launch(w, 'yes')
+    expect(status).not.toBe(0)
+    world('check-ladder', w)
+    world('check-summary', w)
+  })
+
+  it('gives null result fields, marked missing, without failing the task', () => {
+    const w = world('new', 'no-result')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-ladder', w)
+    world('check-journal', w)
+  })
+
+  it('reads a matrix row into the journal for a task the matrix names', () => {
+    const w = world('new', 'with-matrix')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-journal', w)
+    world('check-install', w)
+  })
+
+  it('appends the journal after the lines it already held', () => {
+    const w = world('new', 'journal-exists')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-journal', w)
+  })
+
+  it('starts no session, frees the row and exits 1 when the install fails', () => {
+    const w = world('new', 'install-fails')
+    const { status } = launch(w, 'yes')
+    expect(status).not.toBe(0)
+    world('check-install', w)
+    world('check-ladder', w)
+    world('check-journal', w)
+    world('check-summary', w)
+  })
+
+  it('frees every row and exits 1 instead of crashing when the install cannot be spawned', () => {
+    const w = world('new', 'install-unspawnable')
+    const { status } = launchSealed(w, 'yes')
+    expect(status).not.toBe(0)
+    world('check-install', w)
+    world('check-ladder', w)
+    world('check-journal', w)
+    world('check-summary', w)
+  })
+
+  it('frees the row and exits 1 instead of crashing when the session cannot be spawned, while the other task runs to ladder done', () => {
+    const w = world('new', 'session-unspawnable')
+    const { status } = launchSealed(w, 'yes')
+    expect(status).not.toBe(0)
+    world('check-install', w)
+    world('check-ladder', w)
+    world('check-journal', w)
+    world('check-summary', w)
   })
 })
