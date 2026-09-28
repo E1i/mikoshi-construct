@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
 import { runBacktest } from './backtest.js'
-import { getChangedFiles, resolveRevision } from './diff.js'
-import { appendJournalLine } from './journal.js'
+import { getChangedFiles, gitTopLevel, resolveRevision } from './diff.js'
+import { appendJournalLine, refuseJournalInside } from './journal.js'
 import { classify } from './rules.js'
 
 function flag(argv: string[], name: string): string | undefined {
@@ -30,6 +30,7 @@ function runPredict(argv: string[]): void {
   const head = requireFlag(argv, '--head')
   const journal = requireFlag(argv, '--journal')
   const repo = flag(argv, '--repo') ?? process.cwd()
+  refuseJournalInside(journal, [repo, process.cwd()].map(gitTopLevel).filter(top => top !== null))
 
   const baseSha = resolveRevision(repo, base)
   const headSha = resolveRevision(repo, head)

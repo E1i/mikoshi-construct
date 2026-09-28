@@ -47,11 +47,12 @@ const VERDICT = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['criterion', 'command', 'afterExitCode', 'baseExitCode', 'baseExcerpt', 'ranSha256'],
+        required: ['criterion', 'command', 'afterExitCode', 'afterExcerpt', 'baseExitCode', 'baseExcerpt', 'ranSha256'],
         properties: {
           criterion: { type: 'string' },
           command: { type: 'string' },
           afterExitCode: { type: 'integer' },
+          afterExcerpt: { type: 'string' },
           baseExitCode: { type: 'integer' },
           baseExcerpt: { type: 'string' },
           ranSha256: { type: 'string' },
@@ -94,6 +95,10 @@ const UNDIGESTED_BRIEF = 'Every acceptance item needs its witness digest fixed i
 const NO_BASE_SHA = 'the harness reported no base sha, so no witness can run against the base'
 
 const SHELL_CANNOT_RUN = [126, 127]
+const SHELL_SYNTAX_ERROR_EXIT = 2
+const SHELL_SYNTAX_ERROR = /syntax error/
+const TEMPORARY_PATH = /(?<=^|[\s'"(])(?:\/private)?\/(?:tmp|var\/folders)\/[^\s'"]*/g
+const TEMPORARY_PATH_PLACEHOLDER = '<tmp>'
 const MISSING_TOOL = /command not found|Cannot find (?:module|package) '(?![./])[^']+'|ERR_MODULE_NOT_FOUND[^\n]*'(?![./])[^']+'/
 
 const HARNESS_COMMAND_QUESTION = 'Name the harness command: pass args.harness.command, taken from construct.json (harness.command) or, in an attached repository, from .construct/attach.json. Nothing is assumed.'
@@ -182,7 +187,7 @@ function harnessPrompt(baseSha) {
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. Each witness is given only as base64, one script per criterion; decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
-    `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256, and the decoded script's own text as command. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
+    `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256, and the decoded script's own text as command. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
@@ -225,7 +230,8 @@ const attempts = []
 const NO_CHANGE = 'The previous attempt changed no file. Implement the task; a report without a change is not done.'
 
 function observedFor(fixed, observed) {
-  return observed.find(witness => witness.criterion === fixed.criterion && witness.command === fixed.command)
+  const digest = witnessDigestOf(fixed)
+  return digest == null ? undefined : observed.find(witness => witness.criterion === fixed.criterion && witness.ranSha256 === digest.sha256)
 }
 
 function failedOnEnvironment(witness) {
@@ -252,15 +258,34 @@ function unwitnessedItems(observed) {
     .map(fixed => fixed.criterion)
 }
 
-function unrunVerbatimItems(observed) {
+function withoutTemporaryPaths(excerpt) {
+  return excerpt.replace(TEMPORARY_PATH, TEMPORARY_PATH_PLACEHOLDER)
+}
+
+function failsTheSameWay(witness) {
+  return witness.baseExitCode === witness.afterExitCode
+    && typeof witness.baseExcerpt === 'string'
+    && typeof witness.afterExcerpt === 'string'
+    && withoutTemporaryPaths(witness.baseExcerpt) === withoutTemporaryPaths(witness.afterExcerpt)
+}
+
+function shellCouldNotRun(witness) {
+  return SHELL_CANNOT_RUN.includes(witness.afterExitCode)
+    || (witness.afterExitCode === SHELL_SYNTAX_ERROR_EXIT && SHELL_SYNTAX_ERROR.test(witness.afterExcerpt ?? ''))
+}
+
+function invalidWitnessItems(observed) {
   return witnesses
     .filter((fixed) => {
       const witness = observedFor(fixed, observed)
-      if (witness == null)
-        return false
-      const digest = witnessDigestOf(fixed)
-      return digest == null || witness.ranSha256 !== digest.sha256
+      return witness != null && witness.afterExitCode !== 0 && (shellCouldNotRun(witness) || failsTheSameWay(witness))
     })
+    .map(fixed => fixed.criterion)
+}
+
+function unrunVerbatimItems(observed) {
+  return witnesses
+    .filter(fixed => observedFor(fixed, observed) == null && observed.some(witness => witness.criterion === fixed.criterion))
     .map(fixed => fixed.criterion)
 }
 
@@ -278,6 +303,10 @@ function unwitnessedReason(items) {
 
 function unrunVerbatimReason(items) {
   return `Witness not run verbatim: ${items.join(' | ')}`
+}
+
+function invalidWitnessReason(items) {
+  return `Witness invalid: ${items.join(' | ')}`
 }
 
 const CODE_EXTENSION = '(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)'
@@ -436,27 +465,31 @@ for (const [index, effort] of rungs.entries()) {
   }
   const touchedImmutable = harnessPassed && !unchanged ? verdict.changedFiles.filter(isImmutable) : []
   const unrun = harnessPassed && !unchanged && touchedImmutable.length === 0 ? unrunVerbatimItems(verdict.witnesses ?? []) : []
-  const unwitnessed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 ? unwitnessedItems(verdict.witnesses ?? []) : []
+  const invalid = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 ? invalidWitnessItems(verdict.witnesses ?? []) : []
+  const unwitnessed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 ? unwitnessedItems(verdict.witnesses ?? []) : []
   const changedSourceFiles = harnessPassed && !unchanged ? verdict.changedFiles.filter(isSourceFile) : []
-  const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0
+  const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0
     && changedSourceFiles.length > 0 && !verdict.changedFiles.some(isTestFile)
-  const contractCheckFailed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0 && !untested
+  const contractCheckFailed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0 && !untested
     && contractDeclared && (verdict.contractCheck == null || verdict.contractCheck.exitCode !== 0)
-  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && unwitnessed.length === 0 && !untested && !contractCheckFailed
+  const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0 && !untested && !contractCheckFailed
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
     : {
         rung,
         effort,
-        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unrun.length > 0 ? 'witness not run verbatim' : unwitnessed.length > 0 ? 'acceptance not witnessed' : untested ? 'untested change' : 'contract check failed',
+        outcome: passed ? 'passed' : !harnessPassed ? 'harness failed' : unchanged ? 'no change' : touchedImmutable.length > 0 ? 'immutable changed' : unrun.length > 0 ? 'witness not run verbatim' : invalid.length > 0 ? 'witness invalid' : unwitnessed.length > 0 ? 'acceptance not witnessed' : untested ? 'untested change' : 'contract check failed',
         reason: passed
           ? ''
           : !harnessPassed
               ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
-              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unrun.length > 0 ? unrunVerbatimReason(unrun) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untested ? untestedReason(changedSourceFiles) : contractCheckReason(verdict.contractCheck),
+              : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unrun.length > 0 ? unrunVerbatimReason(unrun) : invalid.length > 0 ? invalidWitnessReason(invalid) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untested ? untestedReason(changedSourceFiles) : contractCheckReason(verdict.contractCheck),
         securityFinding: verdict.securityFinding ?? '',
       })
   log(`rung ${rung} @ ${effort}: ${attempts.at(-1).outcome}`)
+
+  if (invalid.length > 0)
+    return { status: 'base unverified', attempts, validationError: invalidWitnessReason(invalid), acceptance, invariants, immutable }
 
   if (passed) {
     return {

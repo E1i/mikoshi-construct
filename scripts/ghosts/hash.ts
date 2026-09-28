@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { canonicalImplementText, sha256Hex } from './approval.js'
@@ -28,5 +28,5 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
   await main()
