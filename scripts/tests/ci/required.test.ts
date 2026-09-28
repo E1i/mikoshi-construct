@@ -23,12 +23,17 @@ function needs(fastPath: boolean, results: Partial<Record<string, JobResult>> = 
 }
 
 describe('the required verdict', () => {
-  it('is green on the fast path with the package and the preset matrix skipped', () => {
+  it('is green on the fast path with the preset matrix skipped', () => {
     expect(blockingJobs(needs(true, SKIPPED))).toEqual([])
   })
 
-  it('is red when the package or the preset matrix was skipped on the full path', () => {
-    expect(blockingJobs(needs(false, SKIPPED))).toEqual(['package: skipped', 'acceptance: skipped'])
+  it('is red when the package was skipped, on either path, since it no longer waits on the classification', () => {
+    expect(blockingJobs(needs(true, { ...SKIPPED, package: 'skipped' }))).toEqual(['package: skipped'])
+    expect(blockingJobs(needs(false, { package: 'skipped' }))).toEqual(['package: skipped'])
+  })
+
+  it('is red when the preset matrix was skipped on the full path', () => {
+    expect(blockingJobs(needs(false, SKIPPED))).toEqual(['acceptance: skipped'])
     expect(blockingJobs(needs(false, { acceptance: 'skipped' }))).toEqual(['acceptance: skipped'])
   })
 
@@ -47,7 +52,7 @@ describe('the required verdict', () => {
     expect(blockingJobs(needs(true, { ...SKIPPED, 'contract-bump': 'cancelled' }))).toEqual(['contract-bump: cancelled'])
   })
 
-  it('accepts no skip other than the package and the preset matrix on the fast path', () => {
+  it('accepts no skip other than the preset matrix on the fast path', () => {
     expect(blockingJobs(needs(true, { ...SKIPPED, 'checks': 'skipped', 'contract-bump': 'skipped' }))).toEqual(['checks: skipped', 'contract-bump: skipped'])
   })
 
@@ -60,7 +65,7 @@ describe('the required verdict', () => {
   })
 
   it('is red when the classification itself failed', () => {
-    expect(blockingJobs({ ...needs(false, SKIPPED), [CLASSIFY_JOB]: { result: 'failure', outputs: {} } })).toEqual([`${CLASSIFY_JOB}: failure`, 'package: skipped', 'acceptance: skipped'])
+    expect(blockingJobs({ ...needs(false, SKIPPED), [CLASSIFY_JOB]: { result: 'failure', outputs: {} } })).toEqual([`${CLASSIFY_JOB}: failure`, 'acceptance: skipped'])
   })
 
   it('is red when it was given no job results', () => {
@@ -77,7 +82,7 @@ describe('ci.yml wiring', () => {
     expect(workflow.jobs.required!.steps.map(step => step.run ?? '').join('\n')).toContain('scripts/ci/verdict.ts')
   })
 
-  it('skips only the package and the preset matrix on the fast path, and the docs job runs the docs build on every change', () => {
+  it('skips only the preset matrix on the fast path, and the docs job runs the docs build on every change', () => {
     const conditional = Object.entries(workflow.jobs).filter(([, job]) => job.if !== undefined).map(([name]) => name)
     expect(conditional.sort()).toEqual([...SKIPPED_ON_FAST_PATH, 'required'].sort())
     for (const job of SKIPPED_ON_FAST_PATH)
@@ -89,6 +94,7 @@ describe('ci.yml wiring', () => {
 
   it('starts the preset matrix beside the quality jobs rather than after them', () => {
     const acceptanceNeeds = [workflow.jobs.acceptance!.needs].flat()
+    expect(workflow.jobs.package!.needs).toBeUndefined()
     for (const job of ['checks', 'lint', 'typecheck', 'vitest', 'docs']) {
       expect(workflow.jobs[job]!.needs).toBeUndefined()
       expect(acceptanceNeeds).not.toContain(job)

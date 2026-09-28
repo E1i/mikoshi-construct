@@ -4,18 +4,19 @@
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md.
-# package    — builds and packs the publishable tarball the acceptance legs install.
+# package    — builds and packs the publishable tarball the acceptance legs install. It runs on every
+#              change and waits on nothing, so the preset matrix starts once both it and changes are done.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
 #              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
 #              publish fails a user's first install (see CLAUDE.md, version ranges). It waits on
-#              package, not on the quality jobs, so they run side by side.
+#              package and changes, not on the quality jobs, so they run side by side.
 # contract-bump — the release bump the change requires: the semantic diff of contract/surface.json
 #              against the latest release tag reachable from HEAD, compared with the strongest
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
-# required   — red when any job failed or was cancelled, or was skipped other than package and
-#              acceptance on the fast path. The job runs scripts/ci/verdict.ts, which applies the
+# required   — red when any job failed or was cancelled, or was skipped other than acceptance on
+#              the fast path. The job runs scripts/ci/verdict.ts, which applies the
 #              rule blockingJobs in scripts/ci/required.ts to the needs of this job; once every need
 #              is green it merges the vitest shards' reports and checks that doctor reads this
 #              repository's harness as checked (decision 0033), in the same job so the tail after
@@ -23,7 +24,7 @@
 #
 # The fast path is a pull request whose every changed path is on the allow-list in
 # scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated
-# project contains those files, so package and acceptance are skipped; every other job runs.
+# project contains those files, so acceptance is skipped; every other job runs.
 # merge_group and push always take the full path.
 #
 # Each acceptance leg installs the publishable tarball into a directory outside the repository and runs
@@ -154,8 +155,6 @@ jobs:
       - run: pnpm docs:anchors
 
   package:
-    needs: changes
-    if: needs.changes.outputs.fast-path != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
