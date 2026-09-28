@@ -281,6 +281,11 @@ jobs:
         working-directory: ${{ runner.temp }}/acceptance
         run: pnpm install
 
+      - name: Format the release-age policy with the project's own lint
+        if: matrix.release-age != 0
+        working-directory: ${{ runner.temp }}/acceptance
+        run: pnpm exec eslint --fix pnpm-workspace.yaml
+
       - name: pnpm run quality
         working-directory: ${{ runner.temp }}/acceptance
         run: pnpm run quality

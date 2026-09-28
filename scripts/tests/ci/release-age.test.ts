@@ -27,4 +27,14 @@ describe('the minimumReleaseAge acceptance leg', () => {
     expect(steps[probe]!.if).toBe(steps[apply]!.if)
     expect(steps[probe]!.run).toContain('ERR_PNPM_NO_MATURE_MATCHING_VERSION')
   })
+
+  it('leaves the policy line to the project\'s eslint --fix after the install, before quality lints the file', () => {
+    const install = stepNamed('pnpm install')
+    const format = stepNamed('Format the release-age policy with the project\'s own lint')
+    const quality = stepNamed('pnpm run quality')
+    expect(install).toBeLessThan(format)
+    expect(format).toBeLessThan(quality)
+    expect(steps[format]!.if).toBe(steps[stepNamed('Apply the release-age policy')]!.if)
+    expect(steps[format]!.run).toBe('pnpm exec eslint --fix pnpm-workspace.yaml')
+  })
 })
