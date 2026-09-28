@@ -85,8 +85,22 @@ function readLine(): Promise<string | undefined> {
   })
 }
 
-async function prepareAndPreflight(repo: string, statusPath: string, out: string, tasks: Task[]): Promise<{ baseSha: string, prepared: PreparedTask[], refusals: string[] }> {
+function tasksFileRefusals(out: string, matrixPath: string | undefined, tasks: Task[]): string[] {
   const refusals: string[] = []
+  if (!path.isAbsolute(out))
+    refusals.push(`tasks file field out: expected an absolute path, got '${out}'`)
+  try {
+    for (const task of tasks)
+      lookupMatrixRow(matrixPath, task.id)
+  }
+  catch (error) {
+    refusals.push(`matrix ${matrixPath}: ${errorMessage(error)}`)
+  }
+  return refusals
+}
+
+async function prepareAndPreflight(repo: string, statusPath: string, out: string, matrixPath: string | undefined, tasks: Task[]): Promise<{ baseSha: string, prepared: PreparedTask[], refusals: string[] }> {
+  const refusals = tasksFileRefusals(out, matrixPath, tasks)
 
   git(repo, ['fetch', 'origin', 'main'])
   const baseSha = git(repo, ['rev-parse', 'origin/main'])
@@ -245,7 +259,7 @@ async function main(): Promise<void> {
   const { tasksFile } = parseArgs(process.argv.slice(2))
   const { repo, status, out, tasks, matrix } = readTasksFile(tasksFile)
 
-  const { baseSha, prepared, refusals } = await prepareAndPreflight(repo, status, out, tasks)
+  const { baseSha, prepared, refusals } = await prepareAndPreflight(repo, status, out, matrix, tasks)
 
   if (refusals.length > 0) {
     for (const refusal of refusals)

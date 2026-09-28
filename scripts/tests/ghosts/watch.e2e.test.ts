@@ -62,6 +62,16 @@ describe('ghosts watch, end to end through the stub', () => {
     world('check-refused', w, '--every')
   })
 
+  it.each([
+    { args: (w: string) => ['--tasks', path.join(w, 'tasks.json'), '--evry', '5'], word: '--evry' },
+    { args: (_w: string) => ['--tasks', '--every', '2'], word: '--tasks' },
+    { args: (w: string) => ['--tasks', path.join(w, 'tasks.json'), '--every'], word: '--every' },
+  ])('refuses an unknown flag or a flag used as a value, naming $word', ({ args, word }) => {
+    const w = newWorld('base')
+    runFor(w, 30, args(w))
+    world('check-refused', w, word)
+  })
+
   it('refuses a missing --tasks, naming --tasks', () => {
     const w = newWorld('base')
     runFor(w, 30, [])

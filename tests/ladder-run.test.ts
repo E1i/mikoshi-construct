@@ -458,7 +458,7 @@ describe('done needs every acceptance item witnessed red before the change and g
       harness: [{ ...GREEN, witnesses: [{ criterion: DEFAULT_ACCEPTANCE[0], command: TAUTOLOGY, baseExitCode: 1, afterExitCode: 0, baseExcerpt: '' }] }, GREEN],
     })
 
-    expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
+    expect(result.attempts[0]).toMatchObject({ outcome: 'witness not run verbatim' })
   })
 
   it('returns blocked and calls no agent when an acceptance item has no witness in the brief', async () => {
