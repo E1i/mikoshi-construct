@@ -267,6 +267,7 @@ that claim stands on, and where you are is the model's own path selection.
 |---|---|
 | `ok` | provenance |
 | `missingFiles` | provenance |
+| `movedFiles` | provenance |
 | `modifiedFiles` | provenance |
 | `unreadableFiles` | provenance |
 | `missingDiscovery` | provenance |
@@ -326,6 +327,11 @@ cause the operating system gave in parentheses — a directory standing where a 
 permission it does not have, a broken link, malformed JSON where a manifest is recorded. There is one
 category and no branch per cause: the reading either succeeded or it did not, and which of them it
 was travels in the entry rather than in a second code path.
+
+`movedFiles` lists a recorded path that is gone from disk while the path today's templates write in
+its place is present (`scripts/construct/implement.workflow.mjs` → `scripts/construct/implement.workflow`).
+It is not `missingFiles` and does not make `ok` false: the file moved, and `sync --apply` records
+the new path the next time it writes.
 
 Such a path is not `missingFiles` — it exists — and not `modifiedFiles` — nothing was compared — and
 reporting it as either would be a claim about a file `doctor` never opened. It makes `ok` false: the
@@ -648,6 +654,7 @@ never changes the exit code.
   "schemaVersion": 1,
   "ok": true,
   "missingFiles": [],
+  "movedFiles": [],
   "modifiedFiles": [],
   "unreadableFiles": [],
   "missingDiscovery": ["product", "module-map"],
@@ -818,6 +825,7 @@ Materialized by construct 0.1.0, read by 0.2.0.
 | `unknown` | An `append-block` target whose template variant cannot be established: no recorded variant, and no rendering that hashes to what was recorded. | yes |
 | `removed` | The record carries it and the tree does not. | yes |
 | `orphaned` | The record carries it and today's templates no longer produce it. | yes |
+| `moved` | The record carries it, its bytes are what was recorded, and today's templates write it under a new path (`scripts/construct/implement.workflow.mjs` → `scripts/construct/implement.workflow`). `--apply` removes it and writes the new path. If its bytes changed, it and the new path are both `conflict` and nothing is written, so the two never lie side by side. | yes |
 | `foreign` | The tree carries it, no record and no template does. Not the construct's to discuss. | counted only |
 
 `keep` is the quiet majority and `foreign` is not ours to discuss, so both are counted and neither is
@@ -994,8 +1002,9 @@ a red build in your repository, for a change you have not read yet. Run it when 
 `fromVersion`, `toVersion`, `counts` (one entry per class) and
 `paths` — every classified path with its `class`, its `strategy`, its `keys` for a `merge-json`
 target and its `writeEffect` where the classification carries one. A machine reader never parses the
-prose. With `--apply` the same object carries three more fields:
-`written` (the targets that were written, in write order), `pending` (the targets classified `add` or
+prose. With `--apply` the same object carries four more fields:
+`written` (the targets that were written, in write order), `retired` (the `moved` targets it removed
+because their new path was written), `pending` (the targets classified `add` or
 `update` that were refused) and `ranAt` (the ISO timestamp recorded in the manifest). With no
 `construct.json`, both forms print `{ "schemaVersion": 1, "state": "no-manifest" }` and exit `1`;
 earlier builds printed `null`, so a reader that tested for `null` now tests for `state` being
@@ -1061,7 +1070,7 @@ Every check runs before anything is written, in this order, and a refusal create
    created with only that block and the record says so.
 2. The seven carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
-   `scripts/construct/implement.workflow.mjs`, `scripts/construct/check-acceptance.mjs`,
+   `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    byte-identical to what `init` writes.
 3. The record, `.construct/attach.json`.
 

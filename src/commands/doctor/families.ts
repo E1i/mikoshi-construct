@@ -6,6 +6,7 @@ export type ResultFamily = (typeof RESULT_FAMILIES)[number]
 export const DOCTOR_FIELD_FAMILY = {
   ok: 'provenance',
   missingFiles: 'provenance',
+  movedFiles: 'provenance',
   modifiedFiles: 'provenance',
   unreadableFiles: 'provenance',
   missingDiscovery: 'provenance',

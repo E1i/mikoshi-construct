@@ -12,7 +12,7 @@ const ATTACH_RECORD = '.construct/attach.json'
 const CARRIED_SCRIPT = /scripts\/construct\/[\w.-]+\.mjs/g
 
 const SCRIPTS = [
-  'scripts/construct/implement.workflow.mjs',
+  'scripts/construct/implement.workflow',
   'scripts/construct/check-acceptance.mjs',
 ]
 

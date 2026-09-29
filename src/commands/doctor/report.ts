@@ -219,6 +219,8 @@ export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null
     ui.glitch(ui.lore.discoveryIncomplete, ['', 'Missing:', ...result.missingDiscovery.map(marker => `  ${marker}`), '', 'Run: claude → /construct-discover'])
   if (result.warnings.length > 0)
     ui.glitch(ui.lore.typecheckCaveat, result.warnings)
+  if (result.movedFiles.length > 0)
+    ui.line(ui.theme.dim(`  ${ui.lore.baselineMovedToSuccessor(result.movedFiles)}`))
   if (result.modifiedFiles.length > 0)
     ui.line(ui.theme.dim(`  ${result.modifiedFiles.length} baseline files modified since init (expected once the project evolves).`))
   printVersionGap(ui, result.versionGap)

@@ -38,7 +38,7 @@ export default antfu(
     },
   },
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'pnpm-lock.yaml', 'scripts/construct/*.workflow.mjs'],
+    ignores: ['**/dist/**', '**/node_modules/**', 'pnpm-lock.yaml'],
   },
   ...stylingPolicy,
   {

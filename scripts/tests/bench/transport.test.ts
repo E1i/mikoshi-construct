@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
-const LADDER = 'scripts/construct/implement.workflow.mjs'
+const LADDER = 'scripts/construct/implement.workflow'
 const STAND = 'scripts/bench/architect-capture.workflow.mjs'
 
 function read(file: string): string {

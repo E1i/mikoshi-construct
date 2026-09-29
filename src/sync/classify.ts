@@ -4,9 +4,10 @@ import type { TemplateVariant } from '../materialize/templates.js'
 import type { OwnedKey } from './ownership.js'
 import type { EstablishedVariant } from './variant.js'
 import { strategyFor } from '../materialize/strategies.js'
+import { SUCCESSORS } from '../presets/index.js'
 import { blockSpansDocument, carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedSha, ownedText } from './ownership.js'
 
-export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'foreign', 'block-edited', 'record-vars-edited', 'template-moved-on'] as const
+export const PATH_CLASSES = ['add', 'keep', 'update', 'conflict', 'unknown', 'removed', 'orphaned', 'moved', 'foreign', 'block-edited', 'record-vars-edited', 'template-moved-on'] as const
 
 export type PathClass = (typeof PATH_CLASSES)[number]
 
@@ -141,7 +142,27 @@ export function isWritable(classification: PathClassification): boolean {
   return willBeWritten(classification.strategy, classification.class)
 }
 
+function successionClass(predecessor: PathClassification, state: RepositoryState): PathClass {
+  const successor = SUCCESSORS[predecessor.target]
+  if (predecessor.class !== 'orphaned' || successor == null || state.produced[successor] == null)
+    return predecessor.class
+  return matchesRecordedSha(state.recorded[predecessor.target]!, predecessor.target, state.present[predecessor.target]!) ? 'moved' : 'conflict'
+}
+
+function withSuccession(classifications: PathClassification[], state: RepositoryState): PathClassification[] {
+  const stays = new Set(classifications.filter(entry => SUCCESSORS[entry.target] != null && successionClass(entry, state) === 'conflict').map(entry => SUCCESSORS[entry.target]))
+  return classifications.map((entry) => {
+    if (SUCCESSORS[entry.target] != null)
+      return { ...entry, class: successionClass(entry, state) }
+    return stays.has(entry.target) && entry.class === 'add' ? { ...entry, class: 'conflict' as const, writeEffect: null } : entry
+  })
+}
+
 export function classifyRepository(state: RepositoryState): PathClassification[] {
+  return withSuccession(classifiedPaths(state), state)
+}
+
+function classifiedPaths(state: RepositoryState): PathClassification[] {
   const targets = [...new Set([...Object.keys(state.recorded), ...Object.keys(state.present), ...Object.keys(state.produced)])].sort()
   return targets.flatMap((target) => {
     const classification = classifyPath({

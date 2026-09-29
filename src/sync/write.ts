@@ -5,7 +5,7 @@ import { substituteBlock } from '../materialize/strategies.js'
 import { isWritable } from './classify.js'
 import { ownedSha } from './ownership.js'
 
-export const PENDING_CLASSES: PathClass[] = ['add', 'update', 'template-moved-on']
+export const PENDING_CLASSES: PathClass[] = ['add', 'update', 'template-moved-on', 'moved']
 
 export interface PlannedWrite {
   target: string
@@ -18,6 +18,7 @@ export interface PlannedWrite {
 
 export interface WritePlan {
   writes: PlannedWrite[]
+  removals: string[]
   refused: PathClassification[]
 }
 
@@ -59,12 +60,15 @@ function plannedWrite(classification: PathClassification, input: WriteInput): Pl
 
 export function planWrites(input: WriteInput): WritePlan {
   const writes: PlannedWrite[] = []
+  const removals: string[] = []
   const refused: PathClassification[] = []
   for (const classification of input.classifications) {
-    if (isWritable(classification))
+    if (classification.class === 'moved')
+      removals.push(classification.target)
+    else if (isWritable(classification))
       writes.push(plannedWrite(classification, input))
     else if (isPending(classification))
       refused.push(classification)
   }
-  return { writes, refused }
+  return { writes, removals, refused }
 }

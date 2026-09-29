@@ -175,7 +175,7 @@ with examples and exit codes, is in [docs/cli.md](https://github.com/E1i/mikoshi
 - `contracts/api/openapi.yaml` — the HTTP contract; types are generated from it, breaking changes are
   flagged in CI (backend and monorepo presets)
 - `scripts/composition`, `scripts/contracts` — the harness pieces behind `pnpm run quality`
-- `scripts/construct/implement.workflow.mjs` — the ladder
+- `scripts/construct/implement.workflow` — the ladder
 - `.github/workflows` — CI (the harness), secret scanning, dependency audit, contract diff, AI review
 - `.claude/` — `architect`, `implementer` and `harness` agents, `/implement`, `/plan`,
   `/construct-discover`, rules; `.cursor/rules/` for Cursor

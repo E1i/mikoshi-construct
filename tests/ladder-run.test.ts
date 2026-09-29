@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
-const WORKFLOW = 'scripts/construct/implement.workflow.mjs'
+const WORKFLOW = 'scripts/construct/implement.workflow'
 
 interface LadderResult {
   status: string
@@ -42,7 +42,7 @@ const SPEC = {
   compositionChanges: '',
   constraints: ['no new dependency'],
   acceptance: ['the harness is green'],
-  files: ['scripts/construct/implement.workflow.mjs'],
+  files: ['scripts/construct/implement.workflow'],
 }
 
 const DEFAULT_ACCEPTANCE = ['the rule rejects the case']
