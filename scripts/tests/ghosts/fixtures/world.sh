@@ -123,11 +123,13 @@ pwd -P >"$dir/cwd"
 printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" >"$dir/ceiling"
 cp "$W/handoff/status.md" "$dir/status-at-start"
 if [ -f "$PWD/.ghost-installed" ]; then echo yes; else echo no; fi >"$dir/installed-at-start"
+if [ -f "$PWD/.construct/implement-agreed.txt" ]; then cp "$PWD/.construct/implement-agreed.txt" "$dir/agreed-at-start"; fi
 : >"$dir/stdout"
 emit() { printf '%s\n' "$1" >>"$dir/stdout"; printf '%s\n' "$1"; }
 emit "{\"type\":\"system\",\"subtype\":\"init\",\"ghost\":\"$ghost\"}"
 [ "$id" = g1 ] && emit "$(cat "$W/.world/result-g1-early.json")"
-emit "{\"type\":\"assistant\",\"ghost\":\"$ghost\"}"
+emit "{\"type\":\"user\",\"ghost\":\"$ghost\",\"timestamp\":\"2026-09-27T20:00:00.000Z\"}"
+emit "{\"type\":\"assistant\",\"ghost\":\"$ghost\",\"timestamp\":\"2026-09-27T20:07:10.500Z\"}"
 status=done
 [ "$kind" = failing ] && [ "$id" = g2 ] && status=failed
 [ "$kind" = no-ladder ] && [ "$id" = g2 ] && status=none
@@ -288,7 +290,7 @@ read_argv() {
 
 session_of() {
   read_argv "$1/stub/wt-$2/argv"
-  echo "${ARGV[9]:-}"
+  echo "${ARGV[10]:-}"
 }
 
 output_has() {
@@ -377,13 +379,15 @@ check_launched() {
     [ -f "$W/stub/wt-$id/cwd" ] || fail "$id: the stub did not run in $wt"
     [ "$(cat "$W/stub/wt-$id/cwd")" = "$wt" ] || fail "$id: stub cwd is $(cat "$W/stub/wt-$id/cwd"), not $wt"
     read_argv "$W/stub/wt-$id/argv"
-    [ "${#ARGV[@]}" -eq 11 ] || fail "$id: argv has ${#ARGV[@]} elements, not 11"
-    [ "${ARGV[*]:0:9}" = '-p --output-format stream-json --verbose --permission-mode auto --permission-prompts none --session-id' ] || fail "$id: argv starts '${ARGV[*]:0:9}'"
-    session=${ARGV[9]}
+    [ "${#ARGV[@]}" -eq 12 ] || fail "$id: argv has ${#ARGV[@]} elements, not 12"
+    [ "${ARGV[*]:0:10}" = '-p --output-format stream-json --verbose --permission-mode auto --permission-prompts none --strict-mcp-config --session-id' ] || fail "$id: argv starts '${ARGV[*]:0:10}'"
+    session=${ARGV[10]}
     echo "$session" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || fail "$id: session id '$session' is not a uuid"
-    prompt=${ARGV[10]}
+    prompt=${ARGV[11]}
     case $prompt in '/implement '*) ;; *) fail "$id: the prompt does not start with '/implement '" ;; esac
     [ "$(printf '%s' "$prompt" | shasum -a 256 | cut -c1-64)" = "$(approved_sha "$W/handoff/brief-$id.approved-sha256")" ] || fail "$id: the sha256 of the prompt is not the approved hash"
+    [ -f "$W/stub/wt-$id/agreed-at-start" ] || fail "$id: no .construct/implement-agreed.txt in $wt when the session started"
+    [ "$(cat "$W/stub/wt-$id/agreed-at-start"; printf x)" = "${prompt}x" ] || fail "$id: .construct/implement-agreed.txt at session start is not the prompt byte for byte"
     [ "$(cat "$W/stub/wt-$id/ceiling")" = 0 ] || fail "$id: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS is '$(cat "$W/stub/wt-$id/ceiling")', not 0"
     sessions="$sessions $session"
   done
@@ -582,7 +586,7 @@ for (const [id, session] of tasks) {
     resultLine: noResult ? 'missing' : 'present',
     total_cost_usd: result ? result.total_cost_usd : null,
     num_turns: result ? result.num_turns : null,
-    duration_ms: result ? result.duration_ms : null,
+    duration_ms: noSession ? null : 430500,
     usage: result ? result.usage : null,
     review: null,
   }
