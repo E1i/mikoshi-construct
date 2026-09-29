@@ -4,6 +4,22 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.28.0
+
+### Minor Changes
+
+- [#363](https://github.com/E1i/mikoshi-construct/pull/363) [`7522771`](https://github.com/E1i/mikoshi-construct/commit/75227713f7a4e84a2b65ab16d28c3a33be9d00b2) Thanks [@E1i](https://github.com/E1i)! - The ladder counts a declared contract check as run only when the harness reports it under the exact command declared in AGENTS.md; a check reported under any other command is `contract check failed`, with both commands named.
+
+- [#374](https://github.com/E1i/mikoshi-construct/pull/374) [`89b3a6b`](https://github.com/E1i/mikoshi-construct/commit/89b3a6b4059d9d040c8ee71bf12301b620db2599) Thanks [@E1i](https://github.com/E1i)! - cli: `construct detach` removes `.construct/` only when `attach` created it. `attach` records this as `ledgerCreated` in `.construct/attach.json`. Before, detach removed an empty `.construct/` that already existed before attach, a directory it had no record of creating. A record written before this field existed does not say, so detach leaves `.construct/` in place.
+
+- [#372](https://github.com/E1i/mikoshi-construct/pull/372) [`183e731`](https://github.com/E1i/mikoshi-construct/commit/183e731be2beed6660d350c146b79bb59f8cc365) Thanks [@E1i](https://github.com/E1i)! - templates: the discovery protocol's inventory step reads every README, at the root and in each app, from start to end before it writes down how to install, run or test anything. Before, it named the configs and entry points but not the README, and a partial read left out the environment and the dev server commands that the README stated.
+
+- [#362](https://github.com/E1i/mikoshi-construct/pull/362) [`eb735e7`](https://github.com/E1i/mikoshi-construct/commit/eb735e7a5d3abdb42c349651b48c2cb04979619c) Thanks [@E1i](https://github.com/E1i)! - The harness agent reads a pytest skip or expected failure added to a test as a weakened test: `@pytest.mark.skip`, `@pytest.mark.skipif` and `@pytest.mark.xfail`, with or without parentheses, and `pytest.skip(` / `pytest.xfail(` calls. Before, only `.skip(` and `.only(` were named, which a bare `@pytest.mark.skip` does not match.
+
+- [#361](https://github.com/E1i/mikoshi-construct/pull/361) [`2cb8c27`](https://github.com/E1i/mikoshi-construct/commit/2cb8c27bb08991dc187de01e865984729f55b12f) Thanks [@E1i](https://github.com/E1i)! - The `/implement` skill uses `.construct/implement-agreed.txt` as it is when the file already exists, instead of rewriting it from `$ARGUMENTS`. The Ghost launcher now writes that file from the approved brief before the session starts, so the agent no longer retypes the text the witnesses are parsed from.
+
+- [#375](https://github.com/E1i/mikoshi-construct/pull/375) [`43e1a9d`](https://github.com/E1i/mikoshi-construct/commit/43e1a9d9c40d31676092f0d1e249665b04c49a65) Thanks [@E1i](https://github.com/E1i)! - templates: the ladder script is now `scripts/construct/implement.workflow`, with no `.mjs`. What to do: in a repository made by `init`, run `construct sync --apply`. It removes `scripts/construct/implement.workflow.mjs` when its bytes are still what was recorded and writes the new path; sync reports this as the new class `moved`, and `--json` lists it under `retired`. If you edited the old file, sync writes neither path and reports both as `conflict`; move your edits across by hand. In an attached repository, run `construct detach`, then `construct attach`. Why: the script ends with a top-level `return`, the format the Workflow runtime runs, and a repository whose harness is `eslint .` parsed the `.mjs` and went red on its first check after attach. ESLint does not lint a file without a JavaScript extension, so the generated `eslint.config.mjs` no longer needs, and no longer carries, the `scripts/construct/*.workflow.mjs` ignore.
+
 ## 0.27.0
 
 ### Minor Changes
