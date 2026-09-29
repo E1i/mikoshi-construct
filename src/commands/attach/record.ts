@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const ATTACH_RECORD_FILE = '.construct/attach.json'
+export const ATTACH_LEDGER_DIR = '.construct'
 export const ATTACH_RECORD_VERSION = 1
 
 export interface AttachRecord {
@@ -12,6 +13,7 @@ export interface AttachRecord {
   files: Record<string, string>
   directories: string[]
   excludeCreated: boolean
+  ledgerCreated?: boolean
   excludeSeparator: number
 }
 

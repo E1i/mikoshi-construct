@@ -3,13 +3,14 @@ import type { Lore } from '../../ui/lore.js'
 import type { Prompter } from '../../ui/prompts.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
 import { directoriesToCreate, planCarriers } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
-import { ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
 import { refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { writeCarriersExclusively } from './write.js'
@@ -98,6 +99,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   if (interactive != null && (await interactive.confirm(ui.lore.attachConfirm)) !== true)
     return aborted()
 
+  const ledgerCreated = !existsSync(path.join(root, ATTACH_LEDGER_DIR))
   const exclude = writeExcludeBlock(root, targets)
   const directories = directoriesToCreate(root, targets)
   const write = writeCarriersExclusively(root, ops)
@@ -115,6 +117,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     directories,
     excludeCreated: exclude.created,
     excludeSeparator: exclude.separator,
+    ledgerCreated,
   })
 
   ui.ok(ui.lore.attached)

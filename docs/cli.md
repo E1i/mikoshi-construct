@@ -1089,6 +1089,7 @@ lists.
 | `files` | Every carrier path with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
+| `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
 | `excludeSeparator` | How many newlines (`0`, `1` or `2`) attach put before its block in `.git/info/exclude`. `detach` removes the block together with exactly that many, which is what makes the file byte for byte what it was; any other value is refused. |
 
 The report ends with a trailer to copy into commits, `Attached-Construct: mikoshi-construct@<version>`,
@@ -1130,7 +1131,7 @@ this order, taking the first class that matches:
 
 If nothing is changed, detach removes the files to remove, then the recorded directories that are now
 empty (deepest first), then the block it added to `.git/info/exclude` (the file itself only when
-nothing else is left in it), then `.construct/attach.json` and `.construct/` when it is empty. A file
+nothing else is left in it), then `.construct/attach.json`, and `.construct/` when it is empty and the record's `ledgerCreated` is `true`. A file
 inside a recorded directory that the record does not list — `.construct/runs.jsonl`,
 `.claude/settings.local.json` — is never deleted; its directory stays and it is named as left behind.
 Once the exclude block is gone such a file is an ordinary untracked path, so `git status` shows it.
@@ -1168,7 +1169,7 @@ followed by any command that rewrites the index.
 
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
-once empty, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
+once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
 and directories actually removed. On the seven carriers into a repository with none of their
 directories, N is 14.
 
