@@ -2,7 +2,7 @@ import type { OwnerMergeKind } from '../shredder/reader.js'
 import type { AttemptView } from './derive.js'
 import type { PrDetails, PullRequest } from './gh.js'
 import { ownerMerges } from '../shredder/authority.js'
-import { changesRequested, isRunningRow } from './derive.js'
+import { changesRequested, isRunningRow, reportOf } from './derive.js'
 
 export const NEXT_BY_SITUATION = {
   'brief': 'brief (window)',
@@ -21,6 +21,7 @@ export const NEXT_BY_SITUATION = {
   'auto-merge': 'auto-merge (window arms it)',
   'merge-unknown': 'merge (UNKNOWN whether Eli\'s or auto-merge)',
   'merged': '—',
+  'report': 'report: ',
   'superseded': '— (superseded)',
 } as const
 
@@ -93,6 +94,9 @@ export function nextOf(view: AttemptView, details: PrDetails | undefined, kinds:
     return next('merged')
   if (view.attempt.supersededEvent !== undefined)
     return next('superseded', `by ${view.attempt.supersededEvent.by}`)
+  const report = reportOf(view.attempt.pathEvent)
+  if (view.path === 'cheap' && report !== undefined)
+    return { situation: 'report', text: `${NEXT_BY_SITUATION.report}${report}`, why: undefined }
   if (view.path === 'cheap')
     return view.attempt.pathEvent?.pr === undefined ? next('pr', 'the journal event:path line records no PR') : prNext(view, details, kinds)
   return ladderNext(view, details, kinds)

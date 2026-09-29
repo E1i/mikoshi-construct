@@ -3,7 +3,7 @@ export type JobResult = 'success' | 'failure' | 'cancelled' | 'skipped'
 export interface Needs { [job: string]: { result: JobResult, outputs?: Record<string, string> } }
 
 export const CLASSIFY_JOB = 'changes'
-export const SKIPPED_ON_FAST_PATH: readonly string[] = ['package', 'acceptance']
+export const SKIPPED_ON_FAST_PATH: readonly string[] = ['acceptance']
 
 export function blockingJobs(needs: Needs): string[] {
   if (Object.keys(needs).length === 0)
