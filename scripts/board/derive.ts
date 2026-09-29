@@ -3,10 +3,10 @@ import type { Attempt, PathEvent } from './handoff.js'
 import path from 'node:path'
 import { lookupPr, lookupPrNumber, REQUIRED_CHECK } from './gh.js'
 
-export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'idle'
+export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'reported' | 'idle'
 
 export const OPEN_CATEGORIES: readonly Category[] = ['running', 'waiting', 'blocked']
-export const MERGED_SHOWN = 5
+export const FINISHED_SHOWN = 5
 
 const CHEAP_PATH = 'cheap'
 const RUNNING_STATES = ['writing', 'reviewing', 'reading']
@@ -33,6 +33,7 @@ export interface AttemptView {
   category: Category
   startedAt: Date | undefined
   mergedAt: Date | undefined
+  reportedAt: Date | undefined
 }
 
 export interface TaskView {
@@ -199,6 +200,27 @@ function cheapCategoryOf(merged: boolean, details: PrDetails | undefined): Categ
   return isReady(details) ? 'waiting' : 'running'
 }
 
+function viewReportAttempt(attempt: Attempt, pathEvent: PathEvent & { report: string }): AttemptView {
+  return {
+    attempt,
+    path: 'cheap',
+    pr: { kind: 'none' },
+    stages: [
+      { name: 'started', ...startedStage(pathEvent) },
+      { name: 'reported', ...done(pathEvent.ts, `journal event:path, report ${pathEvent.report}`) },
+    ],
+    facts: [],
+    category: 'reported',
+    startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
+    mergedAt: undefined,
+    reportedAt: new Date(pathEvent.ts),
+  }
+}
+
+export function reportOf(pathEvent: PathEvent | undefined): string | undefined {
+  return pathEvent?.pr === undefined ? pathEvent?.report : undefined
+}
+
 function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, checksOf: ChecksOf): AttemptView {
   const pr = lookupPrNumber(prs, pathEvent.pr)
   const details = detailsOf(pr, checksOf)
@@ -217,6 +239,7 @@ function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, c
     category: cheapCategoryOf(mergedAt !== undefined, details),
     startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
     mergedAt,
+    reportedAt: undefined,
   }
 }
 
@@ -269,6 +292,9 @@ function viewAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): Attempt
 
 function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): AttemptView {
   const cheapPath = cheapPathOf(attempt)
+  const report = reportOf(cheapPath)
+  if (cheapPath !== undefined && report !== undefined)
+    return viewReportAttempt(attempt, { ...cheapPath, report })
   if (cheapPath !== undefined)
     return viewCheapAttempt(attempt, cheapPath, prs, checksOf)
   const pr = lookupPr(prs, attempt.branch)
@@ -294,6 +320,7 @@ function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): Att
     category: categoryOf(attempt, merged),
     startedAt: localStamp(attempt.row?.start),
     mergedAt,
+    reportedAt: undefined,
   }
 }
 
@@ -338,14 +365,18 @@ export function summarize(tasks: TaskView[], now: Date): Summary {
   return { counts, longest }
 }
 
+function finishedAt(view: AttemptView): Date | undefined {
+  return view.mergedAt ?? view.reportedAt
+}
+
 export function selectShown(tasks: TaskView[], all: boolean): TaskView[] {
   if (all)
     return tasks
   const current = tasks.filter(task => !isSuperseded(task.live))
   const open = current.filter(task => OPEN_CATEGORIES.includes(task.live.category))
-  const merged = current
-    .filter(task => task.live.category === 'merged')
-    .sort((a, b) => b.live.mergedAt!.getTime() - a.live.mergedAt!.getTime())
-    .slice(0, MERGED_SHOWN)
-  return [...open, ...merged].map(task => ({ ...task, attempts: [task.live] }))
+  const finished = current
+    .filter(task => finishedAt(task.live) !== undefined)
+    .sort((a, b) => finishedAt(b.live)!.getTime() - finishedAt(a.live)!.getTime())
+    .slice(0, FINISHED_SHOWN)
+  return [...open, ...finished].map(task => ({ ...task, attempts: [task.live] }))
 }
