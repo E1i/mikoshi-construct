@@ -177,8 +177,9 @@ UNKNOWN: brief.written ×1, brief.approved ×3, review.started ×2, ready ×3, m
 
 ## After a release
 
-A release is done when these five checks pass, run once the staged publish has been approved. `<V>`
-is the released version, `<M>` the merge commit of the version pull request.
+A release is done when these eight checks pass, run once the staged publish has been approved. `<V>`
+is the released version, `<M>` the merge commit of the version pull request. Checks 6–8 cover what
+Published smoke does not: it materializes twice from the registry and compares, and installs nothing.
 
 1. `npm view mikoshi-construct dist-tags.latest --prefer-online` prints `<V>`.
 2. `npm stage list` finds no staged package.
@@ -187,6 +188,15 @@ is the released version, `<M>` the merge commit of the version pull request.
    Published smoke is green.
 5. `npx mikoshi-construct@<V> --version`, run from a scratch directory outside this repository,
    prints `<V>`.
+6. `npm view mikoshi-construct@<V> dist.attestations.provenance.predicateType` prints
+   `https://slsa.dev/provenance/v1`: the tarball carries provenance.
+7. In an empty scratch directory outside this repository, `npx mikoshi-construct@<V> init --yes
+   --preset node-backend --dir .`, then `pnpm install`, then `pnpm run quality`: all three exit `0`.
+8. In a scratch git repository with one commit holding only an `eslint.config.mjs` of
+   `export default [{ files: ['**/*.{js,mjs}'] }]`: `npx mikoshi-construct@<V> attach --harness
+   "npx --yes eslint ." --yes`, then `npx --yes eslint .` exits `0`; `npx mikoshi-construct@<V> doctor --json`
+   prints `"state": "attached"`; `npx mikoshi-construct@<V> detach` exits `0`, and
+   `git status --short --ignored` is what it was before the attach.
 
 ## Reporting a discovery that went wrong
 
