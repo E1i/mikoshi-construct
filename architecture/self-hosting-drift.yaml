@@ -39,6 +39,12 @@ differences:
       Written by hand before the template existed, so the manifest does not record it; the template
       ships the empty index with the enforcement scale, while this copy carries the records this
       repository has actually taken.
+  - path: architecture/principles.md
+    kind: content
+    reason: >-
+      The section "Mikoshi — an organism, not a product" is tried here first, at the owner's decision
+      of 2026-09-29; the template's copy stays as it was until the owner decides it ships to generated
+      repositories.
   - path: architecture/security-invariants.md
     kind: content
     reason: >-
