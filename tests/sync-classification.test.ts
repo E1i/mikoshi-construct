@@ -2,6 +2,7 @@ import type { PathClass, PathState } from '../src/sync/classify.js'
 import type { EstablishedVariant } from '../src/sync/variant.js'
 import { describe, expect, it } from 'vitest'
 import { BLOCK_BEGIN, BLOCK_END } from '../src/materialize/strategies.js'
+import { SUCCESSORS } from '../src/presets/index.js'
 import { classifyPath, classifyRepository, isWritable, PATH_CLASSES } from '../src/sync/classify.js'
 import { ownedSha } from '../src/sync/ownership.js'
 
@@ -26,6 +27,16 @@ const RECORDED_SHA = ownedSha(TARGET, RECORDED_TEXT)
 
 const WRITTEN_WITH = { projectName: 'scratch' }
 const WRITTEN_BLOCK = { ownedSha: ownedSha(BLOCK_TARGET, block('yesterday')), vars: WRITTEN_WITH }
+
+const [PREDECESSOR, SUCCESSOR] = Object.entries(SUCCESSORS)[0]!
+const LADDER_TEXT = 'return { status: \'blocked\' }\n'
+const LADDER_SHA = ownedSha(PREDECESSOR, LADDER_TEXT)
+
+const SUCCESSION_ROWS: { name: string, present: Record<string, string>, recorded: Record<string, string>, predecessor: PathClass, successor: PathClass }[] = [
+  { name: 'an unchanged predecessor is moved and its successor added', present: { [PREDECESSOR]: LADDER_TEXT }, recorded: { [PREDECESSOR]: LADDER_SHA }, predecessor: 'moved', successor: 'add' },
+  { name: 'an edited predecessor is a conflict, and so is its successor, so the two never lie side by side', present: { [PREDECESSOR]: OWNER_TEXT }, recorded: { [PREDECESSOR]: LADDER_SHA }, predecessor: 'conflict', successor: 'conflict' },
+  { name: 'a predecessor already deleted is removed, and its successor added', present: {}, recorded: { [PREDECESSOR]: LADDER_SHA }, predecessor: 'removed', successor: 'add' },
+]
 
 interface Row {
   cell: string
@@ -113,7 +124,7 @@ describe('the classes are exhaustive and mutually exclusive over recorded, prese
   })
 
   it('names every class in the contract, and gives a path exactly one of them', () => {
-    const reached = new Set(ROWS.map(row => row.expected).filter(value => value != null))
+    const reached = new Set([...ROWS.map(row => row.expected).filter(value => value != null), ...SUCCESSION_ROWS.flatMap(row => [row.predecessor, row.successor])])
     expect([...reached].sort()).toEqual([...PATH_CLASSES].sort())
     for (const row of ROWS) {
       const others = PATH_CLASSES.filter(value => value !== row.expected)
@@ -224,5 +235,19 @@ describe('what sync may write is decided by the strategy, not by the class alone
     const classification = classifyPath({ target: 'package.json', recordedSha: 'recorded', present: '{"name":"a"}', produced: '{"name":"a","scripts":{}}' })
     expect(classification?.class).toBe('update')
     expect(isWritable(classification!)).toBe(false)
+  })
+})
+
+describe('a construct path that today\'s templates write under a new name', () => {
+  it.each(SUCCESSION_ROWS)('$name', ({ present, recorded, predecessor, successor }) => {
+    const classes = Object.fromEntries(classifyRepository({ recorded, present, produced: { [SUCCESSOR]: LADDER_TEXT } }).map(entry => [entry.target, entry]))
+    expect(classes[PREDECESSOR]?.class).toBe(predecessor)
+    expect(classes[SUCCESSOR]?.class).toBe(successor)
+    expect(isWritable(classes[SUCCESSOR]!)).toBe(successor === 'add')
+  })
+
+  it('leaves a path with no successor orphaned, as before', () => {
+    const classes = classifyRepository({ recorded: { 'scripts/construct/gone.mjs': LADDER_SHA }, present: { 'scripts/construct/gone.mjs': LADDER_TEXT }, produced: {} })
+    expect(classes.map(entry => entry.class)).toEqual(['orphaned'])
   })
 })

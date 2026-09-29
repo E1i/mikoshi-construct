@@ -20,7 +20,7 @@ it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
 `.claude/rules/tests.md`, `.claude/skills/implement/SKILL.md`, `.github/workflows/security.yml`,
 `.gitignore`, `.gitleaks.toml`, `AGENTS.md`, `CLAUDE.md`, `architecture/checklists.md`,
 `architecture/decisions/README.md`, `architecture/principles.md`,
-`architecture/security-invariants.md`, `scripts/construct/check-acceptance.mjs`, `scripts/construct/implement.workflow.mjs`.
+`architecture/security-invariants.md`, `scripts/construct/check-acceptance.mjs`, `scripts/construct/implement.workflow`.
 
 `harness-adoption` — presumes the repository runs the construct's harness, and is inert or wrong
 where it runs another: `.editorconfig`, `.github/workflows/ci.yml`, `.nvmrc`,

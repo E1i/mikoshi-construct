@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
-const WORKFLOW = 'scripts/construct/implement.workflow.mjs'
+const WORKFLOW = 'scripts/construct/implement.workflow'
 
 interface LadderResult {
   status: string

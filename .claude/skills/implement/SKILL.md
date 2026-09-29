@@ -66,7 +66,7 @@ repository's CLAUDE.md and `construct.json`.
    stdout: stop, do not call Workflow, relay its stderr verbatim, and write no line to
    `.construct/runs.jsonl`, because there is no Workflow run identifier and step 4 forbids inventing
    one. On exit `0`, call the Workflow tool with `scriptPath` set to
-   `scripts/construct/implement.workflow.mjs` (the ladder script lives with the project's scripts, not
+   `scripts/construct/implement.workflow` (the ladder script lives with the project's scripts, not
    under `.claude/`) and `args` set to the JSON in `.construct/implement-args.json`, unchanged: never
    add, rewrite, merge or drop an item. The one field you may add is `retryLimit`. It is optional
    and defaults to `0`: a rejected response is not re-asked, and the run stops with the validator's

@@ -15,7 +15,7 @@ import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
 const HARNESS = 'pnpm run quality'
-const ADOPTED = 'scripts/construct/implement.workflow.mjs'
+const ADOPTED = 'scripts/construct/implement.workflow'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 

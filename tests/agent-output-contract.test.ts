@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
-const WORKFLOW = 'scripts/construct/implement.workflow.mjs'
+const WORKFLOW = 'scripts/construct/implement.workflow'
 const AGENT_DIRS = ['.claude/agents', 'templates/ai/claude/_claude/agents']
 const SCHEMA_OF_AGENT = { architect: 'SPEC', implementer: 'REPORT', harness: 'VERDICT' } as const
 const ROLE_AGENTS_OF_DIR: Record<string, string[]> = { '.claude/agents': ['brief', 'review', 'scan'] }

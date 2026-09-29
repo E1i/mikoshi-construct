@@ -219,10 +219,14 @@ export const ATTACH_CARRIERS = {
     '.claude/agents/architect.md',
     '.claude/agents/harness.md',
     '.claude/agents/implementer.md',
-    'scripts/construct/implement.workflow.mjs',
+    'scripts/construct/implement.workflow',
     'scripts/construct/check-acceptance.mjs',
   ],
 } as const
+
+export const SUCCESSORS: Readonly<Record<string, string>> = {
+  'scripts/construct/implement.workflow.mjs': 'scripts/construct/implement.workflow',
+}
 
 export type ReviewProvider = 'claude' | 'none'
 

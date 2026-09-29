@@ -1,4 +1,6 @@
 import type { PathClass, PathClassification } from '../../sync/classify.js'
+import { rmSync } from 'node:fs'
+import path from 'node:path'
 import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
 import { blocksWrittenWith, readManifest, recordSync, writeManifest } from '../../manifest.js'
 import { applyPlan } from '../../materialize/apply.js'
@@ -16,6 +18,7 @@ export interface SyncReport {
 export interface SyncApplyReport {
   report: SyncReport
   written: string[]
+  retired: string[]
   refused: PathClassification[]
   ranAt: string
 }
@@ -41,7 +44,10 @@ export function applySync(root: string, version: string): SyncApplyReport | null
     return null
   const { fromVersion, toVersion, present, produced, classifications } = replay({ root, manifest, version, facts: factsTheRepositoryEstablishes(root) })
   const report = { fromVersion, toVersion, counts: countByClass(classifications), classifications }
-  const { writes, refused } = planWrites({ classifications, present, produced })
+  const { writes, removals, refused } = planWrites({ classifications, present, produced })
+
+  for (const target of removals)
+    rmSync(path.join(root, target))
 
   const written = applyPlan(root, writes.map(write => ({ target: write.target, strategy: write.strategy, action: 'create' as const, content: write.content })))
   const ranAt = new Date().toISOString()
@@ -55,7 +61,7 @@ export function applySync(root: string, version: string): SyncApplyReport | null
     }))
   }
 
-  return { report, written: written.map(op => op.target), refused, ranAt }
+  return { report, written: written.map(op => op.target), retired: removals, refused, ranAt }
 }
 
 export { PENDING_CLASSES } from '../../sync/write.js'

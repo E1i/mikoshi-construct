@@ -20,7 +20,7 @@ export const SYNC_JSON_SCHEMA_VERSION = 1
 
 export const SYNC_NO_MANIFEST_JSON = { schemaVersion: SYNC_JSON_SCHEMA_VERSION, state: 'no-manifest' } as const
 
-export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'template-moved-on', 'conflict', 'block-edited', 'record-vars-edited', 'unknown', 'removed', 'orphaned']
+export const LISTED_CLASSES: PathClass[] = ['add', 'update', 'template-moved-on', 'conflict', 'block-edited', 'record-vars-edited', 'unknown', 'removed', 'orphaned', 'moved']
 
 const CLASS_COLUMN = Math.max(...PATH_CLASSES.map(value => value.length)) + 2
 
@@ -66,7 +66,7 @@ function note(ui: Ui, entry: PathClassification): string {
   return entry.writeEffect == null ? '' : ui.lore.syncWriteEffect[entry.writeEffect] ?? ''
 }
 
-const COUNT_ORDER: PathClass[] = ['add', 'update', 'template-moved-on', 'conflict', 'block-edited', 'record-vars-edited', 'unknown', 'removed', 'orphaned', 'keep', 'foreign']
+const COUNT_ORDER: PathClass[] = ['add', 'update', 'template-moved-on', 'conflict', 'block-edited', 'record-vars-edited', 'unknown', 'removed', 'moved', 'orphaned', 'keep', 'foreign']
 
 function printCounts(ui: Ui, report: SyncReport): void {
   ui.line(ui.theme.accent(ui.lore.syncClasses))
@@ -129,6 +129,7 @@ export function syncApplyJson(result: SyncApplyReport): Record<string, unknown> 
   return {
     ...syncJson(result.report),
     written: result.written,
+    retired: result.retired,
     pending: result.refused.map(entry => entry.target),
     ranAt: result.ranAt,
   }
@@ -145,6 +146,15 @@ function printWritten(ui: Ui, result: SyncApplyReport): void {
     const detail = entry == null ? '' : note(ui, entry)
     ui.line(`  ${target}${detail === '' ? '' : ui.theme.dim(` — ${detail}`)}`)
   }
+}
+
+function printRetired(ui: Ui, result: SyncApplyReport): void {
+  if (result.retired.length === 0)
+    return
+  ui.line()
+  ui.line(ui.theme.accent(ui.lore.syncApplyRetired))
+  for (const target of result.retired)
+    ui.line(`  ${target}`)
 }
 
 function printUnknownVariants(ui: Ui, result: SyncApplyReport): void {
@@ -178,6 +188,7 @@ export function printSyncApply(ui: Ui, result: SyncApplyReport | null): number {
   ui.line(ui.theme.accent(ui.theme.bold(ui.lore.syncApplyTitle)))
   ui.line(ui.theme.bold(ui.lore.syncVersionGap(result.report.fromVersion, result.report.toVersion)))
   printWritten(ui, result)
+  printRetired(ui, result)
   printUnknownVariants(ui, result)
   printRefused(ui, result)
 

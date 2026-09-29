@@ -101,6 +101,7 @@ export interface Lore {
   syncPending: (count: number) => string
   syncApplyTitle: string
   syncApplyWritten: string
+  syncApplyRetired: string
   syncApplyRefused: string
   syncApplyWrote: (count: number) => string
   syncApplyNothingWritten: string
@@ -273,7 +274,6 @@ export const LORE: Lore = {
   youAreHereNoModel: 'YOU ARE HERE: nowhere to place you \u2014 there is no construct.model.json, so nothing is known about claims',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
-    'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
     'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
     'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
   ],
@@ -297,6 +297,7 @@ export const LORE: Lore = {
     'unknown': 'which template variant wrote this block cannot be established; you changed nothing, and sync writes nothing here',
     'removed': 'you deleted it; sync never puts it back',
     'orphaned': 'the construct wrote it once and no longer produces it; it is yours now',
+    'moved': 'the construct wrote it, it is unchanged since, and today it is written under a new path; --apply removes it and writes the new one',
     'keep': 'already what the templates produce',
     'foreign': 'never ours',
     'block-edited': 'the construct block differs from the block the last write recorded \u2014 someone edited it; sync never touches it',
@@ -315,6 +316,7 @@ export const LORE: Lore = {
   syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
   syncApplyTitle: 'RELIC WRITE',
   syncApplyWritten: 'WRITTEN',
+  syncApplyRetired: 'RETIRED \u2014 removed, the new path written in their place',
   syncApplyRefused: 'LEFT TO YOU',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'NOTHING WRITTEN \u2014 the tree already carries what the construct owns.',
@@ -479,7 +481,6 @@ export const PLAIN_LORE: Lore = {
   youAreHereNoModel: 'You are here: nowhere to place you \u2014 there is no construct.model.json, so nothing is known about claims',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
   wireHarnessSteps: [
-    'eslint: ignore scripts/construct/*.workflow.mjs (the ladder script uses top-level return)',
     'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
     'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
   ],
@@ -503,6 +504,7 @@ export const PLAIN_LORE: Lore = {
     'unknown': 'which template variant wrote this block cannot be established; you changed nothing, and sync writes nothing here',
     'removed': 'you deleted it; sync never puts it back',
     'orphaned': 'the construct wrote it once and no longer produces it; it is yours now',
+    'moved': 'the construct wrote it, it is unchanged since, and today it is written under a new path; --apply removes it and writes the new one',
     'keep': 'already what the templates produce',
     'foreign': 'never ours',
     'block-edited': 'the construct block differs from the block the last write recorded \u2014 someone edited it; sync never touches it',
@@ -521,6 +523,7 @@ export const PLAIN_LORE: Lore = {
   syncPending: (count: number) => `${count} path${count === 1 ? '' : 's'} can be written: run \`construct sync --apply\`.`,
   syncApplyTitle: 'Sync apply',
   syncApplyWritten: 'Written',
+  syncApplyRetired: 'Removed, the new path written in their place',
   syncApplyRefused: 'Left to you',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'Nothing written: the tree already carries what the construct owns.',

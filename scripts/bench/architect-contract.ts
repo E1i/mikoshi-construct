@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const LADDER = 'scripts/construct/implement.workflow.mjs'
+const LADDER = 'scripts/construct/implement.workflow'
 const AGENT = '.claude/agents/architect.md'
 
 export interface JsonSchema {

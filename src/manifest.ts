@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR } from './detect/existing.js'
+import { SUCCESSORS } from './presets/index.js'
 import { RecordAheadOfReader } from './record-ahead.js'
 
 export const MANIFEST_FILE = 'construct.json'
@@ -234,7 +235,11 @@ export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: 
 }
 
 export function recordedShas(manifest: Manifest): Record<string, string> {
-  return { ...manifest.files, ...manifest.sync?.files }
+  const recorded: Record<string, string> = { ...manifest.files, ...manifest.sync?.files }
+  return Object.fromEntries(Object.entries(recorded).filter(([target]) => {
+    const successor = SUCCESSORS[target]
+    return successor == null || recorded[successor] == null
+  }))
 }
 
 export function recordedVariants(manifest: Manifest): Record<string, TemplateVariant> {

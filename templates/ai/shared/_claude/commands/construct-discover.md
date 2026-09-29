@@ -29,8 +29,7 @@ Work in this order:
 
 1. **Wire the harness.** In a repository that existed before the construct, `init` kept the
    existing `eslint.config.mjs`, `tsconfig.json`, `vitest.config.ts` and `quality` script. Before
-   anything else make them cover what the construct added: ESLint ignores
-   `scripts/construct/*.workflow.mjs` (top-level `return`), TypeScript includes `scripts/**/*.ts`,
+   anything else make them cover what the construct added: TypeScript includes `scripts/**/*.ts`,
    Vitest includes `scripts/tests/**/*.test.ts`, and the harness command runs `composition:check`
    (and `contracts:check` when a contract exists). Then run the harness; it must be green before
    discovery starts. Skip this step when the construct created those files itself.
