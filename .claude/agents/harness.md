@@ -59,5 +59,5 @@ Return these fields; the runtime validates the shape against the schema it gives
   when a step fails). You report exit codes; the ladder decides what they mean. The working tree has
   one writer: never stash, check out, move or rewrite a file in it to reach the base.
 - `contractCheck` — only when the prompt names a contract check: after the harness command passed,
-  run that command in the working tree and report `command` as given, `exitCode` and `excerpt`, its
-  last lines. When the prompt names no contract check, leave the field out.
+  run that command in the working tree and report `command` as given, byte for byte (a different
+  string reads as a check that did not run), `exitCode` and `excerpt`, its last lines. When the prompt names no contract check, leave the field out.

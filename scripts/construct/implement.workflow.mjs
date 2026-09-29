@@ -325,9 +325,15 @@ function untestedReason(files) {
   return `Changed source with no test: ${files.join(' | ')}`
 }
 
+function ranTheDeclaredContractCheck(check) {
+  return check != null && check.command === harness.contractCheck
+}
+
 function contractCheckReason(check) {
   if (check == null)
     return 'the harness did not report the contract check'
+  if (!ranTheDeclaredContractCheck(check))
+    return `the harness reported ${JSON.stringify(check.command)}, not the declared contract check ${JSON.stringify(harness.contractCheck)}`
   const exited = `${harness.contractCheck} exited ${check.exitCode}`
   return check.excerpt === '' ? exited : `${exited}\n${check.excerpt}`
 }
@@ -473,7 +479,7 @@ for (const [index, effort] of rungs.entries()) {
   const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0
     && changedSourceFiles.length > 0 && !verdict.changedFiles.some(isTestFile)
   const contractCheckFailed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0 && !untested
-    && contractDeclared && (verdict.contractCheck == null || verdict.contractCheck.exitCode !== 0)
+    && contractDeclared && (!ranTheDeclaredContractCheck(verdict.contractCheck) || verdict.contractCheck.exitCode !== 0)
   const passed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0 && !untested && !contractCheckFailed
   attempts.push(verdict == null
     ? { rung, effort, outcome: 'schema invalid', reason: lastValidationError, securityFinding: '' }
