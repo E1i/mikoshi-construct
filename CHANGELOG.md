@@ -1,5 +1,11 @@
 # mikoshi-construct
 
+## 0.29.0
+
+### Minor Changes
+
+- [#381](https://github.com/E1i/mikoshi-construct/pull/381) [`e6b86a3`](https://github.com/E1i/mikoshi-construct/commit/e6b86a3eebd349ca0e5b6f7f6258f679f696f722) Thanks [@E1i](https://github.com/E1i)! - cli: attach refuses a harness whose first word is not a command on PATH (a script name such as `quality`, or `vitest` from `node_modules/.bin`) and prints the command to use instead, and warns when the harness edits files (`:fix`, `--fix`, `--write`)
+
 ## 0.28.0
 
 ### Minor Changes
