@@ -545,6 +545,10 @@ there, and nowhere else.
   ready is derived from CI, never announced as an event of its own. A later push, a merge of `main`
   into the branch included, makes a new head, and the pull request is ready again only once CI on that
   head is green. `pnpm board` derives ready the same way.
+- A change to the owner's machine — installing or upgrading anything outside a worktree (`brew`, `pipx`,
+  `npm i -g`, a Poetry or conda environment, a global config) — happens only after the owner's explicit
+  yes. An instruction to use a tool is not permission to install it: name what is missing and the
+  command that would install it, and wait.
 
 One task, one branch, one pull request, one changeset, and never a commit on `main`. Independent
 branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit
