@@ -198,6 +198,7 @@ const REFUSALS: RefusalCase[] = [
   } },
   { name: '--yes without --harness', refusal: 'no-harness', reason: PLAIN_LORE.attachRefusedNoHarness, arrange: () => {}, options: { harness: undefined } },
   { name: '--ai cursor', refusal: 'cursor', reason: PLAIN_LORE.attachRefusedCursor, arrange: () => {}, options: { ai: 'cursor' } },
+  { name: 'a harness that is a script name', refusal: 'not-a-command', reason: PLAIN_LORE.attachRefusedNotACommand('quality', ['npm run quality', 'npx quality']).what, arrange: () => {}, options: { harness: 'quality' } },
 ]
 
 describe('a3: every refusal exits before anything is written', () => {
@@ -222,6 +223,27 @@ describe('a3: every refusal exits before anything is written', () => {
       expect(output()).not.toContain('BREACH')
     })
   }
+
+  it('a harness that is not a command says why and gives the command to run instead', async () => {
+    const dir = fixture()
+    const { ui: plain, output } = capturing()
+    await runAttach(plain, { dir, harness: 'CI=1 vitest run', yes: true, env: { PATH: '' } })
+    const notice = PLAIN_LORE.attachRefusedNotACommand('vitest', ['CI=1 npm run vitest run', 'CI=1 npx vitest run'])
+    expect(output()).toContain(notice.what)
+    expect(output()).toContain(notice.why)
+    expect(output()).toContain('--harness "CI=1 npx vitest run"')
+  })
+
+  it('a harness that edits files is attached with a warning that names what edits and what to run instead', async () => {
+    const dir = fixture()
+    const { ui: plain, output } = capturing()
+    const result = await runAttach(plain, { dir, harness: 'npx eslint . --fix', yes: true })
+    const notice = PLAIN_LORE.attachHarnessEditsFiles(['--fix'])
+    expect(result.status).toBe('done')
+    expect(output()).toContain(notice.what)
+    expect(output()).toContain(notice.why)
+    expect(output()).toContain(notice.next)
+  })
 
   it('lists the colliding paths after the reason', async () => {
     const dir = fixture()

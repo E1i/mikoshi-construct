@@ -1048,7 +1048,7 @@ and records what it created in `.construct/attach.json`. No `construct.json`, no
 npx mikoshi-construct attach --harness "npm test"
 ```
 
-### The seven refusals
+### The eight refusals
 
 Every check runs before anything is written, in this order, and a refusal creates nothing — not even
 `.construct/`:
@@ -1062,6 +1062,16 @@ Every check runs before anything is written, in this order, and a refusal create
 | a path attach would create already exists | `Refused: N paths attach would create already exist:` followed by the paths |
 | `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.` |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
+| the first word of the harness command (after any `VAR=value`) is not a path, a shell word such as `cd`, or an executable in an absolute `PATH` directory — a `package.json` script name such as `quality`, or a binary under `node_modules/.bin` such as `vitest` | `Refused: "quality" is not a command found on PATH.`, then why, and the next step with the rest of the command kept: `--harness "npm run quality"  or  --harness "npx quality"` |
+
+The harness is checked after it is named, so the eighth refusal comes after the others, and it too
+creates nothing. `PATH` is read as a list of directories and nothing is run; a relative entry (`.` or
+an empty one) is not counted, because the ladder runs the harness from wherever its shell stands.
+
+A harness command that edits files — a word ending in `:fix`, `--fix` or `--write` — is not refused:
+attach warns, says why a gate that fixes what it checks is a weaker gate, names the command form that
+only checks, and goes on. It reads the command as written and does not open `package.json`, so
+`pnpm run quality` whose script runs `lint:fix` is not caught.
 
 ### The write order
 
