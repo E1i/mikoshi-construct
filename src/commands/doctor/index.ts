@@ -26,6 +26,7 @@ import { versionGap } from './version-gap.js'
 export interface DoctorResult {
   ok: boolean
   missingFiles: string[]
+  movedFiles: string[]
   modifiedFiles: string[]
   unreadableFiles: string[]
   missingDiscovery: DiscoveryMarker[]
@@ -69,6 +70,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   const unreadableFiles = readings.files
   const intact: ProvenanceEvidence = {
     missingFiles: baseline.missingFiles,
+    movedFiles: baseline.movedFiles,
     modifiedFiles: baseline.modifiedFiles,
     unreadableFiles,
     missingDiscovery: markers,
@@ -83,6 +85,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   return {
     ok: isIntact(intact),
     missingFiles: baseline.missingFiles,
+    movedFiles: baseline.movedFiles,
     modifiedFiles: baseline.modifiedFiles,
     unreadableFiles,
     missingDiscovery: markers,

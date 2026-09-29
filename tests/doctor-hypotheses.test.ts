@@ -31,6 +31,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
   return {
     ok: true,
     missingFiles: [],
+    movedFiles: [],
     modifiedFiles: [],
     unreadableFiles: [],
     missingDiscovery: [],

@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { applySync, runSync, SYNC_EXIT, syncExit } from '../src/commands/sync/index.js'
 import { readManifest, recordedShas, writeManifest } from '../src/manifest.js'
@@ -60,5 +61,32 @@ describe('sync over a repository materialized when the ladder script was still .
     expect(existsSync(path.join(dir, SUCCESSOR))).toBe(false)
     const classes = Object.fromEntries(result.report.classifications.map(entry => [entry.target, entry.class]))
     expect([classes[PREDECESSOR], classes[SUCCESSOR]]).toEqual(['conflict', 'conflict'])
+  })
+})
+
+describe('doctor over a repository whose owner moved the ladder script by hand', () => {
+  it('reads a recorded .mjs gone from disk, with its successor present, as moved and not missing', async () => {
+    const { dir } = await materializedUnderTheOldName()
+    renameSync(path.join(dir, PREDECESSOR), path.join(dir, SUCCESSOR))
+
+    const result = runDoctor(dir, VERSION)
+
+    expect(result != null && 'missingFiles' in result).toBe(true)
+    if (result == null || !('missingFiles' in result))
+      return
+    expect(result.missingFiles).toEqual([])
+    expect(result.movedFiles).toEqual([PREDECESSOR])
+  })
+
+  it('still reads a recorded .mjs gone from disk, with no successor either, as missing', async () => {
+    const { dir } = await materializedUnderTheOldName()
+    rmSync(path.join(dir, PREDECESSOR))
+
+    const result = runDoctor(dir, VERSION)
+
+    if (result == null || !('missingFiles' in result))
+      throw new Error('doctor read no manifest')
+    expect(result.missingFiles).toEqual([PREDECESSOR])
+    expect(result.movedFiles).toEqual([])
   })
 })

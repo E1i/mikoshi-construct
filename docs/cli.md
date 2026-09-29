@@ -267,6 +267,7 @@ that claim stands on, and where you are is the model's own path selection.
 |---|---|
 | `ok` | provenance |
 | `missingFiles` | provenance |
+| `movedFiles` | provenance |
 | `modifiedFiles` | provenance |
 | `unreadableFiles` | provenance |
 | `missingDiscovery` | provenance |
@@ -326,6 +327,11 @@ cause the operating system gave in parentheses — a directory standing where a 
 permission it does not have, a broken link, malformed JSON where a manifest is recorded. There is one
 category and no branch per cause: the reading either succeeded or it did not, and which of them it
 was travels in the entry rather than in a second code path.
+
+`movedFiles` lists a recorded path that is gone from disk while the path today's templates write in
+its place is present (`scripts/construct/implement.workflow.mjs` → `scripts/construct/implement.workflow`).
+It is not `missingFiles` and does not make `ok` false: the file moved, and `sync --apply` records
+the new path the next time it writes.
 
 Such a path is not `missingFiles` — it exists — and not `modifiedFiles` — nothing was compared — and
 reporting it as either would be a claim about a file `doctor` never opened. It makes `ok` false: the
@@ -648,6 +654,7 @@ never changes the exit code.
   "schemaVersion": 1,
   "ok": true,
   "missingFiles": [],
+  "movedFiles": [],
   "modifiedFiles": [],
   "unreadableFiles": [],
   "missingDiscovery": ["product", "module-map"],
