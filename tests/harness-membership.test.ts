@@ -22,6 +22,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'release-notes:render': 'a writer; the release index tests are its gate',
   'release:verify': 'a gate, deliberately outside: it inspects what was published, which does not exist when the harness runs',
   'test:watch': 'a local loop over the same tests',
+  'test:weights': 'rewrites the table CI balances its vitest shards by; it changes how the tests are split, not whether they pass',
   'version-packages': 'the version step; the release index tests gate its output',
 }
 

@@ -400,7 +400,7 @@
       "authoredBy": "discovery",
       "enforcement": null,
       "verification": {
-        "mechanism": "CI's harness-report job merges the vitest shards' reports into .construct/reports/vitest.json with Vitest's JSON reporter and fails unless doctor reads the harness as checked",
+        "mechanism": "CI's required job, once every need is green, merges the vitest shards' reports into .construct/reports/vitest.json with Vitest's JSON reporter and fails unless doctor reads the harness as checked",
         "supportedBy": [
           "vitest-report-covers-the-tests"
         ]
