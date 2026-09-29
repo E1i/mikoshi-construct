@@ -2,6 +2,7 @@ import type { PrDetails, PrList, PrLookup, PullRequest } from './gh.js'
 import type { Attempt, PathEvent } from './handoff.js'
 import path from 'node:path'
 import { lookupPr, lookupPrNumber, REQUIRED_CHECK } from './gh.js'
+import { VERIFICATION_WORDS } from './verification.js'
 
 export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'reported' | 'idle'
 
@@ -200,6 +201,15 @@ function cheapCategoryOf(merged: boolean, details: PrDetails | undefined): Categ
   return isReady(details) ? 'waiting' : 'running'
 }
 
+function verificationFact(pathEvent: PathEvent): Stage {
+  const word = pathEvent.verification
+  if (word === undefined)
+    return { name: 'verification', ...unknown('verification; the journal event:path line records none') }
+  if (!(VERIFICATION_WORDS as readonly string[]).includes(word))
+    return { name: 'verification', ...unknown(`verification; '${word}' is not one of ${VERIFICATION_WORDS.join(', ')}`) }
+  return { name: 'verification', ...fact(word, 'journal event:path') }
+}
+
 function viewReportAttempt(attempt: Attempt, pathEvent: PathEvent & { report: string }): AttemptView {
   return {
     attempt,
@@ -209,7 +219,7 @@ function viewReportAttempt(attempt: Attempt, pathEvent: PathEvent & { report: st
       { name: 'started', ...startedStage(pathEvent) },
       { name: 'reported', ...done(pathEvent.ts, `journal event:path, report ${pathEvent.report}`) },
     ],
-    facts: [],
+    facts: [verificationFact(pathEvent)],
     category: 'reported',
     startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
     mergedAt: undefined,
@@ -235,7 +245,7 @@ function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, c
       { name: 'pr', ...cheapPrStage(pathEvent, pr) },
       { name: 'merged', ...mergedStage(attempt, pr) },
     ],
-    facts: [],
+    facts: [verificationFact(pathEvent)],
     category: cheapCategoryOf(mergedAt !== undefined, details),
     startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
     mergedAt,

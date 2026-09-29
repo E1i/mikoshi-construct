@@ -136,6 +136,17 @@ describe('the harness reports what changed and never judges a contract change', 
   })
 })
 
+describe('the harness reads a skipped test as weakened in pytest as well as in vitest', () => {
+  for (const dir of AGENT_DIRS) {
+    it(`${dir}/harness.md names the pytest skip and xfail forms, including the bare decorator`, () => {
+      const agent = read(`${dir}/harness.md`)
+      for (const form of ['`.skip(`', '`@pytest.mark.skip`', '`@pytest.mark.skipif`', '`@pytest.mark.xfail`', '`pytest.skip(`', '`pytest.xfail(`'])
+        expect(agent).toContain(form)
+      expect(agent).toContain('with or without parentheses')
+    })
+  }
+})
+
 describe('the schema survives awkward values', () => {
   for (const [name, fixture] of Object.entries(FIXTURES)) {
     it(`${name} accepts an em dash, an emoji and a nested triple-backtick sequence with no manual escaping`, () => {
