@@ -228,7 +228,9 @@ Treat as real defects:
 
 Treat as accepted variance and do not report: formatting, quoting and import order (ESLint owns
 them); the `.js` suffix on relative TypeScript imports (NodeNext ESM requires it); the absence of
-comments or JSDoc.
+comments or JSDoc. In this repository `sync` shows `conflict` or `removed` on `scripts/construct/*`, and that is
+expected: here those files are the source of the templates, and their identity with the template is
+held by the test `tests/attach-carriers.test.ts`, not by the record in `construct.json`.
 
 ## Open questions
 
