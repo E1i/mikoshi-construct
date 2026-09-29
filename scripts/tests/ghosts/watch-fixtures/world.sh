@@ -5,6 +5,7 @@ KINDS='base stale alive no-ledger no-tool no-report near-tool far-tool no-row le
 TAIL_BYTES=262144
 STALE_SECONDS=7200
 STUB_SECONDS=300
+STUB_EXIT_POLLS=50
 FILLER_LINES=300
 PREFIX='[ghosts:watch] '
 PS_UNKNOWN='process unknown (ps failed: Command failed: ps -Ao pid=,args=)'
@@ -236,11 +237,24 @@ new_world() {
   echo "$W"
 }
 
+wait_gone() {
+  local pid=$1 i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    [ "$i" -ge "$STUB_EXIT_POLLS" ] && return 1
+    sleep 0.1
+    i=$((i + 1))
+  done
+}
+
 stop_stubs() {
   local W=$1 pid
   [ -f "$W/.world/pids" ] || return 0
   while IFS= read -r pid; do
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+    wait_gone "$pid" && continue
+    kill -KILL "$pid" 2>/dev/null || true
+    wait_gone "$pid" || { echo "world.sh: the stub process $pid is still alive after SIGKILL" >&2; exit 2; }
   done <"$W/.world/pids"
   : >"$W/.world/pids"
 }
