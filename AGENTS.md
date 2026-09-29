@@ -99,7 +99,8 @@ each one: [architecture/security-invariants.md](architecture/security-invariants
 ## Architecture
 
 The principles in [architecture/principles.md](architecture/principles.md) apply; this is how they map
-here.
+here. Before proposing an architecture, answer the questions and name the categories of
+[architecture/principles.md § Mikoshi — an organism, not a product](architecture/principles.md#mikoshi--an-organism-not-a-product).
 
 - *Composition roots.*
   <!-- construct:discover:composition-roots -->

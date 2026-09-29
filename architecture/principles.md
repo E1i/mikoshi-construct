@@ -117,3 +117,20 @@ repeatedly or the task is ambiguous.
   through Mikoshi. It means that for each change the cheapest contour that yields the proof the
   change requires is chosen: an ordinary session, the harness and CI when an ordinary test proves
   the result; the ladder with its witnesses only when it does not.
+
+## Mikoshi — an organism, not a product
+
+Before an architecture is proposed, every decision in it is named by one word, and the word decides
+what may be done with it. A **Law** is not broken. A **Capability** says the organism needs this organ;
+its implementation may not be chosen yet, and that does not make it a hypothesis. A **Strategy** is a
+way, not a law. **Ship** means a repeatable result exists, so the research stops. **Observe** means
+there is no real breakage and no real need yet. **Park** means it gives no new capability. A
+capability is a statement about what the organism needs, never about how: "Miko must be able to X"
+can be a law of the product, while "X is implemented by class Y through Z" is almost always a
+strategy. It is possible to know that an organ is needed without knowing whether it will be a
+daemon, a Ghost, an MCP server, a preset or a process. A strategy may Morph; a law may not. A
+version of a future architecture — V1, V2, V3 — is not an argument for waiting: what works
+repeatably is shipped, what breaks in use is fixed, and a problem that is only hypothetical is not
+built for. So the questions come first: which of these words each part is, whether a repeatable
+result already exists, whether the breakage or the need is real, and whether the change gives a
+capability the organism does not have.
