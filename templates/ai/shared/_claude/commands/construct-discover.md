@@ -37,7 +37,9 @@ Work in this order:
 2. **Inventory.** Read `construct.json`, `package.json`, the directory tree two levels deep, the entry
    points (servers, app factories, `main.ts`, CLI scripts, workers), the API contract if there is
    one, and every `*.config.ts` / `config.ts`. Note the package manager, runtime, database and clients, CI, deployment
-   and existing conventions. Do not write yet. Record the commit this run starts from: set
+   and existing conventions. Read every README, at the root and in each app, from start to end before
+   writing down how to install, run or test anything: a grep finds only what you already expected, and
+   a README states what you did not. Do not write yet. Record the commit this run starts from: set
    `discovery.baseSha` in `construct.json` to the output of `git rev-parse HEAD`, or `null` where the
    repository has no commit yet. Do not record the cleanliness of the tree here: a hypothesis records
    whether its own evidence was committed, one file set at a time, and step 12 says how.
