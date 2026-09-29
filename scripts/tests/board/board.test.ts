@@ -1,7 +1,7 @@
 import type { GhRunner } from '../../board/gh.js'
 import type { BoardResult } from '../../board/run.js'
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -10,6 +10,7 @@ import { NEXT_BY_SITUATION } from '../../board/next.js'
 import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
 import { ageSince } from '../../board/row.js'
 import { runBoard } from '../../board/run.js'
+import { VERIFICATION_WORDS } from '../../board/verification.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const FIXTURES = path.join(REPO_ROOT, 'scripts/tests/board/fixtures')
@@ -205,7 +206,7 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
   ])('$id prints only the cheap-path stages and is $category', ({ id, category }) => {
     const block = attemptBlock(board(['--dir', CHEAP, id]).stdout, id)
     expect(block[0]).toBe(`  ${id} live ${category}`)
-    expect(block.slice(1).map(line => line.trim().split(' ')[0])).toEqual(['started', 'ready', 'pr', 'merged'])
+    expect(block.slice(1).map(line => line.trim().split(' ')[0])).toEqual(['started', 'ready', 'pr', 'merged', 'verification'])
   })
 
   it('keeps the ladder stages for a task whose path line is not cheap', () => {
@@ -236,6 +237,7 @@ describe('board: a cheap task that ends in a report, not a PR', () => {
       '  c-report live reported',
       '    started done 2026-09-28T10:00:00.000Z (journal event:path)',
       '    reported done 2026-09-28T10:30:00.000Z (journal event:path, report notes/c-report.md)',
+      '    verification code-reading (journal event:path)',
     ])
   })
 
@@ -251,6 +253,35 @@ describe('board: a cheap task that ends in a report, not a PR', () => {
     expect(task.derived.category).toBe('reported')
     expect(task.derived.next).toEqual({ situation: 'report', text: 'report: notes/c-report.md', why: null })
     expect(task.derived.shownByDefault).toBe(true)
+  })
+})
+
+describe('board: the verification word a cheap task records in its event:path line', () => {
+  it.each([
+    { id: 'c-gh', expected: 'run (journal event:path)' },
+    { id: 'c-report', expected: 'code-reading (journal event:path)' },
+    { id: 'c-journal', expected: 'UNKNOWN (missing: verification; the journal event:path line records none)' },
+    { id: 'c-open', expected: `UNKNOWN (missing: verification; 'a hunch' is not one of ${VERIFICATION_WORDS.join(', ')})` },
+  ])('$id reads $expected', ({ id, expected }) => {
+    expect(stageOf(CHEAP, id, 'verification')).toBe(expected)
+  })
+
+  it('carries it in --json among the attempt facts', () => {
+    const json = JSON.parse(board(['--dir', CHEAP, '--json']).stdout[0])
+    const attempt = json.tasks.flatMap((task: any) => task.attempts).find((candidate: any) => candidate.id === 'c-gh')
+    expect(attempt.facts).toContainEqual({ name: 'verification', state: 'fact', value: 'run', source: 'journal event:path', text: 'run (journal event:path)' })
+  })
+
+  it('keeps it out of the UNKNOWN tally, which counts stages only', () => {
+    expect(board(['--dir', CHEAP]).stdout.at(-1)).not.toContain('verification')
+  })
+
+  it('has every word explained in the AGENTS.md rule', () => {
+    const agents = readFileSync(path.join(REPO_ROOT, 'AGENTS.md'), 'utf8')
+    const rule = agents.split('\n').find(line => line.includes('`verification`'))
+    expect(rule, 'no AGENTS.md line names the verification field').toBeDefined()
+    for (const word of VERIFICATION_WORDS)
+      expect(agents).toContain(`\`${word}\``)
   })
 })
 
