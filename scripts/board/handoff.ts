@@ -33,6 +33,7 @@ export interface PathEvent {
   pr?: number
   sha?: string
   report?: string
+  verification?: string
   ts: string
 }
 

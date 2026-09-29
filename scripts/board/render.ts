@@ -4,6 +4,7 @@ import type { Age, NextOf, Row } from './row.js'
 import { FINISHED_SHOWN, isSuperseded, stageText } from './derive.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { rowOf, unknownTally } from './row.js'
+import { VERIFICATION_WORDS } from './verification.js'
 
 export interface BoardView {
   tasks: TaskView[]
@@ -25,6 +26,7 @@ export const DEFINITIONS = [
   '# ready is derived from CI, never from the journal: — while CI on the current head is pending, red or has not reported; a push makes a new head, and the task is not ready until CI on that head is green; a journal ready field is not read',
   '# cheap path (a journal event:path line with path cheap): started → ready → pr → merged; started and pr from that line, ready from CI on that PR\'s head, merged = journal event:merge, else gh mergedAt of that PR number; no brief, approved, ghost or review stages',
   '# report = a cheap-path event:path line with a report and no pr: started → reported (its ts); the task ends in that file, not a PR, and NEXT reads report: <path>',
+  `# verification (cheap path) = the one word the event:path line records for how the result was known: ${VERIFICATION_WORDS.join(', ')}; a fact, not a stage, so it is not in the UNKNOWN tally`,
   '# — = did not happen: not merged while the last review verdict is changes, no PR for the branch, a PR not merged, a ghost still running',
   '# UNKNOWN = a record could exist and does not; the missing record is named',
   '# task (derived) = the attempts whose tasks-file entries name one brief file; the latest attempt is live, the others are history',

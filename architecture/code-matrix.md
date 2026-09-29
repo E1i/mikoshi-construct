@@ -7,8 +7,9 @@ materialized into other repositories.
 An outside contributor is not asked for the matrix, the predictions or the mutations; the
 [contributor guide](../CONTRIBUTING.md) says so to the reader who arrives there first.
 
-A report on a pull request in this repository ends with a compact matrix over its alphabet: the upper
-triangle, one sign per cell, and a count line `■ n □ n · n`. A cell is expanded only on request.
+A report on a pull request in this repository that changes `src/` or `templates/` ends with a compact
+matrix over its alphabet: the upper triangle, one sign per cell, and a count line `■ n □ n · n`. On a
+pull request that changes only `scripts/`, the matrix is optional. A cell is expanded only on request.
 
 ## Alphabet
 
@@ -60,3 +61,12 @@ The five trial rows sum to ■ 12, □ 3, · 60. With #178, the six rows sum to 
 **Decision, 2026-09-23: keep it,** with the alphabet above. Over the six rows, 1C was marked twice
 (#173 and #177) and 55 once (#177), all three on attach and detach, so both move from the common
 alphabet to the declarable rules.
+
+## Where it stopped being written, 2026-09-28
+
+Recorded as a fact; no cause is recorded because none was established. PR #339, opened at 08:58 UTC on
+2026-09-28, is the last pull request whose description or comments carry a count line. None of PR #340
+(opened 10:42 UTC the same day) through PR #364 carries one, product pull requests included. The
+rule above did not change in that interval. Read with `gh pr view <n> --json body,comments` over
+PR #327 to PR #364, matching the count line `■ n □`. On 2026-09-29 the owner made the matrix required
+for `src/` and `templates/` and optional for `scripts/`, as the rule above now says.

@@ -1,8 +1,8 @@
 {"event":"path","task":"c-journal","path":"cheap","reason":"docs only","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:30:00Z","pr":20,"sha":"2020202020202020202020202020202020202020","ts":"2026-09-28T07:31:00.000Z"}
 {"event":"merge","task":"c-journal","by":"owner","commit":"abcdefabcdefabcdefabcdefabcdefabcdefabcd","ts":"2026-09-28T08:00:00.000Z"}
-{"event":"path","task":"c-gh","path":"cheap","reason":"a script","started":"2026-09-28T08:00:00Z","ready":"2026-09-28T08:20:00Z","pr":21,"sha":"2121212121212121212121212121212121212121","ts":"2026-09-28T08:21:00.000Z"}
-{"event":"path","task":"c-open","path":"cheap","reason":"a script","started":"2026-09-28T09:00:00Z","ready":"2026-09-28T09:15:00Z","pr":22,"ts":"2026-09-28T09:16:00.000Z"}
+{"event":"path","task":"c-gh","path":"cheap","reason":"a script","verification":"run","started":"2026-09-28T08:00:00Z","ready":"2026-09-28T08:20:00Z","pr":21,"sha":"2121212121212121212121212121212121212121","ts":"2026-09-28T08:21:00.000Z"}
+{"event":"path","task":"c-open","path":"cheap","reason":"a script","verification":"a hunch","started":"2026-09-28T09:00:00Z","ready":"2026-09-28T09:15:00Z","pr":22,"ts":"2026-09-28T09:16:00.000Z"}
 {"event":"path","task":"c-noready","path":"cheap","reason":"a script","started":"2026-09-28T10:00:00Z","ts":"2026-09-28T10:01:00.000Z"}
 {"event":"path","task":"l-1","path":"ladder","reason":"a contract change","started":"2026-09-28T06:00:00Z","ts":"2026-09-28T06:01:00.000Z"}
 {"event":"task","ts":"2026-09-28T06:30:00.000Z","task":"l-1","baseSha":"base","session":null,"install":0,"exit":0,"ladder":"done","run":null,"iterations":1,"class":null,"contour":null,"resultLine":"present","total_cost_usd":null,"num_turns":null,"duration_ms":null,"usage":null,"review":null}
-{"event":"path","task":"c-report","path":"cheap","reason":"read-only recon","started":"2026-09-28T10:00:00Z","report":"notes/c-report.md","ts":"2026-09-28T10:30:00.000Z"}
+{"event":"path","task":"c-report","path":"cheap","reason":"read-only recon","verification":"code-reading","started":"2026-09-28T10:00:00Z","report":"notes/c-report.md","ts":"2026-09-28T10:30:00.000Z"}
