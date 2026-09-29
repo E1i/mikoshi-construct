@@ -17,7 +17,12 @@ describe('sessionArgv', () => {
   it('is the documented headless flags, the session id, then the prompt', () => {
     const argv = sessionArgv('sess-1', '/implement do it')
     expect(argv).toEqual([...HEADLESS_FLAGS, 'sess-1', '/implement do it'])
-    expect(argv).toHaveLength(11)
+    expect(argv).toHaveLength(12)
+  })
+
+  it('loads no MCP server from the user\'s configuration, since none is passed with --mcp-config', () => {
+    expect(sessionArgv('sess-1', '/implement do it')).toContain('--strict-mcp-config')
+    expect(sessionArgv('sess-1', '/implement do it')).not.toContain('--mcp-config')
   })
 })
 
