@@ -68,7 +68,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "version-packages": "changeset version && pnpm release-notes:render",
-    "docs:anchors": "tsx scripts/docs/anchors.ts"
+    "docs:anchors": "tsx scripts/docs/anchors.ts",
+    "test:weights": "tsx scripts/ci/test-weights.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",
