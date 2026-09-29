@@ -105,6 +105,29 @@ describe('a4: attach then detach is the identity on a clean repository', () => {
   })
 })
 
+describe('the ledger directory: detach removes it only when the record says attach created it', () => {
+  it('keeps an empty .construct/ that existed before attach, and records that attach did not create it', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct'))
+    await attached(dir)
+    expect(readAttachRecord(dir)?.ledgerCreated).toBe(false)
+
+    const result = runDetach(ui, { dir })
+
+    expect(result.status).toBe('done')
+    expect(existsSync(path.join(dir, '.construct'))).toBe(true)
+  })
+
+  it('records that attach created .construct/ when it was absent, and detach removes it once empty', async () => {
+    const dir = fixture()
+    await attached(dir)
+    expect(readAttachRecord(dir)?.ledgerCreated).toBe(true)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect(existsSync(path.join(dir, '.construct'))).toBe(false)
+  })
+})
+
 describe('a5: without a record', () => {
   it('state 1: a repository init wrote, with no record and no block, has nothing to detach', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-detach-init-'))
@@ -268,7 +291,7 @@ function rewriteRecordVersion(dir: string, value: unknown): void {
 }
 
 describe('the record version detach reads', () => {
-  it('detaches from a frozen version-1 record written by an earlier build', () => {
+  it('detaches from a frozen version-1 record written by an earlier build, keeping .construct/, which that record does not say it created', () => {
     const dir = fixture()
     const recorded = withFrozenRecordV1(dir)
 
@@ -276,7 +299,7 @@ describe('the record version detach reads', () => {
 
     expect(result.status).toBe('done')
     expect([...result.removed].sort()).toEqual([...recorded].sort())
-    expect(existsSync(path.join(dir, '.construct'))).toBe(false)
+    expect(existsSync(path.join(dir, '.construct'))).toBe(true)
   })
 
   it('refuses a record written by a newer construct, names both versions and removes nothing', async () => {
