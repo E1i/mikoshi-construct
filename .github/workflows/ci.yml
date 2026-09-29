@@ -4,25 +4,27 @@
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md.
-# harness-report — merges the two shards' reports and checks that doctor reads this repository's
-#              harness as checked (decision 0033).
-# package    — builds and packs the publishable tarball the acceptance legs install.
+# package    — builds and packs the publishable tarball the acceptance legs install. It runs on every
+#              change and waits on nothing, so the preset matrix starts once both it and changes are done.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
 #              `pnpm install` → `pnpm run quality` is green, for every preset, on the Node
 #              majors we support, with no manual edits. One leg installs under pnpm's
 #              minimumReleaseAge policy, because a template range that only matches today's
 #              publish fails a user's first install (see CLAUDE.md, version ranges). It waits on
-#              package, not on the quality jobs, so they run side by side.
+#              package and changes, not on the quality jobs, so they run side by side.
 # contract-bump — the release bump the change requires: the semantic diff of contract/surface.json
 #              against the latest release tag reachable from HEAD, compared with the strongest
 #              changeset (decision 0030). It needs tags and history, so it checks out in full.
-# required   — red when any job failed or was cancelled, or was skipped other than package and
-#              acceptance on the fast path. The job runs scripts/ci/verdict.ts, which applies the
-#              rule blockingJobs in scripts/ci/required.ts to the needs of this job.
+# required   — red when any job failed or was cancelled, or was skipped other than acceptance on
+#              the fast path. The job runs scripts/ci/verdict.ts, which applies the
+#              rule blockingJobs in scripts/ci/required.ts to the needs of this job; once every need
+#              is green it merges the vitest shards' reports and checks that doctor reads this
+#              repository's harness as checked (decision 0033), in the same job so the tail after
+#              the slowest shard is one job, not two.
 #
 # The fast path is a pull request whose every changed path is on the allow-list in
 # scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated
-# project contains those files, so package and acceptance are skipped; every other job runs.
+# project contains those files, so acceptance is skipped; every other job runs.
 # merge_group and push always take the full path.
 #
 # Each acceptance leg installs the publishable tarball into a directory outside the repository and runs
@@ -138,28 +140,6 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
-  harness-report:
-    needs: vitest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: vitest-blob-*
-          path: .vitest/blob/
-          merge-multiple: true
-      - name: doctor reads this repository's harness as checked (decision 0033)
-        run: |
-          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json
-          pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
-          node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
-
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -175,8 +155,6 @@ jobs:
       - run: pnpm docs:anchors
 
   package:
-    needs: changes
-    if: needs.changes.outputs.fast-path != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -229,7 +207,6 @@ jobs:
           - preset: node-backend
             node: 24
             release-age: 1440
-    name: ${{ matrix.preset }} · node ${{ matrix.node }}${{ matrix.release-age != 0 && ' · minimumReleaseAge' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -265,17 +242,16 @@ jobs:
         if: matrix.release-age != 0
         working-directory: ${{ runner.temp }}/acceptance
         env:
-          RELEASE_AGE_MINUTES: ${{ matrix.release-age }}
+          PROBE_RELEASE_AGE_MINUTES: 5256000
         run: |
-          version=$(npm view typescript@next version)
-          age=$(npm view typescript time --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(Math.floor((Date.now()-Date.parse(JSON.parse(s)[process.argv[1]]))/60000)))' "$version")
-          if [ "$age" -ge "$RELEASE_AGE_MINUTES" ]; then echo "no probe: typescript@$version is $age minutes old, not younger than $RELEASE_AGE_MINUTES"; exit 1; fi
+          version=$(npm view typescript@latest version)
           probe=$(mktemp -d)
-          cp pnpm-workspace.yaml "$probe/"
+          sed "s/^minimumReleaseAge: .*/minimumReleaseAge: $PROBE_RELEASE_AGE_MINUTES/" pnpm-workspace.yaml > "$probe/pnpm-workspace.yaml"
+          grep -qx "minimumReleaseAge: $PROBE_RELEASE_AGE_MINUTES" "$probe/pnpm-workspace.yaml" || { cat "$probe/pnpm-workspace.yaml"; echo "the probe policy line was not written"; exit 1; }
           echo '{"name":"release-age-probe","private":true}' > "$probe/package.json"
-          if (cd "$probe" && pnpm add "typescript@$version") > "$probe/add.log" 2>&1; then cat "$probe/add.log"; echo "the policy let typescript@$version in at $age minutes old"; exit 1; fi
+          if (cd "$probe" && pnpm add "typescript@$version") > "$probe/add.log" 2>&1; then cat "$probe/add.log"; echo "the policy let typescript@$version in under minimumReleaseAge $PROBE_RELEASE_AGE_MINUTES"; exit 1; fi
           grep -q ERR_PNPM_NO_MATURE_MATCHING_VERSION "$probe/add.log" || { cat "$probe/add.log"; echo "pnpm add failed for another reason"; exit 1; }
-          echo "refused typescript@$version at $age minutes old: ERR_PNPM_NO_MATURE_MATCHING_VERSION"
+          echo "refused typescript@$version under minimumReleaseAge $PROBE_RELEASE_AGE_MINUTES: ERR_PNPM_NO_MATURE_MATCHING_VERSION"
 
       - name: pnpm install
         working-directory: ${{ runner.temp }}/acceptance
@@ -296,7 +272,7 @@ jobs:
           "$CONSTRUCT_BIN" doctor --plain
 
   required:
-    needs: [changes, checks, lint, typecheck, vitest, harness-report, docs, package, contract-bump, acceptance]
+    needs: [changes, checks, lint, typecheck, vitest, docs, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -310,3 +286,13 @@ jobs:
       - env:
           NEEDS: ${{ toJSON(needs) }}
         run: pnpm exec tsx scripts/ci/verdict.ts
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vitest-blob-*
+          path: .vitest/blob/
+          merge-multiple: true
+      - name: doctor reads this repository's harness as checked (decision 0033)
+        run: |
+          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json
+          pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
+          node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"

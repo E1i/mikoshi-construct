@@ -21,8 +21,10 @@ repository's CLAUDE.md and `construct.json`.
    tasks is `medium`, and the one-line reason says whose design it carries.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
-   The args come from one deterministic parser, never from you: write `$ARGUMENTS` verbatim to
-   `.construct/implement-agreed.txt` (create the directory if needed; overwrite it) and run
+   The args come from one deterministic parser, never from you. When `.construct/implement-agreed.txt`
+   already exists, the Ghost launcher wrote it from the approved brief before this session: use it as
+   it is and never rewrite it, not even from `$ARGUMENTS`. Otherwise write `$ARGUMENTS` verbatim there
+   (create the directory if needed). Then run
    `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json`.
    The build prints the whole args object: `task` (the brief's first line, without a leading
    `/implement `), `effort` (the first word after `Effort:`), `acceptance`, `witnesses`,

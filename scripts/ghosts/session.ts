@@ -11,6 +11,7 @@ export const HEADLESS_FLAGS = [
   'auto',
   '--permission-prompts',
   'none',
+  '--strict-mcp-config',
   '--session-id',
 ] as const
 

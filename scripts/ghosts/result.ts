@@ -22,6 +22,7 @@ export function readResultFields(reportPath: string): ResultFields {
 
   const lines = readFileSync(reportPath, 'utf8').split('\n').filter(line => line !== '')
   let found: Record<string, unknown> | undefined
+  const marks: number[] = []
 
   for (const line of lines) {
     let parsed: unknown
@@ -32,18 +33,26 @@ export function readResultFields(reportPath: string): ResultFields {
       continue
     }
 
-    if (parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).type === 'result')
-      found = parsed as Record<string, unknown>
+    if (parsed === null || typeof parsed !== 'object')
+      continue
+    const entry = parsed as Record<string, unknown>
+    const mark = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : Number.NaN
+    if (!Number.isNaN(mark))
+      marks.push(mark)
+    if (entry.type === 'result')
+      found = entry
   }
 
+  const duration_ms = marks.length < 2 ? null : Math.max(...marks) - Math.min(...marks)
+
   if (found === undefined)
-    return MISSING
+    return { ...MISSING, duration_ms }
 
   return {
     resultLine: 'present',
     total_cost_usd: (found.total_cost_usd as number | undefined) ?? null,
     num_turns: (found.num_turns as number | undefined) ?? null,
-    duration_ms: (found.duration_ms as number | undefined) ?? null,
+    duration_ms,
     usage: found.usage ?? null,
   }
 }

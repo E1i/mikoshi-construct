@@ -105,6 +105,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm typecheck` | In the harness. `tsc --noEmit`. | `pnpm typecheck` |
 | `pnpm test` | In the harness. Vitest over `tests/` and `scripts/tests/`, once. | `pnpm test [<file>]` |
 | `pnpm test:watch` | The same tests in watch mode. | `pnpm test:watch [<file>]` |
+| `pnpm test:weights` | Rewrites `scripts/ci/test-weights.json`, the per-file durations CI balances its vitest shards by, from a Vitest JSON report. Run it when one shard's job runs noticeably longer than the other. | `pnpm test:weights [<report>]` (default `.construct/reports/vitest.json`) |
 | `pnpm docs:build` | In the harness. Builds the VitePress site in `docs/`. | `pnpm docs:build` |
 | `pnpm docs:pending` | In the harness. Builds a copy of the docs with the pending changesets rendered into the release index, so a changeset that breaks the site fails before the release does. | `pnpm docs:pending` |
 | `pnpm docs:anchors` | In the harness, after `docs:build`. Fails when an anchored nav or sidebar link does not resolve to a rendered heading. | `pnpm docs:anchors` |
