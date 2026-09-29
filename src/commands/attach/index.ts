@@ -1,17 +1,19 @@
 import type { Ui } from '../../ui/console.js'
-import type { Lore } from '../../ui/lore.js'
+import type { Lore, Notice } from '../../ui/lore.js'
 import type { Prompter } from '../../ui/prompts.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
 import { directoriesToCreate, planCarriers } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
+import { fileEditingMarks, throughPackageRunners } from './harness.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
-import { refusalFor } from './refusals.js'
+import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { writeCarriersExclusively } from './write.js'
 
@@ -28,6 +30,7 @@ export interface AttachOptions {
   harness?: string
   ai?: string
   yes: boolean
+  env?: NodeJS.ProcessEnv
 }
 
 export interface AttachResult {
@@ -43,18 +46,29 @@ export const ATTACH_EXIT: Record<AttachResult['status'], number> = {
   aborted: 1,
 }
 
-const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, paths: string[]) => string> = {
+const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefusal) => string | Notice> = {
   'no-git': lore => lore.attachRefusedNoGit,
   'linked-git': lore => lore.attachRefusedLinkedGit,
   'constructed': lore => lore.attachRefusedConstructed,
   'nothing-to-attach': lore => lore.attachRefusedNothingToAttach,
-  'collision': (lore, paths) => lore.attachRefusedCollision(paths),
+  'collision': (lore, refusal) => lore.attachRefusedCollision(refusal.paths),
   'no-harness': lore => lore.attachRefusedNoHarness,
   'cursor': lore => lore.attachRefusedCursor,
+  'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word)),
+}
+
+function explained(ui: Ui, notice: Notice): void {
+  ui.tree([
+    ['Why', notice.why],
+    ['Next', notice.next],
+  ])
 }
 
 function refused(ui: Ui, refusal: AttachRefusal, rollback: Rollback = { removed: [], excludeKept: false }): AttachResult {
-  ui.flatline(REFUSAL_LINE[refusal.reason](ui.lore, refusal.paths))
+  const reading = REFUSAL_LINE[refusal.reason](ui.lore, refusal)
+  ui.flatline(typeof reading === 'string' ? reading : reading.what)
+  if (typeof reading !== 'string')
+    explained(ui, reading)
   for (const target of refusal.paths)
     ui.line(`    ${ui.theme.dim(target)}`)
   if (refusal.rolledBack === true) {
@@ -89,6 +103,15 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   const command = options.harness ?? await interactive?.harnessCommand() ?? null
   if (command == null)
     return aborted()
+  const unresolved = harnessRefusal(command, (options.env ?? process.env).PATH ?? '')
+  if (unresolved != null)
+    return refused(ui, unresolved)
+  const marks = fileEditingMarks(command)
+  if (marks.length > 0) {
+    const notice = ui.lore.attachHarnessEditsFiles(marks)
+    ui.glitch(notice.what)
+    explained(ui, notice)
+  }
 
   const ops = planCarriers(root, command)
   const targets = ops.map(op => op.target)

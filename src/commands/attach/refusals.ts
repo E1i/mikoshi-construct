@@ -2,13 +2,15 @@ import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { isEmptyDir } from '../../detect/layout.js'
 import { ATTACH_CARRIERS } from '../../presets/index.js'
+import { unresolvedCommandWord } from './harness.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'no-harness' | 'cursor'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'no-harness' | 'cursor' | 'not-a-command'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
   paths: string[]
   rolledBack?: boolean
+  harness?: { command: string, word: string }
 }
 
 export interface AttachFlags {
@@ -41,4 +43,9 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
   if (flags.ai != null && AI_OUT_OF_SCOPE.includes(flags.ai))
     return refusal('cursor')
   return null
+}
+
+export function harnessRefusal(command: string, searchPath: string): AttachRefusal | null {
+  const word = unresolvedCommandWord(command, searchPath)
+  return word == null ? null : { reason: 'not-a-command', paths: [], harness: { command, word } }
 }

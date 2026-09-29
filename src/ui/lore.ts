@@ -8,6 +8,12 @@ export const BANNER = String.raw`
   ██║ ╚═╝ ██║██║██║  ██╗╚██████╔╝███████║██║  ██║██║
   ╚═╝     ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝`
 
+export interface Notice {
+  what: string
+  why: string
+  next: string
+}
+
 export interface Lore {
   subtitle: (version: string) => string
   johnnyWakeUp: string
@@ -135,6 +141,8 @@ export interface Lore {
   attachRefusedCollision: (paths: string[]) => string
   attachRefusedNoHarness: string
   attachRefusedCursor: string
+  attachRefusedNotACommand: (word: string, suggestions: string[]) => Notice
+  attachHarnessEditsFiles: (marks: string[]) => Notice
   attachRolledBack: (count: number) => string
   attachBlockKept: string
   attached: string
@@ -351,6 +359,16 @@ export const LORE: Lore = {
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
   attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
   attachRefusedCursor: 'BREACH FAILED // CURSOR OUT OF SCOPE: alwaysApply rules govern the whole tree',
+  attachRefusedNotACommand: (word: string, suggestions: string[]) => ({
+    what: `BREACH FAILED // DEAD COMMAND: "${word}" is nowhere on PATH`,
+    why: 'The ladder runs the harness as written in a plain shell; a package script name or a node_modules/.bin binary never resolves there, so every rung would flatline before it measured anything.',
+    next: suggestions.map(suggestion => `--harness "${suggestion}"`).join('  or  '),
+  }),
+  attachHarnessEditsFiles: (marks: string[]) => ({
+    what: `The harness rewrites the tree: ${marks.join(', ')}`,
+    why: 'It runs on the base and after every change; a gate that fixes what it checks turns a red change green and slips its own edits into the diff under review.',
+    next: 'construct detach, then jack in again with the form that only checks (eslint . rather than eslint . --fix).',
+  }),
   attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
   attachBlockKept: 'Block left in .git/info/exclude: the bytes before it are no longer what this run wrote, so it was not cut out. construct detach will name it.',
   attached: 'JACKED IN // NETRUN STARTED',
@@ -559,6 +577,16 @@ export const PLAIN_LORE: Lore = {
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
   attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
   attachRefusedCursor: 'Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.',
+  attachRefusedNotACommand: (word: string, suggestions: string[]) => ({
+    what: `Refused: "${word}" is not a command found on PATH.`,
+    why: 'The ladder runs the harness as written, in a plain shell; a package.json script name or a binary under node_modules/.bin is not on PATH there, so every rung would fail before it measured anything.',
+    next: suggestions.map(suggestion => `--harness "${suggestion}"`).join('  or  '),
+  }),
+  attachHarnessEditsFiles: (marks: string[]) => ({
+    what: `The harness command edits files: ${marks.join(', ')}.`,
+    why: 'The ladder runs it on the base and after every change; a gate that fixes what it checks can turn a red change green, and its edits land in the diff under review.',
+    next: 'construct detach, then attach again with the form that only checks (eslint . rather than eslint . --fix).',
+  }),
   attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,
   attachBlockKept: 'The block this run added to .git/info/exclude was left in place: the bytes before it are no longer what this run wrote, so cutting it out would take yours. construct detach will name it.',
   attached: 'Attached to repository.',
