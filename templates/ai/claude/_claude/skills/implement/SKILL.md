@@ -21,8 +21,10 @@ repository's CLAUDE.md and `construct.json`.
    tasks is `medium`, and the one-line reason says whose design it carries.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
-   The args come from one deterministic parser, never from you: write `$ARGUMENTS` verbatim to
-   `.construct/implement-agreed.txt` (create the directory if needed; overwrite it) and run
+   The args come from one deterministic parser, never from you. When `.construct/implement-agreed.txt`
+   already exists, the Ghost launcher wrote it from the approved brief before this session: use it as
+   it is and never rewrite it, not even from `$ARGUMENTS`. Otherwise write `$ARGUMENTS` verbatim there
+   (create the directory if needed). Then run
    `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json`.
    The build prints the whole args object: `task` (the brief's first line, without a leading
    `/implement `), `effort` (the first word after `Effort:`), `acceptance`, `witnesses`,
@@ -53,9 +55,10 @@ repository's CLAUDE.md and `construct.json`.
    derives the result's `contractChanged` from `harness.contractPaths`: true only when a path in the
    harness's `changedFiles` equals one of these exactly. When `harness.contractPaths` is non-empty and
    `harness.contractCheck` is a non-empty string, the check is declared: the harness agent runs it after the
-   harness command passes, and a rung whose declared check is red or unreported is `contract check
-   failed`, never `done`; a red check's reason names the command and its exit code, followed by its
-   last lines when it reported any.
+   harness command passes, and a rung whose declared check is red, unreported or reported under another
+   command is `contract check failed`, never `done`: the reported `command` must equal
+   `harness.contractCheck` byte for byte, as a witness's `ranSha256` must equal its digest. A red check's
+   reason names the command and its exit code, followed by its last lines when it reported any.
 3. The build is the only check that the brief reached the args. On a non-zero exit it has refused the
    brief — no `Acceptance:` section, an acceptance item with no witness (`no witness`), a witness
    holding a backtick (`backtick`), no harness command, a `Contract paths:` or `Contract check:` line
@@ -135,7 +138,7 @@ repository's CLAUDE.md and `construct.json`.
      `outcome` and the `reason` that separates an invalid response shape from a red harness, from a
      rung that changed nothing (`no change`), from a rung that changed an immutable path
      (`immutable changed`), from a rung that changed source with no test (`untested change`), from a
-     rung whose declared contract check was red or unreported (`contract check failed`), from an
+     rung whose declared contract check was red, unreported or another command (`contract check failed`), from an
      invalid witness (`witness invalid`), from an acceptance not witnessed, from a blocked report and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:

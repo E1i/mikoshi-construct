@@ -146,6 +146,20 @@ describe('the declared contract check', () => {
     expect(harnessPrompts(withCheck)).toEqual(harnessPrompts(withoutCheck))
   })
 
+  it('a green check reported under another command is not done, and the reason names both commands', async () => {
+    const { result, calls } = await run(DECLARED_HARNESS, [verdict({ command: 'make contract-marker', exitCode: 0, excerpt: '' }), GREEN_CHECK])
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'contract check failed', reason: `the harness reported "make contract-marker", not the declared contract check "${CONTRACT_CHECK_COMMAND}"` })
+    expect(calls.filter(call => call.agentType === 'implementer')[1].prompt).toContain('not the declared contract check')
+    expect(result.status).toBe('done')
+  })
+
+  it('a check reported with surrounding whitespace is another command', async () => {
+    const { result } = await run(DECLARED_HARNESS, [verdict({ command: ` ${CONTRACT_CHECK_COMMAND}`, exitCode: 0, excerpt: '' }), GREEN_CHECK])
+
+    expect(result.attempts[0]).toMatchObject({ outcome: 'contract check failed' })
+  })
+
   it('a red contract check with an empty excerpt names the command and its exit code', async () => {
     const { result, calls } = await run(DECLARED_HARNESS, [verdict({ command: CONTRACT_CHECK_COMMAND, exitCode: 1, excerpt: '' }), GREEN_CHECK])
 

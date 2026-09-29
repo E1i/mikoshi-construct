@@ -272,6 +272,7 @@ describe('the /implement skill', () => {
       const text = readFileSync(path.join(REPO_ROOT, skill), 'utf8')
 
       expect(text).toContain('check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json')
+      expect(text).toContain('already exists, the Ghost launcher wrote it from the approved brief before this session: use it as\n   it is and never rewrite it')
       expect(text).toContain('`.construct/implement-args.json`, unchanged')
       expect(text).not.toContain('--agreed')
     })
