@@ -224,6 +224,36 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
   })
 })
 
+describe('board: a cheap task that ends in a report, not a PR', () => {
+  it('prints the report as its outcome, not a PR as its next step', () => {
+    const cells = rowOf(board(['--dir', CHEAP]).stdout, 'c-report')
+    expect([cells[0], cells[1], cells[2], cells[4]]).toEqual(['c-report', 'cheap', 'reported', 'report: notes/c-report.md'])
+  })
+
+  it('is reported, not running, and has only the started and reported stages', () => {
+    const block = attemptBlock(board(['--dir', CHEAP, 'c-report']).stdout, 'c-report')
+    expect(block).toEqual([
+      '  c-report live reported',
+      '    started done 2026-09-28T10:00:00.000Z (journal event:path)',
+      '    reported done 2026-09-28T10:30:00.000Z (journal event:path, report notes/c-report.md)',
+    ])
+  })
+
+  it('leaves it out of the running count and the longest', () => {
+    const summary = board(['--dir', CHEAP]).stdout[0]
+    expect(summary).toMatch(/^running 2, waiting 1, blocked 0, /)
+    expect(summary).not.toContain('c-report')
+  })
+
+  it('carries the category and the report in --json', () => {
+    const json = JSON.parse(board(['--dir', CHEAP, '--json']).stdout[0])
+    const task = json.tasks.find((candidate: any) => candidate.derived.live === 'c-report')
+    expect(task.derived.category).toBe('reported')
+    expect(task.derived.next).toEqual({ situation: 'report', text: 'report: notes/c-report.md', why: null })
+    expect(task.derived.shownByDefault).toBe(true)
+  })
+})
+
 describe('board: ready is CI on the PR\'s current head, never the journal', () => {
   it.each([
     { id: 'n-auto', ready: 'done 2026-09-28T07:20:00.000Z (CI required green on 3232323)', category: 'waiting', note: 'green, and its journal line carries no ready' },
@@ -406,7 +436,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 

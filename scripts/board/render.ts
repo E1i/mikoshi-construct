@@ -1,7 +1,7 @@
 import type { AttemptView, Summary, TaskView } from './derive.js'
 import type { PrDetails } from './gh.js'
 import type { Age, NextOf, Row } from './row.js'
-import { isSuperseded, MERGED_SHOWN, stageText } from './derive.js'
+import { FINISHED_SHOWN, isSuperseded, stageText } from './derive.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { rowOf, unknownTally } from './row.js'
 
@@ -24,17 +24,18 @@ export const DEFINITIONS = [
   `# stages: brief = brief file mtime · approved = <brief>.approved-sha256 mtime · ghost = journal event:task ts · review = last journal event:review · ready = the check "${REQUIRED_CHECK}" green on the PR\'s current head (gh), at its completedAt · merged = journal event:merge, else gh mergedAt`,
   '# ready is derived from CI, never from the journal: — while CI on the current head is pending, red or has not reported; a push makes a new head, and the task is not ready until CI on that head is green; a journal ready field is not read',
   '# cheap path (a journal event:path line with path cheap): started → ready → pr → merged; started and pr from that line, ready from CI on that PR\'s head, merged = journal event:merge, else gh mergedAt of that PR number; no brief, approved, ghost or review stages',
+  '# report = a cheap-path event:path line with a report and no pr: started → reported (its ts); the task ends in that file, not a PR, and NEXT reads report: <path>',
   '# — = did not happen: not merged while the last review verdict is changes, no PR for the branch, a PR not merged, a ghost still running',
   '# UNKNOWN = a record could exist and does not; the missing record is named',
   '# task (derived) = the attempts whose tasks-file entries name one brief file; the latest attempt is live, the others are history',
   '# latest (derived) = ordered by the status.md start of ghost-<id>, else by the mtime of the newest tasks file naming it',
   '# status.md times carry no zone; they are read as this machine\'s local time',
-  '# merged = a journal event:merge or a gh mergedAt exists',
-  '# running = not merged, and its status.md row ghost-<id> has state writing, reviewing or reading; on the cheap path, not merged and not ready',
+  '# merged = a journal event:merge or a gh mergedAt exists; reported = the event:path line names a report and no pr',
+  '# running = not merged, and its status.md row ghost-<id> has state writing, reviewing or reading; on the cheap path, not merged, not reported and not ready',
   '# blocked = not merged, not running, and the journal records exit != 0, a ladder outcome other than "done", or a last review verdict "changes"',
   '# waiting = not merged, not running, not blocked, and a journal event:task exists (ladder finished, nothing after it recorded); on the cheap path, not merged and ready',
   '# summary = over live attempts only; longest = now minus the status.md start (on the cheap path, the event:path started), among running, waiting and blocked; an attempt without a start is not measured',
-  `# shown: tasks whose live attempt is running, waiting or blocked, and the last ${MERGED_SHOWN} merged; --all shows every task`,
+  `# shown: tasks whose live attempt is running, waiting or blocked, and the last ${FINISHED_SHOWN} merged or reported; --all shows every task`,
   '# superseded = a journal event:superseded names the attempt and the attempt that replaced it (by); a task whose live attempt is superseded is left out of the summary, the default list and the list\'s UNKNOWN tally, and every superseded attempt out of --json\'s; --all lists it, NEXT reads — (superseded); its card counts its own UNKNOWN and names the successor, as --json does',
   '# edge = contour.after of the Shredder matrix a tasks file names; UNKNOWN without one',
   ROW_DEFINITION,
