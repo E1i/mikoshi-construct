@@ -22,7 +22,10 @@ different tree.
 When git is usable, also inspect `git diff` (staged and unstaged) for:
 
 - a deleted or renamed file under any `tests/` directory;
-- `.skip(` or `.only(` added to a test.
+- `.skip(` or `.only(` added to a test;
+- a pytest skip or expected failure added to a test: `@pytest.mark.skip`, `@pytest.mark.skipif` or
+  `@pytest.mark.xfail`, with or without parentheses after it, or a `pytest.skip(` or `pytest.xfail(`
+  call.
 
 Report the security leg separately from the rest when a failure comes from a security lint rule,
 a contract security test or the secret scan, so the reader sees the invariant, not just the tool.
@@ -56,5 +59,5 @@ Return these fields; the runtime validates the shape against the schema it gives
   when a step fails). You report exit codes; the ladder decides what they mean. The working tree has
   one writer: never stash, check out, move or rewrite a file in it to reach the base.
 - `contractCheck` — only when the prompt names a contract check: after the harness command passed,
-  run that command in the working tree and report `command` as given, `exitCode` and `excerpt`, its
-  last lines. When the prompt names no contract check, leave the field out.
+  run that command in the working tree and report `command` as given, byte for byte (a different
+  string reads as a check that did not run), `exitCode` and `excerpt`, its last lines. When the prompt names no contract check, leave the field out.

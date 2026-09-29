@@ -545,6 +545,10 @@ there, and nowhere else.
   ready is derived from CI, never announced as an event of its own. A later push, a merge of `main`
   into the branch included, makes a new head, and the pull request is ready again only once CI on that
   head is green. `pnpm board` derives ready the same way.
+- A change to the owner's machine — installing or upgrading anything outside a worktree (`brew`, `pipx`,
+  `npm i -g`, a Poetry or conda environment, a global config) — happens only after the owner's explicit
+  yes. An instruction to use a tool is not permission to install it: name what is missing and the
+  command that would install it, and wait.
 
 One task, one branch, one pull request, one changeset, and never a commit on `main`. Independent
 branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit
@@ -576,7 +580,10 @@ not the default, and the cheap path keeps its discipline: CI and
 
 The journal, which lives outside the repository, gets one line per task naming the path and why it
 was chosen: `{"event":"path","task","path","reason",…}`, with `path` either `cheap` or `ladder`.
-`pnpm board` reads these lines.
+`pnpm board` reads these lines. A cheap task also records `verification`: one word for the mechanism
+that produced the knowledge its result stands on (E9 in [architecture/code-matrix.md](architecture/code-matrix.md)) —
+`measurement`, `code-reading`, `run`, `review`, `mutation`, `browser` or `human-gate`. A task whose
+outcome is a report and not a pull request records `report` with the report's path instead of `pr`.
 
 Morse is not introduced, and the classification is not designed in advance.
 
@@ -609,8 +616,9 @@ is named by its contents.
 
 ## Reviewing a run
 
-A report on a pull request here ends with the compact matrix described in
-[architecture/code-matrix.md](architecture/code-matrix.md), over its four common rules and any the brief declares.
+A report on a pull request that changes `src/` or `templates/` ends with the compact matrix described in
+[architecture/code-matrix.md](architecture/code-matrix.md), over its four common rules and any the brief declares;
+on one that changes only `scripts/`, the matrix is optional.
 
 Mutations go only through `construct mutate apply` / `judge` (read `construct mutate --help` for the
 current flags), never through a hand-rolled copy and restore, and a red-on-base check runs in a

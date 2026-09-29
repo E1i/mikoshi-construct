@@ -1,7 +1,7 @@
 import type { GhRunner } from '../../board/gh.js'
 import type { BoardResult } from '../../board/run.js'
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -10,6 +10,7 @@ import { NEXT_BY_SITUATION } from '../../board/next.js'
 import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
 import { ageSince } from '../../board/row.js'
 import { runBoard } from '../../board/run.js'
+import { VERIFICATION_WORDS } from '../../board/verification.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const FIXTURES = path.join(REPO_ROOT, 'scripts/tests/board/fixtures')
@@ -205,7 +206,7 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
   ])('$id prints only the cheap-path stages and is $category', ({ id, category }) => {
     const block = attemptBlock(board(['--dir', CHEAP, id]).stdout, id)
     expect(block[0]).toBe(`  ${id} live ${category}`)
-    expect(block.slice(1).map(line => line.trim().split(' ')[0])).toEqual(['started', 'ready', 'pr', 'merged'])
+    expect(block.slice(1).map(line => line.trim().split(' ')[0])).toEqual(['started', 'ready', 'pr', 'merged', 'verification'])
   })
 
   it('keeps the ladder stages for a task whose path line is not cheap', () => {
@@ -221,6 +222,66 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
     const { stdout } = board(['--dir', CHEAP, 'c-open'])
     expect(stdout.filter(line => line.startsWith('# ready is derived from CI') && line.includes('a journal ready field is not read'))).toHaveLength(1)
     expect(stdout.filter(line => line.startsWith('#') && line.includes('no event exists'))).toEqual([])
+  })
+})
+
+describe('board: a cheap task that ends in a report, not a PR', () => {
+  it('prints the report as its outcome, not a PR as its next step', () => {
+    const cells = rowOf(board(['--dir', CHEAP]).stdout, 'c-report')
+    expect([cells[0], cells[1], cells[2], cells[4]]).toEqual(['c-report', 'cheap', 'reported', 'report: notes/c-report.md'])
+  })
+
+  it('is reported, not running, and has only the started and reported stages', () => {
+    const block = attemptBlock(board(['--dir', CHEAP, 'c-report']).stdout, 'c-report')
+    expect(block).toEqual([
+      '  c-report live reported',
+      '    started done 2026-09-28T10:00:00.000Z (journal event:path)',
+      '    reported done 2026-09-28T10:30:00.000Z (journal event:path, report notes/c-report.md)',
+      '    verification code-reading (journal event:path)',
+    ])
+  })
+
+  it('leaves it out of the running count and the longest', () => {
+    const summary = board(['--dir', CHEAP]).stdout[0]
+    expect(summary).toMatch(/^running 2, waiting 1, blocked 0, /)
+    expect(summary).not.toContain('c-report')
+  })
+
+  it('carries the category and the report in --json', () => {
+    const json = JSON.parse(board(['--dir', CHEAP, '--json']).stdout[0])
+    const task = json.tasks.find((candidate: any) => candidate.derived.live === 'c-report')
+    expect(task.derived.category).toBe('reported')
+    expect(task.derived.next).toEqual({ situation: 'report', text: 'report: notes/c-report.md', why: null })
+    expect(task.derived.shownByDefault).toBe(true)
+  })
+})
+
+describe('board: the verification word a cheap task records in its event:path line', () => {
+  it.each([
+    { id: 'c-gh', expected: 'run (journal event:path)' },
+    { id: 'c-report', expected: 'code-reading (journal event:path)' },
+    { id: 'c-journal', expected: 'UNKNOWN (missing: verification; the journal event:path line records none)' },
+    { id: 'c-open', expected: `UNKNOWN (missing: verification; 'a hunch' is not one of ${VERIFICATION_WORDS.join(', ')})` },
+  ])('$id reads $expected', ({ id, expected }) => {
+    expect(stageOf(CHEAP, id, 'verification')).toBe(expected)
+  })
+
+  it('carries it in --json among the attempt facts', () => {
+    const json = JSON.parse(board(['--dir', CHEAP, '--json']).stdout[0])
+    const attempt = json.tasks.flatMap((task: any) => task.attempts).find((candidate: any) => candidate.id === 'c-gh')
+    expect(attempt.facts).toContainEqual({ name: 'verification', state: 'fact', value: 'run', source: 'journal event:path', text: 'run (journal event:path)' })
+  })
+
+  it('keeps it out of the UNKNOWN tally, which counts stages only', () => {
+    expect(board(['--dir', CHEAP]).stdout.at(-1)).not.toContain('verification')
+  })
+
+  it('has every word explained in the AGENTS.md rule', () => {
+    const agents = readFileSync(path.join(REPO_ROOT, 'AGENTS.md'), 'utf8')
+    const rule = agents.split('\n').find(line => line.includes('`verification`'))
+    expect(rule, 'no AGENTS.md line names the verification field').toBeDefined()
+    for (const word of VERIFICATION_WORDS)
+      expect(agents).toContain(`\`${word}\``)
   })
 })
 
@@ -406,7 +467,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 

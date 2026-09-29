@@ -32,6 +32,8 @@ export interface PathEvent {
   started?: string
   pr?: number
   sha?: string
+  report?: string
+  verification?: string
   ts: string
 }
 

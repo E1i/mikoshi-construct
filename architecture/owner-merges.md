@@ -6,7 +6,8 @@ this list because Eli put it here.
 
 Written by window A on 2026-09-27 at Eli's instruction, copying the list Eli settled on 2026-09-27. The paths column and the
 kind `ghosts` were added the same day, also at Eli's instruction, with Eli's globs. Moved unchanged into the repository on
-2026-09-28 at Eli's instruction. From now on, only Eli changes it.
+2026-09-28 at Eli's instruction. From now on, only Eli changes it. The kind `agents-md` is Eli's decision of 2026-09-28,
+which was not written here then; window A added it on 2026-09-29 at Eli's instruction.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -20,6 +21,7 @@ is matched by its title.)
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init` or `attach` writes: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
 | ghosts | `scripts/ghosts/**` | the Ghost launcher (window E's brief) | — |
+| agents-md | `AGENTS.md` | this repository's `AGENTS.md`, the rules every agent working here reads | PR #366 |
 
 Everything else is merged through auto-merge by the window that gated it, including `quality`/CI gates and `formats.*`
 bumps. Branch protection is a GitHub setting that Eli applies.

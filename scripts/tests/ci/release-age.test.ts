@@ -28,6 +28,14 @@ describe('the minimumReleaseAge acceptance leg', () => {
     expect(steps[probe]!.run).toContain('ERR_PNPM_NO_MATURE_MATCHING_VERSION')
   })
 
+  it('proves the refusal without depending on anyone\'s publish schedule: a ten-year policy in the probe refuses today\'s latest', () => {
+    const probe = steps[stepNamed('The release-age policy refuses a version younger than it')]! as Step & { env?: Record<string, unknown> }
+    expect(probe.env?.PROBE_RELEASE_AGE_MINUTES).toBe(5256000)
+    expect(probe.run).toContain('minimumReleaseAge: $PROBE_RELEASE_AGE_MINUTES')
+    expect(probe.run).not.toContain('@next')
+    expect(probe.run).not.toMatch(/npm view \S+ time/)
+  })
+
   it('leaves the policy line to the project\'s eslint --fix after the install, before quality lints the file', () => {
     const install = stepNamed('pnpm install')
     const format = stepNamed('Format the release-age policy with the project\'s own lint')

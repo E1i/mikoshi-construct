@@ -66,6 +66,14 @@ function discoveryEntry(baseSha: string | null): { fact: Fact, hypothesis: Hypot
   }
 }
 
+describe('the discovery protocol reads what a repository says about itself', () => {
+  it('has the inventory read every README from start to end before a command is written down', () => {
+    const inventory = protocol().split('\n2. **Inventory.**')[1]!.split('\n3. ')[0]!
+    expect(inventory).toContain('every README')
+    expect(inventory).toContain('start to end')
+  })
+})
+
 describe('the discovery protocol writes hypotheses the schema accepts', () => {
   it('carries a worked model the parser accepts, with every entry authored by discovery', () => {
     const blocks = jsonBlocks(protocol())

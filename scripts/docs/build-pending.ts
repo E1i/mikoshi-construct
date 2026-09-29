@@ -1,4 +1,5 @@
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { build } from 'vitepress'
@@ -8,7 +9,7 @@ import { renderIndex } from '../release-notes/render.js'
 
 const CHANGESET_DIR = path.join(REPO_ROOT, '.changeset')
 const DOCS = path.join(REPO_ROOT, 'docs')
-const COPY = path.join(REPO_ROOT, '.docs-pending')
+const SIBLINGS_THE_DOCS_CONFIG_RESOLVES = ['package.json', 'scripts', 'node_modules']
 const GENERATED = ['.vitepress/cache', '.vitepress/dist'].map(part => path.join(DOCS, part))
 
 function changesetFiles(): string[] {
@@ -24,8 +25,12 @@ if (pending == null) {
   process.exit(0)
 }
 
+const workspace = mkdtempSync(path.join(tmpdir(), 'construct-docs-pending-'))
+const COPY = path.join(workspace, 'docs')
+
 try {
-  rmSync(COPY, { recursive: true, force: true })
+  for (const sibling of SIBLINGS_THE_DOCS_CONFIG_RESOLVES)
+    symlinkSync(path.join(REPO_ROOT, sibling), path.join(workspace, sibling))
   cpSync(DOCS, COPY, { recursive: true, filter: source => !GENERATED.some(generated => source.startsWith(generated)) })
   const entries = [pending, ...parseChangelog(readFileSync(CHANGELOG_PATH, 'utf8'))]
   writeFileSync(path.join(COPY, 'release-notes/index.md'), renderIndex(entries, handWrittenNotes()))
@@ -34,9 +39,9 @@ try {
 }
 catch (error) {
   console.error(error)
-  console.error(`[docs:pending] the docs do not build once the pending changesets are rendered into the release index. The error above points into .docs-pending/release-notes/index.md, a copy already removed; the text it quotes comes from one of: ${files.map(file => `.changeset/${file}`).join(', ')}`)
+  console.error(`[docs:pending] the docs do not build once the pending changesets are rendered into the release index. The error above points into a copy of docs/release-notes/index.md outside the repository, already removed; the text it quotes comes from one of: ${files.map(file => `.changeset/${file}`).join(', ')}`)
   process.exitCode = 1
 }
 finally {
-  rmSync(COPY, { recursive: true, force: true })
+  rmSync(workspace, { recursive: true, force: true })
 }
