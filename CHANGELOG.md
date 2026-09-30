@@ -1,5 +1,13 @@
 # mikoshi-construct
 
+## 0.30.0
+
+### Minor Changes
+
+- [#392](https://github.com/E1i/mikoshi-construct/pull/392) [`16d379e`](https://github.com/E1i/mikoshi-construct/commit/16d379e630122d04f5d14cd04be0ec821a9d6e4a) Thanks [@E1i](https://github.com/E1i)! - cli: upgrade the CLI before running detach on a repository this release attached, because attach now writes a PreToolUse guard into the untracked `.claude/settings.local.json` that refuses the agent a `git commit`, push, merge, `rebase` or tag, recordVersion becomes 2, and an older detach refuses that record and removes nothing while `detach` here takes exactly that entry out
+
+- [#389](https://github.com/E1i/mikoshi-construct/pull/389) [`a4f3a92`](https://github.com/E1i/mikoshi-construct/commit/a4f3a9237969202633b35608baf25ccdf5ee1560) Thanks [@E1i](https://github.com/E1i)! - cli: attach --entry prints the protocol by which the agent reads a repository and proposes one harness the owner answers yes or no; the no-harness refusal names it, and a collision labels each existing path construct's own or not recognised against the known set of earlier files and prints the one command that deletes only the recognised ones and runs attach again
+
 ## 0.29.0
 
 ### Minor Changes
