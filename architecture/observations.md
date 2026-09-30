@@ -1965,3 +1965,34 @@ thirty-six missed runs, two operators, three sessions, five days, one repository
 general.** It is the first number of any kind where there had previously been an assumption, and
 nothing in it says whether a prompt, a checklist or a different placement would move it, because none
 of those was tried.
+
+## 2026-09-30 · The witnesses proved the command is printed, not that it is safe to paste
+
+The ladder run for the attach entry protocol ([0037](decisions/0037-attach-entry-is-read-by-the-agent.md))
+finished `done`. Every witness was red on the base and green after, and every predicted mutation was
+caught. Review then built one case none of them had: a repository at `…/x$(touch PWNED)` holding a
+byte-identical carrier. Attach printed `cd "…x$(touch PWNED)" && rm -- …`, and pasting that command
+created `PWNED`. The harness was re-quoted the same way, so `--harness 'echo $HOME'` came back as
+`"echo $HOME"`, and the pasted command recorded a different harness from the one given.
+
+**The evidence was sound and was about a different property.** The witnesses asserted that the command
+is printed: the delete line names the recognised paths, the rerun carries the root and the harness,
+and an unrecognised file never appears on the delete line. The property the owner relies on is that
+the printed text, pasted into a shell, does what it says and nothing else. No witness ran the printed
+text under a shell with a hostile name, so every one of them was consistent with a command that runs
+code. The brief itself fixed the quoting as JSON, which settles the printed form and says nothing about
+what a shell does with it. The same pattern was already on main in the not-a-command next step, so
+this is the second occurrence.
+
+**What now holds it.** Every command attach prints for pasting goes through one POSIX single-quote
+helper, `src/commands/attach/shell-word.ts`. The review's case is now a test,
+`tests/attach-shell-word.test.ts`. It has one table of hostile words (`$(touch PWNED)`, a backtick,
+`'`, a space, `$HOME`), placed in the directory name and in the harness. The printed command is run
+under `sh -c`, and the test asserts that nothing was created and that the harness parses back exactly.
+The same test covers the not-a-command step. On the ladder's commit, the `$(…)`, backtick and `$HOME`
+rows fail.
+
+**Boundary.** One ladder run and one property. It says that a witness asserting what a command
+*contains* does not witness what running it *does*, and that a brief can fix the form of an output
+without stating the property the form was meant to give. It says nothing about how often briefs do
+that. A related gap from the same review, running attach again on an attached tree, is #388.
