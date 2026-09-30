@@ -575,6 +575,12 @@ rewrites `board.txt` in the handoff directory with every frame. Every report to 
 tasks `board.txt` shows as running or waiting, read from the file at the moment of writing, never from the session's
 memory of them.
 
+The coordinating window stops at a boundary rather than at the limit. It checks the boundary after each finished step.
+The boundary is reached when `/context` shows 150k tokens in context, or when a pull request of an owner-merged kind has
+just merged. From then on it takes no new work. It waits for the subagents it started itself, writes their results into
+the handoff, and stops. It does not wait for Ghosts: their state is in the ledger and the journal, and the next session
+reads it there. In Ghost Protocol a flag switches this rule off (#394).
+
 ## Choosing the contour: cheap path or ladder path
 
 The principle is *The cheapest contour that gives the required proof* in
