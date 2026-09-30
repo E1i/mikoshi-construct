@@ -25,14 +25,23 @@ npx mikoshi-construct detach
 ## What attach creates, and what it leaves alone
 
 It creates eight files: the `/plan` command, the `/implement` skill, the three agents, the ladder
-script, the acceptance check the skill runs before the ladder and the script that reads the
-contract paths the ladder compares the changed files with. It hides them, and `.construct/`,
-through a block in `.git/info/exclude`, so `git status` stays empty. It records what it created, with a hash per file, in `.construct/attach.json`.
+script, the acceptance check the skill runs before the ladder, and the commit guard
+`.construct/commit-guard.mjs`. It hides them, and `.construct/`, through a block in
+`.git/info/exclude`, so `git status` stays empty. It records what it created, with a hash per file, in
+`.construct/attach.json`.
+
+It also adds one entry to `.claude/settings.local.json`, the untracked per-user settings file, that runs
+the guard before every Bash call: in this repository the agent is refused `git commit`, `git push`,
+`git merge`, `git rebase` and `git tag`, and leaves the change uncommitted for you to read and commit
+yourself. A bare `git tag`, `git tag --list`, `git merge --abort` and `git rebase --abort` still work.
+It is a guard against the direct form, not a sandbox, and it has no bypass for the agent; `detach`
+removes it. attach refuses instead of editing that file when it is tracked, unreadable or already
+carries a guard entry. The details are in the [CLI reference](/cli#the-commit-guard).
 
 It leaves alone every tracked file, `CLAUDE.md` and `AGENTS.md`, your lint, test and workspace
 configuration, and CI. It writes no `construct.json`, no model and no discovery markers. `.git/info/`
-is the only place outside the eight files and `.construct/` that it touches, and nothing there is
-committed.
+and the entry in `.claude/settings.local.json` are the only places outside the eight files and
+`.construct/` that it touches, and nothing there is committed.
 
 **The harness command is never guessed.** Pass the command your repository already uses to check a
 change, whatever its package manager: `npm test`, `yarn check`, `bun run ci`. Without a terminal,
@@ -45,7 +54,7 @@ sentence for the pull request.
 ## When attach refuses
 
 Every refusal happens before anything is written. The full list with the exact output is in the
-[CLI reference](/cli#the-seven-refusals).
+[CLI reference](/cli#the-twelve-refusals).
 
 | Refusal | What to do |
 |---|---|
@@ -54,6 +63,7 @@ Every refusal happens before anything is written. The full list with the exact o
 | `construct.json` is here | The repository already carries a construct. Use `sync` and `doctor`, not `attach`. |
 | nothing to attach to | The directory holds only `.git` and files such as a README or a LICENSE. attach works on any stack; it needs something to attach to and a harness command. |
 | paths already exist | A file attach would create is already there, and it is yours. Move it aside or keep working without attach; attach never writes over it. |
+| `.claude/settings.local.json` is tracked, unreadable, or already carries a guard entry | attach will not edit it. Stop tracking it, fix it or move it aside, then attach again. |
 | `--yes` without `--harness` | Pass `--harness <command>`. |
 | `--ai cursor` or `both` | Not supported: a Cursor rule would apply to the whole tree. Use Claude Code. |
 
@@ -80,10 +90,16 @@ not, for you to remove by hand.
 file if you did not mean to keep the change, or commit it if you did; a committed carrier is adopted
 and stays. There is no `--force`.
 
+**The guard entry is taken out of `.claude/settings.local.json`.** detach removes the one element attach
+appended, and the file itself only when attach created it and nothing else is left in it; grants and
+hooks you added stay. An entry you edited is refused as changed, one you deleted is named as already
+absent, and a settings file you committed is left as it is. Run detach with a CLI at least as new as the
+one that attached: an older detach refuses a `recordVersion` 2 record and removes nothing, so upgrade
+the CLI (`npx mikoshi-construct@latest`) first.
+
 **Files attach did not write stay.** `/implement` writes its run ledger to `.construct/runs.jsonl`, and
-Claude Code may write `.claude/settings.local.json`. detach does not remove either. It names them, and
-once the exclude block is gone they show in `git status` as untracked files, for you to keep or
-delete.
+a settings file that holds more than the guard entry stays. detach names them, and once the exclude
+block is gone they show in `git status` as untracked files, for you to keep or delete.
 
 The remaining refusals, about the git index and the record, are listed with their exact output in the
 [CLI reference](/cli#construct-detach), each with how to get an index detach can read.

@@ -1,9 +1,10 @@
+import type { SettingsHook } from './settings.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const ATTACH_RECORD_FILE = '.construct/attach.json'
 export const ATTACH_LEDGER_DIR = '.construct'
-export const ATTACH_RECORD_VERSION = 1
+export const ATTACH_RECORD_VERSION = 2
 
 export interface AttachRecord {
   recordVersion: number
@@ -15,6 +16,7 @@ export interface AttachRecord {
   excludeCreated: boolean
   ledgerCreated?: boolean
   excludeSeparator: number
+  settingsHook?: SettingsHook
 }
 
 export function readAttachRecord(root: string): AttachRecord | null {

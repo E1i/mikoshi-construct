@@ -1966,6 +1966,25 @@ general.** It is the first number of any kind where there had previously been an
 nothing in it says whether a prompt, a checklist or a different placement would move it, because none
 of those was tried.
 
+## 2026-09-30 · The tests filled stdin before the start, so the witness was not about the property
+
+The commit guard of [0035](decisions/0035-attach-guards-the-direct-commit.md) came out of its ladder
+with every witness green, and read stdin with a synchronous `readFileSync(0)`. Its tests ran it through
+`spawnSync` with `input:`, which writes the whole input into the pipe before the child reads. A Node
+parent that writes stdin later — 200 ms after the spawn — makes that read fail with `EAGAIN`, the guard
+reports the input as not JSON and exits 1, and exit 1 does not block: the commit went through, 40 times
+out of 40. It was found by a blind Design scan that spawned the guard the way a live parent does, not
+by the witnesses and not by a mutation.
+
+**The witnesses tested the parsing of an input that had already arrived; the property was reading an
+input that arrives when it arrives.** A mutation of the read path could not be caught by them either,
+because every input they gave was already there. What closed it: the guard reads stdin to its end
+asynchronously, a read that fails or ends empty is refused with exit 2, and a witness spawns the guard
+under a Node parent and writes stdin 200 ms late — red on the ladder's commit, green after.
+
+**Boundary.** One guard, one input channel, one repository. It says that a witness has to be read for
+how the input reaches the thing under test, not only for what the input is; it does not say how often
+that goes wrong.
 ## 2026-09-30 · The witnesses proved the command is printed, not that it is safe to paste
 
 The ladder run for the attach entry protocol ([0037](decisions/0037-attach-entry-is-read-by-the-agent.md))

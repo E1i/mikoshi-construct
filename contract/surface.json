@@ -323,7 +323,7 @@
   "formats": {
     "manifestVersion": 6,
     "modelVersion": 3,
-    "recordVersion": 1
+    "recordVersion": 2
   },
   "jsonKeys": {
     "cost": {
@@ -816,15 +816,18 @@
   "paths": {
     "attach": {
       "edits": [
-        ".git/info/exclude"
+        ".git/info/exclude",
+        ".claude/settings.local.json"
       ],
       "writes": [
         ".claude/agents/architect.md",
         ".claude/agents/harness.md",
         ".claude/agents/implementer.md",
         ".claude/commands/plan.md",
+        ".claude/settings.local.json",
         ".claude/skills/implement/SKILL.md",
         ".construct/attach.json",
+        ".construct/commit-guard.mjs",
         "scripts/construct/check-acceptance.mjs",
         "scripts/construct/implement.workflow"
       ]

@@ -1034,8 +1034,9 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes seven files, hides them and the ledger directory through `.git/info/exclude`,
-and records what it created in `.construct/attach.json`. No `construct.json`, no
+tracked file. It writes seven carriers and a commit guard, hides them and the ledger directory through
+`.git/info/exclude`, adds one entry to the untracked `.claude/settings.local.json`, and records what it
+did in `.construct/attach.json`. No `construct.json`, no
 `construct.model.json`, no discovery markers, no harness, lint or CI files. Alias: `jack-in`.
 
 | Option | Default | What it does |
@@ -1074,7 +1075,7 @@ attach reads none of this itself: which command mirrors a repository's CI is a r
 repository, and that is the agent's ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md),
 [decision 0037](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0037-attach-entry-is-read-by-the-agent.md)).
 
-### The eight refusals
+### The twelve refusals
 
 Every check runs before anything is written, in this order, and a refusal creates nothing — not even
 `.construct/`:
@@ -1086,12 +1087,17 @@ Every check runs before anything is written, in this order, and a refusal create
 | `construct.json` exists | `Refused: this repository already carries a construct; use init or sync.` |
 | the directory holds nothing but `.git` and the files an empty directory may hold (`README.md`, `LICENSE`, editor settings) | `Refused: this repository holds nothing to attach to.` |
 | a path attach would create already exists | `Refused: N paths attach would create already exist:`, then why and the next step, then the paths, each labelled `construct's own: byte for byte the template of <date>` or `not recognised: attach never writes over it` (see [A collision](#a-collision)) |
+| `.claude/settings.local.json` exists and `.git/index` cannot be read (version 4, split, sparse or an unknown object format) | `Refused: .claude/settings.local.json exists and .git/index cannot be read here, so whether git tracks it cannot be told.`, then why and next |
+| `.claude/settings.local.json` is tracked by git | `Refused: .claude/settings.local.json is tracked by git.`, then why and next |
+| `.claude/settings.local.json` does not parse as a JSON object, its `hooks` is not an object, its `hooks.PreToolUse` is not a list, or it is not a regular file (a symlink) | `Refused: .claude/settings.local.json is not a settings file attach can edit.`, then why and next |
+| `.claude/settings.local.json` already carries an entry that runs `.construct/commit-guard.mjs` | `Refused: .claude/settings.local.json already carries an entry that runs .construct/commit-guard.mjs.`, then why, and next: keep the file; run `construct detach` first if the repository is still attached, or delete only that entry |
 | `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.`, then why, and the next step: `npx mikoshi-construct attach --entry` prints the entry protocol |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
 | the first word of the harness command (after any `VAR=value`) is not a path, a shell word such as `cd`, or an executable in an absolute `PATH` directory — a `package.json` script name such as `quality`, or a binary under `node_modules/.bin` such as `vitest` | `Refused: "quality" is not a command found on PATH.`, then why, and the next step with the rest of the command kept: `--harness "npm run quality"  or  --harness "npx quality"` |
 
-The harness is checked after it is named, so the eighth refusal comes after the others, and it too
-creates nothing. `PATH` is read as a list of directories and nothing is run; a relative entry (`.` or
+The three settings refusals run only when `.claude/settings.local.json` exists, after the collision
+check and before the harness is asked for. The harness is checked after it is named, so its refusal
+comes after the others, and it too creates nothing. `PATH` is read as a list of directories and nothing is run; a relative entry (`.` or
 an empty one) is not counted, because the ladder runs the harness from wherever its shell stands.
 
 A harness command that edits files — a word ending in `:fix`, `--fix` or `--write` — is not refused:
@@ -1118,15 +1124,18 @@ yourself, then run it again. A collision found during the write keeps the output
 ### The write order
 
 1. The exclude block: `.git/info/exclude` gains a `# construct:begin` … `# construct:end` block
-   listing `.construct/` and every carrier path, one per line. When the file does not exist, it is
-   created with only that block and the record says so.
+   listing `.construct/`, every path attach writes and `.claude/settings.local.json`, one per line.
+   When the file does not exist, it is created with only that block and the record says so.
 2. The seven carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
-   byte-identical to what `init` writes.
-3. The record, `.construct/attach.json`.
+   byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs`.
+3. The guard entry in `.claude/settings.local.json` (below). The file is read again at this moment: if
+   it no longer parses, or already carries a guard entry, the files of this run are rolled back and
+   attach refuses.
+4. The record, `.construct/attach.json`.
 
-The carriers are written exclusively (`wx`), in the order listed above. If one of them appears between
+The carriers and the guard are written exclusively (`wx`), in the order listed above. If one of them appears between
 the collision check and the write, attach does not write over it: it removes the files this run wrote
 (only those whose bytes are still what it wrote), the directories it created that are now empty, and
 its block from `.git/info/exclude` together with exactly the separator it added, so the file is byte
@@ -1134,6 +1143,48 @@ for byte what it was (deleted only when nothing else is left in it), then refuse
 naming that path. Nothing of this run is left behind, with one exception it says out loud: if the
 bytes before its block changed in that window, the block stays rather than a byte of yours going,
 and `construct detach` names it.
+
+### The commit guard
+
+`.construct/commit-guard.mjs` is a Claude Code `PreToolUse` hook for the `Bash` tool. attach registers
+it by appending one element to `hooks.PreToolUse` in `.claude/settings.local.json`: the entry
+`{"matcher":"Bash","hooks":[{"type":"command","command":"node \"$CLAUDE_PROJECT_DIR\"/.construct/commit-guard.mjs","timeout":30}]}`.
+It creates the file, `hooks` or `PreToolUse` only where each is missing, appends after any existing
+element and changes nothing else in the object; the file is written to a temporary file and renamed over
+the original, so the formatting of the rest of it may change. A session started after attach reads the
+entry; nothing here claims that a session already running does.
+
+The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase` or `git tag` into the
+attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
+why and next. There is no bypass: it reads no environment variable and writes no audit file, and the
+owner's own terminal never passes through it. It follows `git -C`, `git -c`, `--git-dir`, a leading
+`cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env`, `sudo` and
+`timeout` under any path, and the worktrees of the attached repository, and takes the directory from
+the input's `cwd`. It reads words after quotes and escapes, as the shell does, so `g\it commit` and
+`git 'com'mit` are refused like `git commit`.
+
+| Passes even in the attached repository | Refused, the neighbours of the forms that pass |
+|---|---|
+| a bare `git tag`, `git tag -l` and `git tag --list`, each with patterns that do not start with a dash | `git tag v1`, `git tag -d v1`, `git tag -l x -d y`, `git tag -list-something` |
+| `git merge --abort` | `git merge --continue` |
+| `git rebase --abort` | `git rebase --continue`, `git rebase -i` |
+
+A guarded command whose target the guard cannot pin down — a path held in a variable, `cd -`, an
+unquoted variable, a `--git-dir` that does not resolve, or a directory that does not exist yet — is
+refused with a line that says it cannot pin down the repository and names the way out, which is to write
+it as `git -C <path> <subcommand> …`. An unguarded command on such a target passes, and so does `git tag -l`.
+
+Everything else passes with exit `0` and nothing on stderr: a commit, merge or tag into another
+repository, the words inside a quoted string, a comment, `git status`, `git log`, `git cherry-pick`,
+`git revert`, `git am`, `git stash`, `git commit-tree`, a read in a worktree and a call to another tool.
+It is a guard against the direct form, not a sandbox: a commit inside a script, an alias, `bash -c` or
+`eval` passes. It reads stdin to its end however late it arrives; a read that fails or ends empty is
+refused with exit `2`, and input that is not a JSON object exits `1` with one line on stderr. It needs `node` and
+`git` on the host; without `node` the hook errors visibly and does not block, so the guard fails open.
+
+attach refuses instead of editing `.claude/settings.local.json` when it is tracked, unreadable or
+already carries a guard entry (the three settings refusals above). [`construct detach`](#construct-detach)
+takes the entry out again.
 
 ### The record
 
@@ -1143,14 +1194,15 @@ lists.
 
 | Field | What it holds |
 |---|---|
-| `recordVersion` | `1`. The shape of this record, separate from the CLI version. |
+| `recordVersion` | `2`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
 | `harness.command` | The command passed or answered. Never a default. |
-| `files` | Every carrier path with the sha256 of the bytes written. The record itself is not in it. |
+| `files` | Every carrier path and `.construct/commit-guard.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
+| `settingsHook` | `file` (`.claude/settings.local.json`), `created` (`file`, `hooks` and `preToolUse`: whether this run created each), and `entry`, the element appended to `hooks.PreToolUse` as written. `detach` compares the entry by value and removes the file, `hooks` or `PreToolUse` only where `created` says attach made it and it is now empty. |
 | `excludeSeparator` | How many newlines (`0`, `1` or `2`) attach put before its block in `.git/info/exclude`. `detach` removes the block together with exactly that many, which is what makes the file byte for byte what it was; any other value is refused. |
 
 The report ends with a trailer to copy into commits, `Attached-Construct: mikoshi-construct@<version>`,
@@ -1162,7 +1214,8 @@ no `--yes`.
 
 ## construct detach
 
-The inverse of `attach`: removes what `.construct/attach.json` lists and nothing else. It reads
+The inverse of `attach`: removes what `.construct/attach.json` lists, the commit guard entry it added to
+`.claude/settings.local.json` included, and nothing else. It reads
 everything before it writes anything, so a refusal leaves the tree exactly as it found it. Alias:
 `jack-out`. There is no `--force`.
 
@@ -1190,11 +1243,25 @@ this order, taking the first class that matches:
 | changed | the bytes on disk hash differently from the record | the whole run refuses, listing the changed paths; nothing is removed |
 | to remove | the bytes are what attach wrote | removed |
 
+The commit guard entry in `.claude/settings.local.json` is classed after the files, in this order:
+
+| Class | Test | What happens |
+|---|---|---|
+| adopted | `.claude/settings.local.json` is in the git index | named, left byte for byte |
+| already absent | the file is missing, or no element of `hooks.PreToolUse` runs `.construct/commit-guard.mjs` | named as `already absent: .claude/settings.local.json commit guard entry`; the guard script is still removed |
+| unreadable | the file no longer parses as a settings file | refused as `settings-unreadable`, nothing removed |
+| changed | an element runs the guard and differs from the recorded entry | the path joins the `changed` refusal, nothing removed |
+| to remove | every such element is the recorded entry | the entry is taken out first; a file attach created is deleted when nothing else is left in it, and counts as removed; an entry cut out of a file that stays is reported on its own line and not counted |
+
+Whatever else the file holds, grants or other hooks, is never read for the decision and never removed.
+A version 2 record whose `settingsHook` is missing, or names another path, is refused as `hook-record`,
+removing nothing.
+
 If nothing is changed, detach removes the files to remove, then the recorded directories that are now
 empty (deepest first), then the block it added to `.git/info/exclude` (the file itself only when
 nothing else is left in it), then `.construct/attach.json`, and `.construct/` when it is empty and the record's `ledgerCreated` is `true`. A file
-inside a recorded directory that the record does not list — `.construct/runs.jsonl`,
-`.claude/settings.local.json` — is never deleted; its directory stays and it is named as left behind.
+inside a recorded directory that the record does not list — `.construct/runs.jsonl`, a settings file
+that stays because it holds more than the entry — is never deleted; its directory stays and it is named as left behind.
 Once the exclude block is gone such a file is an ordinary untracked path, so `git status` shows it.
 
 ### The four index refusals
@@ -1214,7 +1281,9 @@ Two refusals are about the record itself, and both come before anything else is 
 `recordVersion` that is missing or not a positive integer means which build wrote the record cannot be
 told, so detach refuses and names the value it found. A `recordVersion` higher than this binary
 understands is refused the way a later `construct.json` is: the line names both versions and says to
-upgrade the CLI. Nothing is removed in either case.
+upgrade the CLI. That is what a CLI from before the commit guard says of a `recordVersion` 2 record
+this build wrote: upgrade the CLI (`npx mikoshi-construct@latest`) before running `detach` on a
+repository this release attached. Nothing is removed in either case.
 
 Two more refusals are about the exclude block rather than the index. An `excludeSeparator` that is
 missing or not `0`, `1` or `2` means the block cannot be cut out to the byte, so detach refuses, names
@@ -1231,8 +1300,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the seven carriers into a repository with none of their
-directories, N is 14.
+and directories actually removed. On the seven carriers and the guard into a repository with none of their
+directories, N is 16: eight files, seven directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 

@@ -6,6 +6,7 @@ import path from 'node:path'
 import { isBlockSeparator } from '../../materialize/strategies.js'
 import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
 import { ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, readAttachRecord } from '../attach/record.js'
+import { classifyEntry, isSettingsHook, removeGuardEntry, SETTINGS_FILE } from '../attach/settings.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
 import { removeAttached } from './remove.js'
@@ -17,7 +18,7 @@ export interface DetachOptions {
   dir: string
 }
 
-export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'separator' | 'separator-mismatch' | 'changed' | IndexUnreadable
+export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | IndexUnreadable
 
 export interface DetachResult {
   status: 'done' | 'nothing-attached' | 'refused'
@@ -35,6 +36,8 @@ const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) =>
   'orphan-block': lore => lore.detachRefusedOrphanBlock,
   'record-version': lore => lore.detachRefusedRecordVersion,
   'record-ahead': (lore, found) => lore.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', Number(found[0]), ATTACH_RECORD_VERSION),
+  'hook-record': lore => lore.detachRefusedHookRecord,
+  'settings-unreadable': lore => lore.detachRefusedSettingsUnreadable,
   'separator': lore => lore.detachRefusedSeparator,
   'separator-mismatch': lore => lore.detachRefusedSeparatorMismatch,
   'changed': (lore, paths) => lore.detachRefusedChanged(paths.length),
@@ -76,6 +79,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
     return refused(ui, 'record-version', [String(version)])
   if (version > ATTACH_RECORD_VERSION)
     return refusedAhead(ui, version)
+  const hook: unknown = record.settingsHook
+  if (version >= 2 && !isSettingsHook(hook))
+    return refused(ui, 'hook-record')
   const separator = record.excludeSeparator
   if (!isBlockSeparator(separator))
     return refused(ui, 'separator', [String(separator)])
@@ -88,17 +94,35 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
     return refused(ui, reading.unreadable)
 
   const classified = classifyRecordedFiles(root, record, reading.tracked)
-  const changed = ofKind(classified, 'changed')
+  const entry = isSettingsHook(hook) && version >= 2 ? classifyEntry(root, hook, reading.tracked) : null
+  if (entry === 'unreadable')
+    return refused(ui, 'settings-unreadable')
+  const changed = [...ofKind(classified, 'changed'), ...(entry === 'changed' ? [SETTINGS_FILE] : [])]
   if (changed.length > 0)
     return refused(ui, 'changed', changed)
 
-  const { removed, leftBehind } = removeAttached(root, record, ofKind(classified, 'remove'), exclude)
+  const entryLabel = ui.lore.detachSettingsEntry
+  let settingsDeleted = false
+  let entryCutOut = false
+  if (entry === 'remove' && isSettingsHook(hook)) {
+    settingsDeleted = removeGuardEntry(root, hook).fileDeleted
+    entryCutOut = !settingsDeleted
+  }
+  const removal = removeAttached(root, record, ofKind(classified, 'remove'), exclude)
+  const removed = settingsDeleted ? [SETTINGS_FILE, ...removal.removed] : removal.removed
+  const { leftBehind } = removal
   for (const target of removed)
     ui.line(`  ${ui.theme.dim('-')} ${target}`)
+  if (entryCutOut)
+    ui.line(`  ${ui.lore.detachEntryRemoved(SETTINGS_FILE)}`)
   for (const target of ofKind(classified, 'adopted'))
     ui.line(`  ${ui.lore.detachAdopted(target)}`)
+  if (entry === 'adopted')
+    ui.line(`  ${ui.lore.detachAdopted(entryLabel)}`)
   for (const target of ofKind(classified, 'absent'))
     ui.line(`  ${ui.lore.detachAlreadyAbsent(target)}`)
+  if (entry === 'absent')
+    ui.line(`  ${ui.lore.detachAlreadyAbsent(entryLabel)}`)
   for (const target of leftBehind)
     ui.line(`  ${ui.lore.detachLeftBehind(target)}`)
   ui.line(ui.theme.dim(`  ${ui.lore.detachBookkeeping}`))
