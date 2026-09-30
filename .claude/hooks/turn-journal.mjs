@@ -426,4 +426,4 @@ function isMain() {
 }
 
 if (isMain())
-  await main()
+  void main()
