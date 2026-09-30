@@ -4,7 +4,7 @@ import { createColors } from 'picocolors'
 
 export const TONES = {
   red: 'waits for Eli or the window',
-  yellow: 'a Ghost is running',
+  yellow: 'a Ghost or a hand-started ladder is running',
   grey: 'merged',
   purple: 'a brief or a subagent',
 } as const
@@ -18,6 +18,7 @@ const TONE_BY_SITUATION: Record<Situation, Tone | undefined> = {
   'approval': 'red',
   'launch': 'red',
   'ghost-running': 'yellow',
+  'hand-ladder-running': 'yellow',
   'verdict': 'red',
   'new-attempt': 'red',
   'pr': 'red',

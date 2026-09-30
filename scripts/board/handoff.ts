@@ -7,6 +7,7 @@ import { lookupMatrixRow } from '../ghosts/matrix.js'
 import { ghostRowState } from '../ghosts/status.js'
 import { readTasksFile } from '../ghosts/tasks.js'
 import { readLedgerStage } from '../ghosts/watch-ledger.js'
+import { handLadderRows } from './policy.js'
 
 export type TaskEvent = JournalEntry & { event: 'task', ts: string }
 
@@ -64,6 +65,7 @@ export interface Attempt {
   worktree: string | undefined
   tasksFileMtime: Date | undefined
   row: StatusRow | undefined
+  handLadderUpdated: string | undefined
   ledger: LedgerStage | null | 'unreadable'
   taskEvent: TaskEvent | undefined
   reviewEvent: ReviewEvent | undefined
@@ -193,6 +195,9 @@ export function readHandoff(dir: string): Handoff {
   }
   for (const match of (statusText ?? '').matchAll(/^\| ghost-(\S+) \|/gm))
     name(match[1])
+  const handLadders = handLadderRows(statusText)
+  for (const id of handLadders.keys())
+    name(id)
 
   const lastOf = <K extends JournalLine['event']>(id: string, event: K): Extract<JournalLine, { event: K }> | undefined =>
     journal.filter((line): line is Extract<JournalLine, { event: K }> => line.event === event && line.task === id).at(-1)
@@ -206,6 +211,7 @@ export function readHandoff(dir: string): Handoff {
     worktree: facts.worktree,
     tasksFileMtime: facts.tasksFileMtime,
     row: ghostRow(statusText, id),
+    handLadderUpdated: handLadders.get(id),
     ledger: ledgerOf(facts.worktree),
     taskEvent: lastOf(id, 'task'),
     reviewEvent: lastOf(id, 'review'),

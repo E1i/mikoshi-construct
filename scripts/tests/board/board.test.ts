@@ -10,7 +10,7 @@ import { stripVTControlCharacters } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { CLEAR_SCREEN, FRAME_FILE, frameText, writeFrameFile } from '../../board/frame.js'
 import { NEXT_BY_SITUATION } from '../../board/next.js'
-import { COLUMNS, formatAge, formatMinutes, summaryLine } from '../../board/render.js'
+import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
 import { ageSince } from '../../board/row.js'
 import { HELP, runBoard, USAGE } from '../../board/run.js'
 import { colourFor, painter, TONES } from '../../board/tone.js'
@@ -24,9 +24,11 @@ const CHEAP = path.join(FIXTURES, 'cheap')
 const NEXT = path.join(FIXTURES, 'next')
 const SKEW = path.join(FIXTURES, 'skew')
 const SUPERSEDED = path.join(FIXTURES, 'superseded')
+const HAND = path.join(FIXTURES, 'hand')
 const BOARD = path.join(REPO_ROOT, 'scripts/board/board.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date('2026-09-28T12:00')
+const HAND_NOW = new Date('2026-09-30T12:00:00Z')
 
 const PRS = [
   { number: 2, headRefName: 'ghost/alpha-2', headRefOid: 'a2a2a2a2a2', state: 'OPEN', mergedAt: null, mergeCommit: null },
@@ -96,14 +98,16 @@ function stageOf(dir: string, id: string, stage: string, gh?: GhRunner): string 
   return line!.slice(`    ${stage} `.length)
 }
 
+function isCellLine(line: string): boolean {
+  return stripVTControlCharacters(line).startsWith('│')
+}
+
+function cellsOf(line: string): string[] {
+  return stripVTControlCharacters(line).split('│').slice(1, -1).map(cell => cell.trim())
+}
+
 function rows(stdout: string[]): string[][] {
-  const header = stdout.findIndex(line => line.startsWith('TASK '))
-  if (header === -1)
-    return []
-  const starts = COLUMNS.map(column => stdout[header]!.search(new RegExp(`\\b${column}\\b`)))
-  const end = stdout.findIndex((line, index) => index > header && (line.startsWith('UNKNOWN:') || line.startsWith('task ')))
-  return stdout.slice(header + 1, end === -1 ? undefined : end)
-    .map(line => starts.map((start, column) => line.slice(start, starts[column + 1]).trim()))
+  return stdout.filter(isCellLine).map(cellsOf).filter(cells => cells[0] !== 'TASK')
 }
 
 function rowOf(stdout: string[], id: string): string[] {
@@ -127,7 +131,7 @@ describe('board: tasks are attempts grouped by brief', () => {
     expect(stdout).toContain('task brief-alpha.md (derived) live alpha-2 waiting, history alpha-1')
     expect(stdout).toContain('  alpha-1 history blocked')
     expect(stdout).toContain('  alpha-2 live waiting')
-    expect(stdout.some(line => line.startsWith('# task (derived) = '))).toBe(true)
+    expect(HELP.some(line => line.startsWith('# task (derived) = '))).toBe(true)
   })
 
   it.each([
@@ -228,8 +232,8 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
     expect(stageOf(CHEAP, 'c-open', 'pr', failingGh)).toBe('UNKNOWN (missing: pr; the gh query failed)')
   })
 
-  it('states in the card definitions that ready is derived from CI and not from the journal', () => {
-    const { stdout } = board(['--dir', CHEAP, 'c-open'])
+  it('states in --help that ready is derived from CI and not from the journal', () => {
+    const stdout = HELP
     expect(stdout.filter(line => line.startsWith('# ready is derived from CI') && line.includes('a journal ready field is not read'))).toHaveLength(1)
     expect(stdout.filter(line => line.startsWith('#') && line.includes('no event exists'))).toEqual([])
   })
@@ -283,7 +287,7 @@ describe('board: the verification word a cheap task records in its event:path li
   })
 
   it('keeps it out of the UNKNOWN tally, which counts stages only', () => {
-    expect(board(['--dir', CHEAP]).stdout.at(-1)).not.toContain('verification')
+    expect(Object.keys(JSON.parse(board(['--dir', CHEAP, '--json']).stdout[0]).unknown)).not.toContain('verification')
   })
 
   it('has every word explained in the AGENTS.md rule', () => {
@@ -375,7 +379,7 @@ describe('board --every: reprint the view until interrupted', () => {
       const frame = readFileSync(path.join(handoff, FRAME_FILE), 'utf8').split('\n')
       expect(frame[0]).toMatch(/^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       expect(frame[1]).toMatch(/^running \d+, waiting \d+, blocked \d+, the longest — /)
-      expect(frame.at(-2)).toMatch(/^UNKNOWN: /)
+      expect(frame.at(-2)).toMatch(/^└─+┴/)
       expect(frame.at(-1)).toBe('')
       expect(readdirSync(handoff).filter(name => name.endsWith('.tmp'))).toEqual([])
     }
@@ -401,14 +405,21 @@ describe('board: summary, edges and prefixes', () => {
   })
 
   it.each([
-    { name: 'the default', argv: [] as string[], second: '# columns: TASK = ' },
-    { name: 'a card', argv: ['alpha-2'], second: '# board: read-only' },
-  ])('prints $name bare and keeps the definitions as # payload lines', ({ argv, second }) => {
+    { name: 'the default', argv: [] as string[], first: 'running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2)', second: 'hidden: 6 tasks, --all shows them' },
+    { name: '--all', argv: ['--all'], first: 'running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2)', second: '┌' },
+    { name: 'a card', argv: ['alpha-2'], first: '┌', second: '│ TASK' },
+  ])('prints $name bare, with no # line, no UNKNOWN tally and no legend; they are in --help and --json', ({ argv, first, second }) => {
     const { stdout, stderr, exitCode } = board(['--dir', BASIC, ...argv])
     expect(exitCode).toBe(0)
     expect(stderr).toEqual([])
-    expect(stdout.some(line => line.startsWith('[board]'))).toBe(false)
-    expect((argv.length === 0 ? stdout[1] : stdout[0]).startsWith(second)).toBe(true)
+    expect(stdout.filter(line => line.startsWith('[board]') || line.startsWith('#') || line.startsWith('UNKNOWN'))).toEqual([])
+    expect(stdout[0]!.startsWith(first)).toBe(true)
+    expect(stdout[1]!.startsWith(second)).toBe(true)
+  })
+
+  it('carries every definition line in --help', () => {
+    for (const prefix of ['# board: ', '# columns: ', '# stages: ', '# shown: ', '# hand-ladder = '])
+      expect(HELP.filter(line => line.startsWith(prefix))).toHaveLength(1)
   })
 
   it.each([
@@ -482,14 +493,15 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     { dir: NEXT, id: 'n-closed', path: 'cheap', stage: 'started', situation: 'pr-closed' },
     { dir: NEXT, id: 'n-lost', path: 'cheap', stage: 'started', situation: 'pr-unknown' },
     { dir: SUPERSEDED, id: '271-2', path: 'ladder', stage: 'ghost', situation: 'superseded' },
+    { dir: HAND, id: 'h-live', path: 'ladder', stage: 'hand-ladder', situation: 'hand-ladder-running' },
   ] as { dir: string, id: string, path: string, stage: string, situation: keyof typeof NEXT_BY_SITUATION }[])('$id: $path at $stage waits for $situation', ({ dir, id, path: taskPath, stage, situation }) => {
-    const cells = rowOf(board(['--dir', dir, '--all']).stdout, id)
+    const cells = rowOf(board(['--dir', dir, '--all'], stubGh(), undefined, dir === HAND ? HAND_NOW : NOW).stdout, id)
     expect(cells).toHaveLength(5)
     expect([cells[0], cells[1], cells[2], cells[4]]).toEqual([id, taskPath, stage, NEXT_BY_SITUATION[situation]])
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report', 'hand-ladder-running'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 
@@ -498,10 +510,10 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     expect(rowOf(board(['--dir', CHEAP], gh).stdout, 'c-open')[4]).toBe(NEXT_BY_SITUATION['ci-unknown'])
   })
 
-  it('marks NEXT derived once, in the header definition line', () => {
-    const { stdout } = board(['--dir', BASIC])
-    expect(stdout.filter(line => line.includes('NEXT (derived)'))).toEqual([stdout[1]])
-    expect(stdout[1].startsWith('# ')).toBe(true)
+  it('marks NEXT derived once, in the --help column definition', () => {
+    expect(HELP.filter(line => line.includes('NEXT (derived)'))).toHaveLength(1)
+    expect(HELP.find(line => line.includes('NEXT (derived)'))!.startsWith('# columns: ')).toBe(true)
+    expect(board(['--dir', BASIC]).stdout.filter(line => line.includes('NEXT (derived)'))).toEqual([])
   })
 
   it('prints AGE as the time since the latest stage', () => {
@@ -540,16 +552,20 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
   })
 })
 
-describe('board: the UNKNOWN tally line', () => {
-  it.each([
-    { name: 'the default', argv: ['--dir', CHEAP], expected: 'UNKNOWN: brief.written ×1, brief.approved ×1, review.started ×1, ready ×2, merge ×2, pr ×1' },
-    { name: 'a card', argv: ['--dir', CHEAP, 'c-journal'], expected: 'UNKNOWN: none' },
-    { name: 'the ladder', argv: ['--dir', BASIC], expected: 'UNKNOWN: brief.approved ×3, brief.written ×2, review.started ×1' },
-    { name: 'PRs missing from the gh list', argv: ['--dir', NEXT], expected: 'UNKNOWN: ready ×1, pr ×1, merge ×1, brief.approved ×2, review.started ×1' },
-  ])('ends $name with one tally of the events that occur', ({ argv, expected }) => {
-    const { stdout } = board(argv)
-    expect(stdout.at(-1)).toBe(expected)
-    expect(stdout.filter(line => line.startsWith('UNKNOWN:'))).toHaveLength(1)
+describe('board --json: the UNKNOWN tally, and only there', () => {
+  const TALLY: Record<string, Record<string, number>> = {
+    cheap: { 'brief.written': 1, 'brief.approved': 1, 'review.started': 1, 'ready': 2, 'merge': 2, 'pr': 1 },
+    basic: { 'brief.written': 8, 'brief.approved': 9, 'review.started': 7 },
+    next: { 'brief.written': 1, 'brief.approved': 4, 'task': 3, 'review.started': 4, 'ready': 1, 'pr': 1, 'merge': 1 },
+    superseded: { ready: 1, pr: 1, merge: 1 },
+    hand: { 'brief.written': 4, 'brief.approved': 4, 'task': 1, 'review.started': 4, 'ready': 4, 'merge': 4, 'hand-ladder': 1 },
+  }
+
+  it.each(Object.keys(TALLY))('%s tallies the UNKNOWN stages of every attempt but the superseded, by event', (fixture) => {
+    const dir = path.join(FIXTURES, fixture)
+    expect(JSON.parse(board(['--dir', dir, '--json']).stdout[0]).unknown).toEqual(TALLY[fixture])
+    for (const argv of [['--all'], [rows(board(['--dir', dir]).stdout)[0]?.[0] ?? '--all']])
+      expect(board(['--dir', dir, ...argv]).stdout.filter(line => line.includes('UNKNOWN:') || line.includes('×'))).toEqual([])
   })
 })
 
@@ -577,21 +593,19 @@ describe('board <task-id>: the expanded card of one task', () => {
 
 describe('board: an attempt a journal event:superseded names', () => {
   it.each([
-    { name: 'the default', argv: [] as string[], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-4'], hidden: 'hidden: 2 tasks (2 superseded), --all shows them', unknown: 'UNKNOWN: ready ×1, pr ×1, merge ×1' },
-    { name: '--all', argv: ['--all'], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-2', '271-3', '271-4'], hidden: 'hidden: none', unknown: 'UNKNOWN: ready ×1, pr ×1, merge ×1' },
-  ])('$name leaves it out of the summary and the UNKNOWN tally, and lists it only with --all', ({ argv, summary, shown, hidden, unknown }) => {
+    { name: 'the default', argv: [] as string[], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-4'], hidden: ['hidden: 2 tasks (2 superseded), --all shows them'] },
+    { name: '--all', argv: ['--all'], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-2', '271-3', '271-4'], hidden: [] },
+  ])('$name leaves it out of the summary, and lists it only with --all', ({ argv, summary, shown, hidden }) => {
     const { stdout } = board(['--dir', SUPERSEDED, ...argv])
     expect(stdout[0].startsWith(summary) && stdout[0].endsWith('271-4)')).toBe(true)
     expect(rows(stdout).map(cells => cells[0]).sort()).toEqual(shown)
-    expect(stdout[2].endsWith(hidden)).toBe(true)
-    expect(stdout.at(-1)).toBe(unknown)
+    expect(stdout.filter(line => line.startsWith('hidden: '))).toEqual(hidden)
   })
 
   it('names the successor in the card, as a fact and in NEXT', () => {
     const { stdout } = board(['--dir', SUPERSEDED, '271-2'])
     expect(attemptBlock(stdout, '271-2').at(-1)).toBe('    superseded by 271-4 (journal event:superseded, 2026-09-28T07:00:00.000Z)')
     expect(stdout).toContain('next — (superseded) (derived; by 271-4)')
-    expect(stdout.at(-1)).toBe('UNKNOWN: brief.written ×1, brief.approved ×1, review.started ×1, ready ×1, merge ×1')
   })
 
   it('carries the relation in --json', () => {
@@ -602,6 +616,41 @@ describe('board: an attempt a journal event:superseded names', () => {
     expect(attempts['271-4'].superseded).toBeNull()
     expect(attempts['271-2'].derived.next).toEqual({ situation: 'superseded', text: '— (superseded)', why: 'by 271-4' })
     expect(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live)).toEqual(['271-4'])
+  })
+})
+
+describe('board: a ladder the owner decided to run by hand, from its status.md policy row', () => {
+  function hand(argv: string[]): BoardResult {
+    return board(['--dir', HAND, ...argv], stubGh(), undefined, HAND_NOW)
+  }
+
+  const HAND_LADDERS = {
+    'h-live': { category: 'running', stage: 'hand-ladder', situation: 'hand-ladder-running', handLadder: `    hand-ladder done ${new Date('2026-09-28T12:00').toISOString()} (status.md policy hand-ladder-h-live)` },
+    'h-stamp': { category: 'running', stage: '—', situation: 'hand-ladder-running', handLadder: '    hand-ladder UNKNOWN (missing: hand-ladder start; status.md policy hand-ladder-h-stamp updated is not YYYY-MM-DD HH:MM)' },
+    'h-done': { category: 'waiting', stage: 'ghost', situation: 'verdict', handLadder: '    hand-ladder finished (status.md policy hand-ladder-h-done, updated 2026-09-28 12:00; a later journal event:task, review or merge)' },
+    'h-none': { category: 'blocked', stage: 'ghost', situation: 'new-attempt', handLadder: undefined },
+  } as const
+
+  it.each(Object.entries(HAND_LADDERS))('%s is $category at $stage and waits for $situation', (id, { category, stage, situation, handLadder }) => {
+    const cells = rowOf(hand(['--all']).stdout, id)
+    expect([cells[2], cells[4]]).toEqual([stage, NEXT_BY_SITUATION[situation]])
+    const block = attemptBlock(hand([id]).stdout, id)
+    expect(block[0]).toBe(`  ${id} live ${category}`)
+    expect(block.find(candidate => candidate.startsWith('    hand-ladder '))).toBe(handLadder)
+    const json = JSON.parse(hand(['--json']).stdout[0])
+    const task = json.tasks.find((candidate: any) => candidate.derived.live === id)
+    expect([task.derived.category, task.derived.next.situation]).toEqual([category, situation])
+  })
+
+  it('shows the running ones by default and counts them as running', () => {
+    const { stdout } = hand([])
+    expect(stdout[0]).toMatch(/^running 2, waiting 1, blocked 1, /)
+    expect(rows(stdout).map(cells => cells[0]).sort()).toEqual(['h-done', 'h-live', 'h-none', 'h-stamp'])
+  })
+
+  it('names the hand-ladder stage in --help', () => {
+    expect(HELP.find(line => line.startsWith('# stages: '))).toContain('hand-ladder = the updated time of the status.md policy row hand-ladder-<id>')
+    expect(HELP.find(line => line.startsWith('# hand-ladder = '))).toContain('NEXT reads the ladder\'s run')
   })
 })
 
@@ -617,7 +666,7 @@ describe('board --json: the full output for agents', () => {
 
   it('prints every task and attempt, history included, whatever the default hides', () => {
     const json = parsed(BASIC)
-    expect(json.format).toBe('board/2')
+    expect(json.format).toBe('board/3')
     const attempts = json.tasks.flatMap((task: any) => task.attempts.map((attempt: any) => attempt.id))
     expect(attempts.sort()).toEqual(['alpha-1', 'alpha-2', 'beta-1', 'delta-1', 'gamma-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'])
     expect(json.tasks.find((task: any) => task.derived.live === 'm1').derived.shownByDefault).toBe(false)
@@ -625,7 +674,7 @@ describe('board --json: the full output for agents', () => {
 
   it('keeps every derived field under derived', () => {
     const json = parsed(BASIC)
-    expect(Object.keys(json).sort()).toEqual(['derived', 'edges', 'format', 'now', 'tasks'])
+    expect(Object.keys(json).sort()).toEqual(['derived', 'edges', 'format', 'now', 'tasks', 'unknown'])
     expect(Object.keys(json.derived.summary).sort()).toEqual(['counts', 'longest'])
     for (const task of json.tasks) {
       expect(Object.keys(task).sort()).toEqual(['attempts', 'derived'])
@@ -646,45 +695,52 @@ describe('board --json: the full output for agents', () => {
   })
 })
 
-describe('board: merged tasks older than 12 hours are hidden by default', () => {
+describe('board: merged and reported tasks older than 12 hours are hidden by default', () => {
+  const FINISHED = ['c-gh', 'c-journal', 'c-report']
+
   it.each([
-    { name: 'both merged within 12h', now: '2026-09-28T19:59:00Z', argv: [] as string[], shown: ['c-gh', 'c-journal'] },
-    { name: 'c-journal merged 12h01m ago', now: '2026-09-28T20:01:00Z', argv: [] as string[], shown: ['c-gh'] },
-    { name: 'both merged over 12h ago', now: '2026-09-28T20:41:00Z', argv: [] as string[], shown: [] },
-    { name: '--all', now: '2026-09-28T20:41:00Z', argv: ['--all'], shown: ['c-gh', 'c-journal'] },
-  ])('$name shows $shown among the merged', ({ now, argv, shown }) => {
-    const { stdout } = board(['--dir', CHEAP, ...argv], stubGh(), undefined, new Date(now))
-    const merged = (ids: string[]): string[] => ids.filter(id => id === 'c-gh' || id === 'c-journal').sort()
-    const ids = rows(stdout).map(cells => cells[0]!)
-    expect(merged(ids)).toEqual(shown)
-    expect(ids).toContain('c-report')
-    const byDefault = rows(board(['--dir', CHEAP], stubGh(), undefined, new Date(now)).stdout).map(cells => cells[0]!)
-    const json = JSON.parse(board(['--dir', CHEAP, '--json'], stubGh(), undefined, new Date(now)).stdout[0])
-    expect(merged(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live))).toEqual(merged(byDefault))
+    { name: 'all three finished within 12h', now: '2026-09-28T19:59:00Z', argv: [] as string[], shown: ['c-gh', 'c-journal', 'c-report'] },
+    { name: 'c-journal merged 12h01m ago', now: '2026-09-28T20:01:00Z', argv: [] as string[], shown: ['c-gh', 'c-report'] },
+    { name: 'both merged over 12h ago', now: '2026-09-28T20:41:00Z', argv: [] as string[], shown: ['c-report'] },
+    { name: 'c-report reported 12h01m ago', now: '2026-09-28T22:31:00Z', argv: [] as string[], shown: [] },
+    { name: '--all', now: '2026-09-28T22:31:00Z', argv: ['--all'], shown: ['c-gh', 'c-journal', 'c-report'] },
+  ])('$name shows $shown among the finished', ({ now, argv, shown }) => {
+    const at = new Date(now)
+    const finished = (ids: string[]): string[] => ids.filter(id => FINISHED.includes(id)).sort()
+    expect(finished(rows(board(['--dir', CHEAP, ...argv], stubGh(), undefined, at).stdout).map(cells => cells[0]!))).toEqual(shown)
+    const byDefault = rows(board(['--dir', CHEAP], stubGh(), undefined, at).stdout).map(cells => cells[0]!)
+    const json = JSON.parse(board(['--dir', CHEAP, '--json'], stubGh(), undefined, at).stdout[0])
+    expect(finished(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live))).toEqual(finished(byDefault))
   })
 
-  it('states the rule in the card definitions', () => {
-    const { stdout } = board(['--dir', CHEAP, 'c-gh'])
-    expect(stdout.find(line => line.startsWith('# shown: '))).toContain('a merged one only while it merged within the last 12h')
+  it('states the rule in --help', () => {
+    expect(HELP.find(line => line.startsWith('# shown: '))).toContain('each only while it merged or reported within the last 12h')
   })
 })
 
-describe('board: the table aligns its columns by visible width', () => {
+describe('board: a bordered table measured by visible width', () => {
+  const BORDERED = {
+    top: /^┌─+(?:┬─+)+┐$/,
+    under: /^├─+(?:┼─+)+┤$/,
+    bottom: /^└─+(?:┴─+)+┘$/,
+  }
+
   it.each([
-    { name: 'plain', colour: false },
-    { name: 'coloured', colour: true },
-  ])('starts every cell of a $name table at its header column', ({ colour }) => {
-    const { stdout } = runBoard(['--dir', NEXT, '--all'], { gh: stubGh(), now: NOW, defaultDir: NEXT, colour })
-    const visible = stdout.map(line => stripVTControlCharacters(line))
-    const header = visible.find(line => line.startsWith('TASK '))!
-    const starts = COLUMNS.map(column => header.search(new RegExp(`\\b${column}\\b`)))
-    const table = rows(visible)
-    expect(table.length).toBeGreaterThan(10)
-    for (const line of visible.slice(visible.indexOf(header) + 1, visible.indexOf(header) + 1 + table.length)) {
-      for (const start of starts.slice(1))
-        expect(line.slice(start - 2, start)).toBe('  ')
-    }
-    expect(visible).toEqual(board(['--dir', NEXT, '--all']).stdout)
+    { name: 'the list', argv: ['--dir', NEXT, '--all'] },
+    { name: 'a card', argv: ['--dir', NEXT, 'n-owner'] },
+  ])('$name draws the same borders coloured and plain, and every table line has one visible width', ({ argv }) => {
+    const plain = board(argv).stdout
+    const coloured = runBoard(argv, { gh: stubGh(), now: NOW, defaultDir: NEXT, colour: true }).stdout
+    expect(coloured).not.toEqual(plain)
+    const start = plain.findIndex(line => line.startsWith('┌'))
+    const end = plain.findIndex(line => line.startsWith('└'))
+    expect([plain[start], plain[start + 2], plain[end]].map((line, index) => Object.values(BORDERED)[index]!.test(line!))).toEqual([true, true, true])
+    for (const index of [start, start + 2, end])
+      expect(coloured[index]).toBe(plain[index])
+    const table = coloured.slice(start, end + 1).map(line => stripVTControlCharacters(line))
+    expect(new Set(table.map(line => line.length)).size).toBe(1)
+    expect(table.filter(line => line.startsWith('│')).map(line => [...line].filter(char => char === '│').length)).toEqual(table.filter(line => line.startsWith('│')).map(() => 6))
+    expect(table).toEqual(plain.slice(start, end + 1))
   })
 })
 
@@ -709,10 +765,12 @@ describe('board: colour on the STAGE and NEXT cells only', () => {
     { dir: NEXT, id: 'n-pending', tone: undefined },
     { dir: CHEAP, id: 'c-report', tone: undefined },
     { dir: SUPERSEDED, id: '271-2', tone: undefined },
+    { dir: HAND, id: 'h-live', tone: 'yellow' },
   ] as { dir: string, id: string, tone: Tone | undefined }[])('$id paints STAGE and NEXT $tone and nothing else', ({ dir, id, tone }) => {
-    const plain = board(['--dir', dir, '--all']).stdout
-    const painted = coloured(dir)
-    const index = plain.findIndex(line => line.startsWith(`${id} `))
+    const now = dir === HAND ? HAND_NOW : NOW
+    const plain = board(['--dir', dir, '--all'], stubGh(), undefined, now).stdout
+    const painted = runBoard(['--dir', dir, '--all'], { gh: stubGh(), now, defaultDir: dir, colour: true }).stdout
+    const index = plain.findIndex(line => isCellLine(line) && cellsOf(line)[0] === id)
     const [, , stage, , next] = rowOf(plain, id)
     const paint = painter(true)
     const line = painted[index]!
@@ -728,7 +786,7 @@ describe('board: colour on the STAGE and NEXT cells only', () => {
       const painted = coloured(dir)
       const rowIds = new Set(rows(plain).map(cells => cells[0]))
       painted.forEach((line, index) => {
-        if (!rowIds.has(plain[index]!.split(' ')[0]!))
+        if (!isCellLine(plain[index]!) || !rowIds.has(cellsOf(plain[index]!)[0]!))
           expect(line).toBe(plain[index])
       })
       expect(coloured(dir, ['--json'])).toEqual(board(['--dir', dir, '--json']).stdout)

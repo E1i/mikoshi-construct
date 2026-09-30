@@ -1,10 +1,10 @@
 import type { AttemptView, Stage } from './derive.js'
 import type { Next } from './next.js'
 import type { BoardView } from './render.js'
-import { stageText } from './derive.js'
-import { rowOf } from './row.js'
+import { isSuperseded, stageText } from './derive.js'
+import { rowOf, unknownTally } from './row.js'
 
-export const JSON_FORMAT = 'board/2'
+export const JSON_FORMAT = 'board/3'
 
 function nextJson(next: Next): Omit<Next, 'why'> & { why: string | null } {
   return { ...next, why: next.why ?? null }
@@ -65,5 +65,6 @@ export function boardJson(board: BoardView): Record<string, unknown> {
       }
     }),
     edges: board.edges ?? null,
+    unknown: Object.fromEntries(unknownTally(board.tasks.flatMap(task => task.attempts).filter(view => !isSuperseded(view)))),
   }
 }
