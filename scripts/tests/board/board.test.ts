@@ -1,15 +1,19 @@
 import type { GhRunner } from '../../board/gh.js'
 import type { BoardResult } from '../../board/run.js'
+import type { Tone } from '../../board/tone.js'
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { stripVTControlCharacters } from 'node:util'
 import { describe, expect, it } from 'vitest'
+import { CLEAR_SCREEN, FRAME_FILE, frameText, writeFrameFile } from '../../board/frame.js'
 import { NEXT_BY_SITUATION } from '../../board/next.js'
-import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
+import { COLUMNS, formatAge, formatMinutes, summaryLine } from '../../board/render.js'
 import { ageSince } from '../../board/row.js'
-import { runBoard } from '../../board/run.js'
+import { HELP, runBoard, USAGE } from '../../board/run.js'
+import { colourFor, painter, TONES } from '../../board/tone.js'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -75,8 +79,8 @@ const failingGh: GhRunner = () => {
   throw new Error('offline')
 }
 
-function board(argv: string[], gh: GhRunner = stubGh(), defaultDir = path.join(FIXTURES, 'absent')): BoardResult {
-  return runBoard(argv, { gh, now: NOW, defaultDir })
+function board(argv: string[], gh: GhRunner = stubGh(), defaultDir = path.join(FIXTURES, 'absent'), now = NOW): BoardResult {
+  return runBoard(argv, { gh, now, defaultDir, colour: false })
 }
 
 function attemptBlock(stdout: string[], id: string): string[] {
@@ -93,7 +97,13 @@ function stageOf(dir: string, id: string, stage: string, gh?: GhRunner): string 
 }
 
 function rows(stdout: string[]): string[][] {
-  return stdout.filter(line => line.includes(' · ') && !line.startsWith('#')).map(line => line.split(' · '))
+  const header = stdout.findIndex(line => line.startsWith('TASK '))
+  if (header === -1)
+    return []
+  const starts = COLUMNS.map(column => stdout[header]!.search(new RegExp(`\\b${column}\\b`)))
+  const end = stdout.findIndex((line, index) => index > header && (line.startsWith('UNKNOWN:') || line.startsWith('task ')))
+  return stdout.slice(header + 1, end === -1 ? undefined : end)
+    .map(line => starts.map((start, column) => line.slice(start, starts[column + 1]).trim()))
 }
 
 function rowOf(stdout: string[], id: string): string[] {
@@ -121,7 +131,7 @@ describe('board: tasks are attempts grouped by brief', () => {
   })
 
   it.each([
-    { name: 'default', argv: [] as string[], shown: ['alpha-2', 'beta-1', 'gamma-1', 'delta-1', 'm2', 'm3', 'm4', 'm5', 'm6'], hidden: ['alpha-1', 'm1'] },
+    { name: 'default', argv: [] as string[], shown: ['alpha-2', 'beta-1', 'gamma-1', 'delta-1'], hidden: ['alpha-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'] },
     { name: '--all', argv: ['--all'], shown: ['alpha-2', 'beta-1', 'gamma-1', 'delta-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'], hidden: ['alpha-1'] },
   ])('$name prints one line per shown task, its live attempt, and --all every task', ({ argv, shown, hidden }) => {
     const { stdout } = board(['--dir', BASIC, ...argv])
@@ -330,19 +340,23 @@ describe('board --every: reprint the view until interrupted', () => {
     expect(stderr[0].startsWith('[board] --every ')).toBe(true)
   })
 
-  it('heads each frame with the time it was drawn and hands the interval to the loop', () => {
-    const { stdout, exitCode, everySeconds } = board(['--dir', BASIC, '--every', '2'])
+  it('heads each frame with the time it was drawn and hands the interval and the frame file to the loop', () => {
+    const { stdout, exitCode, everySeconds, frameFile } = board(['--dir', BASIC, '--every', '2'])
     expect(exitCode).toBe(0)
     expect(everySeconds).toBe(2)
+    expect(frameFile).toBe(path.join(BASIC, 'board.txt'))
+    expect(board(['--dir', BASIC]).frameFile).toBeUndefined()
     expect(stdout[0]).toBe(`[board] frame ${NOW.toISOString()}`)
     expect(stdout.slice(1)).toEqual(board(['--dir', BASIC]).stdout)
   })
 
-  it('redraws from the script until it is interrupted', async () => {
+  it('redraws from the script until it is interrupted, and replaces board.txt in the handoff directory with each frame', async () => {
     const bin = mkdtempSync(path.join(tmpdir(), 'board-every-'))
+    const handoff = mkdtempSync(path.join(tmpdir(), 'board-every-handoff-'))
+    cpSync(BASIC, handoff, { recursive: true })
     writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nif [ "$2" = list ]; then echo \'[]\'; else echo \'{}\'; fi\n', { mode: 0o755 })
     try {
-      const child = spawn(process.execPath, [TSX_CLI, BOARD, '--dir', BASIC, '--every', '1'], { env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
+      const child = spawn(process.execPath, [TSX_CLI, BOARD, '--dir', handoff, '--every', '1'], { env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
       let stdout = ''
       child.stdout.on('data', (chunk) => {
         stdout += String(chunk)
@@ -357,9 +371,17 @@ describe('board --every: reprint the view until interrupted', () => {
       expect(headers.length).toBeGreaterThanOrEqual(2)
       for (const index of headers)
         expect(lines[index + 1]).toMatch(/^running \d+, waiting \d+, blocked \d+, the longest — /)
+      expect(stdout).not.toContain(CLEAR_SCREEN)
+      const frame = readFileSync(path.join(handoff, FRAME_FILE), 'utf8').split('\n')
+      expect(frame[0]).toMatch(/^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(frame[1]).toMatch(/^running \d+, waiting \d+, blocked \d+, the longest — /)
+      expect(frame.at(-2)).toMatch(/^UNKNOWN: /)
+      expect(frame.at(-1)).toBe('')
+      expect(readdirSync(handoff).filter(name => name.endsWith('.tmp'))).toEqual([])
     }
     finally {
       rmSync(bin, { recursive: true, force: true })
+      rmSync(handoff, { recursive: true, force: true })
     }
   }, 20_000)
 })
@@ -379,7 +401,7 @@ describe('board: summary, edges and prefixes', () => {
   })
 
   it.each([
-    { name: 'the default', argv: [] as string[], second: '# TASK · PATH · STAGE · AGE · NEXT' },
+    { name: 'the default', argv: [] as string[], second: '# columns: TASK = ' },
     { name: 'a card', argv: ['alpha-2'], second: '# board: read-only' },
   ])('prints $name bare and keeps the definitions as # payload lines', ({ argv, second }) => {
     const { stdout, stderr, exitCode } = board(['--dir', BASIC, ...argv])
@@ -522,7 +544,7 @@ describe('board: the UNKNOWN tally line', () => {
   it.each([
     { name: 'the default', argv: ['--dir', CHEAP], expected: 'UNKNOWN: brief.written ×1, brief.approved ×1, review.started ×1, ready ×2, merge ×2, pr ×1' },
     { name: 'a card', argv: ['--dir', CHEAP, 'c-journal'], expected: 'UNKNOWN: none' },
-    { name: 'the ladder', argv: ['--dir', BASIC], expected: 'UNKNOWN: brief.approved ×8, brief.written ×7, review.started ×6' },
+    { name: 'the ladder', argv: ['--dir', BASIC], expected: 'UNKNOWN: brief.approved ×3, brief.written ×2, review.started ×1' },
     { name: 'PRs missing from the gh list', argv: ['--dir', NEXT], expected: 'UNKNOWN: ready ×1, pr ×1, merge ×1, brief.approved ×2, review.started ×1' },
   ])('ends $name with one tally of the events that occur', ({ argv, expected }) => {
     const { stdout } = board(argv)
@@ -539,7 +561,8 @@ describe('board <task-id>: the expanded card of one task', () => {
   ])('finds the task by $name and prints every attempt, stage and fact', ({ id }) => {
     const { stdout, exitCode } = board(['--dir', BASIC, id])
     expect(exitCode).toBe(0)
-    expect(stdout).toContain(`alpha-2 · ladder · review · ${rowOf(stdout, 'alpha-2')[3]} · CI`)
+    expect(rows(stdout)).toHaveLength(1)
+    expect([...rowOf(stdout, 'alpha-2').slice(0, 3), rowOf(stdout, 'alpha-2')[4]]).toEqual(['alpha-2', 'ladder', 'review', 'CI'])
     for (const attempt of ['alpha-1', 'alpha-2']) {
       expect(attemptBlock(stdout, attempt).slice(1).map(line => line.trim().split(' ')[0])).toEqual(['brief', 'approved', 'ghost', 'review', 'ready', 'merged', 'pr', 'status.md', 'ledger'])
     }
@@ -571,7 +594,7 @@ describe('board: an attempt a journal event:superseded names', () => {
     expect(stdout.at(-1)).toBe('UNKNOWN: brief.written ×1, brief.approved ×1, review.started ×1, ready ×1, merge ×1')
   })
 
-  it('carries the relation in --json and keeps the superseded attempts out of its UNKNOWN tally', () => {
+  it('carries the relation in --json', () => {
     const json = JSON.parse(board(['--dir', SUPERSEDED, '--json']).stdout[0])
     const attempts = Object.fromEntries(json.tasks.flatMap((task: any) => task.attempts).map((attempt: any) => [attempt.id, attempt]))
     expect(attempts['271-2'].superseded).toEqual({ by: '271-4', ts: '2026-09-28T07:00:00.000Z' })
@@ -579,7 +602,6 @@ describe('board: an attempt a journal event:superseded names', () => {
     expect(attempts['271-4'].superseded).toBeNull()
     expect(attempts['271-2'].derived.next).toEqual({ situation: 'superseded', text: '— (superseded)', why: 'by 271-4' })
     expect(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live)).toEqual(['271-4'])
-    expect(json.unknown).toEqual({ ready: 1, pr: 1, merge: 1 })
   })
 })
 
@@ -595,7 +617,7 @@ describe('board --json: the full output for agents', () => {
 
   it('prints every task and attempt, history included, whatever the default hides', () => {
     const json = parsed(BASIC)
-    expect(json.format).toBe('board/1')
+    expect(json.format).toBe('board/2')
     const attempts = json.tasks.flatMap((task: any) => task.attempts.map((attempt: any) => attempt.id))
     expect(attempts.sort()).toEqual(['alpha-1', 'alpha-2', 'beta-1', 'delta-1', 'gamma-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'])
     expect(json.tasks.find((task: any) => task.derived.live === 'm1').derived.shownByDefault).toBe(false)
@@ -603,7 +625,7 @@ describe('board --json: the full output for agents', () => {
 
   it('keeps every derived field under derived', () => {
     const json = parsed(BASIC)
-    expect(Object.keys(json).sort()).toEqual(['derived', 'edges', 'format', 'now', 'tasks', 'unknown'])
+    expect(Object.keys(json).sort()).toEqual(['derived', 'edges', 'format', 'now', 'tasks'])
     expect(Object.keys(json.derived.summary).sort()).toEqual(['counts', 'longest'])
     for (const task of json.tasks) {
       expect(Object.keys(task).sort()).toEqual(['attempts', 'derived'])
@@ -621,6 +643,146 @@ describe('board --json: the full output for agents', () => {
     expect(byName.ready).toMatchObject({ state: 'not', reason: 'no checks recorded on a2a2a2a' })
     expect(byName.merged).toMatchObject({ state: 'not', reason: 'PR #2 OPEN' })
     expect(alpha2.derived.next).toEqual({ situation: 'ci', text: 'CI', why: '— (no checks recorded on a2a2a2a)' })
-    expect(json.unknown).toEqual({ 'brief.written': 8, 'brief.approved': 9, 'review.started': 7 })
+  })
+})
+
+describe('board: merged tasks older than 12 hours are hidden by default', () => {
+  it.each([
+    { name: 'both merged within 12h', now: '2026-09-28T19:59:00Z', argv: [] as string[], shown: ['c-gh', 'c-journal'] },
+    { name: 'c-journal merged 12h01m ago', now: '2026-09-28T20:01:00Z', argv: [] as string[], shown: ['c-gh'] },
+    { name: 'both merged over 12h ago', now: '2026-09-28T20:41:00Z', argv: [] as string[], shown: [] },
+    { name: '--all', now: '2026-09-28T20:41:00Z', argv: ['--all'], shown: ['c-gh', 'c-journal'] },
+  ])('$name shows $shown among the merged', ({ now, argv, shown }) => {
+    const { stdout } = board(['--dir', CHEAP, ...argv], stubGh(), undefined, new Date(now))
+    const merged = (ids: string[]): string[] => ids.filter(id => id === 'c-gh' || id === 'c-journal').sort()
+    const ids = rows(stdout).map(cells => cells[0]!)
+    expect(merged(ids)).toEqual(shown)
+    expect(ids).toContain('c-report')
+    const byDefault = rows(board(['--dir', CHEAP], stubGh(), undefined, new Date(now)).stdout).map(cells => cells[0]!)
+    const json = JSON.parse(board(['--dir', CHEAP, '--json'], stubGh(), undefined, new Date(now)).stdout[0])
+    expect(merged(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live))).toEqual(merged(byDefault))
+  })
+
+  it('states the rule in the card definitions', () => {
+    const { stdout } = board(['--dir', CHEAP, 'c-gh'])
+    expect(stdout.find(line => line.startsWith('# shown: '))).toContain('a merged one only while it merged within the last 12h')
+  })
+})
+
+describe('board: the table aligns its columns by visible width', () => {
+  it.each([
+    { name: 'plain', colour: false },
+    { name: 'coloured', colour: true },
+  ])('starts every cell of a $name table at its header column', ({ colour }) => {
+    const { stdout } = runBoard(['--dir', NEXT, '--all'], { gh: stubGh(), now: NOW, defaultDir: NEXT, colour })
+    const visible = stdout.map(line => stripVTControlCharacters(line))
+    const header = visible.find(line => line.startsWith('TASK '))!
+    const starts = COLUMNS.map(column => header.search(new RegExp(`\\b${column}\\b`)))
+    const table = rows(visible)
+    expect(table.length).toBeGreaterThan(10)
+    for (const line of visible.slice(visible.indexOf(header) + 1, visible.indexOf(header) + 1 + table.length)) {
+      for (const start of starts.slice(1))
+        expect(line.slice(start - 2, start)).toBe('  ')
+    }
+    expect(visible).toEqual(board(['--dir', NEXT, '--all']).stdout)
+  })
+})
+
+describe('board: colour on the STAGE and NEXT cells only', () => {
+  function coloured(dir: string, argv: string[] = ['--all']): string[] {
+    return runBoard(['--dir', dir, ...argv], { gh: stubGh(), now: NOW, defaultDir: dir, colour: true }).stdout
+  }
+
+  it.each([
+    { dir: NEXT, id: 's-brief', tone: 'purple' },
+    { dir: CHEAP, id: 'c-noready', tone: 'purple' },
+    { dir: NEXT, id: 's-approval', tone: 'red' },
+    { dir: NEXT, id: 's-launch', tone: 'red' },
+    { dir: NEXT, id: 's-nopr', tone: 'red' },
+    { dir: NEXT, id: 'n-red', tone: 'red' },
+    { dir: NEXT, id: 'n-owner', tone: 'red' },
+    { dir: NEXT, id: 'n-auto', tone: 'red' },
+    { dir: BASIC, id: 'delta-1', tone: 'red' },
+    { dir: BASIC, id: 'gamma-1', tone: 'yellow' },
+    { dir: BASIC, id: 'm6', tone: 'grey' },
+    { dir: CHEAP, id: 'c-journal', tone: 'grey' },
+    { dir: NEXT, id: 'n-pending', tone: undefined },
+    { dir: CHEAP, id: 'c-report', tone: undefined },
+    { dir: SUPERSEDED, id: '271-2', tone: undefined },
+  ] as { dir: string, id: string, tone: Tone | undefined }[])('$id paints STAGE and NEXT $tone and nothing else', ({ dir, id, tone }) => {
+    const plain = board(['--dir', dir, '--all']).stdout
+    const painted = coloured(dir)
+    const index = plain.findIndex(line => line.startsWith(`${id} `))
+    const [, , stage, , next] = rowOf(plain, id)
+    const paint = painter(true)
+    const line = painted[index]!
+    expect(line.includes(paint(tone, stage!))).toBe(true)
+    expect(line.includes(paint(tone, next!))).toBe(true)
+    const unpainted = line.replace(paint(tone, stage!), stage!).replace(paint(tone, next!), next!)
+    expect(unpainted).toBe(plain[index])
+  })
+
+  it('paints no line but the table rows, and nothing in --json', () => {
+    for (const dir of [BASIC, CHEAP, NEXT, SUPERSEDED]) {
+      const plain = board(['--dir', dir, '--all']).stdout
+      const painted = coloured(dir)
+      const rowIds = new Set(rows(plain).map(cells => cells[0]))
+      painted.forEach((line, index) => {
+        if (!rowIds.has(plain[index]!.split(' ')[0]!))
+          expect(line).toBe(plain[index])
+      })
+      expect(coloured(dir, ['--json'])).toEqual(board(['--dir', dir, '--json']).stdout)
+    }
+  })
+
+  it.each([
+    { name: 'a TTY with NO_COLOR unset', isTTY: true, noColor: undefined, expected: true },
+    { name: 'a TTY with NO_COLOR empty', isTTY: true, noColor: '', expected: true },
+    { name: 'a TTY with NO_COLOR=1', isTTY: true, noColor: '1', expected: false },
+    { name: 'a pipe', isTTY: undefined, noColor: undefined, expected: false },
+    { name: 'a non-TTY stream', isTTY: false, noColor: undefined, expected: false },
+  ])('colours $name: $expected', ({ isTTY, noColor, expected }) => {
+    expect(colourFor(isTTY, noColor)).toBe(expected)
+  })
+})
+
+describe('board --help: the usage and the colour legend', () => {
+  it('prints the usage and every colour with its meaning, and the default output carries no legend', () => {
+    const { stdout, stderr, exitCode } = board(['--help'])
+    expect(exitCode).toBe(0)
+    expect(stderr).toEqual([])
+    expect(stdout).toEqual(HELP)
+    expect(stdout[0]).toBe(USAGE)
+    expect(stdout.some(line => line.startsWith('--every ') && line.includes('clears a terminal') && line.includes(`<handoff dir>/${FRAME_FILE}`) && line.includes('a run without --every writes nothing'))).toBe(true)
+    for (const [tone, meaning] of Object.entries(TONES))
+      expect(stdout.some(line => line.includes(tone) && line.endsWith(meaning))).toBe(true)
+    const printed = board(['--dir', BASIC, '--all']).stdout
+    for (const meaning of Object.values(TONES))
+      expect(printed.some(line => line.endsWith(meaning))).toBe(false)
+  })
+})
+
+describe('board --every: the frame on the terminal and in board.txt', () => {
+  it.each([
+    { name: 'a terminal frame', clear: true, expected: `${CLEAR_SCREEN}a\nb\n` },
+    { name: 'a piped frame', clear: false, expected: 'a\nb\n' },
+  ])('$name reads $expected', ({ clear, expected }) => {
+    expect(frameText(['a', 'b'], clear)).toBe(expected)
+  })
+
+  it('writes the frame as plain text, replaces the previous one and leaves no temporary file', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-frame-'))
+    try {
+      const file = path.join(dir, FRAME_FILE)
+      const paint = painter(true)
+      writeFrameFile(file, ['first', paint('red', 'second')])
+      expect(readFileSync(file, 'utf8')).toBe('first\nsecond\n')
+      writeFrameFile(file, [paint('grey', 'third')])
+      expect(readFileSync(file, 'utf8')).toBe('third\n')
+      expect(readdirSync(dir)).toEqual([FRAME_FILE])
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
