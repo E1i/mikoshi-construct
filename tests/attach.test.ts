@@ -2,18 +2,18 @@ import type { Ui, Writer } from '../src/ui/console.js'
 import type { Prompter } from '../src/ui/prompts.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
-import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach } from '../src/commands/attach/index.js'
+import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { planMaterialize } from '../src/materialize/plan.js'
-import { ATTACH_CARRIERS, getPreset, groupsFor } from '../src/presets/index.js'
+import { ATTACH_CARRIERS, ATTACH_GUARD, getPreset, groupsFor } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -103,16 +103,16 @@ describe('a1: init plans merges and appends where attach plans only creates', ()
     expect(porcelain(dir)).toBe('')
   })
 
-  it('attach plans only create ops, one per carrier', () => {
+  it('attach plans only create ops, one per carrier and one for the guard', () => {
     const dir = fixture()
     const ops = planCarriers(dir, HARNESS)
     expect(ops.map(op => op.action)).toEqual(ops.map(() => 'create'))
-    expect(ops.map(op => op.target).sort()).toEqual([...ATTACH_CARRIERS.targets].sort())
+    expect(ops.map(op => op.target).sort()).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target].sort())
   })
 })
 
 describe('a2: attach leaves the tracked tree untouched and records what it did', () => {
-  it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records seven hashes matching disk', async () => {
+  it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records eight hashes matching disk', async () => {
     const dir = fixture()
     const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
     expect(result.status).toBe('done')
@@ -123,7 +123,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
 
     const record = readAttachRecord(dir)
     expect(record).not.toBeNull()
-    expect(record?.recordVersion).toBe(1)
+    expect(record?.recordVersion).toBe(2)
     expect(record?.construct).toBe(VERSION)
     expect(Date.parse(record?.attachedAt ?? '')).not.toBeNaN()
     expect(record?.harness).toEqual({ command: HARNESS })
@@ -131,7 +131,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     expect(record?.excludeSeparator).toBe(1)
 
     const files = Object.keys(record?.files ?? {}).sort()
-    expect(files).toEqual([...ATTACH_CARRIERS.targets].sort())
+    expect(files).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target].sort())
     for (const [file, sha] of Object.entries(record?.files ?? {}))
       expect(sha256(path.join(dir, file)), file).toBe(sha)
 
@@ -148,7 +148,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     expect(untracked(dir, '.claude/agents')).toEqual(['.claude/agents/probe.md'])
 
     const exclude = readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')
-    expect(pathsInExcludeBlock(exclude).sort()).toEqual(['.construct/', ...files].sort())
+    expect(pathsInExcludeBlock(exclude).sort()).toEqual(['.construct/', ...files, SETTINGS_FILE].sort())
     expect(files).not.toContain(ATTACH_RECORD_FILE)
     expect(directories).not.toContain('.construct')
   })
@@ -410,5 +410,135 @@ describe('attach decides without reading the stack (#232)', () => {
 
     expect(without.status).toBe(withServices.status)
     expect(without.refusal).toBe(withServices.refusal)
+  })
+})
+
+const GUARD_ENTRY = {
+  matcher: 'Bash',
+  hooks: [{ type: 'command', command: `node "$CLAUDE_PROJECT_DIR"/${ATTACH_GUARD.target}`, timeout: 30 }],
+}
+
+function writeSettings(dir: string, content: string): void {
+  mkdirSync(path.join(dir, '.claude'), { recursive: true })
+  writeFileSync(path.join(dir, SETTINGS_FILE), content)
+}
+
+function readSettings(dir: string): unknown {
+  return JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))
+}
+
+describe('the commit guard: attach installs one entry in the untracked settings file', () => {
+  it('the commit guard: creates the settings file holding exactly the entry, hides it and records what it created', async () => {
+    const dir = fixture()
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY] } })
+    expect(porcelain(dir)).toBe('')
+    expect(readAttachRecord(dir)?.settingsHook).toEqual({ file: SETTINGS_FILE, created: { file: true, hooks: true, preToolUse: true }, entry: GUARD_ENTRY })
+    expect(readFileSync(path.join(dir, ATTACH_GUARD.target)).equals(readFileSync(path.join(import.meta.dirname, '../templates/attach/_construct/commit-guard.mjs')))).toBe(true)
+    expect(readAttachRecord(dir)?.files[ATTACH_GUARD.target]).toBe(sha256(path.join(dir, ATTACH_GUARD.target)))
+  })
+
+  it('the commit guard: appends the entry to an untracked file with grants and other hooks, keeps the rest and records that it created nothing', async () => {
+    const dir = fixture()
+    const existing = { permissions: { allow: ['Bash(ls:*)'] }, hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'true' }] }], Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] } }
+    writeSettings(dir, JSON.stringify(existing))
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    expect(readSettings(dir)).toEqual({ ...existing, hooks: { ...existing.hooks, PreToolUse: [...existing.hooks.PreToolUse, GUARD_ENTRY] } })
+    expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: false, preToolUse: false })
+    expect(porcelain(dir)).toBe('')
+  })
+
+  it('the commit guard: adds hooks to a file that has none and records that it created hooks and PreToolUse but not the file', async () => {
+    const dir = fixture()
+    writeSettings(dir, JSON.stringify({ permissions: { allow: [] } }))
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    expect(readSettings(dir)).toEqual({ permissions: { allow: [] }, hooks: { PreToolUse: [GUARD_ENTRY] } })
+    expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: true, preToolUse: true })
+  })
+
+  const SETTINGS_REFUSALS: { name: string, reason: string, arrange: (dir: string) => void }[] = [
+    { name: 'a file that does not parse', reason: 'settings-unreadable', arrange: dir => writeSettings(dir, '{ nope') },
+    { name: 'a PreToolUse that is not a list', reason: 'settings-unreadable', arrange: dir => writeSettings(dir, JSON.stringify({ hooks: { PreToolUse: {} } })) },
+    { name: 'a hooks that is not an object', reason: 'settings-unreadable', arrange: dir => writeSettings(dir, JSON.stringify({ hooks: [] })) },
+    { name: 'a file that is not an object', reason: 'settings-unreadable', arrange: dir => writeSettings(dir, '[]') },
+    { name: 'a symlink', reason: 'settings-unreadable', arrange: (dir) => {
+      mkdirSync(path.join(dir, '.claude'), { recursive: true })
+      writeFileSync(path.join(dir, 'elsewhere.json'), '{}\n')
+      symlinkSync(path.join(dir, 'elsewhere.json'), path.join(dir, SETTINGS_FILE))
+    } },
+    { name: 'a guard entry already there', reason: 'collision', arrange: dir => writeSettings(dir, JSON.stringify({ hooks: { PreToolUse: [GUARD_ENTRY] } })) },
+    { name: 'a tracked file', reason: 'settings-tracked', arrange: (dir) => {
+      writeSettings(dir, '{}\n')
+      git(dir, 'add', '-f', SETTINGS_FILE)
+      git(dir, 'commit', '-qm', 'track settings')
+    } },
+    { name: 'a version-4 index with the file in it', reason: 'settings-index', arrange: (dir) => {
+      writeSettings(dir, '{}\n')
+      git(dir, 'update-index', '--index-version', '4')
+    } },
+  ]
+
+  for (const refusal of SETTINGS_REFUSALS) {
+    it(`the commit guard: ${refusal.name} is refused as ${refusal.reason}, naming the settings file, with nothing written`, async () => {
+      const dir = fixture()
+      refusal.arrange(dir)
+      const excludeBefore = readFileSync(path.join(dir, EXCLUDE_FILE))
+      const before = listing(dir)
+      const { ui: plain, output } = capturing()
+
+      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+
+      expect(result.status).toBe('refused')
+      expect(result.refusal).toBe(refusal.reason)
+      expect(output()).toContain(SETTINGS_FILE)
+      expect(output()).not.toContain('Rolled back')
+      expect(listing(dir)).toEqual(before)
+      expect(existsSync(path.join(dir, '.construct'))).toBe(false)
+      expect(readFileSync(path.join(dir, EXCLUDE_FILE)).equals(excludeBefore)).toBe(true)
+    })
+  }
+
+  it('the commit guard: a repository without the settings file, and a version-4 index with none, attach', async () => {
+    const plainRepository = fixture()
+    const versionFour = fixture()
+    git(versionFour, 'update-index', '--index-version', '4')
+
+    expect((await runAttach(ui, { dir: plainRepository, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir: versionFour, harness: HARNESS, yes: true })).status).toBe('done')
+  })
+
+  it('the commit guard: a settings file that stops parsing between the check and the write rolls back this run and restores the exclude file', async () => {
+    const dir = fixture()
+    const excludeBefore = readFileSync(path.join(dir, EXCLUDE_FILE))
+    const before = listing(dir)
+    const racing: Prompter = {
+      preset: () => Promise.resolve(undefined),
+      aiTarget: () => Promise.resolve(undefined),
+      projectName: () => Promise.resolve(undefined),
+      review: () => Promise.resolve(undefined),
+      harnessCommand: () => Promise.resolve(HARNESS),
+      confirm: () => {
+        writeSettings(dir, '{ nope')
+        return Promise.resolve(true)
+      },
+    }
+    const { ui: plain, output } = capturing()
+
+    const result = await runAttach(plain, { dir, yes: false }, racing)
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('settings-unreadable')
+    expect(result.rolledBack).toHaveLength(8)
+    expect(listing(dir)).toEqual([...before, '.claude/', SETTINGS_FILE].sort())
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ nope')
+    expect(existsSync(path.join(dir, '.construct'))).toBe(false)
+    expect(readFileSync(path.join(dir, EXCLUDE_FILE)).equals(excludeBefore)).toBe(true)
+    expect(output()).toContain(PLAIN_LORE.attachRefusedSettingsUnreadable.what)
   })
 })

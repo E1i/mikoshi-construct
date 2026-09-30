@@ -5,7 +5,7 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:detach -->
-`runDetach(ui, options)` in `src/commands/detach/index.ts` is the composition root: every read — the record, the exclude block, the git index, the class of each recorded file — happens before any write, and each refusal leaves the tree as it found it; then the files, their emptied directories, the exclude block and the record are removed in that order. Dotted edges are wiring, solid edges are the flow.
+`runDetach(ui, options)` in `src/commands/detach/index.ts` is the composition root: every read — the record, the exclude block, the git index, the class of each recorded file — happens before any write, and each refusal leaves the tree as it found it; then the guard entry, the files, their emptied directories, the exclude block and the record are removed in that order. Dotted edges are wiring, solid edges are the flow.
 
 ```mermaid
 flowchart LR
@@ -20,6 +20,7 @@ flowchart LR
   end
   subgraph b_classify["Classify"]
     classify["adopted → absent → changed → remove"]
+    settings["guard entry: adopted → absent → changed → remove"]
   end
   subgraph b_remove["Remove"]
     remove["files by sha, empty directories, exclude block, record"]
@@ -31,7 +32,9 @@ flowchart LR
   run -.->|"block paths"| exclude
   run -->|"record found; unreadable index → refused"| indexreader
   indexreader -->|"tracked set"| classify
-  classify -->|"no changed file"| remove
+  classify -->|"then the guard entry"| settings
+  settings -->|"nothing changed; entry out first"| remove
+  indexreader -.->|"tracked set"| settings
   remove -.-> directories
   remove -.-> exclude
   exclude -.-> strategies
@@ -44,6 +47,7 @@ Read happens in full before a byte is written: the record, the paths in the excl
 set from `.git/index`, and the class of every recorded file. Each refusal — a block without a record,
 an index this reader cannot parse, a carrier whose bytes changed — returns from inside Read and leaves
 the tree exactly as it found it. Classify names four classes in one fixed order, adopted first, so a
-carrier git tracks is the owner's whatever its bytes. Remove takes the files, then the recorded
+carrier git tracks is the owner's whatever its bytes. The guard entry in `.claude/settings.local.json` is classed after the
+files and taken out before them. Remove takes the files, then the recorded
 directories that emptied, then the block attach added to `.git/info/exclude`, then the record; a file
 the record does not list is never deleted and is named in the report.

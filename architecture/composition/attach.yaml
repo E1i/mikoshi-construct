@@ -3,8 +3,8 @@ title: construct attach composition
 description: >-
   `runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the
   refusals run first and every one of them exits before a byte is written; then the harness command
-  comes from a flag or a prompt; then the carriers are planned, the exclude block, the six files and
-  the record are written in that order. Dotted edges are wiring, solid edges are the flow.
+  comes from a flag or a prompt; then the carriers are planned, the exclude block, the eight files, the
+  guard entry and the record are written in that order. Dotted edges are wiring, solid edges are the flow.
 doc: architecture/attach.md
 boundaries:
   - id: entry
@@ -25,7 +25,7 @@ nodes:
     path: src/commands/attach/index.ts
     boundary: entry
   - id: refusals
-    label: seven refusals, in order
+    label: eleven refusals, in order
     path: src/commands/attach/refusals.ts
     boundary: refuse
   - id: detect
@@ -33,8 +33,12 @@ nodes:
     path: src/detect/layout.ts
     boundary: refuse
   - id: carrierset
-    label: ATTACH_CARRIERS
+    label: ATTACH_CARRIERS, ATTACH_GUARD
     path: src/presets/index.ts
+    boundary: refuse
+  - id: indexreader
+    label: readTrackedPaths · is the settings file tracked
+    path: src/commands/detach/index-reader.ts
     boundary: refuse
   - id: prompts
     label: prompter (clack) or --harness
@@ -60,6 +64,10 @@ nodes:
     label: writeCarriersExclusively (wx)
     path: src/commands/attach/write.ts
     boundary: materialize
+  - id: settings
+    label: 'commit guard entry · .claude/settings.local.json: read, append, write by rename'
+    path: src/commands/attach/settings.ts
+    boundary: materialize
   - id: record
     label: .construct/attach.json
     path: src/commands/attach/record.ts
@@ -73,12 +81,16 @@ edges:
   - {from: run, to: refusals, kind: sequence}
   - {from: refusals, to: detect, kind: wires}
   - {from: refusals, to: carrierset, kind: wires, label: collision}
+  - {from: refusals, to: settings, kind: wires, label: 'unreadable, guard entry already there'}
+  - {from: refusals, to: indexreader, kind: wires, label: settings file tracked; unreadable index}
   - {from: refusals, to: prompts, kind: sequence, label: none fired}
   - {from: prompts, to: carriers, kind: sequence, label: harness command}
   - {from: carriers, to: plan, kind: wires}
   - {from: carriers, to: carrierset, kind: wires}
-  - {from: carriers, to: exclude, kind: sequence, label: 'six targets, after confirm'}
+  - {from: carriers, to: exclude, kind: sequence, label: 'eight targets and the settings file, after confirm'}
   - {from: exclude, to: strategies, kind: wires}
   - {from: exclude, to: apply, kind: sequence, label: block written}
-  - {from: apply, to: record, kind: sequence, label: 'sha256 of each file, directories created'}
+  - {from: apply, to: settings, kind: sequence, label: carriers and guard written}
+  - {from: settings, to: record, kind: sequence, label: created flags; sha256 of each file}
+  - {from: settings, to: rollback, kind: sequence, label: unreadable or guarded at write → refused}
   - {from: apply, to: rollback, kind: sequence, label: EEXIST → refused COLLISION}

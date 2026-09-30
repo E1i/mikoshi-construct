@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { ATTACH_EXIT } from '../../src/commands/attach/index.js'
+import { ATTACH_EXIT, SETTINGS_FILE } from '../../src/commands/attach/index.js'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
 import { DETACH_EXIT } from '../../src/commands/detach/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
@@ -190,7 +190,7 @@ function observedRuns(cli: ObservedCli, presets: string[]): Runs {
         modelVersion: versionField(path.join(initialised, 'construct.model.json'), 'modelVersion'),
         recordVersion: versionField(path.join(repository, '.construct/attach.json'), 'recordVersion'),
       },
-      paths: { init, attach: { writes, edits: [GIT_EXCLUDE] } },
+      paths: { init, attach: { writes, edits: [GIT_EXCLUDE, SETTINGS_FILE] } },
     }
   }
   finally {

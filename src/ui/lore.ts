@@ -143,6 +143,10 @@ export interface Lore {
   attachRefusedCursor: string
   attachRefusedNotACommand: (word: string, suggestions: string[]) => Notice
   attachHarnessEditsFiles: (marks: string[]) => Notice
+  attachRefusedSettingsIndex: Notice
+  attachRefusedSettingsTracked: Notice
+  attachRefusedSettingsUnreadable: Notice
+  attachSettingsPlan: (created: boolean) => string
   attachRolledBack: (count: number) => string
   attachBlockKept: string
   attached: string
@@ -150,6 +154,7 @@ export interface Lore {
   attachPullRequest: (version: string) => string
   attachThen: string
   attachDetach: string
+  attachGuard: string
   attachLedgerExcluded: string
   detachNothingAttached: string
   detachRefusedOrphanBlock: string
@@ -157,6 +162,10 @@ export interface Lore {
   detachRefusedSeparator: string
   detachRefusedSeparatorMismatch: string
   detachRefusedChanged: (count: number) => string
+  detachRefusedHookRecord: string
+  detachRefusedSettingsUnreadable: string
+  detachSettingsEntry: string
+  detachEntryRemoved: (file: string) => string
   detachRefusedIndexV4: string
   detachRefusedSplitIndex: string
   detachRefusedSparseIndex: string
@@ -369,6 +378,22 @@ export const LORE: Lore = {
     why: 'It runs on the base and after every change; a gate that fixes what it checks turns a red change green and slips its own edits into the diff under review.',
     next: 'construct detach, then jack in again with the form that only checks (eslint . rather than eslint . --fix).',
   }),
+  attachRefusedSettingsIndex: {
+    what: 'BREACH FAILED // INDEX UNREADABLE: .claude/settings.local.json exists and .git/index cannot be read here, so whether git tracks it cannot be told',
+    why: 'The guard entry goes into that file only while git does not track it; an edit to a tracked file would sit in the owner\'s diff.',
+    next: 'Rewrite the index in a form this CLI reads (git update-index --index-version 3, no split or sparse index) or move .claude/settings.local.json aside, then jack in again. Nothing was written.',
+  },
+  attachRefusedSettingsTracked: {
+    what: 'BREACH FAILED // SETTINGS TRACKED: .claude/settings.local.json is tracked by git',
+    why: 'The guard entry would be written into a tracked file and sit in the owner\'s diff; an exclude line does nothing for a tracked path.',
+    next: 'Stop tracking it (git rm --cached .claude/settings.local.json) or move it aside, then jack in again. Nothing was written.',
+  },
+  attachRefusedSettingsUnreadable: {
+    what: 'BREACH FAILED // SETTINGS UNREADABLE: .claude/settings.local.json is not a settings file the net can edit',
+    why: 'It does not parse as a JSON object, its hooks or hooks.PreToolUse has the wrong shape, or it is not a regular file; editing it blind could wipe what is in it.',
+    next: 'Fix or move .claude/settings.local.json, then jack in again. Nothing was written.',
+  },
+  attachSettingsPlan: (created: boolean) => created ? '.claude/settings.local.json is created holding the commit guard entry.' : '.claude/settings.local.json gets the commit guard entry appended; nothing else in it changes.',
   attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
   attachBlockKept: 'Block left in .git/info/exclude: the bytes before it are no longer what this run wrote, so it was not cut out. construct detach will name it.',
   attached: 'JACKED IN // NETRUN STARTED',
@@ -376,6 +401,7 @@ export const LORE: Lore = {
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
   attachThen: 'claude \u2192 /plan <feature>',
   attachDetach: 'construct detach',
+  attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
   detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
   detachRefusedRecordVersion: 'BREACH FAILED // RECORD UNDATED: recordVersion in .construct/attach.json is missing or not a known integer, so which build wrote it cannot be told',
@@ -383,6 +409,10 @@ export const LORE: Lore = {
   detachRefusedSeparatorMismatch: 'BREACH FAILED // BLOCK MOVED: the bytes before the construct block in .git/info/exclude are not the separator attach wrote, so cutting it out would take yours',
   detachRefusedOrphanBlock: 'BREACH FAILED // ORPHAN BLOCK: .git/info/exclude carries a construct block and no .construct/attach.json names what it hides',
   detachRefusedChanged: (count: number) => `BREACH FAILED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record`,
+  detachRefusedHookRecord: 'BREACH FAILED // HOOK RECORD UNREADABLE: settingsHook in .construct/attach.json is missing or does not name .claude/settings.local.json, so what attach put there cannot be told; nothing was removed',
+  detachRefusedSettingsUnreadable: 'BREACH FAILED // SETTINGS UNREADABLE: .claude/settings.local.json no longer parses as a settings file, so the guard entry cannot be taken out of it; nothing was removed',
+  detachSettingsEntry: '.claude/settings.local.json commit guard entry',
+  detachEntryRemoved: (file: string) => `guard entry cut out of ${file}; the file stays`,
   detachRefusedIndexV4: 'BREACH FAILED // INDEX V4: .git/index is version 4 (prefix-compressed names) and cannot be read here',
   detachRefusedSplitIndex: 'BREACH FAILED // SPLIT INDEX: .git/index carries a link extension and cannot be read here',
   detachRefusedSparseIndex: 'BREACH FAILED // SPARSE INDEX: .git/index carries an sdir extension and cannot be read here',
@@ -587,6 +617,22 @@ export const PLAIN_LORE: Lore = {
     why: 'The ladder runs it on the base and after every change; a gate that fixes what it checks can turn a red change green, and its edits land in the diff under review.',
     next: 'construct detach, then attach again with the form that only checks (eslint . rather than eslint . --fix).',
   }),
+  attachRefusedSettingsIndex: {
+    what: 'Refused: .claude/settings.local.json exists and .git/index cannot be read here, so whether git tracks it cannot be told.',
+    why: 'The guard entry goes into that file only while git does not track it; an edit to a tracked file would sit in the owner\'s diff.',
+    next: 'Rewrite the index in a form this CLI reads (git update-index --index-version 3, no split or sparse index) or move .claude/settings.local.json aside, then attach again. Nothing was written.',
+  },
+  attachRefusedSettingsTracked: {
+    what: 'Refused: .claude/settings.local.json is tracked by git.',
+    why: 'The guard entry would be written into a tracked file and sit in the owner\'s diff; an exclude line does nothing for a tracked path.',
+    next: 'Stop tracking it (git rm --cached .claude/settings.local.json) or move it aside, then attach again. Nothing was written.',
+  },
+  attachRefusedSettingsUnreadable: {
+    what: 'Refused: .claude/settings.local.json is not a settings file attach can edit.',
+    why: 'It does not parse as a JSON object, its hooks or hooks.PreToolUse has the wrong shape, or it is not a regular file; editing it blind could wipe what is in it.',
+    next: 'Fix or move .claude/settings.local.json, then attach again. Nothing was written.',
+  },
+  attachSettingsPlan: (created: boolean) => created ? '.claude/settings.local.json is created holding the commit guard entry.' : '.claude/settings.local.json gets the commit guard entry appended; nothing else in it changes.',
   attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,
   attachBlockKept: 'The block this run added to .git/info/exclude was left in place: the bytes before it are no longer what this run wrote, so cutting it out would take yours. construct detach will name it.',
   attached: 'Attached to repository.',
@@ -594,6 +640,7 @@ export const PLAIN_LORE: Lore = {
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
   attachThen: 'claude \u2192 /plan <feature>',
   attachDetach: 'construct detach',
+  attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard.',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
   detachNothingAttached: 'Nothing is attached here.',
   detachRefusedRecordVersion: 'Refused: recordVersion in .construct/attach.json is missing or not a positive integer, so which build wrote the record cannot be told; nothing was removed. Found:',
@@ -601,6 +648,10 @@ export const PLAIN_LORE: Lore = {
   detachRefusedSeparatorMismatch: 'Refused: the bytes before the construct block in .git/info/exclude are not the separator attach wrote (excludeSeparator), so the block cannot be cut out without taking yours; nothing was removed.',
   detachRefusedOrphanBlock: 'Refused: .git/info/exclude carries a construct block but .construct/attach.json is missing, so what it hides cannot be told from yours:',
   detachRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record; nothing was removed:`,
+  detachRefusedHookRecord: 'Refused: settingsHook in .construct/attach.json is missing or does not name .claude/settings.local.json, so what attach put there cannot be told; nothing was removed.',
+  detachRefusedSettingsUnreadable: 'Refused: .claude/settings.local.json no longer parses as a settings file, so the guard entry cannot be taken out of it; nothing was removed.',
+  detachSettingsEntry: '.claude/settings.local.json commit guard entry',
+  detachEntryRemoved: (file: string) => `removed the commit guard entry from ${file}; the file stays.`,
   detachRefusedIndexV4: 'Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.',
   detachRefusedSplitIndex: 'Refused: .git/index is a split index (link extension), which detach cannot read; nothing was removed.',
   detachRefusedSparseIndex: 'Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.',

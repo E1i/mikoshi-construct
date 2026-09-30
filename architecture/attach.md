@@ -5,7 +5,7 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:attach -->
-`runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the refusals run first and every one of them exits before a byte is written; then the harness command comes from a flag or a prompt; then the carriers are planned, the exclude block, the six files and the record are written in that order. Dotted edges are wiring, solid edges are the flow.
+`runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the refusals run first and every one of them exits before a byte is written; then the harness command comes from a flag or a prompt; then the carriers are planned, the exclude block, the eight files, the guard entry and the record are written in that order. Dotted edges are wiring, solid edges are the flow.
 
 ```mermaid
 flowchart LR
@@ -14,9 +14,10 @@ flowchart LR
     run["runAttach"]
   end
   subgraph b_refuse["Refuse · before any write"]
-    refusals["seven refusals, in order"]
+    refusals["eleven refusals, in order"]
     detect["isEmptyDir(dir)"]
-    carrierset["ATTACH_CARRIERS"]
+    carrierset["ATTACH_CARRIERS, ATTACH_GUARD"]
+    indexreader["readTrackedPaths · is the settings file tracked"]
   end
   subgraph b_configure["Configure"]
     prompts["prompter (clack) or --harness"]
@@ -27,6 +28,7 @@ flowchart LR
     exclude[".git/info/exclude block"]
     strategies["appendBlock, gitignore markers"]
     apply["writeCarriersExclusively (wx)"]
+    settings["commit guard entry · .claude/settings.local.json: read, append, write by rename"]
     record[".construct/attach.json"]
     rollback["rollbackAttach · own files by sha, exclude restored byte for byte"]
   end
@@ -34,14 +36,18 @@ flowchart LR
   run --> refusals
   refusals -.-> detect
   refusals -.->|"collision"| carrierset
+  refusals -.->|"unreadable, guard entry already there"| settings
+  refusals -.->|"settings file tracked; unreadable index"| indexreader
   refusals -->|"none fired"| prompts
   prompts -->|"harness command"| carriers
   carriers -.-> plan
   carriers -.-> carrierset
-  carriers -->|"six targets, after confirm"| exclude
+  carriers -->|"eight targets and the settings file, after confirm"| exclude
   exclude -.-> strategies
   exclude -->|"block written"| apply
-  apply -->|"sha256 of each file, directories created"| record
+  apply -->|"carriers and guard written"| settings
+  settings -->|"created flags; sha256 of each file"| record
+  settings -->|"unreadable or guarded at write → refused"| rollback
   apply -->|"EEXIST → refused COLLISION"| rollback
 ```
 <!-- /composition:attach -->
@@ -52,5 +58,5 @@ Refuse runs every check before a byte is written, in a fixed order, and each ref
 exactly as it found it — including `.git/info/exclude`. Configure takes the harness command from
 `--harness` or asks for it; nothing is assumed, because the repository was not written by the
 construct and its gate is not ours to guess. Materialize writes in one order — the exclude block, the
-six carriers, the record — so a failure between two steps leaves a tree `git status` still reads as
+seven carriers and the commit guard, the guard entry in `.claude/settings.local.json`, the record — so a failure between two steps leaves a tree `git status` still reads as
 clean and a record that names only what exists.

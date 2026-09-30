@@ -5,7 +5,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ATTACH_RECORD_FILE, EXCLUDE_FILE, readAttachRecord, runAttach } from '../src/commands/attach/index.js'
+import { ATTACH_RECORD_FILE, EXCLUDE_FILE, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -72,7 +72,7 @@ async function attached(dir: string): Promise<{ files: string[], directories: st
   const record = readAttachRecord(dir)
   if (record == null)
     throw new Error('attach wrote no record')
-  return { files: Object.keys(record.files), directories: record.directories }
+  return { files: [...Object.keys(record.files), SETTINGS_FILE], directories: record.directories }
 }
 
 function removedLines(output: string): string[] {
@@ -83,7 +83,7 @@ function removedLines(output: string): string[] {
 }
 
 describe('a4: attach then detach is the identity on a clean repository', () => {
-  it('restores ls-files, status, the exclude bytes and the listing, and reports the 13 recorded paths', async () => {
+  it('restores ls-files, status, the exclude bytes and the listing, and reports the 15 recorded paths', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     const record = await attached(dir)
@@ -98,9 +98,9 @@ describe('a4: attach then detach is the identity on a clean repository', () => {
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)
     const removed = removedLines(output())
     expect(removed.sort()).toEqual([...record.files, ...record.directories].sort())
-    expect(removed).toHaveLength(13)
-    expect(result.removed).toHaveLength(13)
-    expect(output()).toContain(PLAIN_LORE.detached(13))
+    expect(removed).toHaveLength(15)
+    expect(result.removed).toHaveLength(15)
+    expect(output()).toContain(PLAIN_LORE.detached(15))
     expect(output()).not.toContain('JACKED')
   })
 })
@@ -163,7 +163,7 @@ describe('a5: without a record', () => {
 })
 
 describe('a6: what attach did not write is never removed', () => {
-  it('leaves the ledger and a local settings file, names both, shows them as untracked once the block is gone, and counts 12', async () => {
+  it('leaves the ledger and a local settings file, names both, shows them as untracked once the block is gone, and counts 13', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     await attached(dir)
@@ -182,13 +182,13 @@ describe('a6: what attach did not write is never removed', () => {
     expect(after.listing).toEqual([...before.listing, '.claude/', '.claude/settings.local.json', '.construct/', '.construct/runs.jsonl'].sort())
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.claude/settings.local.json'))
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/runs.jsonl'))
-    expect(result.removed).toHaveLength(12)
-    expect(output()).toContain(PLAIN_LORE.detached(12))
+    expect(result.removed).toHaveLength(13)
+    expect(output()).toContain(PLAIN_LORE.detached(13))
   })
 })
 
 describe('a carrier that is not what attach wrote', () => {
-  it('already absent: named, not counted, its emptied directory removed, count 12', async () => {
+  it('already absent: named, not counted, its emptied directory removed, count 14', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     await attached(dir)
@@ -199,8 +199,8 @@ describe('a carrier that is not what attach wrote', () => {
 
     expect(result.status).toBe('done')
     expect(output()).toContain(PLAIN_LORE.detachAlreadyAbsent('.claude/commands/plan.md'))
-    expect(result.removed).toHaveLength(12)
-    expect(output()).toContain(PLAIN_LORE.detached(12))
+    expect(result.removed).toHaveLength(14)
+    expect(output()).toContain(PLAIN_LORE.detached(14))
     expectSameSnapshot(snapshot(dir), before)
   })
 
@@ -222,7 +222,7 @@ describe('a carrier that is not what attach wrote', () => {
     expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toContain('# construct:begin')
   })
 
-  it('adopted: a carrier committed with git add -f stays with its directory, count 11', async () => {
+  it('adopted: a carrier committed with git add -f stays with its directory, count 13', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     await attached(dir)
@@ -236,8 +236,8 @@ describe('a carrier that is not what attach wrote', () => {
     expect(existsSync(path.join(dir, ADOPTED))).toBe(true)
     expect(() => git(dir, 'ls-files', '--error-unmatch', ADOPTED)).not.toThrow()
     expect(output()).toContain(PLAIN_LORE.detachAdopted(ADOPTED))
-    expect(result.removed).toHaveLength(11)
-    expect(output()).toContain(PLAIN_LORE.detached(11))
+    expect(result.removed).toHaveLength(13)
+    expect(output()).toContain(PLAIN_LORE.detached(13))
     const after = snapshot(dir)
     expect(after.status).toBe(before.status)
     if (before.exclude != null)
@@ -265,7 +265,7 @@ describe('a4 over an exclude file git did not shape: the separator in the record
 
       expectSameSnapshot(snapshot(dir), before)
       expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toBe(prior.content)
-      expect(record.files).toHaveLength(7)
+      expect(record.files).toHaveLength(9)
     })
   }
 })
@@ -305,7 +305,7 @@ describe('the record version detach reads', () => {
   it('refuses a record written by a newer construct, names both versions and removes nothing', async () => {
     const dir = fixture()
     await attached(dir)
-    rewriteRecordVersion(dir, 2)
+    rewriteRecordVersion(dir, 3)
     const before = listing(dir)
     const { ui: plain, output } = capturing()
 
@@ -314,7 +314,7 @@ describe('the record version detach reads', () => {
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('record-ahead')
     expect(listing(dir)).toEqual(before)
-    expect(output()).toContain(PLAIN_LORE.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', 2, 1))
+    expect(output()).toContain(PLAIN_LORE.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', 3, 2))
   })
 
   for (const value of [undefined, '1', 1.5, null, 0]) {
@@ -405,5 +405,154 @@ describe('the exclude file after detach', () => {
     expect(runDetach(ui, { dir }).status).toBe('done')
 
     expect(existsSync(path.join(dir, EXCLUDE_FILE))).toBe(false)
+  })
+})
+
+const GUARD_ENTRY = {
+  matcher: 'Bash',
+  hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR"/.construct/commit-guard.mjs', timeout: 30 }],
+}
+
+function readSettings(dir: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>
+}
+
+function writeSettings(dir: string, content: unknown): void {
+  mkdirSync(path.join(dir, '.claude'), { recursive: true })
+  writeFileSync(path.join(dir, SETTINGS_FILE), `${JSON.stringify(content, null, 2)}\n`)
+}
+
+function rewriteRecord(dir: string, change: (record: Record<string, unknown>) => void): void {
+  const file = path.join(dir, ATTACH_RECORD_FILE)
+  const record = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  change(record)
+  writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`)
+}
+
+describe('the commit guard: detach takes out the entry attach added and nothing else', () => {
+  it('the commit guard: a file whose other parts changed loses only the entry, and the entry line is reported but not counted', async () => {
+    const dir = fixture()
+    writeSettings(dir, { permissions: { allow: ['Bash(ls:*)'] }, hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'true' }] }] } })
+    await attached(dir)
+    const settings = readSettings(dir) as { permissions: { allow: string[] }, hooks: Record<string, unknown> }
+    settings.permissions.allow.push('Bash(make:*)')
+    settings.hooks.PostToolUse = [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'true' }] }]
+    writeSettings(dir, settings)
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('done')
+    const after = readSettings(dir) as { hooks: { PreToolUse: unknown[] } }
+    expect(after.hooks.PreToolUse).toEqual([{ matcher: 'Edit', hooks: [{ type: 'command', command: 'true' }] }])
+    expect(after).toEqual({ ...settings, hooks: { ...settings.hooks, PreToolUse: after.hooks.PreToolUse } })
+    expect(existsSync(path.join(dir, '.construct'))).toBe(false)
+    expect(output()).toContain(PLAIN_LORE.detachEntryRemoved(SETTINGS_FILE))
+    expect(removedLines(output())).not.toContain(SETTINGS_FILE)
+  })
+
+  it('the commit guard: a file attach created keeps grants added after attach, while the empty PreToolUse and hooks go', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeSettings(dir, { ...readSettings(dir), permissions: { allow: ['Bash(ls:*)'] } })
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(readSettings(dir)).toEqual({ permissions: { allow: ['Bash(ls:*)'] } })
+  })
+
+  it('the commit guard: an edited entry is refused as changed, naming the settings file, and nothing is removed', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeSettings(dir, { hooks: { PreToolUse: [{ ...GUARD_ENTRY, hooks: [{ ...GUARD_ENTRY.hooks[0], timeout: 5 }] }] } })
+    const before = snapshot(dir)
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('changed')
+    expect(output()).toContain(PLAIN_LORE.detachRefusedChanged(1))
+    expect(output()).toContain(SETTINGS_FILE)
+    expectSameSnapshot(snapshot(dir), before)
+    expect(existsSync(path.join(dir, ATTACH_RECORD_FILE))).toBe(true)
+  })
+
+  it('the commit guard: an entry deleted by hand is named as already absent and the guard script is still removed', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeSettings(dir, { hooks: { PreToolUse: [] } })
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('done')
+    expect(output()).toContain(PLAIN_LORE.detachAlreadyAbsent(PLAIN_LORE.detachSettingsEntry))
+    expect(output()).toContain(`already absent: ${SETTINGS_FILE}`)
+    expect(existsSync(path.join(dir, '.construct/commit-guard.mjs'))).toBe(false)
+  })
+
+  it('the commit guard: a settings file that became tracked is left byte for byte and named as adopted', async () => {
+    const dir = fixture()
+    await attached(dir)
+    git(dir, 'add', '-f', SETTINGS_FILE)
+    git(dir, 'commit', '-qm', 'adopt the settings')
+    const bytes = readFileSync(path.join(dir, SETTINGS_FILE))
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('done')
+    expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(bytes)).toBe(true)
+    expect(output()).toContain(PLAIN_LORE.detachAdopted(PLAIN_LORE.detachSettingsEntry))
+  })
+
+  const HOOK_RECORDS: { name: string, change: (record: Record<string, unknown>) => void }[] = [
+    { name: 'a version-2 record without settingsHook', change: (record) => { delete record.settingsHook } },
+    { name: 'a settingsHook that names another path', change: (record) => { record.settingsHook = { ...(record.settingsHook as object), file: '.claude/settings.json' } } },
+    { name: 'a settingsHook whose entry does not name the guard', change: (record) => { record.settingsHook = { ...(record.settingsHook as object), entry: { matcher: 'Bash' } } } },
+  ]
+
+  for (const hookRecord of HOOK_RECORDS) {
+    it(`the commit guard: ${hookRecord.name} is refused as hook-record, removing nothing`, async () => {
+      const dir = fixture()
+      await attached(dir)
+      rewriteRecord(dir, hookRecord.change)
+      const before = snapshot(dir)
+      const { ui: plain, output } = capturing()
+
+      const result = runDetach(plain, { dir })
+
+      expect(result.status).toBe('refused')
+      expect(result.refusal).toBe('hook-record')
+      expect(output()).toContain(PLAIN_LORE.detachRefusedHookRecord)
+      expectSameSnapshot(snapshot(dir), before)
+    })
+  }
+
+  it('the commit guard: a settings file that no longer parses is refused as settings-unreadable, removing nothing', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeFileSync(path.join(dir, SETTINGS_FILE), '{ nope')
+    const before = snapshot(dir)
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('settings-unreadable')
+    expect(output()).toContain(PLAIN_LORE.detachRefusedSettingsUnreadable)
+    expectSameSnapshot(snapshot(dir), before)
+  })
+
+  it('the commit guard: a version-1 record seeks no entry and leaves the settings file alone', () => {
+    const dir = fixture()
+    withFrozenRecordV1(dir)
+    writeSettings(dir, { hooks: { PreToolUse: [GUARD_ENTRY] } })
+    const bytes = readFileSync(path.join(dir, SETTINGS_FILE))
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(bytes)).toBe(true)
   })
 })
