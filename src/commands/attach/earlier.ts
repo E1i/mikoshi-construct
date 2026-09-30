@@ -5,6 +5,7 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { templatesRoot } from '../../materialize/templates.js'
 import { ATTACH_CARRIERS } from '../../presets/index.js'
+import { shellWord } from './shell-word.js'
 
 export interface EarlierCarrier {
   target: string
@@ -23,14 +24,8 @@ export interface CollisionReading {
   rerun: string
 }
 
-const SHELL_SAFE_WORD = /^[\w./@:=-]+$/
-
 function attachTemplate(name: string): string {
   return path.join(templatesRoot(), 'attach', name)
-}
-
-function shellWord(word: string): string {
-  return SHELL_SAFE_WORD.test(word) ? word : JSON.stringify(word)
 }
 
 export function knownCarriers(): EarlierCarrier[] {
@@ -73,7 +68,7 @@ function rerunCommand(root: string, flags: CollisionFlags): string {
   const base = `npx mikoshi-construct attach --dir ${shellWord(root)}`
   if (flags.harness == null)
     return base
-  return `${base}${flags.yes ? ' --yes' : ''} --harness ${JSON.stringify(flags.harness)}`
+  return `${base}${flags.yes ? ' --yes' : ''} --harness ${shellWord(flags.harness)}`
 }
 
 export function collisionReading(root: string, paths: string[], flags: CollisionFlags): CollisionReading {

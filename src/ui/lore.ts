@@ -382,7 +382,7 @@ export const LORE: Lore = {
   attachRefusedNotACommand: (word: string, suggestions: string[]) => ({
     what: `BREACH FAILED // DEAD COMMAND: "${word}" is nowhere on PATH`,
     why: 'The ladder runs the harness as written in a plain shell; a package script name or a node_modules/.bin binary never resolves there, so every rung would flatline before it measured anything.',
-    next: suggestions.map(suggestion => `--harness "${suggestion}"`).join('  or  '),
+    next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness rewrites the tree: ${marks.join(', ')}`,
@@ -616,7 +616,7 @@ export const PLAIN_LORE: Lore = {
   attachRefusedNotACommand: (word: string, suggestions: string[]) => ({
     what: `Refused: "${word}" is not a command found on PATH.`,
     why: 'The ladder runs the harness as written, in a plain shell; a package.json script name or a binary under node_modules/.bin is not on PATH there, so every rung would fail before it measured anything.',
-    next: suggestions.map(suggestion => `--harness "${suggestion}"`).join('  or  '),
+    next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness command edits files: ${marks.join(', ')}.`,

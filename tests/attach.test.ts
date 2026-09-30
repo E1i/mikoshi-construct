@@ -231,7 +231,7 @@ describe('a3: every refusal exits before anything is written', () => {
     const notice = PLAIN_LORE.attachRefusedNotACommand('vitest', ['CI=1 npm run vitest run', 'CI=1 npx vitest run'])
     expect(output()).toContain(notice.what)
     expect(output()).toContain(notice.why)
-    expect(output()).toContain('--harness "CI=1 npx vitest run"')
+    expect(output()).toContain('--harness \'CI=1 npx vitest run\'')
   })
 
   it('a harness that edits files is attached with a warning that names what edits and what to run instead', async () => {

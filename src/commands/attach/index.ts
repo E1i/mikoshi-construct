@@ -15,6 +15,7 @@ import { fileEditingMarks, throughPackageRunners } from './harness.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
+import { shellWord } from './shell-word.js'
 import { writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
@@ -60,7 +61,7 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   },
   'no-harness': lore => ({ what: lore.attachRefusedNoHarness, ...lore.attachNoHarnessExplained }),
   'cursor': lore => lore.attachRefusedCursor,
-  'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word)),
+  'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
 }
 
 function explained(ui: Ui, notice: Notice): void {

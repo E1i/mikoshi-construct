@@ -45,8 +45,9 @@ with no way to tell the construct's own earlier files from the owner's.
 - A repository already attached (`.construct/attach.json` present) still gets the delete-and-rerun
   command where `construct detach` is the better answer. The protocol tells the agent to name detach in
   that state; what the CLI says there is a follow-up.
-- The printed command quotes a path or harness with JSON quoting, which does not escape `$` or a
-  backtick. That matches the existing not-a-command next step and is accepted.
+- Every printed command, the not-a-command next step included, single-quotes a root, a path or a
+  harness through `shellWord` in `src/commands/attach/shell-word.ts`, so a pasted `$`, backtick or
+  quote reaches attach as written (`tests/attach-shell-word.test.ts`).
 
 ## Enforced by
 
