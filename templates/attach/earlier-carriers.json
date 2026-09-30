@@ -1,0 +1,332 @@
+[
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "904bdbe1856a0e5af167dae7845f29b9280182011c278630c263c288110d74e0",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "c01b292172a82d6a58c8c5e879362955e3b4bd4d4b55da9b1c7c06627f305d9a",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "39ea0d308b5cc8926855eb8704f8c7d11977df03f9bc477808b56702cb92b886",
+    "date": "2026-09-22"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "f34c7446d7dd41d85ad58c135d44efe9ae10d2b8d983af10efa8858bdafe86bb",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "724d8d7038b6982b9df5b40ac5f45056dc331c06b20812f5ed777d154333a56d",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "e7f5070c33078adb98fcae771de3975d80208bad34468b32cb2b646c35ec5af1",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "c300cd9cdc48d799b92c7e60e6683400b003a3901edc659786ba0a0947cf7a7b",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "3c2a8d0645490e4d8f327bc24e2239178d597a8daa5120d3fba519cdfe8de069",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "2696cb1cae35c1674f29ae8bc58a00346f19e3197334cd5fc04cb5bdf4977f1f",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "5c6d566d79812ad1d160d1dcf49a1295d7684cffbf6a39c314cb7fe5a4e66481",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "586b5066558fff43497fcd15fa190e8de463198dea81a0ec1ceb727df0d9902f",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "0ae44dbe8d3e8b2edbcd59b0358dd3646ca6697efa6a877cb5306139c2f129e9",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "506f61edd1ab24243be6139c9e109d7d18c4406ca6474b494900510dae7bb3aa",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "45878f982f8e1d100a6f92df2f39dd720de1122630227586ff36fc1223e71fa5",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "9dae5289879602613a4a45e047e2bf39bb5d242572101265447865dc25f0bf37",
+    "date": "2026-09-20"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "52851af7cd581042f4fefc8b8963674706c780ef8e48d54a642ea2fd8210a351",
+    "date": "2026-09-21"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "fcc78013b4edf924e8315a9c1965b68e30e25deaa443cda15e7da5488b077a34",
+    "date": "2026-09-23"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "b02ba896bd8cdda31b0311fd1267dd8253cb9c12241cae7641d36e59a5849ef9",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "26e57d6f3f641316b586cddc26ef28751c1eecf2ef74295735d4f61a0716886f",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "cb6b2e9d4081d436863827262c34d6356182c4b1c2234a31f1ff58390058ef3d",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "c372b70e6db695ab3b43410241478d098c3f0eb0b6bfaacc019245d6f05f25c5",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "17af3d178b99432bb9dcb3afcb1dd242dc5051a27185f189f51b8abf29e80543",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "44d8a481ee0460b50c60069880c40e958fff7e573680c9f598e1e4b1fd55dc09",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "659a42711d7154f40808fea7448f1960285f5a21656f6fd3ae10957e3e0b41e9",
+    "date": "2026-09-26"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "05a1ee755d7243cfc2bce0a6c39323adda794408a7a485a2ada36c7f0e5b8a7b",
+    "date": "2026-09-26"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "1e7cfeac2416c1445dc7ede6cabd9d3cef657d922d63521fef05f906d659c6d7",
+    "date": "2026-09-27"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "b9228220d327b41bd47d4d3c86849e7f5f1440971b158bd9c19f3841febd51d7",
+    "date": "2026-09-27"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "eb4841bad53f9440e54d03eeb1032aacdf92e21b82502ae83f7c679ecf97d5bb",
+    "date": "2026-09-27"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "4d00c75a84a0518d3e0275af41e499cdfb856d8dcc60a3530f51f405d60f3abe",
+    "date": "2026-09-27"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "28cfcfc4270bde58dab238ba739fc98967a0ad9ae389b417910d4cabcf256424",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "b7c7496e128d4b5a97c0abd9e0ccc7c004b6c57996915212b133a79d31510e93",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "aacc5a209a0493ab1ec09c7e751fc5af4bd1f366f35ca481359d3f8bf66a27f9",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "e73f5c3f1708ee92a643581d8ffcf9bff2e638cb135cd39660a60a010c65377a",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "52b311424edf771c496df087592ed465bb265a32a2aecca52fb41605e03a7caa",
+    "date": "2026-09-29"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "c3d666024d6073d61b936163795baab3ecaa02f3b27d53c5c5e4832f60cb52a5",
+    "date": "2026-09-29"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "9294d3f7827a53231b998745f14455c67cf188694188eb4ad46b316289f59c60",
+    "date": "2026-09-29"
+  },
+  {
+    "target": ".claude/agents/architect.md",
+    "sha256": "125101dbe6d6971bf99ff74c6837c9354f13de07b1c2eb348da3805665e3afff",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/agents/architect.md",
+    "sha256": "ce148eee532a1802fe04a1517c9cd087b6060eeeaa4bc9da763ee6d321c449a5",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/agents/architect.md",
+    "sha256": "1d623d10196fcc7542a40fad6a9c21d251008ced6eb110a14fe15e0b2f5abd30",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/agents/architect.md",
+    "sha256": "4aa2e01569635a2cfbb3a155d5c35e8b47a4421d2978d2eaad4e54cdd683f27a",
+    "date": "2026-09-23"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "dafb4f1a6093d85ba88b68b1ed10f19ad74645f9231c5624f56ebde3d9467f6f",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "708656343f28c9a992fe2130f06d24c3306ed066caf5e92d2b1060e3f78d9515",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "f4dca275fd1b754706385a609b524fcc00346d3d8d7a8bee74de6a49c10f4d85",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "e0ece4d355656148bf2436b04f2dd34d8e96ecfe6442dd3c5abedf42e478ee04",
+    "date": "2026-09-23"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "9ca4b0d3c9743cee1d7eaded9a0afeb5483da6043533e774d9a2ac66023846ae",
+    "date": "2026-09-24"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "275cd619bec3dfad1159b6900af4e5f81904fe0285275007ea1257c1148587b8",
+    "date": "2026-09-26"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "b4e9587586f304dc223e8536402888cc91edd6d9dc1e9c4dbf6b2e248cb0fd9a",
+    "date": "2026-09-27"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "9d1aad1a327a9dda326fe724a6d3d895525b5db5bb1b0227009ffbe01ec30d17",
+    "date": "2026-09-27"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "3afe288589b9d1ea7def70cd3d0d8598af369318cf02c26cdaf1e1bbf17d54fd",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "57aaf3ec818202d8315935e8ca8a326fb29eb7ecb5cd50b700797ce8c3732612",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "c5335fe94f81d8cb757c822d870f3ca6a8db679d4fc89be4b3e8930d61f6a3b1",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "b160a45a2dd7c9007fc5e3ef7fe004c69b5309d1d005f2a9aef2b1e22dff5444",
+    "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "5dab74e05f1b4b04f8cb1599fd3ddab131bfebe65a80695d0ae5cb478db337e0",
+    "date": "2026-09-29"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "a99a984f2e0f51eda7b920aed761dab37b8c06aaee9209bac39764a246680095",
+    "date": "2026-09-29"
+  },
+  {
+    "target": ".claude/agents/implementer.md",
+    "sha256": "4d89d4d8dab1fe68997e484105487663c3f49b86c226a2e36df73f5669346810",
+    "date": "2026-09-16"
+  },
+  {
+    "target": ".claude/agents/implementer.md",
+    "sha256": "9e774107e820819f97205b7338a70c7b314662921b7ebea3b37fc632a4d13623",
+    "date": "2026-09-17"
+  },
+  {
+    "target": ".claude/agents/implementer.md",
+    "sha256": "bc7988ca59334cdec03e011242353402bcfbe0522a9830d421ec8bf4fe95a32c",
+    "date": "2026-09-26"
+  },
+  {
+    "target": ".claude/agents/implementer.md",
+    "sha256": "89456316a45057921332483e8b7277f0344984993cf106fab3e0d6501d212682",
+    "date": "2026-09-26"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "475fc456d365dbec325f97b6da4b12f170abf437edcbf8c22f3d8740584e2c46",
+    "date": "2026-09-29"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "f5554b7238b8cefb63ac3c84709fd3adef20413977916ca4fe467d9e3baa646d",
+    "date": "2026-09-24"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "e93df1546927c3a2512b8b8d4ac21d7db63014521bac54f93d2cbb6bb76b27ef",
+    "date": "2026-09-26"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "5168c7ef7aea8aca534802045c06c56e8d6b4672a166bb67f92174d45dd44c9c",
+    "date": "2026-09-27"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "44163f7d3ca9b5432ebf846fd45e8a21771d9b71b271ef6a3b54daf84b38c560",
+    "date": "2026-09-27"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "bb292d7d4636f830077be14d11985151f65118a9bfa91cc4bd9d4f43b80cd93b",
+    "date": "2026-09-27"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "b5cf681c58e72e5aea51a03105cb80ea36fc16144314d0d7fb693d3f2d4b9ee7",
+    "date": "2026-09-28"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "3518ac090f6523b3e4461eab5943f283e90ed814d0bca278b62898ba41cb83f0",
+    "date": "2026-09-28"
+  }
+]

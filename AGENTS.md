@@ -570,6 +570,11 @@ A question about the state of the work — "status", "what's there", "where are 
 `/status` answers it ([.claude/commands/status.md](.claude/commands/status.md)). Every report on the state of tasks
 starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
 
+While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
+rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the
+tasks `board.txt` shows as running or waiting, read from the file at the moment of writing, never from the session's
+memory of them.
+
 ## Choosing the contour: cheap path or ladder path
 
 The principle is *The cheapest contour that gives the required proof* in

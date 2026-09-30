@@ -6,14 +6,16 @@ import path from 'node:path'
 import { parseEverySeconds } from '../ghosts/every.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
 import { deriveTasks, selectShown, summarize } from './derive.js'
+import { FRAME_FILE, frameFileIn } from './frame.js'
 import { listPrs, prDetails } from './gh.js'
 import { readHandoff } from './handoff.js'
 import { boardJson } from './json.js'
 import { nextOf } from './next.js'
-import { renderBoard, renderCard } from './render.js'
+import { DEFINITIONS, renderBoard, renderCard } from './render.js'
+import { legendLines, painter } from './tone.js'
 
 export const PREFIX = '[board] '
-export const USAGE = 'usage: tsx scripts/board/board.ts [--dir <handoff dir>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct]'
+export const USAGE = 'usage: tsx scripts/board/board.ts [--dir <handoff dir>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct] [--help]'
 const DEFAULT_REPO = 'E1i/mikoshi-construct'
 export const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
 const OWNER_MERGES = path.resolve(import.meta.dirname, '../../architecture/owner-merges.md')
@@ -22,6 +24,7 @@ export interface BoardDeps {
   gh: GhRunner
   now: Date
   defaultDir: string
+  colour: boolean
 }
 
 export interface BoardResult {
@@ -29,6 +32,7 @@ export interface BoardResult {
   stderr: string[]
   exitCode: number
   everySeconds?: number
+  frameFile?: string
 }
 
 interface Args {
@@ -41,7 +45,15 @@ interface Args {
   everySeconds: number | undefined
 }
 
-function parseArgs(argv: string[], defaultDir: string): Args | string {
+export const HELP = [
+  USAGE,
+  '<task-id> prints one task\'s card with every attempt, stage and fact; --json prints every task and attempt, with the UNKNOWN tally; --all lists every task',
+  `--every <seconds> redraws the view: it clears a terminal before each frame and writes each frame as plain text to <handoff dir>/${FRAME_FILE}, replacing it through a temporary file and a rename; a run without --every writes nothing`,
+  ...legendLines(),
+  ...DEFINITIONS,
+]
+
+function parseArgs(argv: string[], defaultDir: string): Args | string | 'help' {
   let dir: string | undefined
   let repo = DEFAULT_REPO
   let all = false
@@ -50,7 +62,10 @@ function parseArgs(argv: string[], defaultDir: string): Args | string {
   let everySeconds: number | undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
-    if (arg === '--all') {
+    if (arg === '--help') {
+      return 'help'
+    }
+    else if (arg === '--all') {
       all = true
     }
     else if (arg === '--json') {
@@ -135,10 +150,10 @@ interface Selection {
   shown: TaskView[]
 }
 
-function select(tasks: TaskView[], args: Args): Selection {
+function select(tasks: TaskView[], args: Args, now: Date): Selection {
   return {
     card: args.id === undefined ? undefined : findTask(tasks, args.id),
-    shown: selectShown(tasks, args.all && !args.json),
+    shown: selectShown(tasks, args.all && !args.json, now),
   }
 }
 
@@ -152,6 +167,8 @@ function fetchedViews(tasks: TaskView[], { card, shown }: Selection, args: Args)
 
 export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
   const args = parseArgs(argv, deps.defaultDir)
+  if (args === 'help')
+    return { stdout: HELP, stderr: [], exitCode: 0 }
   if (typeof args === 'string')
     return refuse(args)
   if (!existsSync(args.dir) || !statSync(args.dir).isDirectory()) {
@@ -164,12 +181,12 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
   const prs = listPrs(deps.gh, args.repo)
   const checks = new ChecksCache(deps.gh, args.repo)
   const firstPass = deriveTasks(handoff.attempts, prs, checks.unmerged)
-  const firstSelection = select(firstPass, args)
+  const firstSelection = select(firstPass, args, deps.now)
   if (args.id !== undefined && firstSelection.card === undefined)
     return refuse(`no task or attempt '${args.id}' in ${args.dir}`)
   checks.byAttempt(fetchedViews(firstPass, firstSelection, args))
   const tasks = deriveTasks(handoff.attempts, prs, checks.fetched)
-  const { card, shown } = select(tasks, args)
+  const { card, shown } = select(tasks, args, deps.now)
   const details = checks.byAttempt(fetchedViews(tasks, { card, shown }, args))
   const kinds = readKinds()
 
@@ -187,6 +204,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     details,
     nextOf: (attempt: AttemptView) => nextOf(attempt, details.get(attempt.attempt.id), kinds),
     now: deps.now,
+    paint: painter(deps.colour),
   }
   let stdout: string[]
   if (args.json)
@@ -197,5 +215,5 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     stdout = renderBoard(view)
   if (args.everySeconds === undefined)
     return { stdout, stderr, exitCode: 0 }
-  return { stdout: [`${PREFIX}frame ${deps.now.toISOString()}`, ...stdout], stderr, exitCode: 0, everySeconds: args.everySeconds }
+  return { stdout: [`${PREFIX}frame ${deps.now.toISOString()}`, ...stdout], stderr, exitCode: 0, everySeconds: args.everySeconds, frameFile: frameFileIn(args.dir) }
 }

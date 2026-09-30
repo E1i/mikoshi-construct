@@ -1,8 +1,10 @@
+import type { CollisionReading } from './earlier.js'
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { isEmptyDir } from '../../detect/layout.js'
 import { readTrackedPaths } from '../detach/index-reader.js'
 import { ATTACH_WRITES } from './carriers.js'
+import { collisionReading } from './earlier.js'
 import { unresolvedCommandWord } from './harness.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
@@ -12,6 +14,7 @@ export interface AttachRefusal {
   reason: AttachRefusalReason
   paths: string[]
   rolledBack?: boolean
+  collision?: CollisionReading
   harness?: { command: string, word: string }
 }
 
@@ -56,7 +59,7 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
     return refusal('nothing-to-attach')
   const colliding = ATTACH_WRITES.filter(target => existsSync(path.join(root, target)))
   if (colliding.length > 0)
-    return refusal('collision', colliding)
+    return { ...refusal('collision', colliding), collision: collisionReading(root, colliding, flags) }
   const settings = settingsRefusal(root)
   if (settings != null)
     return settings

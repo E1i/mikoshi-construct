@@ -13,6 +13,9 @@
         "dir": {
           "type": "string"
         },
+        "entry": {
+          "type": "boolean"
+        },
         "harness": {
           "type": "string"
         },

@@ -4,7 +4,8 @@ description: >-
   `runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the
   refusals run first and every one of them exits before a byte is written; then the harness command
   comes from a flag or a prompt; then the carriers are planned, the exclude block, the eight files, the
-  guard entry and the record are written in that order. Dotted edges are wiring, solid edges are the flow.
+  guard entry and the record are written in that order. `--entry` is routed in `src/program.ts` before
+  `runAttach`, prints the entry protocol and writes nothing. Dotted edges are wiring, solid edges are the flow.
 doc: architecture/attach.md
 boundaries:
   - id: entry
@@ -39,6 +40,9 @@ nodes:
   - id: indexreader
     label: readTrackedPaths · is the settings file tracked
     path: src/commands/detach/index-reader.ts
+  - id: earlier
+    label: 'templates/attach: entry protocol, known set, classifyCollisions by sha256'
+    path: src/commands/attach/earlier.ts
     boundary: refuse
   - id: prompts
     label: prompter (clack) or --harness
@@ -83,6 +87,8 @@ edges:
   - {from: refusals, to: carrierset, kind: wires, label: collision}
   - {from: refusals, to: settings, kind: wires, label: 'unreadable, guard entry already there'}
   - {from: refusals, to: indexreader, kind: wires, label: settings file tracked; unreadable index}
+  - {from: cli, to: earlier, kind: sequence, label: '--entry: print the protocol, nothing else runs'}
+  - {from: refusals, to: earlier, kind: wires, label: 'collision: sha256 per path against the known set'}
   - {from: refusals, to: prompts, kind: sequence, label: none fired}
   - {from: prompts, to: carriers, kind: sequence, label: harness command}
   - {from: carriers, to: plan, kind: wires}

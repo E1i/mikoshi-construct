@@ -4,7 +4,7 @@ import type { BoardView } from './render.js'
 import { isSuperseded, stageText } from './derive.js'
 import { rowOf, unknownTally } from './row.js'
 
-export const JSON_FORMAT = 'board/1'
+export const JSON_FORMAT = 'board/3'
 
 function nextJson(next: Next): Omit<Next, 'why'> & { why: string | null } {
   return { ...next, why: next.why ?? null }
