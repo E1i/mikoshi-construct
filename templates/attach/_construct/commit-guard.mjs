@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,14 +15,15 @@ const ALLOWED_FORMS = [
   ['rebase', '--abort'],
 ]
 
-const GIT_WORD = /\bgit\b/
-const GUARDED_WORD = new RegExp(`\\b(?:${GUARDED.join('|')})\\b`)
 const ASSIGNMENT = /^[A-Z_]\w*=/i
 const PROTECTED_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const RESERVED = new Set(['!', '{', 'if', 'then', 'elif', 'else', 'do', 'while', 'until'])
 const TRANSPARENT = new Set(['command', 'exec', 'time', 'nohup'])
-const ENV_VALUE_OPTIONS = new Set(['-u', '--unset', '-S', '--split-string'])
-const ENV_CHDIR_OPTIONS = new Set(['-C', '--chdir'])
+const WRAPPERS = {
+  env: { values: ['-u', '--unset', '-S', '--split-string'], chdir: ['-C', '--chdir'], operands: 0 },
+  sudo: { values: ['-u', '--user', '-g', '--group', '-h', '--host', '-p', '--prompt', '-U', '--other-user', '-C', '--close-from', '-r', '--role', '-t', '--type', '-T', '--command-timeout'], chdir: ['-D', '--chdir'], operands: 0 },
+  timeout: { values: ['-s', '--signal', '-k', '--kill-after'], chdir: [], operands: 1 },
+}
 const GIT_VALUE_OPTIONS = new Set(['-c', '--work-tree', '--namespace', '--super-prefix', '--config-env'])
 const PIPING = new Set(['|', '|&', '&'])
 const UNKNOWN = Symbol('unknown')
@@ -453,21 +454,21 @@ function skipPrefixes(words) {
       while (index < words.length && words[index].text.startsWith('-') && !words[index].unresolvable)
         index += 1
     }
-    else if (word.text === 'env') {
+    else if (Object.hasOwn(WRAPPERS, path.basename(word.text))) {
+      const wrapper = WRAPPERS[path.basename(word.text)]
       index += 1
-      while (index < words.length && words[index].text.startsWith('-') && words[index].text !== '-') {
+      while (index < words.length && words[index].text.startsWith('-')) {
         const option = words[index].text
-        if (option === '--') {
-          index += 1
+        index += 1
+        if (option === '--')
           break
-        }
-        if (ENV_VALUE_OPTIONS.has(option) || ENV_CHDIR_OPTIONS.has(option))
-          index += 2
-        else
-          index += 1
-        if (ENV_CHDIR_OPTIONS.has(option) || option.startsWith('--chdir='))
+        const name = option.split('=')[0]
+        if (wrapper.chdir.includes(name))
           unknown = true
+        if (!option.includes('=') && (wrapper.values.includes(option) || wrapper.chdir.includes(option)))
+          index += 1
       }
+      index += wrapper.operands
     }
     else {
       break
@@ -544,8 +545,6 @@ function decide(input) {
   const command = isObject(input.tool_input) ? input.tool_input.command : undefined
   if (input.tool_name !== 'Bash' || typeof command !== 'string')
     return null
-  if (!GIT_WORD.test(command) || !GUARDED_WORD.test(command))
-    return null
   const scanner = new Scanner(command, 0, null)
   scanner.consume()
   const start = typeof input.cwd === 'string' && input.cwd !== '' ? path.resolve(input.cwd) : process.cwd()
@@ -557,10 +556,42 @@ function fail(message) {
   process.exitCode = 1
 }
 
-function main() {
+function refuse(lines) {
+  process.stderr.write(`${lines.join('\n')}\n`)
+  process.exitCode = 2
+}
+
+function refusedUnread(reason) {
+  return [
+    `Refused: the call could not be read, so this guard cannot tell whether it commits, pushes, merges, rebases or tags into ${PROTECTED_ROOT}: ${reason}.`,
+    'Why: in an attached repository the agent never commits, pushes, merges, rebases or tags; a call the guard could not read could be one of those.',
+    'Next: run the call again; if it is refused the same way, report it to the owner.',
+  ]
+}
+
+async function readInput() {
+  const chunks = []
+  for await (const chunk of process.stdin)
+    chunks.push(chunk)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function main() {
+  let text
+  try {
+    text = await readInput()
+  }
+  catch (error) {
+    refuse(refusedUnread(error instanceof Error ? error.message : String(error)))
+    return
+  }
+  if (text === '') {
+    refuse(refusedUnread('nothing arrived on stdin'))
+    return
+  }
   let input
   try {
-    input = JSON.parse(readFileSync(0, 'utf8'))
+    input = JSON.parse(text)
   }
   catch {
     fail('the input is not JSON, so nothing was checked')
@@ -571,14 +602,12 @@ function main() {
     return
   }
   const refusal = decide(input)
-  if (refusal == null)
-    return
-  process.stderr.write(`${refusal.join('\n')}\n`)
-  process.exitCode = 2
+  if (refusal != null)
+    refuse(refusal)
 }
 
 try {
-  main()
+  await main()
 }
 catch (error) {
   fail(`could not check the call: ${error instanceof Error ? error.message : String(error)}`)

@@ -1,5 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -153,6 +153,24 @@ const CASES: Record<string, Case> = {
   'a push after that here-document is refused': { command: `${HEREDOC_COMMIT} && git push`, from: 'attached', outcome: 'attached', subcommand: 'push' },
   'env -u before a commit is refused': { command: 'env -u FOO git commit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
   'env with an assignment before a commit is refused': { command: 'env GIT_PAGER=cat git commit', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'an escape inside git is refused': { command: 'g\\it commit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'quotes inside the subcommand are refused': { command: 'git \'com\'mit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'double quotes around git are refused': { command: '"git" push', from: 'attached', outcome: 'attached', subcommand: 'push' },
+  'a GIT_DIR prefix naming the attached repository is refused': { command: 'GIT_DIR={R}/.git git commit -m x', from: 'other', outcome: 'attached', subcommand: 'commit' },
+  'a GIT_DIR prefix through env is refused': { command: 'env GIT_DIR={R}/.git git commit -m x', from: 'other', outcome: 'attached', subcommand: 'commit' },
+  'a GIT_DIR prefix in a variable is refused as unpinned': { command: 'GIT_DIR=$G git commit -m x', from: 'other', outcome: 'unpinned', subcommand: 'commit' },
+  'a GIT_DIR prefix naming another repository passes': { command: 'GIT_DIR={O}/.git git commit -m x', from: 'attached', outcome: 'passes' },
+  'sudo before a push is refused': { command: 'sudo git push', from: 'attached', outcome: 'attached', subcommand: 'push' },
+  'sudo -u before a push is refused': { command: 'sudo -u root git push', from: 'attached', outcome: 'attached', subcommand: 'push' },
+  'sudo --user= before a commit is refused': { command: 'sudo --user=root git commit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'sudo -D leaves the commit unpinned': { command: 'sudo -D {O} git commit -m x', from: 'attached', outcome: 'unpinned', subcommand: 'commit' },
+  'env by its full path before a commit is refused': { command: '/usr/bin/env git commit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'env - before a commit is refused': { command: 'env - git commit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'timeout before a push is refused': { command: 'timeout 5 git push', from: 'attached', outcome: 'attached', subcommand: 'push' },
+  'timeout with a signal before a commit is refused': { command: 'timeout -s KILL 5 git commit -m x', from: 'attached', outcome: 'attached', subcommand: 'commit' },
+  'timeout before a status passes': { command: 'timeout 5 git status', from: 'attached', outcome: 'passes' },
+  'a commit through eval passes, outside the direct form': { command: 'eval "git commit -m x"', from: 'attached', outcome: 'passes' },
+  'a commit through a script passes, outside the direct form': { command: './commit.sh', from: 'attached', outcome: 'passes' },
 }
 
 describe('the installed commit guard, one row per case', () => {
@@ -200,6 +218,51 @@ describe('the installed commit guard, what it is given', () => {
       expect(result.stderr.trim().split('\n')).toHaveLength(1)
     })
   }
+})
+
+function guardWithLateStdin(stdin: string, delayMs: number): Promise<{ status: number | null, stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('node', [path.join(world.attached, GUARD)], { cwd: world.attached })
+    let stderr = ''
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+    child.on('close', status => resolve({ status, stderr }))
+    setTimeout(() => child.stdin.end(stdin), delayMs)
+  })
+}
+
+describe('the installed commit guard, how it reads stdin', () => {
+  it('refuses a commit whose input a Node parent writes 200 ms after the start', async () => {
+    const input = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, cwd: world.attached })
+
+    const result = await guardWithLateStdin(input, 200)
+
+    expect(result.status).toBe(2)
+    expect(result.stderr).toMatch(/^Refused: git commit targets /)
+  })
+
+  it('refuses with exit 2 when stdin is a directory Node cannot read, so an unread call never passes', () => {
+    const fd = openSync(world.attached, 'r')
+    try {
+      const result = spawnSync('node', [path.join(world.attached, GUARD)], { stdio: [fd, 'pipe', 'pipe'], encoding: 'utf8' })
+      const lines = result.stderr.trimEnd().split('\n')
+
+      expect(result.status).toBe(2)
+      expect(lines).toHaveLength(3)
+      expect(lines[0]).toMatch(/^Refused: the call could not be read/)
+    }
+    finally {
+      closeSync(fd)
+    }
+  })
+
+  it('refuses with exit 2 when stdin closes empty', () => {
+    const result = runGuard('')
+
+    expect(result.status).toBe(2)
+    expect(result.stderr).toMatch(/^Refused: the call could not be read.*nothing arrived on stdin/)
+  })
 })
 
 describe('the installed commit guard, what it is', () => {

@@ -33,8 +33,10 @@ longer what its owner had read.
    -list-something`, `git tag -d`, `git tag -l x -d y`, `git merge --continue`, `git rebase --continue`
    and `git rebase -i` are refused. The list is `ALLOWED_FORMS` in the guard, and nothing else holds it.
 5. **The target is read, not guessed.** The guard follows `git -C`, `git -c`, `--git-dir`, a leading
-   `cd`, a subshell, `env`, an assignment, and worktrees of the attached repository, which share its
-   git directory. A guarded command whose target it cannot pin down — a path in a variable, `cd -`, a
+   `cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env`, `sudo` and
+   `timeout` under any path, and worktrees of the attached repository, which share its git directory.
+   It reads each word as the shell does, after quotes and escapes, so `g\it commit` and
+   `git 'com'mit` are the direct form too. A guarded command whose target it cannot pin down — a path in a variable, `cd -`, a
    substitution, a directory that does not exist yet — is refused as unpinned and told to name the
    repository as `git -C <path>`; into another repository it then runs as before.
 6. **No bypass.** The guard reads no environment variable to let a call through and writes no audit
@@ -49,8 +51,11 @@ longer what its owner had read.
 8. **The working directory is the input's `cwd`** and nothing more. The guard infers neither the
    session's start directory nor `$CLAUDE_PROJECT_DIR`. A stale `cwd` is covered by `-C` or `cd` inside
    the command, and by the refusal of a target it cannot pin down.
-9. **It fails open where it cannot check.** Input that is not a JSON object exits 1 with one line on
-   stderr, a non-blocking error the user sees. Without `node` the hook errors visibly and does not block.
+9. **It fails open where it cannot check, and closed where it could not read.** It reads stdin to its
+   end, however late the parent writes it. A read that fails or ends empty is refused with exit 2, since
+   the call it never saw could be a commit. Input that arrives but is not a JSON object exits 1 with
+   one line on stderr, a non-blocking error the user sees. Without `node` the hook errors visibly and
+   does not block.
 10. **The record moves to version 2.** `.construct/attach.json` gains `settingsHook` (the file, which of
     the file, `hooks` and `PreToolUse` attach created, and the entry as written) and the guard in
     `files`. An older detach would remove the guard and leave an entry that runs a missing file on every

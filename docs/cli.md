@@ -1115,8 +1115,10 @@ The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
 why and next. There is no bypass: it reads no environment variable and writes no audit file, and the
 owner's own terminal never passes through it. It follows `git -C`, `git -c`, `--git-dir`, a leading
-`cd`, a subshell, `env`, an assignment and the worktrees of the attached repository, and takes the
-directory from the input's `cwd`.
+`cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env`, `sudo` and
+`timeout` under any path, and the worktrees of the attached repository, and takes the directory from
+the input's `cwd`. It reads words after quotes and escapes, as the shell does, so `g\it commit` and
+`git 'com'mit` are refused like `git commit`.
 
 | Passes even in the attached repository | Refused, the neighbours of the forms that pass |
 |---|---|
@@ -1133,7 +1135,8 @@ Everything else passes with exit `0` and nothing on stderr: a commit, merge or t
 repository, the words inside a quoted string, a comment, `git status`, `git log`, `git cherry-pick`,
 `git revert`, `git am`, `git stash`, `git commit-tree`, a read in a worktree and a call to another tool.
 It is a guard against the direct form, not a sandbox: a commit inside a script, an alias, `bash -c` or
-`eval` passes. Input that is not a JSON object exits `1` with one line on stderr. It needs `node` and
+`eval` passes. It reads stdin to its end however late it arrives; a read that fails or ends empty is
+refused with exit `2`, and input that is not a JSON object exits `1` with one line on stderr. It needs `node` and
 `git` on the host; without `node` the hook errors visibly and does not block, so the guard fails open.
 
 attach refuses instead of editing `.claude/settings.local.json` when it is tracked, unreadable or
