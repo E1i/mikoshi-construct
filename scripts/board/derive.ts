@@ -8,6 +8,7 @@ export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'reported'
 
 export const OPEN_CATEGORIES: readonly Category[] = ['running', 'waiting', 'blocked']
 export const FINISHED_SHOWN = 5
+export const MERGED_SHOWN_HOURS = 12
 
 const CHEAP_PATH = 'cheap'
 const RUNNING_STATES = ['writing', 'reviewing', 'reading']
@@ -379,13 +380,17 @@ function finishedAt(view: AttemptView): Date | undefined {
   return view.mergedAt ?? view.reportedAt
 }
 
-export function selectShown(tasks: TaskView[], all: boolean): TaskView[] {
+function mergedTooLongAgo(view: AttemptView, now: Date): boolean {
+  return view.mergedAt !== undefined && now.getTime() - view.mergedAt.getTime() > MERGED_SHOWN_HOURS * 3_600_000
+}
+
+export function selectShown(tasks: TaskView[], all: boolean, now: Date): TaskView[] {
   if (all)
     return tasks
   const current = tasks.filter(task => !isSuperseded(task.live))
   const open = current.filter(task => OPEN_CATEGORIES.includes(task.live.category))
   const finished = current
-    .filter(task => finishedAt(task.live) !== undefined)
+    .filter(task => finishedAt(task.live) !== undefined && !mergedTooLongAgo(task.live, now))
     .sort((a, b) => finishedAt(b.live)!.getTime() - finishedAt(a.live)!.getTime())
     .slice(0, FINISHED_SHOWN)
   return [...open, ...finished].map(task => ({ ...task, attempts: [task.live] }))
