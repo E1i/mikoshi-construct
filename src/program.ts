@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
-import { ATTACH_EXIT, runAttach } from './commands/attach/index.js'
+import { ATTACH_EXIT, printEntryProtocol, runAttach } from './commands/attach/index.js'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
@@ -96,11 +96,16 @@ const attach = withKnownFlags(defineCommand({
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
+    entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
   },
   async run({ args }) {
     const console = ui(args)
     console.banner(VERSION, args.johnny)
     try {
+      if (args.entry) {
+        printEntryProtocol(console)
+        return
+      }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
       const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, yes: args.yes }, prompter)
       process.exitCode = ATTACH_EXIT[result.status]
