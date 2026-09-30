@@ -1985,6 +1985,17 @@ under a Node parent and writes stdin 200 ms late — red on the ladder's commit,
 **Boundary.** One guard, one input channel, one repository. It says that a witness has to be read for
 how the input reaches the thing under test, not only for what the input is; it does not say how often
 that goes wrong.
+
+**Second occurrence, the same day.** The turn-journal hook of
+[0036](decisions/0036-turn-journal-written-by-hooks.md), from the next brief in the queue, came out of its ladder
+reading stdin with the same `readFileSync(0)`, and its witnesses fired it with `spawnSync` and `input:`. A
+Node parent that writes the hook input 200 ms late, in two writes, or 300 KB at once made the read fail and
+the hook exit 0 with nothing recorded — here fail-open means a lost turn rather than a passed commit. The
+blind scan found it again, not the witnesses. Two occurrences in two briefs make it a pattern of the
+hook boundary rather than of one guard: a hook script is a process Claude Code feeds through a pipe, and
+the synchronous read of fd 0 is the wrong primitive there. The remedy that holds the line is mechanical —
+a lint restriction on `readFileSync(0)` for hook scripts, and a witness that spawns a hook with late stdin
+in any brief that adds one — and it is proposed, not made, here.
 ## 2026-09-30 · The witnesses proved the command is printed, not that it is safe to paste
 
 The ladder run for the attach entry protocol ([0037](decisions/0037-attach-entry-is-read-by-the-agent.md))

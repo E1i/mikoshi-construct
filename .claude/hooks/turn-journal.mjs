@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -358,12 +359,19 @@ export function record(root, input) {
   }
 }
 
-function main() {
+async function readInput() {
+  const chunks = []
+  for await (const chunk of process.stdin)
+    chunks.push(chunk)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function main() {
   const root = process.env.CLAUDE_PROJECT_DIR
   try {
     if (root == null || root === '' || !statSync(root).isDirectory())
       return
-    record(root, JSON.parse(readFileSync(0, 'utf8')))
+    record(root, JSON.parse(await readInput()))
   }
   catch (error) {
     process.stderr.write(`turn-journal: ${error instanceof Error ? error.message : String(error)}\n`)
@@ -380,4 +388,4 @@ function isMain() {
 }
 
 if (isMain())
-  main()
+  await main()
