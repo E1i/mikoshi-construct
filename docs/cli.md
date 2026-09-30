@@ -1371,7 +1371,7 @@ figure quoted without the version of the binary that measured it says nothing ab
 (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
 `runtime` (`claude-code` or `cursor`), `version` (the CLI that produced the report), `key` and
 `candidates` where the project key is in question, `runs` when there are any, and `ledger` and
-`reconciliation` as described below.
+`reconciliation` as described below, and `turns` in every report: the turn journal, described below.
 
 ### The run ledger
 
@@ -1433,6 +1433,38 @@ because `0` is a number and it would be a lie.
 | `mismatch` | `1` | No directory for the looked-up project key and no run the ledger names found under another key, but the path this directory resolves to — or the main worktree it belongs to — has one. The report names the key that was looked up. |
 | `unknown` | `1` | Sibling keys look like this repository without settling it; the report says so rather than guessing. |
 | `unsupported` | `3` | This runtime does not expose per-run token usage. |
+
+### The turn journal
+
+`.claude/hooks/turn-journal.mjs`, run by this repository's `.claude/settings.json` on `UserPromptSubmit`,
+`Stop`, `SubagentStop` and `SessionEnd`, writes `.construct/turns.jsonl` in any session of the
+repository, ladder or not. Unlike the run ledger it is written by a hook, not by a step in a prompt,
+and it measures what each turn cost from the session transcript. Decision 0036 records why it sits
+beside the ledger and does not replace it.
+
+One JSON line per event, appended and never rewritten, each with `v` (1), `kind` and `session`:
+
+| `kind` | Written when | Carries |
+|---|---|---|
+| `turn` | A `Stop` ends the turn a prompt opened, or a later prompt or `SessionEnd` closes it (`end`: `stop`, `superseded` or `session-end`). | `prompt`, `startedAt`, `endedAt`, `from` and `to` (byte offsets into the transcript, always at a line boundary), `usage`, `toolCalls`, `unreadable`. |
+| `late` | Transcript lines land after the `Stop` that closed their turn, or a `Stop` finds no open turn. | The same range fields, attributed to the prompt of the turn it follows. |
+| `subagent` | A `SubagentStop`. | `agent`, `agentType` and the range read from that agent's own transcript, from where the last stop left off. |
+| `session-end` | A `SessionEnd`. | `reason`. |
+
+It carries counts and names only: token counts, tool names, offsets, times and ids. No prompt,
+response, thinking, tool input, tool result or subagent text is ever written to the journal or to the
+hook's state.
+
+A turn is the span of the transcript from a prompt to the `Stop` that ends it. A prompt that finds a
+turn still open closes it as `superseded`. The ranges of a session follow each other without gap or
+overlap, so a gap is a write that was lost. A transcript that shrank or whose path changed gives the
+turn `usage: "unknown"` with a `reset` naming why, never a number, and the next turn is measured again.
+
+`turns` in `--json` is `{ "status": "not recorded" }` when the file is absent, and otherwise `status`
+`recorded` with `turns`, `sessions`, `main` and `subagents` (summed usage), `unmeasured` (turns whose
+usage is `unknown`), `gaps` and `malformed` (each with its line and reason). An absent journal reads
+`not recorded`, never as zero: it means no hook ran here, not that nothing was spent. The figures are
+never added to the runs' figures above.
 
 ## construct graph
 

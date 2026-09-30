@@ -1,7 +1,9 @@
 import type { Ui } from '../../ui/console.js'
 import type { LedgerSummary, Reconciliation, TokenCount } from './ledger.js'
 import type { CostReport, CostStatus } from './source.js'
+import type { TurnSummary } from './turns.js'
 import type { WorkflowRun } from './usage.js'
+import { TURN_JOURNAL_FILE } from './turns.js'
 import { add, billable, emptyUsage, PRICE_RELATIVE_TO_INPUT, weighted } from './usage.js'
 
 export const COST_EXIT: Record<CostStatus, number> = {
@@ -31,6 +33,7 @@ export function costJson(report: CostReport, last: boolean): Record<string, unkn
     ...(runs.length === 0 ? {} : { runs }),
     ...(report.ledger == null ? {} : { ledger: report.ledger }),
     ...(report.reconciliation == null ? {} : { reconciliation: report.reconciliation }),
+    turns: report.turns,
   }
 }
 
@@ -57,6 +60,16 @@ function printLedger(ui: Ui, ledger: LedgerSummary | undefined, reconciliation: 
     ui.line(ui.theme.dim(`    ${run}: ${ui.lore.ledgerEntryWithoutSession}`))
   for (const run of reconciliation.sessionsWithoutEntry)
     ui.line(ui.theme.dim(`    ${run}: ${ui.lore.ledgerSessionWithoutEntry}`))
+}
+
+function printTurns(ui: Ui, turns: TurnSummary): void {
+  if (turns.status === 'not recorded') {
+    ui.line(ui.theme.dim(ui.lore.turnsNotRecorded(TURN_JOURNAL_FILE)))
+    return
+  }
+  ui.line(ui.theme.dim(ui.lore.turnsCounts(turns.turns, turns.sessions, fmt(billable(turns.main)), fmt(billable(turns.subagents)), turns.unmeasured, turns.gaps)))
+  if (turns.malformed.length > 0)
+    ui.glitch(ui.lore.turnsMalformed(turns.malformed.length), turns.malformed.map(entry => `line ${entry.line}: ${entry.reason}`))
 }
 
 function printRuns(ui: Ui, runs: WorkflowRun[]): void {
@@ -95,5 +108,6 @@ export function printCost(ui: Ui, report: CostReport, last: boolean): number {
       break
   }
   printLedger(ui, report.ledger, report.reconciliation)
+  printTurns(ui, report.turns)
   return COST_EXIT[report.status]
 }

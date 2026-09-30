@@ -333,6 +333,8 @@
           "runtime",
           "schemaVersion",
           "status",
+          "turns",
+          "turns.status",
           "version"
         ],
         "root": "object"
@@ -344,6 +346,8 @@
           "runtime",
           "schemaVersion",
           "status",
+          "turns",
+          "turns.status",
           "version"
         ],
         "root": "object"
@@ -379,6 +383,27 @@
           "runtime",
           "schemaVersion",
           "status",
+          "turns",
+          "turns.gaps",
+          "turns.main",
+          "turns.main.cacheRead",
+          "turns.main.cacheWrite",
+          "turns.main.calls",
+          "turns.main.input",
+          "turns.main.models",
+          "turns.main.output",
+          "turns.malformed",
+          "turns.sessions",
+          "turns.status",
+          "turns.subagents",
+          "turns.subagents.cacheRead",
+          "turns.subagents.cacheWrite",
+          "turns.subagents.calls",
+          "turns.subagents.input",
+          "turns.subagents.models",
+          "turns.subagents.output",
+          "turns.turns",
+          "turns.unmeasured",
           "version"
         ],
         "root": "object"
@@ -390,6 +415,8 @@
           "runtime",
           "schemaVersion",
           "status",
+          "turns",
+          "turns.status",
           "version"
         ],
         "root": "object"
@@ -399,6 +426,8 @@
           "runtime",
           "schemaVersion",
           "status",
+          "turns",
+          "turns.status",
           "version"
         ],
         "root": "object"
@@ -809,6 +838,7 @@
   },
   "outside": [
     ".construct/runs.jsonl",
+    ".construct/turns.jsonl",
     "graph --out HTML",
     "human-readable output text",
     "lore strings"

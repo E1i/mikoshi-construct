@@ -4,6 +4,7 @@ import { VERSION } from '../../version.js'
 import { ClaudeCodeCostSource } from './claude-code.js'
 import { hasLedgerFindings, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
 import { resolveRuntime } from './runtime.js'
+import { readTurnJournal } from './turns.js'
 
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey } from './claude-code.js'
 export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
@@ -11,6 +12,8 @@ export type { Cause, LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconcilia
 export { COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, printCost } from './report.js'
 export { resolveRuntime } from './runtime.js'
 export type { CostReport, CostSource, CostStatus, Runtime } from './source.js'
+export { readTurnJournal, TURN_JOURNAL_FILE } from './turns.js'
+export type { MalformedTurnLine, TurnSummary } from './turns.js'
 export { billable, weighted } from './usage.js'
 export type { AgentUsage, Usage, WorkflowRun } from './usage.js'
 
@@ -20,14 +23,16 @@ export function costReport(cwd: string, options: { projectsDir?: string, env?: N
   const reading = readLedger(cwd)
   const ledger = summarizeLedger(reading)
   const reported = hasLedgerFindings(ledger)
+  const turns = readTurnJournal(cwd)
   const source: CostSource | null = runtime === 'claude-code' ? new ClaudeCodeCostSource(options.projectsDir) : null
   if (source == null || !source.readable())
-    return { status: 'unsupported', runtime, version, ...(reported ? { ledger: withoutTokenTotals(ledger) } : {}) }
+    return { status: 'unsupported', runtime, version, turns, ...(reported ? { ledger: withoutTokenTotals(ledger) } : {}) }
   const result = source.read(cwd, reading.entries.map(entry => entry.run).filter(run => run != null))
   const joinable = result.status === 'ok' || result.status === 'empty'
   return {
     runtime,
     version,
+    turns,
     ...result,
     ...(reported ? { ledger } : {}),
     ...(joinable && (reported || result.runs.length > 0) ? { reconciliation: reconcile(reading.entries, result.runs) } : {}),
