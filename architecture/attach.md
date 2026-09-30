@@ -5,7 +5,7 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:attach -->
-`runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the refusals run first and every one of them exits before a byte is written; then the harness command comes from a flag or a prompt; then the carriers are planned, the exclude block, the six files and the record are written in that order. Dotted edges are wiring, solid edges are the flow.
+`runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the refusals run first and every one of them exits before a byte is written; then the harness command comes from a flag or a prompt; then the carriers are planned, the exclude block, the six files and the record are written in that order. `--entry` is routed in `src/program.ts` before `runAttach`, prints the entry protocol and writes nothing. Dotted edges are wiring, solid edges are the flow.
 
 ```mermaid
 flowchart LR
@@ -17,6 +17,7 @@ flowchart LR
     refusals["seven refusals, in order"]
     detect["isEmptyDir(dir)"]
     carrierset["ATTACH_CARRIERS"]
+    earlier["templates/attach: entry protocol, known set, classifyCollisions by sha256"]
   end
   subgraph b_configure["Configure"]
     prompts["prompter (clack) or --harness"]
@@ -34,6 +35,8 @@ flowchart LR
   run --> refusals
   refusals -.-> detect
   refusals -.->|"collision"| carrierset
+  cli -->|"--entry: print the protocol, nothing else runs"| earlier
+  refusals -.->|"collision: sha256 per path against the known set"| earlier
   refusals -->|"none fired"| prompts
   prompts -->|"harness command"| carriers
   carriers -.-> plan

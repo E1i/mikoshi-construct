@@ -1043,10 +1043,36 @@ and records what it created in `.construct/attach.json`. No `construct.json`, no
 | `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: without a terminal it must be passed. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Needs `--harness`. |
+| `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
 
 ```bash
 npx mikoshi-construct attach --harness "npm test"
 ```
+
+### The entry protocol
+
+`npx mikoshi-construct attach --entry` prints the banner and then `templates/attach/entry.md`, the
+protocol by which an agent reads a repository and proposes one harness command. It reads no repository,
+writes nothing and exits `0`, so it runs in a directory that is not a repository too, and it runs alone
+when `--yes` and `--harness` are given beside it. The protocol is the file, and this page only names its
+parts:
+
+1. Where the tree stands: `git status --porcelain`, the branch and its upstream, ahead and behind as
+   last fetched, and the age of that reading from `.git/FETCH_HEAD`. A fetch is run only when the owner
+   says yes.
+2. What an earlier construct left, and how to read the two collision labels below.
+3. What CI runs, every definition read whole, and what the repository can run: `package.json` scripts,
+   `Makefile`, `pyproject.toml`, hooks and READMEs.
+4. The test surface as one table headed `Suite | Runner | Where | Run by CI`, whose last column is the
+   job and step or `not run by CI`, and the same suites again in a list headed `Not run by CI:`. A suite
+   CI does not run is never added to the proposal.
+5. One proposal, exactly one command in one form, mirroring the CI jobs in order and never run to find
+   out, and one question the owner answers yes or no. Yes runs
+   `npx mikoshi-construct attach --yes --harness "<command>"`; no means attach is not run.
+
+attach reads none of this itself: which command mirrors a repository's CI is a reading of the
+repository, and that is the agent's ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md),
+[decision 0037](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0037-attach-entry-is-read-by-the-agent.md)).
 
 ### The eight refusals
 
@@ -1059,8 +1085,8 @@ Every check runs before anything is written, in this order, and a refusal create
 | `<dir>/.git` is a file (a worktree or a submodule) | `Refused: .git is a file (worktree or submodule); attach needs the .git directory.` |
 | `construct.json` exists | `Refused: this repository already carries a construct; use init or sync.` |
 | the directory holds nothing but `.git` and the files an empty directory may hold (`README.md`, `LICENSE`, editor settings) | `Refused: this repository holds nothing to attach to.` |
-| a path attach would create already exists | `Refused: N paths attach would create already exist:` followed by the paths |
-| `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.` |
+| a path attach would create already exists | `Refused: N paths attach would create already exist:`, then why and the next step, then the paths, each labelled `construct's own: byte for byte the template of <date>` or `not recognised: attach never writes over it` (see [A collision](#a-collision)) |
+| `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.`, then why, and the next step: `npx mikoshi-construct attach --entry` prints the entry protocol |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
 | the first word of the harness command (after any `VAR=value`) is not a path, a shell word such as `cd`, or an executable in an absolute `PATH` directory — a `package.json` script name such as `quality`, or a binary under `node_modules/.bin` such as `vitest` | `Refused: "quality" is not a command found on PATH.`, then why, and the next step with the rest of the command kept: `--harness "npm run quality"  or  --harness "npx quality"` |
 
@@ -1072,6 +1098,22 @@ A harness command that edits files — a word ending in `:fix`, `--fix` or `--wr
 attach warns, says why a gate that fixes what it checks is a weaker gate, names the command form that
 only checks, and goes on. It reads the command as written and does not open `package.json`, so
 `pnpm run quality` whose script runs `lint:fix` is not caught.
+
+### A collision
+
+attach writes over nothing, not even a file it wrote itself in an earlier run. Each colliding carrier
+path is hashed (sha256 of its bytes) and compared with `templates/attach/earlier-carriers.json`, the
+known set: every template any carrier ever had in this repository's history, written by
+`scripts/attach/earlier-carriers.ts` and never by hand. A path labelled
+`construct's own: byte for byte the template of <date>` holds exactly such a template, at that carrier's
+own path. Anything else is labelled `not recognised: attach never writes over it`: an owner's file, a
+template with one byte changed, a template at another carrier's path, a symlink, a directory.
+
+The next step is the one command that clears the way. When some paths are construct's own it is
+`cd <dir> && rm -- <those paths> && npx mikoshi-construct attach --dir <dir>`, with `--yes` and
+`--harness` carried over when they were given. A path labelled not recognised is never on the delete
+command, and when none is recognised there is no delete command at all: attach says to move them
+yourself, then run it again. A collision found during the write keeps the output and rollback below.
 
 ### The write order
 
@@ -1393,7 +1435,7 @@ construction.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
-| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal; `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused. |
+| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused. |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure. |
 

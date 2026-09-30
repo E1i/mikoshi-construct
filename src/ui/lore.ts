@@ -140,6 +140,10 @@ export interface Lore {
   attachRefusedNothingToAttach: string
   attachRefusedCollision: (paths: string[]) => string
   attachRefusedNoHarness: string
+  attachNoHarnessExplained: { why: string, next: string }
+  attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => { why: string, next: string }
+  attachCollisionEarlier: (date: string) => string
+  attachCollisionForeign: string
   attachRefusedCursor: string
   attachRefusedNotACommand: (word: string, suggestions: string[]) => Notice
   attachHarnessEditsFiles: (marks: string[]) => Notice
@@ -358,11 +362,27 @@ export const LORE: Lore = {
   attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
   attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
+  attachNoHarnessExplained: {
+    why: 'The net never guesses the command the ladder verifies with; which command mirrors what this repository\'s CI runs is a reading of the repository, and that reading is the agent\'s.',
+    next: 'npx mikoshi-construct attach --entry prints the entry protocol: the agent reads CI, scripts, test configs and hooks, proposes one command, and you answer yes or no.',
+  },
+  attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
+    why: recognised === 0
+      ? 'None of them is byte for byte a construct template of any version, so they are yours; the net writes over nothing.'
+      : `${recognised} of ${total} are construct's own, byte for byte a carrier template of an earlier construct run; the net writes over nothing, not even its own.`,
+    next: recognised === 0
+      ? `Move or remove them yourself, then run: ${rerun}`
+      : recognised === total
+        ? `${remove} && ${rerun}`
+        : `${remove} removes construct's own; move the paths marked not recognised yourself, then run: ${rerun}`,
+  }),
+  attachCollisionEarlier: (date: string) => `construct's own: byte for byte the template of ${date}`,
+  attachCollisionForeign: 'not recognised: the net never writes over it',
   attachRefusedCursor: 'BREACH FAILED // CURSOR OUT OF SCOPE: alwaysApply rules govern the whole tree',
   attachRefusedNotACommand: (word: string, suggestions: string[]) => ({
     what: `BREACH FAILED // DEAD COMMAND: "${word}" is nowhere on PATH`,
     why: 'The ladder runs the harness as written in a plain shell; a package script name or a node_modules/.bin binary never resolves there, so every rung would flatline before it measured anything.',
-    next: suggestions.map(suggestion => `--harness "${suggestion}"`).join('  or  '),
+    next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness rewrites the tree: ${marks.join(', ')}`,
@@ -576,11 +596,27 @@ export const PLAIN_LORE: Lore = {
   attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
   attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
+  attachNoHarnessExplained: {
+    why: 'attach never guesses the command the ladder verifies with; which command mirrors what this repository\'s CI runs is a reading of the repository, and that reading is the agent\'s.',
+    next: 'npx mikoshi-construct attach --entry prints the entry protocol: the agent reads CI, scripts, test configs and hooks, proposes one command, and you answer yes or no.',
+  },
+  attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
+    why: recognised === 0
+      ? 'None of them is byte for byte a construct template of any version, so they are yours; attach writes over nothing.'
+      : `${recognised} of ${total} are construct's own, byte for byte a carrier template of an earlier construct run; attach writes over nothing, not even its own.`,
+    next: recognised === 0
+      ? `Move or remove them yourself, then run: ${rerun}`
+      : recognised === total
+        ? `${remove} && ${rerun}`
+        : `${remove} removes construct's own; move the paths marked not recognised yourself, then run: ${rerun}`,
+  }),
+  attachCollisionEarlier: (date: string) => `construct's own: byte for byte the template of ${date}`,
+  attachCollisionForeign: 'not recognised: attach never writes over it',
   attachRefusedCursor: 'Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.',
   attachRefusedNotACommand: (word: string, suggestions: string[]) => ({
     what: `Refused: "${word}" is not a command found on PATH.`,
     why: 'The ladder runs the harness as written, in a plain shell; a package.json script name or a binary under node_modules/.bin is not on PATH there, so every rung would fail before it measured anything.',
-    next: suggestions.map(suggestion => `--harness "${suggestion}"`).join('  or  '),
+    next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness command edits files: ${marks.join(', ')}.`,

@@ -15,9 +15,11 @@ import { fileEditingMarks, throughPackageRunners } from './harness.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
+import { shellWord } from './shell-word.js'
 import { writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
+export { printEntryProtocol } from './earlier.js'
 export { applyExcludeRemoval, EXCLUDE_FILE, pathsInExcludeBlock, planExcludeRemoval, readExcludeBlockPaths } from './exclude.js'
 export type { ExcludeRemoval } from './exclude.js'
 export { ATTACH_RECORD_FILE, readAttachRecord } from './record.js'
@@ -51,10 +53,15 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'linked-git': lore => lore.attachRefusedLinkedGit,
   'constructed': lore => lore.attachRefusedConstructed,
   'nothing-to-attach': lore => lore.attachRefusedNothingToAttach,
-  'collision': (lore, refusal) => lore.attachRefusedCollision(refusal.paths),
-  'no-harness': lore => lore.attachRefusedNoHarness,
+  'collision': (lore, { paths, collision }) => {
+    if (collision == null)
+      return lore.attachRefusedCollision(paths)
+    const recognised = collision.labels.filter(label => label != null).length
+    return { what: lore.attachRefusedCollision(paths), ...lore.attachCollisionExplained(recognised, paths.length, collision.remove, collision.rerun) }
+  },
+  'no-harness': lore => ({ what: lore.attachRefusedNoHarness, ...lore.attachNoHarnessExplained }),
   'cursor': lore => lore.attachRefusedCursor,
-  'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word)),
+  'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
 }
 
 function explained(ui: Ui, notice: Notice): void {
@@ -69,8 +76,11 @@ function refused(ui: Ui, refusal: AttachRefusal, rollback: Rollback = { removed:
   ui.flatline(typeof reading === 'string' ? reading : reading.what)
   if (typeof reading !== 'string')
     explained(ui, reading)
-  for (const target of refusal.paths)
-    ui.line(`    ${ui.theme.dim(target)}`)
+  refusal.paths.forEach((target, index) => {
+    const label = refusal.collision?.labels[index]
+    const reading = refusal.collision == null ? '' : `  ${label == null ? ui.lore.attachCollisionForeign : ui.lore.attachCollisionEarlier(label.date)}`
+    ui.line(`    ${ui.theme.dim(target)}${reading}`)
+  })
   if (refusal.rolledBack === true) {
     ui.line(ui.theme.dim(`  ${ui.lore.attachRolledBack(rollback.removed.length)}`))
     for (const target of rollback.removed)
