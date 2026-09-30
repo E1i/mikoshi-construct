@@ -366,12 +366,50 @@ async function readInput() {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+export function recordUnread(root, reason) {
+  mkdirSync(path.join(root, '.construct'), { recursive: true })
+  const lock = acquire(root)
+  if (lock == null)
+    return
+  try {
+    const line = { v: JOURNAL_VERSION, kind: 'unread', at: new Date().toISOString(), reason: plainName(reason) ?? 'unnamed' }
+    appendFileSync(path.join(root, TURN_JOURNAL_FILE), `${JSON.stringify(line)}\n`)
+  }
+  finally {
+    rmSync(lock, { recursive: true, force: true })
+  }
+}
+
+function parsedInput(text) {
+  if (text.trim() === '')
+    return { unread: 'empty' }
+  try {
+    const input = JSON.parse(text)
+    return input != null && typeof input === 'object' && !Array.isArray(input) ? { input } : { unread: 'not-an-object' }
+  }
+  catch {
+    return { unread: 'not-json' }
+  }
+}
+
 async function main() {
   const root = process.env.CLAUDE_PROJECT_DIR
   try {
     if (root == null || root === '' || !statSync(root).isDirectory())
       return
-    record(root, JSON.parse(await readInput()))
+    let text
+    try {
+      text = await readInput()
+    }
+    catch (error) {
+      recordUnread(root, typeof error?.code === 'string' ? error.code : 'read-error')
+      return
+    }
+    const { input, unread } = parsedInput(text)
+    if (unread != null)
+      recordUnread(root, unread)
+    else
+      record(root, input)
   }
   catch (error) {
     process.stderr.write(`turn-journal: ${error instanceof Error ? error.message : String(error)}\n`)

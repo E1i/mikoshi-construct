@@ -404,6 +404,7 @@
           "turns.subagents.output",
           "turns.turns",
           "turns.unmeasured",
+          "turns.unread",
           "version"
         ],
         "root": "object"

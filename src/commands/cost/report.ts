@@ -67,7 +67,7 @@ function printTurns(ui: Ui, turns: TurnSummary): void {
     ui.line(ui.theme.dim(ui.lore.turnsNotRecorded(TURN_JOURNAL_FILE)))
     return
   }
-  ui.line(ui.theme.dim(ui.lore.turnsCounts(turns.turns, turns.sessions, fmt(billable(turns.main)), fmt(billable(turns.subagents)), turns.unmeasured, turns.gaps)))
+  ui.line(ui.theme.dim(ui.lore.turnsCounts(turns.turns, turns.sessions, fmt(billable(turns.main)), fmt(billable(turns.subagents)), turns.unmeasured, turns.unread, turns.gaps)))
   if (turns.malformed.length > 0)
     ui.glitch(ui.lore.turnsMalformed(turns.malformed.length), turns.malformed.map(entry => `line ${entry.line}: ${entry.reason}`))
 }

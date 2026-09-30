@@ -63,6 +63,13 @@ describe('construct cost reads the turn journal', () => {
     expect(text(report)).toContain('2 sessions')
   })
 
+  it('an unread line counts as unread, not as malformed and not as a session', () => {
+    const summary = readTurnJournal(world([line({ kind: 'unread', at: 't', reason: 'EAGAIN' }), line({ kind: 'unread', at: 't' })]))
+
+    expect(summary).toMatchObject({ status: 'recorded', turns: 0, sessions: 0, unread: 1 })
+    expect(summary.status === 'recorded' && summary.malformed.map(entry => entry.reason)).toEqual(['an unread line names no reason'])
+  })
+
   it('the hook and cost count the recorded sample alike', async () => {
     const hook = await import(HOOK) as { measure: (text: string) => { usage: unknown, toolCalls: unknown, unreadable: number }, TURN_JOURNAL_FILE: string }
     expect(hook.TURN_JOURNAL_FILE).toBe(TURN_JOURNAL_FILE)

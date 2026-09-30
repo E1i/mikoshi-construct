@@ -6,7 +6,7 @@ import { add, emptyUsage } from './usage.js'
 export const TURN_JOURNAL_FILE = '.construct/turns.jsonl'
 
 const JOURNAL_VERSION = 1
-const KINDS = ['turn', 'late', 'subagent', 'session-end']
+const KINDS = ['turn', 'late', 'subagent', 'session-end', 'unread']
 const MEASURED_KINDS = ['turn', 'late']
 
 export interface MalformedTurnLine {
@@ -23,6 +23,7 @@ export type TurnSummary
       main: Usage
       subagents: Usage
       unmeasured: number
+      unread: number
       gaps: number
       malformed: MalformedTurnLine[]
     }
@@ -30,6 +31,7 @@ export type TurnSummary
 interface JournalLine {
   v?: unknown
   kind?: unknown
+  reason?: unknown
   session?: unknown
   usage?: unknown
   from?: unknown
@@ -60,7 +62,9 @@ function problemWith(line: JournalLine | null): string | null {
   if (line.v !== JOURNAL_VERSION)
     return `version ${String(line.v)} is not ${JOURNAL_VERSION}`
   if (typeof line.kind !== 'string' || !KINDS.includes(line.kind))
-    return 'kind is not one of the four'
+    return 'kind is not one of the five'
+  if (line.kind === 'unread')
+    return typeof line.reason === 'string' && line.reason !== '' ? null : 'an unread line names no reason'
   if (typeof line.session !== 'string' || line.session === '')
     return 'no session'
   if (line.kind === 'session-end')
@@ -81,6 +85,7 @@ export function readTurnJournal(root: string): TurnSummary {
   const previousEnd = new Map<string, unknown>()
   let turns = 0
   let unmeasured = 0
+  let unread = 0
   let gaps = 0
   readFileSync(file, 'utf8').split('\n').forEach((text, index) => {
     if (text.trim() === '')
@@ -91,8 +96,12 @@ export function readTurnJournal(root: string): TurnSummary {
       malformed.push({ line: index + 1, reason: problem ?? 'not JSON' })
       return
     }
-    const session = line.session as string
     const kind = line.kind as string
+    if (kind === 'unread') {
+      unread += 1
+      return
+    }
+    const session = line.session as string
     sessions.add(session)
     if (kind === 'subagent')
       add(subagents, line.usage as Usage)
@@ -108,5 +117,5 @@ export function readTurnJournal(root: string): TurnSummary {
       gaps += 1
     previousEnd.set(session, line.to)
   })
-  return { status: 'recorded', turns, sessions: sessions.size, main, subagents, unmeasured, gaps, malformed }
+  return { status: 'recorded', turns, sessions: sessions.size, main, subagents, unmeasured, unread, gaps, malformed }
 }

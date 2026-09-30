@@ -86,6 +86,19 @@ describe('the turn journal hook, fired by a parent that writes stdin when it wri
   })
 })
 
+describe('the turn journal hook, when it cannot read its input', () => {
+  for (const [name, stdin, reason] of [['empty', '', 'empty'], ['not JSON', 'nope', 'not-json'], ['a JSON array', '[]', 'not-an-object']] as const) {
+    it(`writes an unread line naming ${reason} for input that is ${name}, and still exits 0 with nothing on stdout`, () => {
+      const { root } = project()
+      const result = spawnSync('node', [HOOK], { input: stdin, env: { ...process.env, CLAUDE_PROJECT_DIR: root }, encoding: 'utf8' })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout).toBe('')
+      expect(journal(root).map(line => [line.kind, line.reason])).toEqual([['unread', reason]])
+    })
+  }
+})
+
 describe('the turn journal hook', () => {
   it('a turn is the transcript bytes between a prompt and the stop that ends it', () => {
     const { root, transcript } = project()

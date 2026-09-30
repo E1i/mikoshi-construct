@@ -1442,7 +1442,7 @@ repository, ladder or not. Unlike the run ledger it is written by a hook, not by
 and it measures what each turn cost from the session transcript. Decision 0036 records why it sits
 beside the ledger and does not replace it.
 
-One JSON line per event, appended and never rewritten, each with `v` (1), `kind` and `session`:
+One JSON line per event, appended and never rewritten, each with `v` (1), `kind` and `session` (an `unread` line has no session):
 
 | `kind` | Written when | Carries |
 |---|---|---|
@@ -1450,6 +1450,7 @@ One JSON line per event, appended and never rewritten, each with `v` (1), `kind`
 | `late` | Transcript lines land after the `Stop` that closed their turn, or a `Stop` finds no open turn. | The same range fields, attributed to the prompt of the turn it follows. |
 | `subagent` | A `SubagentStop`. | `agent`, `agentType` and the range read from that agent's own transcript, from where the last stop left off. |
 | `session-end` | A `SessionEnd`. | `reason`. |
+| `unread` | The hook could not read its input: the read failed, or it ended empty, not JSON or not an object. It reads stdin to its end and never swallows the failure. | `at` and `reason` (an error code such as `EAGAIN`, or `empty`, `not-json`, `not-an-object`). |
 
 It carries counts and names only: token counts, tool names, offsets, times and ids. No prompt,
 response, thinking, tool input, tool result or subagent text is ever written to the journal or to the
@@ -1462,7 +1463,7 @@ turn `usage: "unknown"` with a `reset` naming why, never a number, and the next 
 
 `turns` in `--json` is `{ "status": "not recorded" }` when the file is absent, and otherwise `status`
 `recorded` with `turns`, `sessions`, `main` and `subagents` (summed usage), `unmeasured` (turns whose
-usage is `unknown`), `gaps` and `malformed` (each with its line and reason). An absent journal reads
+usage is `unknown`), `unread` (events the hook could not read), `gaps` and `malformed` (each with its line and reason). An absent journal reads
 `not recorded`, never as zero: it means no hook ran here, not that nothing was spent. The figures are
 never added to the runs' figures above.
 

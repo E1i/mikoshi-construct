@@ -89,7 +89,7 @@ export interface Lore {
   costKeyMismatch: (key: string) => string
   costKeyUnknown: (key: string) => string
   turnsNotRecorded: (file: string) => string
-  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, gaps: number) => string
+  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => string
   turnsMalformed: (count: number) => string
   ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => string
   ledgerMalformed: (count: number) => string
@@ -309,7 +309,7 @@ export const LORE: Lore = {
   costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
   costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
   turnsNotRecorded: (file: string) => `Turn journal: not recorded \u2014 ${file} is absent, so no turn of any session was measured here.`,
-  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent billable tokens, ${unmeasured} unmeasured, ${gaps} gaps.`,
+  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent billable tokens, ${unmeasured} unmeasured, ${unread} unread, ${gaps} gaps.`,
   turnsMalformed: (count: number) => `${count} turn journal line${count === 1 ? '' : 's'} could not be read.`,
   ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => `Ledger, kept by hand and trusted by nobody: ${runs} runs, ${agents} agents, ${failures} unfinished, ${tokens} tokens.`,
   ledgerMalformed: (count: number) => `${count} ledger line${count === 1 ? '' : 's'} could not be read as a run record.`,
@@ -572,7 +572,7 @@ export const PLAIN_LORE: Lore = {
   costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
   costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
   turnsNotRecorded: (file: string) => `Turn journal: not recorded \u2014 ${file} is absent, so no turn of any session was measured here.`,
-  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent billable tokens, ${unmeasured} unmeasured, ${gaps} gaps.`,
+  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent billable tokens, ${unmeasured} unmeasured, ${unread} unread, ${gaps} gaps.`,
   turnsMalformed: (count: number) => `${count} turn journal line${count === 1 ? '' : 's'} could not be read.`,
   ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => `Ledger (a skill step writes it, nothing enforces it): ${runs} runs, ${agents} agents, ${failures} unfinished, ${tokens} tokens.`,
   ledgerMalformed: (count: number) => `${count} ledger line${count === 1 ? '' : 's'} could not be read as a run record.`,
