@@ -125,7 +125,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm ghosts:hash` | Prints the sha256 of a brief's `/implement` text, the hash the owner approves. | `pnpm ghosts:hash <scratchpad>/brief-<task>.md` |
 | `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256`, prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
 | `pnpm ghosts:watch` | Prints one read-only line per task of a tasks file: report age, last tool, ledger stage and whether the session is alive. | `pnpm ghosts:watch --tasks <scratchpad>/tasks-<batch>.json [--every <seconds>]` |
-| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`: a table with one row per task by default, merged tasks older than 12 hours left out unless `--all`; one task's card with a task id; everything as JSON with `--json`. On a terminal with `NO_COLOR` unset the STAGE and NEXT cells are coloured, and `--help` prints what each colour means. A task is ready when the `required` check is green on its pull request's current head; `--every` reprints the view until interrupted, clearing a terminal before each frame and replacing `board.txt` in the handoff directory with the frame as plain text; a run without `--every` writes nothing. | `pnpm board [--dir <scratchpad>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo <owner>/<name>] [--help]`; without `--dir` it reads `$CONSTRUCT_HANDOFF_DIR`, else `~/.construct/handoff` |
+| `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`: a summary line and a bordered table with one row per task by default, merged or reported tasks older than 12 hours left out unless `--all`; one task's card with a task id; everything as JSON with `--json`, the only output that carries the UNKNOWN tally. On a terminal with `NO_COLOR` unset the STAGE and NEXT cells are coloured; `--help` prints what each colour means and the definition of every column and stage, which no other output prints. A task is ready when the `required` check is green on its pull request's current head; `--every` reprints the view until interrupted, clearing a terminal before each frame and replacing `board.txt` in the handoff directory with the frame as plain text; a run without `--every` writes nothing. | `pnpm board [--dir <scratchpad>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo <owner>/<name>] [--help]`; without `--dir` it reads `$CONSTRUCT_HANDOFF_DIR`, else `~/.construct/handoff` |
 
 `ghosts:hash`:
 
@@ -154,27 +154,28 @@ stage and fact, `--json` prints all of it for an agent, and `--every` heads each
 
 ```text
 running 7, waiting 6, blocked 1, the longest — 300 min (n-red)
-# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR's CI and architecture/owner-merges.md
-# pnpm board <task-id> prints one task's card with every attempt; --json prints everything; --help prints the colours; hidden: 3 tasks, --all shows them
-TASK       PATH    STAGE     AGE    NEXT
-l-1        ladder  ghost     5h30m  verdict (window)
-n-red      cheap   started   5h00m  a fix (window): CI red
-n-owner    cheap   ready     4h40m  Eli's merge
-n-auto     cheap   ready     4h40m  auto-merge (window arms it)
-n-nofiles  cheap   ready     4h40m  merge (UNKNOWN whether Eli's or auto-merge)
-n-closed   cheap   started   5h00m  a decision (window): PR closed unmerged
-n-pending  cheap   started   5h00m  CI
-n-release  cheap   ready     4h40m  Eli's merge
-n-lost     cheap   started   5h00m  UNKNOWN (the PR is not readable)
-n-pushed   cheap   started   5h00m  CI
-c-open     cheap   started   3h00m  CI
-c-noready  cheap   started   2h00m  a PR (window)
-s-stopped  ladder  ghost     6h00m  a new attempt (window)
-s-nopr     ladder  review    5h50m  a PR (window)
-c-report   cheap   reported  1h30m  report: notes/c-report.md
-c-gh       cheap   merged    3h20m  —
-c-journal  cheap   merged    4h00m  —
-UNKNOWN: brief.written ×1, brief.approved ×3, review.started ×2, ready ×3, merge ×3, pr ×2
+hidden: 3 tasks, --all shows them
+┌───────────┬────────┬──────────┬───────┬─────────────────────────────────────────────┐
+│ TASK      │ PATH   │ STAGE    │ AGE   │ NEXT                                        │
+├───────────┼────────┼──────────┼───────┼─────────────────────────────────────────────┤
+│ l-1       │ ladder │ ghost    │ 5h30m │ verdict (window)                            │
+│ n-red     │ cheap  │ started  │ 5h00m │ a fix (window): CI red                      │
+│ n-owner   │ cheap  │ ready    │ 4h40m │ Eli's merge                                 │
+│ n-auto    │ cheap  │ ready    │ 4h40m │ auto-merge (window arms it)                 │
+│ n-nofiles │ cheap  │ ready    │ 4h40m │ merge (UNKNOWN whether Eli's or auto-merge) │
+│ n-closed  │ cheap  │ started  │ 5h00m │ a decision (window): PR closed unmerged     │
+│ n-pending │ cheap  │ started  │ 5h00m │ CI                                          │
+│ n-release │ cheap  │ ready    │ 4h40m │ Eli's merge                                 │
+│ n-lost    │ cheap  │ started  │ 5h00m │ UNKNOWN (the PR is not readable)            │
+│ n-pushed  │ cheap  │ started  │ 5h00m │ CI                                          │
+│ c-open    │ cheap  │ started  │ 3h00m │ CI                                          │
+│ c-noready │ cheap  │ started  │ 2h00m │ a PR (window)                               │
+│ s-stopped │ ladder │ ghost    │ 6h00m │ a new attempt (window)                      │
+│ s-nopr    │ ladder │ review   │ 5h50m │ a PR (window)                               │
+│ c-report  │ cheap  │ reported │ 1h30m │ report: notes/c-report.md                   │
+│ c-gh      │ cheap  │ merged   │ 3h20m │ —                                           │
+│ c-journal │ cheap  │ merged   │ 4h00m │ —                                           │
+└───────────┴────────┴──────────┴───────┴─────────────────────────────────────────────┘
 ```
 
 ## After a release

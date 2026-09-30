@@ -2,13 +2,15 @@ import type { OwnerMergeKind } from '../shredder/reader.js'
 import type { AttemptView } from './derive.js'
 import type { PrDetails, PullRequest } from './gh.js'
 import { ownerMerges } from '../shredder/authority.js'
-import { changesRequested, isRunningRow, reportOf } from './derive.js'
+import { changesRequested, isHandLadderRunning, isRunningRow, reportOf } from './derive.js'
+import { handLadderPolicy } from './policy.js'
 
 export const NEXT_BY_SITUATION = {
   'brief': 'brief (window)',
   'approval': 'Eli\'s approval',
   'launch': 'launch (window)',
   'ghost-running': 'the Ghost\'s run',
+  'hand-ladder-running': 'the ladder\'s run',
   'verdict': 'verdict (window)',
   'new-attempt': 'a new attempt (window)',
   'pr': 'a PR (window)',
@@ -76,6 +78,8 @@ function prNext(view: AttemptView, details: PrDetails | undefined, kinds: OwnerM
 function ladderNext(view: AttemptView, details: PrDetails | undefined, kinds: OwnerMergeKind[] | undefined): Next {
   const { attempt } = view
   const task = attempt.taskEvent
+  if (isHandLadderRunning(attempt))
+    return next('hand-ladder-running', `status.md policy ${handLadderPolicy(attempt.id)}`)
   if (changesRequested(attempt))
     return next('new-attempt', 'last review verdict changes')
   if (task !== undefined && (task.exit !== 0 || task.ladder !== 'done'))

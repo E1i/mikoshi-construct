@@ -11,7 +11,7 @@ import { listPrs, prDetails } from './gh.js'
 import { readHandoff } from './handoff.js'
 import { boardJson } from './json.js'
 import { nextOf } from './next.js'
-import { renderBoard, renderCard } from './render.js'
+import { DEFINITIONS, renderBoard, renderCard } from './render.js'
 import { legendLines, painter } from './tone.js'
 
 export const PREFIX = '[board] '
@@ -47,8 +47,10 @@ interface Args {
 
 export const HELP = [
   USAGE,
+  '<task-id> prints one task\'s card with every attempt, stage and fact; --json prints every task and attempt, with the UNKNOWN tally; --all lists every task',
   `--every <seconds> redraws the view: it clears a terminal before each frame and writes each frame as plain text to <handoff dir>/${FRAME_FILE}, replacing it through a temporary file and a rename; a run without --every writes nothing`,
   ...legendLines(),
+  ...DEFINITIONS,
 ]
 
 function parseArgs(argv: string[], defaultDir: string): Args | string | 'help' {

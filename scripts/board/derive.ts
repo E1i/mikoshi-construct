@@ -2,13 +2,14 @@ import type { PrDetails, PrList, PrLookup, PullRequest } from './gh.js'
 import type { Attempt, PathEvent } from './handoff.js'
 import path from 'node:path'
 import { lookupPr, lookupPrNumber, REQUIRED_CHECK } from './gh.js'
+import { handLadderPolicy } from './policy.js'
 import { VERIFICATION_WORDS } from './verification.js'
 
 export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'reported' | 'idle'
 
 export const OPEN_CATEGORIES: readonly Category[] = ['running', 'waiting', 'blocked']
 export const FINISHED_SHOWN = 5
-export const MERGED_SHOWN_HOURS = 12
+export const FINISHED_SHOWN_HOURS = 12
 
 const CHEAP_PATH = 'cheap'
 const RUNNING_STATES = ['writing', 'reviewing', 'reading']
@@ -90,6 +91,19 @@ export function isRunningRow(attempt: Attempt): boolean {
   return attempt.row !== undefined && RUNNING_STATES.includes(attempt.row.state)
 }
 
+function handLadderStart(attempt: Attempt): Date | undefined {
+  return localStamp(attempt.handLadderUpdated)
+}
+
+export function isHandLadderRunning(attempt: Attempt): boolean {
+  if (attempt.handLadderUpdated === undefined)
+    return false
+  const start = handLadderStart(attempt)
+  if (start === undefined)
+    return true
+  return ![attempt.taskEvent, attempt.reviewEvent, attempt.mergeEvent].some(event => event !== undefined && new Date(event.ts) > start)
+}
+
 export function changesRequested(attempt: Attempt): boolean {
   return attempt.reviewEvent?.verdict === 'changes'
 }
@@ -114,6 +128,20 @@ function ghostStage(attempt: Attempt): StageBody {
   if (isRunningRow(attempt))
     return not(`not finished; status.md ${attempt.row!.state}`)
   return unknown('task')
+}
+
+function handLadderStage(attempt: Attempt): Stage[] {
+  if (!isHandLadderRunning(attempt))
+    return []
+  const start = handLadderStart(attempt)
+  const policy = `status.md policy ${handLadderPolicy(attempt.id)}`
+  return [{ name: 'hand-ladder', ...(start === undefined ? unknown(`hand-ladder start; ${policy} updated is not YYYY-MM-DD HH:MM`) : done(start, policy)) }]
+}
+
+function handLadderFacts(attempt: Attempt): Stage[] {
+  if (attempt.handLadderUpdated === undefined || isHandLadderRunning(attempt))
+    return []
+  return [{ name: 'hand-ladder', ...fact('finished', `status.md policy ${handLadderPolicy(attempt.id)}, updated ${attempt.handLadderUpdated}; a later journal event:task, review or merge`) }]
 }
 
 function reviewStage(attempt: Attempt): StageBody {
@@ -281,7 +309,7 @@ function ledgerFact(attempt: Attempt): StageBody {
 function categoryOf(attempt: Attempt, merged: boolean): Category {
   if (merged)
     return 'merged'
-  if (isRunningRow(attempt))
+  if (isRunningRow(attempt) || isHandLadderRunning(attempt))
     return 'running'
   const task = attempt.taskEvent
   if (task !== undefined && (task.exit !== 0 || task.ladder !== 'done' || changesRequested(attempt)))
@@ -322,14 +350,16 @@ function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): Att
       { name: 'review', ...reviewStage(attempt) },
       { name: 'ready', ...readyStage(attempt, merged, pr, detailsOf(pr, checksOf)) },
       { name: 'merged', ...mergedStage(attempt, pr) },
+      ...(merged ? [] : handLadderStage(attempt)),
     ],
     facts: [
       { name: 'pr', ...prFact(attempt, pr) },
       { name: 'status.md', ...statusFact(attempt) },
       { name: 'ledger', ...ledgerFact(attempt) },
+      ...handLadderFacts(attempt),
     ],
     category: categoryOf(attempt, merged),
-    startedAt: localStamp(attempt.row?.start),
+    startedAt: isHandLadderRunning(attempt) ? handLadderStart(attempt) : localStamp(attempt.row?.start),
     mergedAt,
     reportedAt: undefined,
   }
@@ -380,8 +410,9 @@ function finishedAt(view: AttemptView): Date | undefined {
   return view.mergedAt ?? view.reportedAt
 }
 
-function mergedTooLongAgo(view: AttemptView, now: Date): boolean {
-  return view.mergedAt !== undefined && now.getTime() - view.mergedAt.getTime() > MERGED_SHOWN_HOURS * 3_600_000
+function finishedTooLongAgo(view: AttemptView, now: Date): boolean {
+  const at = finishedAt(view)
+  return at !== undefined && now.getTime() - at.getTime() > FINISHED_SHOWN_HOURS * 3_600_000
 }
 
 export function selectShown(tasks: TaskView[], all: boolean, now: Date): TaskView[] {
@@ -390,7 +421,7 @@ export function selectShown(tasks: TaskView[], all: boolean, now: Date): TaskVie
   const current = tasks.filter(task => !isSuperseded(task.live))
   const open = current.filter(task => OPEN_CATEGORIES.includes(task.live.category))
   const finished = current
-    .filter(task => finishedAt(task.live) !== undefined && !mergedTooLongAgo(task.live, now))
+    .filter(task => finishedAt(task.live) !== undefined && !finishedTooLongAgo(task.live, now))
     .sort((a, b) => finishedAt(b.live)!.getTime() - finishedAt(a.live)!.getTime())
     .slice(0, FINISHED_SHOWN)
   return [...open, ...finished].map(task => ({ ...task, attempts: [task.live] }))
