@@ -109,6 +109,22 @@ const theRecordItselfMayReadBothHalves = {
   },
 }
 
+const A_HOOK_READS_STDIN_TO_ITS_END = 'A hook is fed through a pipe its parent may write late, in pieces or large: read stdin to its end asynchronously (for await of process.stdin) and never swallow a read error — a guard refuses with exit 2, a recorder writes an unread line and exits 0'
+const HOOK_SCRIPTS = ['.claude/hooks/**', 'templates/attach/_construct/**']
+const STDIN_ARGUMENT = '[arguments.0.value=0], [arguments.0.value="/dev/stdin"], [arguments.0.property.name="fd"]'
+
+const NO_SYNCHRONOUS_STDIN = ['readFileSync', 'readSync'].flatMap(name => [
+  { selector: `CallExpression[callee.name="${name}"]:matches(${STDIN_ARGUMENT})`, message: A_HOOK_READS_STDIN_TO_ITS_END },
+  { selector: `CallExpression[callee.property.name="${name}"]:matches(${STDIN_ARGUMENT})`, message: A_HOOK_READS_STDIN_TO_ITS_END },
+])
+
+const aHookReadsStdinToItsEnd = {
+  files: HOOK_SCRIPTS,
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_SYNCHRONOUS_STDIN],
+  },
+}
+
 const ROOT = import.meta.dirname
 const AGENT_WORKTREES = '.claude/worktrees/**'
 
@@ -149,7 +165,7 @@ export default antfu(
     typescript: true,
   },
   {
-    ignores: ['dist/**', 'templates/**', 'tests/fixtures/**', 'scripts/**/*.workflow.mjs', AGENT_WORKTREES, ...nestedWorktrees()],
+    ignores: ['dist/**', 'templates/*', '!templates/attach/', 'templates/attach/*', '!templates/attach/_construct/', '!.claude/', 'tests/fixtures/**', 'scripts/**/*.workflow.mjs', AGENT_WORKTREES, ...nestedWorktrees()],
   },
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
@@ -158,4 +174,5 @@ export default antfu(
   thePnpmProbeMaySpawnAndNothingElse,
   theRecordItselfMayReadBothHalves,
   theSurfaceTestNeverWrites,
+  aHookReadsStdinToItsEnd,
 )

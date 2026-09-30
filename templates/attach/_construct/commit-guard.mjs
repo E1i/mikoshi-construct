@@ -607,9 +607,11 @@ async function main() {
     refuse(refusal)
 }
 
-try {
-  await main()
-}
-catch (error) {
-  fail(`could not check the call: ${error instanceof Error ? error.message : String(error)}`)
-}
+void (async () => {
+  try {
+    await main()
+  }
+  catch (error) {
+    fail(`could not check the call: ${error instanceof Error ? error.message : String(error)}`)
+  }
+})()
