@@ -1,7 +1,9 @@
+import type { CollisionReading } from './earlier.js'
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { isEmptyDir } from '../../detect/layout.js'
 import { ATTACH_CARRIERS } from '../../presets/index.js'
+import { collisionReading } from './earlier.js'
 import { unresolvedCommandWord } from './harness.js'
 
 export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'no-harness' | 'cursor' | 'not-a-command'
@@ -10,6 +12,7 @@ export interface AttachRefusal {
   reason: AttachRefusalReason
   paths: string[]
   rolledBack?: boolean
+  collision?: CollisionReading
   harness?: { command: string, word: string }
 }
 
@@ -37,7 +40,7 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
     return refusal('nothing-to-attach')
   const colliding = ATTACH_CARRIERS.targets.filter(target => existsSync(path.join(root, target)))
   if (colliding.length > 0)
-    return refusal('collision', colliding)
+    return { ...refusal('collision', colliding), collision: collisionReading(root, colliding, flags) }
   if (flags.yes && flags.harness == null)
     return refusal('no-harness')
   if (flags.ai != null && AI_OUT_OF_SCOPE.includes(flags.ai))

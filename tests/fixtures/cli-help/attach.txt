@@ -4,11 +4,12 @@ USAGE construct attach [OPTIONS]
 
 OPTIONS
 
-                --dir=<dir>    Target directory (Default: .)                                           
-                    --plain    No colors, no lore (CI-friendly) (Default: false)                       
-                   --johnny    Wake up, Netrunner. (Default: false)                                    
-        --harness=<harness>    The harness command the ladder verifies with; nothing is assumed        
-  --ai=<claude|cursor|both>    AI target: claude (cursor and both are refused)                         
-                  -y, --yes    Non-interactive: skip the confirmation; needs --harness (Default: false)
+                --dir=<dir>    Target directory (Default: .)                                                                               
+                    --plain    No colors, no lore (CI-friendly) (Default: false)                                                           
+                   --johnny    Wake up, Netrunner. (Default: false)                                                                        
+        --harness=<harness>    The harness command the ladder verifies with; nothing is assumed                                            
+  --ai=<claude|cursor|both>    AI target: claude (cursor and both are refused)                                                             
+                  -y, --yes    Non-interactive: skip the confirmation; needs --harness (Default: false)                                    
+                    --entry    Print the entry protocol the agent follows to propose one harness; reads and writes nothing (Default: false)
 
 
