@@ -8,7 +8,7 @@ import { collisionReading } from './earlier.js'
 import { unresolvedCommandWord } from './harness.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'no-harness' | 'cursor' | 'not-a-command'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'no-harness' | 'cursor' | 'not-a-command'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
@@ -43,7 +43,7 @@ function settingsRefusal(root: string): AttachRefusal | null {
   if (reading.kind === 'unreadable')
     return refusal('settings-unreadable', paths)
   if (reading.kind === 'read' && carriesGuardEntry(reading.settings))
-    return refusal('collision', paths)
+    return refusal('settings-guarded', paths)
   return null
 }
 

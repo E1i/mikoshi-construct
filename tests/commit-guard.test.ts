@@ -242,7 +242,7 @@ describe('the installed commit guard, how it reads stdin', () => {
     expect(result.stderr).toMatch(/^Refused: git commit targets /)
   })
 
-  it('refuses with exit 2 when stdin is a directory Node cannot read, so an unread call never passes', () => {
+  it('refuses with exit 2 when stdin is a directory, which Node reads as empty, so an unread call never passes', () => {
     const fd = openSync(world.attached, 'r')
     try {
       const result = spawnSync('node', [path.join(world.attached, GUARD)], { stdio: [fd, 'pipe', 'pipe'], encoding: 'utf8' })

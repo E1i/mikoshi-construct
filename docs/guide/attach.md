@@ -54,7 +54,7 @@ sentence for the pull request.
 ## When attach refuses
 
 Every refusal happens before anything is written. The full list with the exact output is in the
-[CLI reference](/cli#the-eleven-refusals).
+[CLI reference](/cli#the-twelve-refusals).
 
 | Refusal | What to do |
 |---|---|

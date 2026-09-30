@@ -472,7 +472,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
       writeFileSync(path.join(dir, 'elsewhere.json'), '{}\n')
       symlinkSync(path.join(dir, 'elsewhere.json'), path.join(dir, SETTINGS_FILE))
     } },
-    { name: 'a guard entry already there', reason: 'collision', arrange: dir => writeSettings(dir, JSON.stringify({ hooks: { PreToolUse: [GUARD_ENTRY] } })) },
+    { name: 'a guard entry already there', reason: 'settings-guarded', arrange: dir => writeSettings(dir, JSON.stringify({ hooks: { PreToolUse: [GUARD_ENTRY] } })) },
     { name: 'a tracked file', reason: 'settings-tracked', arrange: (dir) => {
       writeSettings(dir, '{}\n')
       git(dir, 'add', '-f', SETTINGS_FILE)

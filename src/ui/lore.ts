@@ -150,6 +150,7 @@ export interface Lore {
   attachRefusedSettingsIndex: Notice
   attachRefusedSettingsTracked: Notice
   attachRefusedSettingsUnreadable: Notice
+  attachRefusedSettingsGuarded: Notice
   attachSettingsPlan: (created: boolean) => string
   attachRolledBack: (count: number) => string
   attachBlockKept: string
@@ -413,6 +414,11 @@ export const LORE: Lore = {
     why: 'It does not parse as a JSON object, its hooks or hooks.PreToolUse has the wrong shape, or it is not a regular file; editing it blind could wipe what is in it.',
     next: 'Fix or move .claude/settings.local.json, then jack in again. Nothing was written.',
   },
+  attachRefusedSettingsGuarded: {
+    what: 'BREACH FAILED // GUARD ALREADY THERE: .claude/settings.local.json already carries an entry that runs .construct/commit-guard.mjs',
+    why: 'The net writes one guard entry and removes exactly that one; a second beside it would outlive the detach that removes the first.',
+    next: 'Keep the file, it holds your own settings too. If this repository is still attached, jack out first; if not, delete only that entry from hooks.PreToolUse, then jack in again. Nothing was written.',
+  },
   attachSettingsPlan: (created: boolean) => created ? '.claude/settings.local.json is created holding the commit guard entry.' : '.claude/settings.local.json gets the commit guard entry appended; nothing else in it changes.',
   attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
   attachBlockKept: 'Block left in .git/info/exclude: the bytes before it are no longer what this run wrote, so it was not cut out. construct detach will name it.',
@@ -667,6 +673,11 @@ export const PLAIN_LORE: Lore = {
     what: 'Refused: .claude/settings.local.json is not a settings file attach can edit.',
     why: 'It does not parse as a JSON object, its hooks or hooks.PreToolUse has the wrong shape, or it is not a regular file; editing it blind could wipe what is in it.',
     next: 'Fix or move .claude/settings.local.json, then attach again. Nothing was written.',
+  },
+  attachRefusedSettingsGuarded: {
+    what: 'Refused: .claude/settings.local.json already carries an entry that runs .construct/commit-guard.mjs.',
+    why: 'attach writes one guard entry and detach removes exactly that one; a second beside it would outlive the detach that removes the first.',
+    next: 'Keep the file, it holds your own settings too. If this repository is still attached, run construct detach first; if not, delete only that entry from hooks.PreToolUse, then attach again. Nothing was written.',
   },
   attachSettingsPlan: (created: boolean) => created ? '.claude/settings.local.json is created holding the commit guard entry.' : '.claude/settings.local.json gets the commit guard entry appended; nothing else in it changes.',
   attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,

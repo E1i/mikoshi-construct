@@ -198,7 +198,7 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here, 
 | Braindance | `construct sync`: replaying what `construct.json` records `init` wrote against today's templates and reporting where the two disagree |
 | Jack in | `construct attach`: the agent carriers alone, into a repository the construct did not write, hidden from git and recorded in `.construct/attach.json` |
 | Jack out | `construct detach`: the inverse of jack in — removes what the record lists, leaves a carrier git has adopted or a file attach did not write, and reports each by name |
-| Breach Protocol | The attach procedure: the eleven refusals it runs, in order, before touching anything — `BREACH FAILED` names the one that fired |
+| Breach Protocol | The attach procedure: the twelve refusals it runs, in order, before touching anything — `BREACH FAILED` names the one that fired |
 | Relic write | `construct sync --apply`: the one write into a repository the construct did not create |
 | Blackwall | Where a construct block whose template variant cannot be established sits — not yours, not ours, and nothing is written there |
 | Glitch | A warning in the output. Something wants a human; nothing has failed |

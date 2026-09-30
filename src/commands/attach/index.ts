@@ -65,6 +65,7 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'settings-index': lore => lore.attachRefusedSettingsIndex,
   'settings-tracked': lore => lore.attachRefusedSettingsTracked,
   'settings-unreadable': lore => lore.attachRefusedSettingsUnreadable,
+  'settings-guarded': lore => lore.attachRefusedSettingsGuarded,
   'no-harness': lore => ({ what: lore.attachRefusedNoHarness, ...lore.attachNoHarnessExplained }),
   'cursor': lore => lore.attachRefusedCursor,
   'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
