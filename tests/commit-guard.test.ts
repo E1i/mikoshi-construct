@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

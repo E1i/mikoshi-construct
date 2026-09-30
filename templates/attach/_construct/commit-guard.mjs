@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
