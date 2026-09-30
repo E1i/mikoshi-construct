@@ -55,4 +55,5 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0033](0033-checked-means-the-target-was-verified.md) | `checked` means the harness ran the target's own verification surface, not that it exited 0 | L0 until the implementing change; then L3 tests and a CI self-check |
 | [0034](0034-stack-detection-is-not-an-attach-gate.md) | Stack detection is not an attach gate | L3 tests; lint |
 | [0035](0035-attach-guards-the-direct-commit.md) | attach installs a `PreToolUse` guard that refuses the agent a direct `git commit`, push, merge, rebase or tag, and detach removes exactly that (proposed) | L2 local hook for the direct form; L3 tests |
+| [0036](0036-turn-journal-written-by-hooks.md) | A hook this repository installs writes a turn journal beside the ledger; 0003 and the ledger stand (proposed) | L3 tests; L0 for the hook configuration |
 | [0037](0037-attach-entry-is-read-by-the-agent.md) | attach entry is read by the agent: the CLI prints the protocol, names the earlier files it knows, and writes nothing (proposed) | L3 tests; lint; L1 review |

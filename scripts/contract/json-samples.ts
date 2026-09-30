@@ -121,6 +121,9 @@ function withRecordedRun(world: World): World {
   const usage = { input_tokens: 1, cache_creation_input_tokens: 1, cache_read_input_tokens: 1, output_tokens: 1 }
   writeFileSync(path.join(run, 'agent-1.jsonl'), `${JSON.stringify({ requestId: 'r1', message: { role: 'assistant', model: 'm', usage } })}\n`)
   writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'implement', agentType: 'implementer' }))
+  const turn = { v: 1, kind: 'turn', session: 's-1', prompt: 'p-1', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:00:01.000Z', end: 'stop', from: 0, to: 1, usage: { calls: 1, input: 1, cacheWrite: 1, cacheRead: 1, output: 1, models: ['m'] }, toolCalls: {}, unreadable: 0 }
+  mkdirSync(path.join(world.dir, '.construct'), { recursive: true })
+  writeFileSync(path.join(world.dir, '.construct/turns.jsonl'), `${JSON.stringify(turn)}\n`)
   return world
 }
 

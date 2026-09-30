@@ -36,6 +36,7 @@ export const SURFACE_VERSION = 2
 
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/runs.jsonl',
+  '.construct/turns.jsonl',
   'graph --out HTML',
   'human-readable output text',
   'lore strings',
