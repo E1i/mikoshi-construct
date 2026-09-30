@@ -24,6 +24,27 @@ Choose each task's contour before anything else: the cheapest one that yields th
 - A task is never done twice. The brief proves the witnesses are executable (byte-identical, `bash -n`,
   red on the base for a behavioural reason) and does not implement the task. If the implementation is already done and proven by the witnesses, it becomes the pull request; a separate implementer does not repeat it.
 
+Read each task's risk before its contour: what an error in it would cost, and whether it could be taken
+back. The risk is read from what the change does when it runs (what it writes, deletes, moves, grants,
+sends or publishes, and whether that can be undone), never from the words of the task, the ticket or the
+names of its files. A word such as "payment", "token" or "release" is a reason to look at the work, not a
+sign.
+
+| Risk | Signs in what the change does | Contour it asks for |
+|------|-------------------------------|---------------------|
+| critical | authentication, sessions, permissions or access rights; money; personal data; a data migration or a deletion that cannot be rolled back; secrets or cryptography; a publish; a write into a repository or a system someone else owns; a core part that many others depend on | the ladder path, and a human who approves the brief before it runs and merges the result |
+| moderate | a new user-facing capability; an external integration; a schema change whose migration can be rolled back; a change another team has to adopt | the contour the proof needs, as above |
+| low | documentation, logs, tests, tooling, CI that publishes nothing, experiments | nothing beyond the cheap path |
+
+- The highest sign found decides. Signs are not averaged, and a small diff does not lower them.
+- When two levels both fit, take the higher: too much proof costs little, too little costs the error.
+- Risk only raises a contour. A low-risk task still takes the ladder path when its proof needs it.
+- A critical task names the step that makes it irreversible (running a migration, deleting data,
+  publishing) as a criterion of its own, with who runs it; that step is never left to the implementer's
+  judgement.
+- The reading is revised whenever the work shows a sign that was not seen, in either direction, and the
+  plan says which sign moved it.
+
 Rules:
 
 - Two to six tasks. Each task is independently verifiable by the harness and leaves the tree green.
@@ -93,7 +114,7 @@ Rules:
 - If the feature is ambiguous about a contract or a boundary, put one precise question first and stop
   after it; do not plan on a guess.
 
-Output the tasks as a numbered list. A ladder-path task is the full skeleton of its brief, in the shape
+Output the tasks as a numbered list, each naming its risk level and the sign that set it. A ladder-path task is the full skeleton of its brief, in the shape
 the `/implement` build turns into args, filled in so it can be pasted as-is:
 
 ```text
@@ -112,5 +133,5 @@ Immutable: <a path the change may not touch>; <a directory, ending in />
 ```
 
 Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
-task carries no design. A cheap-path task is one line, `<task> — acceptance: …; effort: <class>`. Do not
+task carries no design. A cheap-path task is one line, `<task> — risk: <level>, <sign>; acceptance: …; effort: <class>`. Do not
 implement anything.
