@@ -248,6 +248,7 @@ describe('ghosts launch, end to end through the stub', () => {
     const { status } = launch(w, 'yes')
     expect(status).toBe(0)
     world('check-args', w)
+    world('check-journal', w)
   })
 
   it.each([

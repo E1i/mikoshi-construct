@@ -636,10 +636,13 @@ check_journal() {
   local W=$1 sha
   sha=$(origin_sha "$W")
   local pairs='' id
-  for id in $(ids_of "$W"); do pairs="$pairs $id=$(session_of_or_null "$W" "$id")"; done
-  node - "$W" "$sha" "$(kind_of "$W")" "$(cat "$W/.world/sketch-tip" 2>/dev/null || true)" $pairs <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
+  for id in $(ids_of "$W"); do
+    pairs="$pairs $id=$(session_of_or_null "$W" "$id")=$(approved_sha "$W/handoff/brief-$id.approved-sha256")=$(args_broken_for "$W" "$id" && echo broken || echo tied)"
+  done
+  node - "$W" "$sha" "$(kind_of "$W")" "$(cat "$W/.world/sketch-tip" 2>/dev/null || true)" "$ARGS_PATH" $pairs <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
 const fs = require('node:fs')
-const [W, sha, kind, sketchTip, ...pairs] = process.argv.slice(2)
+const crypto = require('node:crypto')
+const [W, sha, kind, sketchTip, argsPath, ...pairs] = process.argv.slice(2)
 const tasks = pairs.map(pair => pair.split('='))
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/journal-failure`, message); process.exit(1) }
 const journal = `${W}/handoff/ghosts.jsonl`
@@ -654,10 +657,10 @@ const seedLines = seed.split('\n').filter(line => line !== '').length
 const lines = text.split('\n').filter(line => line !== '').slice(seedLines)
 if (lines.length !== tasks.length) failWith(`${lines.length} lines appended to ${journal}, not ${tasks.length}`)
 const rows = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
-const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'sketch', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
+const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'sketch', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review', 'agreedSha256', 'argsSha256']
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
-for (const [id, session] of tasks) {
+for (const [id, session, approved, link] of tasks) {
   const found = rows.filter(row => row.task === id)
   if (found.length !== 1) failWith(`${found.length} journal lines for task ${id}, not 1`)
   const row = found[0]
@@ -693,6 +696,8 @@ for (const [id, session] of tasks) {
     duration_ms: noSession ? null : 430500,
     usage: result ? result.usage : null,
     review: null,
+    agreedSha256: approved,
+    argsSha256: noLadder || link === 'broken' ? null : crypto.createHash('sha256').update(fs.readFileSync(`${W}/wt-${id}/${argsPath}`)).digest('hex'),
   }
   for (const key of KEYS) {
     if (JSON.stringify(row[key]) !== JSON.stringify(want[key]))
