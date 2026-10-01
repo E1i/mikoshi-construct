@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale args-elsewhere args-rewritten row-without-hashes'
+ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
+ARGS_PATH=.construct/implement-args.json
 NUMERIC_ID=272
 SEALED_PATH_TAIL=/usr/bin:/bin
 CLEAN_SKETCH_LINE='Sketch: none — world fixture'
@@ -127,7 +130,7 @@ write_results() {
 
 write_stub() {
   local W=$1
-  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\n' "$W" "$FAILING_EXIT" >"$W/bin/claude"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\nCHECK_ACCEPTANCE=%q\nARGS_PATH=%q\n' "$W" "$FAILING_EXIT" "$REPO_ROOT/scripts/construct/check-acceptance.mjs" "$ARGS_PATH" >"$W/bin/claude"
   cat >>"$W/bin/claude" <<'EOF'
 ghost=$(basename "$PWD")
 id=${ghost#wt-}
@@ -146,13 +149,25 @@ emit "{\"type\":\"system\",\"subtype\":\"init\",\"ghost\":\"$ghost\"}"
 [ "$id" = g1 ] && emit "$(cat "$W/.world/result-g1-early.json")"
 emit "{\"type\":\"user\",\"ghost\":\"$ghost\",\"timestamp\":\"2026-09-27T20:00:00.000Z\"}"
 emit "{\"type\":\"assistant\",\"ghost\":\"$ghost\",\"timestamp\":\"2026-09-27T20:07:10.500Z\"}"
+agreed=.construct/implement-agreed.txt
+if [ "$kind" = args-elsewhere ] && [ "$id" = g2 ]; then
+  sed 's/^\/implement Ghost g2:/\/implement Ghost g2, changed after approval:/' "$agreed" >"$dir/agreed-elsewhere.txt"
+  agreed="$dir/agreed-elsewhere.txt"
+fi
+node "$CHECK_ACCEPTANCE" build --brief "$agreed" --out "$ARGS_PATH" >"$dir/handle"
+handle_field() { node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))[process.argv[2]])' "$dir/handle" "$1"; }
+hashes=",\"agreedSha256\":\"$(handle_field agreedSha256)\",\"argsSha256\":\"$(handle_field argsSha256)\""
+[ "$kind" = row-without-hashes ] && [ "$id" = g2 ] && hashes=''
 status=done
 [ "$kind" = failing ] && [ "$id" = g2 ] && status=failed
 [ "$kind" = no-ladder ] && [ "$id" = g2 ] && status=none
 if [ "$status" != none ]; then
   attempts='[{"rung":1,"effort":"low","outcome":"done","reason":""}]'
   [ "$id" = g1 ] && attempts='[{"rung":1,"effort":"low","outcome":"harness failed","reason":""},{"rung":2,"effort":"medium","outcome":"done","reason":""}]'
-  printf '{"run":"run-%s","at":"2026-09-27T20:00:00.000Z","task":"Ghost %s","effort":"low","status":"%s","rung":"low","attempts":%s,"agents":3,"tokens":100,"toolUses":4,"seconds":10}\n' "$id" "$id" "$status" "$attempts" >>"$PWD/.construct/runs.jsonl"
+  printf '{"run":"run-%s","at":"2026-09-27T20:00:00.000Z","task":"Ghost %s","effort":"low","status":"%s","rung":"low","attempts":%s,"agents":3,"tokens":100,"toolUses":4,"seconds":10%s}\n' "$id" "$id" "$status" "$attempts" "$hashes" >>"$PWD/.construct/runs.jsonl"
+fi
+if [ "$kind" = args-rewritten ] && [ "$id" = g2 ]; then
+  node -e 'const fs = require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), null, 2))' "$ARGS_PATH"
 fi
 if ! { [ "$kind" = no-result ] && [ "$id" = g2 ]; }; then
   emit "$(cat "$W/.world/result-$id.json")"
@@ -282,9 +297,10 @@ new_world() {
   git_quiet init --bare "$W/origin.git"
   git_quiet clone "$W/origin.git" "$W/.world/seed"
   echo one >"$W/.world/seed/file.txt"
+  printf '%s\n' '{"harness":{"command":"pnpm run quality"}}' >"$W/.world/seed/construct.json"
   mkdir -p "$W/.world/seed/.construct"
   printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":1,"effort":"low","outcome":"done","reason":""}],"agents":3,"tokens":100,"toolUses":4,"seconds":10}' >"$W/.world/seed/.construct/runs.jsonl"
-  git_quiet -C "$W/.world/seed" add file.txt .construct/runs.jsonl
+  git_quiet -C "$W/.world/seed" add file.txt construct.json .construct/runs.jsonl
   git_quiet -C "$W/.world/seed" commit -m one
   git_quiet -C "$W/.world/seed" push origin HEAD:main
   git_quiet clone "$W/origin.git" "$W/main"
@@ -686,6 +702,44 @@ for (const [id, session] of tasks) {
 EOF
 }
 
+args_broken_for() {
+  [ "$2" = g2 ] && case " $ARGS_BROKEN_KINDS " in *" $(kind_of "$1") "*) true ;; *) false ;; esac
+}
+
+check_args() {
+  local W=$1 id link
+  for id in $(ids_of "$W"); do
+    if args_broken_for "$W" "$id"; then link=$(kind_of "$W"); else link=tied; fi
+    node - "$W" "$id" "$(approved_sha "$W/handoff/brief-$id.approved-sha256")" "$link" "$ARGS_PATH" <<'EOF' || fail "$(cat "$W/.world/args-failure" 2>/dev/null)"
+const fs = require('node:fs')
+const crypto = require('node:crypto')
+const [W, id, approved, link, argsPath] = process.argv.slice(2)
+const failWith = (message) => { fs.writeFileSync(`${W}/.world/args-failure`, `${id}: ${message}`); process.exit(1) }
+const argsFile = `${W}/wt-${id}/${argsPath}`
+const handleFile = `${W}/stub/wt-${id}/handle`
+if (!fs.existsSync(argsFile)) failWith(`no ${argsFile}`)
+if (!fs.existsSync(handleFile)) failWith(`the stub printed no handle at ${handleFile}`)
+const bytes = fs.readFileSync(argsFile)
+const fileSha = crypto.createHash('sha256').update(bytes).digest('hex')
+const args = JSON.parse(bytes.toString('utf8'))
+const handle = JSON.parse(fs.readFileSync(handleFile, 'utf8'))
+const row = JSON.parse(fs.readFileSync(`${W}/wt-${id}/.construct/runs.jsonl`, 'utf8').split('\n').filter(line => line !== '').at(-1))
+if (row.run !== `run-${id}`) failWith(`the last ledger row is ${row.run}, not run-${id}`)
+if ((args.agreedSha256 === approved) === (link === 'args-elsewhere'))
+  failWith(`the args file's agreedSha256 is ${args.agreedSha256} and the approved hash ${approved}; the link is ${link}`)
+if ((handle.argsSha256 === fileSha) === (link === 'args-rewritten'))
+  failWith(`the handle's argsSha256 is ${handle.argsSha256} and the file's bytes hash to ${fileSha}; the link is ${link}`)
+if (link === 'row-without-hashes') {
+  if ('agreedSha256' in row || 'argsSha256' in row)
+    failWith(`the row carries a hash; the link is ${link}`)
+}
+else if (row.agreedSha256 !== handle.agreedSha256 || row.argsSha256 !== handle.argsSha256) {
+  failWith(`the row's hashes ${row.agreedSha256} ${row.argsSha256} are not the handle's ${handle.agreedSha256} ${handle.argsSha256}`)
+}
+EOF
+  done
+}
+
 check_summary() {
   local W=$1 id lines want
   for id in $(ids_of "$W"); do
@@ -709,11 +763,11 @@ case $CHECK in
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     remove_world "$W"
     ;;
-  check-decision | check-untouched | check-refused | check-sketch | check-launched | check-rows | check-report | check-ladder | check-install | check-journal | check-summary)
+  check-decision | check-untouched | check-refused | check-sketch | check-launched | check-rows | check-report | check-ladder | check-install | check-journal | check-summary | check-args)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh clean <world> | world.sh check-<decision|untouched|refused|sketch|launched|rows|report|ladder|install|journal|summary> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh clean <world> | world.sh check-<decision|untouched|refused|sketch|launched|rows|report|ladder|install|journal|summary|args> <world>" >&2; exit 2 ;;
 esac
