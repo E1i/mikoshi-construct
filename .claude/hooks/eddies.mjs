@@ -17,6 +17,7 @@ const RETURN_TOOL = 'SubagentHandback'
 const WORKFLOW_AGENT = 'workflow-subagent'
 const SESSION_ACTION = 'no new work — write the handoff and stop'
 const AGENT_ACTION = 'return what you have now'
+const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
 const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
 
@@ -155,35 +156,46 @@ function warnOnce(root, gauge, caller, config) {
   }
   catch (error) {
     if (error.code === 'EEXIST')
-      return
+      return null
     throw error
   }
   journal(root, { event: 'budget-warn', ...measurementOf(gauge, caller), warn_ratio: config.warnRatio })
+  return warningOf(gauge, config)
+}
+
+function warningOf(gauge, config) {
+  return `eddies: ${gauge.level} warn — ${gauge.name} ${Math.round(gauge.value)} / warn threshold ${Math.round(gauge.limit * config.warnRatio)} (limit ${gauge.limit}, ${gauge.limitName} in ${CONFIG_FILE}); ${WARN_ACTION}\n`
 }
 
 function measuredGauges(root, input, config, caller) {
   const tool = input.tool_name
   const asAgent = caller.agent_id != null && tool !== RETURN_TOOL
-  const newWork = isNewWork(input)
-  if (!newWork && !asAgent)
+  const asSession = caller.agent_id == null || isNewWork(input)
+  if (!asSession && !asAgent)
     return []
   const transcript = transcriptOf(input)
   return [
-    ...(newWork ? sessionGauges(root, transcript, config, caller) : []),
+    ...(asSession ? sessionGauges(root, transcript, config, caller) : []),
     ...(asAgent ? agentGauges(root, transcript, config, caller) : []),
   ]
 }
 
+function stops(gauge, input) {
+  return gauge.value >= gauge.limit && (gauge.level === 'agent' || gauge.level === 'run' || isNewWork(input))
+}
+
 function decide(root, input, config) {
   const caller = callerOf(input)
+  const warnings = []
   let stop = null
   for (const gauge of measuredGauges(root, input, config, caller)) {
-    if (crossesWarning(gauge, config))
-      warnOnce(root, gauge, caller, config)
-    if (stop == null && gauge.value >= gauge.limit)
+    const warning = crossesWarning(gauge, config) ? warnOnce(root, gauge, caller, config) : null
+    if (warning != null)
+      warnings.push(warning)
+    if (stop == null && stops(gauge, input))
       stop = gauge
   }
-  return stop == null ? null : { gauge: stop, caller }
+  return { warnings, stop: stop == null ? null : { gauge: stop, caller } }
 }
 
 function stopLine({ gauge, caller }, tool) {
@@ -216,17 +228,12 @@ function recordUnread(root, input, hook, error) {
   }
 }
 
-function sessionNotice(root, input, config) {
+function sessionWarnings(root, input, config) {
   const caller = callerOf(input)
-  const [context, spend] = sessionGauges(root, transcriptOf(input), config, caller)
-  const crossed = [context, spend].filter(gauge => crossesWarning(gauge, config))
-  for (const gauge of crossed)
-    warnOnce(root, gauge, caller, config)
-  if (crossed.length === 0)
-    return null
-  const percent = Math.round(context.value / context.limit * 100)
-  const millions = value => `${(value / 1_000_000).toFixed(1)}M`
-  return `Eddies: context ${Math.round(context.value / 1000)}k / ${Math.round(context.limit / 1000)}k (${percent}%) · spend ${millions(spend.value)} / ${millions(spend.limit)}\n`
+  return sessionGauges(root, transcriptOf(input), config, caller)
+    .filter(gauge => crossesWarning(gauge, config))
+    .map(gauge => warnOnce(root, gauge, caller, config))
+    .filter(warning => warning != null)
 }
 
 async function hookInput() {
@@ -259,18 +266,19 @@ async function run(hook, act) {
 }
 
 function guard(root, input, config) {
-  const stop = decide(root, input, config)
-  if (stop == null)
+  const { warnings, stop } = decide(root, input, config)
+  if (stop == null) {
+    if (warnings.length > 0)
+      process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: warnings.join('') } }))
     return
+  }
   process.exitCode = 2
   process.stderr.write(refusalOf(stop))
   journal(root, stopLine(stop, input.tool_name))
 }
 
 function prompt(root, input, config) {
-  const notice = sessionNotice(root, input, config)
-  if (notice != null)
-    process.stdout.write(notice)
+  process.stdout.write(sessionWarnings(root, input, config).join(''))
 }
 
 const MODES = { guard, prompt }
