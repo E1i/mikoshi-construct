@@ -1,4 +1,4 @@
-import type { BaseReading, TagObserver } from '../../scripts/contract/bump.js'
+import type { RefReading, TagObserver } from '../../scripts/contract/bump.js'
 import type { SurfaceReading } from '../../scripts/contract/semantic-diff.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { baseReading, baseTag, generatedBase, isWeaker, requiredLevel } from '../../scripts/contract/bump.js'
+import { baseTag, generatedFromCode, isWeaker, refReading, requiredLevel } from '../../scripts/contract/bump.js'
 import { isUnbaselined, requiredChange, SECTIONS, unbaselined } from '../../scripts/contract/semantic-diff.js'
 import { SURFACE_VERSION } from '../../scripts/contract/surface.js'
 import { fixtureSurface, reading } from './surface-fixture.js'
@@ -17,7 +17,7 @@ function generatedReading(): SurfaceReading {
   return { ...reading(fixtureSurface()), exits: unbaselined('exit codes are not observable from the tag\'s output') }
 }
 
-function recordingGenerator(): { calls: string[], generate: (why: string) => BaseReading } {
+function recordingGenerator(): { calls: string[], generate: (why: string) => RefReading } {
   const calls: string[] = []
   return { calls, generate: (why) => {
     calls.push(why)
@@ -25,7 +25,7 @@ function recordingGenerator(): { calls: string[], generate: (why: string) => Bas
   } }
 }
 
-function wholeBaseReasons(base: BaseReading): string[] {
+function wholeBaseReasons(base: RefReading): string[] {
   return SECTIONS.map((section) => {
     const value = base.reading[section]
     return isUnbaselined(value) ? value.unbaselined : `${section} is baselined`
@@ -36,7 +36,7 @@ describe('base selection', () => {
   it('a tag file of the same surfaceVersion is the base, and nothing is generated', () => {
     const recorded = fixtureSurface()
     const { calls, generate } = recordingGenerator()
-    const base = baseReading(recorded, 'v0.19.0', generate)
+    const base = refReading(recorded, 'v0.19.0', 'base', generate)
     expect(base.reading).toEqual(recorded)
     expect(calls).toEqual([])
     expect(requiredChange(base.reading, fixtureSurface()).level).toBe('none')
@@ -44,7 +44,7 @@ describe('base selection', () => {
 
   it('a tag file of another surfaceVersion is not the base: the base is generated from the tag\'s code', () => {
     const { calls, generate } = recordingGenerator()
-    const base = baseReading({ ...fixtureSurface(), surfaceVersion: SURFACE_VERSION - 1 }, 'v0.18.0', generate)
+    const base = refReading({ ...fixtureSurface(), surfaceVersion: SURFACE_VERSION - 1 }, 'v0.18.0', 'base', generate)
     expect(calls).toEqual([`v0.18.0 carries contract/surface.json of surfaceVersion ${SURFACE_VERSION - 1}, this generator writes ${SURFACE_VERSION}`])
     expect(base.note).toBe(GENERATED_NOTE)
     expect(base.reading).toEqual(generatedReading())
@@ -53,18 +53,33 @@ describe('base selection', () => {
   it('a tag file with no surfaceVersion reads as version 1 and the base is generated', () => {
     const { surfaceVersion: _, ...unversioned } = fixtureSurface()
     const { calls, generate } = recordingGenerator()
-    baseReading(unversioned, 'v0.18.0', generate)
+    refReading(unversioned, 'v0.18.0', 'base', generate)
     expect(calls).toEqual([expect.stringContaining('surfaceVersion 1,')])
   })
 
   it('a tag with no file has its base generated', () => {
     const { calls, generate } = recordingGenerator()
-    const base = baseReading(null, 'v0.17.2', generate)
+    const base = refReading(null, 'v0.17.2', 'base', generate)
     expect(calls).toEqual(['v0.17.2 carries no contract/surface.json'])
     expect(requiredChange(base.reading, fixtureSurface())).toEqual({
       level: 'breaking',
       reasons: ['exits: unbaselined in the base (exit codes are not observable from the tag\'s output), so every item in it counts as changed'],
     })
+  })
+
+  it('a head file of the same surfaceVersion is read as it is, and nothing is generated', () => {
+    const recorded = fixtureSurface()
+    const { calls, generate } = recordingGenerator()
+    const head = refReading(recorded, '0f905ea', 'head', generate)
+    expect(head).toEqual({ reading: recorded, note: `0f905ea carries contract/surface.json of surfaceVersion ${SURFACE_VERSION}: it is the head` })
+    expect(calls).toEqual([])
+  })
+
+  it('a head file of an older surfaceVersion is generated from the head\'s code, by the rule the base follows', () => {
+    const { calls, generate } = recordingGenerator()
+    const head = refReading({ ...fixtureSurface(), surfaceVersion: SURFACE_VERSION - 1 }, '0f905ea', 'head', generate)
+    expect(calls).toEqual([`0f905ea carries contract/surface.json of surfaceVersion ${SURFACE_VERSION - 1}, this generator writes ${SURFACE_VERSION}`])
+    expect(head.reading).toEqual(generatedReading())
   })
 
   it('the fixture reading is a whole surface', () => {
@@ -176,7 +191,7 @@ describe('a base generated from a tag\'s code', () => {
 
   it('observes a worktree checked out at the tag, outside the repository, and removes it', () => {
     const seen: string[] = []
-    const base = generatedBase(repo, 'v0.1.0', 'v0.1.0 carries no contract/surface.json', observer({
+    const base = generatedFromCode(repo, 'v0.1.0', 'base', 'v0.1.0 carries no contract/surface.json', observer({
       observe: (worktree) => {
         expect(existsSync(path.join(worktree, 'a.txt'))).toBe(true)
         return generatedReading()
@@ -184,6 +199,7 @@ describe('a base generated from a tag\'s code', () => {
     }, seen))
     expect(base.reading).toEqual(generatedReading())
     expect(base.note).toBe('v0.1.0 carries no contract/surface.json: the base is generated from v0.1.0\'s code')
+    expect(generatedFromCode(repo, 'v0.1.0', 'head', 'why', observer({}, [])).note).toBe('why: the head is generated from v0.1.0\'s code')
     expect(seen[0].startsWith(repo)).toBe(false)
     expect(seen[0].startsWith(realpathSync(tmpdir()))).toBe(true)
     expectRemoved(seen[0])
@@ -191,7 +207,7 @@ describe('a base generated from a tag\'s code', () => {
 
   it('a tag whose CLI does not install leaves the whole base unbaselined, naming the install step', () => {
     const seen: string[] = []
-    const base = generatedBase(repo, 'v0.1.0', 'why', observer({
+    const base = generatedFromCode(repo, 'v0.1.0', 'base', 'why', observer({
       install: (worktree) => {
         seen.push(worktree)
         throw new Error('ERR_PNPM_OUTDATED_LOCKFILE')
@@ -204,7 +220,7 @@ describe('a base generated from a tag\'s code', () => {
 
   it('a tag whose CLI does not run leaves the whole base unbaselined, naming the run step', () => {
     const seen: string[] = []
-    const base = generatedBase(repo, 'v0.1.0', 'why', observer({
+    const base = generatedFromCode(repo, 'v0.1.0', 'base', 'why', observer({
       run: () => {
         throw new Error('Cannot find module')
       },
@@ -216,7 +232,7 @@ describe('a base generated from a tag\'s code', () => {
 
   it('removes the worktree when the observation throws', () => {
     const seen: string[] = []
-    expect(() => generatedBase(repo, 'v0.1.0', 'why', observer({
+    expect(() => generatedFromCode(repo, 'v0.1.0', 'base', 'why', observer({
       observe: () => {
         throw new Error('the observer broke')
       },
