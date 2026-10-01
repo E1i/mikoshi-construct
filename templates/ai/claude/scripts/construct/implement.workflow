@@ -175,9 +175,9 @@ function witnessDigestOf(witness) {
   return witnessDigests.find(digest => digest.criterion === witness.criterion)
 }
 
-function witnessScriptLines(n) {
+function witnessScriptLines(digest, n) {
   return [
-    `node scripts/construct/check-acceptance.mjs witness --args ${argsPath} --sha256 ${argsSha256} --n ${n} > <dir>/witness-${n}.sh`,
+    `node scripts/construct/check-acceptance.mjs witness --args ${argsPath} --sha256 ${argsSha256} --witness-sha256 ${digest.sha256} > <dir>/witness-${n}.sh`,
     `shasum -a 256 <dir>/witness-${n}.sh`,
     `bash <dir>/witness-${n}.sh`,
   ].join('\n')
@@ -198,7 +198,7 @@ function harnessPrompt(baseSha) {
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     ARGS_SHA_LINE,
-    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(index + 1)}`).join('\n')}`,
+    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(digest, index + 1)}`).join('\n')}`,
     `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
@@ -220,7 +220,7 @@ function implementerPrompt(spec, feedback) {
     `Task: ${task}`,
     `Acceptance criteria:\n- ${(spec?.acceptance?.length ? spec.acceptance : acceptance).join('\n- ')}`,
     `Harness: ${harness.command}${harness.extra.length > 0 ? ` (plus ${harness.extra.join(' && ')})` : ''}`,
-    `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change. The commands are in ${argsPath} (sha256 ${argsSha256}, to be checked with shasum -a 256) as witnesses[], one per criterion in this order:\n${witnessDigests.map(digest => `- ${digest.criterion}`).join('\n')}`,
+    `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change. The commands are in ${argsPath} (sha256 ${argsSha256}, to be checked with shasum -a 256) as witnesses[], each criterion's command being the one whose sha256 is named after it:\n${witnessDigests.map(digest => `- ${digest.criterion} (sha256 ${digest.sha256})`).join('\n')}`,
     invariants.length > 0 ? `Invariants, true before your change and still true after it (the harness holds them):\n- ${invariants.join('\n- ')}` : '',
     immutable.length > 0 ? `Immutable paths, which you must not change; a rung that changes one fails (a path ending in / covers everything under it):\n- ${immutable.join('\n- ')}` : '',
     hasDesign ? DESIGN_LINE : '',

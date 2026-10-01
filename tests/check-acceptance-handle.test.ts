@@ -102,27 +102,45 @@ describe('the build writes the args file and prints a handle', () => {
 })
 
 describe('the witness mode extracts one command from the args file by its sha256', () => {
-  it('witness prints one command byte for byte and refuses another sha256, a bad index or a missing file', () => {
+  function argsFile(): { file: string, actual: string, directory: string } {
     const directory = scratch()
     const file = path.join(directory, 'args.json')
     writeFileSync(file, JSON.stringify({ witnesses: [{ criterion: 'first', command: FIRST }, { criterion: 'second', command: SECOND }] }))
-    const actual = sha256(readFileSync(file))
+    return { file, actual: sha256(readFileSync(file)), directory }
+  }
+
+  it('witness prints, byte for byte, the command whose sha256 it was given', () => {
+    const { file, actual } = argsFile()
+
+    expect(runScript(['witness', '--args', file, '--sha256', actual, '--witness-sha256', sha256(SECOND)])).toEqual({ status: 0, stdout: SECOND, stderr: '' })
+    expect(runScript(['witness', '--args', file, '--sha256', actual, '--witness-sha256', sha256(FIRST)]).stdout).toBe(FIRST)
+  })
+
+  it('witness refuses an args file whose sha256 is not the one the run was given', () => {
+    const { file, actual } = argsFile()
     const other = 'f'.repeat(64)
 
-    expect(runScript(['witness', '--args', file, '--sha256', actual, '--n', '2'])).toEqual({ status: 0, stdout: SECOND, stderr: '' })
-    expect(runScript(['witness', '--args', file, '--sha256', actual, '--n', '1']).stdout).toBe(FIRST)
+    const wrong = runScript(['witness', '--args', file, '--sha256', other, '--witness-sha256', sha256(FIRST)])
+    expect(wrong).toEqual({ status: 2, stdout: '', stderr: `${file} has sha256 ${actual}, and the run was given ${other}\n` })
+  })
 
-    const wrong = runScript(['witness', '--args', file, '--sha256', other, '--n', '1'])
-    expect(wrong.status).toBe(2)
-    expect(wrong.stdout).toBe('')
-    expect(wrong.stderr).toBe(`${file} has sha256 ${actual}, and the run was given ${other}\n`)
+  it('witness refuses a witness sha256 the file does not hold with exit 2 and no output, never falling back to a position', () => {
+    const { file, actual } = argsFile()
+
+    const absent = runScript(['witness', '--args', file, '--sha256', actual, '--witness-sha256', sha256('echo three'), '--n', '1'])
+    expect(absent.status).toBe(2)
+    expect(absent.stdout).toBe('')
+    expect(absent.stderr.split('\n').filter(Boolean)).toHaveLength(1)
+  })
+
+  it('witness refuses a malformed or missing hash, and an unreadable file', () => {
+    const { file, actual, directory } = argsFile()
 
     for (const refused of [
-      ['--args', file, '--sha256', actual, '--n', '0'],
-      ['--args', file, '--sha256', actual, '--n', '3'],
-      ['--args', file, '--sha256', actual, '--n', 'x'],
-      ['--args', file, '--sha256', 'nothex', '--n', '1'],
-      ['--args', path.join(directory, 'none.json'), '--sha256', actual, '--n', '1'],
+      ['--args', file, '--sha256', actual, '--witness-sha256', 'nothex'],
+      ['--args', file, '--sha256', actual],
+      ['--args', file, '--sha256', 'nothex', '--witness-sha256', sha256(FIRST)],
+      ['--args', path.join(directory, 'none.json'), '--sha256', actual, '--witness-sha256', sha256(FIRST)],
     ]) {
       const result = runScript(['witness', ...refused])
       expect(result.status, refused.join(' ')).toBe(2)
