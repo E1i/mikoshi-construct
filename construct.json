@@ -107,21 +107,25 @@
         "sha": "44a922d1ea28d93ca1baf2053b592b8de2657b7613a8b2e1d21df05903bd9cc3"
       },
       "open-questions": {
-        "file": "AGENTS.md",
+        "file": "architecture/open-questions.md",
         "authoredBy": "construct",
         "sha": "a81945210a22652a194d71dc18244ed378a886b1f03e6faf738bf0981530788b"
       }
     }
   },
-  "manifestVersion": 4,
+  "manifestVersion": 6,
   "variants": {},
   "sync": {
-    "ranAt": "2026-09-17T13:09:09.242Z",
+    "ranAt": "2026-10-01T19:25:07.909Z",
     "fromVersion": "0.1.0",
-    "toVersion": "0.2.0",
+    "toVersion": "0.32.0",
     "files": {
-      "tsconfig.base.json": "040735e3e4af80365d0b48aac9729f779a1f8d97addee940f39b85d84e0424ad"
+      "tsconfig.base.json": "040735e3e4af80365d0b48aac9729f779a1f8d97addee940f39b85d84e0424ad",
+      "architecture/open-questions.md": "3135c0bc8b4d7b3e53cf7bbee1e730fa7d87314f86cf9e6cab7e16396cd37328"
     },
-    "variants": {}
-  }
+    "variants": {},
+    "blocks": {}
+  },
+  "blocks": {},
+  "policy": null
 }

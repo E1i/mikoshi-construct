@@ -187,6 +187,19 @@ describe('a tree whose AGENTS.md still holds the filled open-questions block', (
     expect(openQuestionsReading(dir)).toEqual({ marker: 'open-questions', file: 'architecture/open-questions.md', authorship: 'construct' })
     expect(runSync(dir, VERSION)!.classifications.find(entry => entry.target === 'AGENTS.md')?.class).not.toBe('conflict')
   })
+
+  it('keeps an owner\'s edit reading as the owner\'s when discovery moves the block and changes only the file it records', () => {
+    const dir = frozenTreeWithTheVariantRecorded()
+    const body = withOpenQuestionsRecordedAsTheConstructWroteThem(dir)
+    applySync(dir, VERSION)
+    const [open, close] = discoveryTags('open-questions')
+    const questions = read(dir, 'architecture/open-questions.md')
+    writeFileSync(path.join(dir, 'architecture/open-questions.md'), `${questions.slice(0, questions.indexOf(open) + open.length)}${body}- an owner's line\n${questions.slice(questions.indexOf(close))}`)
+    const manifest = readManifest(dir)!
+    writeManifest(dir, { ...manifest, discovery: { ...manifest.discovery, markers: { ...manifest.discovery.markers, 'open-questions': { ...manifest.discovery.markers['open-questions'], file: 'architecture/open-questions.md' } } } })
+
+    expect(openQuestionsReading(dir)).toEqual({ marker: 'open-questions', file: 'architecture/open-questions.md', authorship: 'owner' })
+  })
 })
 
 describe('what sync plans to write', () => {

@@ -51,6 +51,11 @@ differences:
       The section "Mikoshi — an organism, not a product" is tried here first, at the owner's decision
       of 2026-09-29; the template's copy stays as it was until the owner decides it ships to generated
       repositories.
+  - path: architecture/open-questions.md
+    kind: skipped-at-init
+    reason: >-
+      Written by `sync --apply`, not by init, so the record init froze does not hold it; the template
+      ships the empty marker, and this copy holds the questions discovery moved out of AGENTS.md.
   - path: architecture/security-invariants.md
     kind: content
     reason: >-

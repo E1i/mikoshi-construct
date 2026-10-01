@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runInit } from '../src/commands/init.js'
 import { blockBody, markerOpen, missingDiscovery } from '../src/commands/doctor/discovery.js'
 import { discoveryProvenance } from '../src/commands/doctor/provenance.js'
+import { runInit } from '../src/commands/init.js'
 import { readManifest, sha256, writeManifest } from '../src/manifest.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -59,5 +59,7 @@ describe('open questions live in their own file, and AGENTS.md points at it', ()
     expect(protocol).toContain(`**\`open-questions\`** (\`${QUESTIONS_FILE}\`)`)
     expect(protocol).toContain('delete the whole `open-questions` block (both tags) from `AGENTS.md`')
     expect(protocol).toContain('record the\n    new `file` in step 12')
+    expect(protocol).toContain('when it read `construct`, record the sha of the moved\n    body; otherwise change only `file` and keep `authoredBy` and `sha`')
+    expect(protocol).toContain('Rewrite each relative link in the body for the `architecture/` folder')
   })
 })

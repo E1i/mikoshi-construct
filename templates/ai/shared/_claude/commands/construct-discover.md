@@ -74,7 +74,11 @@ Work in this order:
     consistently applied. When `discovery.markers.open-questions.file` still names `AGENTS.md` and
     `architecture/open-questions.md` carries the marker, this run moves it: write the body into that
     file's block, delete the whole `open-questions` block (both tags) from `AGENTS.md`, and record the
-    new `file` in step 12. A repository without that file keeps the marker where it is.
+    new `file` in step 12. Rewrite each relative link in the body for the `architecture/` folder and
+    change nothing else. A moved body is not a body this run wrote, so it carries the provenance
+    `construct doctor` read before the move: when it read `construct`, record the sha of the moved
+    body; otherwise change only `file` and keep `authoredBy` and `sha`, so an owner's edit still
+    reads as theirs. A repository without that file keeps the marker where it is.
 12. **Write what you concluded, into the model.** A marker is prose answering *what is where*; a
     hypothesis in `construct.model.json` is a structural record answering *what this is*, falsifiable
     by facts. This step stands on what the inventory and the markers established and writes
