@@ -123,7 +123,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm release:verify` | Polls the registry until the version in `package.json` is installable. The release workflow runs it after a publish. | `pnpm release:verify` |
 | `pnpm prepublishOnly` | The npm hook that builds before a publish; not run by hand. | run by npm |
 | `pnpm ghosts:hash` | Prints the sha256 of a brief's `/implement` text, the hash the owner approves. | `pnpm ghosts:hash <scratchpad>/brief-<task>.md` |
-| `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256`, prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
+| `pnpm ghosts:launch` | Checks each task's brief against its `.approved-sha256` and reads the `Sketch:` line under its `/implement` line (a missing or malformed line, or a sketch branch that is absent, not at the approved sha or not containing `origin/main`, is refused), prints the decision and, only on the answer `yes`, opens one headless ladder session per task in a new worktree: HEAD at `origin/main`, with the sketch's tree staged for a task that names one; the journal's `event:task` line carries `sketch`. | `pnpm ghosts:launch --tasks <scratchpad>/tasks-<batch>.json` |
 | `pnpm ghosts:verdict` | Checks a review agent's `review-<task>.verdict.json` against `contract/contours/review-verdict.schema.json`, its `report.sha256` against the report file, its `task` against the report's first line `[review:<task>]`, and its `brief.sha256` against the brief's `.approved-sha256`, and only then appends the `event:review` line to `ghosts.jsonl`; a refusal names every fault and writes nothing. | `pnpm ghosts:verdict <handoff>/review-<task>.verdict.json [--dir <handoff>]` |
 | `pnpm ghosts:watch` | Prints one read-only line per task of a tasks file: report age, last tool, ledger stage and whether the session is alive. | `pnpm ghosts:watch --tasks <scratchpad>/tasks-<batch>.json [--every <seconds>]` |
 | `pnpm board` | Prints a read-only view of every task in a handoff directory, ladder and cheap path, from its tasks files, `status.md`, the journal and `gh`: a summary line and a bordered table with one row per task by default, merged or reported tasks older than 12 hours left out unless `--all`; one task's card with a task id; everything as JSON with `--json`, the only output that carries the UNKNOWN tally. On a terminal with `NO_COLOR` unset the STAGE and NEXT cells are coloured; `--help` prints what each colour means and the definition of every column and stage, which no other output prints. A task is ready when the `required` check is green on its pull request's current head; `--every` reprints the view until interrupted, clearing a terminal before each frame and replacing `board.txt` in the handoff directory with the frame as plain text; a run without `--every` writes nothing. | `pnpm board [--dir <scratchpad>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo <owner>/<name>] [--help]`; without `--dir` it reads `$CONSTRUCT_HANDOFF_DIR`, else `~/.construct/handoff` |
@@ -137,8 +137,9 @@ and the journal, `<worktree>` for a Ghost's worktree.
 `ghosts:launch`, answered with anything but `yes`, which exits 1 and opens nothing:
 
 ```text
-DECISION: open 1 sessions
-  demo-2: /implement <scratchpad>/brief-demo.md (approved 9bc59ac) -> <worktree> on ghost/demo-2 @ b736fed, report <scratchpad>/ghost-demo-2.jsonl, session <uuid>
+DECISION: open 2 sessions
+  demo-2: /implement <scratchpad>/brief-demo.md (approved 9bc59ac) -> <worktree> on ghost/demo-2 @ b736fed from sketch sketch/demo @ 4d1c2ab, report <scratchpad>/ghost-demo-2.jsonl, session <uuid>
+  demo-3: /implement <scratchpad>/brief-demo-3.md (approved 5e0a7c1) -> <worktree> on ghost/demo-3 @ b736fed clean tree (independent implementation is the witness), report <scratchpad>/ghost-demo-3.jsonl, session <uuid>
 ```
 
 `ghosts:watch`:
