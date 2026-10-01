@@ -6,6 +6,7 @@ import path from 'node:path'
 import { parseEverySeconds } from '../ghosts/every.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
 import { deriveTasks, selectShown, summarize } from './derive.js'
+import { readBudgetLines } from './eddies.js'
 import { FRAME_FILE, frameFileIn } from './frame.js'
 import { listPrs, prDetails } from './gh.js'
 import { readHandoff } from './handoff.js'
@@ -203,6 +204,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     shown,
     summary: summarize(tasks, deps.now),
     windowMismatches: readModelMismatches(deps.repoRoot),
+    windowBudgetLines: readBudgetLines(deps.repoRoot),
     edges: handoff.edges,
     details,
     nextOf: (attempt: AttemptView) => nextOf(attempt, details.get(attempt.attempt.id), kinds),
