@@ -1,38 +1,26 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { parseLedgerLine } from '../../src/commands/cost/ledger.js'
 
 export type LedgerStage
   = | { kind: 'entry', status: string, run: string }
     | { kind: 'writing' }
 
-interface LedgerEntry {
-  status: string
-  run: string
+const LEDGER_ROW_SCHEMA = 'contract/contours/ledger-row.schema.json'
+const NOT_JSON = 'not JSON'
+const RUN_MISSING = 'missing or invalid: run'
+
+interface NumberedLine {
+  text: string
+  number: number
 }
 
-function parseEntry(line: string): LedgerEntry | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(line)
-  }
-  catch {
-    return null
-  }
-  if (typeof parsed !== 'object' || parsed === null)
-    return null
-  const { status, run } = parsed as Record<string, unknown>
-  if (typeof status !== 'string' || typeof run !== 'string')
-    return null
-  return { status, run }
-}
-
-function isUnfinishedWrite(line: string): boolean {
-  try {
-    JSON.parse(line)
-    return false
-  }
-  catch {
-    return true
-  }
+function faultOf(line: NumberedLine): { status: string, run: string } | string {
+  const entry = parseLedgerLine(line.text)
+  if (typeof entry === 'string')
+    return entry
+  if (entry.run === null)
+    return RUN_MISSING
+  return { status: entry.status, run: entry.run }
 }
 
 export function readLedgerStage(runsPath: string): LedgerStage | null {
@@ -43,19 +31,18 @@ export function readLedgerStage(runsPath: string): LedgerStage | null {
   if (lines.length === 0)
     return null
 
-  const refuse = (line: { text: string, number: number }): never => {
-    throw new Error(`${runsPath} line ${line.number} is not a ledger entry with a string status and run: ${line.text.slice(0, 120)}`)
+  const refuse = (line: NumberedLine, reason: string): never => {
+    throw new Error(`${runsPath} line ${line.number} is not a ledger row by ${LEDGER_ROW_SCHEMA} (${reason}): ${line.text.slice(0, 120)}`)
   }
   for (const line of lines.slice(0, -1)) {
-    if (parseEntry(line.text) === null)
-      refuse(line)
+    const fault = faultOf(line)
+    if (typeof fault === 'string')
+      refuse(line, fault)
   }
 
   const last = lines[lines.length - 1]
-  const entry = parseEntry(last.text)
-  if (entry !== null)
-    return { kind: 'entry', ...entry }
-  if (isUnfinishedWrite(last.text))
-    return { kind: 'writing' }
-  return refuse(last)
+  const fault = faultOf(last)
+  if (typeof fault !== 'string')
+    return { kind: 'entry', ...fault }
+  return fault === NOT_JSON ? { kind: 'writing' } : refuse(last, fault)
 }

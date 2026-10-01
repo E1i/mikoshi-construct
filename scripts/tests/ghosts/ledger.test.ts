@@ -2,13 +2,16 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { countLedgerLines, readLadderOutcome } from '../../ghosts/ledger.js'
+import { countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ghosts/ledger.js'
 
 function runsPath(): { dir: string, runs: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-ledger-'))
   mkdirSync(path.join(dir, '.construct'))
   return { dir, runs: path.join(dir, '.construct', 'runs.jsonl') }
 }
+
+const ROW = { run: 'run-1', at: '2026-09-27T20:00:00.000Z', task: 'a run', effort: 'low', status: 'done', rung: 'low', attempts: [{ rung: 1, effort: 'low', outcome: 'done', reason: '' }], agents: 3, tokens: 100, toolUses: 4, seconds: 10 }
+const row = (fields: Record<string, unknown>): string => JSON.stringify({ ...ROW, ...fields })
 
 describe('countLedgerLines', () => {
   it('is 0 when the ledger is absent', () => {
@@ -37,10 +40,22 @@ describe('readLadderOutcome', () => {
 
   it('reads the status, run and attempts length of the last new line', () => {
     const { runs } = runsPath()
-    writeFileSync(runs, '{"run":"run-old","status":"done","attempts":[{"outcome":"done"}]}\n')
+    writeFileSync(runs, `${row({ run: 'run-old' })}\n`)
     const before = countLedgerLines(runs)
-    const appended = `${'{"run":"run-1","status":"harness failed","attempts":[{"outcome":"harness failed"}]}'}\n${'{"run":"run-1","status":"done","attempts":[{"outcome":"harness failed"},{"outcome":"done"}]}'}\n`
-    writeFileSync(runs, `{"run":"run-old","status":"done","attempts":[{"outcome":"done"}]}\n${appended}`)
+    const failed = row({ status: 'failed', attempts: [{ rung: 1, effort: 'low', outcome: 'harness failed', reason: 'red' }] })
+    const done = row({ attempts: [{ rung: 1, effort: 'low', outcome: 'harness failed', reason: 'red' }, { rung: 2, effort: 'medium', outcome: 'done', reason: '' }] })
+    writeFileSync(runs, `${row({ run: 'run-old' })}\n${failed}\n${done}\n`)
     expect(readLadderOutcome(runs, before)).toEqual({ status: 'done', run: 'run-1', iterations: 2 })
+  })
+
+  it.each([
+    { name: 'a row with a cause on done', text: row({ cause: 'human' }), reason: 'missing or invalid: cause' },
+    { name: 'a row of only status and run', text: JSON.stringify({ run: 'run-1', status: 'done' }), reason: 'missing or invalid: at, task, effort, rung, agents, toolUses, seconds, tokens, attempts' },
+    { name: 'a last line that is not JSON', text: '{"run":"run-1","sta', reason: 'not JSON' },
+    { name: 'a last line that is not a run record', text: '[1]', reason: 'not a run record' },
+  ])('reads $name as a malformed ledger line with the reader\'s reason and no run', ({ text, reason }) => {
+    const { runs } = runsPath()
+    writeFileSync(runs, `${row({ run: 'run-old' })}\n${text}\n`)
+    expect(readLadderOutcome(runs, 1)).toEqual({ status: `${MALFORMED_LEDGER_LINE}: ${reason}`, run: null, iterations: null })
   })
 })

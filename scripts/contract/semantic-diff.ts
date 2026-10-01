@@ -5,7 +5,7 @@ export interface Unbaselined {
   unbaselined: string
 }
 
-export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'formats', 'paths', 'markers', 'outside'] as const
+export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'formats', 'paths', 'markers', 'contours', 'outside'] as const
 
 export type Section = typeof SECTIONS[number]
 
@@ -135,6 +135,7 @@ const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K]> } = {
     ...setDiff(`${at}.discover.tags`, base.discover.tags, head.discover.tags),
     ...setDiff(`${at}.discover.markers`, base.discover.markers, head.discover.markers),
   ],
+  contours: (at, base, head) => recordDiff(at, base, head, valueDiff),
   outside: outsideDiff,
 }
 

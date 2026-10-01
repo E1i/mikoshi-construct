@@ -134,9 +134,9 @@ status=done
 [ "$kind" = failing ] && [ "$id" = g2 ] && status=failed
 [ "$kind" = no-ladder ] && [ "$id" = g2 ] && status=none
 if [ "$status" != none ]; then
-  attempts='[{"rung":"low","outcome":"done"}]'
-  [ "$id" = g1 ] && attempts='[{"rung":"low","outcome":"harness failed"},{"rung":"medium","outcome":"done"}]'
-  printf '{"run":"run-%s","at":"2026-09-27T20:00:00.000Z","task":"Ghost %s","effort":"low","status":"%s","rung":"low","attempts":%s}\n' "$id" "$id" "$status" "$attempts" >>"$PWD/.construct/runs.jsonl"
+  attempts='[{"rung":1,"effort":"low","outcome":"done","reason":""}]'
+  [ "$id" = g1 ] && attempts='[{"rung":1,"effort":"low","outcome":"harness failed","reason":""},{"rung":2,"effort":"medium","outcome":"done","reason":""}]'
+  printf '{"run":"run-%s","at":"2026-09-27T20:00:00.000Z","task":"Ghost %s","effort":"low","status":"%s","rung":"low","attempts":%s,"agents":3,"tokens":100,"toolUses":4,"seconds":10}\n' "$id" "$id" "$status" "$attempts" >>"$PWD/.construct/runs.jsonl"
 fi
 if ! { [ "$kind" = no-result ] && [ "$id" = g2 ]; }; then
   emit "$(cat "$W/.world/result-$id.json")"
@@ -245,7 +245,7 @@ new_world() {
   git_quiet clone "$W/origin.git" "$W/.world/seed"
   echo one >"$W/.world/seed/file.txt"
   mkdir -p "$W/.world/seed/.construct"
-  printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":"low","outcome":"done"}]}' >"$W/.world/seed/.construct/runs.jsonl"
+  printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":1,"effort":"low","outcome":"done","reason":""}],"agents":3,"tokens":100,"toolUses":4,"seconds":10}' >"$W/.world/seed/.construct/runs.jsonl"
   git_quiet -C "$W/.world/seed" add file.txt .construct/runs.jsonl
   git_quiet -C "$W/.world/seed" commit -m one
   git_quiet -C "$W/.world/seed" push origin HEAD:main
