@@ -1,6 +1,7 @@
 import type { JournalEntry } from '../ghosts/journal.js'
 import type { TasksFile } from '../ghosts/tasks.js'
 import type { LedgerStage } from '../ghosts/watch-ledger.js'
+import type { ModelMismatch } from './roles.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { lookupMatrixRow } from '../ghosts/matrix.js'
@@ -8,6 +9,7 @@ import { ghostRowState } from '../ghosts/status.js'
 import { readTasksFile } from '../ghosts/tasks.js'
 import { readLedgerStage } from '../ghosts/watch-ledger.js'
 import { handLadderRows } from './policy.js'
+import { readModelMismatches } from './roles.js'
 
 export type TaskEvent = JournalEntry & { event: 'task', ts: string }
 
@@ -67,6 +69,7 @@ export interface Attempt {
   row: StatusRow | undefined
   handLadderUpdated: string | undefined
   ledger: LedgerStage | null | 'unreadable'
+  modelMismatches: ModelMismatch[]
   taskEvent: TaskEvent | undefined
   reviewEvent: ReviewEvent | undefined
   mergeEvent: MergeEvent | undefined
@@ -213,6 +216,7 @@ export function readHandoff(dir: string): Handoff {
     row: ghostRow(statusText, id),
     handLadderUpdated: handLadders.get(id),
     ledger: ledgerOf(facts.worktree),
+    modelMismatches: readModelMismatches(facts.worktree),
     taskEvent: lastOf(id, 'task'),
     reviewEvent: lastOf(id, 'review'),
     mergeEvent: lastOf(id, 'merge'),
