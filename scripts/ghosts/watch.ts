@@ -3,8 +3,6 @@ import type { ProcessListing } from './watch-process.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { execGh, listPrs } from '../board/gh.js'
-import { cleanupMerged } from './cleanup.js'
 import { parseEverySeconds, sleep } from './every.js'
 import { ghostRowSessionId } from './status.js'
 import { readTasksFile } from './tasks.js'
@@ -13,10 +11,6 @@ import { listProcesses, processField } from './watch-process.js'
 import { lastToolName, reportAgeField } from './watch-report.js'
 
 const PREFIX = '[ghosts:watch] '
-const DEFAULT_REPO = 'E1i/mikoshi-construct'
-const DEFAULT_LOGS_DIR = '/tmp'
-const USAGE = 'usage --tasks <file> [--every <seconds>] [--repo <owner/name>] [--logs <dir>]'
-const FLAGS = ['--tasks', '--every', '--repo', '--logs']
 
 function print(line: string): void {
   console.log(`${PREFIX}${line}`)
@@ -30,34 +24,29 @@ function printError(message: string): void {
 interface Args {
   tasksFile: string
   everySeconds: number | undefined
-  repo: string
-  logsDir: string
 }
 
 function parseArgs(argv: string[]): Args {
-  const values = new Map<string, string>()
+  let tasksFile: string | undefined
+  let everyRaw: string | undefined
 
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index]
     const value = argv[index + 1]
-    if (!FLAGS.includes(flag))
-      throw new Error(`unknown argument '${flag}': ${USAGE}`)
+    if (flag !== '--tasks' && flag !== '--every')
+      throw new Error(`unknown argument '${flag}': usage --tasks <file> [--every <seconds>]`)
     if (value === undefined || value.startsWith('--'))
       throw new Error(`${flag} needs a value, got ${value === undefined ? 'nothing' : `the flag '${value}'`}`)
-    values.set(flag, value)
+    if (flag === '--tasks')
+      tasksFile = value
+    else
+      everyRaw = value
   }
 
-  const tasksFile = values.get('--tasks')
   if (tasksFile === undefined)
-    throw new Error(`--tasks is required: ${USAGE}`)
+    throw new Error('--tasks is required: usage --tasks <file> [--every <seconds>]')
 
-  const everyRaw = values.get('--every')
-  return {
-    tasksFile,
-    everySeconds: everyRaw === undefined ? undefined : parseEverySeconds(everyRaw),
-    repo: values.get('--repo') ?? DEFAULT_REPO,
-    logsDir: values.get('--logs') ?? DEFAULT_LOGS_DIR,
-  }
+  return { tasksFile, everySeconds: everyRaw === undefined ? undefined : parseEverySeconds(everyRaw) }
 }
 
 function stageField(runsPath: string): string {
@@ -79,7 +68,7 @@ function taskLine(task: Task, out: string, statusText: string | undefined, proce
   return `ghost-${task.id} | ${reportField} | ${toolField} | ${ledgerField} | ${processField(sessionId, processes)}`
 }
 
-function drawFrame(tasksData: TasksFile, args: Args): void {
+function drawFrame(tasksData: TasksFile): void {
   const at = new Date().toISOString()
   const statusText = existsSync(tasksData.status) ? readFileSync(tasksData.status, 'utf8') : undefined
   const processes = listProcesses()
@@ -87,13 +76,6 @@ function drawFrame(tasksData: TasksFile, args: Args): void {
   print(`frame ${at}`)
   for (const line of lines)
     print(line)
-
-  const ctx = { repo: tasksData.repo, prs: listPrs(execGh, args.repo), statusText, journalPath: path.join(tasksData.out, 'ghosts.jsonl'), logsDir: args.logsDir }
-  for (const task of tasksData.tasks) {
-    const cleanup = cleanupMerged(task, ctx)
-    if (cleanup !== undefined)
-      print(cleanup)
-  }
 }
 
 async function main(): Promise<void> {
@@ -101,12 +83,12 @@ async function main(): Promise<void> {
   const tasksData = readTasksFile(args.tasksFile)
 
   if (args.everySeconds === undefined) {
-    drawFrame(tasksData, args)
+    drawFrame(tasksData)
     return
   }
 
   for (;;) {
-    drawFrame(tasksData, args)
+    drawFrame(tasksData)
     await sleep(args.everySeconds * 1000)
   }
 }

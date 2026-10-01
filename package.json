@@ -51,6 +51,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:pending": "tsx scripts/docs/build-pending.ts",
     "docs:preview": "vitepress preview docs",
+    "ghosts:cleanup": "tsx scripts/ghosts/cleanup.ts",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",
     "ghosts:launch": "tsx scripts/ghosts/launch.ts",
     "ghosts:verdict": "tsx scripts/ghosts/verdict.ts",
