@@ -93,9 +93,9 @@ export function discoveryTheTemplateDropped(existing: string, incoming: string):
     if (previous == null || discoveryBlock(incoming, marker) != null || previous.body.trim() === '' || previous.body.includes('_Not discovered yet'))
       return []
     const [open, close] = discoveryTags(marker)
-    return [`${open}${previous.body}${close}\n`]
+    return [`${open}${previous.body}${close}`]
   })
-  return carried.length === 0 ? '' : `\n${carried.join('\n')}`
+  return carried.join('\n\n')
 }
 
 export function substituteBlock(existing: string, produced: string, target: string): string {
@@ -105,7 +105,7 @@ export function substituteBlock(existing: string, produced: string, target: stri
   const incoming = produced.slice(produced.indexOf(begin) + begin.length, produced.indexOf(end))
   const dropped = discoveryTheTemplateDropped(existing.slice(opening, closing), incoming)
   const afterEnd = closing + end.length
-  return `${existing.slice(0, opening)}${preserveDiscovery(existing, incoming)}${existing.slice(closing, afterEnd)}${dropped === '' ? '' : `\n${dropped}`}${existing.slice(afterEnd)}`
+  return `${existing.slice(0, opening)}${preserveDiscovery(existing, incoming)}${existing.slice(closing, afterEnd)}${dropped === '' ? '' : `\n\n${dropped}`}${existing.slice(afterEnd)}`
 }
 
 function withoutSecondH1(existing: string, block: string): string {
@@ -143,7 +143,7 @@ export function appendBlockWith(existing: string, block: string, target: string)
   const stop = existing.indexOf(end)
   if (start !== -1 && stop !== -1 && stop > start) {
     const dropped = discoveryTheTemplateDropped(existing.slice(start, stop), wrapped)
-    return { content: `${existing.slice(0, start)}${wrapped}${dropped}${existing.slice(stop + end.length).replace(/^\n/, '')}`, separator: 0 }
+    return { content: `${existing.slice(0, start)}${wrapped}${dropped === '' ? '' : `\n${dropped}\n`}${existing.slice(stop + end.length).replace(/^\n/, '')}`, separator: 0 }
   }
   const separator = separatorBefore(existing)
   return { content: `${existing}${'\n'.repeat(separator)}${wrapped}`, separator }

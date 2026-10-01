@@ -90,7 +90,7 @@ function outsideTheBlockWithTheMovedOutMarkerCarried(content: string): [string, 
   const start = content.indexOf(open)
   if (start === -1 || start > content.indexOf(BLOCK_END))
     return [before, after]
-  return [before, `\n\n${content.slice(start, content.indexOf(close) + close.length)}\n${after}`]
+  return [before, `\n\n${content.slice(start, content.indexOf(close) + close.length)}${after}`]
 }
 
 function producedBy(root: string): Record<string, string> {
