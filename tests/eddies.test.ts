@@ -59,6 +59,12 @@ function call(s: Scratch, tool: string, toolInput: Record<string, unknown> = {},
   return hook(s, 'guard', { hook_event_name: 'PreToolUse', tool_name: tool, tool_input: toolInput, ...agent })
 }
 
+function contextOf(result: { stdout: string }): unknown {
+  const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { hookEventName?: string, additionalContext?: unknown } }
+  expect(output.hookSpecificOutput?.hookEventName).toBe('PreToolUse')
+  return output.hookSpecificOutput?.additionalContext
+}
+
 function lines(s: Scratch): EddiesLine[] {
   const file = path.join(s.root, '.construct', 'eddies.jsonl')
   return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as EddiesLine) : []
@@ -82,6 +88,8 @@ function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number):
   })
 }
 
+const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
+const WARN_FIELDS = ['v', 'event', 'level', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'warn_ratio', 'at']
 const STOP_FIELDS = ['event', 'level', 'reason', 'tool', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'at']
 
 afterEach(() => {
@@ -174,17 +182,55 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(stops(s)).toEqual([expect.objectContaining({ level: 'agent', spent: 150 + 400 * 1.25 + 3500 * 0.1, input_tokens: 150, cache_creation_input_tokens: 400, cache_read_input_tokens: 3500, measurement_basis: SPEND_BASIS })])
   })
 
-  it('prints the session notice on UserPromptSubmit at 85% and records budget-warn once; at 70% prints and records nothing (W7)', () => {
+  it('tells the window once on UserPromptSubmit at 85%, in the warn text, with one budget-warn line; at 70% prints and records nothing (W7)', () => {
     const high = scratch(LIMITS, [{ input: 127500 }])
     const first = hook(high, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
     const second = hook(high, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
     const low = scratch(LIMITS, [{ input: 105000 }])
 
-    expect(first).toMatchObject({ status: 0, stdout: 'Eddies: context 128k / 150k (85%) · spend 0.1M / 3.0M\n' })
-    expect(second.stdout).toBe(first.stdout)
+    expect(first).toMatchObject({ status: 0, stdout: `eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n` })
+    expect(second).toMatchObject({ status: 0, stdout: '' })
     expect(lines(high)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'session-context', spent: 127500, limit: 150000, warn_ratio: 0.8 })])
+    expect(Object.keys(lines(high)[0])).toEqual(WARN_FIELDS)
     expect(hook(low, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })).toMatchObject({ status: 0, stdout: '' })
     expect(lines(low)).toEqual([])
+  })
+
+  it('puts the warn into the context of an agent past 80% of agentSpend on its next call, once, as PreToolUse additionalContext (W10)', () => {
+    const s = scratch()
+    agentFile(s, 'a1', [{ input: 1300000 }])
+    const agent = { agent_id: 'a1', agent_type: 'general-purpose' }
+    const first = call(s, 'Read', { file_path: '/x' }, agent)
+    const second = call(s, 'Read', { file_path: '/x' }, agent)
+
+    expect(first.status).toBe(0)
+    expect(contextOf(first)).toBe(`eddies: agent warn — spent 1300000 / warn threshold 1200000 (limit 1500000, agentSpend in .claude/eddies.json); ${WARN_ACTION}\n`)
+    expect(second).toMatchObject({ status: 0, stdout: '' })
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'agent', agent_id: 'a1', spent: 1300000, limit: 1500000, warn_ratio: 0.8 })])
+    expect(Object.keys(lines(s)[0])).toEqual(WARN_FIELDS)
+  })
+
+  it('puts the run warn into the context of the workflow agent whose call first sees its run past 80% of runSpend, once per run (W11)', () => {
+    const s = scratch()
+    agentFile(s, 'x1', [{ input: 1300000 }], 'wf_X')
+    agentFile(s, 'x2', [{ input: 1300000 }], 'wf_X')
+    const first = call(s, 'Bash', { command: 'ls' }, { agent_id: 'x2', agent_type: 'workflow-subagent' })
+
+    expect(contextOf(first)).toContain('eddies: run warn — spent 2600000 / warn threshold 2400000 (limit 3000000, runSpend')
+    expect(call(s, 'Bash', { command: 'ls' }, { agent_id: 'x1', agent_type: 'workflow-subagent' }).stdout).toContain('eddies: agent warn')
+    expect(lines(s).map(line => [line.level, line.agent_id])).toEqual([['agent', 'x2'], ['run', 'x2'], ['agent', 'x1']])
+  })
+
+  it('puts the warn into the window context on its first tool call past 80%, not only on new work or the next prompt, once (W12)', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    const first = call(s, 'Read', { file_path: '/x' })
+    const second = call(s, 'Bash', { command: 'ls' })
+
+    expect(first.status).toBe(0)
+    expect(contextOf(first)).toBe(`eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n`)
+    expect(second).toMatchObject({ status: 0, stdout: '' })
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).stdout).toBe('')
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'session-context', session_id: SESSION, agent_id: null })])
   })
 
   it('lets the call through with an unread line when the transcript or the config cannot be read, and refuses unreadable stdin (W8)', () => {
