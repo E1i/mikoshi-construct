@@ -4,6 +4,7 @@ export interface JournalEntry {
   task: string
   session: string | null
   baseSha: string
+  sketch: string | null
   install: number | null
   exit: number | null
   ladder: string

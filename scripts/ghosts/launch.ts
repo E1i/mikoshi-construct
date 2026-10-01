@@ -1,5 +1,6 @@
 import type { JournalEntry } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
+import type { Sketch } from './sketch.js'
 import type { Task } from './tasks.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -16,12 +17,14 @@ import { countLedgerLines, readLadderOutcome } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
 import { readResultFields } from './result.js'
 import { spawnSession } from './session.js'
+import { describeSketch, parseSketch } from './sketch.js'
 import { freeRow, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
 import { readTasksFile } from './tasks.js'
 
 interface PreparedTask extends Task {
   approvedText: string
   approvedHashShort: string
+  sketch: Sketch
   sessionId: string
   reportPath: string
   stderrPath: string
@@ -59,6 +62,23 @@ function branchExists(repo: string, branch: string): boolean {
   catch {
     return false
   }
+}
+
+function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: Sketch): string[] {
+  if (sketch.kind === 'none')
+    return []
+  if (!branchExists(repo, sketch.branch))
+    return [`task ${taskId}: sketch branch ${sketch.branch} does not exist in ${repo}`]
+  const tip = git(repo, ['rev-parse', `refs/heads/${sketch.branch}`])
+  if (tip !== sketch.sha)
+    return [`task ${taskId}: sketch branch ${sketch.branch} is at ${tip}, not the approved ${sketch.sha}`]
+  try {
+    execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', baseSha, sketch.sha], { stdio: 'pipe' })
+  }
+  catch {
+    return [`task ${taskId}: sketch ${sketch.sha.slice(0, 7)} does not contain origin/main ${baseSha.slice(0, 7)}; rebase ${sketch.branch} onto origin/main and re-approve the brief`]
+  }
+  return []
 }
 
 function parseArgs(argv: string[]): { tasksFile: string } {
@@ -116,6 +136,16 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       continue
     }
 
+    let sketch: Sketch
+    try {
+      sketch = parseSketch(approval.text)
+    }
+    catch (error) {
+      refusals.push(`task ${task.id}: ${task.brief}: ${errorMessage(error)}`)
+      continue
+    }
+    refusals.push(...sketchRefusals(repo, task.id, baseSha, sketch))
+
     if (existsSync(task.worktree))
       refusals.push(`task ${task.id}: worktree already exists at ${task.worktree}`)
 
@@ -136,6 +166,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       ...task,
       approvedText: approval.text,
       approvedHashShort: sha256Hex(approval.text).slice(0, 7),
+      sketch,
       sessionId: randomUUID(),
       reportPath,
       stderrPath: path.join(out, `ghost-${task.id}.stderr`),
@@ -146,17 +177,31 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
 }
 
 function describeTask(task: PreparedTask, baseSha: string): string {
-  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedHashShort}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)}, report ${task.reportPath}, session ${task.sessionId}`
+  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedHashShort}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function sketchSha(task: PreparedTask): string | null {
+  return task.sketch.kind === 'branch' ? task.sketch.sha : null
+}
+
+function addWorktree(ctx: TaskContext, task: PreparedTask): void {
+  if (task.sketch.kind === 'none') {
+    execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, ctx.baseSha], { stdio: 'pipe' })
+    return
+  }
+  execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, task.sketch.sha], { stdio: 'pipe' })
+  execFileSync('git', ['-C', task.worktree, 'reset', '--soft', ctx.baseSha], { stdio: 'pipe' })
+}
+
 function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: MatrixLookup | null, install: number | null): JournalEntry {
   return {
     task: task.id,
     baseSha,
+    sketch: sketchSha(task),
     session: null,
     install,
     exit: null,
@@ -183,7 +228,7 @@ async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, out
 async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
   const start = timestamp()
 
-  execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, ctx.baseSha], { stdio: 'pipe' })
+  addWorktree(ctx, task)
   writeAgreedText(task.worktree, task.approvedText)
 
   await writeGhostRow(ctx.statusPath, task.id, writingRow({
@@ -237,6 +282,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   await closeOut(ctx, task, start, outcome, {
     task: task.id,
     baseSha: ctx.baseSha,
+    sketch: sketchSha(task),
     session: task.sessionId,
     install: installCode,
     exit: code,
