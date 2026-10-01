@@ -576,10 +576,14 @@ tasks `board.txt` shows as running or waiting, read from the file at the moment 
 memory of them.
 
 The coordinating window stops at a boundary rather than at the limit. It checks the boundary after each finished step.
-The boundary is reached when `/context` shows 150k tokens in context, or when a pull request of an owner-merged kind has
-just merged. From then on it takes no new work. It waits for the subagents it started itself, writes their results into
-the handoff, and stops. It does not wait for Ghosts: their state is in the ledger and the journal, and the next session
-reads it there. In Ghost Protocol a flag switches this rule off (#394).
+The boundary is reached when the session's context reaches `contextLimit` or its spend reaches `sessionSpend`, both in
+`.claude/eddies.json`, or when a pull request of an owner-merged kind has just merged. From then on it takes no new work.
+It waits for the subagents it started itself, writes their results into the handoff, and stops. It does not wait for
+Ghosts: their state is in the ledger and the journal, and the next session reads it there. Eddies enforces the budget
+half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
+either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and
+records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. The merge half is not
+enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
 ### Role definitions are read when a session starts
 
