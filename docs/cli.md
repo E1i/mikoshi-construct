@@ -1398,6 +1398,7 @@ Each line carries exactly these fields:
 | `attempts` | One object per attempt: `rung`, `effort`, `outcome`, and a `reason` separating an invalid response shape from a red harness from a blocked report. |
 | `cause` | Why a `stopped` or `failed` run ended without passing: `environment` or `human` for `stopped`, `environment` or `task` for `failed`. Required on `stopped`, optional on `failed`, forbidden on any other status. |
 | `tokensSource` | Optional. `runtime` when the token figure came from the runtime's stored record instead of the Workflow tool's accounting. |
+| `agreedSha256`, `argsSha256` | Optional, each 64 lowercase hex characters. The two hashes in the handle `check-acceptance.mjs build` printed: the agreed `/implement` text and the bytes of the args file the run read. Copied from the handle whatever the status; rows written before ledger-row 1.1 carry neither. |
 | `agents`, `tokens`, `toolUses`, `seconds` | The Workflow tool's accounting for the whole run. `tokens` may be the string `unknown`; it is never rewritten as `0`. |
 
 The Workflow tool reports accounting per run, not per agent, so the ledger declares no per-agent

@@ -31,6 +31,12 @@ function row(changes: Record<string, unknown>): Record<string, unknown> {
   return merged
 }
 
+const HASH_FAULTS: { name: string, field: string, row: Record<string, unknown> }[] = [
+  { name: 'an agreed hash of 63 hex', field: 'agreedSha256', row: row({ agreedSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }) },
+  { name: 'an args hash in capitals', field: 'argsSha256', row: row({ argsSha256: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) },
+  { name: 'an args hash that is a number', field: 'argsSha256', row: row({ argsSha256: 7 }) },
+]
+
 const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
   { name: 'done', row: row({}), holds: true },
   { name: 'an absent run', row: row({ run: undefined }), holds: true },
@@ -40,6 +46,9 @@ const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
   { name: 'failed with no cause recorded', row: row({ status: 'failed' }), holds: true },
   { name: 'tokens unknown', row: row({ tokens: 'unknown' }), holds: true },
   { name: 'tokens from the runtime', row: row({ tokensSource: 'runtime' }), holds: true },
+  { name: 'both hashes', row: row({ agreedSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', argsSha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }), holds: true },
+  { name: 'only the agreed hash', row: row({ agreedSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }), holds: true },
+  { name: 'only the args hash', row: row({ argsSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }), holds: true },
   { name: 'an unknown status', row: row({ status: 'ascended' }), holds: true },
   { name: 'an unknown top-level field', row: row({ ghost: true }), holds: true },
   { name: 'a run that is a number', row: row({ run: 7 }), holds: false },
@@ -50,6 +59,7 @@ const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
   { name: 'failed with a human cause', row: row({ status: 'failed', cause: 'human' }), holds: false },
   { name: 'tokens as a string', row: row({ tokens: '5' }), holds: false },
   { name: 'a token source nobody declared', row: row({ tokensSource: 'guess' }), holds: false },
+  ...HASH_FAULTS.map(({ name, row: value }) => ({ name, row: value, holds: false })),
   { name: 'no at', row: row({ at: undefined }), holds: false },
   { name: 'no attempts', row: row({ attempts: undefined }), holds: false },
   { name: 'an attempt with no reason', row: row({ attempts: [{ rung: 1, effort: 'medium', outcome: 'passed' }] }), holds: false },
@@ -63,9 +73,13 @@ describe('the ledger row schema and parseLedgerLine give one verdict', () => {
     expect(typeof parseLedgerLine(JSON.stringify(value)) !== 'string', 'the reader').toBe(holds)
   })
 
+  it.each(HASH_FAULTS)('names $field when it refuses $name', ({ field, row: value }) => {
+    expect(parseLedgerLine(JSON.stringify(value))).toContain(field)
+  })
+
   it('declares exactly the fields the reader knows', () => {
     expect(Object.keys(schema.properties ?? {}).sort()).toEqual([...LEDGER_FIELDS].sort())
-    expect(schemaId(schema)).toBe('mikoshi-construct/contours/ledger-row/1')
+    expect(schemaId(schema)).toBe('mikoshi-construct/contours/ledger-row/1.1')
   })
 })
 
@@ -73,6 +87,7 @@ describe('the documents that explain the ledger row', () => {
   const docs = readFileSync(path.join(REPO_ROOT, 'docs/cli.md'), 'utf8')
   const section = docs.slice(docs.indexOf('### The run ledger')).split(/^###? /m)[1] ?? ''
   const skill = readFileSync(path.join(REPO_ROOT, '.claude/skills/implement/SKILL.md'), 'utf8')
+  const stepFour = skill.slice(skill.indexOf('\n4. Record the run'), skill.indexOf('\n5. Relay the result'))
 
   it('has a table row for every field and points at the schema', () => {
     expect(section).toContain(SCHEMA_PATH)
@@ -83,6 +98,6 @@ describe('the documents that explain the ledger row', () => {
 
   it('is named field by field in step 4 of the implement skill', () => {
     for (const field of LEDGER_FIELDS)
-      expect(skill, `step 4 names ${field}`).toContain(`\`${field}\``)
+      expect(stepFour, `step 4 names ${field}`).toContain(`\`${field}\``)
   })
 })

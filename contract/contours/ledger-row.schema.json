@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "mikoshi-construct/contours/ledger-row/1",
+  "$id": "mikoshi-construct/contours/ledger-row/1.1",
   "title": "Ledger row",
   "description": "One line of .construct/runs.jsonl, appended by step 4 of the implement skill after an /implement run and read by construct cost, ghosts:launch, ghosts:watch and pnpm board through parseLedgerLine. It sets no additionalProperties, because a newer skill writes fields an older reader must pass over.",
   "type": "object",
@@ -27,6 +27,8 @@
     },
     "cause": { "enum": ["environment", "human", "task"] },
     "tokensSource": { "enum": ["runtime"] },
+    "agreedSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "argsSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "agents": { "type": "number" },
     "tokens": { "anyOf": [{ "type": "number" }, { "const": "unknown" }] },
     "toolUses": { "type": "number" },

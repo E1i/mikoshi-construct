@@ -10,7 +10,7 @@ describe('the contour schemas', () => {
     for (const name of contourSchemaNames()) {
       const schema = readContourSchema(name) as ContourSchema & { $schema: string, description: string }
       expect(schema.$schema).toBe(DIALECT)
-      expect(schemaId(schema)).toBe(`mikoshi-construct/contours/${name}/1`)
+      expect(schemaId(schema)).toMatch(new RegExp(`^mikoshi-construct/contours/${name}/\\d+(?:\\.\\d+)?$`))
       expect(schema.description.length).toBeGreaterThan(0)
     }
   })

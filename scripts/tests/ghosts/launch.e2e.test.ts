@@ -232,6 +232,25 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
   })
 
+  it('gives each session the args file built from the agreed text, and the session\'s ledger row names both of its hashes', () => {
+    const w = world('new', 'ok')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-args', w)
+  })
+
+  it.each([
+    { title: 'builds the args of g2 from a text other than the approved one', kind: 'args-elsewhere' },
+    { title: 'rewrites the args file of g2 after the row named its bytes', kind: 'args-rewritten' },
+    { title: 'writes the ledger row of g2 without the two hashes', kind: 'row-without-hashes' },
+  ])('$title, while g1 stays tied', ({ kind }) => {
+    const w = world('new', kind)
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-args', w)
+    world('check-journal', w)
+  })
+
   it.each([
     { title: 'refuses a brief with no Sketch: line before any listing', kind: 'sketch-no-line' },
     { title: 'refuses a sketch whose branch does not exist', kind: 'sketch-no-branch' },

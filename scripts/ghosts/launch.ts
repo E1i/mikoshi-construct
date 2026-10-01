@@ -10,7 +10,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { writeAgreedText } from './agreed.js'
-import { checkApproval, sha256Hex } from './approval.js'
+import { checkApproval } from './approval.js'
+import { tiedArgsSha256 } from './args-chain.js'
 import { runInstall } from './install.js'
 import { appendJournalLine } from './journal.js'
 import { countLedgerLines, readLadderOutcome } from './ledger.js'
@@ -23,7 +24,7 @@ import { readTasksFile } from './tasks.js'
 
 interface PreparedTask extends Task {
   approvedText: string
-  approvedHashShort: string
+  approvedSha256: string
   sketch: Sketch
   sessionId: string
   reportPath: string
@@ -165,7 +166,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
     prepared.push({
       ...task,
       approvedText: approval.text,
-      approvedHashShort: sha256Hex(approval.text).slice(0, 7),
+      approvedSha256: approval.sha256,
       sketch,
       sessionId: randomUUID(),
       reportPath,
@@ -177,7 +178,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
 }
 
 function describeTask(task: PreparedTask, baseSha: string): string {
-  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedHashShort}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`
+  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedSha256.slice(0, 7)}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`
 }
 
 function errorMessage(error: unknown): string {
@@ -215,6 +216,8 @@ function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: M
     num_turns: null,
     duration_ms: null,
     usage: null,
+    agreedSha256: task.approvedSha256,
+    argsSha256: null,
   }
 }
 
@@ -296,6 +299,8 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     num_turns: resultFields.num_turns,
     duration_ms: resultFields.duration_ms,
     usage: resultFields.usage,
+    agreedSha256: task.approvedSha256,
+    argsSha256: tiedArgsSha256(task.worktree, task.approvedSha256, ladder.argsSha256),
   })
 
   const line = ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`

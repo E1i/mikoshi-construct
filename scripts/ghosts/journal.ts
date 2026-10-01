@@ -17,6 +17,8 @@ export interface JournalEntry {
   num_turns: number | null
   duration_ms: number | null
   usage: unknown | null
+  agreedSha256: string
+  argsSha256: string | null
 }
 
 let queue: Promise<void> = Promise.resolve()

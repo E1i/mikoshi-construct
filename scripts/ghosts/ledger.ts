@@ -7,6 +7,7 @@ export interface LadderOutcome {
   status: string
   run: string | null
   iterations: number | null
+  argsSha256?: string
 }
 
 function ledgerLines(runsPath: string): string[] {
@@ -27,5 +28,10 @@ export function readLadderOutcome(runsPath: string, linesBefore: number): Ladder
   const last = parseLedgerLine(newLines[newLines.length - 1])
   if (typeof last === 'string')
     return { status: `${MALFORMED_LEDGER_LINE}: ${last}`, run: null, iterations: null }
-  return { status: last.status, run: last.run, iterations: last.attempts.length }
+  return {
+    status: last.status,
+    run: last.run,
+    iterations: last.attempts.length,
+    ...(last.argsSha256 === undefined ? {} : { argsSha256: last.argsSha256 }),
+  }
 }

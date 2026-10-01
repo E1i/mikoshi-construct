@@ -378,5 +378,10 @@
     "target": ".claude/commands/plan.md",
     "sha256": "61a50ee94c89e1dcb8cd4dcf127cba8e9721c6042643404ee02f5034aaf2409d",
     "date": "2026-10-01"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "a43f46f08b2e40d8d8967b2d7464f0bdeaba848d3df6b60fae77e1b2b72159c5",
+    "date": "2026-10-01"
   }
 ]

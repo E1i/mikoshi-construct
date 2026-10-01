@@ -251,7 +251,7 @@
     }
   },
   "contours": {
-    "ledger-row": "mikoshi-construct/contours/ledger-row/1",
+    "ledger-row": "mikoshi-construct/contours/ledger-row/1.1",
     "review-verdict": "mikoshi-construct/contours/review-verdict/1"
   },
   "exits": {
