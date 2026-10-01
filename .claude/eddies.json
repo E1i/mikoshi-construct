@@ -1,7 +1,7 @@
 {
   "contextLimit": 150000,
   "sessionSpend": 3000000,
-  "agentSpend": 1500000,
+  "agentSpend": 2000000,
   "runSpend": 3000000,
   "warnRatio": 0.8
 }
