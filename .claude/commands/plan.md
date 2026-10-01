@@ -112,8 +112,10 @@ Invariants: <what is green before and after the change>
 Immutable: <a path the change may not touch>; <a directory, ending in />
 ```
 
+<!-- factory:begin -->
 The line right after `/implement` names the sketch branch and its tip the Ghost starts from, or reads
 `Sketch: none — <reason>` when the task starts from a clean `origin/main`.
+<!-- factory:end -->
 Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — acceptance: …; effort: <class>`. Do not
 implement anything.
