@@ -98,6 +98,7 @@ the `/implement` build turns into args, filled in so it can be pasted as-is:
 
 ```text
 /implement <the task in one sentence>
+Sketch: <branch> @ <40-hex sha>
 
 Effort: <low|medium|high> — <one-line reason>
 
@@ -111,6 +112,8 @@ Invariants: <what is green before and after the change>
 Immutable: <a path the change may not touch>; <a directory, ending in />
 ```
 
+The line right after `/implement` names the sketch branch and its tip the Ghost starts from, or reads
+`Sketch: none — <reason>` when the task starts from a clean `origin/main`.
 Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — acceptance: …; effort: <class>`. Do not
 implement anything.

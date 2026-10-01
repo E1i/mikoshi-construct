@@ -373,5 +373,10 @@
     "target": "scripts/construct/check-acceptance.mjs",
     "sha256": "05424bb14b96915732601dd05ec98ee1ad513219c1e600206e93a93e9e7f0e42",
     "date": "2026-10-01"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "61a50ee94c89e1dcb8cd4dcf127cba8e9721c6042643404ee02f5034aaf2409d",
+    "date": "2026-10-01"
   }
 ]
