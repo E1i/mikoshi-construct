@@ -626,6 +626,14 @@ itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`
 decision and opens nothing.
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
 recorded as a row of the `policy` table in `status.md` before the session opens.
+A brief that produced a working sketch names it on the line after its `/implement` line,
+`Sketch: <branch> @ <sha>`, and the ladder starts from it: the launcher creates the worktree at that
+sha and moves HEAD back to `origin/main`, so the sketch is staged and the base the witnesses must be
+red on is still `origin/main`. The exception is a brief that wants an independent implementation as
+its witness, which says so, `Sketch: none — independent implementation is the witness`; a brief with
+neither line is refused. The sketch's sha is inside the approved text, so a sketch changed after
+approval needs a new approval, and a sketch cut from an older `origin/main` is refused until it is
+rebased and re-approved ([0043](architecture/decisions/0043-the-ladder-starts-from-the-sketch.md)).
 
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
