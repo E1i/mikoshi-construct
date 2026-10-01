@@ -37,7 +37,8 @@ The module table and the layout notes are in [AGENTS.md § Layout](AGENTS.md#lay
 
 This repository runs on a construct materialized by `mikoshi-construct` v0.1.0. The
 discovery blocks — product, module map, commands, composition roots, dependency policy, high-effort
-areas, defects vs accepted variance, open questions — live in [AGENTS.md](AGENTS.md); the
+areas, defects vs accepted variance — live in [AGENTS.md](AGENTS.md), open questions in
+[architecture/open-questions.md](architecture/open-questions.md); the
 architecture, security and reasoning-budget rules in
 [architecture/principles.md](architecture/principles.md); repository-wide code rules in
 `.claude/rules/`.

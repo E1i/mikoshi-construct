@@ -48,6 +48,13 @@ describe('appendBlock', () => {
   })
 })
 
+describe('appendBlock over a construct block holding a filled block the template no longer has', () => {
+  it('carries that block past the end of the construct block', () => {
+    const existing = '# Mine\n\n<!-- construct:begin -->\nold\n<!-- construct:discover:open-questions -->\nstill open\n<!-- /construct:discover:open-questions -->\n<!-- construct:end -->\n\nmy tail\n'
+    expect(appendBlock(existing, 'new\n', 'AGENTS.md')).toBe('# Mine\n\n<!-- construct:begin -->\nnew\n<!-- construct:end -->\n\n<!-- construct:discover:open-questions -->\nstill open\n<!-- /construct:discover:open-questions -->\n\nmy tail\n')
+  })
+})
+
 describe('preserveDiscovery', () => {
   const placeholder = '<!-- construct:discover:module-map -->\n_Not discovered yet — run `/construct-discover`._\n<!-- /construct:discover:module-map -->'
 
@@ -88,6 +95,14 @@ describe('substituteBlock', () => {
     expect(written).toContain('what we ship')
     expect(written).toContain('and a new line')
     expect(written).not.toContain('_Not discovered yet')
+  })
+
+  it('carries a filled block the template no longer has past the end of the construct block, and only once on every later write', () => {
+    const filled = '<!-- construct:begin -->\nold\n<!-- construct:discover:open-questions -->\nstill open\n<!-- /construct:discover:open-questions -->\n<!-- construct:end -->\n\nmy tail\n'
+    const once = substituteBlock(filled, '<!-- construct:begin -->\nnew\n<!-- construct:end -->\n', 'AGENTS.md')
+    expect(once).toBe('<!-- construct:begin -->\nnew\n<!-- construct:end -->\n\n<!-- construct:discover:open-questions -->\nstill open\n<!-- /construct:discover:open-questions -->\n\nmy tail\n')
+    const twice = substituteBlock(once, '<!-- construct:begin -->\nnewer\n<!-- construct:end -->\n', 'AGENTS.md')
+    expect(twice).toBe(once.replace('\nnew\n', '\nnewer\n'))
   })
 
   it('reads the gitignore markers for a gitignore target', () => {

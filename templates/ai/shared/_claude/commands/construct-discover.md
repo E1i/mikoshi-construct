@@ -9,8 +9,8 @@ not verify by reading code; where the codebase is inconsistent, record an open q
 inventing a rule.
 
 Scope: `$ARGUMENTS` (empty means every marker). The markers, and the file each one lives in, are
-listed under `discovery.markers` in `construct.json` (the text markers in `AGENTS.md`, the composition
-models in the directory `discovery.markers.composition.file` names). Every marker is a block between
+listed under `discovery.markers` in `construct.json` (the text markers in `AGENTS.md` and
+`architecture/`, the composition models in the directory `discovery.markers.composition.file` names). Every marker is a block between
 `<!-- construct:discover:<name> -->` and `<!-- /construct:discover:<name> -->`; replace the placeholder
 line inside the block and nothing outside it. `construct doctor` reports any marker still holding the
 placeholder.
@@ -69,8 +69,16 @@ Work in this order:
    integer money, closed DTOs. Name the mechanism that enforces each and what it matches (the lint
    block and its selectors, the test file, the scanner or workflow job), never a bare tool name; write
    `review` only when nothing mechanical exists yet, and prefer adding the check to writing the word.
-11. **`defects-vs-variance`** and **`open-questions`** (AGENTS.md): what a reviewer must flag here
-    beyond the baseline list, and what looks like a convention but is not consistently applied.
+11. **`defects-vs-variance`** (AGENTS.md): what a reviewer must flag here beyond the baseline list.
+    **`open-questions`** (`architecture/open-questions.md`): what looks like a convention but is not
+    consistently applied. When `discovery.markers.open-questions.file` still names `AGENTS.md` and
+    `architecture/open-questions.md` carries the marker, this run moves it: write the body into that
+    file's block, delete the whole `open-questions` block (both tags) from `AGENTS.md`, and record the
+    new `file` in step 12. Rewrite each relative link in the body for the `architecture/` folder and
+    change nothing else. A moved body is not a body this run wrote, so it carries the provenance
+    `construct doctor` read before the move: when it read `construct`, record the sha of the moved
+    body; otherwise change only `file` and keep `authoredBy` and `sha`, so an owner's edit still
+    reads as theirs. A repository without that file keeps the marker where it is.
 12. **Write what you concluded, into the model.** A marker is prose answering *what is where*; a
     hypothesis in `construct.model.json` is a structural record answering *what this is*, falsifiable
     by facts. This step stands on what the inventory and the markers established and writes
