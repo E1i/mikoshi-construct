@@ -1,5 +1,21 @@
 # mikoshi-construct
 
+## 0.31.0
+
+### Minor Changes
+
+- [#404](https://github.com/E1i/mikoshi-construct/pull/404) [`1f3681b`](https://github.com/E1i/mikoshi-construct/commit/1f3681b2cc164ddcb1909f7a53e46139f81ab739) Thanks [@E1i](https://github.com/E1i)! - templates: the /implement ladder reads its args by path and sha256 — check-acceptance build --out writes .construct/implement-args.json and prints a handle, the Workflow receives the handle and never the file, the harness reports the file's sha256 on every call and extracts each witness through a witness mode that refuses another hash, and a mismatch ends the run as args unverified
+
+- [#409](https://github.com/E1i/mikoshi-construct/pull/409) [`82fb68f`](https://github.com/E1i/mikoshi-construct/commit/82fb68fe899aa481d10e665081373ff5245baf71) Thanks [@E1i](https://github.com/E1i)! - cli: contract/contours/ledger-row.schema.json records the run ledger row and construct cost refuses a row whose run is present but not a non-empty string; the launcher, the watch and the board read the same shape through parseLedgerLine
+
+- [#398](https://github.com/E1i/mikoshi-construct/pull/398) [`b40da12`](https://github.com/E1i/mikoshi-construct/commit/b40da127c8ee385bcbf020b5b58cd87146c96afd) Thanks [@E1i](https://github.com/E1i)! - cli: the commit guard attach installs finishes its stdin read without a top-level await, and every hook script this repository ships is linted for a synchronous stdin read
+
+- [#396](https://github.com/E1i/mikoshi-construct/pull/396) [`dd4c32c`](https://github.com/E1i/mikoshi-construct/commit/dd4c32c4cbd6cadd183a51ac2392162a4706e2e3) Thanks [@E1i](https://github.com/E1i)! - cli: cost reports the turn journal that this repository's Claude Code hooks write to .construct/turns.jsonl, as turns, sessions, main-thread and subagent usage, unmeasured turns and gaps, and reads an absent journal as not recorded
+
+### Patch Changes
+
+- [#408](https://github.com/E1i/mikoshi-construct/pull/408) [`9f9973a`](https://github.com/E1i/mikoshi-construct/commit/9f9973aa2fcb0f6d78cdd3fc7a5515571685ec90) Thanks [@E1i](https://github.com/E1i)! - templates: the /implement ladder extracts each witness by its sha256 instead of its position, so a handle that drops or reorders a criterion no longer runs another criterion's command; check-acceptance witness takes --witness-sha256 in place of --n
+
 ## 0.30.0
 
 ### Minor Changes
