@@ -43,8 +43,10 @@ repository's CLAUDE.md and `construct.json`.
    before calling any agent, and carries its sha256 into `witnessDigests` as `{ "criterion": ...,
    "sha256": ... }` of the raw command, never the normalised criterion. The implementer reads
    `witnesses` from the file, and the harness agent never sees a command: it extracts each one with
-   `node scripts/construct/check-acceptance.mjs witness --args <argsPath> --sha256 <argsSha256> --n N`,
-   which refuses a file whose sha256 differs, so it cannot run anything but what the brief fixed. **Invariants**
+   `node scripts/construct/check-acceptance.mjs witness --args <argsPath> --sha256 <argsSha256> --witness-sha256 <sha256>`,
+   which selects the witness by the sha256 of its command from `witnessDigests`, never by its position,
+   and refuses a file whose sha256 differs or a witness sha256 the file does not hold, so it cannot run
+   anything but what the brief fixed. **Invariants**
    are green before and after, such as "the harness is
    green"; the harness holds them and they reach `args.invariants` unwitnessed. An item the base
    already satisfies belongs in invariants, because it can never be witnessed red. **Immutable** names

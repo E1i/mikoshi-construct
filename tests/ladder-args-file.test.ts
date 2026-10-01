@@ -126,7 +126,7 @@ describe('the prompts name the args file and its sha256, never a command', () =>
     const { calls } = await run(HANDLE, [verdict(ARGS_SHA256, false), verdict(ARGS_SHA256, true)])
     const [preflight, verify] = calls.filter(call => call.agentType === 'harness')
 
-    expect(verify.prompt).toContain(`node scripts/construct/check-acceptance.mjs witness --args ${ARGS_PATH} --sha256 ${ARGS_SHA256} --n 1 > <dir>/witness-1.sh`)
+    expect(verify.prompt).toContain(`node scripts/construct/check-acceptance.mjs witness --args ${ARGS_PATH} --sha256 ${ARGS_SHA256} --witness-sha256 ${COMMAND_SHA256} > <dir>/witness-1.sh`)
     expect(verify.prompt).toContain('afterExitCode 2')
     for (const call of [preflight, verify]) {
       expect(call.prompt).toContain(`shasum -a 256 ${ARGS_PATH}`)

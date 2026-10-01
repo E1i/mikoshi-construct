@@ -16,7 +16,6 @@ const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
 const CONTRACT_CHECK_LINE = /^Contract check:(.*)$/m
 const IMPLEMENT_LINE = /^\/implement /m
 const SHA256_HEX = /^[0-9a-f]{64}$/
-const WITNESS_INDEX = /^\d+$/
 
 export class InputError extends Error {}
 
@@ -362,10 +361,12 @@ function readBytes(file) {
 function witnessCommand(argv) {
   const file = option(argv, '--args')
   const expected = option(argv, '--sha256')
-  const index = option(argv, '--n')
+  const wanted = option(argv, '--witness-sha256')
   const bytes = readBytes(file)
   if (!SHA256_HEX.test(expected))
     throw new InputError(`--sha256 ${expected} is not 64 hex characters`)
+  if (!SHA256_HEX.test(wanted))
+    throw new InputError(`--witness-sha256 ${wanted} is not 64 hex characters`)
   const actual = sha256Hex(bytes)
   if (actual !== expected)
     throw new InputError(`${file} has sha256 ${actual}, and the run was given ${expected}`)
@@ -377,10 +378,10 @@ function witnessCommand(argv) {
     throw new InputError(`${file} is not valid JSON: ${error.message}`)
   }
   const witnesses = Array.isArray(args?.witnesses) ? args.witnesses : []
-  const n = WITNESS_INDEX.test(index) ? Number(index) : 0
-  if (n < 1 || n > witnesses.length || typeof witnesses[n - 1]?.command !== 'string')
-    throw new InputError(`--n ${index} is not a witness of ${file}: it holds ${witnesses.length}`)
-  return witnesses[n - 1].command
+  const chosen = witnesses.find(witness => typeof witness?.command === 'string' && sha256Hex(witness.command) === wanted)
+  if (chosen == null)
+    throw new InputError(`${file} holds no witness with sha256 ${wanted}`)
+  return chosen.command
 }
 
 export function witness(argv) {

@@ -55,9 +55,10 @@ Return these fields; the runtime validates the shape against the schema it gives
   stands: it lies outside the repository, so it still resolves after the `cd` into the base worktree
   and adds no file to the working tree. The witnesses are held in the args file, never in the prompt,
   so you never choose or edit one: in the working tree, before the base worktree is made, run exactly
-  `node scripts/construct/check-acceptance.mjs witness --args <argsPath> --sha256 <argsSha256> --n N >
-  <dir>/witness-N.sh`, then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. The
-  extraction refuses a file whose sha256 is not the one given: when it exits non-zero, report that witness with `afterExitCode` 2, its stderr as `afterExcerpt` and
+  `node scripts/construct/check-acceptance.mjs witness --args <argsPath> --sha256 <argsSha256>
+  --witness-sha256 <sha256> > <dir>/witness-N.sh`, with the witness's sha256 the prompt names: the
+  witness is selected by that hash, never by its position. Then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. The
+  extraction refuses a file whose sha256 is not the one given, and a witness sha256 the file does not hold: when it exits non-zero, report that witness with `afterExitCode` 2, its stderr as `afterExcerpt` and
   an empty `ranSha256`, and run nothing for it. Report
   the sha256 that `shasum` printed as `ranSha256`, `criterion` copied verbatim, `afterExitCode` and `afterExcerpt` (the script's exit code and last lines on the working tree),
   `baseExitCode` and `baseExcerpt` (its exit code and last lines in a worktree of its own at the base

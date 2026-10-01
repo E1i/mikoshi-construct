@@ -131,7 +131,7 @@ describe('the verify prompt extracts each witness from the args file by its sha2
     const { calls } = await run({}, [green(witness())])
     const verify = calls.find(call => call.agentType === 'harness' && call !== calls[0])?.prompt ?? ''
 
-    expect(verify).toContain(`node scripts/construct/check-acceptance.mjs witness --args ${ARGS_PATH} --sha256 ${ARGS_SHA256} --n 1 > <dir>/witness-1.sh`)
+    expect(verify).toContain(`node scripts/construct/check-acceptance.mjs witness --args ${ARGS_PATH} --sha256 ${ARGS_SHA256} --witness-sha256 ${SHA256} > <dir>/witness-1.sh`)
     expect(verify).toContain('shasum -a 256 <dir>/witness-1.sh')
     expect(verify).toContain('bash <dir>/witness-1.sh')
     expect(verify).toContain(CRITERION)

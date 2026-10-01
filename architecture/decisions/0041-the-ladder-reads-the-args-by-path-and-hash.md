@@ -31,6 +31,7 @@ script cannot read or hash a file itself. An agent can.
    <argsSha256> --n N`, which prints the command byte for byte and refuses, with exit 2 and both hashes
    named, a file whose sha256 differs. A refused extraction is reported with `afterExitCode` 2 and an
    empty `ranSha256`.
+   Amended (#405): the witness is selected by `--witness-sha256 <sha256>` from the handle's `witnessDigests`, not by `--n N`, and a hash the file does not hold is refused with exit 2 and no output.
 4. **`argsSha256` is reported on every call and compared first.** The verdict schema requires
    `argsSha256`, the hex `shasum -a 256 <argsPath>` prints in the working tree. A preflight verdict
    with another hash ends the run `args unverified` with one rung-0 `args mismatch` attempt and no
