@@ -122,6 +122,11 @@ write_ledgers() {
   fi
 }
 
+write_gh_stub() {
+  printf '%s\n' '#!/usr/bin/env bash' "echo '[]'" >"$1/bin/gh"
+  chmod +x "$1/bin/gh"
+}
+
 write_failing_ps() {
   printf '%s\n' '#!/usr/bin/env bash' "echo 'ps: stub failure' >&2" 'exit 1' >"$1/bin/ps"
   chmod +x "$1/bin/ps"
@@ -230,6 +235,7 @@ new_world() {
   write_ledgers "$W" "$kind"
   write_report "$W" "$kind"
   check_tail_layout "$W" "$kind"
+  write_gh_stub "$W"
   [ "$kind" = alive ] && start_stub "$W"
   [ "$kind" = ps-fails ] && write_failing_ps "$W"
   snapshot "$W" >"$W/.world/snapshot.json"
@@ -265,10 +271,9 @@ remove_world() {
 }
 
 run_for() {
-  local W=$1 seconds=$2 path=$PATH
+  local W=$1 seconds=$2
   shift 2
-  [ "$(cat "$W/.world/kind")" = ps-fails ] && path="$W/bin:$PATH"
-  PATH=$path node - "$W" "$seconds" "$@" <<'EOF'
+  PATH="$W/bin:$PATH" node - "$W" "$seconds" "$@" <<'EOF'
 const fs = require('node:fs')
 const { spawn } = require('node:child_process')
 const [W, seconds, command, ...args] = process.argv.slice(2)
