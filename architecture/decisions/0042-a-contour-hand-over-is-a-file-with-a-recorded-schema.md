@@ -16,8 +16,8 @@ transition between contours is a file plus a hash and never a retelling.
    `$id`. `ledger-row.schema.json` is the row step 4 of the implement skill appends; `review-verdict.schema.json`
    is the file the review agent writes beside its report, with `$defs.journalLine` for the `event:review` line.
 2. **The producer writes the file and the consumer validates it; nothing is retold.** `pnpm ghosts:verdict` is
-   the only writer of the `event:review` line: it checks the verdict's shape, the report's sha256 and the brief's
-   approved sha256 first, and a refusal writes nothing. The four readers of the ledger row, `construct cost`,
+   the only writer of the `event:review` line: it checks the verdict's shape, the report's sha256, the report's
+   `[review:<task>]` line against the verdict's task and the brief's approved sha256 first, and a refusal writes nothing. The four readers of the ledger row, `construct cost`,
    `ghosts:launch`, `ghosts:watch` and `pnpm board`, go through `parseLedgerLine`.
 3. **The schemas are in the surface.** `contract/surface.json` records each `$id` under `contours`, so
    `contract:bump` computes their bump, and `.construct/runs.jsonl` leaves the `outside` list of

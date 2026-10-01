@@ -95,6 +95,14 @@ describe('recordVerdict', () => {
     expect(journalLines(journal)).toEqual([])
   })
 
+  it('refuses a verdict whose task is not the one the report names in its [review:<task>] line, and writes nothing', async () => {
+    const { dir, verdict, journal, good } = handoff()
+    write(verdict, { ...good, task: 'u' })
+    const result = await recordVerdict(verdict, dir)
+    expect(reasonsOf(result)).toEqual(['task u: review-t.md starts with "[review:t]", not [review:u]'])
+    expect(journalLines(journal)).toEqual([])
+  })
+
   it('appends exactly one line to ghosts.jsonl in the handoff directory, and that line holds the journal schema', async () => {
     const { dir, verdict, journal, good } = handoff()
     write(verdict, good)

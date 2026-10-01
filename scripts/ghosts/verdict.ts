@@ -53,6 +53,15 @@ function reportReasons(report: Digest, dir: string): string[] {
   return actual === report.sha256 ? [] : [`report.sha256 ${report.sha256} is not the sha256 of ${report.path} (${actual})`]
 }
 
+function taskReasons(verdict: Verdict, dir: string): string[] {
+  const reportFile = path.resolve(dir, verdict.report.path)
+  if (!existsSync(reportFile))
+    return []
+  const firstLine = readFileSync(reportFile, 'utf8').split('\n', 1)[0]
+  const expected = `[review:${verdict.task}]`
+  return firstLine === expected ? [] : [`task ${verdict.task}: ${verdict.report.path} starts with ${JSON.stringify(firstLine)}, not ${expected}`]
+}
+
 function briefReasons(brief: Digest, dir: string): string[] {
   const approvalFile = approvedHashPath(path.resolve(dir, brief.path))
   const name = path.basename(approvalFile)
@@ -72,7 +81,7 @@ export function checkVerdict(verdictPath: string, dir: string, now: Date = new D
   const faults = violations(verdict, schema).map(fault => `${verdictPath}: ${fault}`)
   if (faults.length > 0)
     return { ok: false, reasons: faults }
-  const reasons = [...reportReasons(verdict.report, dir), ...briefReasons(verdict.brief, dir)]
+  const reasons = [...reportReasons(verdict.report, dir), ...taskReasons(verdict, dir), ...briefReasons(verdict.brief, dir)]
   if (reasons.length > 0)
     return { ok: false, reasons }
   const line = {
