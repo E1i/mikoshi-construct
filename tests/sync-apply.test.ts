@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { discoveryProvenance } from '../src/commands/doctor/provenance.js'
 import { runInit } from '../src/commands/init.js'
 import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, SYNC_JSON_SCHEMA_VERSION, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
 import { factsTheRepositoryEstablishes } from '../src/detect/facts.js'
@@ -139,6 +140,52 @@ describe('sync --apply over a tree whose discovery markers are filled', () => {
       expect(outsideTheBlock(read(dir, target)), target).toEqual(outsideTheBlockWithTheMovedOutMarkerCarried(content))
       expect(ownedText(target, read(dir, target)), target).toBe(ownedText(target, producedBy(dir)[target]))
     }
+  })
+})
+
+function withOpenQuestionsRecordedAsTheConstructWroteThem(dir: string): string {
+  const body = markerBody(read(dir, 'AGENTS.md'), 'open-questions')!
+  const manifest = readManifest(dir)!
+  writeManifest(dir, { ...manifest, discovery: { ...manifest.discovery, markers: { ...manifest.discovery.markers, 'open-questions': { file: 'AGENTS.md', authoredBy: 'construct', sha: sha256(body.trim()) } } } })
+  return body
+}
+
+function openQuestionsReading(dir: string): unknown {
+  return discoveryProvenance(dir, readManifest(dir)!).find(reading => reading.marker === 'open-questions')
+}
+
+describe('a tree whose AGENTS.md still holds the filled open-questions block', () => {
+  it('keeps the body in AGENTS.md byte for byte through sync --apply, twice, and doctor reads it as the construct wrote it', () => {
+    const dir = frozenTreeWithTheVariantRecorded()
+    const body = withOpenQuestionsRecordedAsTheConstructWroteThem(dir)
+
+    applySync(dir, VERSION)
+    const afterOneRun = read(dir, 'AGENTS.md')
+    applySync(dir, VERSION)
+
+    expect(markerBody(read(dir, 'AGENTS.md'), 'open-questions')).toBe(body)
+    expect(read(dir, 'AGENTS.md')).toBe(afterOneRun)
+    expect(readManifest(dir)!.discovery.markers['open-questions'].file).toBe('AGENTS.md')
+    expect(openQuestionsReading(dir)).toEqual({ marker: 'open-questions', file: 'AGENTS.md', authorship: 'construct' })
+  })
+
+  it('leaves AGENTS.md with only the pointer once discovery moves the block into the file sync wrote, and doctor reads the new file as the construct wrote it', () => {
+    const dir = frozenTreeWithTheVariantRecorded()
+    const body = withOpenQuestionsRecordedAsTheConstructWroteThem(dir)
+    applySync(dir, VERSION)
+
+    const [open, close] = discoveryTags('open-questions')
+    const agents = read(dir, 'AGENTS.md')
+    writeFileSync(path.join(dir, 'AGENTS.md'), `${agents.slice(0, agents.indexOf(open)).trimEnd()}\n${agents.slice(agents.indexOf(close) + close.length).replace(/^\n+/, '\n')}`)
+    const questions = read(dir, 'architecture/open-questions.md')
+    writeFileSync(path.join(dir, 'architecture/open-questions.md'), `${questions.slice(0, questions.indexOf(open) + open.length)}${body}${questions.slice(questions.indexOf(close))}`)
+    const manifest = readManifest(dir)!
+    writeManifest(dir, { ...manifest, discovery: { ...manifest.discovery, markers: { ...manifest.discovery.markers, 'open-questions': { file: 'architecture/open-questions.md', authoredBy: 'construct', sha: sha256(body.trim()) } } } })
+
+    expect(read(dir, 'AGENTS.md')).not.toContain(open)
+    expect(read(dir, 'AGENTS.md')).toContain('[architecture/open-questions.md](architecture/open-questions.md)')
+    expect(openQuestionsReading(dir)).toEqual({ marker: 'open-questions', file: 'architecture/open-questions.md', authorship: 'construct' })
+    expect(runSync(dir, VERSION)!.classifications.find(entry => entry.target === 'AGENTS.md')?.class).not.toBe('conflict')
   })
 })
 
