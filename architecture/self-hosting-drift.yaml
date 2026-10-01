@@ -5,6 +5,12 @@ replay:
   vars: construct.json
 
 differences:
+  - path: .claude/commands/plan.md
+    kind: content
+    reason: >-
+      The brief skeleton here carries the Sketch: line the Ghost launcher reads, and a factory block
+      explains it; a generated repository has no launcher, so the template ships without both.
+      tests/plan-factory-twin.test.ts holds the rest of the file byte-identical to the template.
   - path: .github/workflows/ci.yml
     kind: content
     reason: >-

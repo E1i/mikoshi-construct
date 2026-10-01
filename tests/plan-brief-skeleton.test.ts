@@ -9,7 +9,10 @@ import { parseSketch } from '../scripts/ghosts/sketch.js'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const SCRIPT = path.join(ROOT, 'scripts/construct/check-acceptance.mjs')
-const COPIES = ['.claude/commands/plan.md', 'templates/ai/claude/_claude/commands/plan.md']
+const FACTORY_COPY = '.claude/commands/plan.md'
+const TEMPLATE_COPY = 'templates/ai/claude/_claude/commands/plan.md'
+const COPIES = [FACTORY_COPY, TEMPLATE_COPY]
+const PLACEHOLDERS_BEFORE_EFFORT: Record<string, number> = { [FACTORY_COPY]: 3, [TEMPLATE_COPY]: 1 }
 const dirs: string[] = []
 
 afterEach(() => {
@@ -51,37 +54,38 @@ function build(brief: string): { status: number | null, stdout: string, stderr: 
 }
 
 describe('the brief skeleton /plan outputs for a ladder-path task', () => {
-  it('is the same text in the repository copy and the template copy', () => {
-    expect(readFileSync(path.join(ROOT, COPIES[0]), 'utf8')).toBe(readFileSync(path.join(ROOT, COPIES[1]), 'utf8'))
-  })
-
   it.each(COPIES)('in %s, once filled in, is parsed by the implement build into every section', (copy) => {
     const result = build(fillPlaceholders(skeletonIn(copy)))
+    const p = (n: number): string => `p${PLACEHOLDERS_BEFORE_EFFORT[copy] + n}`
 
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({
       task: 'p1',
-      effort: 'p4',
-      design: '- p6',
-      acceptance: ['p7', 'p9'],
-      witnesses: [{ criterion: 'p7', command: 'p8' }, { criterion: 'p9', command: 'p10' }],
-      invariants: ['p11'],
-      immutable: ['p12', 'p13'],
+      effort: p(1),
+      design: `- ${p(3)}`,
+      acceptance: [p(4), p(6)],
+      witnesses: [{ criterion: p(4), command: p(5) }, { criterion: p(6), command: p(7) }],
+      invariants: [p(8)],
+      immutable: [p(9), p(10)],
     })
   })
 
-  it.each(COPIES)('in %s, once filled in, names its sketch on the line the launcher reads', (copy) => {
-    const text = canonicalImplementText(fillPlaceholders(skeletonIn(copy)))!
+  it('in the factory copy, once filled in, names its sketch on the line the launcher reads', () => {
+    const text = canonicalImplementText(fillPlaceholders(skeletonIn(FACTORY_COPY)))!
 
     expect(parseSketch(text)).toEqual({ kind: 'branch', branch: 'p2', sha: '3'.padStart(40, '0') })
   })
 
-  it.each(COPIES)('in %s, filled in with the no-sketch form it documents, is read by the launcher as a clean start', (copy) => {
-    const lines = fillPlaceholders(skeletonIn(copy)).split('\n')
-    lines[1] = noSketchLineIn(copy)
+  it('in the factory copy, filled in with the no-sketch form it documents, is read by the launcher as a clean start', () => {
+    const lines = fillPlaceholders(skeletonIn(FACTORY_COPY)).split('\n')
+    lines[1] = noSketchLineIn(FACTORY_COPY)
 
     expect(parseSketch(canonicalImplementText(lines.join('\n'))!)).toEqual({ kind: 'none', reason: 'no sketch for this task' })
+  })
+
+  it('in the template copy, which ships to repositories with no launcher, carries no Sketch: line', () => {
+    expect(readFileSync(path.join(ROOT, TEMPLATE_COPY), 'utf8')).not.toContain('Sketch:')
   })
 
   it.each(COPIES)('in %s, pasted with its placeholders unfilled, is refused by the build', (copy) => {
