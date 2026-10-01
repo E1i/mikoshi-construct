@@ -14,3 +14,10 @@ characters of its `/implement` text for the owner. The one branch you commit and
 a commit, pushed after each milestone so that a stop does not lose it, and the line after the brief's `/implement` line
 names it, `Sketch: sketch/<task> @ <sha>`, so the ladder starts from it. When the brief needs an independent
 implementation as its witness, or no sketch was made, that line reads `Sketch: none — <reason>`.
+
+Mutations go only through `construct mutate apply` / `judge` (read `construct mutate --help` for the
+current flags), never through a hand-rolled copy and restore, and a red-on-base check runs in a
+disposable worktree, never by swapping files in the ladder's tree. A changed test is shown intact by a
+mutation it caught before the change, run on the old and the new version with the prediction written
+first; an agent's reading that a test was not weakened is not a witness. When an allow-list or an
+accepted set grows, construct the case the growth could mask and run it.
