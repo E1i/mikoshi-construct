@@ -1,10 +1,12 @@
 import type { Summary, TaskView } from './derive.js'
+import type { BudgetLine } from './eddies.js'
 import type { PrDetails } from './gh.js'
 import type { ModelMismatch } from './roles.js'
 import type { Age, NextOf, Row } from './row.js'
 import type { Paint } from './tone.js'
 import { stripVTControlCharacters } from 'node:util'
 import { FINISHED_SHOWN, FINISHED_SHOWN_HOURS, isSuperseded, stageText } from './derive.js'
+import { budgetSummary, budgetText } from './eddies.js'
 import { FRAME_FILE } from './frame.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { mismatchText } from './roles.js'
@@ -17,6 +19,7 @@ export interface BoardView {
   shown: TaskView[]
   summary: Summary
   windowMismatches: ModelMismatch[]
+  windowBudgetLines: BudgetLine[]
   edges: string[] | undefined
   details: Map<string, PrDetails>
   nextOf: NextOf
@@ -56,6 +59,7 @@ export const DEFINITIONS = [
   `# shown: tasks whose live attempt is running, waiting or blocked, and the last ${FINISHED_SHOWN} merged or reported, each only while it merged or reported within the last ${FINISHED_SHOWN_HOURS}h; --all shows every task`,
   '# superseded = a journal event:superseded names the attempt and the attempt that replaced it (by); a task whose live attempt is superseded is left out of the summary and the default list, and every superseded attempt out of --json\'s UNKNOWN tally; --all lists it, NEXT reads — (superseded); its card names the successor, as --json does',
   '# model-mismatch = a line of .construct/roles.jsonl, written when a subagent ran on a model outside the one its .claude/agents definition names (the parent session\'s model when it names none or inherit); a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
+  '# eddies = a budget-stop or budget-warn line of .construct/eddies.jsonl, written by the Eddies hook when a session, agent or workflow run reached a threshold of .claude/eddies.json or its warnRatio share; a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
   '# edge = contour.after of the Shredder matrix a tasks file names; UNKNOWN without one',
   ROW_DEFINITION,
 ]
@@ -134,10 +138,16 @@ function mismatchSummaryLines(view: BoardView): string[] {
   return total === 0 ? [] : [`model-mismatch ${total}: window ${view.windowMismatches.length}, tasks ${inTasks} (a role ran on a model its definition does not name; .construct/roles.jsonl)`]
 }
 
+function budgetSummaryLines(view: BoardView): string[] {
+  const byWorktree = new Map(view.tasks.flatMap(task => task.attempts).map(attempt => [attempt.attempt.worktree ?? attempt.attempt.id, attempt.attempt.budgetLines]))
+  return budgetSummary(view.windowBudgetLines, [...byWorktree.values()].flat())
+}
+
 export function renderBoard(view: BoardView): string[] {
   return [
     summaryLine(view.summary),
     ...mismatchSummaryLines(view),
+    ...budgetSummaryLines(view),
     ...hiddenLines(view),
     ...tableLines(view.shown.map(task => rowOf(task, view.nextOf, view.now)), view.paint),
   ]
@@ -154,6 +164,8 @@ function attemptLines(task: TaskView, details: Map<string, PrDetails>): string[]
     }
     for (const mismatch of view.attempt.modelMismatches)
       lines.push(`    ${mismatchText(mismatch)}`)
+    for (const budget of view.attempt.budgetLines)
+      lines.push(`    ${budgetText(budget)}`)
   }
   return lines
 }
