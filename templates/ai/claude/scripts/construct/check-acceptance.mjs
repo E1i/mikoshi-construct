@@ -1,7 +1,6 @@
-import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
-import { readFileSync, realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +14,9 @@ const QUOTED_COMMAND = /^`[\s\S]+`$/
 const WITNESS_MARKER = '— witness:'
 const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
 const CONTRACT_CHECK_LINE = /^Contract check:(.*)$/m
+const IMPLEMENT_LINE = /^\/implement /m
+const SHA256_HEX = /^[0-9a-f]{64}$/
+const WITNESS_INDEX = /^\d+$/
 
 export class InputError extends Error {}
 
@@ -131,12 +133,18 @@ function bashSyntaxProblem(command) {
   return result.status === 0 ? null : (result.stderr ?? '').trim()
 }
 
+function sha256Hex(content) {
+  return crypto.createHash('sha256').update(content).digest('hex')
+}
+
 function witnessDigest({ criterion, command }) {
-  return {
-    criterion,
-    base64: Buffer.from(command, 'utf8').toString('base64'),
-    sha256: crypto.createHash('sha256').update(command, 'utf8').digest('hex'),
-  }
+  return { criterion, sha256: sha256Hex(command) }
+}
+
+export function canonicalImplementText(text) {
+  const index = text.search(IMPLEMENT_LINE)
+  const implementText = index === -1 ? `${IMPLEMENT_PREFIX}${text}` : text.slice(index)
+  return implementText.replace(/\n+$/, '')
 }
 
 export function buildArgs(text) {
@@ -155,6 +163,7 @@ export function buildArgs(text) {
   return {
     task: briefTask(text),
     effort: briefEffort(text),
+    agreedSha256: sha256Hex(canonicalImplementText(text)),
     acceptance: agreed.map(item => item.criterion),
     witnesses: agreed.map(({ criterion, command }) => ({ criterion, command })),
     witnessDigests: agreed.map(witnessDigest),
@@ -309,11 +318,30 @@ export function check(argv) {
   }
 }
 
+function optionalValue(argv, name) {
+  const index = argv.indexOf(name)
+  return index === -1 ? null : argv[index + 1] ?? null
+}
+
+export function argsHandle(argsPath, json) {
+  const { witnesses, design, ...rest } = JSON.parse(json)
+  return { argsPath, argsSha256: sha256Hex(json), ...rest, hasDesign: design != null }
+}
+
+function writeArgs(argsPath, json) {
+  mkdirSync(path.dirname(argsPath), { recursive: true })
+  writeFileSync(argsPath, json)
+}
+
 export function build(argv) {
   try {
     const text = readInput(option(argv, '--brief'))
-    const args = { ...buildArgs(text), harness: repositoryHarness(process.cwd()) }
-    return { code: 0, stdout: [JSON.stringify(args)], stderr: [] }
+    const argsPath = optionalValue(argv, '--out')
+    const json = JSON.stringify({ ...buildArgs(text), harness: repositoryHarness(process.cwd()) })
+    if (argsPath == null)
+      return { code: 0, stdout: [json], stderr: [] }
+    writeArgs(argsPath, json)
+    return { code: 0, stdout: [JSON.stringify(argsHandle(argsPath, json))], stderr: [] }
   }
   catch (error) {
     if (error instanceof InputError)
@@ -322,15 +350,66 @@ export function build(argv) {
   }
 }
 
+function readBytes(file) {
+  try {
+    return readFileSync(file)
+  }
+  catch (error) {
+    throw new InputError(`cannot read ${file}: ${error.message}`)
+  }
+}
+
+function witnessCommand(argv) {
+  const file = option(argv, '--args')
+  const expected = option(argv, '--sha256')
+  const index = option(argv, '--n')
+  const bytes = readBytes(file)
+  if (!SHA256_HEX.test(expected))
+    throw new InputError(`--sha256 ${expected} is not 64 hex characters`)
+  const actual = sha256Hex(bytes)
+  if (actual !== expected)
+    throw new InputError(`${file} has sha256 ${actual}, and the run was given ${expected}`)
+  let args
+  try {
+    args = JSON.parse(bytes.toString('utf8'))
+  }
+  catch (error) {
+    throw new InputError(`${file} is not valid JSON: ${error.message}`)
+  }
+  const witnesses = Array.isArray(args?.witnesses) ? args.witnesses : []
+  const n = WITNESS_INDEX.test(index) ? Number(index) : 0
+  if (n < 1 || n > witnesses.length || typeof witnesses[n - 1]?.command !== 'string')
+    throw new InputError(`--n ${index} is not a witness of ${file}: it holds ${witnesses.length}`)
+  return witnesses[n - 1].command
+}
+
+export function witness(argv) {
+  try {
+    return { code: 0, stdout: [witnessCommand(argv)], stderr: [] }
+  }
+  catch (error) {
+    if (error instanceof InputError)
+      return { code: 2, stdout: [], stderr: [error.message] }
+    throw error
+  }
+}
+
+const MODES = { build, witness }
+
 function isEntry() {
   return process.argv[1] != null && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 }
 
 if (isEntry()) {
   const [mode, ...rest] = process.argv.slice(2)
-  const result = mode === 'build' ? build(rest) : check(process.argv.slice(2))
-  for (const line of result.stdout)
-    process.stdout.write(`${line}\n`)
+  const result = Object.hasOwn(MODES, mode) ? MODES[mode](rest) : check(process.argv.slice(2))
+  if (mode === 'witness') {
+    process.stdout.write(result.stdout.join(''))
+  }
+  else {
+    for (const line of result.stdout)
+      process.stdout.write(`${line}\n`)
+  }
   for (const line of result.stderr)
     process.stderr.write(`${line}\n`)
   process.exitCode = result.code

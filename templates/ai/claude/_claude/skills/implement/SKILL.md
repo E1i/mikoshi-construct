@@ -25,21 +25,26 @@ repository's CLAUDE.md and `construct.json`.
    already exists, the Ghost launcher wrote it from the approved brief before this session: use it as
    it is and never rewrite it, not even from `$ARGUMENTS`. Otherwise write `$ARGUMENTS` verbatim there
    (create the directory if needed). Then run
-   `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json`.
-   The build prints the whole args object: `task` (the brief's first line, without a leading
-   `/implement `), `effort` (the first word after `Effort:`), `acceptance`, `witnesses`,
-   `witnessDigests`, `invariants`, `immutable`, `harness` and, when the brief carries a `Design:`
-   section, `design` as `args.design` (its body, verbatim). A label counts at the start of a line or right after the
+   `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt --out .construct/implement-args.json`.
+   The build writes the whole args object to that file as one line of JSON: `task` (the brief's first
+   line, without a leading `/implement `), `effort` (the first word after `Effort:`), `agreedSha256`
+   (the sha256 of the agreed `/implement` text, by the rule `pnpm ghosts:hash` uses, so on a Ghost it
+   is the approved hash), `acceptance`, `witnesses`, `witnessDigests`, `invariants`, `immutable`,
+   `harness` and, when the brief carries a `Design:` section, `design` (its body, verbatim). On stdout
+   it prints the handle, one line of JSON: `argsPath`, `argsSha256` (the sha256 of the bytes it
+   wrote), every field of the file except `witnesses` and `design`, and `hasDesign`. The handle is
+   what the Workflow receives; the file is what the agents read, pinned by its hash. A label counts at the start of a line or right after the
    end of a sentence; the same word elsewhere in prose, or inside backticks, is text. The brief splits
    what it asks for in two. **Acceptance** is red before the change and green after it, and it is the
    gate: each item ends with its witness, `— witness: \`<command>\``, a command that exits non-zero on
    the base and zero after the change. The witness is fixed in the brief before the run (0027); the
-   build carries it into `args.witnesses` as `{ "criterion": ..., "command": ... }` verbatim (double
-   spaces, tabs and newlines inside the backticks survive), refuses one `bash -n` rejects before
-   calling any agent, and carries its base64 and sha256 into `args.witnessDigests` as `{ "criterion":
-   ..., "base64": ..., "sha256": ... }` of the raw command, never the normalised criterion; the
-   implementer refers to `args.witnesses`, and the harness agent only ever sees `args.witnessDigests`'
-   base64, never the raw command, so it cannot run anything but what the brief fixed. **Invariants**
+   build carries it into the file's `witnesses` as `{ "criterion": ..., "command": ... }` verbatim
+   (double spaces, tabs and newlines inside the backticks survive), refuses one `bash -n` rejects
+   before calling any agent, and carries its sha256 into `witnessDigests` as `{ "criterion": ...,
+   "sha256": ... }` of the raw command, never the normalised criterion. The implementer reads
+   `witnesses` from the file, and the harness agent never sees a command: it extracts each one with
+   `node scripts/construct/check-acceptance.mjs witness --args <argsPath> --sha256 <argsSha256> --n N`,
+   which refuses a file whose sha256 differs, so it cannot run anything but what the brief fixed. **Invariants**
    are green before and after, such as "the harness is
    green"; the harness holds them and they reach `args.invariants` unwitnessed. An item the base
    already satisfies belongs in invariants, because it can never be witnessed red. **Immutable** names
@@ -67,8 +72,8 @@ repository's CLAUDE.md and `construct.json`.
    `.construct/runs.jsonl`, because there is no Workflow run identifier and step 4 forbids inventing
    one. On exit `0`, call the Workflow tool with `scriptPath` set to
    `scripts/construct/implement.workflow` (the ladder script lives with the project's scripts, not
-   under `.claude/`) and `args` set to the JSON in `.construct/implement-args.json`, unchanged: never
-   add, rewrite, merge or drop an item. The one field you may add is `retryLimit`. It is optional
+   under `.claude/`) and `args` set to the handle the build printed on stdout, unchanged, never the
+   file's content: never add, rewrite, merge or drop an item. The one field you may add is `retryLimit`. It is optional
    and defaults to `0`: a rejected response is not re-asked, and the run stops with the validator's
    error so a person reads it. Each retry is a whole new agent call that repeats the agent's
    exploration from scratch — measured at roughly three million billable tokens for an architect —
@@ -82,6 +87,9 @@ repository's CLAUDE.md and `construct.json`.
    implementer's transcript in the session's `subagents/workflows/<run>/` shows whether it received
    anything besides the computed prompt. Note the run identifier the
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
+   The harness agent reports, on every call, the sha256 that `shasum -a 256 <argsPath>` prints as
+   `argsSha256`, and the ladder compares it with the handle's before it reads anything else of the
+   verdict.
    The design step runs inside the ladder, not before it, and its outcome is one of the `attempts`
    like any other. The statuses a run can return are:
    - `done` — a rung changed files, passed the harness, had every acceptance item's witness from the
@@ -111,6 +119,11 @@ repository's CLAUDE.md and `construct.json`.
      acceptance item with no witness; `question` carries it verbatim.
    - `base red` — the harness was red on the base before any change, so no rung ran; `lastFailure`
      carries the excerpt. Make the base green, or name what is red on purpose, before running again.
+   - `args unverified` — the harness reported an `argsSha256` other than the handle's: the file the
+     agents read is not the file the build wrote. At preflight no rung ran, and the one attempt is a
+     rung-0 `args mismatch`; at a verify the run stops at that rung with an `args mismatch` attempt,
+     with no higher rung and no design step. `validationError` names the file and both hashes. Build
+     again and pass the handle it prints.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
      ran; `validationError` carries the validator's text. It is also the status of a rung whose
      witness is invalid (outcome `witness invalid`, checked after a witness not run verbatim and
@@ -131,7 +144,7 @@ repository's CLAUDE.md and `construct.json`.
    - `effort` — the class the run performed: the result's `effort` when it carries one, and only
      then the class you chose in step 1. A run whose design step did not complete is never written
      down as `high`; the result has already degraded it.
-   - `status` — the result's status verbatim, one of the eight in step 3.
+   - `status` — the result's status verbatim, one of the nine in step 3.
    - `rung` — the effort of the rung that finished: `effort` from the result when it carries one,
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,
@@ -139,7 +152,7 @@ repository's CLAUDE.md and `construct.json`.
      rung that changed nothing (`no change`), from a rung that changed an immutable path
      (`immutable changed`), from a rung that changed source with no test (`untested change`), from a
      rung whose declared contract check was red, unreported or another command (`contract check failed`), from an
-     invalid witness (`witness invalid`), from an acceptance not witnessed, from a blocked report and from a design the schema rejected.
+     invalid witness (`witness invalid`), from an args file whose hash differs (`args mismatch`), from an acceptance not witnessed, from a blocked report and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:
      - `stopped` / `environment` — it was failing on something outside the task, such as the
@@ -164,7 +177,8 @@ repository's CLAUDE.md and `construct.json`.
    `construct cost` reconciles it against the runtime instead of trusting it. `.construct/` is
    gitignored, or excluded through `.git/info/exclude` in an attached repository.
 5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
-   files changed, and the harness tail. Put the result's `acceptance` — the items the ladder received,
+   files changed, and the harness tail. A `done` result carries `argsSha256` and `agreedSha256`; put
+   `agreedSha256` next to the approved hash when there is one. Put the result's `acceptance` — the items the ladder received,
    echoed verbatim — next to the agreed line, and name any agreed item missing from it. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed` or `base red`, give the last failure excerpt. When
    `design incomplete`, say that the design step did not complete, give `validationError` as the

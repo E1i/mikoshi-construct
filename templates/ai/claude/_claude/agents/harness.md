@@ -47,12 +47,18 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `baseInstall` — the install you ran in the base worktree and its exit code; an empty command and
   exit `-1` when none ran. A base that was not installed cannot witness anything, so report that
   rather than running the witnesses on it.
+- `argsSha256` — the 64 hex characters that `shasum -a 256 <argsPath>` prints, run in the working
+  tree, where `<argsPath>` is the args file the prompt names. Report what `shasum` printed, never the
+  hash the prompt gave you.
 - `witnesses` — one entry per witness the prompt names, empty when it names none. Make `<dir>` once,
   before the first witness, with `mktemp -d`, and write the absolute path it printed wherever `<dir>`
   stands: it lies outside the repository, so it still resolves after the `cd` into the base worktree
-  and adds no file to the working tree. Each witness is given to you only as base64, one script per
-  criterion, so you never choose or edit it: run exactly `printf %s <base64> | base64 --decode >
-  <dir>/witness-N.sh`, then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. Report
+  and adds no file to the working tree. The witnesses are held in the args file, never in the prompt,
+  so you never choose or edit one: in the working tree, before the base worktree is made, run exactly
+  `node scripts/construct/check-acceptance.mjs witness --args <argsPath> --sha256 <argsSha256> --n N >
+  <dir>/witness-N.sh`, then `shasum -a 256 <dir>/witness-N.sh`, then `bash <dir>/witness-N.sh`. The
+  extraction refuses a file whose sha256 is not the one given: when it exits non-zero, report that witness with `afterExitCode` 2, its stderr as `afterExcerpt` and
+  an empty `ranSha256`, and run nothing for it. Report
   the sha256 that `shasum` printed as `ranSha256`, `criterion` copied verbatim, `afterExitCode` and `afterExcerpt` (the script's exit code and last lines on the working tree),
   `baseExitCode` and `baseExcerpt` (its exit code and last lines in a worktree of its own at the base
   sha, created, installed and removed in one shell with the `trap` the prompt gives, so it goes even

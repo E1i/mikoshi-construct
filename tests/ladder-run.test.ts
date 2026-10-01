@@ -55,13 +55,16 @@ function witnessed(items: string[], outcome: { baseExitCode: number, afterExitCo
 
 const INSTALLED = { command: 'pnpm install --frozen-lockfile', exitCode: 0 }
 
+const ARGS_PATH = '.construct/implement-args.json'
+const ARGS_SHA256 = 'a'.repeat(64)
+
 const BASE_SHA = '36f7abc9815cea1962b05bcf98bdcec193ba9fc5'
 const TAUTOLOGY = 'test -f a.ts'
 
 const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '' }
 const BLOCKED = { status: 'blocked', summary: '', files: [], harnessTail: '', question: 'which of the two designs?' }
-const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
-const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses: [] }
+const GREEN = { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, argsSha256: ARGS_SHA256, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
+const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: '', testsWeakened: false, changedFiles: ['a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, argsSha256: ARGS_SHA256, witnesses: [] }
 
 function fixedWitnesses(items: string[]): { criterion: string, command: string }[] {
   return items.map(criterion => ({ criterion, command: WITNESS_COMMAND }))
@@ -84,7 +87,7 @@ async function run(args: Record<string, unknown>, replies: Record<string, Reply[
     return reply ?? null
   }
   const acceptance = (args.acceptance as string[] | undefined) ?? DEFAULT_ACCEPTANCE
-  const result = await ladder()({ harness: { command: 'pnpm run quality' }, acceptance, witnesses: fixedWitnesses(acceptance), witnessDigests: fixedWitnessDigests(acceptance), ...args }, agent, () => {}, () => {})
+  const result = await ladder()({ argsPath: ARGS_PATH, argsSha256: ARGS_SHA256, harness: { command: 'pnpm run quality' }, acceptance, witnesses: fixedWitnesses(acceptance), witnessDigests: fixedWitnessDigests(acceptance), ...args }, agent, () => {}, () => {})
   return { result, calls }
 }
 
@@ -448,7 +451,9 @@ describe('done needs every acceptance item witnessed red before the change and g
   it('shows the implementer the witnesses fixed before it started, as commands it does not choose', async () => {
     const { calls } = await run({ task: 'add a reader', effort: 'low' }, { implementer: [REPORT], harness: [GREEN] })
 
-    expect(calls[1].prompt).toContain(WITNESS_COMMAND)
+    expect(calls[1].prompt).toContain(ARGS_PATH)
+    expect(calls[1].prompt).toContain(ARGS_SHA256)
+    expect(calls[1].prompt).not.toContain(WITNESS_COMMAND)
     expect(calls[1].prompt).toContain('fixed in the brief')
   })
 
@@ -463,7 +468,7 @@ describe('done needs every acceptance item witnessed red before the change and g
 
   it('returns blocked and calls no agent when an acceptance item has no witness in the brief', async () => {
     const acceptance = ['the reader parses the file', 'an empty file reads unknown']
-    const { result, calls } = await run({ task: 'add a reader', effort: 'low', acceptance, witnesses: fixedWitnesses([acceptance[0]]) }, { implementer: [REPORT], harness: [GREEN] })
+    const { result, calls } = await run({ task: 'add a reader', effort: 'low', acceptance, witnessDigests: fixedWitnessDigests([acceptance[0]]) }, { implementer: [REPORT], harness: [GREEN] })
 
     expect(result.status).toBe('blocked')
     expect(result.question).toContain(acceptance[1])

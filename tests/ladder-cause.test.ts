@@ -71,10 +71,10 @@ describe('a run that ended without passing carries its cause, and no other run d
 
 describe('the /implement skill explains the stopped status and every cause', () => {
   for (const skill of SKILLS) {
-    it(`${skill} lists stopped as the eighth status and explains each cause per status`, () => {
+    it(`${skill} lists stopped as the ninth status and explains each cause per status`, () => {
       const text = readFileSync(path.join(REPO_ROOT, skill), 'utf8')
       expect(text).toContain('- `stopped`')
-      expect(text).toContain('one of the eight in step 3')
+      expect(text).toContain('one of the nine in step 3')
       expect(text).not.toContain('stopReason')
       for (const status of STATUSES_WITH_A_CAUSE) {
         for (const cause of CAUSES[status])

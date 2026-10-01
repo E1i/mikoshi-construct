@@ -35,6 +35,8 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `harnessTail` — the last lines of the harness output, empty when blocked.
 - `question` — the single question when blocked, otherwise empty.
 
-The acceptance is judged by witness commands fixed in the brief before you started; your prompt lists
-them. You do not choose, change or add a witness, and the run is done only when each one fails on the
+The acceptance is judged by witness commands fixed in the brief before you started. Your prompt names
+the args file that holds them as `witnesses[]` and its sha256: check the file with `shasum -a 256`
+before trusting what you read, and read the brief's design from the same file when the prompt says it
+has one. You do not choose, change or add a witness, and the run is done only when each one fails on the
 base and passes after your change. If a witness cannot be satisfied as written, say so in `question`.

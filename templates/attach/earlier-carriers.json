@@ -328,5 +328,30 @@
     "target": "scripts/construct/check-acceptance.mjs",
     "sha256": "3518ac090f6523b3e4461eab5943f283e90ed814d0bca278b62898ba41cb83f0",
     "date": "2026-09-28"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "7a05b65eb306ead23af9ca9139f80a8734d4322f933e3dc972304c65b1170e61",
+    "date": "2026-10-01"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "73b17ea17f9b8b783e1263f5e53821cf898e5dff7e9ac8a4955af06520fa3b86",
+    "date": "2026-10-01"
+  },
+  {
+    "target": ".claude/agents/implementer.md",
+    "sha256": "747f0587c6667190cb3765ba00349d92ad37448705b14f0b88ece1e044008067",
+    "date": "2026-10-01"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "f20045cef2c2f769a1af0f658ae8c907dbab5f09f69a7bdc5713628c5d6a93c2",
+    "date": "2026-10-01"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "651ba2a3122d60795b987d2c9f7967180972aaea847e69703d767db60e479bc1",
+    "date": "2026-10-01"
   }
 ]

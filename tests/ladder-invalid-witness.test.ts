@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
+const ARGS_PATH = '.construct/implement-args.json'
+const ARGS_SHA256 = 'a'.repeat(64)
 
 interface LadderResult {
   status: string
@@ -44,6 +46,7 @@ function verdict(observed: Observed, ranSha256 = SHA256): Record<string, unknown
     changedFiles: ['a.ts'],
     baseSha: '36f7abc9815cea1962b05bcf98bdcec193ba9fc5',
     baseInstall: { command: 'pnpm install --frozen-lockfile', exitCode: 0 },
+    argsSha256: ARGS_SHA256,
     witnesses: [{ criterion: CRITERION, command: COMMAND, ranSha256, ...observed }],
   }
 }
@@ -56,6 +59,8 @@ async function run(verdicts: Record<string, unknown>[]): Promise<{ result: Ladde
     return queues[options.agentType].shift() ?? null
   }
   const result = await ladder()({
+    argsPath: ARGS_PATH,
+    argsSha256: ARGS_SHA256,
     task: 't',
     effort: 'medium',
     harness: { command: 'pnpm run quality' },
