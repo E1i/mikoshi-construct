@@ -3,6 +3,7 @@ import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync,
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { appendRoleLine, expectedModel, familyOf, modelMismatches } from './role-definitions.mjs'
 
 export const TURN_JOURNAL_FILE = '.construct/turns.jsonl'
 
@@ -323,6 +324,25 @@ const HANDLERS = {
   SessionEnd: onSessionEnd,
 }
 
+function checkModels(root, input, line) {
+  const { session, agent, agentType } = line
+  const actual = line.usage.models
+  if (actual.length === 0)
+    return
+  try {
+    const expected = expectedModel(root, agentType, input.transcript_path)
+    if (familyOf(expected) == null) {
+      appendRoleLine(root, { kind: 'unread', hook: 'model-check', reason: 'expected-model-unknown', session, agent, agentType })
+      return
+    }
+    for (const mismatch of modelMismatches({ session, agent, agentType, expected, actual }))
+      appendRoleLine(root, mismatch)
+  }
+  catch (error) {
+    appendRoleLine(root, { kind: 'unread', hook: 'model-check', reason: plainName(error?.code) || 'check-error', session, agent, agentType })
+  }
+}
+
 function held(root, session, input) {
   const handler = Object.hasOwn(HANDLERS, input.hook_event_name) ? HANDLERS[input.hook_event_name] : null
   if (handler == null)
@@ -338,6 +358,8 @@ function held(root, session, input) {
     saveState(stateFile, state)
   if (out.length > 0)
     appendFileSync(path.join(root, TURN_JOURNAL_FILE), out.map(line => `${JSON.stringify(line)}\n`).join(''))
+  for (const line of out.filter(entry => entry.kind === 'subagent'))
+    checkModels(root, input, line)
 }
 
 export function record(root, input) {

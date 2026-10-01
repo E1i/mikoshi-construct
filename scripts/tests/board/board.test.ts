@@ -194,6 +194,54 @@ describe('board: the ledger stage reads the last line of the worktree ledger', (
   })
 })
 
+describe('board: a model-mismatch line of .construct/roles.jsonl shows on its task\'s card and in the summary', () => {
+  const MISMATCH = { v: 1, at: '2026-09-28T11:00:00.000Z', kind: 'model-mismatch', session: 's-1', agent: 'a-1', agentType: 'brief', expected: 'sonnet', actual: 'claude-fable-5-1' }
+
+  function roles(dir: string, lines: unknown[]): void {
+    mkdirSync(path.join(dir, '.construct'), { recursive: true })
+    writeFileSync(path.join(dir, '.construct', 'roles.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+  }
+
+  function scratch(): { dir: string, root: string } {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-roles-'))
+    cpSync(BASIC, dir, { recursive: true })
+    const root = path.join(dir, 'repo-root')
+    mkdirSync(root)
+    return { dir, root }
+  }
+
+  function boardWith(root: string, argv: string[]): string[] {
+    return runBoard(argv, { gh: stubGh(), now: NOW, defaultDir: path.join(FIXTURES, 'absent'), colour: false, repoRoot: root }).stdout
+  }
+
+  it('prints the mismatch under the attempt whose worktree recorded it, and counts the window\'s and the tasks\' in the summary', () => {
+    const { dir, root } = scratch()
+    try {
+      roles(path.join(dir, 'worktrees', 'alpha-2'), [MISMATCH, { ...MISMATCH, kind: 'no-snapshot' }])
+      roles(root, [MISMATCH, MISMATCH])
+
+      expect(attemptBlock(boardWith(root, ['--dir', dir, 'alpha-2']), 'alpha-2')).toContain('    model-mismatch brief expected sonnet, ran on claude-fable-5-1 (2026-09-28T11:00:00.000Z, session s-1)')
+      expect(boardWith(root, ['--dir', dir])[1]).toBe('model-mismatch 3: window 2, tasks 1 (a role ran on a model its definition does not name; .construct/roles.jsonl)')
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the board as it was when no model-mismatch line exists', () => {
+    const { dir, root } = scratch()
+    try {
+      roles(root, [{ ...MISMATCH, kind: 'no-snapshot' }])
+
+      expect(boardWith(root, ['--dir', dir])).toEqual(board(['--dir', dir]).stdout)
+      expect(boardWith(root, ['--dir', dir, 'alpha-2'])).toEqual(board(['--dir', dir, 'alpha-2']).stdout)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('board: the cheap path reads started, pr and merged from the journal event:path line, and ready from CI', () => {
   it.each([
     { id: 'c-journal', stage: 'started', expected: 'done 2026-09-28T07:00:00.000Z (journal event:path)' },

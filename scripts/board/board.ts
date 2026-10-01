@@ -9,6 +9,7 @@ import { colourFor } from './tone.js'
 
 const defaultDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
 const colour = colourFor(process.stdout.isTTY, process.env.NO_COLOR)
+const repoRoot = path.resolve(import.meta.dirname, '../..')
 
 function writeFrame(file: string, lines: string[]): void {
   try {
@@ -21,7 +22,7 @@ function writeFrame(file: string, lines: string[]): void {
 
 async function main(): Promise<void> {
   for (;;) {
-    const result = runBoard(process.argv.slice(2), { gh: execGh, now: new Date(), defaultDir, colour })
+    const result = runBoard(process.argv.slice(2), { gh: execGh, now: new Date(), defaultDir, colour, repoRoot })
     for (const line of result.stderr)
       process.stderr.write(`${line}\n`)
     const clear = result.everySeconds !== undefined && process.stdout.isTTY === true

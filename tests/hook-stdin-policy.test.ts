@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const eslint = new ESLint({ cwd: root })
 
-const HOOKS = ['.claude/hooks/turn-journal.mjs', 'templates/attach/_construct/commit-guard.mjs']
+const HOOKS = ['.claude/hooks/turn-journal.mjs', '.claude/hooks/role-guard.mjs', '.claude/hooks/role-definitions.mjs', 'templates/attach/_construct/commit-guard.mjs']
 
 const SYNCHRONOUS_READS: Record<string, string> = {
   'readFileSync(0)': `import { readFileSync } from 'node:fs'\nexport const text = readFileSync(0, 'utf8')\n`,
