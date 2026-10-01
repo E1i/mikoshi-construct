@@ -4,6 +4,14 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.32.0
+
+### Minor Changes
+
+- [#421](https://github.com/E1i/mikoshi-construct/pull/421) [`09e3180`](https://github.com/E1i/mikoshi-construct/commit/09e31805b8cf7ba7c5fb79e3d4509c053c2f71e0) Thanks [@E1i](https://github.com/E1i)! - templates: `/implement` starts from the sketch a brief names — the args carry the sketch's tree, a staged sketch is the expected base diff, anything beyond it is a red base, and a staged tree that is not the sketch's stops the run as unverified with both trees named
+
+- [#419](https://github.com/E1i/mikoshi-construct/pull/419) [`a54a139`](https://github.com/E1i/mikoshi-construct/commit/a54a139a498134cbcbd5da397283b658014f153d) Thanks [@E1i](https://github.com/E1i)! - cost: the ledger-row contour is 1.1 — a row may carry `agreedSha256` and `argsSha256`, each 64 lowercase hex, and `construct cost` refuses a row whose hash has another form, naming the field; rows without them read as before; step 4 of the /implement skill copies both from the build handle into the row
+
 ## 0.31.0
 
 ### Minor Changes
