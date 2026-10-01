@@ -26,6 +26,39 @@ name lives as long as the entry does. The exception is stated so that it does no
 rediscovered: **within a single entry, a directional reference is fine**, because nothing gets
 inserted between a paragraph and the lines above it in the same record. Between entries it is not.
 
+## 2026-10-01 · A path rule arrives after the first tool that touched the path
+
+**What was observed.** In an isolated probe project, a rule with `paths: templates/**` loaded for the main
+window after a Read of a file under that path. For a subagent started through the Agent tool it loaded once,
+after the first tool result and before the Write. For a role of a workflow run it loaded once, after both
+calls, because the Read and the Write came in the same response, so the Write went out before the rule was in
+context. After compaction the rule is attached again.
+
+**What it means here.** A rule scoped by `paths:` reaches a role with the result of the first tool call that
+touched the path, never before it. A role that reads and writes in one response makes its first write without
+the rule. That is why the Template conventions stayed in AGENTS.md and were not moved to a path rule.
+
+**Boundary.** One probe project, one rule, three kinds of reader. It says when the rule arrives; it says nothing
+about how often a role writes before it reads.
+
+## 2026-10-01 · An identical SessionStart context is deduplicated on resume; a changed one is added beside the old
+
+**What was observed.** In the same probe project, a SessionStart hook returned `additionalContext` of fixed text.
+On a fresh start the marker was in the model's context once (six sessions). On resume with the same text the
+hook fired and nothing was added (three resumes). On resume with changed text, both the old version, from the
+history, and the new one were in context (one session). After compaction the hook injected exactly once; in
+three of nine compactions the summary restated the hook's line, so the marker was seen twice, as one of four
+compactions did for CLAUDE.md text. Subagents and workflow roles received none.
+
+**What it means here.** If `architecture/window-core.md` changes between a session's start and its resume, two
+versions of it can coexist in one context. This is handled by the `window-core v1` line and the sentence beside
+it, which tells the reader that the higher version applies and to ask for a new session; there is no guard in
+code. It is of the class of #82: text the model holds in its context is not replaced by a later write. The hook
+prints the file text and nothing else, with no timestamp, so that the dedup applies.
+
+**Boundary.** Claude Code 2.1.286, one probe project, nine compactions. A restatement in a summary is a property
+of summaries, not of the delivery.
+
 ## 2026-09-28 · The witness procedure's first live run: it held; the report step did not
 
 **What was observed.** The fixed procedure from PR #301 and PR #307 — the harness decodes each witness

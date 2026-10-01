@@ -481,24 +481,9 @@ enforcement levels, the in-universe vocabulary, the discovery markers — lives 
 test reads it from there and asserts the document explains every member. The document is the second
 reader, never a second copy: a test that restates the list only proves the copy matches the copy.
 
-**An approved version pull request is a lock on `main`.** Once the workflow runs of a
-`changeset-release/main` pull request have been approved, nothing else merges to `main`. The
-changesets action keeps that branch in sync by force-pushing it whenever `main` moves, and a
-force-push discards the workflow approval already granted to it and restarts the required checks —
-with ten required contexts, every unrelated merge after approval costs the maintainer another approval
-and keeps the release unmergeable for longer. Before approval there is nothing to discard: a merge
-rebuilds the branch, which then carries both changesets into one release. Runs waiting at
-`action_required` mean the lock is not yet in force. Once it is, finished work waits on its branch
-until the release lands. Never approve the workflow runs on the release branch yourself: that approval
-is the human gate on the release path.
-
-No comments in source, including JSDoc. ESLint (`@antfu/eslint-config`) is the only formatter; fix
-style with `pnpm lint:fix`, never by hand. Tests live in `tests/`, never beside source, and every
-changed logic module ships its test in the same change. A fixture suite keeps its expectations in one
-table keyed by fixture name and loops over it, as the per-role table in the presets'
+A fixture suite keeps its expectations in one table keyed by fixture name and loops over it, as the per-role table in the presets'
 `syntax-policy.test.ts` does, so a fixture with no row or a row with no fixture is detectable. `detect`
 returns facts; anything that needs judgement is a discovery marker for the agent, not code in the CLI.
-Who commits depends on the scope: [AGENTS.md § Coordinating window](AGENTS.md#coordinating-window).
 
 ## User-facing lines
 
@@ -520,89 +505,7 @@ which the release pull request creates last; cite the record itself instead. Bef
 observation that cites a pull request, an issue or a record, open it and confirm it says what the
 entry claims.
 
-## Published claims
-
-Before a release note, a changeset, a README line or a record is published: a note that lands several
-changes leads with the order of actions, above all where honest new output looks like breakage; a
-claim that work already planned will make false is corrected in the change that lands that work; a
-stale figure is removed or given a producer, never re-typed with today's value; each claim is checked
-against what it rests on and whether that was verified outside this tree; a derived figure names every
-input, constants such as prices and rates included; and a change that makes a record authoritative
-instead of recomputed says that its errors now persist until both the artifact and the record are
-repaired.
-
-## Coordinating window
-
-The implementer inside the `/implement` ladder never commits (step 6 of the implement skill); the
-working tree it leaves is reviewed first. The coordinating window, the session working in
-E1i/mikoshi-construct on the owner's behalf, commits, pushes and merges under the merge-authority rules
-in [architecture/owner-merges.md](architecture/owner-merges.md); the kinds the owner merges are listed
-there, and nowhere else.
-
-- A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the
-  result, never chained with what it guards; then commit, push and open the pull request;
-  `gh pr update-branch <N> -R E1i/mikoshi-construct`; and
-  `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`.
-- A pull request of an owner-merged kind: gate it locally the same way, commit, push and open it; the
-  owner merges. It is ready when CI on its current head is green, and that is the whole definition:
-  ready is derived from CI, never announced as an event of its own. A later push, a merge of `main`
-  into the branch included, makes a new head, and the pull request is ready again only once CI on that
-  head is green. `pnpm board` derives ready the same way.
-- A change to the owner's machine — installing or upgrading anything outside a worktree (`brew`, `pipx`,
-  `npm i -g`, a Poetry or conda environment, a global config) — happens only after the owner's explicit
-  yes. An instruction to use a tool is not permission to install it: name what is missing and the
-  command that would install it, and wait.
-
-One task, one branch, one pull request, one changeset, and never a commit on `main`. Independent
-branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit
-prefix over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, never into
-branch names, and the launcher names a Ghost's branch itself. A change under `templates/`, or one that
-changes what the published CLI does for a user, is a `minor` changeset.
-
-Every agent message starts with its role in square brackets, on its own first line: `[miko]` for the
-window's messages to the owner; `[review:<task>]`, `[brief:<task>]` or `[scan:<task>]` for a
-subagent's final report, and every subagent prompt says which. A Ghost's report is to start
-`[ghost:<task-id>]`, a change to the implement skill that is pending in its own brief. A pull request
-is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
-and issue bodies.
-
-A question about the state of the work — "status", "what's there", "where are we", in any language — is answered as
-`/status` answers it ([.claude/commands/status.md](.claude/commands/status.md)). Every report on the state of tasks
-starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
-
-While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
-rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the
-tasks `board.txt` shows as running or waiting, read from the file at the moment of writing, never from the session's
-memory of them.
-
-The coordinating window stops at a boundary rather than at the limit. It checks the boundary after each finished step.
-The boundary is reached when the session's context reaches `contextLimit` or its spend reaches `sessionSpend`, both in
-`.claude/eddies.json`, or when a pull request of an owner-merged kind has just merged. From then on it takes no new work.
-It waits for the subagents it started itself, writes their results into the handoff, and stops. It does not wait for
-Ghosts: their state is in the ledger and the journal, and the next session reads it there. Eddies enforces the budget
-half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
-either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and
-records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. The merge half is not
-enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
-
-### Role definitions are read when a session starts
-
-A session reads the role definitions in `.claude/agents/**` once, when it starts; a pull inside the session does not
-reach the roles it launches. When a pull inside a session changes `.claude/agents/**`, the window launches no role in
-that session: it writes the handoff, and the work goes on in a new session. A night or other long prompt starts in a
-fresh session opened after the pull. A PreToolUse hook on the Agent tool enforces this by refusing a role once the
-definitions differ from what the session started with; this text only explains it.
-
-## Choosing the contour: cheap path or ladder path
-
-The principle is *The cheapest contour that gives the required proof* in
-[architecture/principles.md](architecture/principles.md), and the first step of `/plan`
-([.claude/commands/plan.md](.claude/commands/plan.md)) applies it: for each new task the contour is
-chosen before anything else, the cheap path (an ordinary session in its own worktree, `pnpm run
-quality`, a pull request and CI, with no brief, witnesses, mutations or Ghost) or the ladder path (a
-brief, witnesses and a Ghost). What fits each is listed there and not repeated here. The ladder is
-not the default, and the cheap path keeps its discipline: CI and
-[architecture/owner-merges.md](architecture/owner-merges.md) apply to it unchanged.
+## The path line and its verification word
 
 The journal, which lives outside the repository, gets one line per task naming the path and why it
 was chosen: `{"event":"path","task","path","reason",…}`, with `path` either `cheap` or `ladder`.
@@ -610,57 +513,3 @@ was chosen: `{"event":"path","task","path","reason",…}`, with `path` either `c
 that produced the knowledge its result stands on (E9 in [architecture/code-matrix.md](architecture/code-matrix.md)) —
 `measurement`, `code-reading`, `run`, `review`, `mutation`, `browser` or `human-gate`. A task whose
 outcome is a report and not a pull request records `report` with the report's path instead of `pr`.
-
-Morse is not introduced, and the classification is not designed in advance.
-
-After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
-This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
-keeps, changes or drops it.
-
-## Ghosts
-
-A Ghost, a ladder run in a session of its own, is started only by `pnpm ghosts:launch`, which checks
-the owner's approval against the brief's hash (`pnpm ghosts:hash`). There is no hand route around it.
-Approving a brief's hash is the permission to launch: the coordinating window then launches the Ghost
-itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`, which prints the
-decision and opens nothing.
-A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
-recorded as a row of the `policy` table in `status.md` before the session opens.
-A brief that produced a working sketch names it on the line after its `/implement` line,
-`Sketch: <branch> @ <sha>`, and the ladder starts from it: the launcher creates the worktree at that
-sha and moves HEAD back to `origin/main`, so the sketch is staged and the base the witnesses must be
-red on is still `origin/main`. The exception is a brief that wants an independent implementation as
-its witness, which says so, `Sketch: none — independent implementation is the witness`; a brief with
-neither line is refused. The sketch's sha is inside the approved text, so a sketch changed after
-approval needs a new approval, and a sketch cut from an older `origin/main` is refused until it is
-rebased and re-approved ([0043](architecture/decisions/0043-the-ladder-starts-from-the-sketch.md)).
-
-Window state lives in `status.md`, outside the repository, one row per window; each window edits only
-its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
-line `done` means the ladder finished, not that the tree was released, and until then others only read
-it. A row marked `(by A)` was written by window A on another window's behalf and stands until that
-window writes its own. Free writers are counted from the rows whose state is `free`. The `policy` table
-holds the owner's decisions; only the owner, or a window at the owner's explicit instruction, edits
-it, and a row whose condition is met gets "fulfilled, awaiting the owner's decision" appended, never a
-rewrite.
-
-A task is named by its component and its brief's version ("Launcher v0.1.1", "Ladder v5 (#271)"), an
-issue number only in parentheses. A launch attempt lives in the journal, never in the name, and a batch
-is named by its contents.
-
-## Reviewing a run
-
-A report on a pull request that changes `src/` or `templates/` ends with the compact matrix described in
-[architecture/code-matrix.md](architecture/code-matrix.md), over its four common rules and any the brief declares;
-on one that changes only `scripts/`, the matrix is optional.
-
-Mutations go only through `construct mutate apply` / `judge` (read `construct mutate --help` for the
-current flags), never through a hand-rolled copy and restore, and a red-on-base check runs in a
-disposable worktree, never by swapping files in the ladder's tree. A changed test is shown intact by a
-mutation it caught before the change, run on the old and the new version with the prediction written
-first; an agent's reading that a test was not weakened is not a witness. When an allow-list or an
-accepted set grows, construct the case the growth could mask and run it.
-
-The coordinating window gives the verdict. A small divergence from the brief is merged, with a
-follow-up issue that names it. Opening an issue is never forbidden, but once more than ten are open,
-the evening triage takes each one: close it, fold it into a wave, or drop it.
