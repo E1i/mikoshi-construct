@@ -108,9 +108,11 @@ function sampleDiff(at: string, base: JsonSample, head: JsonSample): Change[] {
   return [...valueDiff(`${at}.root`, base.root, head.root), ...setDiff(`${at}.keys`, base.keys, head.keys)]
 }
 
-function pairDiff(at: string, base: JsonSample | Unbaselined, head: JsonSample): Change[] {
+function pairDiff(at: string, base: JsonSample | Unbaselined, head: JsonSample | Unbaselined): Change[] {
   if (isUnbaselined(base))
     return [breaking(`${at}: unbaselined in the base (${base.unbaselined}), so it counts as changed`)]
+  if (isUnbaselined(head))
+    return [breaking(`${at}: unbaselined in the head (${head.unbaselined}), so it counts as changed`)]
   return sampleDiff(at, base, head)
 }
 
@@ -118,7 +120,7 @@ function blockPairs(markers: Surface['markers']): string[] {
   return markers.block.map(pair => pair.join(' … '))
 }
 
-const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K], Surface[K]> } = {
+const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K]> } = {
   commands: (at, base, head) => recordDiff(at, base, head, commandDiff),
   exits: (at, base, head) => recordDiff(at, base, head, exitTableDiff),
   jsonKeys: (at, base, head) => recordDiff(at, base, head, (command, states, next) => recordDiff(command, states, next, pairDiff)),
@@ -136,14 +138,17 @@ const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K], Surface[K]> } 
   outside: outsideDiff,
 }
 
-function sectionDiff<K extends Section>(section: K, base: SurfaceReading, head: Surface): Change[] {
+function sectionDiff<K extends Section>(section: K, base: SurfaceReading, head: SurfaceReading): Change[] {
   const recorded = base[section]
+  const observed = head[section]
   if (isUnbaselined(recorded))
     return [breaking(`${section}: unbaselined in the base (${recorded.unbaselined}), so every item in it counts as changed`)]
-  return SECTION_DIFF[section](section, recorded as SectionReadings[K], head[section])
+  if (isUnbaselined(observed))
+    return [breaking(`${section}: unbaselined in the head (${observed.unbaselined}), so every item in it counts as changed`)]
+  return SECTION_DIFF[section](section, recorded as SectionReadings[K], observed as SectionReadings[K])
 }
 
-export function requiredChange(base: SurfaceReading, head: Surface): RequiredChange {
+export function requiredChange(base: SurfaceReading, head: SurfaceReading): RequiredChange {
   const changes = SECTIONS.flatMap(section => sectionDiff(section, base, head))
   const level: ChangeLevel = changes.some(change => change.breaking) ? 'breaking' : changes.length > 0 ? 'additive' : 'none'
   return { level, reasons: changes.map(change => change.reason) }

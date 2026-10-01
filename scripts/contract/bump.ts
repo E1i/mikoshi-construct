@@ -16,7 +16,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const SURFACE_FILE = 'contract/surface.json'
 const UNVERSIONED_SURFACE = 1
 
-export interface BaseReading {
+export interface RefReading {
   reading: SurfaceReading
   note: string
 }
@@ -27,7 +27,9 @@ export interface TagObserver {
   observe: (worktree: string) => SurfaceReading
 }
 
-export type GenerateBase = (why: string) => BaseReading
+export type Role = 'base' | 'head'
+
+export type GenerateReading = (why: string) => RefReading
 
 export function baseTag(root: string): string {
   return execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
@@ -50,17 +52,17 @@ function surfaceVersionOf(recorded: object): number {
   return 'surfaceVersion' in recorded && typeof recorded.surfaceVersion === 'number' ? recorded.surfaceVersion : UNVERSIONED_SURFACE
 }
 
-function wholeBaseUnbaselined(reason: string): SurfaceReading {
+function wholeReadingUnbaselined(reason: string): SurfaceReading {
   return Object.fromEntries(SECTIONS.map(section => [section, unbaselined(reason)])) as SurfaceReading
 }
 
-export function baseReading(recorded: unknown, tag: string, generate: GenerateBase): BaseReading {
+export function refReading(recorded: unknown, ref: string, role: Role, generate: GenerateReading): RefReading {
   if (recorded == null || typeof recorded !== 'object')
-    return generate(`${tag} carries no ${SURFACE_FILE}`)
+    return generate(`${ref} carries no ${SURFACE_FILE}`)
   const version = surfaceVersionOf(recorded)
   if (version !== SURFACE_VERSION)
-    return generate(`${tag} carries ${SURFACE_FILE} of surfaceVersion ${version}, this generator writes ${SURFACE_VERSION}`)
-  return { reading: recorded as SurfaceReading, note: `${tag} carries ${SURFACE_FILE} of surfaceVersion ${SURFACE_VERSION}: it is the base` }
+    return generate(`${ref} carries ${SURFACE_FILE} of surfaceVersion ${version}, this generator writes ${SURFACE_VERSION}`)
+  return { reading: recorded as SurfaceReading, note: `${ref} carries ${SURFACE_FILE} of surfaceVersion ${SURFACE_VERSION}: it is the ${role}` }
 }
 
 function failedStep(worktree: string, observer: TagObserver): string | null {
@@ -85,15 +87,15 @@ function removeWorktree(root: string, worktree: string): void {
   execFileSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' })
 }
 
-export function generatedBase(root: string, tag: string, why: string, observer: TagObserver): BaseReading {
+export function generatedFromCode(root: string, tag: string, role: Role, why: string, observer: TagObserver): RefReading {
   const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-base-')))
   const worktree = path.join(scratch, 'tree')
   try {
     execFileSync('git', ['worktree', 'add', '--detach', worktree, tag], { cwd: root, stdio: 'ignore' })
     const failed = failedStep(worktree, observer)
     if (failed != null)
-      return { reading: wholeBaseUnbaselined(failed), note: `${why}; ${failed}: the whole base is unbaselined` }
-    return { reading: observer.observe(worktree), note: `${why}: the base is generated from ${tag}'s code` }
+      return { reading: wholeReadingUnbaselined(failed), note: `${why}; ${failed}: the whole ${role} is unbaselined` }
+    return { reading: observer.observe(worktree), note: `${why}: the ${role} is generated from ${tag}'s code` }
   }
   finally {
     removeWorktree(root, worktree)
@@ -128,18 +130,11 @@ export function isWeaker(declared: BumpLevel, required: BumpLevel): boolean {
   return BUMP_LEVELS.indexOf(declared) < BUMP_LEVELS.indexOf(required)
 }
 
-function base(root: string, tag: string): BaseReading {
-  return baseReading(tagSurface(root, tag), tag, why => generatedBase(root, tag, why, TAG_CLI))
+function readingAt(root: string, ref: string, role: Role): RefReading {
+  return refReading(tagSurface(root, ref), ref, role, why => generatedFromCode(root, ref, role, why, TAG_CLI))
 }
 
-function headSurface(root: string, ref: string): Surface {
-  const recorded = JSON.parse(gitShow(root, ref, SURFACE_FILE)) as Surface
-  if (recorded.surfaceVersion !== SURFACE_VERSION)
-    throw new Error(`${ref} carries ${SURFACE_FILE} of surfaceVersion ${String(recorded.surfaceVersion)}; a head must carry ${SURFACE_VERSION}`)
-  return recorded
-}
-
-function requiredLines(tag: string, reading: BaseReading, head: Surface, version: string): { required: BumpLevel, lines: string[] } {
+function requiredLines(tag: string, reading: RefReading, head: SurfaceReading, version: string): { required: BumpLevel, lines: string[] } {
   const change = requiredChange(reading.reading, head)
   const required = requiredLevel(change.level, version)
   return {
@@ -153,17 +148,17 @@ function requiredLines(tag: string, reading: BaseReading, head: Surface, version
 }
 
 function runPair(root: string, baseRef: string, headRef: string): number {
-  const head = headSurface(root, headRef)
+  const head = readingAt(root, headRef, 'head')
   const version = (JSON.parse(gitShow(root, headRef, 'package.json')) as { version: string }).version
-  const { lines } = requiredLines(baseRef, base(root, baseRef), head, version)
-  console.warn([...lines, `head ${headRef}: the declared level is not compared for an explicit --base/--head pair`].join('\n'))
+  const { lines } = requiredLines(baseRef, readingAt(root, baseRef, 'base'), head.reading, version)
+  console.warn([...lines, `head ${headRef}: ${head.note}`, `head ${headRef}: the declared level is not compared for an explicit --base/--head pair`].join('\n'))
   return 0
 }
 
 function run(root: string): number {
   const tag = baseTag(root)
   const head = JSON.parse(readFileSync(path.join(root, SURFACE_FILE), 'utf8')) as Surface
-  const { required, lines } = requiredLines(tag, base(root, tag), head, headVersion(root))
+  const { required, lines } = requiredLines(tag, readingAt(root, tag, 'base'), head, headVersion(root))
   const declared = declaredLevel(root, tag)
   lines.splice(2, 0, `declared: ${declared}`)
   if (isWeaker(declared, required)) {

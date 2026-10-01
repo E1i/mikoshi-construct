@@ -128,6 +128,17 @@ describe('requiredChange classifies the difference between two surfaces', () => 
     expect(change).toEqual({ level: 'breaking', reasons: ['jsonKeys.doctor.ok: unbaselined in the base (doctor ok printed no JSON), so it counts as changed'] })
   })
 
+  it('a section unbaselined in the head is breaking, and the reason names the section', () => {
+    const change = requiredChange(reading(fixtureSurface()), { ...reading(fixtureSurface()), markers: unbaselined('markers are not observable') })
+    expect(change).toEqual({ level: 'breaking', reasons: ['markers: unbaselined in the head (markers are not observable), so every item in it counts as changed'] })
+  })
+
+  it('a JSON pair unbaselined in the head is breaking, and the reason names its command, state and why', () => {
+    const head = reading(fixtureSurface())
+    const change = requiredChange(reading(fixtureSurface()), { ...head, jsonKeys: { doctor: { ...fixtureSurface().jsonKeys.doctor, ok: unbaselined('doctor ok printed no JSON') } } })
+    expect(change).toEqual({ level: 'breaking', reasons: ['jsonKeys.doctor.ok: unbaselined in the head (doctor ok printed no JSON), so it counts as changed'] })
+  })
+
   it('beside an unbaselined pair, every other pair is diffed on its own result', () => {
     const base = reading(fixtureSurface())
     const head = fixtureSurface()
