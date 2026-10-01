@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 export type ApprovalCheck
-  = | { ok: true, text: string }
+  = | { ok: true, text: string, sha256: string }
     | { ok: false, reason: string }
 
 export function extractImplementText(content: string): string | undefined {
@@ -75,5 +75,5 @@ export function checkApproval(briefPath: string): ApprovalCheck {
     }
   }
 
-  return { ok: true, text }
+  return { ok: true, text, sha256: expected }
 }

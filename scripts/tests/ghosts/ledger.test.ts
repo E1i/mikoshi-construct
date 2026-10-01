@@ -48,6 +48,12 @@ describe('readLadderOutcome', () => {
     expect(readLadderOutcome(runs, before)).toEqual({ status: 'done', run: 'run-1', iterations: 2 })
   })
 
+  it('carries the args hash the last new line names', () => {
+    const { runs } = runsPath()
+    writeFileSync(runs, `${row({ argsSha256: 'b'.repeat(64) })}\n`)
+    expect(readLadderOutcome(runs, 0)).toEqual({ status: 'done', run: 'run-1', iterations: 1, argsSha256: 'b'.repeat(64) })
+  })
+
   it.each([
     { name: 'a row with a cause on done', text: row({ cause: 'human' }), reason: 'missing or invalid: cause' },
     { name: 'a row of only status and run', text: JSON.stringify({ run: 'run-1', status: 'done' }), reason: 'missing or invalid: at, task, effort, rung, agents, toolUses, seconds, tokens, attempts' },

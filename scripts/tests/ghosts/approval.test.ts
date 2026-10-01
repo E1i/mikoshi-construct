@@ -84,6 +84,7 @@ describe('checkApproval', () => {
     const result = checkApproval(brief)
     expect(result.ok).toBe(true)
     expect(result.ok && result.text).toBe(canonicalImplementText(BRIEF))
+    expect(result.ok && result.sha256).toBe(sha256Hex(canonicalImplementText(BRIEF)!))
   })
 
   it('approves a brief that gained trailing newlines after approval', () => {
