@@ -119,6 +119,7 @@ is named by its contents.
 
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
+keeps, changes or drops it.
 
 ## Giving the verdict
 
