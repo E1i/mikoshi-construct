@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale'
 NUMERIC_ID=272
 SEALED_PATH_TAIL=/usr/bin:/bin
+CLEAN_SKETCH_LINE='Sketch: none — world fixture'
+CLEAN_SKETCH_REASON='world fixture'
 FAILING_EXIT=3
 
 fail() {
@@ -43,8 +45,21 @@ write_approval() {
   printf 'approved /implement text sha256: %s (2026-09-27, world)\n' "$(implement_sha "$1/handoff/brief-$2.md")" >"$1/handoff/brief-$2.approved-sha256"
 }
 
+sketch_line_for() {
+  local W=$1 id=$2 kind
+  kind=$(cat "$W/.world/kind")
+  if [ "$id" != g2 ]; then echo "$CLEAN_SKETCH_LINE"; return; fi
+  case $kind in
+    sketch | sketch-no-branch | sketch-stale) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
+    sketch-moved) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-parent")" ;;
+    sketch-no-line) echo '' ;;
+    *) echo "$CLEAN_SKETCH_LINE" ;;
+  esac
+}
+
 write_brief() {
-  local W=$1 id=$2 text
+  local W=$1 id=$2 text sketch_line
+  sketch_line=$(sketch_line_for "$W" "$id")
   cat >"$W/handoff/brief-$id.md" <<EOF
 # Brief $id (world fixture)
 
@@ -53,6 +68,7 @@ The header is not part of the approved text; the text below is sent as /implemen
 ---
 
 /implement Ghost $id: print \`hello $id\` with "double" and 'single' quotes; it's fine.
+$sketch_line
 
 Design:
 - A line with a backslash \\ and a dollar \$HOME that must stay literal.
@@ -234,6 +250,28 @@ $entries
 EOF
 }
 
+commit_sketch_in_seed() {
+  local W=$1 seed="$1/.world/seed" parent=$2
+  git_quiet -C "$seed" checkout -q --detach "$parent"
+  echo 'sketch g2' >"$seed/sketch.txt"
+  git_quiet -C "$seed" add sketch.txt
+  git_quiet -C "$seed" commit -m 'sketch g2'
+  git -C "$seed" rev-parse HEAD >"$W/.world/sketch-tip"
+  git -C "$seed" rev-parse "$parent" >"$W/.world/sketch-parent"
+  git_quiet -C "$seed" checkout -q main
+}
+
+make_sketch() {
+  local W=$1 kind=$2 seed="$1/.world/seed" parent=main
+  case $kind in sketch | sketch-no-branch | sketch-moved | sketch-stale) ;; *) return ;; esac
+  [ "$kind" = sketch-stale ] && parent='main~1'
+  commit_sketch_in_seed "$W" "$parent"
+  case $kind in
+    sketch-no-branch) ;;
+    *) git_quiet -C "$seed" push "$W/main" "$(cat "$W/.world/sketch-tip"):refs/heads/sketch/g2" ;;
+  esac
+}
+
 new_world() {
   local kind=$1 W
   case " $KINDS " in *" $kind "*) ;; *) echo "world.sh new: unknown kind '$kind' (one of: $KINDS)" >&2; exit 2 ;; esac
@@ -254,6 +292,8 @@ new_world() {
   git_quiet -C "$W/.world/seed" commit -am two
   git_quiet -C "$W/.world/seed" push origin HEAD:main
 
+  echo "$kind" >"$W/.world/kind"
+  make_sketch "$W" "$kind"
   ids_for_kind "$kind" >"$W/.world/ids"
   for id in $(ids_of "$W"); do write_brief "$W" "$id"; done
   case $kind in
@@ -297,6 +337,18 @@ output_has() {
   grep -qF -- "$2" "$1/launch.out" || fail "launch.out does not contain '$2'"
 }
 
+sketch_task_in() {
+  [ "$(cat "$1/.world/kind")" = sketch ] && [ "$2" = g2 ]
+}
+
+expected_sketch_description() {
+  if sketch_task_in "$1" "$2"; then
+    echo "from sketch sketch/g2 @ $(cut -c1-7 "$1/.world/sketch-tip")"
+  else
+    echo "clean tree ($CLEAN_SKETCH_REASON)"
+  fi
+}
+
 check_decision() {
   local W=$1 sha id
   [ -f "$W/launch.out" ] || fail "no $W/launch.out"
@@ -309,6 +361,7 @@ check_decision() {
     output_has "$W" "${sha:0:7}"
     output_has "$W" "$(approved_sha "$W/handoff/brief-$id.approved-sha256" | cut -c1-7)"
     output_has "$W" "$W/handoff/ghost-$id.jsonl"
+    output_has "$W" "@ ${sha:0:7} $(expected_sketch_description "$W" "$id"), report $W/handoff/ghost-$id.jsonl"
   done
 }
 
@@ -345,6 +398,18 @@ check_refused() {
     two-implement)
       check_refused_two_implement "$W"
       ;;
+    sketch-no-line)
+      output_has "$W" "task g2: $W/handoff/brief-g2.md: line 2 of the /implement text does not start with 'Sketch: '"
+      ;;
+    sketch-no-branch)
+      output_has "$W" "task g2: sketch branch sketch/g2 does not exist in $W/main"
+      ;;
+    sketch-moved)
+      output_has "$W" "task g2: sketch branch sketch/g2 is at $(cat "$W/.world/sketch-tip"), not the approved $(cat "$W/.world/sketch-parent")"
+      ;;
+    sketch-stale)
+      output_has "$W" "task g2: sketch $(cut -c1-7 "$W/.world/sketch-tip") does not contain origin/main $(origin_sha "$W" | cut -c1-7); rebase sketch/g2 onto origin/main and re-approve the brief"
+      ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
   esac
 }
@@ -366,6 +431,28 @@ check_refused_two_implement() {
   done < <(grep -F 'brief-g2.md' "$W/launch.out" || true)
   [ "$found" = yes ] || fail "no line of launch.out names brief-g2.md with the line numbers of its /implement lines ($numbers)"
   ! grep -qF 'brief-g1.md' "$W/launch.out" || fail "launch.out names brief-g1.md, whose one /implement line is approved: $(grep -F 'brief-g1.md' "$W/launch.out" | head -n 1)"
+}
+
+check_sketch() {
+  local W=$1 sha id wt unstaged
+  [ "$(kind_of "$W")" = sketch ] || fail "check-sketch applies to a sketch world only"
+  sha=$(origin_sha "$W")
+  for id in $(ids_of "$W"); do
+    wt="$W/wt-$id"
+    [ "$(git -C "$wt" rev-parse HEAD)" = "$sha" ] || fail "$id: HEAD is $(git -C "$wt" rev-parse HEAD), not origin/main $sha"
+    [ "$(git -C "$wt" rev-parse "ghost/$id")" = "$sha" ] || fail "$id: the branch ghost/$id is not at origin/main $sha"
+    unstaged=$(git -C "$wt" diff --name-only | grep -v '^\.construct/' || true)
+    [ -z "$unstaged" ] || fail "$id: unstaged changes outside .construct/: $unstaged"
+    if sketch_task_in "$W" "$id"; then
+      [ "$(git -C "$wt" diff --cached --name-only)" = sketch.txt ] || fail "$id: the staged paths are '$(git -C "$wt" diff --cached --name-only | tr '\n' ' ')', not sketch.txt"
+      [ "$(cat "$wt/sketch.txt")" = 'sketch g2' ] || fail "$id: sketch.txt in the worktree does not read 'sketch g2'"
+      [ "$(git -C "$wt" write-tree)" = "$(git -C "$W/main" rev-parse 'sketch/g2^{tree}')" ] || fail "$id: the index is not the tree of sketch/g2"
+      [ "$(git -C "$W/main" rev-parse sketch/g2)" = "$(cat "$W/.world/sketch-tip")" ] || fail "sketch/g2 moved"
+    else
+      [ -z "$(git -C "$wt" diff --cached --name-only)" ] || fail "$id: a clean-tree task has staged paths: $(git -C "$wt" diff --cached --name-only | tr '\n' ' ')"
+      [ ! -e "$wt/sketch.txt" ] || fail "$id: a clean-tree task has sketch.txt"
+    fi
+  done
 }
 
 check_launched() {
@@ -534,9 +621,9 @@ check_journal() {
   sha=$(origin_sha "$W")
   local pairs='' id
   for id in $(ids_of "$W"); do pairs="$pairs $id=$(session_of_or_null "$W" "$id")"; done
-  node - "$W" "$sha" "$(kind_of "$W")" $pairs <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
+  node - "$W" "$sha" "$(kind_of "$W")" "$(cat "$W/.world/sketch-tip" 2>/dev/null || true)" $pairs <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
 const fs = require('node:fs')
-const [W, sha, kind, ...pairs] = process.argv.slice(2)
+const [W, sha, kind, sketchTip, ...pairs] = process.argv.slice(2)
 const tasks = pairs.map(pair => pair.split('='))
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/journal-failure`, message); process.exit(1) }
 const journal = `${W}/handoff/ghosts.jsonl`
@@ -551,7 +638,7 @@ const seedLines = seed.split('\n').filter(line => line !== '').length
 const lines = text.split('\n').filter(line => line !== '').slice(seedLines)
 if (lines.length !== tasks.length) failWith(`${lines.length} lines appended to ${journal}, not ${tasks.length}`)
 const rows = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
-const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
+const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'sketch', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review']
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
 for (const [id, session] of tasks) {
@@ -576,6 +663,7 @@ for (const [id, session] of tasks) {
     task: id,
     session: noSession ? null : session,
     baseSha: sha,
+    sketch: kind === 'sketch' && id === 'g2' ? sketchTip : null,
     install: installFailed ? 1 : (installUnspawnable ? null : 0),
     exit: noSession ? null : (kind === 'failing' && id === 'g2' ? 3 : 0),
     ladder: noLadder ? 'no ladder run' : (kind === 'failing' && id === 'g2' ? 'failed' : 'done'),
@@ -621,11 +709,11 @@ case $CHECK in
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     remove_world "$W"
     ;;
-  check-decision | check-untouched | check-refused | check-launched | check-rows | check-report | check-ladder | check-install | check-journal | check-summary)
+  check-decision | check-untouched | check-refused | check-sketch | check-launched | check-rows | check-report | check-ladder | check-install | check-journal | check-summary)
     W=${2:?usage: world.sh $CHECK <world>}
     [ -f "$W/.world/kind" ] || fail "$W is not a world"
     fn=${CHECK#check-}
     "check_$fn" "$W"
     ;;
-  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh clean <world> | world.sh check-<decision|untouched|refused|launched|rows|report|ladder|install|journal|summary> <world>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new <${KINDS// /|}> | world.sh clean <world> | world.sh check-<decision|untouched|refused|sketch|launched|rows|report|ladder|install|journal|summary> <world>" >&2; exit 2 ;;
 esac

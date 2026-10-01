@@ -221,4 +221,27 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
     world('check-summary', w)
   })
+
+  it('starts a task from its sketch: HEAD at origin/main, the sketch staged, the journal naming its sha', () => {
+    const w = world('new', 'sketch')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+    world('check-sketch', w)
+    world('check-journal', w)
+  })
+
+  it.each([
+    { title: 'refuses a brief with no Sketch: line before any listing', kind: 'sketch-no-line' },
+    { title: 'refuses a sketch whose branch does not exist', kind: 'sketch-no-branch' },
+    { title: 'refuses a sketch whose branch tip is not the approved sha', kind: 'sketch-moved' },
+    { title: 'refuses a sketch that does not contain origin/main', kind: 'sketch-stale' },
+  ])('$title', ({ kind }) => {
+    const w = world('new', kind)
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(1)
+    world('check-refused', w)
+    world('check-untouched', w)
+  })
 })
