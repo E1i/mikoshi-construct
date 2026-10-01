@@ -1,6 +1,8 @@
+import type { ContourSchema } from '../scripts/contract/contours.js'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { violations } from '../scripts/contract/contours.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
@@ -8,49 +10,16 @@ const AGENT_DIRS = ['.claude/agents', 'templates/ai/claude/_claude/agents']
 const SCHEMA_OF_AGENT = { architect: 'SPEC', implementer: 'REPORT', harness: 'VERDICT' } as const
 const ROLE_AGENTS_OF_DIR: Record<string, string[]> = { '.claude/agents': ['brief', 'review', 'scan'] }
 
-interface Schema {
-  type: string
-  required?: string[]
-  properties?: Record<string, Schema>
-  items?: Schema
-  enum?: string[]
-}
-
 function read(file: string): string {
   return readFileSync(path.join(REPO_ROOT, file), 'utf8')
 }
 
-function schema(name: string): Schema {
+function schema(name: string): ContourSchema {
   const source = read(WORKFLOW)
   const literal = new RegExp(`^const ${name} = (\\{[\\s\\S]*?^\\})$`, 'm').exec(source)?.[1]
   expect(literal, `${name} is declared in ${WORKFLOW}`).toBeTruthy()
   // eslint-disable-next-line no-new-func
-  return new Function(`return (${literal})`)() as Schema
-}
-
-function violations(value: unknown, against: Schema, field: string): string[] {
-  if (against.type === 'object') {
-    if (value == null || typeof value !== 'object' || Array.isArray(value))
-      return [`${field}: expected an object`]
-    const record = value as Record<string, unknown>
-    return [
-      ...(against.required ?? []).filter(key => !(key in record)).map(key => `${key}: missing`),
-      ...Object.entries(against.properties ?? {}).flatMap(([key, property]) =>
-        key in record ? violations(record[key], property, key) : []),
-    ]
-  }
-  if (against.type === 'array') {
-    if (!Array.isArray(value))
-      return [`${field}: expected an array`]
-    return value.flatMap((entry, index) => violations(entry, against.items as Schema, `${field}[${index}]`))
-  }
-  if (against.type === 'boolean')
-    return typeof value === 'boolean' ? [] : [`${field}: expected a boolean`]
-  if (against.type === 'integer')
-    return Number.isInteger(value) ? [] : [`${field}: expected an integer`]
-  if (typeof value !== 'string')
-    return [`${field}: expected a string`]
-  return against.enum && !against.enum.includes(value) ? [`${field}: expected one of ${against.enum.join(', ')}`] : []
+  return new Function(`return (${literal})`)() as ContourSchema
 }
 
 const AWKWARD = '— an em dash, 🦾 an emoji, and a nested fence:\n```json\n{ "not": "the contract" }\n```\n'
@@ -152,26 +121,26 @@ describe('the schema survives awkward values', () => {
   for (const [name, fixture] of Object.entries(FIXTURES)) {
     it(`${name} accepts an em dash, an emoji and a nested triple-backtick sequence with no manual escaping`, () => {
       const target = schema(name)
-      expect(violations(fixture, target, name)).toEqual([])
-      expect(violations(JSON.parse(JSON.stringify(fixture)), target, name)).toEqual([])
+      expect(violations(fixture, target)).toEqual([])
+      expect(violations(JSON.parse(JSON.stringify(fixture)), target)).toEqual([])
       expect(JSON.parse(JSON.stringify(fixture))).toEqual(fixture)
     })
   }
 
   it('names the offending field when a value has the wrong type', () => {
-    expect(violations({ ...FIXTURES.REPORT, files: 'tests/agent-output-contract.test.ts' }, schema('REPORT'), 'REPORT'))
-      .toEqual(['files: expected an array'])
+    expect(violations({ ...FIXTURES.REPORT, files: 'tests/agent-output-contract.test.ts' }, schema('REPORT')))
+      .toEqual(['files: expected array'])
   })
 
   it('names the offending field when a value is outside the enum', () => {
-    expect(violations({ ...FIXTURES.REPORT, status: 'finished' }, schema('REPORT'), 'REPORT'))
-      .toEqual(['status: expected one of done, failed, blocked'])
+    expect(violations({ ...FIXTURES.REPORT, status: 'finished' }, schema('REPORT')))
+      .toEqual(['status: expected one of "done", "failed", "blocked"'])
   })
 
   it('names the offending field when it is missing', () => {
     const { diffStat, ...withoutDiffStat } = FIXTURES.VERDICT
     expect(diffStat).toBeTypeOf('string')
-    expect(violations(withoutDiffStat, schema('VERDICT'), 'VERDICT')).toEqual(['diffStat: missing'])
+    expect(violations(withoutDiffStat, schema('VERDICT'))).toEqual(['diffStat: missing'])
   })
 })
 

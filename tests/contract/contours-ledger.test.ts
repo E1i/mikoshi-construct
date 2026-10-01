@@ -1,0 +1,88 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { readContourSchema, schemaId, violations } from '../../scripts/contract/contours.js'
+import { LEDGER_FIELDS, parseLedgerLine } from '../../src/commands/cost/ledger.js'
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
+const SCHEMA_PATH = 'contract/contours/ledger-row.schema.json'
+const schema = readContourSchema('ledger-row')
+
+const BASE = {
+  run: 'wf_abc',
+  at: '2026-09-24T10:00:00.000Z',
+  task: 't',
+  effort: 'medium',
+  status: 'done',
+  rung: 'medium',
+  attempts: [{ rung: 1, effort: 'medium', outcome: 'passed', reason: '' }],
+  agents: 3,
+  tokens: 1,
+  toolUses: 2,
+  seconds: 3,
+}
+
+function row(changes: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...BASE, ...changes }
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === undefined)
+      delete merged[key]
+  }
+  return merged
+}
+
+const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
+  { name: 'done', row: row({}), holds: true },
+  { name: 'an absent run', row: row({ run: undefined }), holds: true },
+  { name: 'stopped by a human', row: row({ status: 'stopped', cause: 'human' }), holds: true },
+  { name: 'stopped by the environment', row: row({ status: 'stopped', cause: 'environment' }), holds: true },
+  { name: 'failed on the task', row: row({ status: 'failed', cause: 'task' }), holds: true },
+  { name: 'failed with no cause recorded', row: row({ status: 'failed' }), holds: true },
+  { name: 'tokens unknown', row: row({ tokens: 'unknown' }), holds: true },
+  { name: 'tokens from the runtime', row: row({ tokensSource: 'runtime' }), holds: true },
+  { name: 'an unknown status', row: row({ status: 'ascended' }), holds: true },
+  { name: 'an unknown top-level field', row: row({ ghost: true }), holds: true },
+  { name: 'a run that is a number', row: row({ run: 7 }), holds: false },
+  { name: 'an empty run', row: row({ run: '' }), holds: false },
+  { name: 'stopped with no cause', row: row({ status: 'stopped' }), holds: false },
+  { name: 'stopped with a task cause', row: row({ status: 'stopped', cause: 'task' }), holds: false },
+  { name: 'a cause on done', row: row({ cause: 'human' }), holds: false },
+  { name: 'failed with a human cause', row: row({ status: 'failed', cause: 'human' }), holds: false },
+  { name: 'tokens as a string', row: row({ tokens: '5' }), holds: false },
+  { name: 'a token source nobody declared', row: row({ tokensSource: 'guess' }), holds: false },
+  { name: 'no at', row: row({ at: undefined }), holds: false },
+  { name: 'no attempts', row: row({ attempts: undefined }), holds: false },
+  { name: 'an attempt with no reason', row: row({ attempts: [{ rung: 1, effort: 'medium', outcome: 'passed' }] }), holds: false },
+  { name: 'an attempt rung that is a word', row: row({ attempts: [{ rung: 'low', effort: 'medium', outcome: 'passed', reason: '' }] }), holds: false },
+  { name: 'agents as a string', row: row({ agents: '3' }), holds: false },
+]
+
+describe('the ledger row schema and parseLedgerLine give one verdict', () => {
+  it.each(ROWS)('on $name: holds is $holds', ({ row: value, holds }) => {
+    expect(violations(value, schema).length === 0, 'the schema').toBe(holds)
+    expect(typeof parseLedgerLine(JSON.stringify(value)) !== 'string', 'the reader').toBe(holds)
+  })
+
+  it('declares exactly the fields the reader knows', () => {
+    expect(Object.keys(schema.properties ?? {}).sort()).toEqual([...LEDGER_FIELDS].sort())
+    expect(schemaId(schema)).toBe('mikoshi-construct/contours/ledger-row/1')
+  })
+})
+
+describe('the documents that explain the ledger row', () => {
+  const docs = readFileSync(path.join(REPO_ROOT, 'docs/cli.md'), 'utf8')
+  const section = docs.slice(docs.indexOf('### The run ledger')).split(/^###? /m)[1] ?? ''
+  const skill = readFileSync(path.join(REPO_ROOT, '.claude/skills/implement/SKILL.md'), 'utf8')
+
+  it('has a table row for every field and points at the schema', () => {
+    expect(section).toContain(SCHEMA_PATH)
+    const rows = section.split('\n').filter(line => line.startsWith('| `'))
+    for (const field of LEDGER_FIELDS)
+      expect(rows.some(line => line.includes(`\`${field}\``)), `a table row for ${field}`).toBe(true)
+  })
+
+  it('is named field by field in step 4 of the implement skill', () => {
+    for (const field of LEDGER_FIELDS)
+      expect(skill, `step 4 names ${field}`).toContain(`\`${field}\``)
+  })
+})

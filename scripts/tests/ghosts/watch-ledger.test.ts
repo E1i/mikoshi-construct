@@ -10,6 +10,9 @@ function runsPath(): { dir: string, runs: string } {
   return { dir, runs: path.join(dir, '.construct', 'runs.jsonl') }
 }
 
+const ROW = { at: '2026-09-27T20:00:00.000Z', task: 'a run', effort: 'low', status: 'done', rung: 'low', attempts: [{ rung: 1, effort: 'low', outcome: 'done', reason: '' }], agents: 3, tokens: 100, toolUses: 4, seconds: 10 }
+const row = (fields: Record<string, unknown>): string => JSON.stringify({ ...ROW, ...fields })
+
 describe('readLedgerStage', () => {
   it('is null when the ledger is absent', () => {
     const { runs } = runsPath()
@@ -24,7 +27,7 @@ describe('readLedgerStage', () => {
 
   it('reads the status and run of the last non-empty line', () => {
     const { runs } = runsPath()
-    writeFileSync(runs, `${JSON.stringify({ run: 'run-old', status: 'done' })}\n${JSON.stringify({ run: 'run-g1', status: 'failed' })}\n`)
+    writeFileSync(runs, `${row({ run: 'run-old' })}\n${row({ run: 'run-g1', status: 'failed' })}\n`)
     expect(readLedgerStage(runs)).toEqual({ kind: 'entry', status: 'failed', run: 'run-g1' })
   })
 
@@ -33,18 +36,20 @@ describe('readLedgerStage', () => {
     { name: 'a whitespace-only last line', tail: '   ' },
   ])('reads $name as the ledger still being written', ({ tail }) => {
     const { runs } = runsPath()
-    writeFileSync(runs, `${JSON.stringify({ run: 'run-g1', status: 'done' })}\n${tail}`)
+    writeFileSync(runs, `${row({ run: 'run-g1' })}\n${tail}`)
     expect(readLedgerStage(runs)).toEqual({ kind: 'writing' })
   })
 
   it.each([
-    { name: 'a half-written line before the last', text: `{"run":"run-g1","sta\n${JSON.stringify({ run: 'run-g2', status: 'done' })}\n`, line: 1 },
-    { name: 'a whitespace-only line before the last', text: `   \n${JSON.stringify({ run: 'run-g2', status: 'done' })}\n`, line: 1 },
-    { name: 'a last line without status', text: `${JSON.stringify({ run: 'run-g1', status: 'done' })}\n${JSON.stringify({ run: 'run-g2' })}\n`, line: 2 },
-    { name: 'a last line without run', text: `${JSON.stringify({ run: 'run-g1', status: 'done' })}\n\n${JSON.stringify({ status: 'done' })}\n`, line: 3 },
-  ])('refuses $name, naming the file and the line number', ({ text, line }) => {
+    { name: 'a half-written line before the last', text: `{"run":"run-g1","sta\n${row({ run: 'run-g2' })}\n`, line: 1 },
+    { name: 'a whitespace-only line before the last', text: `   \n${row({ run: 'run-g2' })}\n`, line: 1 },
+    { name: 'a last line without status', text: `${row({ run: 'run-g1' })}\n${JSON.stringify({ run: 'run-g2' })}\n`, line: 2 },
+    { name: 'a last line without run', text: `${row({ run: 'run-g1' })}\n\n${row({ run: undefined })}\n`, line: 3 },
+    { name: 'a last line with a cause on done', text: `${row({ run: 'run-g1' })}\n${row({ run: 'run-g2', cause: 'human' })}\n`, line: 2 },
+    { name: 'a last line of only status and run', text: `${row({ run: 'run-g1' })}\n${JSON.stringify({ run: 'run-g2', status: 'done' })}\n`, line: 2 },
+  ])('refuses $name, naming the file, the line number and the schema', ({ text, line }) => {
     const { runs } = runsPath()
     writeFileSync(runs, text)
-    expect(() => readLedgerStage(runs)).toThrow(`${runs} line ${line} `)
+    expect(() => readLedgerStage(runs)).toThrow(`${runs} line ${line} is not a ledger row by contract/contours/ledger-row.schema.json (`)
   })
 })

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mikoshi-construct/contours/ledger-row/1",
+  "title": "Ledger row",
+  "description": "One line of .construct/runs.jsonl, appended by step 4 of the implement skill after an /implement run and read by construct cost, ghosts:launch, ghosts:watch and pnpm board through parseLedgerLine. It sets no additionalProperties, because a newer skill writes fields an older reader must pass over.",
+  "type": "object",
+  "required": ["at", "task", "effort", "status", "rung", "attempts", "agents", "toolUses", "seconds", "tokens"],
+  "properties": {
+    "run": { "type": "string", "minLength": 1 },
+    "at": { "type": "string", "minLength": 1 },
+    "task": { "type": "string", "minLength": 1 },
+    "effort": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "minLength": 1 },
+    "rung": { "type": "string", "minLength": 1 },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rung", "effort", "outcome", "reason"],
+        "properties": {
+          "rung": { "type": "number" },
+          "effort": { "type": "string", "minLength": 1 },
+          "outcome": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "cause": { "enum": ["environment", "human", "task"] },
+    "tokensSource": { "enum": ["runtime"] },
+    "agents": { "type": "number" },
+    "tokens": { "anyOf": [{ "type": "number" }, { "const": "unknown" }] },
+    "toolUses": { "type": "number" },
+    "seconds": { "type": "number" }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["status"], "properties": { "status": { "const": "stopped" } } },
+      "then": { "required": ["cause"], "properties": { "cause": { "enum": ["environment", "human"] } } }
+    },
+    {
+      "if": { "required": ["status"], "properties": { "status": { "const": "failed" } } },
+      "then": { "properties": { "cause": { "enum": ["environment", "task"] } } }
+    },
+    {
+      "if": { "required": ["status"], "properties": { "status": { "not": { "enum": ["stopped", "failed"] } } } },
+      "then": { "not": { "required": ["cause"] } }
+    }
+  ]
+}

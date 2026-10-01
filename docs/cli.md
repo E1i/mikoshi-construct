@@ -1381,17 +1381,23 @@ and nothing notices when it does not — so the ledger is **L0** on the scale `d
 record nobody is obliged to keep. Read it as a claim to be checked, never as a complete history of
 what ran. Decision 0003 records why it stops there.
 
+Each line holds `contract/contours/ledger-row.schema.json`, whose `$id` is recorded in the surface under
+`contours`. `construct cost`, `ghosts:launch`, `ghosts:watch` and `pnpm board` all read it through
+`parseLedgerLine`, and a malformed line is refused naming the field.
+
 Each line carries exactly these fields:
 
 | Field | Meaning |
 |---|---|
-| `run` | The Workflow run identifier the runtime reported for the run. This is the join key. |
+| `run` | The Workflow run identifier the runtime reported for the run. This is the join key. It is optional only because older entries exist; when present it is a non-empty string. |
 | `at` | ISO timestamp of the run. |
 | `task` | The task text, first 120 characters. |
 | `effort` | The effort class the caller chose before the run. |
-| `status` | `done`, `failed` or `blocked`. |
+| `status` | One of the nine statuses of step 3 of the skill: `done`, `degraded`, `design incomplete`, `failed`, `blocked`, `base red`, `args unverified`, `base unverified` or `stopped`. |
 | `rung` | The effort of the rung that finished. |
 | `attempts` | One object per attempt: `rung`, `effort`, `outcome`, and a `reason` separating an invalid response shape from a red harness from a blocked report. |
+| `cause` | Why a `stopped` or `failed` run ended without passing: `environment` or `human` for `stopped`, `environment` or `task` for `failed`. Required on `stopped`, optional on `failed`, forbidden on any other status. |
+| `tokensSource` | Optional. `runtime` when the token figure came from the runtime's stored record instead of the Workflow tool's accounting. |
 | `agents`, `tokens`, `toolUses`, `seconds` | The Workflow tool's accounting for the whole run. `tokens` may be the string `unknown`; it is never rewritten as `0`. |
 
 The Workflow tool reports accounting per run, not per agent, so the ledger declares no per-agent

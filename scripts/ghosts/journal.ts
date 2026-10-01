@@ -26,14 +26,17 @@ function withJournalLock<T>(task: () => Promise<T>): Promise<T> {
   return result
 }
 
-export async function appendJournalLine(journalPath: string, entry: JournalEntry): Promise<void> {
+export async function appendJournalEvent(journalPath: string, event: object): Promise<void> {
   await withJournalLock(async () => {
-    const line = JSON.stringify({
-      event: 'task',
-      ts: new Date().toISOString(),
-      ...entry,
-      review: null,
-    })
-    await appendFile(journalPath, `${line}\n`)
+    await appendFile(journalPath, `${JSON.stringify(event)}\n`)
+  })
+}
+
+export async function appendJournalLine(journalPath: string, entry: JournalEntry): Promise<void> {
+  await appendJournalEvent(journalPath, {
+    event: 'task',
+    ts: new Date().toISOString(),
+    ...entry,
+    review: null,
   })
 }

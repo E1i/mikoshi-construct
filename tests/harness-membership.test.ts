@@ -12,6 +12,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'dev': 'runs the CLI from source',
   'ghosts:hash': 'a hand-run tool for computing an approval hash; its own tests are its gate',
   'ghosts:launch': 'opens headless sessions after a human confirmation; its own tests are its gate',
+  'ghosts:verdict': 'appends one journal line after a review verdict file holds its schema and its digests; its own tests are its gate',
   'ghosts:watch': 'a read-only view of running sessions, not a verdict on a change',
   'docs:dev': 'a local server',
   'docs:preview': 'a local server',
