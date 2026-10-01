@@ -173,6 +173,10 @@ repository's CLAUDE.md and `construct.json`.
        for a stopped run.
    - `agents`, `tokens`, `toolUses`, `seconds` — the Workflow tool's own accounting for the run,
      exactly as it reported it. Write `"unknown"` for a token figure it did not report, never `0`.
+   - `agreedSha256`, `argsSha256` — the two hashes in the handle the build printed in step 2,
+     copied unchanged whatever the status, `stopped` included. Never take them from the result,
+     which carries them only on `done` and `degraded`, and never compute them again: they name the
+     agreed `/implement` text and the args file this run read.
    The ledger carries counts and reasons only — never a prompt, a response or any other message
    content. This log is what tunes the ladder later; workflow scripts have no filesystem access, so
    it is written here, not by the script. Nothing enforces this step: the ledger is L0, and
