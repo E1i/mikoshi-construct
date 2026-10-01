@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
