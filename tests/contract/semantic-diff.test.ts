@@ -114,6 +114,24 @@ describe('requiredChange classifies the difference between two surfaces', () => 
     expect(change.reasons).toContain('jsonKeys.doctor.ok.root: array → object')
   })
 
+  it('a contour schema whose $id changes is breaking, and the reason names the contour and both ids', () => {
+    const change = headChange((head) => {
+      head.contours['ledger-row'] = 'mikoshi-construct/contours/ledger-row/2'
+    })
+    expect(change).toEqual({ level: 'breaking', reasons: ['contours.ledger-row: mikoshi-construct/contours/ledger-row/1 → mikoshi-construct/contours/ledger-row/2'] })
+  })
+
+  it('a contour schema added is additive, and one removed is breaking', () => {
+    const added = headChange((head) => {
+      head.contours['review-verdict'] = 'mikoshi-construct/contours/review-verdict/1'
+    })
+    const removed = headChange((head) => {
+      delete head.contours['ledger-row']
+    })
+    expect(added).toEqual({ level: 'additive', reasons: ['contours.review-verdict added'] })
+    expect(removed).toEqual({ level: 'breaking', reasons: ['contours.ledger-row removed'] })
+  })
+
   it('a section unbaselined in the base is breaking, and the reason names the section', () => {
     const base = reading(fixtureSurface())
     const change = requiredChange({ ...base, exits: unbaselined('exit codes are not observable') }, fixtureSurface())
