@@ -235,3 +235,79 @@ describe('the turn journal hook', () => {
     expect(existsSync(path.join(root, '.construct', 'turns.d', 'sess-1.json'))).toBe(false)
   })
 })
+
+describe('the turn journal hook checks each subagent\'s model against the role definition on disk', () => {
+  const HAIKU = 'claude-haiku-4-5-20251001'
+  const SONNET = 'claude-sonnet-5-5'
+  const FABLE = 'claude-fable-5-1'
+
+  function modelled(request: string, model: string): string {
+    return `${JSON.stringify({ type: 'assistant', requestId: request, message: { role: 'assistant', model, usage: USAGE, content: [] } })}\n`
+  }
+
+  function define(root: string, name: string, frontmatter: string): void {
+    mkdirSync(path.join(root, '.claude', 'agents'), { recursive: true })
+    writeFileSync(path.join(root, '.claude', 'agents', `${name}.md`), `---\nname: ${name}\n${frontmatter}---\n\nA role.\n`)
+  }
+
+  function subagent(root: string, transcript: string, agent: string, agentType: string, model: string): void {
+    const file = path.join(root, `${agent}.jsonl`)
+    writeFileSync(file, modelled(`${agent}-r1`, model))
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: agent, agent_type: agentType, agent_transcript_path: file })
+  }
+
+  function mismatches(root: string): Journal[] {
+    const file = path.join(root, '.construct', 'roles.jsonl')
+    const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Journal) : []
+    return lines.filter(line => line.kind === 'model-mismatch')
+  }
+
+  it('writes one model-mismatch line for a role declared sonnet that ran on fable (W5)', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    subagent(root, transcript, 'a1', 'brief', FABLE)
+
+    expect(mismatches(root)).toEqual([expect.objectContaining({ v: 1, kind: 'model-mismatch', session: 'sess-1', agent: 'a1', agentType: 'brief', expected: 'sonnet', actual: FABLE })])
+  })
+
+  it('writes no line for a role declared sonnet that ran on sonnet, beside the one that did not (W6)', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    subagent(root, transcript, 'a1', 'brief', SONNET)
+    subagent(root, transcript, 'a2', 'brief', FABLE)
+
+    expect(mismatches(root).map(line => [line.agent, line.actual])).toEqual([['a2', FABLE]])
+  })
+
+  it('expects the parent session\'s model for a role with no model line: haiku under a haiku parent passes, fable does not (W7)', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', SONNET))
+    appendFileSync(transcript, modelled('r1', HAIKU))
+    define(root, 'scan', '')
+    subagent(root, transcript, 'a1', 'scan', HAIKU)
+    subagent(root, transcript, 'a2', 'scan', FABLE)
+
+    expect(mismatches(root).map(line => [line.agent, line.expected, line.actual])).toEqual([['a2', HAIKU, FABLE]])
+  })
+
+  it('reads model: inherit as the parent session\'s model', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'scan', 'model: inherit\n')
+    subagent(root, transcript, 'a1', 'scan', HAIKU)
+    subagent(root, transcript, 'a2', 'scan', SONNET)
+
+    expect(mismatches(root).map(line => [line.agent, line.expected, line.actual])).toEqual([['a2', HAIKU, SONNET]])
+  })
+
+  it('leaves the turn journal to the five kinds construct cost reads', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    subagent(root, transcript, 'a1', 'brief', FABLE)
+
+    expect(journal(root).map(line => line.kind)).toEqual(['subagent'])
+  })
+})

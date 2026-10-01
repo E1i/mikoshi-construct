@@ -12,6 +12,7 @@ import { readHandoff } from './handoff.js'
 import { boardJson } from './json.js'
 import { nextOf } from './next.js'
 import { DEFINITIONS, renderBoard, renderCard } from './render.js'
+import { readModelMismatches } from './roles.js'
 import { legendLines, painter } from './tone.js'
 
 export const PREFIX = '[board] '
@@ -25,6 +26,7 @@ export interface BoardDeps {
   now: Date
   defaultDir: string
   colour: boolean
+  repoRoot?: string
 }
 
 export interface BoardResult {
@@ -200,6 +202,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     tasks,
     shown,
     summary: summarize(tasks, deps.now),
+    windowMismatches: readModelMismatches(deps.repoRoot),
     edges: handoff.edges,
     details,
     nextOf: (attempt: AttemptView) => nextOf(attempt, details.get(attempt.attempt.id), kinds),
