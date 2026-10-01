@@ -73,4 +73,11 @@ describe('the factory /plan is the template plus what only the factory runs', ()
 
     expect(templateOf(text)).toBe(text)
   })
+
+  it.each([
+    ['line 3', '```text\n/implement <task>\n\nSketch: <branch> @ <40-hex sha>\nEffort: <class>\n```\n'],
+    ['line 4', '```text\n/implement <task>\n\nEffort: <class>\nSketch: <branch> @ <40-hex sha>\n```\n'],
+  ])('keeps a Sketch: line on %s of the skeleton, so the twin goes red on it', (_line, text) => {
+    expect(templateOf(text)).toBe(text)
+  })
 })
