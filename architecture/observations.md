@@ -2059,3 +2059,12 @@ rows fail.
 *contains* does not witness what running it *does*, and that a brief can fix the form of an output
 without stating the property the form was meant to give. It says nothing about how often briefs do
 that. A related gap from the same review, running attach again on an attached tree, is #388.
+
+## 2026-10-01 · window-core missing: the user-facing message is recorded, its display is not confirmed
+
+With `architecture/window-core.md` removed, the SessionStart hook of PR #417 exits 0. The session
+transcript then holds a `hook_system_message` attachment carrying `WINDOW-CORE MISSING: DO NOT COMMIT.
+DO NOT MERGE. STOP.` and the path that could not be read. Whether the interactive UI shows that message
+is not confirmed. The check needed the scratch folder to be trusted, and trusting it pre-approves
+`gh pr merge --auto` there through the folder's `.claude/settings.json`. The owner declined, so the
+check was not run.
