@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { canonicalImplementText } from '../scripts/ghosts/approval.js'
+import { parseSketch } from '../scripts/ghosts/sketch.js'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const SCRIPT = path.join(ROOT, 'scripts/construct/check-acceptance.mjs')
@@ -22,9 +24,21 @@ function skeletonIn(copy: string): string {
   return block![1]
 }
 
+const SKETCH_SHA_PLACEHOLDER = '<40-hex sha>'
+
 function fillPlaceholders(skeleton: string): string {
   let next = 0
-  return skeleton.replace(/<[^>]+>/g, () => `p${++next}`)
+  return skeleton.replace(/<[^>]+>/g, (placeholder) => {
+    next += 1
+    return placeholder === SKETCH_SHA_PLACEHOLDER ? next.toString(16).padStart(40, '0') : `p${next}`
+  })
+}
+
+function noSketchLineIn(copy: string): string {
+  const text = readFileSync(path.join(ROOT, copy), 'utf8')
+  const form = /`(Sketch: none — <reason>)`/.exec(text)
+  expect(form, copy).not.toBeNull()
+  return form![1].replace('<reason>', 'no sketch for this task')
 }
 
 function build(brief: string): { status: number | null, stdout: string, stderr: string } {
@@ -48,13 +62,26 @@ describe('the brief skeleton /plan outputs for a ladder-path task', () => {
     expect(result.status).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({
       task: 'p1',
-      effort: 'p2',
-      design: '- p4',
-      acceptance: ['p5', 'p7'],
-      witnesses: [{ criterion: 'p5', command: 'p6' }, { criterion: 'p7', command: 'p8' }],
-      invariants: ['p9'],
-      immutable: ['p10', 'p11'],
+      effort: 'p4',
+      design: '- p6',
+      acceptance: ['p7', 'p9'],
+      witnesses: [{ criterion: 'p7', command: 'p8' }, { criterion: 'p9', command: 'p10' }],
+      invariants: ['p11'],
+      immutable: ['p12', 'p13'],
     })
+  })
+
+  it.each(COPIES)('in %s, once filled in, names its sketch on the line the launcher reads', (copy) => {
+    const text = canonicalImplementText(fillPlaceholders(skeletonIn(copy)))!
+
+    expect(parseSketch(text)).toEqual({ kind: 'branch', branch: 'p2', sha: '3'.padStart(40, '0') })
+  })
+
+  it.each(COPIES)('in %s, filled in with the no-sketch form it documents, is read by the launcher as a clean start', (copy) => {
+    const lines = fillPlaceholders(skeletonIn(copy)).split('\n')
+    lines[1] = noSketchLineIn(copy)
+
+    expect(parseSketch(canonicalImplementText(lines.join('\n'))!)).toEqual({ kind: 'none', reason: 'no sketch for this task' })
   })
 
   it.each(COPIES)('in %s, pasted with its placeholders unfilled, is refused by the build', (copy) => {
