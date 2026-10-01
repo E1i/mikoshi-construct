@@ -242,6 +242,59 @@ describe('board: a model-mismatch line of .construct/roles.jsonl shows on its ta
   })
 })
 
+describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s card and in the summary (W10)', () => {
+  const STOP = { v: 1, event: 'budget-stop', level: 'session-context', reason: 'context 150001 >= contextLimit 150000', tool: 'Agent', spent: 150001, limit: 150000, session_id: 's-1', agent_id: null, run_id: null, at: '2026-10-01T11:00:00.000Z' }
+  const WARN = { ...STOP, event: 'budget-warn', level: 'agent', tool: undefined, spent: 1200000.4, limit: 1500000 }
+
+  function eddies(dir: string, lines: unknown[]): void {
+    mkdirSync(path.join(dir, '.construct'), { recursive: true })
+    writeFileSync(path.join(dir, '.construct', 'eddies.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+  }
+
+  function scratch(): { dir: string, root: string } {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-eddies-'))
+    cpSync(BASIC, dir, { recursive: true })
+    const root = path.join(dir, 'repo-root')
+    mkdirSync(root)
+    return { dir, root }
+  }
+
+  function boardWith(root: string, argv: string[]): string[] {
+    return runBoard(argv, { gh: stubGh(), now: NOW, defaultDir: path.join(FIXTURES, 'absent'), colour: false, repoRoot: root }).stdout
+  }
+
+  it('prints each stop and warning under the attempt whose worktree recorded it, and counts the window\'s and the tasks\' in the summary', () => {
+    const { dir, root } = scratch()
+    try {
+      eddies(path.join(dir, 'worktrees', 'alpha-2'), [STOP, WARN, { ...STOP, event: 'unread', reason: 'config-missing' }])
+      eddies(root, [STOP])
+
+      const block = attemptBlock(boardWith(root, ['--dir', dir, 'alpha-2']), 'alpha-2')
+      expect(block).toContain('    budget-stop session-context 150001 / 150000 on Agent (2026-10-01T11:00:00.000Z, session s-1)')
+      expect(block).toContain('    budget-warn agent 1200000 / 1500000 (2026-10-01T11:00:00.000Z, session s-1)')
+      expect(boardWith(root, ['--dir', dir])[1]).toBe('eddies: budget-stop 2, budget-warn 1: window 1/0, tasks 1/1 (stop/warn; .construct/eddies.jsonl)')
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the board byte for byte as it was when no budget line exists', () => {
+    const { dir, root } = scratch()
+    try {
+      eddies(root, [{ ...STOP, event: 'unread', reason: 'config-missing' }])
+      const views = [boardWith(root, ['--dir', dir]), boardWith(root, ['--dir', dir, 'alpha-2'])]
+
+      expect(views[0].join('\n')).toBe(board(['--dir', dir]).stdout.join('\n'))
+      expect(views[1].join('\n')).toBe(board(['--dir', dir, 'alpha-2']).stdout.join('\n'))
+      expect(views.flat().filter(line => /^eddies:|budget-(?:stop|warn) /.test(line.trim()))).toEqual([])
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('board: the cheap path reads started, pr and merged from the journal event:path line, and ready from CI', () => {
   it.each([
     { id: 'c-journal', stage: 'started', expected: 'done 2026-09-28T07:00:00.000Z (journal event:path)' },
