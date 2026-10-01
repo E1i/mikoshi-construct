@@ -83,6 +83,8 @@ export function markerFile(marker: DiscoveryMarker, compositionDir: string): str
       return compositionDir
     case 'security-invariants':
       return 'architecture/security-invariants.md'
+    case 'open-questions':
+      return 'architecture/open-questions.md'
     default:
       return 'AGENTS.md'
   }

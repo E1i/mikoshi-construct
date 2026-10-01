@@ -9,7 +9,7 @@ import { runInit } from '../src/commands/init.js'
 import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, SYNC_JSON_SCHEMA_VERSION, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
 import { factsTheRepositoryEstablishes } from '../src/detect/facts.js'
 import { DISCOVERY_MARKERS, MANIFEST_VERSION, markerFile, readManifest, sha256, writeManifest } from '../src/manifest.js'
-import { BLOCK_BEGIN, BLOCK_END } from '../src/materialize/strategies.js'
+import { BLOCK_BEGIN, BLOCK_END, discoveryTags } from '../src/materialize/strategies.js'
 import { isWritable, PATH_CLASSES } from '../src/sync/classify.js'
 import { ownedSha, ownedText } from '../src/sync/ownership.js'
 import { replay } from '../src/sync/replay.js'
@@ -81,6 +81,17 @@ function outsideTheBlock(content: string): [string, string] {
   return [content.slice(0, content.indexOf(BLOCK_BEGIN)), content.slice(content.indexOf(BLOCK_END) + BLOCK_END.length)]
 }
 
+const MARKER_THE_TEMPLATE_MOVED_OUT: DiscoveryMarker = 'open-questions'
+
+function outsideTheBlockWithTheMovedOutMarkerCarried(content: string): [string, string] {
+  const [before, after] = outsideTheBlock(content)
+  const [open, close] = discoveryTags(MARKER_THE_TEMPLATE_MOVED_OUT)
+  const start = content.indexOf(open)
+  if (start === -1 || start > content.indexOf(BLOCK_END))
+    return [before, after]
+  return [before, `\n\n${content.slice(start, content.indexOf(close) + close.length)}\n${after}`]
+}
+
 function producedBy(root: string): Record<string, string> {
   return replay({ root, manifest: readManifest(root)!, version: VERSION, facts: factsTheRepositoryEstablishes(root) }).produced
 }
@@ -117,15 +128,15 @@ describe('sync --apply over a tree whose discovery markers are filled', () => {
     expect(nowInTheTree).not.toBe(wasInTheTree)
     expect(ownedText(blockFile, nowInTheTree)).toBe(ownedText(blockFile, produced))
     expect(ownedText(blockFile, nowInTheTree)).not.toBe(ownedText(blockFile, wasInTheTree))
-    expect(outsideTheBlock(nowInTheTree)).toEqual(outsideTheBlock(wasInTheTree))
+    expect(outsideTheBlock(nowInTheTree)).toEqual(outsideTheBlockWithTheMovedOutMarkerCarried(wasInTheTree))
   })
 
-  it('writes a block target by substitution, so no byte outside the construct block moves', () => {
+  it('writes a block target by substitution, so no byte outside the construct block moves but a filled marker the template moved out, carried past its end', () => {
     const dir = frozenTreeWithTheVariantRecorded()
     const before = Object.fromEntries(['AGENTS.md', 'CLAUDE.md'].map(target => [target, read(dir, target)]))
     applySync(dir, VERSION)
     for (const [target, content] of Object.entries(before)) {
-      expect(outsideTheBlock(read(dir, target)), target).toEqual(outsideTheBlock(content))
+      expect(outsideTheBlock(read(dir, target)), target).toEqual(outsideTheBlockWithTheMovedOutMarkerCarried(content))
       expect(ownedText(target, read(dir, target)), target).toBe(ownedText(target, producedBy(dir)[target]))
     }
   })

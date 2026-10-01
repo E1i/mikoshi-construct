@@ -87,12 +87,25 @@ export function preserveDiscovery(existing: string, incoming: string): string {
   return result
 }
 
+export function discoveryTheTemplateDropped(existing: string, incoming: string): string {
+  const carried = [...existing.matchAll(DISCOVERY_OPEN)].flatMap(([, marker]) => {
+    const previous = discoveryBlock(existing, marker)
+    if (previous == null || discoveryBlock(incoming, marker) != null || previous.body.trim() === '' || previous.body.includes('_Not discovered yet'))
+      return []
+    const [open, close] = discoveryTags(marker)
+    return [`${open}${previous.body}${close}\n`]
+  })
+  return carried.length === 0 ? '' : `\n${carried.join('\n')}`
+}
+
 export function substituteBlock(existing: string, produced: string, target: string): string {
   const [begin, end] = blockMarkers(target)
   const opening = existing.indexOf(begin) + begin.length
   const closing = existing.indexOf(end)
   const incoming = produced.slice(produced.indexOf(begin) + begin.length, produced.indexOf(end))
-  return `${existing.slice(0, opening)}${preserveDiscovery(existing, incoming)}${existing.slice(closing)}`
+  const dropped = discoveryTheTemplateDropped(existing.slice(opening, closing), incoming)
+  const afterEnd = closing + end.length
+  return `${existing.slice(0, opening)}${preserveDiscovery(existing, incoming)}${existing.slice(closing, afterEnd)}${dropped === '' ? '' : `\n${dropped}`}${existing.slice(afterEnd)}`
 }
 
 function withoutSecondH1(existing: string, block: string): string {
@@ -128,8 +141,10 @@ export function appendBlockWith(existing: string, block: string, target: string)
   const wrapped = `${begin}\n${preserveDiscovery(existing, withoutSecondH1(outsideTheConstructBlock(existing, target), block)).trimEnd()}\n${end}\n`
   const start = existing.indexOf(begin)
   const stop = existing.indexOf(end)
-  if (start !== -1 && stop !== -1 && stop > start)
-    return { content: `${existing.slice(0, start)}${wrapped}${existing.slice(stop + end.length).replace(/^\n/, '')}`, separator: 0 }
+  if (start !== -1 && stop !== -1 && stop > start) {
+    const dropped = discoveryTheTemplateDropped(existing.slice(start, stop), wrapped)
+    return { content: `${existing.slice(0, start)}${wrapped}${dropped}${existing.slice(stop + end.length).replace(/^\n/, '')}`, separator: 0 }
+  }
   const separator = separatorBefore(existing)
   return { content: `${existing}${'\n'.repeat(separator)}${wrapped}`, separator }
 }
