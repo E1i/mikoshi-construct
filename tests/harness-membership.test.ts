@@ -10,6 +10,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'contract:bump': 'a gate, deliberately outside: it needs the release tags and full history, so it runs in its own CI job with fetch-depth 0',
   'contract:update': 'a writer; tests/contract/surface.test.ts is its gate',
   'dev': 'runs the CLI from source',
+  'ghosts:cleanup': 'removes a merged task\'s worktree and quality logs when run by hand; its own tests are its gate',
   'ghosts:hash': 'a hand-run tool for computing an approval hash; its own tests are its gate',
   'ghosts:launch': 'opens headless sessions after a human confirmation; its own tests are its gate',
   'ghosts:verdict': 'appends one journal line after a review verdict file holds its schema and its digests; its own tests are its gate',
