@@ -44,6 +44,8 @@ const VERDICT = {
       properties: { command: { type: 'string' }, exitCode: { type: 'integer' } },
     },
     argsSha256: { type: 'string' },
+    stagedTree: { type: 'string' },
+    unstagedPaths: { type: 'array', items: { type: 'string' } },
     witnesses: {
       type: 'array',
       items: {
@@ -117,6 +119,7 @@ const hasDesign = args.hasDesign === true
 const acceptance = args.acceptance ?? []
 const invariants = args.invariants ?? []
 const immutable = args.immutable ?? []
+const sketch = args.sketch ?? null
 const witnessDigests = (args.witnessDigests ?? []).filter(digest => acceptance.includes(digest.criterion))
 for (const item of acceptance)
   log(`acceptance: ${item}`)
@@ -201,6 +204,7 @@ function harnessPrompt(baseSha) {
     `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(digest, index + 1)}`).join('\n')}`,
     `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
+    sketch == null ? '' : `The base is ${baseSha}, without the sketch ${sketch.branch} @ ${sketch.sha}: the witnesses run red-before there, never on a tree that contains the sketch.`,
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
   ].filter(Boolean).join('\n\n')
 }
@@ -399,11 +403,31 @@ function designIncomplete(effort, question) {
   }
 }
 
+function sketchLine() {
+  return `Sketch: ${sketch.branch} @ ${sketch.sha}`
+}
+
+function baseLine() {
+  if (sketch == null)
+    return 'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Return the output of `git rev-parse HEAD` as baseSha.'
+  return `This is the base with the sketch the brief names staged on it (${sketchLine()}): nothing has been implemented yet, so the diff is the sketch's tree ${sketch.tree} staged on HEAD and nothing else, testsWeakened is false and witnesses is empty. Before running anything, return the output of \`git write-tree\` as stagedTree, and the paths \`git status --porcelain\` lists with an unstaged or untracked change as unstagedPaths ([] when there is none). Return the output of \`git rev-parse HEAD\` as baseSha. The run, not you, compares stagedTree with the sketch's tree: report what git printed.`
+}
+
+function sketchMismatch(verdict) {
+  const staged = typeof verdict.stagedTree === 'string' && verdict.stagedTree !== '' ? verdict.stagedTree : '(none reported)'
+  return staged === sketch.tree ? null : `sketch tree mismatch: index ${staged} ≠ sketch ${sketch.tree} (${sketchLine()})`
+}
+
+function beyondTheSketch(verdict) {
+  const paths = verdict.unstagedPaths ?? []
+  return paths.length === 0 ? null : `a diff beyond the sketch (${sketchLine()}): ${paths.join(', ')}`
+}
+
 function preflightPrompt() {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Return the output of `git rev-parse HEAD` as baseSha.',
+    baseLine(),
     ARGS_SHA_LINE,
     'Verify the current working tree and return the verdict object.',
   ].filter(Boolean).join('\n')
@@ -426,6 +450,12 @@ if (base.argsSha256 !== argsSha256) {
 }
 if (typeof base.baseSha !== 'string' || base.baseSha === '')
   return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: NO_BASE_SHA }], validationError: NO_BASE_SHA, acceptance, invariants, immutable }
+const mismatch = sketch == null ? null : sketchMismatch(base)
+if (mismatch != null)
+  return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'sketch mismatch', reason: mismatch }], validationError: mismatch, acceptance, invariants, immutable }
+const beyond = sketch == null ? null : beyondTheSketch(base)
+if (beyond != null)
+  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: beyond }], lastFailure: beyond, acceptance, invariants, immutable }
 if (base.passed !== true)
   return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants, immutable }
 

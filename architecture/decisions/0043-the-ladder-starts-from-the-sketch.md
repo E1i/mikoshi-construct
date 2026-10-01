@@ -21,8 +21,12 @@ not need the clean tree: it needs the base to be `origin/main`.
    step if re-approvals become frequent.
 3. **The worktree is created at the sketch's sha and HEAD is moved back to `origin/main`**
    (`git reset --soft`): the sketch's tree is staged on `origin/main`, so the ladder's preflight reads
-   `origin/main` as its base and the witness worktree it creates there does not contain the sketch. The ladder,
-   the implement skill and the agents are not changed.
+   `origin/main` as its base and the witness worktree it creates there does not contain the sketch. The args
+   build carries the sketch as `sketch: { branch, sha, tree }` (`null` for `Sketch: none` or no line), with the
+   tree taken by `git rev-parse <sha>^{tree}`, never by an agent. The preflight's harness reports
+   `git write-tree` and the unstaged or untracked paths, and the ladder decides: an index whose tree is not the
+   sketch's ends the run as `base unverified` with `sketch tree mismatch: index <tree> ≠ sketch <tree>
+   (Sketch: <branch> @ <sha>)`; a path beyond the sketch ends it as `base red`. Red-before stays on `origin/main`.
 4. **The decision line and the journal record it**: `from sketch <branch> @ <sha7>` or `clean tree (<reason>)`
    in the dry run, and `sketch` (the sha or `null`) beside `baseSha` on the `event:task` line.
 5. **A working sketch is the brief's positive control.** The launcher runs no harness and no witness on it. A
@@ -41,7 +45,8 @@ not need the clean tree: it needs the base to be `origin/main`.
 ## Enforced by
 
 - L3 tests: `parseSketch`, the launcher end to end through the stub (the staged tree, HEAD, the journal key,
-  four refusals), and the journal key set.
+  four refusals), and the journal key set; `tests/ladder-sketch.test.ts` for the sketch in the args, the
+  preflight's three outcomes and red-before on `origin/main`.
 - L1 review for the honesty of a brief's positive control.
 - L0 for the brief agent's branch.
 - The `Sketch:` line is held by the launcher, which refuses a brief without it; the `/plan` skeleton does not

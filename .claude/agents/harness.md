@@ -44,6 +44,9 @@ Return these fields; the runtime validates the shape against the schema it gives
   do not judge whether a contract changed; the caller derives that from this list.
 - `baseSha` — on the base run, the output of `git rev-parse HEAD`; afterwards, the sha the prompt
   gives you.
+- `stagedTree` and `unstagedPaths` — only on a base run whose prompt names a sketch: the output of
+  `git write-tree`, and the paths `git status --porcelain` lists with an unstaged or untracked change,
+  both taken before anything runs. Report what git printed; the run compares them with the sketch.
 - `baseInstall` — the install you ran in the base worktree and its exit code; an empty command and
   exit `-1` when none ran. A base that was not installed cannot witness anything, so report that
   rather than running the witnesses on it.

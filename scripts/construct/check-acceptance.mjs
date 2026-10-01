@@ -15,6 +15,9 @@ const WITNESS_MARKER = '— witness:'
 const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
 const CONTRACT_CHECK_LINE = /^Contract check:(.*)$/m
 const IMPLEMENT_LINE = /^\/implement /m
+const SKETCH_PREFIX = 'Sketch: '
+const SKETCH_BRANCH_AND_SHA = /^Sketch: (\S+) @ ([0-9a-f]{40})$/
+const SKETCH_NONE = /^Sketch: none — \S/
 const SHA256_HEX = /^[0-9a-f]{64}$/
 
 export class InputError extends Error {}
@@ -127,6 +130,23 @@ function briefEffort(text) {
   return FIRST_WORD.exec(sectionBody(text, 'Effort') ?? '')?.[0] ?? ''
 }
 
+function sketchTree(sha) {
+  const result = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{tree}`], { encoding: 'utf8' })
+  if (result.status !== 0)
+    throw new InputError(`the sketch ${sha} names no commit in this repository`)
+  return result.stdout.trim()
+}
+
+function briefSketch(text) {
+  const line = canonicalImplementText(text).split('\n')[1] ?? ''
+  if (!line.startsWith(SKETCH_PREFIX) || SKETCH_NONE.test(line))
+    return null
+  const named = SKETCH_BRANCH_AND_SHA.exec(line)
+  if (named == null)
+    throw new InputError(`the Sketch: line is neither '<branch> @ <40-hex sha>' nor 'none — <reason>' (${JSON.stringify(line)})`)
+  return { branch: named[1], sha: named[2], tree: sketchTree(named[2]) }
+}
+
 function bashSyntaxProblem(command) {
   const result = spawnSync('bash', ['-n', '-c', command], { encoding: 'utf8' })
   return result.status === 0 ? null : (result.stderr ?? '').trim()
@@ -168,6 +188,7 @@ export function buildArgs(text) {
     witnessDigests: agreed.map(witnessDigest),
     invariants: agreedInvariants(text),
     immutable: agreedImmutable(text),
+    sketch: briefSketch(text),
     ...(design == null ? {} : { design }),
   }
 }
