@@ -581,6 +581,14 @@ just merged. From then on it takes no new work. It waits for the subagents it st
 the handoff, and stops. It does not wait for Ghosts: their state is in the ledger and the journal, and the next session
 reads it there. In Ghost Protocol a flag switches this rule off (#394).
 
+### Role definitions are read when a session starts
+
+A session reads the role definitions in `.claude/agents/**` once, when it starts; a pull inside the session does not
+reach the roles it launches. When a pull inside a session changes `.claude/agents/**`, the window launches no role in
+that session: it writes the handoff, and the work goes on in a new session. A night or other long prompt starts in a
+fresh session opened after the pull. A PreToolUse hook on the Agent tool enforces this by refusing a role once the
+definitions differ from what the session started with; this text only explains it.
+
 ## Choosing the contour: cheap path or ladder path
 
 The principle is *The cheapest contour that gives the required proof* in
