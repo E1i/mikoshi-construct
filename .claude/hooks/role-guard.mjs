@@ -6,7 +6,7 @@ import { appendRoleLine, definitionsDigest, snapshotPath } from './role-definiti
 
 const REFUSAL = 'role definitions changed since this session started (.claude/agents); start a new session'
 const GUARDED_TOOL = 'Agent'
-const SOURCES_THAT_KEEP_THE_SNAPSHOT = ['clear', 'compact']
+const SOURCES_NOT_KNOWN_TO_REREAD_ROLE_DEFINITIONS = ['clear', 'compact', 'resume']
 const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
 
@@ -50,7 +50,7 @@ function takeSnapshot(root, input) {
     return
   }
   const file = snapshotPath(root, session)
-  if (SOURCES_THAT_KEEP_THE_SNAPSHOT.includes(input.source) && existsSync(file))
+  if (SOURCES_NOT_KNOWN_TO_REREAD_ROLE_DEFINITIONS.includes(input.source) && existsSync(file))
     return
   mkdirSync(path.dirname(file), { recursive: true })
   const temporary = `${file}.${process.pid}.tmp`

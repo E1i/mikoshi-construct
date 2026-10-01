@@ -88,14 +88,23 @@ describe('the role guard: a role is launched only with the definitions the sessi
     expect(launch(root, 'Bash')).toMatchObject({ status: 0, stderr: '' })
   })
 
-  it('keeps the startup snapshot through a compact, and replaces it on a resume', () => {
+  it('keeps the startup snapshot through a compact, and replaces it on a new startup', () => {
     const root = repository()
     start(root)
     writeFileSync(path.join(root, '.claude', 'agents', 'brief.md'), 'changed\n')
     start(root, 'compact')
     expect(launch(root).status).toBe(2)
-    start(root, 'resume')
+    start(root, 'startup')
     expect(launch(root).status).toBe(0)
+  })
+
+  it('keeps the startup snapshot through a resume, since whether claude --resume re-reads the role definitions is unverified and a needless refusal is the safe error (W9)', () => {
+    const root = repository()
+    start(root)
+    writeFileSync(path.join(root, '.claude', 'agents', 'brief.md'), '---\nname: brief\nmodel: opus\n---\n\nWrites a brief.\n')
+    start(root, 'resume')
+
+    expect(launch(root).status).toBe(2)
   })
 })
 
