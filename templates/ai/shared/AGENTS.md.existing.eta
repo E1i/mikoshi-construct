@@ -44,7 +44,5 @@ Real defects vs accepted variance, beyond what this document already lists:
 _Not discovered yet — run `/construct-discover`._
 <!-- /construct:discover:defects-vs-variance -->
 
-Open questions — things that look like conventions but are not applied consistently:
-<!-- construct:discover:open-questions -->
-_Not discovered yet — run `/construct-discover`._
-<!-- /construct:discover:open-questions -->
+Open questions — things that look like conventions but are not applied consistently — live in
+[architecture/open-questions.md](architecture/open-questions.md).

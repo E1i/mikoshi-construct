@@ -115,9 +115,6 @@ comments or JSDoc.
 
 ## Open questions
 
-These look like conventions but the codebase is not consistent about them. Confirm before treating
-them as rules.
-
-<!-- construct:discover:open-questions -->
-_Not discovered yet — run `/construct-discover`._
-<!-- /construct:discover:open-questions -->
+Things that look like conventions but are not applied consistently live in
+[architecture/open-questions.md](architecture/open-questions.md). Confirm there before treating one as
+a rule.
