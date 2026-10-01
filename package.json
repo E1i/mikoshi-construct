@@ -53,6 +53,7 @@
     "docs:preview": "vitepress preview docs",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",
     "ghosts:launch": "tsx scripts/ghosts/launch.ts",
+    "ghosts:verdict": "tsx scripts/ghosts/verdict.ts",
     "ghosts:watch": "tsx scripts/ghosts/watch.ts",
     "lint": "eslint .",
     "model:check": "tsx scripts/model/check.ts",

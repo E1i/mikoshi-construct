@@ -114,8 +114,8 @@ write_ledgers() {
   : >"$W/wt-g2/.construct/runs.jsonl"
   [ "$kind" = no-ledger ] && return 0
   {
-    printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":"low","outcome":"done"}]}'
-    printf '%s\n' '{"run":"run-g1","at":"2026-09-28T10:00:00.000Z","task":"Ghost g1","effort":"medium","status":"failed","rung":"medium","attempts":[{"rung":"low","outcome":"harness failed"},{"rung":"medium","outcome":"failed"}]}'
+    printf '%s\n' '{"run":"run-old","at":"2026-09-26T10:00:00.000Z","task":"an earlier run","effort":"low","status":"done","rung":"low","attempts":[{"rung":1,"effort":"low","outcome":"done","reason":""}],"agents":3,"tokens":100,"toolUses":4,"seconds":10}'
+    printf '%s\n' '{"run":"run-g1","at":"2026-09-28T10:00:00.000Z","task":"Ghost g1","effort":"medium","status":"failed","rung":"medium","attempts":[{"rung":1,"effort":"low","outcome":"harness failed","reason":""},{"rung":2,"effort":"medium","outcome":"failed","reason":""}],"agents":3,"tokens":100,"toolUses":4,"seconds":10}'
   } >"$W/wt-g1/.construct/runs.jsonl"
   if [ "$kind" = ledger-writing ]; then
     printf '%s' '{"run":"run-g1b","at":"2026-09-28T11:00:00.000Z","task":"Gh' >>"$W/wt-g1/.construct/runs.jsonl"

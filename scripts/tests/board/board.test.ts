@@ -179,10 +179,14 @@ describe('board: the ledger stage reads the last line of the worktree ledger', (
     return dir
   }
 
+  const LEDGER_ROW = { at: '2026-09-27T20:00:00.000Z', task: 'a run', effort: 'low', status: 'done', rung: 'low', attempts: [{ rung: 1, effort: 'low', outcome: 'done', reason: '' }], agents: 3, tokens: 100, toolUses: 4, seconds: 10 }
+  const rowOf = (fields: Record<string, unknown>): string => JSON.stringify({ ...LEDGER_ROW, ...fields })
+
   it.each([
-    { name: 'a complete last line', text: `${JSON.stringify({ run: 'run-1', status: 'done' })}\n`, expected: 'done run-1' },
-    { name: 'a half-written last line', text: `${JSON.stringify({ run: 'run-1', status: 'done' })}\n{"run":"run-2","sta`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl last line still being written)' },
-    { name: 'a broken line before the last', text: `{"run":"run-1","sta\n${JSON.stringify({ run: 'run-2', status: 'done' })}\n`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl unreadable)' },
+    { name: 'a complete last line', text: `${rowOf({ run: 'run-1' })}\n`, expected: 'done run-1' },
+    { name: 'a half-written last line', text: `${rowOf({ run: 'run-1' })}\n{"run":"run-2","sta`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl last line still being written)' },
+    { name: 'a broken line before the last', text: `{"run":"run-1","sta\n${rowOf({ run: 'run-2' })}\n`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl unreadable)' },
+    { name: 'a last line that is not a ledger row', text: `${rowOf({ run: 'run-1' })}\n${JSON.stringify({ run: 'run-2', status: 'done' })}\n`, expected: 'UNKNOWN (missing: ledger line; runs.jsonl unreadable)' },
   ])('$name reads $expected', ({ text, expected }) => {
     const dir = withLedgers({ 'alpha-2': text })
     try {

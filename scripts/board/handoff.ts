@@ -5,6 +5,7 @@ import type { BudgetLine } from './eddies.js'
 import type { ModelMismatch } from './roles.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { readContourSchema, violations } from '../contract/contours.js'
 import { lookupMatrixRow } from '../ghosts/matrix.js'
 import { ghostRowState } from '../ghosts/status.js'
 import { readTasksFile } from '../ghosts/tasks.js'
@@ -15,11 +16,20 @@ import { readModelMismatches } from './roles.js'
 
 export type TaskEvent = JournalEntry & { event: 'task', ts: string }
 
+export interface Digest {
+  path: string
+  sha256: string
+}
+
 export interface ReviewEvent {
   event: 'review'
   task: string
   verdict: string
   ts: string
+  head?: string
+  brief?: Digest
+  report?: Digest
+  file?: Digest
 }
 
 export interface MergeEvent {
@@ -95,18 +105,33 @@ interface Named {
   tasksFileMtime: Date | undefined
 }
 
+const REVIEW_VERDICT_SCHEMA = 'contract/contours/review-verdict.schema.json'
+
+function reviewLineFaults(line: unknown): string[] {
+  if (line == null || typeof line !== 'object' || (line as ReviewEvent).event !== 'review' || !('file' in line))
+    return []
+  return violations(line, { $ref: '#/$defs/journalLine' }, '', readContourSchema('review-verdict'))
+}
+
 function readJournal(dir: string, warnings: string[]): JournalLine[] {
   const journalPath = path.join(dir, 'ghosts.jsonl')
   if (!existsSync(journalPath))
     return []
   return readFileSync(journalPath, 'utf8').split('\n').filter(line => line !== '').flatMap((line, index) => {
+    let parsed: JournalLine
     try {
-      return [JSON.parse(line) as JournalLine]
+      parsed = JSON.parse(line) as JournalLine
     }
     catch {
       warnings.push(`ghosts.jsonl line ${index + 1} is not JSON; skipped`)
       return []
     }
+    const faults = reviewLineFaults(parsed)
+    if (faults.length > 0) {
+      warnings.push(`ghosts.jsonl line ${index + 1} is a review line that does not hold ${REVIEW_VERDICT_SCHEMA} (${faults.join('; ')}); skipped`)
+      return []
+    }
+    return [parsed]
   })
 }
 

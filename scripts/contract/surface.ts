@@ -20,6 +20,7 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main } from '../../src/program.js'
+import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
 import { cliArgs, cliEnv, failureLine, HEAD_CLI, jsonKeys, tagCli, tagJsonKeys } from './json-samples.js'
 import { unbaselined } from './semantic-diff.js'
@@ -29,13 +30,13 @@ const ATTACH_SAMPLE = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
 const GIT_EXCLUDE = '.git/info/exclude'
 const EXITS_NOT_OBSERVABLE = 'exit codes are not observable from the tag\'s output'
 const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the source\'s exports, not from the tag\'s output'
+const CONTOURS_NOT_OBSERVABLE = 'contour schemas are read from contract/contours/, not from the tag\'s output'
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
 
-export const SURFACE_VERSION = 2
+export const SURFACE_VERSION = 3
 
 export const OUTSIDE_THE_CONTRACT = [
-  '.construct/runs.jsonl',
   '.construct/turns.jsonl',
   'graph --out HTML',
   'human-readable output text',
@@ -60,6 +61,7 @@ export interface Surface {
   formats: { manifestVersion: number, modelVersion: number, recordVersion: number }
   paths: { init: Record<string, string[]>, attach: { writes: string[], edits: string[] } }
   markers: { block: string[][], discover: { tags: string[], markers: string[] } }
+  contours: Record<string, string>
   outside: string[]
 }
 
@@ -206,6 +208,10 @@ function markers(): Surface['markers'] {
   }
 }
 
+function contours(): Record<string, string> {
+  return Object.fromEntries(contourSchemaNames().map(name => [name, schemaId(readContourSchema(name))]))
+}
+
 export function headCommands(): Record<string, CommandSurface> {
   return commandsOf(main)
 }
@@ -220,6 +226,7 @@ export function generateSurface(): Surface {
     formats: runs.formats,
     paths: runs.paths,
     markers: markers(),
+    contours: contours(),
     outside: [...OUTSIDE_THE_CONTRACT],
   }
 }
@@ -272,6 +279,7 @@ export function tagSurfaceReading(worktree: string): SurfaceReading {
     formats: 'formats' in runs ? runs.formats : runs,
     paths: 'paths' in runs ? runs.paths : runs,
     markers: unbaselined(MARKERS_NOT_OBSERVABLE),
+    contours: unbaselined(CONTOURS_NOT_OBSERVABLE),
     outside: unbaselined(OUTSIDE_NOT_OBSERVABLE),
   }
 }

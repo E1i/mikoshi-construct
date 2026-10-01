@@ -63,6 +63,8 @@ const CAUSE_REQUIRED_SINCE_THE_STATUS_EXISTS = ['stopped']
 export const TOKEN_SOURCES = ['runtime'] as const
 export type TokenSource = typeof TOKEN_SOURCES[number]
 
+export const LEDGER_FIELDS = ['run', 'at', 'task', 'effort', 'status', 'rung', 'attempts', 'agents', 'toolUses', 'seconds', 'tokens', 'cause', 'tokensSource'] as const
+
 const TEXT_FIELDS = ['at', 'task', 'effort', 'status', 'rung'] as const
 const COUNT_FIELDS = ['agents', 'toolUses', 'seconds'] as const
 
@@ -101,6 +103,8 @@ function undeclaredFields(record: Record<string, unknown>): string[] {
     ...TEXT_FIELDS.filter(field => !isText(record[field])),
     ...COUNT_FIELDS.filter(field => !isCount(record[field])),
   ]
+  if ('run' in record && !isText(record.run))
+    missing.push('run')
   if (!isTokenCount(record.tokens))
     missing.push('tokens')
   missing.push(...attemptListFaults(record.attempts))
@@ -153,26 +157,28 @@ function toEntry(raw: unknown): LedgerEntry | string {
   }
 }
 
+export function parseLedgerLine(text: string): LedgerEntry | string {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  }
+  catch {
+    return 'not JSON'
+  }
+  return toEntry(raw)
+}
+
 export function readLedger(root: string): LedgerReading {
   const file = path.join(root, LEDGER_FILE)
   const reading: LedgerReading = { entries: [], malformed: [] }
   if (!existsSync(file))
     return reading
   readFileSync(file, 'utf8').split('\n').forEach((text, index) => {
-    const line = index + 1
     if (text.trim() === '')
       return
-    let raw: unknown
-    try {
-      raw = JSON.parse(text)
-    }
-    catch {
-      reading.malformed.push({ line, reason: 'not JSON' })
-      return
-    }
-    const entry = toEntry(raw)
+    const entry = parseLedgerLine(text)
     if (typeof entry === 'string')
-      reading.malformed.push({ line, reason: entry })
+      reading.malformed.push({ line: index + 1, reason: entry })
     else
       reading.entries.push(entry)
   })

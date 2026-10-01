@@ -250,6 +250,10 @@
       }
     }
   },
+  "contours": {
+    "ledger-row": "mikoshi-construct/contours/ledger-row/1",
+    "review-verdict": "mikoshi-construct/contours/review-verdict/1"
+  },
   "exits": {
     "attach": {
       "aborted": 1,
@@ -838,7 +842,6 @@
     }
   },
   "outside": [
-    ".construct/runs.jsonl",
     ".construct/turns.jsonl",
     "graph --out HTML",
     "human-readable output text",
@@ -1094,5 +1097,5 @@
       ]
     }
   },
-  "surfaceVersion": 2
+  "surfaceVersion": 3
 }

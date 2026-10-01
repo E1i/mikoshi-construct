@@ -15,6 +15,7 @@ export function fixtureSurface(): Surface {
     formats: { manifestVersion: 1, modelVersion: 1, recordVersion: 1 },
     paths: { init: { 'node-library': ['AGENTS.md', 'package.json'] }, attach: { writes: ['AGENTS.md'], edits: ['.git/info/exclude'] } },
     markers: { block: [['<!-- construct:begin -->', '<!-- construct:end -->']], discover: { tags: ['<!-- construct:discover:<marker> -->'], markers: ['product'] } },
+    contours: { 'ledger-row': 'mikoshi-construct/contours/ledger-row/1' },
     outside: ['lore strings'],
   }
 }
