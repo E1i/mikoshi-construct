@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -46,7 +45,7 @@ describe('the build keeps a witness command byte for byte', () => {
 })
 
 describe('the build prints witnessDigests in witness order', () => {
-  it('carries the criterion, the base64 and the sha256 of the raw command, not the normalised one', () => {
+  it('carries the criterion and the sha256 of the raw command, not the normalised one, and no base64', () => {
     const c1 = 'test 1 -eq  1'
     const c2 = 'test 2 -eq 2'
     const result = build(`Task.\nAcceptance: the first item holds — witness: \`${c1}\`; the second item holds — witness: \`${c2}\``)
@@ -54,8 +53,8 @@ describe('the build prints witnessDigests in witness order', () => {
     expect(result.status).toBe(0)
     const args = JSON.parse(result.stdout)
     expect(args.witnessDigests).toEqual([
-      { criterion: 'the first item holds', base64: Buffer.from(c1, 'utf8').toString('base64'), sha256: crypto.createHash('sha256').update(c1, 'utf8').digest('hex') },
-      { criterion: 'the second item holds', base64: Buffer.from(c2, 'utf8').toString('base64'), sha256: crypto.createHash('sha256').update(c2, 'utf8').digest('hex') },
+      { criterion: 'the first item holds', sha256: crypto.createHash('sha256').update(c1, 'utf8').digest('hex') },
+      { criterion: 'the second item holds', sha256: crypto.createHash('sha256').update(c2, 'utf8').digest('hex') },
     ])
     expect(args.witnessDigests[0].sha256).not.toBe(crypto.createHash('sha256').update('test 1 -eq 1', 'utf8').digest('hex'))
   })

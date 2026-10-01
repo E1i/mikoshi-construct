@@ -268,12 +268,13 @@ describe('one parser serves both modes', () => {
 
 describe('the /implement skill', () => {
   for (const skill of SKILLS) {
-    it(`${skill} passes the build's args to the Workflow unchanged and never runs the check mode`, () => {
+    it(`${skill} passes the build's handle to the Workflow unchanged and never runs the check mode`, () => {
       const text = readFileSync(path.join(REPO_ROOT, skill), 'utf8')
 
-      expect(text).toContain('check-acceptance.mjs build --brief .construct/implement-agreed.txt > .construct/implement-args.json')
+      expect(text).toContain('check-acceptance.mjs build --brief .construct/implement-agreed.txt --out .construct/implement-args.json')
+      expect(text).not.toContain('> .construct/implement-args.json')
       expect(text).toContain('already exists, the Ghost launcher wrote it from the approved brief before this session: use it as\n   it is and never rewrite it')
-      expect(text).toContain('`.construct/implement-args.json`, unchanged')
+      expect(text).toContain('`args` set to the handle the build printed on stdout, unchanged, never the\n   file\'s content')
       expect(text).not.toContain('--agreed')
     })
   }

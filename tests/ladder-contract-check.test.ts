@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
+const ARGS_PATH = '.construct/implement-args.json'
+const ARGS_SHA256 = 'a'.repeat(64)
 
 interface LadderResult {
   status: string
@@ -61,6 +63,7 @@ function verdict(contractCheck?: { command: string, exitCode: number, excerpt: s
     changedFiles: ['a.ts'],
     baseSha: BASE_SHA,
     baseInstall: INSTALLED,
+    argsSha256: ARGS_SHA256,
     witnesses: witnessed(),
     ...(contractCheck === undefined ? {} : { contractCheck }),
   }
@@ -92,6 +95,8 @@ async function run(harness: Record<string, unknown>, harnessReplies: Reply[]): P
     return reply ?? null
   }
   const result = await ladder()({
+    argsPath: ARGS_PATH,
+    argsSha256: ARGS_SHA256,
     task: 'declare the check',
     effort: 'medium',
     harness: { command: 'pnpm run quality', ...harness },

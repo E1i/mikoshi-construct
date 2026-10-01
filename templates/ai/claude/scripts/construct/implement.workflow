@@ -29,7 +29,7 @@ const REPORT = {
 
 const VERDICT = {
   type: 'object',
-  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'baseSha', 'baseInstall', 'witnesses'],
+  required: ['passed', 'failureExcerpt', 'securityFinding', 'diffStat', 'testsWeakened', 'changedFiles', 'baseSha', 'baseInstall', 'argsSha256', 'witnesses'],
   properties: {
     passed: { type: 'boolean' },
     failureExcerpt: { type: 'string' },
@@ -43,6 +43,7 @@ const VERDICT = {
       required: ['command', 'exitCode'],
       properties: { command: { type: 'string' }, exitCode: { type: 'integer' } },
     },
+    argsSha256: { type: 'string' },
     witnesses: {
       type: 'array',
       items: {
@@ -87,9 +88,11 @@ const DESIGN_RECOVERY = 'Re-run this task one class lower with the design writte
 
 const NO_ACCEPTANCE_QUESTION = 'Pass the acceptance from the brief in args.acceptance. The ladder reports done only when each item was witnessed red before the change and green after it, and with no item there is nothing to witness.'
 
-const UNWITNESSED_BRIEF = 'Every acceptance item needs its witness fixed in the brief before the run, in args.witnesses as { criterion, command } with the criterion copied verbatim. No witness for:'
+const UNDIGESTED_BRIEF = 'Every acceptance item needs its witness digest fixed in the brief before the run, in args.witnessDigests as { criterion, sha256 } with the criterion copied verbatim. No digest for:'
 
-const UNDIGESTED_BRIEF = 'Every acceptance item needs its witness digest fixed in the brief before the run, in args.witnessDigests as { criterion, base64, sha256 } with the criterion copied verbatim. No digest for:'
+const NO_ARGS_FILE_QUESTION = 'Pass the args file the build wrote: args.argsPath, its path, and args.argsSha256, the 64 hex characters of its sha256, as check-acceptance.mjs build --out printed them. The ladder reads the witnesses and the design from that file by its hash, never from the Workflow input.'
+
+const SHA256_HEX = /^[0-9a-f]{64}$/
 
 const NO_BASE_SHA = 'the harness reported no base sha, so no witness can run against the base'
 
@@ -107,23 +110,24 @@ const DESIGN_EFFORT = 'xhigh'
 const EFFORT_WITHOUT_DESIGN = { high: 'medium', xhigh: 'medium' }
 
 const task = args.task
-const briefDesign = typeof args.design === 'string' && args.design !== '' ? args.design : null
+const argsPath = args.argsPath
+const argsSha256 = args.argsSha256
+const agreedSha256 = args.agreedSha256
+const hasDesign = args.hasDesign === true
 const acceptance = args.acceptance ?? []
 const invariants = args.invariants ?? []
 const immutable = args.immutable ?? []
-const witnesses = (args.witnesses ?? []).filter(witness => acceptance.includes(witness.criterion))
 const witnessDigests = (args.witnessDigests ?? []).filter(digest => acceptance.includes(digest.criterion))
 for (const item of acceptance)
   log(`acceptance: ${item}`)
 const harness = { extra: [], contractPaths: [], contractCheck: '', ...(args.harness ?? {}) }
 const contractDeclared = harness.contractPaths.length > 0 && typeof harness.contractCheck === 'string' && harness.contractCheck !== ''
+if (typeof argsPath !== 'string' || argsPath === '' || typeof argsSha256 !== 'string' || !SHA256_HEX.test(argsSha256))
+  return { status: 'blocked', attempts: [], question: NO_ARGS_FILE_QUESTION, acceptance, invariants, immutable }
 if (typeof harness.command !== 'string' || harness.command === '')
   return { status: 'blocked', attempts: [], question: HARNESS_COMMAND_QUESTION, acceptance, invariants, immutable }
 if (acceptance.length === 0)
   return { status: 'blocked', attempts: [], question: NO_ACCEPTANCE_QUESTION, acceptance, invariants, immutable }
-const withoutWitness = acceptance.filter(item => !witnesses.some(witness => witness.criterion === item))
-if (withoutWitness.length > 0)
-  return { status: 'blocked', attempts: [], question: `${UNWITNESSED_BRIEF} ${withoutWitness.join(' | ')}`, acceptance, invariants, immutable }
 const withoutDigest = acceptance.filter(item => !witnessDigests.some(digest => digest.criterion === item))
 if (withoutDigest.length > 0)
   return { status: 'blocked', attempts: [], question: `${UNDIGESTED_BRIEF} ${withoutDigest.join(' | ')}`, acceptance, invariants, immutable }
@@ -171,12 +175,20 @@ function witnessDigestOf(witness) {
   return witnessDigests.find(digest => digest.criterion === witness.criterion)
 }
 
-function witnessScriptLines(digest, n) {
+function witnessScriptLines(n) {
   return [
-    `printf %s ${digest.base64} | base64 --decode > <dir>/witness-${n}.sh`,
+    `node scripts/construct/check-acceptance.mjs witness --args ${argsPath} --sha256 ${argsSha256} --n ${n} > <dir>/witness-${n}.sh`,
     `shasum -a 256 <dir>/witness-${n}.sh`,
     `bash <dir>/witness-${n}.sh`,
   ].join('\n')
+}
+
+const ARGS_SHA_LINE = `Report the 64 hex characters that \`shasum -a 256 ${argsPath}\` prints, run in the working tree, as argsSha256.`
+
+const DESIGN_LINE = `Design from the brief: read design in ${argsPath} (sha256 ${argsSha256}) before anything else; it is the brief's Design section verbatim, and the file is pinned by that hash.`
+
+function argsMismatchReason(observed) {
+  return `${argsPath} has sha256 ${observed}, and the run was given ${argsSha256}`
 }
 
 const WITNESS_DIR_LINE = 'Make <dir> once, before the first witness, with mktemp -d, and write the absolute path it printed wherever <dir> stands: it lies outside the repository, so it still resolves after the cd into the base worktree and adds no file to the working tree.'
@@ -185,7 +197,8 @@ function harnessPrompt(baseSha) {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. Each witness is given only as base64, one script per criterion; decode it, record its sha256, then run it exactly as decoded — never edit or substitute it:\n${witnesses.map((witness, index) => `- ${witness.criterion}\n${witnessScriptLines(witnessDigestOf(witness), index + 1)}`).join('\n')}`,
+    ARGS_SHA_LINE,
+    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(index + 1)}`).join('\n')}`,
     `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
     `Verify the current working tree and return the verdict object, with baseSha ${baseSha}.`,
@@ -196,7 +209,7 @@ function architectPrompt(reason) {
   return [
     `Task: ${task}`,
     acceptance.length > 0 ? `Acceptance criteria so far:\n- ${acceptance.join('\n- ')}` : '',
-    briefDesign == null ? '' : `Design from the brief:\n${briefDesign}`,
+    hasDesign ? DESIGN_LINE : '',
     reason,
     'Return the design spec object.',
   ].filter(Boolean).join('\n\n')
@@ -207,10 +220,10 @@ function implementerPrompt(spec, feedback) {
     `Task: ${task}`,
     `Acceptance criteria:\n- ${(spec?.acceptance?.length ? spec.acceptance : acceptance).join('\n- ')}`,
     `Harness: ${harness.command}${harness.extra.length > 0 ? ` (plus ${harness.extra.join(' && ')})` : ''}`,
-    `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change:\n${witnesses.map(witness => `- ${witness.criterion}\n  witness: ${witness.command}`).join('\n')}`,
+    `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change. The commands are in ${argsPath} (sha256 ${argsSha256}, to be checked with shasum -a 256) as witnesses[], one per criterion in this order:\n${witnessDigests.map(digest => `- ${digest.criterion}`).join('\n')}`,
     invariants.length > 0 ? `Invariants, true before your change and still true after it (the harness holds them):\n- ${invariants.join('\n- ')}` : '',
     immutable.length > 0 ? `Immutable paths, which you must not change; a rung that changes one fails (a path ending in / covers everything under it):\n- ${immutable.join('\n- ')}` : '',
-    briefDesign == null ? '' : `Design from the brief:\n${briefDesign}`,
+    hasDesign ? DESIGN_LINE : '',
     spec == null
       ? ''
       : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
@@ -241,7 +254,7 @@ function baseEnvironmentProblem(verdict) {
   const install = verdict.baseInstall
   if (install == null || install.command === '' || install.exitCode !== 0)
     return `the base worktree was not installed (${install?.command || 'no install command ran'}, exit ${install?.exitCode ?? 'none'}), so a red witness there says nothing about behaviour`
-  const environmental = witnesses.filter(fixed => {
+  const environmental = witnessDigests.filter(fixed => {
     const witness = observedFor(fixed, verdict.witnesses ?? [])
     return witness != null && failedOnEnvironment(witness)
   })
@@ -249,7 +262,7 @@ function baseEnvironmentProblem(verdict) {
 }
 
 function unwitnessedItems(observed) {
-  return witnesses
+  return witnessDigests
     .filter((fixed) => {
       const witness = observedFor(fixed, observed)
       return witness == null || witness.afterExitCode !== 0 || witness.baseExitCode === 0
@@ -274,7 +287,7 @@ function shellCouldNotRun(witness) {
 }
 
 function invalidWitnessItems(observed) {
-  return witnesses
+  return witnessDigests
     .filter((fixed) => {
       const witness = observedFor(fixed, observed)
       return witness != null && witness.afterExitCode !== 0 && (shellCouldNotRun(witness) || failsTheSameWay(witness))
@@ -283,7 +296,7 @@ function invalidWitnessItems(observed) {
 }
 
 function unrunVerbatimItems(observed) {
-  return witnesses
+  return witnessDigests
     .filter(fixed => observedFor(fixed, observed) == null && observed.some(witness => witness.criterion === fixed.criterion))
     .map(fixed => fixed.criterion)
 }
@@ -390,7 +403,9 @@ function preflightPrompt() {
   return [
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
-    'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Return the output of `git rev-parse HEAD` as baseSha. Verify the current working tree and return the verdict object.',
+    'This is the base before any change: nothing has been implemented yet, so no diff is expected, testsWeakened is false and witnesses is empty. Return the output of `git rev-parse HEAD` as baseSha.',
+    ARGS_SHA_LINE,
+    'Verify the current working tree and return the verdict object.',
   ].filter(Boolean).join('\n')
 }
 
@@ -405,6 +420,10 @@ const base = await ask(preflightPrompt(), {
 })
 if (base == null)
   return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: lastValidationError }], validationError: lastValidationError, acceptance, invariants, immutable }
+if (base.argsSha256 !== argsSha256) {
+  const reason = argsMismatchReason(base.argsSha256)
+  return { status: 'args unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'args mismatch', reason }], validationError: reason, acceptance, invariants, immutable }
+}
 if (typeof base.baseSha !== 'string' || base.baseSha === '')
   return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'schema invalid', reason: NO_BASE_SHA }], validationError: NO_BASE_SHA, acceptance, invariants, immutable }
 if (base.passed !== true)
@@ -464,6 +483,11 @@ for (const [index, effort] of rungs.entries()) {
     label: `verify ${rung}/${rungs.length}`,
     schema: VERDICT,
   })
+  if (verdict != null && verdict.argsSha256 !== argsSha256) {
+    const reason = argsMismatchReason(verdict.argsSha256)
+    attempts.push({ rung, effort, outcome: 'args mismatch', reason, securityFinding: verdict.securityFinding ?? '' })
+    return { status: 'args unverified', attempts, validationError: reason, acceptance, invariants, immutable }
+  }
   const harnessPassed = verdict?.passed === true && verdict.testsWeakened === false
   const unchanged = harnessPassed && verdict.changedFiles.length === 0
   const environment = harnessPassed && !unchanged ? baseEnvironmentProblem(verdict) : null
@@ -503,6 +527,8 @@ for (const [index, effort] of rungs.entries()) {
     return {
       status: designFailed && !designComplete ? 'degraded' : 'done',
       effort: performedEffort(effort),
+      argsSha256,
+      agreedSha256,
       attempts,
       files: report.files,
       summary: report.summary,

@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
+const ARGS_PATH = '.construct/implement-args.json'
+const ARGS_SHA256 = 'a'.repeat(64)
 
 interface LadderResult {
   status: string
@@ -46,12 +48,12 @@ const INSTALLED = { command: 'pnpm install --frozen-lockfile', exitCode: 0 }
 const BASE_SHA = '36f7abc9815cea1962b05bcf98bdcec193ba9fc5'
 
 function green(changedFiles: string[]): Record<string, unknown> {
-  return { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles, baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
+  return { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles, baseSha: BASE_SHA, baseInstall: INSTALLED, argsSha256: ARGS_SHA256, witnesses: witnessed(DEFAULT_ACCEPTANCE) }
 }
 
 const REPORT = { status: 'done', summary: 'changed the rule', files: ['src/a.ts'], harnessTail: 'ok', question: '' }
 
-const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['src/a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses: [] }
+const RED = { passed: false, failureExcerpt: 'vitest failed', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles: ['src/a.ts'], baseSha: BASE_SHA, baseInstall: INSTALLED, argsSha256: ARGS_SHA256, witnesses: [] }
 
 async function run(changedFiles: string[], rungVerdicts: unknown[] = []): Promise<LadderResult> {
   const verdicts = [...rungVerdicts, ...Array.from({ length: 4 - rungVerdicts.length }, () => green(changedFiles))]
@@ -66,7 +68,7 @@ async function run(changedFiles: string[], rungVerdicts: unknown[] = []): Promis
       throw reply
     return reply ?? null
   }
-  return ladder()({ harness: { command: 'pnpm run quality' }, acceptance: DEFAULT_ACCEPTANCE, witnesses: fixedWitnesses(DEFAULT_ACCEPTANCE), witnessDigests: fixedWitnessDigests(DEFAULT_ACCEPTANCE), effort: 'low' }, agent, () => {}, () => {})
+  return ladder()({ argsPath: ARGS_PATH, argsSha256: ARGS_SHA256, harness: { command: 'pnpm run quality' }, acceptance: DEFAULT_ACCEPTANCE, witnesses: fixedWitnesses(DEFAULT_ACCEPTANCE), witnessDigests: fixedWitnessDigests(DEFAULT_ACCEPTANCE), effort: 'low' }, agent, () => {}, () => {})
 }
 
 describe('a rung that changes source with no test is never done', () => {

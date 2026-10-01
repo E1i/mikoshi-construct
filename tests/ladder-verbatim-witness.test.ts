@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
+const ARGS_PATH = '.construct/implement-args.json'
+const ARGS_SHA256 = 'a'.repeat(64)
 
 interface LadderResult {
   status: string
@@ -36,7 +38,7 @@ const INSTALLED = { command: 'pnpm install --frozen-lockfile', exitCode: 0 }
 const REPORT = { status: 'done', summary: 'changed the ladder', files: ['a.ts'], harnessTail: 'ok', question: '' }
 
 function green(witnesses: unknown[], changedFiles: string[] = ['a.ts']): Record<string, unknown> {
-  return { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles, baseSha: BASE_SHA, baseInstall: INSTALLED, witnesses }
+  return { passed: true, failureExcerpt: '', securityFinding: '', diffStat: ' 1 file changed', testsWeakened: false, changedFiles, baseSha: BASE_SHA, baseInstall: INSTALLED, argsSha256: ARGS_SHA256, witnesses }
 }
 
 function witness(overrides: Record<string, unknown> = {}, drop?: string): Record<string, unknown>[] {
@@ -58,6 +60,8 @@ async function run(args: Record<string, unknown>, harnessReplies: unknown[]): Pr
     return queues[options.agentType].shift() ?? null
   }
   const result = await ladder()({
+    argsPath: ARGS_PATH,
+    argsSha256: ARGS_SHA256,
     harness: { command: 'pnpm run quality' },
     task: 't',
     acceptance: [CRITERION],
@@ -81,6 +85,8 @@ async function callLadder(args: Record<string, unknown>, queueOverrides: { archi
     return queues[options.agentType].shift() ?? null
   }
   const result = await ladder()({
+    argsPath: ARGS_PATH,
+    argsSha256: ARGS_SHA256,
     harness: { command: 'pnpm run quality' },
     task: 't',
     acceptance: [CRITERION],
@@ -108,8 +114,6 @@ const WITNESS_DIR_LINE = 'Make <dir> once, before the first witness, with mktemp
 
 const SPEC = { decision: 'd', contractChanges: '', compositionChanges: '', constraints: [], acceptance: [CRITERION], files: [] }
 
-const DESIGN_TEXT = '- keep it local\n- one owner'
-
 describe('a run whose witness has no digest is blocked before any agent', () => {
   it('blocks with a question naming the criterion, and proceeds to done once the digest is carried', async () => {
     const missing = await run({ witnessDigests: [] }, [green(witness())])
@@ -122,17 +126,18 @@ describe('a run whose witness has no digest is blocked before any agent', () => 
   })
 })
 
-describe('the verify prompt gives each witness only as its base64', () => {
-  it('gives three fixed lines per witness and holds neither the raw command nor base64 -d', async () => {
+describe('the verify prompt extracts each witness from the args file by its sha256', () => {
+  it('gives three fixed lines per witness and holds neither the raw command nor base64', async () => {
     const { calls } = await run({}, [green(witness())])
     const verify = calls.find(call => call.agentType === 'harness' && call !== calls[0])?.prompt ?? ''
 
-    expect(verify).toContain(`printf %s ${BASE64} | base64 --decode > <dir>/witness-1.sh`)
+    expect(verify).toContain(`node scripts/construct/check-acceptance.mjs witness --args ${ARGS_PATH} --sha256 ${ARGS_SHA256} --n 1 > <dir>/witness-1.sh`)
     expect(verify).toContain('shasum -a 256 <dir>/witness-1.sh')
     expect(verify).toContain('bash <dir>/witness-1.sh')
     expect(verify).toContain(CRITERION)
     expect(verify).not.toContain(COMMAND)
-    expect(verify).not.toContain('base64 -d')
+    expect(verify).not.toContain(BASE64)
+    expect(verify).not.toContain('base64')
   })
 })
 
@@ -189,10 +194,10 @@ describe('the verify prompt makes <dir> once with mktemp -d', () => {
 
 describe('the Design from the brief reaches both prompts', () => {
   it('carries the Design into the architect prompt and the implementer prompt', async () => {
-    const { calls } = await callLadder({ effort: 'high', design: DESIGN_TEXT }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
+    const { calls } = await callLadder({ effort: 'high', hasDesign: true }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
     const architect = calls.find(call => call.agentType === 'architect')?.prompt ?? ''
     const implementer = calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
-    const block = `Design from the brief:\n${DESIGN_TEXT}`
+    const block = `Design from the brief: read design in ${ARGS_PATH} (sha256 ${ARGS_SHA256}) before anything else`
 
     expect(architect).toContain(block)
     expect(implementer).toContain(block)
@@ -203,20 +208,20 @@ describe('the Design from the brief reaches both prompts', () => {
     const architect = calls.find(call => call.agentType === 'architect')?.prompt ?? ''
     const implementer = calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
 
-    expect(architect).not.toContain('Design from the brief:')
-    expect(implementer).not.toContain('Design from the brief:')
+    expect(architect).not.toContain('Design from the brief')
+    expect(implementer).not.toContain('Design from the brief')
   })
 
   it('puts no Design block in either prompt for an empty design', async () => {
     const withoutDesign = await callLadder({ effort: 'high' }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
-    const emptyDesign = await callLadder({ effort: 'high', design: '' }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
+    const emptyDesign = await callLadder({ effort: 'high', hasDesign: false }, { architect: [SPEC], implementer: [REPORT], harness: [green([]), green(witness())] })
     const archNone = withoutDesign.calls.find(call => call.agentType === 'architect')?.prompt ?? ''
     const implNone = withoutDesign.calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
     const archEmpty = emptyDesign.calls.find(call => call.agentType === 'architect')?.prompt ?? ''
     const implEmpty = emptyDesign.calls.find(call => call.agentType === 'implementer')?.prompt ?? ''
 
-    expect(archEmpty).not.toContain('Design from the brief:')
-    expect(implEmpty).not.toContain('Design from the brief:')
+    expect(archEmpty).not.toContain('Design from the brief')
+    expect(implEmpty).not.toContain('Design from the brief')
     expect(archEmpty).toBe(archNone)
     expect(implEmpty).toBe(implNone)
   })
@@ -235,6 +240,8 @@ async function verifySchema(): Promise<{ witness: WitnessSchema, prompt: string 
     return queues[options.agentType].shift() ?? null
   }
   await ladder()({
+    argsPath: ARGS_PATH,
+    argsSha256: ARGS_SHA256,
     harness: { command: 'pnpm run quality' },
     task: 't',
     acceptance: [CRITERION],

@@ -80,6 +80,7 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
     changedFiles: [`contract/surface.json ${AWKWARD}`],
     baseSha: '36f7abc9815cea1962b05bcf98bdcec193ba9fc5',
     baseInstall: { command: 'pnpm install --frozen-lockfile', exitCode: 0 },
+    argsSha256: 'a'.repeat(64),
     witnesses: [{ criterion: `the reader parses ${AWKWARD}`, command: 'pnpm vitest run tests/reader.test.ts', afterExitCode: 0, afterExcerpt: `1 passed ${AWKWARD}`, baseExitCode: 1, baseExcerpt: `1 failed ${AWKWARD}`, ranSha256: '36f7abc9815cea1962b05bcf98bdcec193ba9fc5' }],
   },
 }
