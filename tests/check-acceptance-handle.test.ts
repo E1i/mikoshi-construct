@@ -75,7 +75,7 @@ describe('the build writes the args file and prints a handle', () => {
     const file = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
     const handle = JSON.parse(result.stdout) as Record<string, unknown>
     expect(plain.stdout).toBe(`${bytes.toString('utf8')}\n`)
-    expect(Object.keys(handle)).toEqual(['argsPath', 'argsSha256', 'task', 'effort', 'agreedSha256', 'acceptance', 'witnessDigests', 'invariants', 'immutable', 'harness', 'hasDesign'])
+    expect(Object.keys(handle)).toEqual(['argsPath', 'argsSha256', 'task', 'effort', 'agreedSha256', 'acceptance', 'witnessDigests', 'invariants', 'immutable', 'sketch', 'harness', 'hasDesign'])
     expect(handle.argsPath).toBe(out)
     expect(handle.argsSha256).toBe(sha256(bytes))
     expect(handle.hasDesign).toBe(true)

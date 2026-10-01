@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -48,7 +48,10 @@ function build(brief: string): { status: number | null, stdout: string, stderr: 
   const dir = mkdtempSync(path.join(tmpdir(), 'plan-brief-skeleton-'))
   dirs.push(dir)
   writeFileSync(path.join(dir, 'construct.json'), JSON.stringify({ harness: { command: 'pnpm run quality' }, contracts: null }))
-  writeFileSync(path.join(dir, 'brief.md'), brief)
+  execFileSync('git', ['init', '--quiet', dir])
+  execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=a@example.com', 'commit', '--quiet', '--allow-empty', '-m', 'sketch'])
+  const sketchSha = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  writeFileSync(path.join(dir, 'brief.md'), brief.replace(/^(Sketch: \S+ @ )[0-9a-f]{40}$/m, `$1${sketchSha}`))
   const child = spawnSync(process.execPath, [SCRIPT, 'build', '--brief', path.join(dir, 'brief.md')], { cwd: dir, encoding: 'utf8' })
   return { status: child.status, stdout: child.stdout, stderr: child.stderr }
 }
