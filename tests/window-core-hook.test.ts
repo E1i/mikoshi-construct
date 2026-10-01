@@ -44,18 +44,31 @@ describe('the window-core SessionStart hook', () => {
     expect(run(root).stdout).toBe(run(root).stdout)
   })
 
-  it('refuses loudly, naming the path, when the file is missing', () => {
+  function refusal(result: ReturnType<typeof run>) {
+    expect(result.status).toBe(0)
+    const lines = result.stdout.split('\n').filter(line => line !== '')
+    expect(lines).toHaveLength(1)
+    const output = JSON.parse(lines[0])
+    expect(output.hookSpecificOutput.hookEventName).toBe('SessionStart')
+    expect(output.hookSpecificOutput.additionalContext.startsWith('WINDOW-CORE MISSING: DO NOT COMMIT. DO NOT MERGE. STOP.\n')).toBe(true)
+    expect(output.systemMessage.startsWith('WINDOW-CORE MISSING: DO NOT COMMIT. DO NOT MERGE. STOP.')).toBe(true)
+    return output
+  }
+
+  it('tells the model and the owner to stop, naming the path, when the file is missing', () => {
     const root = project(false)
     const result = run(root)
-    expect(result.status).not.toBe(0)
-    expect(result.stdout).toBe('')
-    expect(result.stderr).toContain(path.join(root, 'architecture', 'window-core.md'))
+    const output = refusal(result)
+    const file = path.join(root, 'architecture', 'window-core.md')
+    expect(output.hookSpecificOutput.additionalContext).toContain(file)
+    expect(output.systemMessage).toContain(file)
+    expect(result.stderr).toContain(file)
   })
 
-  it('refuses loudly when the project directory is not named', () => {
+  it('tells the model and the owner to stop when the project directory is not named', () => {
     const result = run(null)
-    expect(result.status).not.toBe(0)
-    expect(result.stdout).toBe('')
+    const output = refusal(result)
+    expect(output.hookSpecificOutput.additionalContext).toContain('architecture/window-core.md')
     expect(result.stderr).toContain('architecture/window-core.md')
   })
 })

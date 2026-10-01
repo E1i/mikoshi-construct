@@ -5,13 +5,18 @@ Read on demand by the coordinating window; the laws it must know first are in [w
 ## Status and the board
 
 A question about the state of the work — "status", "what's there", "where are we", in any language — is answered as
-`/status` answers it ([.claude/commands/status.md](.claude/commands/status.md)). Every report on the state of tasks
+`/status` answers it ([.claude/commands/status.md](../.claude/commands/status.md)). Every report on the state of tasks
 starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
 
 While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
 rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the
 tasks `board.txt` shows as running or waiting, read from the file at the moment of writing, never from the session's
 memory of them.
+
+A pull request of an owner-merged kind is ready when CI on its current head is green, and that is the whole
+definition: ready is derived from CI, never announced as an event of its own. A later push, a merge of `main` into the
+branch included, makes a new head, and the pull request is ready again only once CI on that head is green.
+`pnpm board` derives ready the same way.
 
 ## The boundary
 
@@ -24,6 +29,28 @@ half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nes
 either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and
 records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. The merge half is not
 enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
+
+## Pull requests and branches
+
+A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
+with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`;
+and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
+owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
+
+Independent branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit prefix
+over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, never into branch names, and the
+launcher names a Ghost's branch itself. A change under `templates/`, or one that changes what the published CLI does
+for a user, is a `minor` changeset.
+
+## The version pull request lock
+
+The lock is in force once the workflow runs of a `changeset-release/main` pull request have been approved. The
+changesets action keeps that branch in sync by force-pushing it whenever `main` moves, and a force-push discards the
+workflow approval already granted to it and restarts the required checks — with ten required contexts, every unrelated
+merge after approval costs the maintainer another approval and keeps the release unmergeable for longer. Before
+approval there is nothing to discard: a merge rebuilds the branch, which then carries both changesets into one release.
+Runs waiting at `action_required` mean the lock is not yet in force. Once it is, finished work waits on its branch until
+the release lands.
 
 ## Published claims
 
@@ -47,13 +74,13 @@ definitions differ from what the session started with; this text only explains i
 ## Choosing the contour: cheap path or ladder path
 
 The principle is *The cheapest contour that gives the required proof* in
-[architecture/principles.md](architecture/principles.md), and the first step of `/plan`
-([.claude/commands/plan.md](.claude/commands/plan.md)) applies it: for each new task the contour is
+[architecture/principles.md](principles.md), and the first step of `/plan`
+([.claude/commands/plan.md](../.claude/commands/plan.md)) applies it: for each new task the contour is
 chosen before anything else, the cheap path (an ordinary session in its own worktree, `pnpm run
 quality`, a pull request and CI, with no brief, witnesses, mutations or Ghost) or the ladder path (a
 brief, witnesses and a Ghost). What fits each is listed there and not repeated here. The ladder is
 not the default, and the cheap path keeps its discipline: CI and
-[architecture/owner-merges.md](architecture/owner-merges.md) apply to it unchanged.
+[architecture/owner-merges.md](owner-merges.md) apply to it unchanged.
 
 The journal line and its `verification` word are in [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 
@@ -75,7 +102,7 @@ red on is still `origin/main`. The exception is a brief that wants an independen
 its witness, which says so, `Sketch: none — independent implementation is the witness`; a brief with
 neither line is refused. The sketch's sha is inside the approved text, so a sketch changed after
 approval needs a new approval, and a sketch cut from an older `origin/main` is refused until it is
-rebased and re-approved ([0043](architecture/decisions/0043-the-ladder-starts-from-the-sketch.md)).
+rebased and re-approved ([0043](decisions/0043-the-ladder-starts-from-the-sketch.md)).
 
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
