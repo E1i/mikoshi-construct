@@ -26,8 +26,6 @@ function agreedSha256Of(bytes: Buffer): unknown {
 }
 
 export function tiedArgsSha256(worktree: string, approvedSha256: string, rowArgsSha256: string | undefined): string | null {
-  if (rowArgsSha256 === undefined)
-    return null
   const bytes = readBytes(path.join(worktree, ARGS_PATH))
   if (bytes === null || agreedSha256Of(bytes) !== approvedSha256)
     return null
