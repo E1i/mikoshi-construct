@@ -27,17 +27,21 @@ function put(root: string, file: string, text: string): void {
   writeFileSync(path.join(root, file), text)
 }
 
-function world(total: string, wired: boolean): World {
+function world(total: string, wired: boolean, tracked: Record<string, [string, string]> = {}): World {
   const root = mkdtempSync(path.join(tmpdir(), 'done-check-'))
   git(root, ['init', '-q'])
   put(root, 'package.json', '{"name":"fixture","type":"module","bin":"src/cli.ts"}\n')
   put(root, 'src/cli.ts', 'import { main } from \'./app.js\'\n\nmain()\n')
   put(root, 'src/app.ts', 'export function main(): number {\n  return 1\n}\n')
   put(root, 'src/legacy.ts', LEGACY)
+  for (const [file, [before]] of Object.entries(tracked))
+    put(root, file, before)
   git(root, ['add', '-A'])
   git(root, ['commit', '-q', '-m', 'base'])
   const base = git(root, ['rev-parse', 'HEAD'])
   put(root, 'src/total.ts', total)
+  for (const [file, [, after]] of Object.entries(tracked))
+    put(root, file, after)
   if (wired)
     put(root, 'src/app.ts', WIRED)
   put(root, 'tests/total.test.ts', TEST)
@@ -161,5 +165,18 @@ describe('doneCheck', () => {
       lines: ['PASS · text only 2', ...TOTAL_PASS.slice(1), 'text only:', '  A1: NOTES.md:3', '  D1: tests/total.test.ts:1'],
     })
     expect(run(w, [{ ...prose, code: ['NOTES.md:3', 'src/total.ts:6'] }, testFileOnly]).lines).toEqual(['FAIL', 'requirements:', '  A1: no test cited'])
+  })
+
+  it('a file whose path git quotes in its diff keeps its added lines', () => {
+    const grown = (name: string): [string, string] => ['export const one = 1\n', `export const one = 1\n\nexport function ${name}(value: number): number {\n  return 0\n}\n`]
+    const w = world(REAL, true, { 'src/a b.ts': grown('spaced'), 'src/é.ts': grown('accented'), 'src/q"t.ts': grown('quoted') })
+    const lines = run(w, [row('A1', 6), row('D1', 6)]).lines
+    expect(lines.slice(0, 5)).toEqual([
+      'FAIL',
+      'stubs:',
+      '  src/a b.ts:3 spaced: it returns a literal and never reads its parameters',
+      '  src/q"t.ts:3 quoted: it returns a literal and never reads its parameters',
+      '  src/é.ts:3 accented: it returns a literal and never reads its parameters',
+    ])
   })
 })
