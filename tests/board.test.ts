@@ -171,7 +171,7 @@ describe('construct board', () => {
     expect(tail(render(withSkill, { prs: file }))[0]).toBe('nothing open — no ladder runs from the last 12 hours in .construct/runs.jsonl and no open pull requests.')
   })
 
-  it('--json names its own format and says which rows are shown', () => {
+  it('the --json output names its own format and says which rows are shown', () => {
     const dir = repository()
     ledger(dir, [run('old', 'done', 20 * HOUR)])
     const out = json(dir)

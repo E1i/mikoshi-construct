@@ -99,8 +99,8 @@ export function printBoard(ui: Ui, reading: BoardReading): number {
   const { view } = reading
   const { summary } = view
   ui.line(ui.lore.boardSummary(summary.open, summary.running, summary.waiting, summary.blocked, summary.stale, FINISHED_SHOWN_HOURS, summary.merged))
-  ui.line(ui.theme.dim(ledgerLine(ui, reading)))
-  ui.line(ui.theme.dim(prsLine(ui, reading.prs)))
+  ui.line(ledgerLine(ui, reading))
+  ui.line(prsLine(ui, reading.prs))
   for (const line of view.table.length === 0 ? nothingOpenLines(ui, reading) : tableLines(view.table, ui.theme, ui.lore))
     ui.line(line)
   for (const line of mergedLines(ui, view))

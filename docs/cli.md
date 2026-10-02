@@ -1500,7 +1500,7 @@ and `NEXT`, ordered blocked, stale, waiting, running, the oldest first within ea
 row with the path `ladder`: `ladder done` waits for a review and a pull request, any other status
 waits for a decision. An open pull request is a row with the path `pr`: ready when its checks are
 green, open and blocked when one failed, open and running while they are pending. Nothing is joined: a
-ladder run and a pull request are two rows. A row that waits for you is red on `STAGE` and `NEXT`
+ladder run and a pull request are two rows. An open row older than 4 hours is stale, and its `NEXT` starts with `stale` and its age. A row that waits for you is red on `STAGE` and `NEXT`
 and nowhere else, and a plain run (`--plain`, `NO_COLOR`, a pipe) carries no colour at all. A pull
 request merged in the last 12 hours is named on the `merged:` line, never as a row.
 
