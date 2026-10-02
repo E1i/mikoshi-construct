@@ -29,10 +29,10 @@ its ticket.
 - An own-instructions change outside the core stays on the cheap path, merged by the owner.
 - A permission granted through `.claude/settings.json` still reads critical.
 - A change to a carrier's text reads critical.
-- The worked examples live in AGENTS.md, not in this record.
+- The worked examples live in [architecture/window.md § Choosing the contour](../window.md#choosing-the-contour-cheap-path-or-ladder-path), not in this record.
 
 ## Enforced by
 
-- L3 test: `tests/plan-risk-axis.test.ts` (the plan's words and table, both copies, the worked examples).
+- L3 test: `tests/plan-risk-axis.test.ts` (the plan's words and table, the worked examples); `tests/plan-factory-twin.test.ts` holds the two copies of `/plan` to each other.
 - L1 review, the weakest: whether an agent reads the work rather than the words, and the carve-out case
   by case.
