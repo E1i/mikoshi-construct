@@ -66,8 +66,16 @@ function rank(row: Row): number {
   return found === -1 ? ROW_ORDER.length : found
 }
 
+const UNKNOWN_ELAPSED = -Number.MAX_SAFE_INTEGER
+
+function elapsed(age: Age | undefined): number {
+  if (age === undefined)
+    return UNKNOWN_ELAPSED
+  return age.skew ? -age.minutes : age.minutes
+}
+
 function oldestFirst(a: Row, b: Row): number {
-  return rank(a) - rank(b) || (b.age?.minutes ?? -1) - (a.age?.minutes ?? -1)
+  return rank(a) - rank(b) || elapsed(b.age) - elapsed(a.age)
 }
 
 function newestFirst(a: Row, b: Row): number {
