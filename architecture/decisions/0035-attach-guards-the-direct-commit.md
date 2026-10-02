@@ -33,10 +33,11 @@ longer what its owner had read.
    -list-something`, `git tag -d`, `git tag -l x -d y`, `git merge --continue`, `git rebase --continue`
    and `git rebase -i` are refused. The list is `ALLOWED_FORMS` in the guard, and nothing else holds it.
 5. **The target is read, not guessed.** The guard follows `git -C`, `git -c`, `--git-dir`, a leading
-   `cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env`, `sudo` and
-   `timeout` under any path, and worktrees of the attached repository, which share its git directory.
-   It reads each word as the shell does, after quotes and escapes, so `g\it commit` and
-   `git 'com'mit` are the direct form too. A guarded command whose target it cannot pin down — a path in a variable, `cd -`, a
+   `cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env` (an `-S` string read as
+   the words it splits into), `nice`, `sudo`, `timeout` and `xargs` under any path, and worktrees of the attached repository, which share its git directory.
+   It reads each word as the shell does, after quotes, escapes, `$'…'` and `$"…"`, so `g\it commit`,
+   `git 'com'mit` and `git $'\x63ommit'` are the direct form too. Behind `xargs` no allowed form
+   passes, since what it appends breaks the exact match, and `-I` leaves the target unpinned. A guarded command whose target it cannot pin down — a path in a variable, `cd -`, a
    substitution, a directory that does not exist yet — is refused as unpinned and told to name the
    repository as `git -C <path>`; into another repository it then runs as before.
 6. **No bypass.** The guard reads no environment variable to let a call through and writes no audit
