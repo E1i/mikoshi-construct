@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { doneCheck } from '../../done/check.js'
 
 const LEGACY = 'export function legacy(value: number): number {\n  return 0\n}\n'
@@ -11,6 +11,13 @@ const REAL = 'function add(sum: number, item: number): number {\n  return sum + 
 const STUB = 'export function total(items: number[]): number {\n  return 0\n}\n'
 const WIRED = 'import { total } from \'./total.js\'\n\nexport function main(): number {\n  return total([1, 2])\n}\n'
 const TEST = 'import { expect, it } from \'vitest\'\nimport { total } from \'../src/total.js\'\n\nit(\'sums the items\', () => {\n  expect(total([])).toBe(0)\n})\n'
+
+const fixtures: string[] = []
+
+afterEach(() => {
+  for (const fixture of fixtures.splice(0))
+    rmSync(fixture, { recursive: true, force: true })
+})
 
 interface World {
   root: string
@@ -29,6 +36,7 @@ function put(root: string, file: string, text: string): void {
 
 function world(total: string, wired: boolean, tracked: Record<string, [string, string]> = {}): World {
   const root = mkdtempSync(path.join(tmpdir(), 'done-check-'))
+  fixtures.push(root, `${root}-args.json`)
   git(root, ['init', '-q'])
   put(root, 'package.json', '{"name":"fixture","type":"module","bin":"src/cli.ts"}\n')
   put(root, 'src/cli.ts', 'import { main } from \'./app.js\'\n\nmain()\n')
@@ -58,6 +66,7 @@ function row(id: string, line: number): { id: string, code: string[], tests: Arr
 
 function run(w: World, rows: unknown, base = w.base): { passed: boolean, lines: string[] } {
   const map = path.join(tmpdir(), `done-map-${Math.random().toString(36).slice(2)}.json`)
+  fixtures.push(map)
   writeFileSync(map, typeof rows === 'string' ? rows : JSON.stringify({ requirements: rows }))
   return doneCheck(w.root, { args: w.args, map, base })
 }
@@ -120,6 +129,7 @@ describe('doneCheck', () => {
     input(run(w, '{ not json'))
     input(run(w, '[]'))
     input(run(w, full, '0000000000000000000000000000000000000000'))
+    expect(run(w, full, 'no-such-ref').lines[2]).toBe('  --base no-such-ref is not a commit')
     writeFileSync(w.args, JSON.stringify({ acceptance: [] }))
     input(run(w, full))
   })
@@ -128,6 +138,19 @@ describe('doneCheck', () => {
     const w = world(REAL, true)
     const result = run(w, [row('A1', 6), row('D1', 6)])
     expect(result.lines.join('\n')).not.toContain('legacy')
+  })
+
+  it('a function the change leaves untouched inside a changed file is not checked', () => {
+    const kept = 'export function kept(value: number): number {\n  return 0\n}\n'
+    const w = world(REAL, true, { 'src/grown.ts': [kept, `${kept}\nexport function grown(value: number): number {\n  return 0\n}\n`] })
+    expect(run(w, [row('A1', 6), row('D1', 6)]).lines).toEqual([
+      'FAIL',
+      'stubs:',
+      '  src/grown.ts:5 grown: it returns a literal and never reads its parameters',
+      'unwired:',
+      '  src/grown.ts:5 grown: nothing outside tests names it',
+      '  src/grown.ts: no file outside tests imports or names it',
+    ])
   })
 
   it('a function the change adds is checked whether or not the map cites it', () => {
