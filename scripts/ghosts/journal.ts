@@ -1,3 +1,5 @@
+import type { Expect } from './expect.js'
+import type { LadderOutcome } from './ledger.js'
 import { appendFile } from 'node:fs/promises'
 
 export interface JournalEntry {
@@ -19,6 +21,8 @@ export interface JournalEntry {
   usage: unknown | null
   agreedSha256: string
   argsSha256: string | null
+  expected: Expect | null
+  actual: LadderOutcome['actual']
 }
 
 let queue: Promise<void> = Promise.resolve()

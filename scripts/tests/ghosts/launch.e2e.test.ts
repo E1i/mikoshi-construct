@@ -232,6 +232,16 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
   })
 
+  it('journals the expect: forecast of g2 beside the ladder\'s actual tokens and minutes, and builds its args from a text whose line 3 is expect:', () => {
+    const w = world('new', 'expect')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+    world('check-args', w)
+    world('check-journal', w)
+  })
+
   it('gives each session the args file built from the agreed text, and the session\'s ledger row names both of its hashes', () => {
     const w = world('new', 'ok')
     const { status } = launch(w, 'yes')
@@ -256,6 +266,8 @@ describe('ghosts launch, end to end through the stub', () => {
     { title: 'refuses a sketch whose branch does not exist', kind: 'sketch-no-branch' },
     { title: 'refuses a sketch whose branch tip is not the approved sha', kind: 'sketch-moved' },
     { title: 'refuses a sketch that does not contain origin/main', kind: 'sketch-stale' },
+    { title: 'refuses a malformed expect: line, quoting it', kind: 'expect-malformed' },
+    { title: 'refuses an expect: line below line 3, naming its line number', kind: 'expect-misplaced' },
   ])('$title', ({ kind }) => {
     const w = world('new', kind)
     const { status } = launch(w, 'yes')
