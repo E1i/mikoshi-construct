@@ -142,6 +142,16 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(w, 'cost')).toBe(1)
   })
 
+  it('board: shown 0, an unreadable --prs 0', async () => {
+    const w = world()
+    expect(await run(w, 'board')).toBe(0)
+    expect(await run(w, 'board', '--json')).toBe(0)
+    expect(await run(w, 'board', '--prs', path.join(w.dir, 'missing.json'))).toBe(0)
+    expect(await run(w, 'board', '--every', '0')).toBe(1)
+    expect(await run(w, 'board', '--every', '1', '--json')).toBe(1)
+    expect(await run(w, 'board', '--stale', '0')).toBe(1)
+  })
+
   it('graph: drawn 0, no model 0', async () => {
     expect(await run((await initialised()), 'graph')).toBe(0)
     expect(await run(world(), 'graph')).toBe(0)

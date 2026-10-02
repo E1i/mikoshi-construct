@@ -4,6 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utim
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { BOARD_EXIT } from '../../src/commands/board/index.js'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
 import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/index.js'
@@ -127,6 +128,15 @@ function withRecordedRun(world: World): World {
   return world
 }
 
+function withBoardSources(world: World): string {
+  const at = new Date().toISOString()
+  mkdirSync(path.join(world.dir, '.construct'), { recursive: true })
+  writeFileSync(path.join(world.dir, '.construct/runs.jsonl'), `${JSON.stringify({ at, task: 'a task', effort: 'low', status: 'done', rung: 'low', attempts: [], agents: 1, tokens: 1, toolUses: 1, seconds: 1 })}\n`)
+  const file = path.join(world.dir, 'prs.json')
+  writeFileSync(file, JSON.stringify([{ number: 1, title: 'a pull request', state: 'OPEN', createdAt: at, closedAt: null, mergedAt: null, statusCheckRollup: [] }]))
+  return file
+}
+
 function withLookalikeKey(world: World): World {
   mkdirSync(path.join(projectsDir(world), `-elsewhere-${path.basename(world.dir)}`))
   return world
@@ -232,6 +242,7 @@ const SAMPLES: Sample[] = [
   { command: 'cost', state: 'mismatch', args: ['cost', '--json'], world: scratch => throughSymlinkRecordedAtRealPath(scratch.init()) },
   { command: 'cost', state: 'unknown', args: ['cost', '--json'], world: scratch => withLookalikeKey(scratch.init()) },
   { command: 'cost', state: 'unsupported', args: ['cost', '--json'], world: scratch => scratch.init() },
+  { command: 'board', state: 'shown', args: world => ['board', '--json', '--prs', withBoardSources(world)], world: scratch => scratch.init() },
   { command: 'soulkill', state: 'reported', args: ['soulkill', '--json'], world: scratch => scratch.init() },
   { command: 'mutate apply', state: 'applied', args: applyArgs, world: scratch => withBaseline(scratch, mutationTarget(scratch.world())) },
   { command: 'mutate apply', state: 'refused', args: applyArgs, world: scratch => mutationTarget(scratch.world()) },
@@ -247,6 +258,7 @@ export const EXIT_TABLES: Record<string, Record<string, number>> = {
   'doctor': { ...DOCTOR_EXIT, attached: DOCTOR_EXIT.ok },
   'sync': SYNC_EXIT,
   'sync --apply': SYNC_APPLY_EXIT,
+  'board': BOARD_EXIT,
   'cost': COST_EXIT,
   'soulkill': SOULKILL_EXIT,
   'mutate apply': MUTATE_APPLY_EXIT,
