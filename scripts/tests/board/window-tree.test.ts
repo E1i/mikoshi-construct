@@ -62,8 +62,8 @@ describe('w2: a cheap task with a start line and no PR', () => {
   it('w2: is running, with WINDOW the session and its last turn age and TREE the branch and the dirty count', () => {
     const world = newWorld([START, REASON_LINE], [TURN])
     const { summary, cells } = board(world, git(3))
-    expect(summary).toMatch(/^running 1, waiting 0, blocked 0, /)
-    expect(summary).toMatch(/, windows live 1$/)
+    expect(summary).toMatch(/^open 1: running 1, waiting 0, blocked 0, /)
+    expect(summary).toMatch(/ · windows live 1 · /)
     expect(cells[1]).toBe('cheap')
     expect(cells[5]).toBe('0d538601 · turn 5m')
     expect(cells[6]).toBe('mc-w · feat/w · dirty 3')
@@ -82,7 +82,7 @@ describe('w3: a closed window with no PR', () => {
   it('w3: a session-end and no PR is blocked and NEXT reads window closed, no PR', () => {
     const world = newWorld([START], [TURN, SESSION_END])
     const { summary, cells } = board(world)
-    expect(summary).toMatch(/^running 0, waiting 0, blocked 1, /)
+    expect(summary).toMatch(/^open 1: running 0, waiting 0, blocked 1, /)
     expect(cells[4]).toBe('window closed, no PR')
     expect(cells[5]).toBe('0d538601 · ended')
   })

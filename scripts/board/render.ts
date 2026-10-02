@@ -6,7 +6,7 @@ import type { Age, NextOf, Row } from './row.js'
 import type { Paint } from './tone.js'
 import type { Tree, Unregistered } from './tree.js'
 import { stripVTControlCharacters } from 'node:util'
-import { finishedAt, FINISHED_SHOWN_HOURS, reportOf, stageText } from './derive.js'
+import { FINISHED_SHOWN_HOURS, finishedAt, reportOf, stageText } from './derive.js'
 import { budgetText, contextPercent, eddiesOf, eddiesText } from './eddies.js'
 import { FRAME_FILE } from './frame.js'
 import { REQUIRED_CHECK } from './gh.js'
@@ -65,9 +65,9 @@ export const DEFINITIONS = [
   '# blocked = not merged, not running, and the journal records exit != 0, a ladder outcome other than "done", or a last review verdict "changes"',
   '# waiting = not merged, not running, not blocked, and a journal event:task exists (ladder finished, nothing after it recorded); on the cheap path, not merged and ready',
   `# summary = over live attempts only: MIKO context, open = running + waiting + blocked, stale, windows live, merged ${FINISHED_SHOWN_HOURS}h = merged or reported within the last ${FINISHED_SHOWN_HOURS}h; --json keeps longest = now minus the status.md start (on the cheap path, the event:path started)`,
-    `# MIKO context = the context of the window that runs the board (CLAUDE_CODE_SESSION_ID): the context field of its last turn or late line in <repo>/.construct/turns.jsonl over contextLimit of .claude/eddies.json, marked (warn at <n>%) from --context-warn <percent>, else warnRatio; — with no reading, no segment outside a window`,
-    `# stale = running, waiting or blocked, and its last recorded event (the latest stage done; on the cheap path also the last turn of its window) older than --stale <hours>, ${STALE_HOURS} by default`,
-    `# shown: tasks whose live attempt is running, waiting or blocked, as rows ordered blocked, stale, waiting, running and the oldest first within each; and every task merged or reported within the last ${FINISHED_SHOWN_HOURS}h, on the merged line newest first; --all shows every task`,
+  `# MIKO context = the context of the window that runs the board (CLAUDE_CODE_SESSION_ID): the context field of its last turn or late line in <repo>/.construct/turns.jsonl over contextLimit of .claude/eddies.json, marked (warn at <n>%) from --context-warn <percent>, else warnRatio; — with no reading, no segment outside a window`,
+  `# stale = running, waiting or blocked, not superseded, and its last recorded event (the latest stage done; on the cheap path also the last turn of its window) older than --stale <hours>, ${STALE_HOURS} by default`,
+  `# shown: tasks whose live attempt is running, waiting or blocked, as rows ordered blocked, stale, waiting, running and the oldest first within each; and every task merged or reported within the last ${FINISHED_SHOWN_HOURS}h, on the merged line newest first; --all shows every task`,
   '# superseded = a journal event:superseded names the attempt and the attempt that replaced it (by); a task whose live attempt is superseded is left out of the summary and the default list, and every superseded attempt out of --json\'s UNKNOWN tally; --all lists it, NEXT reads — (superseded); its card names the successor, as --json does',
   '# model-mismatch = a line of .construct/roles.jsonl, written when a subagent ran on a model outside the one its .claude/agents definition names (the parent session\'s model when it names none or inherit); a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
   '# eddies = a budget-stop or budget-warn line of .construct/eddies.jsonl, written by the Eddies hook when a session, agent or workflow run reached a threshold of .claude/eddies.json or its warnRatio share; a card lists its attempts\' lines, from the worktree and from this repository\'s journal where session_id is the session the task\'s event:path line names; EDDIES counts them',
