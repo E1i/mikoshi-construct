@@ -3,7 +3,7 @@ import type { PullRequest } from './prs.js'
 import { ciOf } from './prs.js'
 
 export const NO_NEXT = '—'
-export const TASK_WIDTH = 40
+const TASK_WIDTH = 40
 
 export type ItemState = 'running' | 'waiting' | 'blocked' | 'merged' | 'closed' | 'superseded'
 export type Tone = 'red' | null
@@ -16,10 +16,9 @@ export interface Item {
   at: Date
   next: string
   tone: Tone
-  number?: number
 }
 
-export function cut(text: string): string {
+function cut(text: string): string {
   return text.length > TASK_WIDTH ? `${text.slice(0, TASK_WIDTH - 1)}…` : text
 }
 
@@ -35,7 +34,7 @@ export function ladderItems(entries: LedgerEntry[]): Item[] {
   })
 }
 
-function openPr(pr: PullRequest, base: Pick<Item, 'task' | 'path' | 'number'>): Item {
+function openPr(pr: PullRequest, base: Pick<Item, 'task' | 'path'>): Item {
   const ci = ciOf(pr.statusCheckRollup)
   if (ci.state === 'green')
     return { ...base, stage: 'ready', state: 'waiting', at: new Date(ci.completedAt ?? pr.createdAt), next: 'a merge (you)', tone: 'red' }
@@ -49,7 +48,7 @@ function openPr(pr: PullRequest, base: Pick<Item, 'task' | 'path' | 'number'>): 
 
 export function prItems(prs: PullRequest[]): Item[] {
   return prs.map((pr) => {
-    const base = { task: cut(`#${pr.number} ${pr.title}`), path: 'pr' as const, number: pr.number }
+    const base = { task: `#${pr.number} ${pr.title}`, path: 'pr' as const }
     if (pr.state === 'MERGED')
       return { ...base, stage: 'merged', state: 'merged', at: new Date(pr.mergedAt ?? pr.createdAt), next: NO_NEXT, tone: null }
     if (pr.state === 'CLOSED')

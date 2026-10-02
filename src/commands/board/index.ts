@@ -32,8 +32,6 @@ export interface BoardReading {
   ledger: LedgerReading
   prs: PrsReading
   implement: boolean
-  now: Date
-  options: Pick<BoardOptions, 'all' | 'staleHours'>
   view: BoardView
 }
 
@@ -47,8 +45,6 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
     ledger,
     prs,
     implement: existsSync(path.join(dir, IMPLEMENT_SKILL)),
-    now,
-    options: { all: options.all, staleHours: options.staleHours },
     view: buildView(items, now, options),
   }
 }
