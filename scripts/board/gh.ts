@@ -53,12 +53,15 @@ export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
   return { kind: 'none' }
 }
 
+export function lookupPrVia(list: PrList, branch: string): PrLookup {
+  const pr = lookupPr(list, branch)
+  return pr.kind === 'found' ? { ...pr, via: branch } : pr
+}
+
 export function lookupGhostPr(list: PrList, id: string): PrLookup {
   const branch = `ghost/${id}`
-  const pr = lookupPr(list, branch)
-  if (pr.kind === 'found')
-    return { ...pr, via: branch }
-  return pr.kind === 'unknown' ? pr : { kind: 'unknown', missing: `branch; no tasks file names one, and no PR for ${branch}` }
+  const pr = lookupPrVia(list, branch)
+  return pr.kind === 'none' ? { kind: 'unknown', missing: `branch; no tasks file names one, and no PR for ${branch}` } : pr
 }
 
 export function lookupPrNumber(list: PrList, number: number | undefined): PrLookup {

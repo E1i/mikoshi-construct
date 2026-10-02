@@ -12,11 +12,17 @@ const NOW = new Date('2026-10-02T08:00:00.000Z')
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const roots: string[] = []
 
-const noPrs: GhRunner = (args) => {
-  if (args[0] === 'pr' && args[1] === 'list')
-    return '[]'
-  throw new Error(`unexpected gh ${args.join(' ')}`)
+function ghWith(prs: object[]): GhRunner {
+  return (args) => {
+    if (args[0] === 'pr' && args[1] === 'list')
+      return JSON.stringify(prs)
+    if (args[0] === 'pr' && args[1] === 'view')
+      return JSON.stringify({ statusCheckRollup: [], files: [] })
+    throw new Error(`unexpected gh ${args.join(' ')}`)
+  }
 }
+
+const noPrs = ghWith([])
 
 function git(dirty: number, worktrees: { path: string, branch: string | undefined }[] = []): GitReader {
   return { dirty: () => dirty, worktrees: () => worktrees }
@@ -42,8 +48,8 @@ function newWorld(journal: object[], turns: object[]): World {
   return { handoff, repoRoot, tree }
 }
 
-function board(world: World, reader: GitReader = git(0)): { summary: string, cells: string[], stdout: string[] } {
-  const { stdout } = runBoard(['--dir', world.handoff], { gh: noPrs, now: NOW, defaultDir: world.handoff, colour: false, repoRoot: world.repoRoot, git: reader })
+function board(world: World, reader: GitReader = git(0), gh: GhRunner = noPrs): { summary: string, cells: string[], stdout: string[] } {
+  const { stdout } = runBoard(['--dir', world.handoff], { gh, now: NOW, defaultDir: world.handoff, colour: false, repoRoot: world.repoRoot, git: reader })
   const row = stdout.map(line => stripVTControlCharacters(line)).filter(line => line.startsWith('│')).map(line => line.split('│').slice(1, -1).map(cell => cell.trim())).find(cells => cells[0] === 'w')
   return { summary: stdout[0]!, cells: row ?? [], stdout }
 }
@@ -97,6 +103,38 @@ describe('w3: a closed window with no PR', () => {
     const world = newWorld([START], [TURN, SESSION_END])
     writeFileSync(path.join(world.handoff, 'handoff-wx.md'), 'other\n')
     expect(board(world).cells[4]).toBe('window closed, no PR')
+  })
+})
+
+describe('w3: a closed window whose start line names a branch with a PR', () => {
+  const pr = (state: string, mergedAt: string | null): object => ({ number: 438, headRefName: 'feat/w', headRefOid: '4384384384', state, mergedAt, mergeCommit: mergedAt === null ? null : { oid: '4'.repeat(40) } })
+
+  function cheapJson(world: World, gh: GhRunner): any {
+    const { stdout } = runBoard(['--dir', world.handoff, '--json'], { gh, now: NOW, defaultDir: world.handoff, colour: false, repoRoot: world.repoRoot, git: git(0) })
+    return JSON.parse(stdout[0]!).tasks.find((task: any) => task.derived.task === 'w').attempts[0]
+  }
+
+  it('w3: a merged PR found by the branch is merged, not blocked, and its pr stage names the source pr via the branch', () => {
+    const world = newWorld([START], [TURN, SESSION_END])
+    const gh = ghWith([pr('MERGED', '2026-10-02T07:50:00Z')])
+    expect(board(world, git(0), gh).summary).toMatch(/^open 0: running 0, waiting 0, blocked 0, .* merged 12h: 1$/)
+    const task = cheapJson(world, gh)
+    expect(task.derived.category).toBe('merged')
+    expect(task.stages.find((stage: any) => stage.name === 'pr')).toMatchObject({ state: 'fact', value: '#438 MERGED', source: 'pr via feat/w' })
+  })
+
+  it('w3: an open PR found by the branch keeps the row out of blocked and NEXT is not window closed', () => {
+    const world = newWorld([START], [TURN, SESSION_END])
+    const { summary, cells } = board(world, git(0), ghWith([pr('OPEN', null)]))
+    expect(summary).toMatch(/^open 1: running 1, waiting 0, blocked 0, /)
+    expect(cells[4]).toMatch(/^CI/)
+  })
+
+  it('w3: a PR on another branch does not count, and the row stays blocked as before', () => {
+    const world = newWorld([START], [TURN, SESSION_END])
+    const { summary, cells } = board(world, git(0), ghWith([{ ...pr('MERGED', '2026-10-02T07:50:00Z'), headRefName: 'feat/other' }]))
+    expect(summary).toMatch(/^open 1: running 0, waiting 0, blocked 1, /)
+    expect(cells[4]).toBe('window closed, no PR')
   })
 })
 
