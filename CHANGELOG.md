@@ -1,5 +1,19 @@
 # mikoshi-construct
 
+## 0.33.0
+
+### Minor Changes
+
+- [#430](https://github.com/E1i/mikoshi-construct/pull/430) [`dcf29e3`](https://github.com/E1i/mikoshi-construct/commit/dcf29e3c4ba611c9aaf80c941a7bf70e11e52e40) Thanks [@E1i](https://github.com/E1i)! - attach: the commit guard also refuses a commit, push, merge, rebase or tag behind `env -S`, `nice` and `xargs`, or spelled with `$'…'` or `$"…"`
+
+- [#424](https://github.com/E1i/mikoshi-construct/pull/424) [`44b8ae5`](https://github.com/E1i/mikoshi-construct/commit/44b8ae5d8431e44253bc8f9328d71ee33e95ec77) Thanks [@E1i](https://github.com/E1i)! - templates: open questions move out of `AGENTS.md` into `architecture/open-questions.md`, so they stop loading into every session — `AGENTS.md` keeps one line pointing there, `sync` leaves an already-filled block where it was, and the next `/construct-discover` moves it
+
+- [#428](https://github.com/E1i/mikoshi-construct/pull/428) [`4b09370`](https://github.com/E1i/mikoshi-construct/commit/4b093704e9c6d29fac1a04372a37feb42c4dc8fd) Thanks [@E1i](https://github.com/E1i)! - templates: /plan reads each task's risk from what the change does before choosing its contour, and a critical sign asks for the ladder path and a human who approves the brief
+
+- [#443](https://github.com/E1i/mikoshi-construct/pull/443) [`9401d7c`](https://github.com/E1i/mikoshi-construct/commit/9401d7c1d33d6d6408a6a23b221eac5f0b4c2824) Thanks [@E1i](https://github.com/E1i)! - cli: `construct board` shows where each task stands in a repository from the ladder runs in `.construct/runs.jsonl` and a pull request list handed over with `--prs`, and writes no file
+
+- [#441](https://github.com/E1i/mikoshi-construct/pull/441) [`f99a1d2`](https://github.com/E1i/mikoshi-construct/commit/f99a1d29cb046aab8c33f9d9f8c6b133b6c747d0) Thanks [@E1i](https://github.com/E1i)! - cli: the review-verdict contour moves to `review-verdict/2` — a verdict now carries `tree`, the tree it reviewed, and this repository's `ghosts:verdict` refuses it unless that is the tree of the pull request commit; journal lines written under `/1` still read
+
 ## 0.32.0
 
 ### Minor Changes
