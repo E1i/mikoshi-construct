@@ -42,6 +42,8 @@ const BORDERS = {
   under: ['├', '┼', '┤'],
   bottom: ['└', '┴', '┘'],
 } as const
+export const NOTHING_OPEN = ['nothing running — no tasks, no live windows.', 'Start one: open a Miko window and describe the task, or /plan <task>.']
+
 const RULE = '─'
 const SEPARATOR = '│'
 
@@ -77,6 +79,7 @@ export const DEFINITIONS = [
   '# windows live = live cheap-path attempts that are running, waiting or blocked, whose session has no session-end line',
   '# unregistered trees = git worktree list of this repository, less the main tree and every worktree a task names; shown after the table, listed as <path> <branch|detached> dirty <n>, trees under /scratchpad/ in the session scratch group; ghosts:cleanup never removes them',
   '# edge = contour.after of the Shredder matrix a tasks file names; UNKNOWN without one',
+  `# nothing open = no row running, waiting or blocked: the board prints "${NOTHING_OPEN[0]}" and how to start one instead of an empty table, and keeps the merged line under it; --json keeps its empty arrays`,
   ROW_DEFINITION,
 ]
 
@@ -192,6 +195,10 @@ function tableLines(entries: Entry[], paint: Paint): string[] {
   ]
 }
 
+function openLines(entries: Entry[], paint: Paint): string[] {
+  return entries.length === 0 ? NOTHING_OPEN : tableLines(entries, paint)
+}
+
 function finishedText(task: TaskView): string {
   const { live } = task
   if (live.pr.kind === 'found')
@@ -231,7 +238,7 @@ export function renderBoard(view: BoardView): string[] {
   return [
     summaryLine(view.summary, mikoText(view)),
     ...mismatchSummaryLines(view),
-    ...tableLines(ordered(view.shown.filter(task => !finished.includes(task)), view), view.paint),
+    ...openLines(ordered(view.shown.filter(task => !finished.includes(task)), view), view.paint),
     ...mergedLines(finished, view),
     ...unregisteredLines(view),
   ]

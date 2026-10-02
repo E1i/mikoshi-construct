@@ -55,7 +55,7 @@ function lines(entries: object[]): string {
   return entries.map(entry => `${JSON.stringify(entry)}\n`).join('')
 }
 
-function newWorld({ turns = [TURN] }: { turns?: object[] } = {}): World {
+function newWorld({ turns = [TURN], journal }: { turns?: object[], journal?: object[] } = {}): World {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'board-view-')))
   roots.push(root)
   const handoff = path.join(root, 'handoff')
@@ -63,7 +63,7 @@ function newWorld({ turns = [TURN] }: { turns?: object[] } = {}): World {
   const tree = path.join(root, 'mc-w')
   for (const dir of [handoff, path.join(repoRoot, '.construct'), path.join(repoRoot, '.claude'), tree])
     mkdirSync(dir, { recursive: true })
-  writeFileSync(path.join(handoff, 'ghosts.jsonl'), lines([{ ...START, worktree: tree }, ...OLD, ...FRESH, ...RA, M1]))
+  writeFileSync(path.join(handoff, 'ghosts.jsonl'), lines(journal ?? [{ ...START, worktree: tree }, ...OLD, ...FRESH, ...RA, M1]))
   writeFileSync(path.join(repoRoot, '.construct', 'turns.jsonl'), lines(turns))
   writeFileSync(path.join(repoRoot, '.construct', 'eddies.jsonl'), lines([STOP, FOREIGN_WARN]))
   writeFileSync(path.join(repoRoot, '.claude', 'eddies.json'), JSON.stringify(LIMITS))
@@ -177,5 +177,24 @@ describe('w7: a ladder attempt with no recorded branch finds its PR by ghost/<id
     const attempt = boardJson(world).tasks.flatMap((task: any) => task.attempts).find((candidate: any) => candidate.id === 'ra')
     expect(attempt.derived.category).toBe('merged')
     expect(attempt.pr).toMatchObject({ kind: 'found', number: 60, via: 'ghost/ra' })
+  })
+})
+
+describe('w9: a board with nothing open says so instead of drawing an empty table', () => {
+  const EMPTY = ['nothing running — no tasks, no live windows.', 'Start one: open a Miko window and describe the task, or /plan <task>.']
+
+  it('w9: an empty journal prints the summary and the hint, and no table', () => {
+    const world = newWorld({ journal: [] })
+    const stdout = run(world)
+    expect(stdout.slice(1)).toEqual(EMPTY)
+    expect(stdout.filter(line => line.startsWith('┌') || line.startsWith('│'))).toEqual([])
+    const json = boardJson(world)
+    expect([json.tasks, json.unregistered]).toEqual([[], []])
+    expect(JSON.stringify(json)).not.toContain('Start one')
+  })
+
+  it('w9: a journal with only a merged task keeps the merged line under the hint', () => {
+    const stdout = run(newWorld({ journal: [M1] }))
+    expect(stdout.slice(1)).toEqual([...EMPTY, 'merged: m1 PR #50'])
   })
 })
