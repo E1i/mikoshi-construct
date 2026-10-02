@@ -26,6 +26,7 @@ export interface TaskStartResult {
   stdout: string[]
   stderr: string[]
   exitCode: number
+  worktree?: string
 }
 
 function refuse(message: string): TaskStartResult {
@@ -85,7 +86,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   const stdout = [`${PREFIX}cut ${worktree} on ${branch} from origin/main; start line written to ${journal}`]
   if (deps.session === undefined)
     stdout.push(`${PREFIX}${SESSION_VARIABLE} is not set; the board will show WINDOW UNKNOWN (no session)`)
-  return { stdout, stderr: [], exitCode: 0 }
+  return { stdout, stderr: [], exitCode: 0, worktree }
 }
 
 function realDeps(): TaskStartDeps {
