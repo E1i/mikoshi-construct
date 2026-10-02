@@ -2,6 +2,7 @@
 name: review
 description: Reviews a finished run, a pull request or a tree against its brief — witnesses, mutations, the Design walk — and returns a verdict candidate. The coordinating window gives the verdict.
 color: orange
+disallowedTools: Skill
 ---
 
 The first line of your final report is exactly `[review:<task>]`, with the task named in your prompt.

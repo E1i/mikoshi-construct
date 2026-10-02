@@ -21,10 +21,19 @@ const PROTECTED_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url))
 const RESERVED = new Set(['!', '{', 'if', 'then', 'elif', 'else', 'do', 'while', 'until'])
 const TRANSPARENT = new Set(['command', 'exec', 'time', 'nohup'])
 const WRAPPERS = {
-  env: { values: ['-u', '--unset', '-S', '--split-string'], chdir: ['-C', '--chdir'], operands: 0 },
-  sudo: { values: ['-u', '--user', '-g', '--group', '-h', '--host', '-p', '--prompt', '-U', '--other-user', '-C', '--close-from', '-r', '--role', '-t', '--type', '-T', '--command-timeout'], chdir: ['-D', '--chdir'], operands: 0 },
-  timeout: { values: ['-s', '--signal', '-k', '--kill-after'], chdir: [], operands: 1 },
+  env: { appends: false, values: ['-u', '--unset', '-C', '--chdir'], unpins: ['-C', '--chdir'], split: ['-S', '--split-string'], operands: 0 },
+  nice: { appends: false, values: ['-n', '--adjustment'], unpins: [], split: [], operands: 0 },
+  sudo: { appends: false, values: ['-u', '--user', '-g', '--group', '-h', '--host', '-p', '--prompt', '-U', '--other-user', '-C', '--close-from', '-r', '--role', '-t', '--type', '-T', '--command-timeout', '-D', '--chdir'], unpins: ['-D', '--chdir'], split: [], operands: 0 },
+  timeout: { appends: false, values: ['-s', '--signal', '-k', '--kill-after'], unpins: [], split: [], operands: 1 },
+  xargs: { appends: true, values: ['-a', '--arg-file', '-d', '--delimiter', '-E', '-I', '-L', '-n', '--max-args', '-P', '--max-procs', '-s', '--max-chars', '--process-slot-var'], unpins: ['-I', '-i', '--replace'], split: [], operands: 0 },
 }
+const ANSI_C_ESCAPES = { 'a': '\x07', 'b': '\b', 'e': '\x1B', 'E': '\x1B', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', '\'': '\'', '"': '"', '?': '?' }
+const ANSI_C_NUMERIC = [
+  { lead: 'x', digits: /^[\da-f]{1,2}/i, radix: 16 },
+  { lead: 'u', digits: /^[\da-f]{1,4}/i, radix: 16 },
+  { lead: 'U', digits: /^[\da-f]{1,8}/i, radix: 16 },
+  { lead: '', digits: /^[0-7]{1,3}/, radix: 8 },
+]
 const GIT_VALUE_OPTIONS = new Set(['-c', '--work-tree', '--namespace', '--super-prefix', '--config-env'])
 const PIPING = new Set(['|', '|&', '&'])
 const UNKNOWN = Symbol('unknown')
@@ -211,9 +220,59 @@ class Scanner {
       this.substitution(word)
       return
     }
+    if (this.peek(1) === '\'') {
+      this.ansiCQuoted(word)
+      return
+    }
+    if (this.peek(1) === '"') {
+      this.position += 1
+      this.doubleQuoted()
+      return
+    }
     word.unresolvable = true
     word.text += '$'
     this.position += 1
+  }
+
+  ansiCQuoted(word) {
+    word.quoted = true
+    this.position += 2
+    while (this.position < this.source.length) {
+      const character = this.peek()
+      if (character === '\'') {
+        this.position += 1
+        return
+      }
+      if (character === '\\' && this.peek(1) != null) {
+        this.ansiCEscape(word)
+      }
+      else {
+        word.text += character
+        this.position += 1
+      }
+    }
+    word.unresolvable = true
+  }
+
+  ansiCEscape(word) {
+    const rest = this.source.slice(this.position + 1)
+    const lead = rest[0]
+    if (Object.hasOwn(ANSI_C_ESCAPES, lead)) {
+      word.text += ANSI_C_ESCAPES[lead]
+      this.position += 2
+      return
+    }
+    const numeric = ANSI_C_NUMERIC.find(form => rest.startsWith(form.lead) && form.digits.test(rest.slice(form.lead.length)))
+    if (numeric != null) {
+      const digits = rest.slice(numeric.lead.length).match(numeric.digits)[0]
+      word.text += String.fromCodePoint(Number.parseInt(digits, numeric.radix))
+      this.position += 1 + numeric.lead.length + digits.length
+      return
+    }
+    if (lead === 'c')
+      word.unresolvable = true
+    word.text += `\\${lead}`
+    this.position += 2
   }
 
   substitution(word) {
@@ -433,10 +492,33 @@ function readGitCommand(words, start, directory, gitDirFromEnvironment) {
   return null
 }
 
-function skipPrefixes(words) {
+function scannedWords(text) {
+  const scanner = new Scanner(text, 0, null)
+  scanner.consume()
+  return scanner.finish().filter(token => token.kind === 'word')
+}
+
+function optionNamed(option, flags) {
+  return flags.some(flag => option === flag || option.startsWith(flag.startsWith('--') ? `${flag}=` : flag))
+}
+
+function splitStringValue(option, flags, next) {
+  for (const flag of flags) {
+    if (option === flag)
+      return next == null ? null : { text: next.text, consumed: 1 }
+    const inline = flag.startsWith('--') ? `${flag}=` : flag
+    if (option.startsWith(inline))
+      return { text: option.slice(inline.length), consumed: 0 }
+  }
+  return null
+}
+
+function skipPrefixes(given) {
+  let words = given
   let index = 0
   let gitDir = null
   let unknown = false
+  let appended = false
   while (index < words.length) {
     const word = words[index]
     if (ASSIGNMENT.test(word.text)) {
@@ -457,17 +539,24 @@ function skipPrefixes(words) {
     }
     else if (Object.hasOwn(WRAPPERS, path.basename(word.text))) {
       const wrapper = WRAPPERS[path.basename(word.text)]
+      appended ||= wrapper.appends
       index += 1
       while (index < words.length && words[index].text.startsWith('-')) {
         const option = words[index].text
         index += 1
         if (option === '--')
           break
-        const name = option.split('=')[0]
-        if (wrapper.chdir.includes(name))
+        if (optionNamed(option, wrapper.unpins))
           unknown = true
-        if (!option.includes('=') && (wrapper.values.includes(option) || wrapper.chdir.includes(option)))
+        const split = splitStringValue(option, wrapper.split, words[index])
+        if (split != null) {
+          const source = words[index - 1 + split.consumed]
+          const spliced = scannedWords(split.text).map(found => ({ ...found, unresolvable: found.unresolvable || source.subs.length > 0 }))
+          words = [...words.slice(0, index), ...spliced, ...words.slice(index + split.consumed)]
+        }
+        else if (!option.includes('=') && wrapper.values.includes(option)) {
           index += 1
+        }
       }
       index += wrapper.operands
     }
@@ -475,7 +564,7 @@ function skipPrefixes(words) {
       break
     }
   }
-  return { index, gitDir, unknown }
+  return { words, index, gitDir, unknown, appended }
 }
 
 function simpleCommand(words, directory, before, after) {
@@ -486,8 +575,7 @@ function simpleCommand(words, directory, before, after) {
         return { refusal }
     }
   }
-  const active = words.filter(word => !word.redirect)
-  const { index, gitDir, unknown } = skipPrefixes(active)
+  const { words: active, index, gitDir, unknown, appended } = skipPrefixes(words.filter(word => !word.redirect))
   const program = active[index]
   if (program == null)
     return { directory }
@@ -498,7 +586,7 @@ function simpleCommand(words, directory, before, after) {
   if (path.basename(program.text) !== 'git')
     return { directory }
   const command = readGitCommand(active, index + 1, unknown ? null : directory, gitDir)
-  if (command == null || !GUARDED.includes(command.subcommand) || isAllowedForm(command.words))
+  if (command == null || !GUARDED.includes(command.subcommand) || (!appended && isAllowedForm(command.words)))
     return { directory }
   const pinned = command.gitDir == null ? command.target != null : command.gitDir !== UNKNOWN
   if (!pinned)

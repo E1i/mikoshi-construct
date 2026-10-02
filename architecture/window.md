@@ -84,6 +84,24 @@ not the default, and the cheap path keeps its discipline: CI and
 
 The journal line and its `verification` word are in [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 
+The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
+of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
+of which reads as critical: the mechanism of the ladder itself (the implement skill, the agent files, the
+ladder script and check-acceptance); a write into a repository someone else owns (what `init`, `attach`,
+`sync` and `detach` write, including the content of every carrier they write); and the security
+invariants in [architecture/security-invariants.md](security-invariants.md). Every other
+change under `.claude/**`, the rest of the own-instructions kind in
+[architecture/owner-merges.md](owner-merges.md), is owner-merged with no brief, unless it shows another critical sign.
+Five tasks from the journal are read by it after the fact.
+
+| Task | What the change does | Sign | Risk and the contour it asks for | Chosen | Differs |
+|------|----------------------|------|----------------------------------|--------|---------|
+| allow-auto-merge, PR #365 | lets the agent arm auto-merge through an allow rule in .claude/settings.json | permissions, an allow rule that grants the agent a right | critical: ladder and a human | cheap, merged by the owner | yes: the ladder was not taken |
+| detach-keeps-a-ledger-it-did-not-create, PR #374 | decides when detach deletes .construct/ in a user's repository | a deletion that cannot be rolled back, in a repository someone else owns | critical: ladder and a human | cheap, auto-merge | yes: neither the ladder nor a human |
+| ladder-script-without-mjs, PR #375 | renames a file attach writes, and sync moves the old path in repositories that have it | a write into a repository someone else owns (no source path is named) | critical: ladder and a human | cheap, merged by the owner | yes: the ladder was not taken |
+| changeset-style, PR #350 | a writing rule in CONTRIBUTING.md and one test on pending changesets | documentation and tests, the word points at the release path and the work publishes nothing | low: nothing beyond the cheap path | cheap | no |
+| morse-v3, PR #314 | a tool under scripts/morse/ that runs only in this repository | tooling | low: nothing beyond the cheap path | ladder, for the proof it needed | no: risk does not lower a contour |
+
 Morse is not introduced, and the classification is not designed in advance.
 
 ## Ghosts
