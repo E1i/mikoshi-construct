@@ -9,6 +9,7 @@ import process from 'node:process'
 import { stripVTControlCharacters } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CLEAR_SCREEN, FRAME_FILE, frameText, writeFrameFile } from '../../board/frame.js'
+import { runBoardLoop } from '../../board/loop.js'
 import { NEXT_BY_SITUATION } from '../../board/next.js'
 import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
 import { ageSince } from '../../board/row.js'
@@ -480,7 +481,61 @@ describe('board --every: reprint the view until interrupted', () => {
     expect(stdout.slice(1)).toEqual(board(['--dir', BASIC]).stdout)
   })
 
-  it('redraws from the script until it is interrupted, and replaces board.txt in the handoff directory with each frame', async () => {
+  it('redraws a frame after each sleep of --every seconds and replaces board.txt in the handoff directory with each frame, on an injected clock', async () => {
+    const handoff = mkdtempSync(path.join(tmpdir(), 'board-every-handoff-'))
+    cpSync(BASIC, handoff, { recursive: true })
+    const clock = [NOW, new Date(NOW.getTime() + 1000), new Date(NOW.getTime() + 2000)]
+    const slept: number[] = []
+    const written: string[] = []
+    const frames: string[] = []
+    try {
+      const loop = runBoardLoop({
+        draw: now => board(['--dir', handoff, '--every', '1'], stubGh(), path.join(FIXTURES, 'absent'), now),
+        now: () => clock[frames.length]!,
+        sleep: async (ms) => {
+          slept.push(ms)
+          frames.push(readFileSync(path.join(handoff, FRAME_FILE), 'utf8'))
+          if (slept.length === clock.length)
+            throw new Error('interrupted')
+        },
+        isTTY: false,
+        out: text => written.push(text),
+        err: text => written.push(text),
+        writeFrame: writeFrameFile,
+      })
+      await expect(loop).rejects.toThrow('interrupted')
+      expect(slept).toEqual([1000, 1000, 1000])
+      expect(written.map(text => text.split('\n')[0])).toEqual(clock.map(at => `[board] frame ${at.toISOString()}`))
+      expect(written.join('')).not.toContain(CLEAR_SCREEN)
+      expect(frames).toEqual(written)
+      for (const text of written)
+        expect(text.split('\n')[1]).toMatch(/^open \d+: running \d+, waiting \d+, blocked \d+, stale \d+ · windows live \d+ · merged 12h: \d+$/)
+      expect(frames.at(-1)!.split('\n').some(line => /^└─+┴/.test(line))).toBe(true)
+      expect(readdirSync(handoff).filter(name => name.endsWith('.tmp'))).toEqual([])
+    }
+    finally {
+      rmSync(handoff, { recursive: true, force: true })
+    }
+  })
+
+  it('returns the exit code after one frame without --every and never sleeps', async () => {
+    let slept = false
+    const code = await runBoardLoop({
+      draw: now => board(['--dir', BASIC], stubGh(), path.join(FIXTURES, 'absent'), now),
+      now: () => NOW,
+      sleep: async () => {
+        slept = true
+      },
+      isTTY: true,
+      out: () => {},
+      err: () => {},
+      writeFrame: () => {},
+    })
+    expect(code).toBe(0)
+    expect(slept).toBe(false)
+  })
+
+  it('the script draws a second frame on its own and keeps running until it is interrupted, and has written board.txt by then', async () => {
     const bin = mkdtempSync(path.join(tmpdir(), 'board-every-'))
     const handoff = mkdtempSync(path.join(tmpdir(), 'board-every-handoff-'))
     cpSync(BASIC, handoff, { recursive: true })
@@ -488,27 +543,24 @@ describe('board --every: reprint the view until interrupted', () => {
     try {
       const { CLAUDE_CODE_SESSION_ID: _session, ...outsideAWindow } = process.env
       const child = spawn(process.execPath, [TSX_CLI, BOARD, '--dir', handoff, '--every', '1'], { env: { ...outsideAWindow, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
-      let stdout = ''
-      child.stdout.on('data', (chunk) => {
-        stdout += String(chunk)
-      })
       const exited = new Promise(resolve => child.on('exit', resolve))
-      await new Promise(resolve => setTimeout(resolve, 4500))
+      let stdout = ''
+      await new Promise<void>((resolve) => {
+        child.stdout.on('data', (chunk) => {
+          stdout += String(chunk)
+          if (stdout.split('\n').filter(line => line.startsWith('[board] frame ')).length >= 2)
+            resolve()
+        })
+        child.on('exit', () => resolve())
+      })
       expect(child.exitCode).toBeNull()
       child.kill('SIGTERM')
       await exited
-      const lines = stdout.split('\n')
-      const headers = lines.flatMap((line, index) => /^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(line) ? [index] : [])
-      expect(headers.length).toBeGreaterThanOrEqual(2)
-      for (const index of headers)
-        expect(lines[index + 1]).toMatch(/^open \d+: running \d+, waiting \d+, blocked \d+, stale \d+ · windows live \d+ · merged 12h: \d+$/)
+      expect(stdout.split('\n')[0]).toMatch(/^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       expect(stdout).not.toContain(CLEAR_SCREEN)
       const frame = readFileSync(path.join(handoff, FRAME_FILE), 'utf8').split('\n')
       expect(frame[0]).toMatch(/^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
-      expect(frame[1]).toMatch(/^open \d+: running \d+, waiting \d+, blocked \d+, stale \d+ · windows live \d+ · merged 12h: \d+$/)
-      expect(frame.some(line => /^└─+┴/.test(line))).toBe(true)
       expect(frame.at(-1)).toBe('')
-      expect(readdirSync(handoff).filter(name => name.endsWith('.tmp'))).toEqual([])
     }
     finally {
       rmSync(bin, { recursive: true, force: true })
