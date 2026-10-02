@@ -1476,6 +1476,26 @@ usage is `unknown`), `unread` (events the hook could not read), `gaps` and `malf
 `not recorded`, never as zero: it means no hook ran here, not that nothing was spent. The figures are
 never added to the runs' figures above.
 
+### A forecast by task class
+
+`pnpm exec tsx scripts/ghosts/expect-sample.ts <class> [--effort <low|medium|high>]` prints the
+`expect:` line a brief would carry, with the forecast drawn from runs of tasks of the same class
+instead of every run of the same effort. It reads two files and writes none: the Ghost journal
+(`--journal`, by default `ghosts.jsonl` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`) and one
+or more run ledgers (`--runs`, repeatable, by default `.construct/runs.jsonl` here). A Ghost's ladder
+writes its ledger in the Ghost's own worktree, so pass each worktree's ledger that should count.
+
+A journal line with `event: task` names the task's `class` and the `run` its ladder reported; the
+ledger row with the same `run` carries the run's `effort`, `status`, `tokens` and `seconds`. The join
+is on `run` alone. A row counts when its task has the asked class, its `status` is `done`, its
+`tokens` is a number and, with `--effort`, its `effort` matches; a run named twice counts once.
+
+The first line is `expect: tokens ≈ <median>, minutes ≈ <median> — effort <e>, n=<n>, median` from five
+or more counted rows, `expect: none — n=<n> for <class>` from fewer, and `expect: none — the sample
+for <class> mixes efforts …; pass --effort` when no `--effort` was given and the rows span more than
+one. Each counted row follows as `<run>  tokens <n>  minutes <m>`. A journal line that is not JSON
+and a ledger line `parseLedgerLine` refuses are named on stderr, not dropped silently.
+
 ## construct board
 
 Shows where each task stands in this repository, from what the repository holds: the ladder runs in
