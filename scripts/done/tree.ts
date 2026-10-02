@@ -14,12 +14,13 @@ type Ranges = Array<[number, number]>
 
 const HUNK = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
-function git(root: string, args: string[]): string {
+function git(root: string, args: string[], whenSilent = `git ${args[0]} failed: no reason`): string {
   try {
     return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1 << 30 })
   }
   catch (error) {
-    throw new Error(`git ${args[0]} failed: ${String((error as Error).message).split('\n').find(line => line.length > 0 && !line.startsWith('Command failed')) ?? 'no reason'}`)
+    const reason = String((error as Error).message).split('\n').find(line => line.length > 0 && !line.startsWith('Command failed'))
+    throw new Error(reason === undefined ? whenSilent : `git ${args[0]} failed: ${reason}`)
   }
 }
 
@@ -74,7 +75,7 @@ function addedRanges(diff: string): Map<string, Ranges> {
 }
 
 export function readTree(root: string, base: string): Tree {
-  git(root, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`])
+  git(root, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`], `--base ${base} is not a commit`)
   const untracked = new Set(listed(root, ['--others', '--exclude-standard']))
   const files = new Set([...listed(root, ['--cached', '--others', '--exclude-standard'])].filter(file => exists(root, file)))
   const ranges = addedRanges(git(root, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-renames', base, '--']))
