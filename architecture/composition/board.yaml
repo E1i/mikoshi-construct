@@ -46,7 +46,7 @@ nodes:
     boundary: view
   - id: print
     label: printBoard / boardJson · the table, the hint, the merged line
-    path: src/commands/board/table.ts
+    path: src/commands/board/index.ts
     boundary: report
 edges:
   - {from: cli, to: run, kind: sequence}
