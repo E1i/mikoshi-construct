@@ -218,7 +218,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
 
   const stderr = handoff.warnings.map(warning => `${PREFIX}${warning}`)
   if (prs.kind === 'failed')
-    stderr.push(`${PREFIX}gh pr list failed; every PR fact is UNKNOWN`)
+    stderr.push(`${PREFIX}gh pr list ${prs.reason === undefined ? 'failed' : `unreadable: ${prs.reason}`}; every PR fact is UNKNOWN`)
   if (kinds === undefined)
     stderr.push(`${PREFIX}architecture/owner-merges.md unreadable; a merge NEXT is UNKNOWN`)
 

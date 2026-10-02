@@ -12,7 +12,7 @@ export interface PullRequest {
   mergeCommit: { oid: string } | null
 }
 
-export type PrList = { kind: 'failed' } | { kind: 'listed', prs: PullRequest[], truncated: boolean }
+export type PrList = { kind: 'failed', reason?: string } | { kind: 'listed', prs: PullRequest[], truncated: boolean }
 
 export type PrLookup = { kind: 'found', pr: PullRequest, via?: string } | { kind: 'none' } | { kind: 'unknown', missing: string }
 
@@ -28,15 +28,49 @@ export const PR_LIST_LIMIT = 1000
 
 const PASSING = ['SUCCESS', 'SKIPPED', 'NEUTRAL']
 
-export const execGh: GhRunner = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+export const GH_TIMEOUT_SECONDS = 20
+
+const GH_QUERY_FAILED = 'the gh query failed'
+
+export class GhTimedOut extends Error {
+  constructor(seconds: number) {
+    super(`gh timed out after ${seconds} s`)
+  }
+}
+
+function timedOut(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
+}
+
+export function ghRunner(timeoutSeconds: number, command = 'gh'): GhRunner {
+  let expired: GhTimedOut | undefined
+  return (args) => {
+    if (expired !== undefined)
+      throw expired
+    try {
+      return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutSeconds * 1000, killSignal: 'SIGKILL' })
+    }
+    catch (error) {
+      if (timedOut(error))
+        throw (expired = new GhTimedOut(timeoutSeconds))
+      throw error
+    }
+  }
+}
+
+export const execGh: GhRunner = ghRunner(GH_TIMEOUT_SECONDS)
+
+function reasonOf(error: unknown): string {
+  return error instanceof GhTimedOut ? error.message : GH_QUERY_FAILED
+}
 
 export function listPrs(gh: GhRunner, repo: string): PrList {
   try {
     const prs = JSON.parse(gh(['pr', 'list', '-R', repo, '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', 'number,title,headRefName,headRefOid,state,mergedAt,mergeCommit'])) as PullRequest[]
     return { kind: 'listed', prs, truncated: prs.length >= PR_LIST_LIMIT }
   }
-  catch {
-    return { kind: 'failed' }
+  catch (error) {
+    return error instanceof GhTimedOut ? { kind: 'failed', reason: error.message } : { kind: 'failed' }
   }
 }
 
@@ -44,7 +78,7 @@ export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
   if (branch === undefined)
     return { kind: 'unknown', missing: 'branch; no tasks file names one' }
   if (list.kind === 'failed')
-    return { kind: 'unknown', missing: 'pr; the gh query failed' }
+    return { kind: 'unknown', missing: `pr; ${list.reason ?? GH_QUERY_FAILED}` }
   const pr = list.prs.find(candidate => candidate.headRefName === branch)
   if (pr !== undefined)
     return { kind: 'found', pr }
@@ -68,7 +102,7 @@ export function lookupPrNumber(list: PrList, number: number | undefined): PrLook
   if (number === undefined)
     return { kind: 'unknown', missing: 'pr; the journal event:path line records none' }
   if (list.kind === 'failed')
-    return { kind: 'unknown', missing: 'pr; the gh query failed' }
+    return { kind: 'unknown', missing: `pr; ${list.reason ?? GH_QUERY_FAILED}` }
   const pr = list.prs.find(candidate => candidate.number === number)
   if (pr !== undefined)
     return { kind: 'found', pr }
@@ -126,8 +160,8 @@ export function prDetails(gh: GhRunner, repo: string, pr: PullRequest): PrDetail
   try {
     view = JSON.parse(gh(['pr', 'view', String(pr.number), '-R', repo, '--json', 'headRefOid,statusCheckRollup,files'])) as typeof view
   }
-  catch {
-    return { ci: { state: 'unknown', text: 'UNKNOWN (missing: checks; the gh query failed)', head: pr.headRefOid.slice(0, 7) }, files: undefined }
+  catch (error) {
+    return { ci: { state: 'unknown', text: `UNKNOWN (missing: checks; ${reasonOf(error)})`, head: pr.headRefOid.slice(0, 7) }, files: undefined }
   }
   return { ci: ciOf(view.statusCheckRollup ?? [], (view.headRefOid ?? pr.headRefOid).slice(0, 7)), files: view.files?.map(file => file.path) }
 }
