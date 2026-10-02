@@ -23,7 +23,7 @@ function writeFrame(file: string, lines: string[]): void {
 
 async function main(): Promise<void> {
   for (;;) {
-    const result = runBoard(process.argv.slice(2), { gh: execGh, now: new Date(), defaultDir, colour, repoRoot })
+    const result = runBoard(process.argv.slice(2), { gh: execGh, now: new Date(), defaultDir, colour, repoRoot, session: process.env.CLAUDE_CODE_SESSION_ID })
     for (const line of result.stderr)
       process.stderr.write(`${line}\n`)
     const clear = result.everySeconds !== undefined && process.stdout.isTTY === true

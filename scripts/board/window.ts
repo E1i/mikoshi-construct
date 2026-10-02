@@ -8,6 +8,7 @@ export interface Window {
   session: string | undefined
   lastAt: Date | undefined
   ended: boolean
+  context: number | undefined
 }
 
 interface TurnLine {
@@ -15,6 +16,7 @@ interface TurnLine {
   session?: unknown
   endedAt?: unknown
   at?: unknown
+  context?: unknown
 }
 
 function parsed(line: string): TurnLine {
@@ -33,7 +35,7 @@ function timeOf(entry: TurnLine): Date | undefined {
 }
 
 export function readWindow(repoRoot: string | undefined, session: string | undefined): Window {
-  const window: Window = { session, lastAt: undefined, ended: false }
+  const window: Window = { session, lastAt: undefined, ended: false, context: undefined }
   if (repoRoot === undefined || session === undefined)
     return window
   const file = path.join(repoRoot, TURNS_JOURNAL)
@@ -50,6 +52,8 @@ export function readWindow(repoRoot: string | undefined, session: string | undef
     const time = TURN_KINDS.includes(entry.kind as string) ? timeOf(entry) : undefined
     if (time !== undefined && (window.lastAt === undefined || time > window.lastAt))
       window.lastAt = time
+    if (time !== undefined && typeof entry.context === 'number' && Number.isFinite(entry.context))
+      window.context = entry.context
   }
   return window
 }

@@ -1,17 +1,18 @@
 import type { AttemptView, Summary, TaskView } from './derive.js'
-import type { BudgetLine } from './eddies.js'
+import type { ContextLimits } from './eddies.js'
 import type { PrDetails } from './gh.js'
 import type { ModelMismatch } from './roles.js'
 import type { Age, NextOf, Row } from './row.js'
 import type { Paint } from './tone.js'
 import type { Tree, Unregistered } from './tree.js'
 import { stripVTControlCharacters } from 'node:util'
-import { FINISHED_SHOWN, FINISHED_SHOWN_HOURS, isSuperseded, stageText } from './derive.js'
-import { budgetSummary, budgetText } from './eddies.js'
+import { FINISHED_SHOWN_HOURS, finishedAt, reportOf, stageText } from './derive.js'
+import { budgetText, contextPercent, eddiesOf, eddiesText } from './eddies.js'
 import { FRAME_FILE } from './frame.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { mismatchText } from './roles.js'
 import { ageSince, rowOf } from './row.js'
+import { STALE_HOURS, staleAge } from './stale.js'
 import { toneOf } from './tone.js'
 import { treeText, unregisteredText } from './tree.js'
 import { VERIFICATION_WORDS } from './verification.js'
@@ -21,7 +22,10 @@ export interface BoardView {
   shown: TaskView[]
   summary: Summary
   windowMismatches: ModelMismatch[]
-  windowBudgetLines: BudgetLine[]
+  limits: ContextLimits | undefined
+  miko: { session: string, context: number | undefined } | undefined
+  contextWarnPercent: number | undefined
+  staleHours: number
   edges: string[] | undefined
   details: Map<string, PrDetails>
   trees: Map<string, Tree | undefined>
@@ -31,16 +35,19 @@ export interface BoardView {
   paint: Paint
 }
 
-const COLUMNS = ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'WINDOW', 'TREE'] as const
+const COLUMNS = ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'WINDOW', 'TREE', 'EDDIES'] as const
+const ROW_ORDER = ['blocked', 'stale', 'waiting', 'running'] as const
 const BORDERS = {
   top: ['┌', '┬', '┐'],
   under: ['├', '┼', '┤'],
   bottom: ['└', '┴', '┘'],
 } as const
+export const NOTHING_OPEN = ['nothing running — no tasks, no live windows.', 'Start one: open a Miko window and describe the task, or /plan <task>.']
+
 const RULE = '─'
 const SEPARATOR = '│'
 
-const ROW_DEFINITION = '# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR\'s CI and architecture/owner-merges.md'
+const ROW_DEFINITION = '# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR\'s CI and architecture/owner-merges.md, led by stale <age> when the task is stale; EDDIES = ctx <percent> of its live window, stop <n> and warn <n> of its budget lines, — with none'
 
 export const DEFINITIONS = [
   `# board: read-only, except that each --every frame is written to <handoff dir>/${FRAME_FILE}; a stage is a recorded fact, — when it did not happen, or UNKNOWN naming the record that is missing`,
@@ -59,17 +66,20 @@ export const DEFINITIONS = [
   '# running = not merged, and its status.md row ghost-<id> has state writing, reviewing or reading; on the cheap path, not merged, not reported and not ready; or a status.md policy row hand-ladder-<id> whose ladder has not ended',
   '# blocked = not merged, not running, and the journal records exit != 0, a ladder outcome other than "done", or a last review verdict "changes"',
   '# waiting = not merged, not running, not blocked, and a journal event:task exists (ladder finished, nothing after it recorded); on the cheap path, not merged and ready',
-  '# summary = over live attempts only; longest = now minus the status.md start (on the cheap path, the event:path started), among running, waiting and blocked; an attempt without a start is not measured',
-  `# shown: tasks whose live attempt is running, waiting or blocked, and the last ${FINISHED_SHOWN} merged or reported, each only while it merged or reported within the last ${FINISHED_SHOWN_HOURS}h; --all shows every task`,
+  `# summary = over live attempts only: MIKO context, open = running + waiting + blocked, stale, windows live, merged ${FINISHED_SHOWN_HOURS}h = merged or reported within the last ${FINISHED_SHOWN_HOURS}h; --json keeps longest = now minus the status.md start (on the cheap path, the event:path started)`,
+  `# MIKO context = the context of the window that runs the board (CLAUDE_CODE_SESSION_ID): the context field of its last turn or late line in <repo>/.construct/turns.jsonl over contextLimit of .claude/eddies.json, marked (warn at <n>%) from --context-warn <percent>, else warnRatio; — with no reading, no segment outside a window`,
+  `# stale = running, waiting or blocked, not superseded, and its last recorded event (the latest stage done; on the cheap path also the last turn of its window) older than --stale <hours>, ${STALE_HOURS} by default`,
+  `# shown: tasks whose live attempt is running, waiting or blocked, as rows ordered blocked, stale, waiting, running and the oldest first within each; and every task merged or reported within the last ${FINISHED_SHOWN_HOURS}h, on the merged line newest first; --all shows every task`,
   '# superseded = a journal event:superseded names the attempt and the attempt that replaced it (by); a task whose live attempt is superseded is left out of the summary and the default list, and every superseded attempt out of --json\'s UNKNOWN tally; --all lists it, NEXT reads — (superseded); its card names the successor, as --json does',
   '# model-mismatch = a line of .construct/roles.jsonl, written when a subagent ran on a model outside the one its .claude/agents definition names (the parent session\'s model when it names none or inherit); a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
-  '# eddies = a budget-stop or budget-warn line of .construct/eddies.jsonl, written by the Eddies hook when a session, agent or workflow run reached a threshold of .claude/eddies.json or its warnRatio share; a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
+  '# eddies = a budget-stop or budget-warn line of .construct/eddies.jsonl, written by the Eddies hook when a session, agent or workflow run reached a threshold of .claude/eddies.json or its warnRatio share; a card lists its attempts\' lines, from the worktree and from this repository\'s journal where session_id is the session the task\'s event:path line names; EDDIES counts them',
   '# window = the session a cheap-path event:path line names (fields of all the task\'s event:path lines fold, a later line overriding an earlier one), read in <repo>/.construct/turns.jsonl: WINDOW = first 8 of the session · turn <age of its last turn, late or subagent line> | · ended when a session-end line exists | UNKNOWN (no session); — on the ladder',
   '# tree = the worktree and branch a tasks file or an event:path line names: TREE = basename · branch · dirty <lines of git status --porcelain>, gone when the path does not exist, — when none is named',
   '# cheap path, window ended: not merged, no pr on the line and the session has a session-end line → blocked; NEXT reads "handoff, waits for a new window" when a handoff-*<id>*.md file is in the handoff dir, else "window closed, no PR"; a live or unknown window keeps it running',
-  '# windows live = live attempts that are running, waiting or blocked, whose session has no session-end line',
+  '# windows live = live cheap-path attempts that are running, waiting or blocked, whose session has no session-end line',
   '# unregistered trees = git worktree list of this repository, less the main tree and every worktree a task names; shown after the table, listed as <path> <branch|detached> dirty <n>, trees under /scratchpad/ in the session scratch group; ghosts:cleanup never removes them',
   '# edge = contour.after of the Shredder matrix a tasks file names; UNKNOWN without one',
+  `# nothing open = no row running, waiting or blocked: the board prints "${NOTHING_OPEN[0]}" and how to start one instead of an empty table, and keeps the merged line under it; --json keeps its empty arrays`,
   ROW_DEFINITION,
 ]
 
@@ -85,17 +95,23 @@ export function formatAge(age: Age): string {
   return age.skew ? `clock skew (${formatMinutes(age.minutes)} ahead)` : formatMinutes(age.minutes)
 }
 
-export function summaryLine(summary: Summary): string {
+export function summaryLine(summary: Summary, miko?: string): string {
   const { running, waiting, blocked } = summary.counts
   const open = running + waiting + blocked
-  let longest: string
-  if (summary.longest === undefined)
-    longest = open === 0 ? '— (nothing running, waiting or blocked)' : 'UNKNOWN (missing: status.md start)'
-  else if (summary.longest.minutes < 0)
-    longest = `clock skew (${-summary.longest.minutes} min ahead, ${summary.longest.task})`
-  else
-    longest = `${summary.longest.minutes} min (${summary.longest.task})`
-  return `running ${running}, waiting ${waiting}, blocked ${blocked}, the longest — ${longest}, windows live ${summary.windowsLive}`
+  const body = `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${summary.stale} · windows live ${summary.windowsLive} · merged ${FINISHED_SHOWN_HOURS}h: ${summary.finished}`
+  return miko === undefined ? body : `${miko} · ${body}`
+}
+
+export function mikoText(view: BoardView): string | undefined {
+  if (view.miko === undefined)
+    return undefined
+  if (view.limits === undefined)
+    return 'MIKO context UNKNOWN (missing: .claude/eddies.json)'
+  if (view.miko.context === undefined)
+    return 'MIKO context —'
+  const percent = contextPercent(view.miko.context, view.limits)
+  const warnPercent = view.contextWarnPercent ?? Math.round(view.limits.warnRatio * 100)
+  return percent >= warnPercent ? `MIKO context ${percent}% (warn at ${warnPercent}%)` : `MIKO context ${percent}%`
 }
 
 function visibleWidth(text: string): number {
@@ -127,17 +143,43 @@ export function windowText(live: AttemptView, now: Date): string {
 
 interface Entry {
   row: Row
+  stale: Age | undefined
   window: string
   tree: string
+  eddies: string
+}
+
+export function attemptEddies(live: AttemptView): ReturnType<typeof eddiesOf> {
+  const { window } = live.attempt
+  return eddiesOf(live.path === 'cheap' && !window.ended ? window.context : undefined, live.attempt.budgetLines)
 }
 
 function entryOf(task: TaskView, view: BoardView): Entry {
-  return { row: rowOf(task, view.nextOf, view.now), window: windowText(task.live, view.now), tree: treeText(view.trees.get(task.live.attempt.id)) }
+  return {
+    row: rowOf(task, view.nextOf, view.now),
+    stale: staleAge(task.live, view.now, view.staleHours),
+    window: windowText(task.live, view.now),
+    tree: treeText(view.trees.get(task.live.attempt.id)),
+    eddies: eddiesText(attemptEddies(task.live), view.limits),
+  }
 }
 
-function rowCells({ row, window, tree }: Entry, paint: Paint): string[] {
+function rowCells({ row, stale, window, tree, eddies }: Entry, paint: Paint): string[] {
   const tone = toneOf(row)
-  return [row.id, row.path, paint(tone, row.stage?.name ?? '—'), row.age === undefined ? '—' : formatAge(row.age), paint(tone, row.next.text), window, tree]
+  const next = stale === undefined ? row.next.text : `stale ${formatAge(stale)} · ${row.next.text}`
+  return [row.id, row.path, paint(tone, row.stage?.name ?? '—'), row.age === undefined ? '—' : formatAge(row.age), paint(tone, next), window, tree, eddies]
+}
+
+function rankOf({ stale }: Entry, category: string): number {
+  const rank = ROW_ORDER.indexOf((stale === undefined ? category : 'stale') as typeof ROW_ORDER[number])
+  return rank === -1 ? ROW_ORDER.length : rank
+}
+
+function ordered(tasks: TaskView[], view: BoardView): Entry[] {
+  return tasks
+    .map(task => ({ entry: entryOf(task, view), category: task.live.category }))
+    .sort((a, b) => rankOf(a.entry, a.category) - rankOf(b.entry, b.category) || (b.entry.row.age?.minutes ?? -1) - (a.entry.row.age?.minutes ?? -1))
+    .map(({ entry }) => entry)
 }
 
 function tableLines(entries: Entry[], paint: Paint): string[] {
@@ -153,12 +195,23 @@ function tableLines(entries: Entry[], paint: Paint): string[] {
   ]
 }
 
-function hiddenLines(view: BoardView): string[] {
-  const hidden = view.tasks.length - view.shown.length
-  if (hidden === 0)
-    return []
-  const superseded = view.tasks.filter(task => isSuperseded(task.live)).length
-  return [`hidden: ${hidden} tasks${superseded === 0 ? '' : ` (${superseded} superseded)`}, --all shows them`]
+function openLines(entries: Entry[], paint: Paint): string[] {
+  return entries.length === 0 ? NOTHING_OPEN : tableLines(entries, paint)
+}
+
+function finishedText(task: TaskView): string {
+  const { live } = task
+  if (live.pr.kind === 'found')
+    return `${live.attempt.id} PR #${live.pr.pr.number}`
+  const report = reportOf(live.attempt.pathEvent)
+  return report === undefined ? live.attempt.id : `${live.attempt.id} report: ${report}`
+}
+
+function mergedLines(finished: TaskView[], view: BoardView): string[] {
+  const older = view.tasks.length > view.shown.length ? '   (older: --all)' : ''
+  if (finished.length === 0)
+    return older === '' ? [] : [`merged: —${older}`]
+  return [`merged: ${finished.map(finishedText).join(' · ')}${older}`]
 }
 
 function mismatchSummaryLines(view: BoardView): string[] {
@@ -166,11 +219,6 @@ function mismatchSummaryLines(view: BoardView): string[] {
   const inTasks = [...tasks.values()].reduce((sum, count) => sum + count, 0)
   const total = inTasks + view.windowMismatches.length
   return total === 0 ? [] : [`model-mismatch ${total}: window ${view.windowMismatches.length}, tasks ${inTasks} (a role ran on a model its definition does not name; .construct/roles.jsonl)`]
-}
-
-function budgetSummaryLines(view: BoardView): string[] {
-  const byWorktree = new Map(view.tasks.flatMap(task => task.attempts).map(attempt => [attempt.attempt.worktree ?? attempt.attempt.id, attempt.attempt.budgetLines]))
-  return budgetSummary(view.windowBudgetLines, [...byWorktree.values()].flat())
 }
 
 function unregisteredLines(view: BoardView): string[] {
@@ -186,12 +234,12 @@ function unregisteredLines(view: BoardView): string[] {
 }
 
 export function renderBoard(view: BoardView): string[] {
+  const finished = view.shown.filter(task => finishedAt(task.live) !== undefined)
   return [
-    summaryLine(view.summary),
+    summaryLine(view.summary, mikoText(view)),
     ...mismatchSummaryLines(view),
-    ...budgetSummaryLines(view),
-    ...hiddenLines(view),
-    ...tableLines(view.shown.map(task => entryOf(task, view)), view.paint),
+    ...openLines(ordered(view.shown.filter(task => !finished.includes(task)), view), view.paint),
+    ...mergedLines(finished, view),
     ...unregisteredLines(view),
   ]
 }
