@@ -1,7 +1,7 @@
 import type { PrDetails, PrList, PrLookup, PullRequest } from './gh.js'
 import type { Attempt, PathEvent } from './handoff.js'
 import path from 'node:path'
-import { lookupGhostPr, lookupPr, lookupPrNumber, REQUIRED_CHECK } from './gh.js'
+import { lookupGhostPr, lookupPr, lookupPrNumber, lookupPrVia, REQUIRED_CHECK } from './gh.js'
 import { handLadderPolicy } from './policy.js'
 import { VERIFICATION_WORDS } from './verification.js'
 import { isEnded, isLive } from './window.js'
@@ -221,18 +221,30 @@ function startedStage(pathEvent: PathEvent): StageBody {
   return pathEvent.started === undefined ? unknown('started; the journal event:path line records none') : done(pathEvent.started, 'journal event:path')
 }
 
-function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): StageBody {
-  if (pr.kind !== 'found')
-    return unknown(pr.kind === 'unknown' ? pr.missing : `pr #${pathEvent.pr}`)
+function cheapPrStage(attempt: Attempt, pathEvent: PathEvent, pr: PrLookup): StageBody {
+  if (pr.kind === 'none')
+    return not(`no PR for ${attempt.branch}`)
+  if (pr.kind === 'unknown')
+    return unknown(pr.missing)
+  if (pr.via !== undefined)
+    return fact(`#${pr.pr.number} ${pr.pr.state}`, `pr via ${pr.via}`)
   return fact(`#${pr.pr.number} ${pr.pr.state}`, pathEvent.sha === undefined ? undefined : `journal event:path, sha ${pathEvent.sha.slice(0, 7)}`)
 }
 
-function cheapCategoryOf(attempt: Attempt, pathEvent: PathEvent, merged: boolean, details: PrDetails | undefined): Category {
+function cheapPrLookup(attempt: Attempt, pathEvent: PathEvent, prs: PrList): PrLookup {
+  return pathEvent.pr === undefined && attempt.branch !== undefined ? lookupPrVia(prs, attempt.branch) : lookupPrNumber(prs, pathEvent.pr)
+}
+
+function hasNoPr(attempt: Attempt, pathEvent: PathEvent, pr: PrLookup): boolean {
+  return pathEvent.pr === undefined && (pr.kind === 'none' || attempt.branch === undefined)
+}
+
+function cheapCategoryOf(attempt: Attempt, pathEvent: PathEvent, pr: PrLookup, merged: boolean, details: PrDetails | undefined): Category {
   if (merged)
     return 'merged'
   if (isReady(details))
     return 'waiting'
-  return pathEvent.pr === undefined && isEnded(attempt.window) ? 'blocked' : 'running'
+  return hasNoPr(attempt, pathEvent, pr) && isEnded(attempt.window) ? 'blocked' : 'running'
 }
 
 function verificationFact(pathEvent: PathEvent): Stage {
@@ -266,7 +278,7 @@ export function reportOf(pathEvent: PathEvent | undefined): string | undefined {
 }
 
 function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, checksOf: ChecksOf): AttemptView {
-  const pr = lookupPrNumber(prs, pathEvent.pr)
+  const pr = cheapPrLookup(attempt, pathEvent, prs)
   const details = detailsOf(pr, checksOf)
   const mergedAt = mergedAtOf(attempt, pr)
   return {
@@ -276,11 +288,11 @@ function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, c
     stages: [
       { name: 'started', ...startedStage(pathEvent) },
       { name: 'ready', ...ciReadyStage(pr, details) },
-      { name: 'pr', ...cheapPrStage(pathEvent, pr) },
+      { name: 'pr', ...cheapPrStage(attempt, pathEvent, pr) },
       { name: 'merged', ...mergedStage(attempt, pr) },
     ],
     facts: [verificationFact(pathEvent)],
-    category: cheapCategoryOf(attempt, pathEvent, mergedAt !== undefined, details),
+    category: cheapCategoryOf(attempt, pathEvent, pr, mergedAt !== undefined, details),
     startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
     mergedAt,
     reportedAt: undefined,
