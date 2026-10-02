@@ -1476,6 +1476,50 @@ usage is `unknown`), `unread` (events the hook could not read), `gaps` and `malf
 `not recorded`, never as zero: it means no hook ran here, not that nothing was spent. The figures are
 never added to the runs' figures above.
 
+## construct board
+
+Shows where each task stands in this repository, from what the repository holds: the ladder runs in
+`.construct/runs.jsonl` and the pull request list that `gh pr list` wrote. The CLI runs no `gh` and
+writes no file, `--every` included; you fetch the list and hand it over.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--prs <file>` | not read | The JSON written by `gh pr list`; `-` reads it from stdin. |
+| `--all` | `false` | Also show what is older than 12 hours, superseded or closed. |
+| `--stale <hours>` | `4` | The hours after which an open row is stale. |
+| `--every <seconds>` | | Redraw every `<seconds>`, re-reading each source; refused with `--json` and with `--prs -`. |
+| `--json` | `false` | The board as a JSON object. |
+
+```bash
+gh pr list --state all --limit 100 --json number,title,state,createdAt,closedAt,mergedAt,statusCheckRollup | npx mikoshi-construct board --prs -
+```
+
+The first line counts the open rows (`running`, `waiting`, `blocked`), how many of them are stale, and
+the pull requests merged in the last 12 hours. The table has the columns `TASK`, `PATH`, `STAGE`, `AGE`
+and `NEXT`, ordered blocked, stale, waiting, running, the oldest first within each. A ladder run is a
+row with the path `ladder`: `ladder done` waits for a review and a pull request, any other status
+waits for a decision. An open pull request is a row with the path `pr`: ready when its checks are
+green, open and blocked when one failed, open and running while they are pending. Nothing is joined: a
+ladder run and a pull request are two rows. A row that waits for you is red on `STAGE` and `NEXT`
+and nowhere else, and a plain run (`--plain`, `NO_COLOR`, a pipe) carries no colour at all. A pull
+request merged in the last 12 hours is named on the `merged:` line, never as a row.
+
+A run the ladder finished more than 12 hours ago, a run followed by a later run of the same task, and
+a closed pull request are hidden, counted on the `hidden:` line, and shown by `--all`.
+
+With nothing open the board prints two lines in place of the table. The first names what was read: the
+ladder runs in `.construct/runs.jsonl` when this repository has `/implement`, and the pull requests,
+or that they were not read together with the `gh` command to run. The second says how to start one in Claude
+Code, or that this repository has no `/implement` and the board lists pull requests only.
+
+`--json` prints one object with `schemaVersion`, `format` (`user-board/1`, the format of this
+output), `summary`, `sources`, `rows` (every row, hidden ones included, as `task`, `path`, `stage`,
+`state`, `at`, `next`, `tone`, `stale` and `shown`) and `unknown`. `unknown` tallies what could not
+be read, as the keys `.construct/runs.jsonl` (counting 1 when absent, and 1 for each malformed line)
+and `pull requests` (counting 1 when `--prs` is missing or unreadable), and is empty when everything
+was read. The text never prints UNKNOWN. A `--prs` file that cannot be read is named unreadable
+with its reason, and the board still exits `0`.
+
 ## construct graph
 
 Draws `construct.model.json` — every claim, every hypothesis and the files each one stands on — as a

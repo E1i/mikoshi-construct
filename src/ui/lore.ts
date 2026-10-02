@@ -221,6 +221,30 @@ export interface Lore {
   mutateUnmatched: string
   mutateFileFailedToRun: string
   mutateRestsOn: (report: string, startedAt: string) => string
+  boardColumns: string[]
+  boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => string
+  boardLedgerRead: (file: string, runs: number) => string
+  boardLedgerAbsent: (file: string) => string
+  boardLedgerMalformed: (lines: number[]) => string
+  boardPrsRead: (file: string, count: number) => string
+  boardPrsNotRead: string
+  boardPrsUnreadable: (file: string, reason: string) => string
+  boardStale: (age: string) => string
+  boardClockSkew: (age: string) => string
+  boardMerged: (tasks: string[], older: boolean) => string
+  boardHidden: (count: number) => string
+  boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => string
+  boardNoLadderRuns: (file: string) => string
+  boardNoRecentLadderRuns: (file: string, hours: number) => string
+  boardNoOpenPrs: string
+  boardPrsClauseNotRead: (command: string) => string
+  boardPrsClauseUnreadable: (reason: string) => string
+  boardStart: string
+  boardNoImplement: string
+  boardEveryInvalid: string
+  boardEveryWithJson: string
+  boardEveryWithStdin: string
+  boardStaleInvalid: string
 }
 
 function policyEntries(added: { dir: string, allowed: string[] }[]): string {
@@ -492,6 +516,30 @@ export const LORE: Lore = {
   mutateUnmatched: 'PREDICTION MISSED.',
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
+  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT'],
+  boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
+  boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
+  boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,
+  boardLedgerMalformed: (lines: number[]) => `malformed lines ${lines.join(', ')}`,
+  boardPrsRead: (file: string, count: number) => `prs ${file}: ${count} pull requests`,
+  boardPrsNotRead: 'prs: not read; pass --prs <file>, or - for stdin',
+  boardPrsUnreadable: (file: string, reason: string) => `prs ${file}: unreadable (${reason})`,
+  boardStale: (age: string) => `stale ${age} \u00B7 `,
+  boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
+  boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
+  boardHidden: (count: number) => `hidden: ${count} rows, --all shows them`,
+  boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
+  boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
+  boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,
+  boardNoOpenPrs: 'no open pull requests',
+  boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | construct board --prs -`,
+  boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
+  boardStart: 'Start one in Claude Code: /plan <feature>, then /implement <task>.',
+  boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
+  boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
+  boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
+  boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',
+  boardStaleInvalid: '--stale takes a number of hours greater than 0',
 }
 
 export const PLAIN_LORE: Lore = {
@@ -755,4 +803,28 @@ export const PLAIN_LORE: Lore = {
   mutateUnmatched: 'The outcome does not match the prediction.',
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
+  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT'],
+  boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
+  boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
+  boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,
+  boardLedgerMalformed: (lines: number[]) => `malformed lines ${lines.join(', ')}`,
+  boardPrsRead: (file: string, count: number) => `prs ${file}: ${count} pull requests`,
+  boardPrsNotRead: 'prs: not read; pass --prs <file>, or - for stdin',
+  boardPrsUnreadable: (file: string, reason: string) => `prs ${file}: unreadable (${reason})`,
+  boardStale: (age: string) => `stale ${age} \u00B7 `,
+  boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
+  boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
+  boardHidden: (count: number) => `hidden: ${count} rows, --all shows them`,
+  boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
+  boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
+  boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,
+  boardNoOpenPrs: 'no open pull requests',
+  boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | construct board --prs -`,
+  boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
+  boardStart: 'Start one in Claude Code: /plan <feature>, then /implement <task>.',
+  boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
+  boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
+  boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
+  boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',
+  boardStaleInvalid: '--stale takes a number of hours greater than 0',
 }

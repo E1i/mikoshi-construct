@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { ATTACH_EXIT, SETTINGS_FILE } from '../../src/commands/attach/index.js'
+import { BOARD_EXIT } from '../../src/commands/board/index.js'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
 import { DETACH_EXIT } from '../../src/commands/detach/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
@@ -129,6 +130,7 @@ function exits(): Record<string, Record<string, number>> {
     'doctor': withFailed(DOCTOR_EXIT),
     'sync': withFailed(SYNC_EXIT),
     'sync --apply': withFailed(SYNC_APPLY_EXIT),
+    'board': withFailed(BOARD_EXIT),
     'cost': withFailed(COST_EXIT),
     'graph': withFailed(GRAPH_EXIT),
     'mutate apply': withFailed(MUTATE_APPLY_EXIT),
