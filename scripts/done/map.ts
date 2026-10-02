@@ -1,4 +1,4 @@
-import { readJson } from './requirements.js'
+import { readJson } from './json.js'
 
 export interface MapTest {
   file: string
