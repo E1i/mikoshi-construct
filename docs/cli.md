@@ -1158,10 +1158,12 @@ The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
 why and next. There is no bypass: it reads no environment variable and writes no audit file, and the
 owner's own terminal never passes through it. It follows `git -C`, `git -c`, `--git-dir`, a leading
-`cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env`, `sudo` and
-`timeout` under any path, and the worktrees of the attached repository, and takes the directory from
-the input's `cwd`. It reads words after quotes and escapes, as the shell does, so `g\it commit` and
-`git 'com'mit` are refused like `git commit`.
+`cd`, a subshell, an assignment (a `GIT_DIR=` prefix included), the wrappers `env` (an `-S` string read as
+the words it splits into), `nice`, `sudo`, `timeout` and `xargs` under any path, and the worktrees of the attached repository, and takes the directory from
+the input's `cwd`. It reads words after quotes, escapes, `$'…'` and `$"…"`, as the shell does, so `g\it commit`,
+`git 'com'mit` and `git $'\x63ommit'` are refused like `git commit`. Behind `xargs` no form passes as
+allowed, since what it appends breaks the exact match, and `-I` leaves the target unpinned; a
+subcommand that `xargs` supplies from its input passes.
 
 | Passes even in the attached repository | Refused, the neighbours of the forms that pass |
 |---|---|
