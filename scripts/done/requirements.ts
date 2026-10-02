@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readJson } from './json.js'
 
 const DESIGN_LINE = /^- (D\d+)\. /
 
@@ -41,14 +41,5 @@ export function readBrief(argsPath: string): Brief {
     requirements: [...acceptance.map((_, index) => `A${index + 1}`), ...designIds],
     witnesses: entriesOf<BriefWitness>(argsPath, 'witnesses', witnesses, ['criterion', 'command']),
     witnessDigests: entriesOf<WitnessDigest>(argsPath, 'witnessDigests', witnessDigests, ['criterion', 'sha256']),
-  }
-}
-
-export function readJson(file: string): unknown {
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'))
-  }
-  catch {
-    throw new Error(`${file} is not readable JSON`)
   }
 }
