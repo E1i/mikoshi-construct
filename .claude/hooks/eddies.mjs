@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, readTranscript, SPEND_BASIS, spentOf, sumTranscripts } from './eddies-measure.mjs'
+import { addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, hasBeenRead, readTranscript, SPEND_BASIS, spentOf, sumTranscripts } from './eddies-measure.mjs'
 
 export const EDDIES_JOURNAL_FILE = '.construct/eddies.jsonl'
 
@@ -19,6 +19,7 @@ const AGENT_ACTION = 'return what you have now'
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
 const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
+const WINDOW = 'window'
 
 class Unread extends Error {}
 
@@ -99,9 +100,10 @@ function sessionGauges(root, transcript, config, caller) {
   const parent = readTranscript(root, transcript)
   const others = sumTranscripts(root, agentTranscriptsUnder(subagentsDirOf(transcript)))
   const spend = addTokens({ ...parent.tokens }, others)
+  const recipient = `${caller.session_id}.${caller.agent_id ?? WINDOW}`
   return [
-    { level: 'session-context', key: caller.session_id, name: 'context', value: contextOf(parent.last), limitName: 'contextLimit', limit: config.contextLimit, tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
-    { level: 'session-spend', key: caller.session_id, name: 'spent', value: spentOf(spend), limitName: 'sessionSpend', limit: config.sessionSpend, tokens: spend, basis: SPEND_BASIS, action: SESSION_ACTION },
+    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), limitName: 'contextLimit', limit: config.contextLimit, tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
+    { level: 'session-spend', key: recipient, name: 'spent', value: spentOf(spend), limitName: 'sessionSpend', limit: config.sessionSpend, tokens: spend, basis: SPEND_BASIS, action: SESSION_ACTION },
   ]
 }
 
@@ -227,9 +229,16 @@ function recordUnread(root, input, hook, error) {
   }
 }
 
+function notCreatedYet(root, transcript) {
+  return !existsSync(transcript) && !hasBeenRead(root, transcript)
+}
+
 function sessionWarnings(root, input, config) {
   const caller = callerOf(input)
-  return sessionGauges(root, transcriptOf(input), config, caller)
+  const transcript = transcriptOf(input)
+  if (notCreatedYet(root, transcript))
+    return []
+  return sessionGauges(root, transcript, config, caller)
     .filter(gauge => crossesWarning(gauge, config))
     .map(gauge => warnOnce(root, gauge, caller, config))
     .filter(warning => warning != null)
