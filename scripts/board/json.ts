@@ -1,7 +1,9 @@
 import type { AttemptView, Stage } from './derive.js'
 import type { Next } from './next.js'
 import type { BoardView } from './render.js'
+import type { Tree } from './tree.js'
 import { isSuperseded, stageText } from './derive.js'
+import { windowText } from './render.js'
 import { rowOf, unknownTally } from './row.js'
 
 export const JSON_FORMAT = 'board/3'
@@ -22,11 +24,23 @@ function prJson(view: AttemptView): unknown {
   return view.pr.kind === 'none' ? { kind: 'none', branch: view.attempt.branch ?? null } : { kind: 'unknown', missing: view.pr.missing }
 }
 
+function treeJson(tree: Tree | undefined): unknown {
+  return tree === undefined ? null : { worktree: tree.worktree, branch: tree.branch ?? null, gone: tree.gone, dirty: tree.dirty ?? null }
+}
+
 function attemptJson(view: AttemptView, live: boolean, board: BoardView): unknown {
   const details = board.details.get(view.attempt.id)
   return {
     id: view.attempt.id,
     branch: view.attempt.branch ?? null,
+    worktree: view.attempt.worktree ?? null,
+    window: {
+      session: view.attempt.window.session ?? null,
+      lastAt: view.attempt.window.lastAt?.toISOString() ?? null,
+      ended: view.attempt.window.ended,
+      text: windowText(view, board.now),
+    },
+    tree: treeJson(board.trees.get(view.attempt.id)),
     stages: view.stages.map(stageJson),
     facts: view.facts.map(stageJson),
     pr: prJson(view),
@@ -47,7 +61,8 @@ export function boardJson(board: BoardView): Record<string, unknown> {
   return {
     format: JSON_FORMAT,
     now: board.now.toISOString(),
-    derived: { summary: { counts: board.summary.counts, longest: board.summary.longest ?? null } },
+    derived: { summary: { counts: board.summary.counts, longest: board.summary.longest ?? null, windowsLive: board.summary.windowsLive } },
+    unregistered: board.unregistered.map(tree => ({ worktree: tree.worktree, branch: tree.branch ?? null, dirty: tree.dirty ?? null, scratch: tree.scratch })),
     tasks: board.tasks.map((task) => {
       const row = rowOf(task, board.nextOf, board.now)
       return {

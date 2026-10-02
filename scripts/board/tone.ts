@@ -33,6 +33,8 @@ const TONE_BY_SITUATION: Record<Situation, Tone | undefined> = {
   'merged': 'grey',
   'report': undefined,
   'superseded': undefined,
+  'window-closed': 'red',
+  'window-handoff': 'red',
 }
 
 export function toneOf(row: Row): Tone | undefined {

@@ -1,17 +1,19 @@
-import type { Summary, TaskView } from './derive.js'
+import type { AttemptView, Summary, TaskView } from './derive.js'
 import type { BudgetLine } from './eddies.js'
 import type { PrDetails } from './gh.js'
 import type { ModelMismatch } from './roles.js'
 import type { Age, NextOf, Row } from './row.js'
 import type { Paint } from './tone.js'
+import type { Tree, Unregistered } from './tree.js'
 import { stripVTControlCharacters } from 'node:util'
 import { FINISHED_SHOWN, FINISHED_SHOWN_HOURS, isSuperseded, stageText } from './derive.js'
 import { budgetSummary, budgetText } from './eddies.js'
 import { FRAME_FILE } from './frame.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { mismatchText } from './roles.js'
-import { rowOf } from './row.js'
+import { ageSince, rowOf } from './row.js'
 import { toneOf } from './tone.js'
+import { treeText, unregisteredText } from './tree.js'
 import { VERIFICATION_WORDS } from './verification.js'
 
 export interface BoardView {
@@ -22,12 +24,14 @@ export interface BoardView {
   windowBudgetLines: BudgetLine[]
   edges: string[] | undefined
   details: Map<string, PrDetails>
+  trees: Map<string, Tree | undefined>
+  unregistered: Unregistered[]
   nextOf: NextOf
   now: Date
   paint: Paint
 }
 
-const COLUMNS = ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT'] as const
+const COLUMNS = ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'WINDOW', 'TREE'] as const
 const BORDERS = {
   top: ['┌', '┬', '┐'],
   under: ['├', '┼', '┤'],
@@ -60,6 +64,11 @@ export const DEFINITIONS = [
   '# superseded = a journal event:superseded names the attempt and the attempt that replaced it (by); a task whose live attempt is superseded is left out of the summary and the default list, and every superseded attempt out of --json\'s UNKNOWN tally; --all lists it, NEXT reads — (superseded); its card names the successor, as --json does',
   '# model-mismatch = a line of .construct/roles.jsonl, written when a subagent ran on a model outside the one its .claude/agents definition names (the parent session\'s model when it names none or inherit); a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
   '# eddies = a budget-stop or budget-warn line of .construct/eddies.jsonl, written by the Eddies hook when a session, agent or workflow run reached a threshold of .claude/eddies.json or its warnRatio share; a card lists its attempts\' lines from the worktree, the summary counts them and the window\'s own from this repository; with none, nothing is printed',
+  '# window = the session a cheap-path event:path line names (fields of all the task\'s event:path lines fold, a later line overriding an earlier one), read in <repo>/.construct/turns.jsonl: WINDOW = first 8 of the session · turn <age of its last turn, late or subagent line> | · ended when a session-end line exists | UNKNOWN (no session); — on the ladder',
+  '# tree = the worktree and branch a tasks file or an event:path line names: TREE = basename · branch · dirty <lines of git status --porcelain>, gone when the path does not exist, — when none is named',
+  '# cheap path, window ended: not merged, no pr on the line and the session has a session-end line → blocked; NEXT reads "handoff, waits for a new window" when a handoff-*<id>*.md file is in the handoff dir, else "window closed, no PR"; a live or unknown window keeps it running',
+  '# windows live = live attempts that are running, waiting or blocked, whose session has no session-end line',
+  '# unregistered trees = git worktree list of this repository, less the main tree and every worktree a task names; shown after the table, listed as <path> <branch|detached> dirty <n>, trees under /scratchpad/ in the session scratch group; ghosts:cleanup never removes them',
   '# edge = contour.after of the Shredder matrix a tasks file names; UNKNOWN without one',
   ROW_DEFINITION,
 ]
@@ -86,7 +95,7 @@ export function summaryLine(summary: Summary): string {
     longest = `clock skew (${-summary.longest.minutes} min ahead, ${summary.longest.task})`
   else
     longest = `${summary.longest.minutes} min (${summary.longest.task})`
-  return `running ${running}, waiting ${waiting}, blocked ${blocked}, the longest — ${longest}`
+  return `running ${running}, waiting ${waiting}, blocked ${blocked}, the longest — ${longest}, windows live ${summary.windowsLive}`
 }
 
 function visibleWidth(text: string): number {
@@ -105,13 +114,34 @@ function cellLine(cells: string[], widths: number[]): string {
   return `${SEPARATOR} ${cells.map((cell, column) => padded(cell, widths[column]!)).join(` ${SEPARATOR} `)} ${SEPARATOR}`
 }
 
-function rowCells(row: Row, paint: Paint): string[] {
-  const tone = toneOf(row)
-  return [row.id, row.path, paint(tone, row.stage?.name ?? '—'), row.age === undefined ? '—' : formatAge(row.age), paint(tone, row.next.text)]
+export function windowText(live: AttemptView, now: Date): string {
+  const { session, lastAt, ended } = live.attempt.window
+  if (live.path === 'ladder')
+    return '—'
+  if (session === undefined)
+    return 'UNKNOWN (no session)'
+  if (ended)
+    return `${session.slice(0, 8)} · ended`
+  return lastAt === undefined ? `${session.slice(0, 8)} · no turn recorded` : `${session.slice(0, 8)} · turn ${formatAge(ageSince(lastAt, now))}`
 }
 
-function tableLines(rows: Row[], paint: Paint): string[] {
-  const grid: string[][] = [[...COLUMNS], ...rows.map(row => rowCells(row, paint))]
+interface Entry {
+  row: Row
+  window: string
+  tree: string
+}
+
+function entryOf(task: TaskView, view: BoardView): Entry {
+  return { row: rowOf(task, view.nextOf, view.now), window: windowText(task.live, view.now), tree: treeText(view.trees.get(task.live.attempt.id)) }
+}
+
+function rowCells({ row, window, tree }: Entry, paint: Paint): string[] {
+  const tone = toneOf(row)
+  return [row.id, row.path, paint(tone, row.stage?.name ?? '—'), row.age === undefined ? '—' : formatAge(row.age), paint(tone, row.next.text), window, tree]
+}
+
+function tableLines(entries: Entry[], paint: Paint): string[] {
+  const grid: string[][] = [[...COLUMNS], ...entries.map(entry => rowCells(entry, paint))]
   const [header, ...body] = grid
   const widths = COLUMNS.map((_, column) => Math.max(...grid.map(cells => visibleWidth(cells[column]!))))
   return [
@@ -143,13 +173,26 @@ function budgetSummaryLines(view: BoardView): string[] {
   return budgetSummary(view.windowBudgetLines, [...byWorktree.values()].flat())
 }
 
+function unregisteredLines(view: BoardView): string[] {
+  if (view.unregistered.length === 0)
+    return []
+  const scratch = view.unregistered.filter(tree => tree.scratch)
+  const rest = view.unregistered.filter(tree => !tree.scratch)
+  return [
+    `unregistered trees ${view.unregistered.length}`,
+    ...rest.map(tree => `  ${unregisteredText(tree)}`),
+    ...(scratch.length === 0 ? [] : [`session scratch ${scratch.length}`, ...scratch.map(tree => `  ${unregisteredText(tree)}`)]),
+  ]
+}
+
 export function renderBoard(view: BoardView): string[] {
   return [
     summaryLine(view.summary),
     ...mismatchSummaryLines(view),
     ...budgetSummaryLines(view),
     ...hiddenLines(view),
-    ...tableLines(view.shown.map(task => rowOf(task, view.nextOf, view.now)), view.paint),
+    ...tableLines(view.shown.map(task => entryOf(task, view)), view.paint),
+    ...unregisteredLines(view),
   ]
 }
 
@@ -179,9 +222,10 @@ function edgeLines(task: TaskView, edges: string[] | undefined): string[] {
 }
 
 export function renderCard(task: TaskView, view: BoardView): string[] {
-  const row = rowOf(task, view.nextOf, view.now)
+  const entry = entryOf(task, view)
+  const { row } = entry
   return [
-    ...tableLines([row], view.paint),
+    ...tableLines([entry], view.paint),
     ...attemptLines(task, view.details),
     `next ${row.next.text} (derived${row.next.why === undefined ? '' : `; ${row.next.why}`})`,
     ...edgeLines(task, view.edges),

@@ -1,18 +1,28 @@
 import type { PrList } from '../board/gh.js'
-import type { Task } from './tasks.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { execGh, listPrs } from '../board/gh.js'
+import { execGit } from '../board/git.js'
+import { readHandoff } from '../board/handoff.js'
 import { handLadderPolicy, handLadderRows } from '../board/policy.js'
+import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { readUnregistered } from '../board/tree.js'
 import { readTasksFile } from './tasks.js'
 
 const PREFIX = '[ghosts:cleanup] '
 const DEFAULT_LOGS_DIR = '/tmp'
-const USAGE = 'usage: cleanup.ts --tasks <file> [--repo <owner>/<name>] [--logs <dir>]'
+
+export interface Target {
+  id: string
+  worktree: string
+  branch: string
+  pr?: number
+}
 
 export interface CleanupContext {
   repo: string
@@ -59,18 +69,18 @@ export function qualityLogs(logsDir: string, worktree: string): string[] {
   return readdirSync(logsDir).filter(name => pattern.test(name)).map(name => path.join(logsDir, name))
 }
 
-function kept(task: Task, reason: string): string {
+function kept(task: Target, reason: string): string {
   return `ghost-${task.id} kept: ${reason}`
 }
 
-export function cleanupMerged(task: Task, ctx: CleanupContext): string {
+export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   if (handLadderRows(ctx.statusText).has(task.id))
     return kept(task, `status.md policy ${handLadderPolicy(task.id)}; a hand-ladder worktree is never removed`)
   if (lastVerdict(ctx.journalPath, task.id) === 'changes')
     return kept(task, 'the last review verdict is changes')
   if (ctx.prs.kind === 'failed')
     return kept(task, 'gh unavailable; the pull request state is unknown')
-  const pr = ctx.prs.prs.find(candidate => candidate.headRefName === task.branch)
+  const pr = ctx.prs.prs.find(candidate => task.pr === undefined ? candidate.headRefName === task.branch : candidate.number === task.pr)
   if (pr === undefined)
     return kept(task, `no pull request for ${task.branch}`)
   if (pr.state !== 'MERGED')
@@ -108,21 +118,38 @@ function defaultRepo(cwd: string): string | undefined {
   }
 }
 
+function toplevel(): string {
+  return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target[], unregistered: string[] } {
+  const { attempts } = readHandoff(handoffDir)
+  const targets = attempts.flatMap(attempt => attempt.worktree === undefined || attempt.branch === undefined
+    ? []
+    : [{ id: attempt.id, worktree: attempt.worktree, branch: attempt.branch, pr: attempt.pathEvent?.pr }])
+  const unregistered = readUnregistered(repoRoot, attempts, execGit).map(tree => `unregistered ${tree.worktree} kept: named by no task`)
+  return { targets, unregistered }
+}
+
 function main(): void {
   const { values } = parseArgs({ args: process.argv.slice(2), options: { tasks: { type: 'string' }, repo: { type: 'string' }, logs: { type: 'string' } } })
-  if (values.tasks === undefined)
-    throw new Error(`--tasks is required: ${USAGE}`)
-  const tasksData = readTasksFile(values.tasks)
-  const repo = values.repo ?? defaultRepo(tasksData.repo)
+  const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const tasksData = values.tasks === undefined ? undefined : readTasksFile(values.tasks)
+  const repoRoot = tasksData?.repo ?? toplevel()
+  const repo = values.repo ?? defaultRepo(repoRoot)
+  const statusPath = tasksData?.status ?? path.join(handoffDir, 'status.md')
   const ctx: CleanupContext = {
-    repo: tasksData.repo,
+    repo: repoRoot,
     prs: repo === undefined ? { kind: 'failed' } : listPrs(execGh, repo),
-    statusText: existsSync(tasksData.status) ? readFileSync(tasksData.status, 'utf8') : undefined,
-    journalPath: path.join(tasksData.out, 'ghosts.jsonl'),
+    statusText: existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined,
+    journalPath: path.join(tasksData?.out ?? handoffDir, 'ghosts.jsonl'),
     logsDir: values.logs ?? DEFAULT_LOGS_DIR,
   }
-  for (const task of tasksData.tasks)
+  const { targets, unregistered } = tasksData === undefined ? handoffTargets(handoffDir, repoRoot) : { targets: tasksData.tasks, unregistered: [] }
+  for (const task of targets)
     console.log(`${PREFIX}${cleanupMerged(task, ctx)}`)
+  for (const line of unregistered)
+    console.log(`${PREFIX}${line}`)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
