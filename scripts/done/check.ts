@@ -72,14 +72,19 @@ function parseOptions(argv: string[]): DoneInputs {
   return { args: path.resolve(values.get('--args')!), map: path.resolve(values.get('--map')!), base: values.get('--base')! }
 }
 
-function main(): void {
-  let result: DoneResult
+function runFromCommandLine(argv: string[]): DoneResult {
+  let inputs: DoneInputs
   try {
-    result = doneCheck(process.cwd(), parseOptions(process.argv.slice(2)))
+    inputs = parseOptions(argv)
   }
   catch (error) {
-    result = failure([['input:', [(error as Error).message]]])
+    return failure([['input:', [(error as Error).message]]])
   }
+  return doneCheck(process.cwd(), inputs)
+}
+
+function main(): void {
+  const result = runFromCommandLine(process.argv.slice(2))
   process.stdout.write(`${result.lines.join('\n')}\n`)
   process.exitCode = result.passed ? 0 : 1
 }
