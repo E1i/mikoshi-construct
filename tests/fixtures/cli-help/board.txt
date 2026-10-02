@@ -1,0 +1,16 @@
+Where each task stands, from the ladder runs in .construct/runs.jsonl and the pull request list that gh pr list wrote and --prs hands over; the CLI runs no gh and writes no file. Rows that wait for you are red; a row older than 4 hours is stale (--stale); a run finished or a pull request merged more than 12 hours ago is hidden unless --all (construct board v<version>)
+
+USAGE construct board [OPTIONS] 
+
+OPTIONS
+
+      --dir=<dir>    Target directory (Default: .)                                               
+          --plain    No colors, no lore (CI-friendly) (Default: false)                           
+         --johnny    Wake up, Netrunner. (Default: false)                                        
+      --prs=<prs>    JSON file written by gh pr list, or - for stdin                             
+            --all    Also show what is older than 12 hours, superseded or closed (Default: false)
+  --stale=<stale>    Hours after which an open row is stale (Default: 4)                         
+  --every=<every>    Redraw every <seconds>                                                      
+           --json    Machine-readable board (format user-board/1) (Default: false)               
+
+

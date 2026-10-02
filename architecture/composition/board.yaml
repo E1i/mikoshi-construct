@@ -1,0 +1,58 @@
+id: board
+title: construct board composition
+description: >-
+  `board` in `src/program.ts` is the composition root. It refuses a flag it cannot honour, then reads the
+  two sources, each through its own reader and joined to nothing: the ladder's own record,
+  `.construct/runs.jsonl`, through `readLedger`, and the pull request list that `gh pr list` wrote, from
+  the file `--prs` names or from stdin. The CLI spawns no `gh`: the list is handed over, so the spawn row of
+  the security invariants stands. `readBoard` turns what was read into items, `buildView` decides which are
+  shown, stale, open or merged, and `printBoard` or `boardJson` renders it. With `--every` the root repeats the
+  read and the render for each frame and clears the screen between them. Nothing is written: not the board,
+  not a frame, not a record.
+doc: architecture/board.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: read
+    label: Read · two sources, nothing joined
+  - id: view
+    label: View
+  - id: report
+    label: Report
+nodes:
+  - id: cli
+    label: construct board (citty) · refuses a bad flag, loops under --every
+    path: src/program.ts
+    boundary: entry
+  - id: run
+    label: readBoard(dir, options)
+    path: src/commands/board/index.ts
+    boundary: entry
+  - id: ledger
+    label: readLedger → .construct/runs.jsonl · what the ladder recorded about itself
+    path: src/commands/cost/ledger.ts
+    boundary: read
+  - id: prs
+    label: readPrs → the file or stdin gh pr list wrote · nothing is spawned
+    path: src/commands/board/prs.ts
+    boundary: read
+  - id: items
+    label: ladderItems / prItems · one item per run and per pull request
+    path: src/commands/board/items.ts
+    boundary: view
+  - id: view
+    label: buildView · shown, stale, open and merged
+    path: src/commands/board/view.ts
+    boundary: view
+  - id: print
+    label: printBoard / boardJson · the table, the hint, the merged line
+    path: src/commands/board/table.ts
+    boundary: report
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: ledger, kind: sequence}
+  - {from: run, to: prs, kind: sequence}
+  - {from: ledger, to: items, kind: fan-in}
+  - {from: prs, to: items, kind: fan-in}
+  - {from: items, to: view, kind: sequence}
+  - {from: view, to: print, kind: sequence}

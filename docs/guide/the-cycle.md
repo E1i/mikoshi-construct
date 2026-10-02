@@ -71,6 +71,8 @@ abstraction and no dependency, never weaken a test, ship the test with the logic
 
 See [the reasoning budget](/guide/reasoning-budget) for what each class means and what it costs.
 
+`construct board` shows where each task stands while it runs: the ladder runs in `.construct/runs.jsonl` and the open pull requests, see [the reference](/cli#construct-board).
+
 ## 5. Verify — the step that is allowed to say "done"
 
 The implementer does not mark its own homework. A separate agent runs the repository's harness

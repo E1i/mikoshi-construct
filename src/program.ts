@@ -1,9 +1,12 @@
 import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
+import type { BoardReading } from './commands/board/index.js'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { ATTACH_EXIT, printEntryProtocol, runAttach } from './commands/attach/index.js'
+import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
@@ -177,6 +180,64 @@ const doctor = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+const CLEAR_SCREEN = '\u001B[2J\u001B[3J\u001B[H'
+
+const board = withKnownFlags(defineCommand({
+  meta: {
+    name: 'board',
+    description: 'Where each task stands, from the ladder runs in .construct/runs.jsonl and the pull request list that gh pr list wrote and --prs hands over; the CLI runs no gh and writes no file. Rows that wait for you are red; a row older than 4 hours is stale (--stale); a run finished or a pull request merged more than 12 hours ago is hidden unless --all',
+  },
+  args: {
+    ...commonArgs,
+    prs: { type: 'string', description: 'JSON file written by gh pr list, or - for stdin' },
+    all: { type: 'boolean', description: 'Also show what is older than 12 hours, superseded or closed', default: false },
+    stale: { type: 'string', description: 'Hours after which an open row is stale', default: String(STALE_HOURS) },
+    every: { type: 'string', description: 'Redraw every <seconds>' },
+    json: { type: 'boolean', description: 'Machine-readable board (format user-board/1)', default: false },
+  },
+  async run({ args }) {
+    const console = ui(args, stderrWriter)
+    const refuse = (message: string): void => {
+      console.flatline(message)
+      process.exitCode = FAILED_EXIT
+    }
+    const lore = console.lore
+    const staleHours = Number(args.stale)
+    const everySeconds = args.every === undefined ? undefined : Number(args.every)
+    if (!(staleHours > 0))
+      return refuse(lore.boardStaleInvalid)
+    if (everySeconds !== undefined && !(Number.isInteger(everySeconds) && everySeconds >= 1))
+      return refuse(lore.boardEveryInvalid)
+    if (everySeconds !== undefined && args.json)
+      return refuse(lore.boardEveryWithJson)
+    if (everySeconds !== undefined && args.prs === PRS_FROM_STDIN)
+      return refuse(lore.boardEveryWithStdin)
+    const dir = path.resolve(args.dir)
+    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readFileSync(0, 'utf8') })
+    try {
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify(boardJson(frame()), null, 2)}\n`)
+        process.exitCode = BOARD_EXIT.shown
+        return
+      }
+      const screen = ui(args)
+      let again = true
+      do {
+        again = everySeconds !== undefined
+        if (everySeconds !== undefined && screen.theme.name !== 'plain')
+          process.stdout.write(CLEAR_SCREEN)
+        process.exitCode = printBoard(screen, frame())
+        if (everySeconds !== undefined)
+          await new Promise(resolve => setTimeout(resolve, everySeconds * 1000))
+      } while (again)
+    }
+    catch (error) {
+      flatlineFor(console, error)
+      process.exitCode = FAILED_EXIT
+    }
+  },
+}), ROOT_META)
+
 const cost = withKnownFlags(defineCommand({
   meta: { name: 'cost', description: 'Token usage of the /implement runs recorded for this directory (from Claude Code session data)' },
   args: {
@@ -333,6 +394,7 @@ export const main = defineCommand({
     doctor,
     sync,
     cost,
+    board,
     graph,
     mutate,
   },

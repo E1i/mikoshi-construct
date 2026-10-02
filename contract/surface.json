@@ -31,6 +31,34 @@
         }
       }
     },
+    "board": {
+      "flags": {
+        "all": {
+          "type": "boolean"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "every": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        },
+        "prs": {
+          "type": "string"
+        },
+        "stale": {
+          "type": "string"
+        }
+      }
+    },
     "capture": {
       "aliasOf": "soulkill"
     },
@@ -261,6 +289,10 @@
       "failed": 1,
       "refused": 1
     },
+    "board": {
+      "failed": 1,
+      "shown": 0
+    },
     "cost": {
       "empty": 0,
       "failed": 1,
@@ -330,6 +362,42 @@
     "recordVersion": 2
   },
   "jsonKeys": {
+    "board": {
+      "shown": {
+        "keys": [
+          "format",
+          "rows",
+          "rows[].at",
+          "rows[].next",
+          "rows[].path",
+          "rows[].shown",
+          "rows[].stage",
+          "rows[].stale",
+          "rows[].state",
+          "rows[].task",
+          "rows[].tone",
+          "schemaVersion",
+          "sources",
+          "sources.ledger",
+          "sources.ledger.file",
+          "sources.ledger.malformed",
+          "sources.ledger.status",
+          "sources.prs",
+          "sources.prs.count",
+          "sources.prs.file",
+          "sources.prs.status",
+          "summary",
+          "summary.blocked",
+          "summary.merged",
+          "summary.open",
+          "summary.running",
+          "summary.stale",
+          "summary.waiting",
+          "unknown"
+        ],
+        "root": "object"
+      }
+    },
     "cost": {
       "empty": {
         "keys": [
