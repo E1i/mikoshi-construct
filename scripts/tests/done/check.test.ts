@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -26,17 +27,21 @@ function put(root: string, file: string, text: string): void {
   writeFileSync(path.join(root, file), text)
 }
 
-function world(total: string, wired: boolean): World {
+function world(total: string, wired: boolean, tracked: Record<string, [string, string]> = {}): World {
   const root = mkdtempSync(path.join(tmpdir(), 'done-check-'))
   git(root, ['init', '-q'])
   put(root, 'package.json', '{"name":"fixture","type":"module","bin":"src/cli.ts"}\n')
   put(root, 'src/cli.ts', 'import { main } from \'./app.js\'\n\nmain()\n')
   put(root, 'src/app.ts', 'export function main(): number {\n  return 1\n}\n')
   put(root, 'src/legacy.ts', LEGACY)
+  for (const [file, [before]] of Object.entries(tracked))
+    put(root, file, before)
   git(root, ['add', '-A'])
   git(root, ['commit', '-q', '-m', 'base'])
   const base = git(root, ['rev-parse', 'HEAD'])
   put(root, 'src/total.ts', total)
+  for (const [file, [, after]] of Object.entries(tracked))
+    put(root, file, after)
   if (wired)
     put(root, 'src/app.ts', WIRED)
   put(root, 'tests/total.test.ts', TEST)
@@ -47,7 +52,7 @@ function world(total: string, wired: boolean): World {
   return { root, base, args }
 }
 
-function row(id: string, line: number): { id: string, code: string[], tests: Array<{ file: string, title: string }> } {
+function row(id: string, line: number): { id: string, code: string[], tests: Array<{ file: string, title: string } | { witness: string }> } {
   return { id, code: [`src/total.ts:${line}`], tests: [{ file: 'tests/total.test.ts', title: 'sums the items' }] }
 }
 
@@ -134,6 +139,44 @@ describe('doneCheck', () => {
       '  src/total.ts:9 average: it only throws that it is not implemented',
       'unwired:',
       '  src/total.ts:9 average: nothing outside tests names it',
+    ])
+  })
+
+  it('a witness entry counts only when the brief holds that witness under its digest', () => {
+    const w = world(REAL, true)
+    const witness = { criterion: 'the total sums the items', command: 'echo one' }
+    const brief = (sha256: string): void => writeFileSync(w.args, JSON.stringify({ acceptance: ['the total sums the items'], design: '- D1. total sums its items.', witnesses: [witness], witnessDigests: [{ criterion: witness.criterion, sha256 }] }))
+    const byWitness = (name: string): unknown => [{ ...row('A1', 6), tests: [{ witness: name }] }, row('D1', 6)]
+    brief(createHash('sha256').update(witness.command).digest('hex'))
+    expect(run(w, byWitness('W1'))).toEqual({ passed: true, lines: TOTAL_PASS })
+    expect(run(w, byWitness('W2')).lines).toEqual(['FAIL', 'requirements:', '  A1: W2 is not a witness of the brief'])
+    expect(run(w, byWitness('W0')).lines).toEqual(['FAIL', 'requirements:', '  A1: W0 is not a witness of the brief'])
+    brief(createHash('sha256').update('echo two').digest('hex'))
+    expect(run(w, byWitness('W1')).lines).toEqual(['FAIL', 'requirements:', '  A1: W1 does not match its digest'])
+  })
+
+  it('a row held only by text needs no test and a PASS counts and lists it', () => {
+    const w = world(REAL, true)
+    put(w.root, 'NOTES.md', '# Notes\n\nthe total sums the items\n')
+    const prose = { id: 'A1', code: ['NOTES.md:3'], tests: [] }
+    const testFileOnly = { id: 'D1', code: ['tests/total.test.ts:1'], tests: [] }
+    expect(run(w, [prose, testFileOnly])).toEqual({
+      passed: true,
+      lines: ['PASS · text only 2', ...TOTAL_PASS.slice(1), 'text only:', '  A1: NOTES.md:3', '  D1: tests/total.test.ts:1'],
+    })
+    expect(run(w, [{ ...prose, code: ['NOTES.md:3', 'src/total.ts:6'] }, testFileOnly]).lines).toEqual(['FAIL', 'requirements:', '  A1: no test cited'])
+  })
+
+  it('a file whose path git quotes in its diff keeps its added lines', () => {
+    const grown = (name: string): [string, string] => ['export const one = 1\n', `export const one = 1\n\nexport function ${name}(value: number): number {\n  return 0\n}\n`]
+    const w = world(REAL, true, { 'src/a b.ts': grown('spaced'), 'src/é.ts': grown('accented'), 'src/q"t.ts': grown('quoted') })
+    const lines = run(w, [row('A1', 6), row('D1', 6)]).lines
+    expect(lines.slice(0, 5)).toEqual([
+      'FAIL',
+      'stubs:',
+      '  src/a b.ts:3 spaced: it returns a literal and never reads its parameters',
+      '  src/q"t.ts:3 quoted: it returns a literal and never reads its parameters',
+      '  src/é.ts:3 accented: it returns a literal and never reads its parameters',
     ])
   })
 })

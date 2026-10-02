@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { lstatSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -36,12 +37,26 @@ function exists(root: string, file: string): boolean {
   }
 }
 
+const C_ESCAPES: Record<string, number> = { 'a': 7, 'b': 8, 't': 9, 'n': 10, 'v': 11, 'f': 12, 'r': 13, '"': 34, '\\': 92 }
+const C_QUOTED_PART = /\\([0-7]{3}|.)|[^\\]+/gs
+
+function unquoted(header: string): string {
+  if (header.length < 2 || !header.startsWith('"') || !header.endsWith('"'))
+    return header
+  const bytes = [...header.slice(1, -1).matchAll(C_QUOTED_PART)].flatMap(([part, escape]) => {
+    if (escape === undefined)
+      return [...Buffer.from(part, 'utf8')]
+    return [escape.length === 3 ? Number.parseInt(escape, 8) : C_ESCAPES[escape] ?? escape.charCodeAt(0)]
+  })
+  return Buffer.from(bytes).toString('utf8')
+}
+
 function addedRanges(diff: string): Map<string, Ranges> {
   const ranges = new Map<string, Ranges>()
   let current: Ranges | undefined
   for (const line of diff.split('\n')) {
     if (line.startsWith('+++ ')) {
-      const target = line.slice(4)
+      const target = unquoted(line.slice(4).replace(/\t$/, ''))
       current = target === '/dev/null' ? undefined : []
       if (current !== undefined)
         ranges.set(target.replace(/^b\//, ''), current)

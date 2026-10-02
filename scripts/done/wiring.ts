@@ -12,6 +12,10 @@ export function isTestPath(file: string): boolean {
   return segments.slice(0, -1).some(segment => TEST_SEGMENTS.includes(segment)) || TEST_BASENAME.test(segments.at(-1)!)
 }
 
+export function isSource(file: string): boolean {
+  return isParseable(file) && !isTestPath(file)
+}
+
 export function isCodeOrConfig(file: string): boolean {
   return isParseable(file) || CONFIG_EXTENSIONS.includes(path.extname(file))
 }

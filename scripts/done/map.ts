@@ -5,21 +5,31 @@ export interface MapTest {
   title: string
 }
 
+export interface MapWitness {
+  witness: string
+}
+
 export interface MapRow {
   id: string
   code: string[]
-  tests: MapTest[]
+  tests: Array<MapTest | MapWitness>
 }
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string')
 }
 
-function isTest(value: unknown): value is MapTest {
+export function isWitnessEntry(entry: MapTest | MapWitness): entry is MapWitness {
+  return 'witness' in entry
+}
+
+function isTest(value: unknown): value is MapTest | MapWitness {
   if (typeof value !== 'object' || value === null)
     return false
-  const { file, title } = value as Record<string, unknown>
-  return typeof file === 'string' && typeof title === 'string'
+  const { file, title, witness } = value as Record<string, unknown>
+  const isFileTest = typeof file === 'string' && typeof title === 'string' && witness === undefined
+  const isWitness = typeof witness === 'string' && file === undefined && title === undefined
+  return isFileTest || isWitness
 }
 
 function isRow(value: unknown): value is MapRow {
