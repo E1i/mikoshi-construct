@@ -7,7 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
-import { REPO, reportPath, SHIFT_JOURNAL } from './places.js'
+import { exitedWithoutReport, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
 
 export const PREFIX = '[shift:report] '
 export const USAGE = 'usage: pnpm shift:report <dir>'
@@ -40,7 +40,9 @@ function exitCell(line: TaskLine): string {
     return 'not started'
   if (line.error !== undefined)
     return 'not spawned'
-  return line.signal === null ? String(line.exit) : line.signal
+  if (line.signal !== null)
+    return line.signal
+  return exitedWithoutReport(line) ? `${line.exit}, no report` : String(line.exit)
 }
 
 export function durationCell(started: string, ended: string): string {

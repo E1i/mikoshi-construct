@@ -9,6 +9,9 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   else; a file outside these paths is not yours to edit, even to fix it.
 - Never merge, never arm auto-merge, never approve a workflow run. Open the pull request as the owner's
   pull request and stop there.
+- Run no background command, no monitor and no wait for a notification: nobody wakes a headless
+  session, and a session that waits ends there. Run everything in the foreground and read its result
+  in the same call.
 - Run `pnpm run quality` as its own command and read its result before every commit you push.
 - On an Eddies warn: finish the step you are in, commit, push, write the handoff and the report, exit.
   On an Eddies stop: write the report and exit.
