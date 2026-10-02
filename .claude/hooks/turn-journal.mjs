@@ -267,6 +267,7 @@ function transcriptOf(input, state) {
 }
 
 function onPrompt(session, input, state, out, at) {
+  readLateTails(session, state, out, at)
   const transcript = transcriptOf(input, state)
   if (transcript == null)
     return
@@ -278,6 +279,7 @@ function onPrompt(session, input, state, out, at) {
 }
 
 function onStop(session, input, state, out, at) {
+  readLateTails(session, state, out, at)
   const transcript = transcriptOf(input, state)
   if (transcript == null)
     return
@@ -287,7 +289,40 @@ function onStop(session, input, state, out, at) {
     flushLate(session, state, transcript, out, at)
 }
 
+function keepAgent(state, agent, value) {
+  Object.defineProperty(state.agents, agent, { value, enumerable: true, writable: true, configurable: true })
+}
+
+function tailUnread(file, to, range) {
+  return range.usage.models.length === 0 || statSync(file).size > to
+}
+
+function readLateTails(session, state, out, at) {
+  for (const [agent, known] of Object.entries(state.agents)) {
+    if (known.tail == null)
+      continue
+    const { file, agentType, prompt } = known.tail
+    if (statSync(file, { throwIfNoEntry: false }) == null || statSync(file).size < known.cursor) {
+      keepAgent(state, agent, { cursor: known.cursor, counted: known.counted })
+      continue
+    }
+    const to = boundaryOf(file)
+    if (to <= known.cursor)
+      continue
+    const range = measure(readRange(file, known.cursor, to), known.counted)
+    if (range.usage.calls === 0)
+      continue
+    keepAgent(state, agent, { cursor: to, counted: range.requestIds.length > 0 ? range.requestIds : known.counted })
+    out.push({ v: JOURNAL_VERSION, kind: 'subagent', late: true, session, prompt, at, agent, agentType, from: known.cursor, to, ...reading(range) })
+  }
+}
+
+function onPreToolUse(session, input, state, out, at) {
+  readLateTails(session, state, out, at)
+}
+
 function onSubagentStop(session, input, state, out, at) {
+  readLateTails(session, state, out, at)
   const agent = plainId(input.agent_id)
   const file = input.agent_transcript_path
   if (agent == null || typeof file !== 'string' || file === '')
@@ -296,17 +331,16 @@ function onSubagentStop(session, input, state, out, at) {
   const start = statSync(file).size < known.cursor ? { cursor: 0, counted: [] } : known
   const to = boundaryOf(file)
   const range = measure(readRange(file, start.cursor, to), start.counted)
-  Object.defineProperty(state.agents, agent, {
-    value: { cursor: to, counted: range.requestIds.length > 0 ? range.requestIds : start.counted },
-    enumerable: true,
-    writable: true,
-    configurable: true,
-  })
   const prompt = plainId(input.prompt_id) ?? state.open?.prompt ?? state.lastPrompt
-  out.push({ v: JOURNAL_VERSION, kind: 'subagent', session, prompt, at, agent, agentType: plainName(input.agent_type), from: start.cursor, to, ...reading(range) })
+  const agentType = plainName(input.agent_type)
+  const counted = range.requestIds.length > 0 ? range.requestIds : start.counted
+  const tail = tailUnread(file, to, range) ? { file, agentType, prompt } : undefined
+  keepAgent(state, agent, tail == null ? { cursor: to, counted } : { cursor: to, counted, tail })
+  out.push({ v: JOURNAL_VERSION, kind: 'subagent', session, prompt, at, agent, agentType, from: start.cursor, to, ...reading(range) })
 }
 
 function onSessionEnd(session, input, state, out, at) {
+  readLateTails(session, state, out, at)
   const transcript = transcriptOf(input, state)
   if (transcript != null) {
     if (state.open != null)
@@ -319,20 +353,23 @@ function onSessionEnd(session, input, state, out, at) {
 
 const HANDLERS = {
   UserPromptSubmit: onPrompt,
+  PreToolUse: onPreToolUse,
   Stop: onStop,
   SubagentStop: onSubagentStop,
   SessionEnd: onSessionEnd,
 }
 
-function checkModels(root, input, line) {
+function checkModels(root, parentTranscript, line) {
   const { session, agent, agentType } = line
   const actual = line.usage.models
+  if (actual.length === 0 && line.late)
+    return
   if (actual.length === 0) {
     appendRoleLine(root, { kind: 'unread', hook: 'model-check', reason: 'empty-actual', session, agent, agentType })
     return
   }
   try {
-    const expected = expectedModel(root, agentType, input.transcript_path)
+    const expected = expectedModel(root, agentType, parentTranscript)
     if (familyOf(expected) == null) {
       appendRoleLine(root, { kind: 'unread', hook: 'model-check', reason: 'expected-model-unknown', session, agent, agentType })
       return
@@ -361,7 +398,14 @@ function held(root, session, input) {
   if (out.length > 0)
     appendFileSync(path.join(root, TURN_JOURNAL_FILE), out.map(line => `${JSON.stringify(line)}\n`).join(''))
   for (const line of out.filter(entry => entry.kind === 'subagent'))
-    checkModels(root, input, line)
+    checkModels(root, line.late ? state.transcript ?? input.transcript_path : input.transcript_path, line)
+}
+
+function holdsUnreadTails(root, session) {
+  const stateFile = path.join(root, STATE_DIR, `${session}.json`)
+  if (statSync(stateFile, { throwIfNoEntry: false }) == null)
+    return false
+  return Object.values(loadState(stateFile).agents).some(agent => agent?.tail != null)
 }
 
 export function record(root, input) {
@@ -369,6 +413,8 @@ export function record(root, input) {
     return
   const session = plainId(input.session_id)
   if (session == null)
+    return
+  if (input.hook_event_name === 'PreToolUse' && !holdsUnreadTails(root, session))
     return
   const dir = path.join(root, '.construct')
   mkdirSync(dir, { recursive: true })

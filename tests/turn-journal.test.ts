@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readTurnJournal } from '../src/commands/cost/index.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/turn-journal.mjs')
 const USAGE = { input_tokens: 1, output_tokens: 1 }
@@ -312,6 +313,98 @@ describe('the turn journal hook checks each subagent\'s model against the role d
 
     const roles = readFileSync(path.join(root, '.construct', 'roles.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Journal)
     expect(roles).toEqual([expect.objectContaining({ kind: 'unread', hook: 'model-check', reason: 'empty-actual', session: 'sess-1', agent: 'a1', agentType: 'brief' })])
+  })
+
+  function roleLines(root: string): Journal[] {
+    const file = path.join(root, '.construct', 'roles.jsonl')
+    return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Journal) : []
+  }
+
+  function stopBeforeTheTail(root: string, transcript: string, model: string): string {
+    const file = path.join(root, 'a1.jsonl')
+    writeFileSync(file, `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'probe' } })}\n${modelled('a1-r1', model).trimEnd()}`)
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'brief', agent_transcript_path: file })
+    appendFileSync(file, '\n')
+    return file
+  }
+
+  for (const event of ['PreToolUse', 'Stop', 'UserPromptSubmit']) {
+    it(`reads an agent's tail that landed after its stop at the session's next ${event}, as a late part of that agent, checked once`, () => {
+      const { root, transcript } = project()
+      appendFileSync(transcript, modelled('r0', HAIKU))
+      define(root, 'brief', 'model: sonnet\n')
+      stopBeforeTheTail(root, transcript, FABLE)
+      fire(root, transcript, event, { prompt_id: 'p-2', tool_name: 'Read' })
+
+      const parts = journal(root).filter(line => line.kind === 'subagent')
+      expect(parts.map(line => [line.agent, line.late ?? false, line.usage.calls, line.usage.models])).toEqual([['a1', false, 0, []], ['a1', true, 1, [FABLE]]])
+      expect(parts[1]).toMatchObject({ agentType: 'brief', from: parts[0].to })
+      expect(roleLines(root).map(line => [line.kind, line.reason ?? line.actual])).toEqual([['unread', 'empty-actual'], ['model-mismatch', FABLE]])
+    })
+  }
+
+  it('reads the tail at another agent\'s stop', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    stopBeforeTheTail(root, transcript, SONNET)
+    const other = path.join(root, 'a2.jsonl')
+    writeFileSync(other, modelled('a2-r1', SONNET))
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a2', agent_type: 'brief', agent_transcript_path: other })
+
+    expect(journal(root).filter(line => line.kind === 'subagent').map(line => [line.agent, line.late ?? false, line.usage.calls])).toEqual([['a1', false, 0], ['a1', true, 1], ['a2', false, 1]])
+  })
+
+  it('counts an agent whose tail was read late once in construct cost, however many events follow', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    stopBeforeTheTail(root, transcript, SONNET)
+    for (const event of ['PreToolUse', 'PreToolUse', 'Stop', 'SessionEnd'])
+      fire(root, transcript, event, { tool_name: 'Read' })
+
+    const summary = readTurnJournal(root)
+    expect(summary.status === 'recorded' && summary.subagents).toMatchObject({ calls: 1, input: 1, output: 1, models: [SONNET] })
+    expect(roleLines(root).map(line => line.reason ?? line.kind)).toEqual(['empty-actual'])
+  })
+
+  it('leaves the unread line alone and writes nothing more when the session ends before the tail lands', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    const file = path.join(root, 'a1.jsonl')
+    writeFileSync(file, `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'probe' } })}\n`)
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'brief', agent_transcript_path: file })
+    fire(root, transcript, 'PreToolUse', { tool_name: 'Read' })
+    fire(root, transcript, 'SessionEnd', { reason: 'other' })
+
+    expect(journal(root).map(line => [line.kind, line.late ?? false])).toEqual([['subagent', false], ['session-end', false]])
+    expect(roleLines(root).map(line => line.reason)).toEqual(['empty-actual'])
+  })
+
+  it('reads an agent resumed after its tail was read at its own next stop, not as another late part', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    const file = stopBeforeTheTail(root, transcript, SONNET)
+    fire(root, transcript, 'PreToolUse', { tool_name: 'Read' })
+    appendFileSync(file, modelled('a1-r2', SONNET))
+    fire(root, transcript, 'PreToolUse', { tool_name: 'SendMessage' })
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-3', agent_id: 'a1', agent_type: 'brief', agent_transcript_path: file })
+
+    expect(journal(root).filter(line => line.kind === 'subagent').map(line => [line.prompt, line.late ?? false, line.usage.calls])).toEqual([['p-1', false, 0], ['p-1', true, 1], ['p-3', false, 1]])
+  })
+
+  it('reads nothing late for an agent whose reply was whole at its stop', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    subagent(root, transcript, 'a1', 'brief', SONNET)
+    fire(root, transcript, 'PreToolUse', { tool_name: 'Read' })
+    fire(root, transcript, 'Stop')
+
+    expect(journal(root).filter(line => line.kind === 'subagent').map(line => [line.agent, line.late ?? false, line.usage.calls])).toEqual([['a1', false, 1]])
+    expect(roleLines(root)).toEqual([])
   })
 
   it('leaves the turn journal to the five kinds construct cost reads', () => {
