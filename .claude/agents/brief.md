@@ -16,6 +16,11 @@ a commit, pushed after each milestone so that a stop does not lose it, and the l
 names it, `Sketch: sketch/<task> @ <sha>`, so the ladder starts from it. When the brief needs an independent
 implementation as its witness, or no sketch was made, that line reads `Sketch: none — <reason>`.
 
+A positive control is PR-equivalent: it runs every check a pull request must pass, not only `pnpm run quality` — each
+job the `required` job in `.github/workflows/ci.yml` needs, the `contract-bump` self-check and the acceptance run among
+them, and `Secret scan` in `.github/workflows/security.yml`. No one command runs them all; read the list from those
+files when you run it.
+
 Line 3 of the `/implement` text, right after `Sketch:`, may carry the forecast the journal later sets beside the run:
 `expect: tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median`. Read it from
 `.construct/runs.jsonl`: the rows with `status: done` and the brief's own effort, the median of

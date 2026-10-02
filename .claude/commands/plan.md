@@ -137,7 +137,9 @@ Immutable: <a path the change may not touch>; <a directory, ending in />
 The line right after `/implement` names the sketch branch and its tip the Ghost starts from, or reads
 `Sketch: none — <reason>` when the task starts from a clean `origin/main`. The brief may add an `expect:` line as
 line 3, the forecast from the ladder's own record that the journal sets beside the run's actual tokens and minutes;
-the skeleton leaves it out.
+the skeleton leaves it out. The brief's positive control is PR-equivalent: it runs every check the `required` job in
+`.github/workflows/ci.yml` needs and `Secret scan`, not only `pnpm run quality`, and a working sketch lives on
+`sketch/<task>`, committed and pushed after each milestone.
 <!-- factory:end -->
 Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — risk: <level>, <sign>; acceptance: …; effort: <class>`. Do not
