@@ -69,6 +69,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     const result = runTaskStart(['t1', 'feat/t1'], depsOf(world))
     const worktree = path.join(world.root, 'mc-t1')
     expect(result.exitCode).toBe(0)
+    expect(result.worktree).toBe(worktree)
     expect(existsSync(worktree)).toBe(true)
     expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/t1')
     expect(lines(world)).toEqual([{ event: 'path', task: 't1', path: 'cheap', started: NOW.toISOString(), session: SESSION, worktree, branch: 'feat/t1', ts: NOW.toISOString() }])
