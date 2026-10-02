@@ -33,6 +33,7 @@ const HAND = path.join(FIXTURES, 'hand')
 const BOARD = path.join(REPO_ROOT, 'scripts/board/board.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date('2026-09-28T12:00Z')
+const SECOND_FRAME_DEADLINE_MS = 30_000
 const HAND_NOW = new Date('2026-09-30T12:00:00Z')
 
 afterAll(() => {
@@ -545,17 +546,27 @@ describe('board --every: reprint the view until interrupted', () => {
       const child = spawn(process.execPath, [TSX_CLI, BOARD, '--dir', handoff, '--every', '1'], { env: { ...outsideAWindow, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
       const exited = new Promise(resolve => child.on('exit', resolve))
       let stdout = ''
-      await new Promise<void>((resolve) => {
-        child.stdout.on('data', (chunk) => {
-          stdout += String(chunk)
-          if (stdout.split('\n').filter(line => line.startsWith('[board] frame ')).length >= 2)
-            resolve()
+      let deadline: NodeJS.Timeout | undefined
+      let runningAtSecondFrame = false
+      try {
+        await new Promise<void>((resolve, reject) => {
+          deadline = setTimeout(() => reject(new Error(`second frame did not appear in ${SECOND_FRAME_DEADLINE_MS / 1000} s`)), SECOND_FRAME_DEADLINE_MS)
+          child.stdout.on('data', (chunk) => {
+            stdout += String(chunk)
+            if (stdout.split('\n').filter(line => line.startsWith('[board] frame ')).length >= 2)
+              resolve()
+          })
+          child.on('exit', () => resolve())
         })
-        child.on('exit', () => resolve())
-      })
-      expect(child.exitCode).toBeNull()
-      child.kill('SIGTERM')
+        runningAtSecondFrame = child.exitCode === null
+      }
+      finally {
+        clearTimeout(deadline)
+        if (child.exitCode === null && child.signalCode === null)
+          child.kill('SIGTERM')
+      }
       await exited
+      expect(runningAtSecondFrame).toBe(true)
       expect(stdout.split('\n')[0]).toMatch(/^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       expect(stdout).not.toContain(CLEAR_SCREEN)
       const frame = readFileSync(path.join(handoff, FRAME_FILE), 'utf8').split('\n')
@@ -566,7 +577,7 @@ describe('board --every: reprint the view until interrupted', () => {
       rmSync(bin, { recursive: true, force: true })
       rmSync(handoff, { recursive: true, force: true })
     }
-  }, 20_000)
+  }, SECOND_FRAME_DEADLINE_MS + 15_000)
 })
 
 describe('board: summary, edges and prefixes', () => {
