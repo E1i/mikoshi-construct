@@ -168,6 +168,30 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(stops(s)).toEqual([expect.objectContaining({ level: 'run', run_id: 'wf_X', agent_id: 'x1', agent_type: 'workflow-subagent', spent: 3100000 })])
   })
 
+  it.each(['implementer', 'harness', 'architect'])('refuses a ladder role whose hook carries its role name %s as agent_type once its run reaches runSpend, because its transcript sits in the run', (role) => {
+    const s = scratch()
+    agentFile(s, 'r1', [{ input: 1400000 }], 'wf_L')
+    agentFile(s, 'r2', [{ input: 1400000 }], 'wf_L')
+    agentFile(s, 'r3', [{ input: 300000 }], 'wf_L')
+    const result = call(s, 'Bash', { command: 'ls' }, { agent_id: 'r2', agent_type: role })
+
+    expect(result.status).toBe(2)
+    expect(result.stderr).toBe('eddies: run stop — spent 3100000 / limit 3000000 (runSpend in .claude/eddies.json); return what you have now\n')
+    expect(stops(s)).toEqual([expect.objectContaining({ event: 'budget-stop', level: 'run', run_id: 'wf_L', agent_id: 'r2', agent_type: role, spent: 3100000 })])
+  })
+
+  it('keeps an Agent subagent of the window on its own agentSpend, with no run measured, whatever its sibling transcripts sum to', () => {
+    const s = scratch()
+    agentFile(s, 'b1', [{ input: 1400000 }])
+    agentFile(s, 'b2', [{ input: 1400000 }])
+    agentFile(s, 'b3', [{ input: 300000 }])
+    const result = call(s, 'Bash', { command: 'ls' }, { agent_id: 'b1', agent_type: 'brief' })
+
+    expect(result.status).toBe(0)
+    expect(stops(s)).toEqual([])
+    expect(lines(s).map(line => [line.event, line.level])).toEqual([['budget-warn', 'agent']])
+  })
+
   it('measures spent exactly by the formula, each streamed requestId once with its last record, and records the raw components (W6)', () => {
     const s = scratch({ ...LIMITS, agentSpend: 1000 })
     agentFile(s, 'a1', [

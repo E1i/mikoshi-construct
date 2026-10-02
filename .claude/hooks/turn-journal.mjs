@@ -327,8 +327,10 @@ const HANDLERS = {
 function checkModels(root, input, line) {
   const { session, agent, agentType } = line
   const actual = line.usage.models
-  if (actual.length === 0)
+  if (actual.length === 0) {
+    appendRoleLine(root, { kind: 'unread', hook: 'model-check', reason: 'empty-actual', session, agent, agentType })
     return
+  }
   try {
     const expected = expectedModel(root, agentType, input.transcript_path)
     if (familyOf(expected) == null) {

@@ -14,7 +14,6 @@ const NEW_WORK_TOOLS = ['Agent', 'Workflow']
 const NESTED_SESSION = /\bclaude\b[^\n;&|]*\s(?:-p|--print)(?=\s|$)/
 const GHOST_LAUNCH = /\bghosts:launch\b/
 const RETURN_TOOL = 'SubagentHandback'
-const WORKFLOW_AGENT = 'workflow-subagent'
 const SESSION_ACTION = 'no new work — write the handoff and stop'
 const AGENT_ACTION = 'return what you have now'
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
@@ -121,7 +120,7 @@ function agentGauges(root, transcript, config, caller) {
   const agent = agentFileOf(transcript, caller.agent_id)
   const tokens = readTranscript(root, agent.file).tokens
   const gauges = [{ level: 'agent', key: caller.agent_id, name: 'spent', value: spentOf(tokens), limitName: 'agentSpend', limit: config.agentSpend, tokens, basis: SPEND_BASIS, action: AGENT_ACTION }]
-  if (caller.agent_type === WORKFLOW_AGENT && agent.runId != null) {
+  if (agent.runId != null) {
     const run = sumTranscripts(root, agentTranscriptsUnder(path.dirname(agent.file)))
     gauges.push({ level: 'run', key: agent.runId, runId: agent.runId, name: 'spent', value: spentOf(run), limitName: 'runSpend', limit: config.runSpend, tokens: run, basis: SPEND_BASIS, action: AGENT_ACTION })
   }
