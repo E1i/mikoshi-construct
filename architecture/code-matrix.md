@@ -30,6 +30,7 @@ trial, because they only ever met attach and detach, and they can be declared ag
 |---|---|
 | 1C | No record, no right to remove. |
 | 55 | The exclude block is a zone of visibility, not a record. |
+| DC | Done is every requirement of the brief mapped to a line of code and a live test that reaches it, and no stub or unwired function in the change ([0039](decisions/0039-done-is-every-requirement-mapped-and-nothing-stubbed-or-unwired.md)). |
 
 ## Signs
 

@@ -54,6 +54,7 @@ whose exit code is discarded — reports nothing and is L0, however much machine
 | [0032](0032-a-record-carries-what-it-was-written-with.md) | A record carries the block it wrote and the values it wrote with, so drift of the record is told from drift of the block (proposed) | L3 tests; contract:bump on formats.manifestVersion (with the code) |
 | [0033](0033-checked-means-the-target-was-verified.md) | `checked` means the harness ran the target's own verification surface, not that it exited 0 | L0 until the implementing change; then L3 tests and a CI self-check |
 | [0034](0034-stack-detection-is-not-an-attach-gate.md) | Stack detection is not an attach gate | L3 tests; lint |
+| [0039](0039-done-is-every-requirement-mapped-and-nothing-stubbed-or-unwired.md) | Done is every requirement mapped to code and a live test, and nothing stubbed or unwired | L1 review; L3 tests of the checker |
 | [0038](0038-risk-is-read-from-the-work-and-only-raises-the-contour.md) | Risk is read from what the change does, the highest sign decides, and risk only raises a contour | L3 test; L1 review |
 | [0035](0035-attach-guards-the-direct-commit.md) | attach installs a `PreToolUse` guard that refuses the agent a direct `git commit`, push, merge, rebase or tag, and detach removes exactly that (proposed) | L2 local hook for the direct form; L3 tests |
 | [0036](0036-turn-journal-written-by-hooks.md) | A hook this repository installs writes a turn journal beside the ledger; 0003 and the ledger stand (proposed) | L3 tests; L0 for the hook configuration |

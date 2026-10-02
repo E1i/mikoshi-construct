@@ -1,0 +1,139 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { doneCheck } from '../../done/check.js'
+
+const LEGACY = 'export function legacy(value: number): number {\n  return 0\n}\n'
+const REAL = 'function add(sum: number, item: number): number {\n  return sum + item\n}\n\nexport function total(items: number[]): number {\n  return items.reduce(add, 0)\n}\n'
+const STUB = 'export function total(items: number[]): number {\n  return 0\n}\n'
+const WIRED = 'import { total } from \'./total.js\'\n\nexport function main(): number {\n  return total([1, 2])\n}\n'
+const TEST = 'import { expect, it } from \'vitest\'\nimport { total } from \'../src/total.js\'\n\nit(\'sums the items\', () => {\n  expect(total([])).toBe(0)\n})\n'
+
+interface World {
+  root: string
+  base: string
+  args: string
+}
+
+function git(root: string, args: string[]): string {
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' }).trim()
+}
+
+function put(root: string, file: string, text: string): void {
+  mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+  writeFileSync(path.join(root, file), text)
+}
+
+function world(total: string, wired: boolean): World {
+  const root = mkdtempSync(path.join(tmpdir(), 'done-check-'))
+  git(root, ['init', '-q'])
+  put(root, 'package.json', '{"name":"fixture","type":"module","bin":"src/cli.ts"}\n')
+  put(root, 'src/cli.ts', 'import { main } from \'./app.js\'\n\nmain()\n')
+  put(root, 'src/app.ts', 'export function main(): number {\n  return 1\n}\n')
+  put(root, 'src/legacy.ts', LEGACY)
+  git(root, ['add', '-A'])
+  git(root, ['commit', '-q', '-m', 'base'])
+  const base = git(root, ['rev-parse', 'HEAD'])
+  put(root, 'src/total.ts', total)
+  if (wired)
+    put(root, 'src/app.ts', WIRED)
+  put(root, 'tests/total.test.ts', TEST)
+  put(root, 'tests/other.test.ts', 'import { expect, it } from \'vitest\'\n\nit(\'sums the items\', () => {\n  expect(3).toBe(3)\n})\n')
+  put(root, 'tests/skipped.test.ts', 'import { it } from \'vitest\'\nimport { total } from \'../src/total.js\'\n\nit.skip(\'sums the items\', () => {\n  total([])\n})\n')
+  const args = `${root}-args.json`
+  writeFileSync(args, JSON.stringify({ acceptance: ['the total sums the items'], design: '- D1. total sums its items.' }))
+  return { root, base, args }
+}
+
+function row(id: string, line: number): { id: string, code: string[], tests: Array<{ file: string, title: string }> } {
+  return { id, code: [`src/total.ts:${line}`], tests: [{ file: 'tests/total.test.ts', title: 'sums the items' }] }
+}
+
+function run(w: World, rows: unknown, base = w.base): { passed: boolean, lines: string[] } {
+  const map = path.join(tmpdir(), `done-map-${Math.random().toString(36).slice(2)}.json`)
+  writeFileSync(map, typeof rows === 'string' ? rows : JSON.stringify({ requirements: rows }))
+  return doneCheck(w.root, { args: w.args, map, base })
+}
+
+const TOTAL_PASS = [
+  'PASS',
+  '2 requirements mapped, 3 functions checked, no stub, nothing unwired',
+  'checked by name only:',
+  '  src/app.ts:3 main',
+  '  src/total.ts:1 add',
+  '  src/total.ts:5 total',
+]
+
+describe('doneCheck', () => {
+  it('a stub counted as done fails', () => {
+    const w = world(STUB, true)
+    expect(run(w, [row('A1', 2), row('D1', 2)])).toEqual({
+      passed: false,
+      lines: ['FAIL', 'stubs:', '  src/total.ts:1 total: it returns a literal and never reads its parameters'],
+    })
+  })
+
+  it('a function nothing outside tests names fails as unwired', () => {
+    const w = world(REAL, false)
+    expect(run(w, [row('A1', 6), row('D1', 6)])).toEqual({
+      passed: false,
+      lines: ['FAIL', 'unwired:', '  src/total.ts:5 total: nothing outside tests names it', '  src/total.ts: no file outside tests imports or names it'],
+    })
+  })
+
+  it('a wired implementation with every requirement mapped passes', () => {
+    const w = world(REAL, true)
+    expect(run(w, [row('A1', 6), row('D1', 6)])).toEqual({ passed: true, lines: TOTAL_PASS })
+  })
+
+  it('a requirement with no evidence fails', () => {
+    const w = world(REAL, true)
+    const ok = [row('A1', 6)]
+    const problems = (rows: unknown): string[] => run(w, rows).lines.slice(2)
+    expect(problems(ok)).toEqual(['  D1: no evidence in the map'])
+    expect(problems([...ok, { id: 'D1', code: [], tests: [] }])).toEqual(['  D1: no code cited', '  D1: no test cited'])
+    expect(problems([...ok, row('D1', 99)])).toEqual(['  D1: src/total.ts:99 does not resolve to a line in the tree'])
+    expect(problems([...ok, row('D1', 4)])).toEqual(['  D1: src/total.ts:4 does not resolve to a line in the tree'])
+    expect(problems([...ok, { ...row('D1', 6), code: ['src/total.ts'] }])).toEqual(['  D1: src/total.ts is not a path:line'])
+    expect(problems([...ok, { ...row('D1', 6), tests: [{ file: 'tests/total.test.ts', title: 'adds' }] }])).toEqual(['  D1: tests/total.test.ts has no it or test titled "adds"'])
+    expect(problems([...ok, { ...row('D1', 6), tests: [{ file: 'tests/skipped.test.ts', title: 'sums the items' }] }])).toEqual(['  D1: tests/skipped.test.ts has no it or test titled "sums the items"'])
+    expect(problems([...ok, { ...row('D1', 6), tests: [{ file: 'tests/other.test.ts', title: 'sums the items' }] }])).toEqual(['  D1: tests/other.test.ts does not reach src/total.ts'])
+    expect(problems([...ok, { ...row('D1', 6), tests: [{ file: 'src/app.ts', title: 'sums the items' }] }])).toEqual(['  D1: src/app.ts is not a test file in the tree'])
+    expect(problems([row('A1', 6), row('D1', 6), row('D9', 6)])).toEqual(['  D9: the brief has no such requirement'])
+  })
+
+  it('an input the check cannot read fails, never passes', () => {
+    const w = world(REAL, true)
+    const full = [row('A1', 6), row('D1', 6)]
+    const input = (result: { passed: boolean, lines: string[] }): void => {
+      expect(result.passed).toBe(false)
+      expect(result.lines.slice(0, 2)).toEqual(['FAIL', 'input:'])
+      expect(result.lines).toHaveLength(3)
+    }
+    input(run(w, '{ not json'))
+    input(run(w, '[]'))
+    input(run(w, full, '0000000000000000000000000000000000000000'))
+    writeFileSync(w.args, JSON.stringify({ acceptance: [] }))
+    input(run(w, full))
+  })
+
+  it('a function the change leaves untouched is not checked', () => {
+    const w = world(REAL, true)
+    const result = run(w, [row('A1', 6), row('D1', 6)])
+    expect(result.lines.join('\n')).not.toContain('legacy')
+  })
+
+  it('a function the change adds is checked whether or not the map cites it', () => {
+    const extra = `${REAL}\nexport function average(items: number[]): number {\n  throw new Error('not implemented')\n}\n`
+    const w = world(extra, true)
+    expect(run(w, [row('A1', 6), row('D1', 6)]).lines).toEqual([
+      'FAIL',
+      'stubs:',
+      '  src/total.ts:9 average: it only throws that it is not implemented',
+      'unwired:',
+      '  src/total.ts:9 average: nothing outside tests names it',
+    ])
+  })
+})
