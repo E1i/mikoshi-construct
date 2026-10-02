@@ -116,6 +116,15 @@ function rowOf(stdout: string[], id: string): string[] {
   return row!
 }
 
+function mergedIds(stdout: string[]): string[] {
+  const line = stdout.map(candidate => stripVTControlCharacters(candidate)).find(candidate => candidate.startsWith('merged: '))
+  return line === undefined ? [] : line.slice('merged: '.length).split('   (')[0]!.split(' · ').map(entry => entry.split(' ')[0]!).filter(id => id !== '—')
+}
+
+function listedIds(stdout: string[]): string[] {
+  return [...rows(stdout).map(cells => cells[0]!), ...mergedIds(stdout)]
+}
+
 function snapshot(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .map((entry) => {
@@ -139,7 +148,7 @@ describe('board: tasks are attempts grouped by brief', () => {
     { name: '--all', argv: ['--all'], shown: ['alpha-2', 'beta-1', 'gamma-1', 'delta-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'], hidden: ['alpha-1'] },
   ])('$name prints one line per shown task, its live attempt, and --all every task', ({ argv, shown, hidden }) => {
     const { stdout } = board(['--dir', BASIC, ...argv])
-    const attempts = rows(stdout).map(cells => cells[0])
+    const attempts = listedIds(stdout)
     expect(attempts.sort()).toEqual([...shown].sort())
     for (const id of hidden)
       expect(attempts).not.toContain(id)
@@ -246,7 +255,7 @@ describe('board: a model-mismatch line of .construct/roles.jsonl shows on its ta
   })
 })
 
-describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s card and in the summary (W10)', () => {
+describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s card and in its EDDIES cell (W10)', () => {
   const STOP = { v: 1, event: 'budget-stop', level: 'session-context', reason: 'context 150001 >= contextLimit 150000', tool: 'Agent', spent: 150001, limit: 150000, session_id: 's-1', agent_id: null, run_id: null, at: '2026-10-01T11:00:00.000Z' }
   const WARN = { ...STOP, event: 'budget-warn', level: 'agent', tool: undefined, spent: 1200000.4, limit: 1500000 }
 
@@ -267,7 +276,7 @@ describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s c
     return runBoard(argv, { gh: stubGh(), now: NOW, defaultDir: path.join(FIXTURES, 'absent'), colour: false, repoRoot: root }).stdout
   }
 
-  it('prints each stop and warning under the attempt whose worktree recorded it, and counts the window\'s and the tasks\' in the summary', () => {
+  it('prints each stop and warning under the attempt whose worktree recorded it, and counts them in its EDDIES cell', () => {
     const { dir, root } = scratch()
     try {
       eddies(path.join(dir, 'worktrees', 'alpha-2'), [STOP, WARN, { ...STOP, event: 'unread', reason: 'config-missing' }])
@@ -276,7 +285,7 @@ describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s c
       const block = attemptBlock(boardWith(root, ['--dir', dir, 'alpha-2']), 'alpha-2')
       expect(block).toContain('    budget-stop session-context 150001 / 150000 on Agent (2026-10-01T11:00:00.000Z, session s-1)')
       expect(block).toContain('    budget-warn agent 1200000 / 1500000 (2026-10-01T11:00:00.000Z, session s-1)')
-      expect(boardWith(root, ['--dir', dir])[1]).toBe('eddies: budget-stop 2, budget-warn 1: window 1/0, tasks 1/1 (stop/warn; .construct/eddies.jsonl)')
+      expect(rowOf(boardWith(root, ['--dir', dir]), 'alpha-2')[7]).toBe('stop 1 · warn 1')
     }
     finally {
       rmSync(dir, { recursive: true, force: true })
@@ -312,7 +321,7 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
     { id: 'c-noready', stage: 'ready', expected: 'UNKNOWN (missing: ready; pr; the journal event:path line records none)' },
     { id: 'c-noready', stage: 'pr', expected: 'UNKNOWN (missing: pr; the journal event:path line records none)' },
     { id: 'c-noready', stage: 'merged', expected: 'UNKNOWN (missing: merge; pr; the journal event:path line records none)' },
-    { id: 'l-1', stage: 'ready', expected: 'UNKNOWN (missing: ready; branch; no tasks file names one)' },
+    { id: 'l-1', stage: 'ready', expected: 'UNKNOWN (missing: ready; branch; no tasks file names one, and no PR for ghost/l-1)' },
   ])('$id $stage reads $expected', ({ id, stage, expected }) => {
     expect(stageOf(CHEAP, id, stage)).toBe(expected)
   })
@@ -346,8 +355,9 @@ describe('board: the cheap path reads started, pr and merged from the journal ev
 
 describe('board: a cheap task that ends in a report, not a PR', () => {
   it('prints the report as its outcome, not a PR as its next step', () => {
-    const cells = rowOf(board(['--dir', CHEAP]).stdout, 'c-report')
-    expect([cells[0], cells[1], cells[2], cells[4]]).toEqual(['c-report', 'cheap', 'reported', 'report: notes/c-report.md'])
+    const { stdout } = board(['--dir', CHEAP])
+    expect(rows(stdout).map(cells => cells[0])).not.toContain('c-report')
+    expect(stdout.find(line => line.startsWith('merged: '))).toContain('c-report report: notes/c-report.md')
   })
 
   it('is reported, not running, and has only the started and reported stages', () => {
@@ -362,7 +372,7 @@ describe('board: a cheap task that ends in a report, not a PR', () => {
 
   it('leaves it out of the running count and the longest', () => {
     const summary = board(['--dir', CHEAP]).stdout[0]
-    expect(summary).toMatch(/^running 2, waiting 1, blocked 0, /)
+    expect(summary).toMatch(/^open 3: running 2, waiting 1, blocked 0, /)
     expect(summary).not.toContain('c-report')
   })
 

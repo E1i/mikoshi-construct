@@ -263,9 +263,11 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
   const lastOf = <K extends JournalLine['event']>(id: string, event: K): Extract<JournalLine, { event: K }> | undefined =>
     journal.filter((line): line is Extract<JournalLine, { event: K }> => line.event === event && line.task === id).at(-1)
 
+  const windowBudgetLines = readBudgetLines(repoRoot)
   const attempts = [...named].map(([id, facts]): Attempt => {
     const pathEvent = foldPath(journal, id)
     const worktree = facts.worktree ?? pathEvent?.worktree
+    const session = pathEvent?.session
     return {
       id,
       brief: facts.brief,
@@ -278,12 +280,12 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       handLadderUpdated: handLadders.get(id),
       ledger: ledgerOf(worktree),
       modelMismatches: readModelMismatches(worktree),
-      budgetLines: readBudgetLines(worktree),
+      budgetLines: [...readBudgetLines(worktree), ...(session === undefined || worktree === repoRoot ? [] : windowBudgetLines.filter(line => line.session === session))],
       taskEvent: lastOf(id, 'task'),
       reviewEvent: lastOf(id, 'review'),
       mergeEvent: lastOf(id, 'merge'),
       pathEvent,
-      window: readWindow(repoRoot, pathEvent?.session),
+      window: readWindow(repoRoot, session),
       handoffFile: handoffFileOf(dir, id),
       supersededEvent: lastOf(id, 'superseded'),
     }

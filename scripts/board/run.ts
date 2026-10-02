@@ -7,7 +7,7 @@ import path from 'node:path'
 import { parseEverySeconds } from '../ghosts/every.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
 import { deriveTasks, selectShown, summarize } from './derive.js'
-import { readBudgetLines } from './eddies.js'
+import { readContextLimits } from './eddies.js'
 import { FRAME_FILE, frameFileIn } from './frame.js'
 import { listPrs, prDetails } from './gh.js'
 import { execGit } from './git.js'
@@ -16,11 +16,13 @@ import { boardJson } from './json.js'
 import { nextOf } from './next.js'
 import { DEFINITIONS, renderBoard, renderCard } from './render.js'
 import { readModelMismatches } from './roles.js'
+import { STALE_HOURS, staleAge } from './stale.js'
 import { legendLines, painter } from './tone.js'
 import { readTree, readUnregistered } from './tree.js'
+import { readWindow } from './window.js'
 
 export const PREFIX = '[board] '
-export const USAGE = 'usage: tsx scripts/board/board.ts [--dir <handoff dir>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct] [--help]'
+export const USAGE = 'usage: tsx scripts/board/board.ts [--dir <handoff dir>] [<task-id>] [--all] [--json] [--every <seconds>] [--stale <hours>] [--context-warn <percent>] [--repo E1i/mikoshi-construct] [--help]'
 const DEFAULT_REPO = 'E1i/mikoshi-construct'
 export const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
 const OWNER_MERGES = path.resolve(import.meta.dirname, '../../architecture/owner-merges.md')
@@ -32,6 +34,7 @@ export interface BoardDeps {
   colour: boolean
   repoRoot?: string
   git?: GitReader
+  session?: string
 }
 
 export interface BoardResult {
@@ -50,6 +53,8 @@ interface Args {
   json: boolean
   id: string | undefined
   everySeconds: number | undefined
+  staleHours: number
+  contextWarnPercent: number | undefined
 }
 
 export const HELP = [
@@ -67,6 +72,8 @@ function parseArgs(argv: string[], defaultDir: string): Args | string | 'help' {
   let json = false
   let id: string | undefined
   let everySeconds: number | undefined
+  let staleHours = STALE_HOURS
+  let contextWarnPercent: number | undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--help') {
@@ -80,6 +87,16 @@ function parseArgs(argv: string[], defaultDir: string): Args | string | 'help' {
     }
     else if (!arg.startsWith('-') && id === undefined) {
       id = arg
+    }
+    else if (arg === '--stale' || arg === '--context-warn') {
+      const value = Number(argv[index + 1])
+      if (!Number.isFinite(value) || value <= 0 || (arg === '--context-warn' && value > 100))
+        return `${arg} needs a positive number${arg === '--context-warn' ? ' up to 100' : ''}; ${USAGE}`
+      if (arg === '--stale')
+        staleHours = value
+      else
+        contextWarnPercent = value
+      index += 1
     }
     else if (arg === '--dir' || arg === '--repo' || arg === '--every') {
       const value = argv[index + 1]
@@ -107,7 +124,7 @@ function parseArgs(argv: string[], defaultDir: string): Args | string | 'help' {
   }
   if (json && id !== undefined)
     return `--json prints every task; drop '${id}' or --json; ${USAGE}`
-  return { dir: dir ?? defaultDir, dirIsDefault: dir === undefined, repo, all, json, id, everySeconds }
+  return { dir: dir ?? defaultDir, dirIsDefault: dir === undefined, repo, all, json, id, everySeconds, staleHours, contextWarnPercent }
 }
 
 function refuse(message: string): BoardResult {
@@ -208,9 +225,12 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
   const view = {
     tasks,
     shown,
-    summary: summarize(tasks, deps.now),
+    summary: summarize(tasks, deps.now, attemptView => staleAge(attemptView, deps.now, args.staleHours) !== undefined),
     windowMismatches: readModelMismatches(deps.repoRoot),
-    windowBudgetLines: readBudgetLines(deps.repoRoot),
+    limits: readContextLimits(deps.repoRoot),
+    miko: deps.session === undefined ? undefined : { session: deps.session, context: readWindow(deps.repoRoot, deps.session).context },
+    contextWarnPercent: args.contextWarnPercent,
+    staleHours: args.staleHours,
     edges: handoff.edges,
     details,
     trees,
