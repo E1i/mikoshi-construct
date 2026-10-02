@@ -9,6 +9,11 @@ const FACTORY_BEGIN = '<!-- factory:begin -->'
 const FACTORY_END = '<!-- factory:end -->'
 const FACTORY_MARKER = /<!-- factory:(?:begin|end) -->/
 const SKETCH_LINE = /^Sketch: <branch> @ <40-hex sha>$/
+const FACTORY_RULES = [
+  ['the positive control is PR-equivalent', 'positive control is PR-equivalent'],
+  ['it runs the required CI checks, not only quality', 'not only `pnpm run quality`'],
+  ['the sketch branch is pushed after each milestone', '`sketch/<task>`, committed and pushed after each milestone'],
+]
 
 function read(copy: string): string {
   return readFileSync(path.join(ROOT, copy), 'utf8')
@@ -40,6 +45,21 @@ function withoutFactoryBlocks(text: string): string {
   return kept.join('\n')
 }
 
+function factoryBlocksOf(text: string): string {
+  withoutFactoryBlocks(text)
+  const blocks: string[] = []
+  let insideBlock = false
+  for (const line of text.split('\n')) {
+    if (line === FACTORY_BEGIN || line === FACTORY_END) {
+      insideBlock = line === FACTORY_BEGIN
+      continue
+    }
+    if (insideBlock)
+      blocks.push(line)
+  }
+  return blocks.join(' ')
+}
+
 function withoutSketchLine(text: string): string {
   const lines = text.split('\n')
   const kept = lines.filter((line, index) => !(SKETCH_LINE.test(line) && lines[index - 1]?.startsWith('/implement ')))
@@ -53,6 +73,10 @@ function templateOf(factoryText: string): string {
 describe('the factory /plan is the template plus what only the factory runs', () => {
   it('is byte-identical to the template once its factory blocks and its Sketch: line are cut', () => {
     expect(templateOf(read(FACTORY_COPY))).toBe(read(TEMPLATE_COPY))
+  })
+
+  it.each(FACTORY_RULES)('states in its factory block that %s', (_rule, phrase) => {
+    expect(factoryBlocksOf(read(FACTORY_COPY))).toContain(phrase)
   })
 
   it('leaves no factory marker in the template', () => {
