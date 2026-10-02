@@ -4,12 +4,13 @@ import process from 'node:process'
 import { sleep } from '../ghosts/every.js'
 import { frameText, writeFrameFile } from './frame.js'
 import { execGh } from './gh.js'
+import { execGit, windowsRoot } from './git.js'
 import { HANDOFF_DIR_VARIABLE, PREFIX, runBoard } from './run.js'
 import { colourFor } from './tone.js'
 
 const defaultDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
 const colour = colourFor(process.stdout.isTTY, process.env.NO_COLOR)
-const repoRoot = path.resolve(import.meta.dirname, '../..')
+const repoRoot = windowsRoot(execGit, path.resolve(import.meta.dirname, '../..'))
 
 function writeFrame(file: string, lines: string[]): void {
   try {

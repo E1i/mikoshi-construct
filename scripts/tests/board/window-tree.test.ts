@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
+import { windowsRoot } from '../../board/git.js'
 import { runBoard } from '../../board/run.js'
 
 const NOW = new Date('2026-10-02T08:00:00.000Z')
@@ -111,5 +112,17 @@ describe('w6: trees no task names', () => {
     const { stdout } = board(world, reader)
     const after = stdout.slice(stdout.findIndex(line => line.startsWith('└')) + 1)
     expect(after).toEqual(['unregistered trees 2', '  /repo/mc-stray old dirty 2', 'session scratch 1', '  /tmp/x/scratchpad/w detached dirty 2'])
+  })
+})
+
+describe('w7: the windows\' journals are read from the main worktree', () => {
+  const reader = (entries: { path: string, branch: string | undefined }[] | undefined): GitReader => ({ dirty: () => 0, worktrees: () => entries })
+
+  it('a board run from a task worktree reads the main tree, which git lists first', () => {
+    expect(windowsRoot(reader([{ path: '/repo', branch: 'main' }, { path: '/mc-101', branch: 'feat/task-start' }]), '/mc-101')).toBe('/repo')
+  })
+
+  it('without a worktree list it reads the checkout it runs from', () => {
+    expect(windowsRoot(reader(undefined), '/mc-101')).toBe('/mc-101')
   })
 })
