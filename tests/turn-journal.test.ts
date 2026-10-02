@@ -120,6 +120,17 @@ describe('the turn journal hook', () => {
     expect(turn.startedAt <= turn.endedAt).toBe(true)
   })
 
+  it('w8: a turn records the context of its last response, and null when it has none', () => {
+    const { root, transcript } = project()
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-1', prompt: 'do it' })
+    appendFileSync(transcript, assistant('r1', { input_tokens: 10, cache_creation_input_tokens: 20, cache_read_input_tokens: 30, output_tokens: 40 }))
+    appendFileSync(transcript, assistant('r2', { input_tokens: 100, cache_creation_input_tokens: 200, cache_read_input_tokens: 300, output_tokens: 1 }))
+    fire(root, transcript, 'Stop', { prompt_id: 'p-1' })
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-2', prompt: 'and nothing' })
+    fire(root, transcript, 'Stop', { prompt_id: 'p-2' })
+    expect(journal(root).map(line => line.context)).toEqual([600, null])
+  })
+
   it('a line written after its stop is counted once, for the turn it follows', () => {
     const { root, transcript } = project()
     fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-1' })

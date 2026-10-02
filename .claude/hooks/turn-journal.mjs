@@ -3,6 +3,7 @@ import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync,
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { contextOf } from './eddies-measure.mjs'
 import { appendRoleLine, expectedModel, familyOf, modelMismatches } from './role-definitions.mjs'
 
 export const TURN_JOURNAL_FILE = '.construct/turns.jsonl'
@@ -75,6 +76,7 @@ export function measure(text, alreadyCounted = []) {
   const counted = new Set(alreadyCounted)
   const seen = new Set()
   let unreadable = 0
+  let context = null
   for (const line of text.split('\n')) {
     if (line.trim() === '')
       continue
@@ -93,10 +95,12 @@ export function measure(text, alreadyCounted = []) {
           bump(toolCalls, plainName(block.name) || 'other')
       }
     }
-    if (message.usage != null && typeof message.usage === 'object')
+    if (message.usage != null && typeof message.usage === 'object') {
       countUsage(usage, reading.entry, message, counted, seen)
+      context = contextOf({ input: count(message.usage.input_tokens), cacheWrite: count(message.usage.cache_creation_input_tokens), cacheRead: count(message.usage.cache_read_input_tokens) })
+    }
   }
-  return { usage, toolCalls, unreadable, requestIds: [...seen].filter(id => PLAIN_ID.test(id)) }
+  return { usage, toolCalls, unreadable, context, requestIds: [...seen].filter(id => PLAIN_ID.test(id)) }
 }
 
 function boundaryOf(file) {
@@ -228,7 +232,7 @@ function measureRange(state, transcript, to) {
 }
 
 function reading(range) {
-  return { usage: range.usage, toolCalls: range.toolCalls, unreadable: range.unreadable }
+  return { usage: range.usage, toolCalls: range.toolCalls, unreadable: range.unreadable, context: range.context }
 }
 
 function flushLate(session, state, transcript, out, at) {

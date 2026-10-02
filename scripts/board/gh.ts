@@ -14,7 +14,7 @@ export interface PullRequest {
 
 export type PrList = { kind: 'failed' } | { kind: 'listed', prs: PullRequest[], truncated: boolean }
 
-export type PrLookup = { kind: 'found', pr: PullRequest } | { kind: 'none' } | { kind: 'unknown', missing: string }
+export type PrLookup = { kind: 'found', pr: PullRequest, via?: string } | { kind: 'none' } | { kind: 'unknown', missing: string }
 
 interface Check {
   name?: string
@@ -51,6 +51,14 @@ export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
   if (list.truncated)
     return { kind: 'unknown', missing: `pr; the gh list stopped at ${PR_LIST_LIMIT}` }
   return { kind: 'none' }
+}
+
+export function lookupGhostPr(list: PrList, id: string): PrLookup {
+  const branch = `ghost/${id}`
+  const pr = lookupPr(list, branch)
+  if (pr.kind === 'found')
+    return { ...pr, via: branch }
+  return pr.kind === 'unknown' ? pr : { kind: 'unknown', missing: `branch; no tasks file names one, and no PR for ${branch}` }
 }
 
 export function lookupPrNumber(list: PrList, number: number | undefined): PrLookup {
