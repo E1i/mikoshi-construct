@@ -398,5 +398,10 @@
     "target": ".claude/agents/harness.md",
     "sha256": "8efd4a559e020df18527e18565e3f64a56c53f0dcde0718d6723107d441c87e3",
     "date": "2026-10-02"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "f8513b6f31c1984ce612f06b7149c8beb8d45f78bf66697790f4633f3b9da89b",
+    "date": "2026-10-02"
   }
 ]
