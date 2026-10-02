@@ -46,7 +46,7 @@ permissions:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       fast-path: ${{ steps.classify.outputs.fast-path }}
     steps:
@@ -70,7 +70,7 @@ jobs:
           fi
 
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -84,7 +84,7 @@ jobs:
       - run: pnpm privacy:check
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -101,7 +101,7 @@ jobs:
       - run: pnpm lint --cache --cache-strategy content
 
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -118,7 +118,7 @@ jobs:
       - run: pnpm typecheck --incremental --tsBuildInfoFile node_modules/.cache/tsc/typecheck.tsbuildinfo
 
   vitest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -141,7 +141,7 @@ jobs:
           retention-days: 1
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -155,7 +155,7 @@ jobs:
       - run: pnpm docs:anchors
 
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -174,7 +174,7 @@ jobs:
           retention-days: 1
 
   contract-bump:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -196,7 +196,7 @@ jobs:
   acceptance:
     needs: [changes, package]
     if: needs.changes.outputs.fast-path != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -274,7 +274,7 @@ jobs:
   required:
     needs: [changes, checks, lint, typecheck, vitest, docs, package, contract-bump, acceptance]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
