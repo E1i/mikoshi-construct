@@ -484,7 +484,7 @@ describe('board --every: reprint the view until interrupted', () => {
       const frame = readFileSync(path.join(handoff, FRAME_FILE), 'utf8').split('\n')
       expect(frame[0]).toMatch(/^\[board\] frame \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       expect(frame[1]).toMatch(/^running \d+, waiting \d+, blocked \d+, the longest — /)
-      expect(frame.at(-2)).toMatch(/^└─+┴/)
+      expect(frame.some(line => /^└─+┴/.test(line))).toBe(true)
       expect(frame.at(-1)).toBe('')
       expect(readdirSync(handoff).filter(name => name.endsWith('.tmp'))).toEqual([])
     }
@@ -498,7 +498,7 @@ describe('board --every: reprint the view until interrupted', () => {
 describe('board: summary, edges and prefixes', () => {
   it('counts live attempts only in the summary line at the top', () => {
     const { stdout } = board(['--dir', BASIC, '--all'])
-    expect(stdout[0]).toBe('running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2)')
+    expect(stdout[0]).toBe('running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2), windows live 0')
   })
 
   it.each([
@@ -510,8 +510,8 @@ describe('board: summary, edges and prefixes', () => {
   })
 
   it.each([
-    { name: 'the default', argv: [] as string[], first: 'running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2)', second: 'hidden: 6 tasks, --all shows them' },
-    { name: '--all', argv: ['--all'], first: 'running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2)', second: '┌' },
+    { name: 'the default', argv: [] as string[], first: 'running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2), windows live 0', second: 'hidden: 6 tasks, --all shows them' },
+    { name: '--all', argv: ['--all'], first: 'running 1, waiting 2, blocked 1, the longest — 180 min (alpha-2), windows live 0', second: '┌' },
     { name: 'a card', argv: ['alpha-2'], first: '┌', second: '│ TASK' },
   ])('prints $name bare, with no # line, no UNKNOWN tally and no legend; they are in --help and --json', ({ argv, first, second }) => {
     const { stdout, stderr, exitCode } = board(['--dir', BASIC, ...argv])
@@ -601,12 +601,12 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     { dir: HAND, id: 'h-live', path: 'ladder', stage: 'hand-ladder', situation: 'hand-ladder-running' },
   ] as { dir: string, id: string, path: string, stage: string, situation: keyof typeof NEXT_BY_SITUATION }[])('$id: $path at $stage waits for $situation', ({ dir, id, path: taskPath, stage, situation }) => {
     const cells = rowOf(board(['--dir', dir, '--all'], stubGh(), undefined, dir === HAND ? HAND_NOW : NOW).stdout, id)
-    expect(cells).toHaveLength(5)
+    expect(cells).toHaveLength(7)
     expect([cells[0], cells[1], cells[2], cells[4]]).toEqual([id, taskPath, stage, NEXT_BY_SITUATION[situation]])
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report', 'hand-ladder-running'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report', 'hand-ladder-running', 'window-closed', 'window-handoff'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 
@@ -644,7 +644,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
 
   it('prints a stage recorded in the future as clock skew, in the row and in the summary', () => {
     const { stdout } = board(['--dir', SKEW])
-    expect(stdout[0]).toMatch(/^running 1, waiting 0, blocked 0, the longest — clock skew \(\d+ min ahead, k-future\)$/)
+    expect(stdout[0]).toMatch(/^running 1, waiting 0, blocked 0, the longest — clock skew \(\d+ min ahead, k-future\), windows live 0$/)
     expect(rowOf(stdout, 'k-future')[3]).toMatch(/^clock skew \(\d+d\d+h ahead\)$/)
     expect(stdout.join('\n')).not.toMatch(/-\d/)
   })
@@ -653,7 +653,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     { longest: { minutes: -5, task: 't' }, expected: 'clock skew (5 min ahead, t)' },
     { longest: { minutes: 5, task: 't' }, expected: '5 min (t)' },
   ])('summary longest $longest.minutes reads $expected', ({ longest, expected }) => {
-    expect(summaryLine({ counts: { running: 1, waiting: 0, blocked: 0 }, longest })).toBe(`running 1, waiting 0, blocked 0, the longest — ${expected}`)
+    expect(summaryLine({ counts: { running: 1, waiting: 0, blocked: 0 }, longest, windowsLive: 0 })).toBe(`running 1, waiting 0, blocked 0, the longest — ${expected}, windows live 0`)
   })
 })
 
@@ -702,7 +702,7 @@ describe('board: an attempt a journal event:superseded names', () => {
     { name: '--all', argv: ['--all'], summary: 'running 1, waiting 0, blocked 0, the longest — ', shown: ['271-2', '271-3', '271-4'], hidden: [] },
   ])('$name leaves it out of the summary, and lists it only with --all', ({ argv, summary, shown, hidden }) => {
     const { stdout } = board(['--dir', SUPERSEDED, ...argv])
-    expect(stdout[0].startsWith(summary) && stdout[0].endsWith('271-4)')).toBe(true)
+    expect(stdout[0].startsWith(summary) && stdout[0].endsWith('271-4), windows live 0')).toBe(true)
     expect(rows(stdout).map(cells => cells[0]).sort()).toEqual(shown)
     expect(stdout.filter(line => line.startsWith('hidden: '))).toEqual(hidden)
   })
@@ -779,8 +779,8 @@ describe('board --json: the full output for agents', () => {
 
   it('keeps every derived field under derived', () => {
     const json = parsed(BASIC)
-    expect(Object.keys(json).sort()).toEqual(['derived', 'edges', 'format', 'now', 'tasks', 'unknown'])
-    expect(Object.keys(json.derived.summary).sort()).toEqual(['counts', 'longest'])
+    expect(Object.keys(json).sort()).toEqual(['derived', 'edges', 'format', 'now', 'tasks', 'unknown', 'unregistered'])
+    expect(Object.keys(json.derived.summary).sort()).toEqual(['counts', 'longest', 'windowsLive'])
     for (const task of json.tasks) {
       expect(Object.keys(task).sort()).toEqual(['attempts', 'derived'])
       expect(Object.keys(task.derived).sort()).toEqual(['age', 'category', 'live', 'next', 'path', 'shownByDefault', 'stage', 'task'])
@@ -844,7 +844,7 @@ describe('board: a bordered table measured by visible width', () => {
       expect(coloured[index]).toBe(plain[index])
     const table = coloured.slice(start, end + 1).map(line => stripVTControlCharacters(line))
     expect(new Set(table.map(line => line.length)).size).toBe(1)
-    expect(table.filter(line => line.startsWith('│')).map(line => [...line].filter(char => char === '│').length)).toEqual(table.filter(line => line.startsWith('│')).map(() => 6))
+    expect(table.filter(line => line.startsWith('│')).map(line => [...line].filter(char => char === '│').length)).toEqual(table.filter(line => line.startsWith('│')).map(() => 8))
     expect(table).toEqual(plain.slice(start, end + 1))
   })
 })

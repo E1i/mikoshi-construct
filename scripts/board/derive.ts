@@ -4,6 +4,7 @@ import path from 'node:path'
 import { lookupPr, lookupPrNumber, REQUIRED_CHECK } from './gh.js'
 import { handLadderPolicy } from './policy.js'
 import { VERIFICATION_WORDS } from './verification.js'
+import { isEnded, isLive } from './window.js'
 
 export type Category = 'running' | 'waiting' | 'blocked' | 'merged' | 'reported' | 'idle'
 
@@ -48,6 +49,7 @@ export interface TaskView {
 export interface Summary {
   counts: Record<'running' | 'waiting' | 'blocked', number>
   longest: { minutes: number, task: string } | undefined
+  windowsLive: number
 }
 
 export function stageText(body: StageBody): string {
@@ -224,10 +226,12 @@ function cheapPrStage(pathEvent: PathEvent, pr: PrLookup): StageBody {
   return fact(`#${pr.pr.number} ${pr.pr.state}`, pathEvent.sha === undefined ? undefined : `journal event:path, sha ${pathEvent.sha.slice(0, 7)}`)
 }
 
-function cheapCategoryOf(merged: boolean, details: PrDetails | undefined): Category {
+function cheapCategoryOf(attempt: Attempt, pathEvent: PathEvent, merged: boolean, details: PrDetails | undefined): Category {
   if (merged)
     return 'merged'
-  return isReady(details) ? 'waiting' : 'running'
+  if (isReady(details))
+    return 'waiting'
+  return pathEvent.pr === undefined && isEnded(attempt.window) ? 'blocked' : 'running'
 }
 
 function verificationFact(pathEvent: PathEvent): Stage {
@@ -275,7 +279,7 @@ function viewCheapAttempt(attempt: Attempt, pathEvent: PathEvent, prs: PrList, c
       { name: 'merged', ...mergedStage(attempt, pr) },
     ],
     facts: [verificationFact(pathEvent)],
-    category: cheapCategoryOf(mergedAt !== undefined, details),
+    category: cheapCategoryOf(attempt, pathEvent, mergedAt !== undefined, details),
     startedAt: pathEvent.started === undefined ? undefined : new Date(pathEvent.started),
     mergedAt,
     reportedAt: undefined,
@@ -392,18 +396,21 @@ export function isSuperseded(view: AttemptView): boolean {
 export function summarize(tasks: TaskView[], now: Date): Summary {
   const counts = { running: 0, waiting: 0, blocked: 0 }
   let longest: Summary['longest']
+  let windowsLive = 0
   for (const task of tasks.filter(candidate => !isSuperseded(candidate.live))) {
     const { category, startedAt } = task.live
     if (category !== 'running' && category !== 'waiting' && category !== 'blocked')
       continue
     counts[category] += 1
+    if (isLive(task.live.attempt.window))
+      windowsLive += 1
     if (startedAt === undefined)
       continue
     const minutes = Math.floor((now.getTime() - startedAt.getTime()) / 60_000)
     if (longest === undefined || minutes > longest.minutes)
       longest = { minutes, task: task.live.attempt.id }
   }
-  return { counts, longest }
+  return { counts, longest, windowsLive }
 }
 
 function finishedAt(view: AttemptView): Date | undefined {

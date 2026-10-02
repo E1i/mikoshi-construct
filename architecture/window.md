@@ -82,6 +82,8 @@ brief, witnesses and a Ghost). What fits each is listed there and not repeated h
 not the default, and the cheap path keeps its discipline: CI and
 [architecture/owner-merges.md](owner-merges.md) apply to it unchanged.
 
+A cheap-path task starts with `pnpm task:start <id> <branch>`, which cuts `../mc-<id>` from `origin/main` and writes the journal start line.
+
 The journal line and its `verification` word are in [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
