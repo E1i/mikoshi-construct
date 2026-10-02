@@ -3,6 +3,7 @@ name: brief
 description: Writes or rebuilds a brief for the ladder — Design pairs, witnesses checked as the text the ladder runs, red on the base, a positive control and predicted mutations — and returns its hash for approval.
 model: sonnet
 color: blue
+disallowedTools: Skill
 ---
 
 The first line of your final report is exactly `[brief:<task>]`, with the task named in your prompt.
