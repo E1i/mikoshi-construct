@@ -317,10 +317,6 @@ function readLateTails(session, state, out, at) {
   }
 }
 
-function onPreToolUse(session, input, state, out, at) {
-  readLateTails(session, state, out, at)
-}
-
 function onSubagentStop(session, input, state, out, at) {
   readLateTails(session, state, out, at)
   const agent = plainId(input.agent_id)
@@ -353,7 +349,6 @@ function onSessionEnd(session, input, state, out, at) {
 
 const HANDLERS = {
   UserPromptSubmit: onPrompt,
-  PreToolUse: onPreToolUse,
   Stop: onStop,
   SubagentStop: onSubagentStop,
   SessionEnd: onSessionEnd,
@@ -401,20 +396,11 @@ function held(root, session, input) {
     checkModels(root, line.late ? state.transcript ?? input.transcript_path : input.transcript_path, line)
 }
 
-function holdsUnreadTails(root, session) {
-  const stateFile = path.join(root, STATE_DIR, `${session}.json`)
-  if (statSync(stateFile, { throwIfNoEntry: false }) == null)
-    return false
-  return Object.values(loadState(stateFile).agents).some(agent => agent?.tail != null)
-}
-
 export function record(root, input) {
   if (input == null || typeof input !== 'object')
     return
   const session = plainId(input.session_id)
   if (session == null)
-    return
-  if (input.hook_event_name === 'PreToolUse' && !holdsUnreadTails(root, session))
     return
   const dir = path.join(root, '.construct')
   mkdirSync(dir, { recursive: true })

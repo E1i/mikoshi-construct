@@ -328,7 +328,7 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     return file
   }
 
-  for (const event of ['PreToolUse', 'Stop', 'UserPromptSubmit']) {
+  for (const event of ['Stop', 'UserPromptSubmit']) {
     it(`reads an agent's tail that landed after its stop at the session's next ${event}, as a late part of that agent, checked once`, () => {
       const { root, transcript } = project()
       appendFileSync(transcript, modelled('r0', HAIKU))
@@ -360,7 +360,7 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     appendFileSync(transcript, modelled('r0', HAIKU))
     define(root, 'brief', 'model: sonnet\n')
     stopBeforeTheTail(root, transcript, SONNET)
-    for (const event of ['PreToolUse', 'PreToolUse', 'Stop', 'SessionEnd'])
+    for (const event of ['Stop', 'UserPromptSubmit', 'Stop', 'SessionEnd'])
       fire(root, transcript, event, { tool_name: 'Read' })
 
     const summary = readTurnJournal(root)
@@ -375,7 +375,7 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     const file = path.join(root, 'a1.jsonl')
     writeFileSync(file, `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'probe' } })}\n`)
     fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'brief', agent_transcript_path: file })
-    fire(root, transcript, 'PreToolUse', { tool_name: 'Read' })
+    fire(root, transcript, 'Stop')
     fire(root, transcript, 'SessionEnd', { reason: 'other' })
 
     expect(journal(root).map(line => [line.kind, line.late ?? false])).toEqual([['subagent', false], ['session-end', false]])
@@ -387,9 +387,9 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     appendFileSync(transcript, modelled('r0', HAIKU))
     define(root, 'brief', 'model: sonnet\n')
     const file = stopBeforeTheTail(root, transcript, SONNET)
-    fire(root, transcript, 'PreToolUse', { tool_name: 'Read' })
+    fire(root, transcript, 'Stop')
     appendFileSync(file, modelled('a1-r2', SONNET))
-    fire(root, transcript, 'PreToolUse', { tool_name: 'SendMessage' })
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-3' })
     fire(root, transcript, 'SubagentStop', { prompt_id: 'p-3', agent_id: 'a1', agent_type: 'brief', agent_transcript_path: file })
 
     expect(journal(root).filter(line => line.kind === 'subagent').map(line => [line.prompt, line.late ?? false, line.usage.calls])).toEqual([['p-1', false, 0], ['p-1', true, 1], ['p-3', false, 1]])
@@ -400,7 +400,7 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     appendFileSync(transcript, modelled('r0', HAIKU))
     define(root, 'brief', 'model: sonnet\n')
     subagent(root, transcript, 'a1', 'brief', SONNET)
-    fire(root, transcript, 'PreToolUse', { tool_name: 'Read' })
+    fire(root, transcript, 'Stop')
     fire(root, transcript, 'Stop')
 
     expect(journal(root).filter(line => line.kind === 'subagent').map(line => [line.agent, line.late ?? false, line.usage.calls])).toEqual([['a1', false, 1]])

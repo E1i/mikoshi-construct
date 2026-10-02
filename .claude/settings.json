@@ -17,13 +17,7 @@
     }],
     "PreToolUse": [
       { "matcher": "Agent", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/role-guard.mjs\" guard", "timeout": 5 }] },
-      {
-        "matcher": "*",
-        "hooks": [
-          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/eddies.mjs\" guard", "timeout": 5 },
-          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/turn-journal.mjs\"", "timeout": 5 }
-        ]
-      }
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/eddies.mjs\" guard", "timeout": 5 }] }
     ],
     "UserPromptSubmit": [{
       "hooks": [
