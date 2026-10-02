@@ -252,7 +252,7 @@
   },
   "contours": {
     "ledger-row": "mikoshi-construct/contours/ledger-row/1.1",
-    "review-verdict": "mikoshi-construct/contours/review-verdict/1"
+    "review-verdict": "mikoshi-construct/contours/review-verdict/2"
   },
   "exits": {
     "attach": {

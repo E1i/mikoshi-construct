@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "mikoshi-construct/contours/review-verdict/1",
+  "$id": "mikoshi-construct/contours/review-verdict/2",
   "title": "Review verdict",
-  "description": "The file the review agent writes beside its report, review-<task>.verdict.json, and the window checks with pnpm ghosts:verdict before the event:review line is written to ghosts.jsonl. $defs.journalLine is the shape of that line, which the board reads.",
+  "description": "The file the review agent writes beside its report, review-<task>.verdict.json, and the window checks with pnpm ghosts:verdict --commit <PR head> before the event:review line is written to ghosts.jsonl. tree is git write-tree of the state reviewed, and ghosts:verdict refuses the verdict unless it is the tree of the PR commit. $defs.journalLine is the shape of that line, which the board reads; tree and commit are optional there because lines written before review-verdict/2 carry neither.",
   "type": "object",
   "required": [
     "task",
     "verdict",
     "head",
+    "tree",
     "brief",
     "report"
   ],
@@ -23,85 +24,89 @@
       ]
     },
     "head": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
+      "$ref": "#/$defs/objectId"
+    },
+    "tree": {
+      "$ref": "#/$defs/objectId"
     },
     "brief": {
-      "type": "object",
-      "required": [
-        "path",
-        "sha256"
-      ],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        }
-      }
+      "$ref": "#/$defs/digest"
     },
     "report": {
-      "type": "object",
-      "required": [
-        "path",
-        "sha256"
-      ],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        }
-      }
+      "$ref": "#/$defs/digest"
     }
   },
   "$defs": {
-    "journalLine": {
-      "allOf": [
-        {
-          "$ref": "#"
+    "objectId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
         },
-        {
-          "type": "object",
-          "required": [
-            "event",
-            "file",
-            "ts"
-          ],
-          "properties": {
-            "event": {
-              "const": "review"
-            },
-            "file": {
-              "type": "object",
-              "required": [
-                "path",
-                "sha256"
-              ],
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "sha256": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
-                }
-              }
-            },
-            "ts": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
-      ]
+      }
+    },
+    "journalLine": {
+      "type": "object",
+      "required": [
+        "event",
+        "ts",
+        "task",
+        "verdict",
+        "head",
+        "brief",
+        "report",
+        "file"
+      ],
+      "properties": {
+        "event": {
+          "const": "review"
+        },
+        "ts": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "changes"
+          ]
+        },
+        "head": {
+          "$ref": "#/$defs/objectId"
+        },
+        "tree": {
+          "$ref": "#/$defs/objectId"
+        },
+        "commit": {
+          "$ref": "#/$defs/objectId"
+        },
+        "brief": {
+          "$ref": "#/$defs/digest"
+        },
+        "report": {
+          "$ref": "#/$defs/digest"
+        },
+        "file": {
+          "$ref": "#/$defs/digest"
+        }
+      }
     }
   }
 }
