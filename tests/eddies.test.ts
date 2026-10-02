@@ -257,6 +257,37 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(lines(s)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'session-context', session_id: SESSION, agent_id: null })])
   })
 
+  it('warns the window on its next prompt and tool call though an agent starting new work was warned first at the same session level, and each once (W13)', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    agentFile(s, 'a1', [{ input: 10 }])
+    const agent = call(s, 'Bash', { command: 'claude -p x' }, { agent_id: 'a1', agent_type: 'general-purpose' })
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+    const warn = `eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n`
+
+    expect(contextOf(agent)).toBe(warn)
+    expect(window).toMatchObject({ status: 0, stdout: warn })
+    expect(call(s, 'Read', { file_path: '/x' }).stdout).toBe('')
+    expect(call(s, 'Bash', { command: 'claude -p y' }, { agent_id: 'a1', agent_type: 'general-purpose' }).stdout).toBe('')
+    expect(lines(s).map(line => [line.event, line.level, line.agent_id])).toEqual([['budget-warn', 'session-context', 'a1'], ['budget-warn', 'session-context', null]])
+  })
+
+  it('records nothing on the first prompt of a session whose transcript is not created yet (W14)', () => {
+    const s = scratch()
+    rmSync(s.transcript)
+
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })).toMatchObject({ status: 0, stdout: '' })
+    expect(lines(s)).toEqual([])
+  })
+
+  it('records transcript-ENOENT on a prompt when the transcript it already read is gone', () => {
+    const s = scratch()
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).status).toBe(0)
+    rmSync(s.transcript)
+
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).status).toBe(0)
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'unread', hook: 'eddies-prompt', reason: 'transcript-ENOENT', session_id: SESSION })])
+  })
+
   it('lets the call through with an unread line when the transcript or the config cannot be read, and refuses unreadable stdin (W8)', () => {
     const noTranscript = scratch()
     rmSync(noTranscript.transcript)

@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -59,6 +59,10 @@ function freshState() {
 
 function stateFileOf(root, transcript) {
   return path.join(root, STATE_DIR, `${createHash('sha256').update(transcript).digest('hex').slice(0, 32)}.json`)
+}
+
+export function hasBeenRead(root, transcript) {
+  return existsSync(stateFileOf(root, transcript))
 }
 
 function loadState(file) {
