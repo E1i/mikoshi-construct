@@ -302,6 +302,18 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     expect(mismatches(root).map(line => [line.agent, line.expected, line.actual])).toEqual([['a2', HAIKU, SONNET]])
   })
 
+  it('writes an unread line naming empty-actual for a subagent whose one reply had not reached the transcript when the hook read it', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, modelled('r0', HAIKU))
+    define(root, 'brief', 'model: sonnet\n')
+    const file = path.join(root, 'a1.jsonl')
+    writeFileSync(file, `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'probe' } })}\n${modelled('a1-r1', SONNET).trimEnd()}`)
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'brief', agent_transcript_path: file })
+
+    const roles = readFileSync(path.join(root, '.construct', 'roles.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Journal)
+    expect(roles).toEqual([expect.objectContaining({ kind: 'unread', hook: 'model-check', reason: 'empty-actual', session: 'sess-1', agent: 'a1', agentType: 'brief' })])
+  })
+
   it('leaves the turn journal to the five kinds construct cost reads', () => {
     const { root, transcript } = project()
     appendFileSync(transcript, modelled('r0', HAIKU))
