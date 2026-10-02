@@ -9,6 +9,7 @@ import process from 'node:process'
 import { stripVTControlCharacters } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CLEAR_SCREEN, FRAME_FILE, frameText, writeFrameFile } from '../../board/frame.js'
+import { ghRunner } from '../../board/gh.js'
 import { runBoardLoop } from '../../board/loop.js'
 import { NEXT_BY_SITUATION } from '../../board/next.js'
 import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
@@ -187,6 +188,28 @@ describe('board: — for what did not happen, UNKNOWN naming the missing record'
     const { stderr } = board(['--dir', BASIC], failingGh)
     expect(stageOf(BASIC, 'delta-1', 'merged', failingGh)).toBe('UNKNOWN (missing: merge; pr; the gh query failed)')
     expect(stderr).toEqual(['[board] gh pr list failed; every PR fact is UNKNOWN'])
+  })
+
+  it('a gh that never answers is cut off at the timeout, and the board prints its rows as without gh, naming the timeout', () => {
+    const TIMEOUT_SECONDS = 0.5
+    const MARGIN_MS = 2500
+    const bin = mkdtempSync(path.join(tmpdir(), 'board-gh-silent-'))
+    const silentGh = path.join(bin, 'gh')
+    writeFileSync(silentGh, '#!/bin/sh\nexec sleep 10\n', { mode: 0o755 })
+    try {
+      const started = Date.now()
+      const { stdout, stderr, exitCode } = board(['--dir', CHEAP, '--all'], ghRunner(TIMEOUT_SECONDS, silentGh))
+      const elapsed = Date.now() - started
+      expect(elapsed).toBeLessThan(TIMEOUT_SECONDS * 1000 + MARGIN_MS)
+      expect(exitCode).toBe(0)
+      expect(stderr).toEqual([`[board] gh pr list unreadable: gh timed out after ${TIMEOUT_SECONDS} s; every PR fact is UNKNOWN`])
+      expect(stageOf(CHEAP, 'c-open', 'pr', ghRunner(TIMEOUT_SECONDS, silentGh))).toBe(`UNKNOWN (missing: pr; gh timed out after ${TIMEOUT_SECONDS} s)`)
+      const withoutGh = board(['--dir', CHEAP, '--all'], failingGh).stdout
+      expect(stdout.map(line => line.replaceAll(`gh timed out after ${TIMEOUT_SECONDS} s`, 'the gh query failed'))).toEqual(withoutGh)
+    }
+    finally {
+      rmSync(bin, { recursive: true, force: true })
+    }
   })
 })
 
