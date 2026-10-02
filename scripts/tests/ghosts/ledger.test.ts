@@ -30,12 +30,12 @@ describe('readLadderOutcome', () => {
   it('is "no ladder run" when there is no new line', () => {
     const { runs } = runsPath()
     writeFileSync(runs, '{"a":1}\n')
-    expect(readLadderOutcome(runs, 1)).toEqual({ status: 'no ladder run', run: null, iterations: null })
+    expect(readLadderOutcome(runs, 1)).toEqual({ status: 'no ladder run', run: null, iterations: null, actual: null })
   })
 
   it('is "no ladder run" when the ledger is absent', () => {
     const { runs } = runsPath()
-    expect(readLadderOutcome(runs, 0)).toEqual({ status: 'no ladder run', run: null, iterations: null })
+    expect(readLadderOutcome(runs, 0)).toEqual({ status: 'no ladder run', run: null, iterations: null, actual: null })
   })
 
   it('reads the status, run and attempts length of the last new line', () => {
@@ -45,13 +45,21 @@ describe('readLadderOutcome', () => {
     const failed = row({ status: 'failed', attempts: [{ rung: 1, effort: 'low', outcome: 'harness failed', reason: 'red' }] })
     const done = row({ attempts: [{ rung: 1, effort: 'low', outcome: 'harness failed', reason: 'red' }, { rung: 2, effort: 'medium', outcome: 'done', reason: '' }] })
     writeFileSync(runs, `${row({ run: 'run-old' })}\n${failed}\n${done}\n`)
-    expect(readLadderOutcome(runs, before)).toEqual({ status: 'done', run: 'run-1', iterations: 2 })
+    expect(readLadderOutcome(runs, before)).toEqual({ status: 'done', run: 'run-1', iterations: 2, actual: { tokens: 100, minutes: 10 / 60 } })
+  })
+
+  it('reads the actual tokens and minutes of the last new line, unknown tokens kept as unknown', () => {
+    const { runs } = runsPath()
+    writeFileSync(runs, `${row({ tokens: 166_000, seconds: 720 })}\n${row({ tokens: 'unknown', seconds: 90 })}\n`)
+    expect(readLadderOutcome(runs, 0).actual).toEqual({ tokens: 'unknown', minutes: 1.5 })
+    writeFileSync(runs, `${row({ tokens: 166_000, seconds: 720 })}\n`)
+    expect(readLadderOutcome(runs, 0).actual).toEqual({ tokens: 166_000, minutes: 12 })
   })
 
   it('carries the args hash the last new line names', () => {
     const { runs } = runsPath()
     writeFileSync(runs, `${row({ argsSha256: 'b'.repeat(64) })}\n`)
-    expect(readLadderOutcome(runs, 0)).toEqual({ status: 'done', run: 'run-1', iterations: 1, argsSha256: 'b'.repeat(64) })
+    expect(readLadderOutcome(runs, 0)).toEqual({ status: 'done', run: 'run-1', iterations: 1, actual: { tokens: 100, minutes: 10 / 60 }, argsSha256: 'b'.repeat(64) })
   })
 
   it.each([
@@ -62,6 +70,6 @@ describe('readLadderOutcome', () => {
   ])('reads $name as a malformed ledger line with the reader\'s reason and no run', ({ text, reason }) => {
     const { runs } = runsPath()
     writeFileSync(runs, `${row({ run: 'run-old' })}\n${text}\n`)
-    expect(readLadderOutcome(runs, 1)).toEqual({ status: `${MALFORMED_LEDGER_LINE}: ${reason}`, run: null, iterations: null })
+    expect(readLadderOutcome(runs, 1)).toEqual({ status: `${MALFORMED_LEDGER_LINE}: ${reason}`, run: null, iterations: null, actual: null })
   })
 })

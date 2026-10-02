@@ -135,7 +135,9 @@ Immutable: <a path the change may not touch>; <a directory, ending in />
 
 <!-- factory:begin -->
 The line right after `/implement` names the sketch branch and its tip the Ghost starts from, or reads
-`Sketch: none — <reason>` when the task starts from a clean `origin/main`.
+`Sketch: none — <reason>` when the task starts from a clean `origin/main`. The brief may add an `expect:` line as
+line 3, the forecast from the ladder's own record that the journal sets beside the run's actual tokens and minutes;
+the skeleton leaves it out.
 <!-- factory:end -->
 Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — risk: <level>, <sign>; acceptance: …; effort: <class>`. Do not

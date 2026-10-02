@@ -1,3 +1,4 @@
+import type { Expect } from './expect.js'
 import type { JournalEntry } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
 import type { Sketch } from './sketch.js'
@@ -12,6 +13,7 @@ import { createInterface } from 'node:readline'
 import { writeAgreedText } from './agreed.js'
 import { checkApproval } from './approval.js'
 import { tiedArgsSha256 } from './args-chain.js'
+import { parseExpect } from './expect.js'
 import { runInstall } from './install.js'
 import { appendJournalLine } from './journal.js'
 import { countLedgerLines, readLadderOutcome } from './ledger.js'
@@ -26,6 +28,7 @@ interface PreparedTask extends Task {
   approvedText: string
   approvedSha256: string
   sketch: Sketch
+  expected: Expect | null
   sessionId: string
   reportPath: string
   stderrPath: string
@@ -147,6 +150,15 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
     }
     refusals.push(...sketchRefusals(repo, task.id, baseSha, sketch))
 
+    let expected: Expect | null
+    try {
+      expected = parseExpect(approval.text)
+    }
+    catch (error) {
+      refusals.push(`task ${task.id}: ${task.brief}: ${errorMessage(error)}`)
+      continue
+    }
+
     if (existsSync(task.worktree))
       refusals.push(`task ${task.id}: worktree already exists at ${task.worktree}`)
 
@@ -168,6 +180,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       approvedText: approval.text,
       approvedSha256: approval.sha256,
       sketch,
+      expected,
       sessionId: randomUUID(),
       reportPath,
       stderrPath: path.join(out, `ghost-${task.id}.stderr`),
@@ -218,6 +231,8 @@ function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: M
     usage: null,
     agreedSha256: task.approvedSha256,
     argsSha256: null,
+    expected: task.expected,
+    actual: null,
   }
 }
 
@@ -301,6 +316,8 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     usage: resultFields.usage,
     agreedSha256: task.approvedSha256,
     argsSha256: tiedArgsSha256(task.worktree, task.approvedSha256, ladder.argsSha256),
+    expected: task.expected,
+    actual: ladder.actual,
   })
 
   const line = ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`
