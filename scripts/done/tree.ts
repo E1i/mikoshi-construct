@@ -77,7 +77,7 @@ export function readTree(root: string, base: string): Tree {
   git(root, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`])
   const untracked = new Set(listed(root, ['--others', '--exclude-standard']))
   const files = new Set([...listed(root, ['--cached', '--others', '--exclude-standard'])].filter(file => exists(root, file)))
-  const ranges = addedRanges(git(root, ['-c', 'core.quotepath=off', 'diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-renames', base, '--']))
+  const ranges = addedRanges(git(root, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-renames', base, '--']))
   const texts = new Map<string, string>()
   const read = (file: string): string => {
     let text = texts.get(file)
