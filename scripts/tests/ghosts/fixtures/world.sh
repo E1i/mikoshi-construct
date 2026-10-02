@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale args-elsewhere args-rewritten row-without-hashes expect expect-malformed expect-misplaced'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -9,6 +9,7 @@ NUMERIC_ID=272
 SEALED_PATH_TAIL=/usr/bin:/bin
 CLEAN_SKETCH_LINE='Sketch: none — world fixture'
 EXPECT_FORECAST_LINE='expect: tokens ≈ 166k, minutes ≈ 12 — effort medium, n=61, median'
+EXPECT_NONE_LINE='expect: none — n=3 for effort low'
 EXPECT_MALFORMED_LINE='expect: tokens ≈ lots — effort medium, n=61, median'
 EXPECT_MISPLACED_LINE='expect: none — written below the blank line'
 CLEAN_SKETCH_REASON='world fixture'
@@ -67,6 +68,7 @@ expect_lines_for() {
   [ "$2" = g2 ] || return 0
   case $(cat "$1/.world/kind") in
     expect) printf '\n%s' "$EXPECT_FORECAST_LINE" ;;
+    expect-none) printf '\n%s' "$EXPECT_NONE_LINE" ;;
     expect-malformed) printf '\n%s' "$EXPECT_MALFORMED_LINE" ;;
     expect-misplaced) printf '\n\n%s' "$EXPECT_MISPLACED_LINE" ;;
   esac
@@ -716,7 +718,7 @@ for (const [id, session, approved, link] of tasks) {
     usage: result ? result.usage : null,
     review: null,
     agreedSha256: approved,
-    expected: kind === 'expect' && id === 'g2' ? { kind: 'forecast', tokens: 166000, minutes: 12, basis: { effort: 'medium', n: 61 } } : null,
+    expected: id !== 'g2' ? null : kind === 'expect' ? { kind: 'forecast', tokens: 166000, minutes: 12, basis: { effort: 'medium', n: 61 } } : kind === 'expect-none' ? { kind: 'none', reason: 'n=3 for effort low' } : null,
     actual: noLadder ? null : { tokens: 100, minutes: 10 / 60 },
     argsSha256: noLadder || link === 'broken' ? null : crypto.createHash('sha256').update(fs.readFileSync(`${W}/wt-${id}/${argsPath}`)).digest('hex'),
   }

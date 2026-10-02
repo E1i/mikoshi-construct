@@ -38,6 +38,7 @@ describe('parseExpect', () => {
       `expect: tokens ${APPROX} 166k, minutes ${APPROX} 12 ${DASH} effort medium, n=61`,
       `expect: tokens ${APPROX} 166k, minutes ${APPROX} 12 ${DASH} effort huge, n=61, median`,
       'expect: none',
+      `expect: none ${DASH} `,
       'expect: none - reason',
       `Expect: none ${DASH} capitalised`,
       ` expect: none ${DASH} indented`,

@@ -242,6 +242,16 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
   })
 
+  it('journals expect: none of g2 with its reason beside the ladder\'s actual, as a valid line and not a refusal', () => {
+    const w = world('new', 'expect-none')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+    world('check-args', w)
+    world('check-journal', w)
+  })
+
   it('gives each session the args file built from the agreed text, and the session\'s ledger row names both of its hashes', () => {
     const w = world('new', 'ok')
     const { status } = launch(w, 'yes')
