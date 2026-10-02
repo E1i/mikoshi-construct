@@ -118,7 +118,7 @@ describe('construct board', () => {
     const shown = render(dir, { prs: file })
     expect(bodyRows(shown).map(row => row[0])).toEqual(['alpha'])
     expect(shown).toContain('merged: #1 fresh merge   (older: --all)')
-    expect(shown).toContain('hidden: 3 rows, --all shows them')
+    expect(shown.some(line => line.startsWith('hidden:'))).toBe(false)
     expect(shown[0]).toBe('open 1: running 0, waiting 1, blocked 0, stale 0 · merged 12h: 1')
     const all = render(dir, { prs: file, all: true })
     expect(bodyRows(all).map(row => row[0]).sort()).toEqual(['#3 closed', 'alpha', 'alpha', 'old'])
@@ -169,6 +169,8 @@ describe('construct board', () => {
     expect(tail(render(without))[0]).toBe(`nothing open — pull requests not read: ${command} | construct board --prs -`)
     ledger(withSkill, [run('old', 'done', 20 * HOUR)])
     expect(tail(render(withSkill, { prs: file }))[0]).toBe('nothing open — no ladder runs from the last 12 hours in .construct/runs.jsonl and no open pull requests.')
+    expect(render(withSkill, { prs: file }).filter(line => line.startsWith('merged:'))).toEqual(['merged: —   (older: --all)'])
+    expect(render(without, { prs: file }).some(line => line.startsWith('merged:'))).toBe(false)
   })
 
   it('the --json output names its own format and says which rows are shown', () => {

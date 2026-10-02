@@ -90,9 +90,9 @@ function nothingOpenLines(ui: Ui, reading: BoardReading): string[] {
 }
 
 function mergedLines(ui: Ui, view: BoardView): string[] {
-  if (view.merged.length === 0 && !view.olderMerged)
+  if (view.merged.length === 0 && view.hidden === 0)
     return []
-  return [ui.lore.boardMerged(view.merged.map(row => row.task), view.olderMerged)]
+  return [ui.lore.boardMerged(view.merged.map(row => row.task), view.hidden > 0)]
 }
 
 export function printBoard(ui: Ui, reading: BoardReading): number {
@@ -105,8 +105,6 @@ export function printBoard(ui: Ui, reading: BoardReading): number {
     ui.line(line)
   for (const line of mergedLines(ui, view))
     ui.line(line)
-  if (view.hidden > 0)
-    ui.line(ui.lore.boardHidden(view.hidden))
   return BOARD_EXIT.shown
 }
 

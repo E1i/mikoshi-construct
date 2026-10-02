@@ -232,7 +232,6 @@ export interface Lore {
   boardStale: (age: string) => string
   boardClockSkew: (age: string) => string
   boardMerged: (tasks: string[], older: boolean) => string
-  boardHidden: (count: number) => string
   boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => string
   boardNoLadderRuns: (file: string) => string
   boardNoRecentLadderRuns: (file: string, hours: number) => string
@@ -527,7 +526,6 @@ export const LORE: Lore = {
   boardStale: (age: string) => `stale ${age} \u00B7 `,
   boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
   boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
-  boardHidden: (count: number) => `hidden: ${count} rows, --all shows them`,
   boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
   boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
   boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,
@@ -814,7 +812,6 @@ export const PLAIN_LORE: Lore = {
   boardStale: (age: string) => `stale ${age} \u00B7 `,
   boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
   boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
-  boardHidden: (count: number) => `hidden: ${count} rows, --all shows them`,
   boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
   boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
   boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,

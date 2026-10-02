@@ -1505,7 +1505,8 @@ and nowhere else, and a plain run (`--plain`, `NO_COLOR`, a pipe) carries no col
 request merged in the last 12 hours is named on the `merged:` line, never as a row.
 
 A run the ladder finished more than 12 hours ago, a run followed by a later run of the same task, and
-a closed pull request are hidden, counted on the `hidden:` line, and shown by `--all`.
+a closed pull request are hidden and shown by `--all`; when any row is hidden the `merged:` line ends with `   (older: --all)`, and with no merged
+pull request it reads `merged: —   (older: --all)`.
 
 With nothing open the board prints two lines in place of the table. The first names what was read: the
 ladder runs in `.construct/runs.jsonl` when this repository has `/implement`, and the pull requests,

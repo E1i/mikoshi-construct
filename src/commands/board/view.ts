@@ -31,7 +31,6 @@ export interface BoardView {
   table: Row[]
   merged: Row[]
   hidden: number
-  olderMerged: boolean
   summary: Summary
 }
 
@@ -88,8 +87,7 @@ export function buildView(items: Item[], now: Date, options: { all: boolean, sta
     rows,
     table,
     merged: merged.filter(row => row.shown).sort(newestFirst),
-    hidden: rows.filter(row => !row.shown && row.state !== 'merged').length,
-    olderMerged: merged.some(row => !row.shown),
+    hidden: rows.filter(row => !row.shown).length,
     summary: {
       open: open.length,
       running: count(open, 'running'),
