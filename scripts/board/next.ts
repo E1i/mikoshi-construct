@@ -24,6 +24,8 @@ export const NEXT_BY_SITUATION = {
   'merge-unknown': 'merge (UNKNOWN whether Eli\'s or auto-merge)',
   'merged': '—',
   'report': 'report: ',
+  'window-closed': 'window closed, no PR',
+  'window-handoff': 'handoff, waits for a new window',
   'superseded': '— (superseded)',
 } as const
 
@@ -101,6 +103,8 @@ export function nextOf(view: AttemptView, details: PrDetails | undefined, kinds:
   const report = reportOf(view.attempt.pathEvent)
   if (view.path === 'cheap' && report !== undefined)
     return { situation: 'report', text: `${NEXT_BY_SITUATION.report}${report}`, why: undefined }
+  if (view.path === 'cheap' && view.category === 'blocked')
+    return view.attempt.handoffFile === undefined ? next('window-closed') : next('window-handoff', view.attempt.handoffFile)
   if (view.path === 'cheap')
     return view.attempt.pathEvent?.pr === undefined ? next('pr', 'the journal event:path line records no PR') : prNext(view, details, kinds)
   return ladderNext(view, details, kinds)

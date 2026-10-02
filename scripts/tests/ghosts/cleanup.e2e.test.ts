@@ -79,6 +79,26 @@ function run(w: World, script: string, args: string[]): string {
   return result.stdout
 }
 
+function startLines(w: World, extra: object[] = []): void {
+  const lines = [
+    { event: 'path', task: 'g1', path: 'cheap', started: '2026-10-02T07:00:00Z', session: 's1', worktree: w.worktree, branch: 'ghost/g1', ts: '2026-10-02T07:00:00Z' },
+    { event: 'path', task: 'g1', path: 'cheap', pr: 7, verification: 'run', ts: '2026-10-02T07:30:00Z' },
+    ...extra,
+  ]
+  writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+}
+
+function cleanupFromHandoff(w: World): string {
+  const result = spawnSync(process.execPath, [TSX_CLI, CLEANUP, '--logs', w.logs], {
+    encoding: 'utf8',
+    cwd: path.join(w.root, 'repo'),
+    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: w.handoff, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}` },
+  })
+  expect(result.stderr).toBe('')
+  expect(result.status).toBe(0)
+  return result.stdout
+}
+
 function cleanup(w: World): string {
   return run(w, CLEANUP, ['--logs', w.logs])
 }
@@ -143,5 +163,33 @@ describe('ghosts:cleanup removes a merged task\'s worktree and quality logs', ()
     run(w, WATCH, [])
     expect(existsSync(w.worktree)).toBe(true)
     expect(logsLeft(w)).toEqual(ALL_LOGS)
+  })
+})
+
+describe('w4: ghosts:cleanup without --tasks reads the attempts from the journal', () => {
+  it('w4: removes a merged, clean cheap tree named only by event:path lines, the worktree on one line and the PR number on another', () => {
+    const w = newWorld('MERGED')
+    startLines(w)
+    const out = cleanupFromHandoff(w)
+    expect(existsSync(w.worktree)).toBe(false)
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; worktree ${w.worktree} and 2 quality logs\n`)
+  })
+})
+
+describe('w5: ghosts:cleanup never removes a tree no task names', () => {
+  it('w5: keeps an unregistered tree whose branch PR is merged and which is clean, and says so', () => {
+    const w = newWorld('OPEN')
+    const stray = path.join(w.root, 'mc-stray')
+    git(path.join(w.root, 'repo'), ['worktree', 'add', '-q', '-b', 'ghost/stray', stray])
+    const prs = [
+      { number: 7, title: 'g1', headRefName: 'ghost/g1', headRefOid: 'a'.repeat(40), state: 'OPEN', mergedAt: null, mergeCommit: null },
+      { number: 8, title: 'stray', headRefName: 'ghost/stray', headRefOid: 'b'.repeat(40), state: 'MERGED', mergedAt: '2026-10-01T10:00:00Z', mergeCommit: null },
+    ]
+    writeFileSync(path.join(w.root, 'prs.json'), JSON.stringify(prs))
+    startLines(w)
+    const out = cleanupFromHandoff(w)
+    expect(existsSync(stray)).toBe(true)
+    expect(existsSync(w.worktree)).toBe(true)
+    expect(out).toContain(`[ghosts:cleanup] unregistered ${stray} kept: named by no task\n`)
   })
 })

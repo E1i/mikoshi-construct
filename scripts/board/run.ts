@@ -1,6 +1,7 @@
 import type { OwnerMergeKind } from '../shredder/reader.js'
 import type { AttemptView, ChecksOf, TaskView } from './derive.js'
 import type { GhRunner, PrDetails, PullRequest } from './gh.js'
+import type { GitReader } from './git.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { parseEverySeconds } from '../ghosts/every.js'
@@ -9,12 +10,14 @@ import { deriveTasks, selectShown, summarize } from './derive.js'
 import { readBudgetLines } from './eddies.js'
 import { FRAME_FILE, frameFileIn } from './frame.js'
 import { listPrs, prDetails } from './gh.js'
+import { execGit } from './git.js'
 import { readHandoff } from './handoff.js'
 import { boardJson } from './json.js'
 import { nextOf } from './next.js'
 import { DEFINITIONS, renderBoard, renderCard } from './render.js'
 import { readModelMismatches } from './roles.js'
 import { legendLines, painter } from './tone.js'
+import { readTree, readUnregistered } from './tree.js'
 
 export const PREFIX = '[board] '
 export const USAGE = 'usage: tsx scripts/board/board.ts [--dir <handoff dir>] [<task-id>] [--all] [--json] [--every <seconds>] [--repo E1i/mikoshi-construct] [--help]'
@@ -28,6 +31,7 @@ export interface BoardDeps {
   defaultDir: string
   colour: boolean
   repoRoot?: string
+  git?: GitReader
 }
 
 export interface BoardResult {
@@ -180,7 +184,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     return refuse(`no such directory: ${args.dir}`)
   }
 
-  const handoff = readHandoff(args.dir)
+  const handoff = readHandoff(args.dir, deps.repoRoot)
   const prs = listPrs(deps.gh, args.repo)
   const checks = new ChecksCache(deps.gh, args.repo)
   const firstPass = deriveTasks(handoff.attempts, prs, checks.unmerged)
@@ -192,6 +196,8 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
   const { card, shown } = select(tasks, args, deps.now)
   const details = checks.byAttempt(fetchedViews(tasks, { card, shown }, args))
   const kinds = readKinds()
+  const git = deps.git ?? execGit
+  const trees = new Map(fetchedViews(tasks, { card, shown }, args).map(attemptView => [attemptView.attempt.id, readTree(attemptView.attempt, git)]))
 
   const stderr = handoff.warnings.map(warning => `${PREFIX}${warning}`)
   if (prs.kind === 'failed')
@@ -207,6 +213,8 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     windowBudgetLines: readBudgetLines(deps.repoRoot),
     edges: handoff.edges,
     details,
+    trees,
+    unregistered: readUnregistered(deps.repoRoot, handoff.attempts, git),
     nextOf: (attempt: AttemptView) => nextOf(attempt, details.get(attempt.attempt.id), kinds),
     now: deps.now,
     paint: painter(deps.colour),
