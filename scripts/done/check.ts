@@ -5,10 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { checkEvidence } from './evidence.js'
 import { byPosition, checkedFunctions } from './functions.js'
 import { readMap } from './map.js'
-import { readRequirements } from './requirements.js'
-import { isParseable } from './syntax.js'
+import { readBrief } from './requirements.js'
 import { readTree } from './tree.js'
-import { isTestPath, nameAppearsElsewhere, unreachedFiles } from './wiring.js'
+import { isSource, nameAppearsElsewhere, unreachedFiles } from './wiring.js'
 
 export interface DoneInputs {
   args: string
@@ -30,10 +29,10 @@ function failure(sections: Array<[string, string[]]>): DoneResult {
 
 export function doneCheck(root: string, inputs: DoneInputs): DoneResult {
   try {
-    const requirements = readRequirements(inputs.args)
+    const brief = readBrief(inputs.args)
     const rows = readMap(inputs.map)
     const tree = readTree(root, inputs.base)
-    const evidence = checkEvidence(tree, requirements, rows)
+    const evidence = checkEvidence(tree, brief, rows)
     const checked = checkedFunctions(tree, evidence.citations)
     const label = (fn: { file: string, nameLine: number, name: string }): string => `${fn.file}:${fn.nameLine} ${fn.name}`
     const stubs = checked.flatMap(fn => fn.stubReason === undefined ? [] : [`${label(fn)}: ${fn.stubReason}`])
@@ -41,13 +40,15 @@ export function doneCheck(root: string, inputs: DoneInputs): DoneResult {
       .filter(fn => !nameAppearsElsewhere(tree, fn.file, fn.name, fn.nameStart))
       .map(fn => `${label(fn)}: nothing outside tests names it`)
     const held = [...checked.map(fn => fn.file), ...evidence.citations.map(citation => citation.file)]
-      .filter(file => isParseable(file) && !isTestPath(file))
+      .filter(isSource)
     const unwiredFiles = unreachedFiles(tree, held).map(file => `${file}: no file outside tests imports or names it`)
     const unwired = [...unwiredFunctions, ...unwiredFiles]
     if (evidence.problems.length + stubs.length + unwired.length > 0)
       return failure([['requirements:', evidence.problems], ['stubs:', stubs], ['unwired:', unwired]])
     const cleared = checked.length === 0 ? [] : ['checked by name only:', ...[...checked].sort(byPosition).map(fn => `  ${label(fn)}`)]
-    return { passed: true, lines: ['PASS', `${requirements.length} requirements mapped, ${checked.length} functions checked, no stub, nothing unwired`, ...cleared] }
+    const textOnly = evidence.textOnly.length === 0 ? [] : ['text only:', ...evidence.textOnly.map(row => `  ${row.id}: ${row.code.join(', ')}`)]
+    const verdict = evidence.textOnly.length === 0 ? 'PASS' : `PASS · text only ${evidence.textOnly.length}`
+    return { passed: true, lines: [verdict, `${brief.requirements.length} requirements mapped, ${checked.length} functions checked, no stub, nothing unwired`, ...cleared, ...textOnly] }
   }
   catch (error) {
     return failure([['input:', [String((error as Error).message).split('\n')[0]!]]])

@@ -1,7 +1,7 @@
 import type { NamedFunction } from './syntax.js'
 import type { Tree } from './tree.js'
-import { isParseable, namedFunctions, parse } from './syntax.js'
-import { isTestPath } from './wiring.js'
+import { namedFunctions, parse } from './syntax.js'
+import { isSource } from './wiring.js'
 
 export interface Citation {
   file: string
@@ -24,7 +24,7 @@ export function checkedFunctions(tree: Tree, citations: Citation[]): CheckedFunc
     if (fn !== undefined)
       checked.set(`${file}:${fn.nameStart}`, { ...fn, file })
   }
-  const sources = [...tree.files].filter(file => isParseable(file) && !isTestPath(file))
+  const sources = [...tree.files].filter(isSource)
   for (const file of sources) {
     const functions = namedFunctions(parse(file, tree.read(file)))
     for (const fn of functions) {

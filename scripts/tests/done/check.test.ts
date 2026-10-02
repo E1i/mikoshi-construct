@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -47,7 +48,7 @@ function world(total: string, wired: boolean): World {
   return { root, base, args }
 }
 
-function row(id: string, line: number): { id: string, code: string[], tests: Array<{ file: string, title: string }> } {
+function row(id: string, line: number): { id: string, code: string[], tests: Array<{ file: string, title: string } | { witness: string }> } {
   return { id, code: [`src/total.ts:${line}`], tests: [{ file: 'tests/total.test.ts', title: 'sums the items' }] }
 }
 
@@ -135,5 +136,30 @@ describe('doneCheck', () => {
       'unwired:',
       '  src/total.ts:9 average: nothing outside tests names it',
     ])
+  })
+
+  it('a witness entry counts only when the brief holds that witness under its digest', () => {
+    const w = world(REAL, true)
+    const witness = { criterion: 'the total sums the items', command: 'echo one' }
+    const brief = (sha256: string): void => writeFileSync(w.args, JSON.stringify({ acceptance: ['the total sums the items'], design: '- D1. total sums its items.', witnesses: [witness], witnessDigests: [{ criterion: witness.criterion, sha256 }] }))
+    const byWitness = (name: string): unknown => [{ ...row('A1', 6), tests: [{ witness: name }] }, row('D1', 6)]
+    brief(createHash('sha256').update(witness.command).digest('hex'))
+    expect(run(w, byWitness('W1'))).toEqual({ passed: true, lines: TOTAL_PASS })
+    expect(run(w, byWitness('W2')).lines).toEqual(['FAIL', 'requirements:', '  A1: W2 is not a witness of the brief'])
+    expect(run(w, byWitness('W0')).lines).toEqual(['FAIL', 'requirements:', '  A1: W0 is not a witness of the brief'])
+    brief(createHash('sha256').update('echo two').digest('hex'))
+    expect(run(w, byWitness('W1')).lines).toEqual(['FAIL', 'requirements:', '  A1: W1 does not match its digest'])
+  })
+
+  it('a row held only by text needs no test and a PASS counts and lists it', () => {
+    const w = world(REAL, true)
+    put(w.root, 'NOTES.md', '# Notes\n\nthe total sums the items\n')
+    const prose = { id: 'A1', code: ['NOTES.md:3'], tests: [] }
+    const testFileOnly = { id: 'D1', code: ['tests/total.test.ts:1'], tests: [] }
+    expect(run(w, [prose, testFileOnly])).toEqual({
+      passed: true,
+      lines: ['PASS · text only 2', ...TOTAL_PASS.slice(1), 'text only:', '  A1: NOTES.md:3', '  D1: tests/total.test.ts:1'],
+    })
+    expect(run(w, [{ ...prose, code: ['NOTES.md:3', 'src/total.ts:6'] }, testFileOnly]).lines).toEqual(['FAIL', 'requirements:', '  A1: no test cited'])
   })
 })
