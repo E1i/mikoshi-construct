@@ -16,7 +16,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { logPath, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
+import { exitedWithoutReport, logPath, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
 import { renderPrompt } from './prompt.js'
 import { parseTaskFile, TASK_FILE } from './task-file.js'
 
@@ -31,8 +31,10 @@ export const USAGE = [
   '  touches: <path>, <dir>/**',
   '',
   'Recommended layout: one directory per shift, e.g. ~/.construct/shift/2026-10-03-1500/.',
-  `${CLAUDE_VARIABLE} is the claude command, e.g.:`,
-  `  ${CLAUDE_VARIABLE}='GH_TOKEN=$(gh auth token --user E1i) caffeinate -is claude --permission-mode auto'`,
+  `${CLAUDE_VARIABLE} is the claude command, without caffeinate, e.g.:`,
+  `  ${CLAUDE_VARIABLE}='GH_TOKEN=$(gh auth token --user E1i) claude --permission-mode auto'`,
+  'Keep the Mac awake for the whole runner, not only for each claude session, or it sleeps between tasks:',
+  '  caffeinate -dis pnpm shift <dir>',
   '--check parses the tasks and checks touches against each other and the open pull requests, and starts nothing.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
@@ -103,7 +105,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { ...base, worktree, ended, exit: null, signal: null, error: exit.error }
-  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal }
+  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report: deps.exists(reportPath(dir, task.number)) }
 }
 
 function outcome(line: TaskLine): string {
@@ -111,7 +113,13 @@ function outcome(line: TaskLine): string {
     return `not started: ${line.refused}`
   if (line.error !== undefined)
     return `not spawned: ${line.error}`
-  return line.signal === null ? `exit ${line.exit}` : `signal ${line.signal}`
+  if (line.signal !== null)
+    return `signal ${line.signal}`
+  return exitedWithoutReport(line) ? `exit ${line.exit}, no report` : `exit ${line.exit}`
+}
+
+function succeeded(line: TaskLine): boolean {
+  return line.exit === 0 && !exitedWithoutReport(line)
 }
 
 export async function runShift(argv: string[], deps: ShiftDeps): Promise<number> {
@@ -150,7 +158,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     const line = await runTask(deps, dir, task, claude)
     deps.append(journal, `${JSON.stringify(line)}\n`)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(line)}`)
-    clean &&= line.exit === 0
+    clean &&= succeeded(line)
   }
   deps.out(`${PREFIX}shift over; pnpm shift:report ${dir}`)
   return clean ? 0 : 1

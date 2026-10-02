@@ -285,7 +285,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       reviewEvent: lastOf(id, 'review'),
       mergeEvent: lastOf(id, 'merge'),
       pathEvent,
-      window: readWindow(repoRoot, session),
+      window: readWindow([repoRoot, worktree], session),
       handoffFile: handoffFileOf(dir, id),
       supersededEvent: lastOf(id, 'superseded'),
     }

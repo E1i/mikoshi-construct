@@ -34,19 +34,22 @@ function timeOf(entry: TurnLine): Date | undefined {
   return time === undefined || Number.isNaN(time.getTime()) ? undefined : time
 }
 
-export function readWindow(repoRoot: string | undefined, session: string | undefined): Window {
-  const window: Window = { session, lastAt: undefined, ended: false, context: undefined }
-  if (repoRoot === undefined || session === undefined)
-    return window
-  const file = path.join(repoRoot, TURNS_JOURNAL)
-  let text: string
+function readTurns(root: string): TurnLine[] {
+  const file = path.join(root, TURNS_JOURNAL)
   try {
-    text = existsSync(file) ? readFileSync(file, 'utf8') : ''
+    return existsSync(file) ? readFileSync(file, 'utf8').split('\n').map(parsed) : []
   }
   catch {
-    return window
+    return []
   }
-  for (const entry of text.split('\n').map(parsed).filter(candidate => candidate.session === session)) {
+}
+
+export function readWindow(roots: (string | undefined)[], session: string | undefined): Window {
+  const window: Window = { session, lastAt: undefined, ended: false, context: undefined }
+  if (session === undefined)
+    return window
+  const unique = [...new Set(roots.flatMap(root => root === undefined ? [] : [path.resolve(root)]))]
+  for (const entry of unique.flatMap(readTurns).filter(candidate => candidate.session === session)) {
     if (entry.kind === 'session-end')
       window.ended = true
     const time = TURN_KINDS.includes(entry.kind as string) ? timeOf(entry) : undefined

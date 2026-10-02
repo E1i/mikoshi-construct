@@ -151,6 +151,7 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     const prompt = stubSaw(world, 'a', 'prompt')
     expect(prompt).toContain(`Your tree is \`${path.join(world.root, 'mc-a')}\`, already cut on branch \`feat/a\``)
     expect(prompt).toContain('declares: `scripts/a/**`, `docs/a.md`.')
+    expect(prompt).toContain('Run no background command, no monitor and no wait for a notification')
     expect(prompt).not.toContain('{{')
     expect(prompt.endsWith('---\n\ndo a')).toBe(true)
   })
@@ -259,5 +260,33 @@ describe('--check and a shift that already ran', () => {
     expect(tasks[0]).toMatchObject({ task: 'a', exit: null, worktree: null })
     expect(String(tasks[0]!.refused)).toContain('already exists')
     expect(tasks[1]).toMatchObject({ task: 'b', exit: 0 })
+  })
+})
+
+describe('w6: a session that exits 0 without writing its report is not a success', () => {
+  it('w6: shift.jsonl records report false, the runner prints exit 0, no report and exits 1, and shift:report shows it in the exit column', async () => {
+    const world = newWorld()
+    taskFile(world, '01.md', 'a', 'scripts/a/**', 'STUB-SILENT here')
+    taskFile(world, '02.md', 'b', 'scripts/b/**', 'do b')
+    const io = captured()
+    expect(await runShift([world.shift], shiftDeps(world, io))).toBe(1)
+    const tasks = jsonl(path.join(world.shift, 'shift.jsonl')).filter(line => line.event === 'task')
+    expect(tasks.map(line => [line.task, line.exit, line.report])).toEqual([['a', 0, false], ['b', 0, true]])
+    expect(io.out).toContain('[shift] 01.md a: exit 0, no report')
+    expect(io.out).toContain('[shift] 02.md b: exit 0')
+    const report = captured()
+    runReport([world.shift], { cwd: world.repo, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
+    expect(report.out[1]).toMatch(/^01\.md a {2}0, no report {2}.* no report$/)
+    expect(report.out[2]).toMatch(/^02\.md b {2}0 {13}.* did mc-b$/)
+  })
+})
+
+describe('--help: caffeinate wraps the runner', () => {
+  it('shows caffeinate -dis around pnpm shift and an SHIFT_CLAUDE example without caffeinate', async () => {
+    const io = captured()
+    expect(await runShift(['--help'], shiftDeps(newWorld(), io))).toBe(0)
+    const help = io.out.join('\n').split('\n')
+    expect(help).toContain('  caffeinate -dis pnpm shift <dir>')
+    expect(help.filter(line => line.includes('SHIFT_CLAUDE=') && line.includes('caffeinate'))).toEqual([])
   })
 })
