@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -22,8 +23,19 @@ interface Verdict {
   task: string
   verdict: string
   head: string
+  tree?: string
   brief: Digest
   report: Digest
+}
+
+export interface ReviewTarget {
+  commit: string
+  repo: string
+}
+
+interface ResolvedCommit {
+  commit: string
+  tree: string
 }
 
 export type VerdictCheck
@@ -73,16 +85,38 @@ function briefReasons(brief: Digest, dir: string): string[] {
   return approved === brief.sha256 ? [] : [`brief.sha256 ${brief.sha256} is not the approved hash in ${name} (${approved})`]
 }
 
-export function checkVerdict(verdictPath: string, dir: string, now: Date = new Date()): VerdictCheck {
+function revParse(repo: string, revision: string): string {
+  return execFileSync('git', ['-C', repo, 'rev-parse', '--verify', '--end-of-options', revision], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+function resolveCommit(target: ReviewTarget): ResolvedCommit | undefined {
+  try {
+    return { commit: revParse(target.repo, `${target.commit}^{commit}`), tree: revParse(target.repo, `${target.commit}^{tree}`) }
+  }
+  catch {
+    return undefined
+  }
+}
+
+function treeReasons(tree: string, target: ReviewTarget, resolved: ResolvedCommit | undefined): string[] {
+  if (resolved === undefined)
+    return [`commit ${target.commit} is not a commit in ${target.repo}`]
+  return resolved.tree === tree ? [] : [`verdict tree ${tree} is not the tree of ${target.commit} (${resolved.tree})`]
+}
+
+export function checkVerdict(verdictPath: string, dir: string, target: ReviewTarget, now: Date = new Date()): VerdictCheck {
   const verdict = readVerdict(verdictPath)
   if (typeof verdict === 'string')
     return { ok: false, reasons: [verdict] }
+  if (verdict == null || typeof verdict !== 'object' || verdict.tree === undefined)
+    return { ok: false, reasons: [`${verdictPath}: verdict has no tree`] }
   const schema = readContourSchema(VERDICT_SCHEMA)
   const faults = violations(verdict, schema).map(fault => `${verdictPath}: ${fault}`)
   if (faults.length > 0)
     return { ok: false, reasons: faults }
-  const reasons = [...reportReasons(verdict.report, dir), ...taskReasons(verdict, dir), ...briefReasons(verdict.brief, dir)]
-  if (reasons.length > 0)
+  const resolved = resolveCommit(target)
+  const reasons = [...treeReasons(verdict.tree, target, resolved), ...reportReasons(verdict.report, dir), ...taskReasons(verdict, dir), ...briefReasons(verdict.brief, dir)]
+  if (reasons.length > 0 || resolved === undefined)
     return { ok: false, reasons }
   const line = {
     event: 'review',
@@ -90,6 +124,8 @@ export function checkVerdict(verdictPath: string, dir: string, now: Date = new D
     task: verdict.task,
     verdict: verdict.verdict,
     head: verdict.head,
+    tree: verdict.tree,
+    commit: resolved.commit,
     brief: verdict.brief,
     report: verdict.report,
     file: { path: path.relative(dir, verdictPath), sha256: sha256OfBytes(readFileSync(verdictPath)) },
@@ -98,22 +134,23 @@ export function checkVerdict(verdictPath: string, dir: string, now: Date = new D
   return lineFaults.length > 0 ? { ok: false, reasons: lineFaults } : { ok: true, line }
 }
 
-export async function recordVerdict(verdictPath: string, dir: string): Promise<VerdictCheck> {
-  const checked = checkVerdict(verdictPath, dir)
+export async function recordVerdict(verdictPath: string, dir: string, target: ReviewTarget): Promise<VerdictCheck> {
+  const checked = checkVerdict(verdictPath, dir, target)
   if (checked.ok)
     await appendJournalEvent(path.join(dir, JOURNAL_FILE), checked.line)
   return checked
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { dir: { type: 'string' } } })
+  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { dir: { type: 'string' }, commit: { type: 'string' }, repo: { type: 'string' } } })
   const verdictPath = positionals[0]
-  if (verdictPath === undefined) {
-    console.error('usage: verdict.ts <review-<task>.verdict.json> [--dir <handoff directory>]')
+  const commit = values.commit
+  if (verdictPath === undefined || commit === undefined) {
+    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>]')
     process.exitCode = 1
     return
   }
-  const checked = await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath))
+  const checked = await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo: values.repo ?? process.cwd() })
   if (checked.ok) {
     console.log(JSON.stringify(checked.line))
     return
