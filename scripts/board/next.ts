@@ -106,6 +106,6 @@ export function nextOf(view: AttemptView, details: PrDetails | undefined, kinds:
   if (view.path === 'cheap' && view.category === 'blocked')
     return view.attempt.handoffFile === undefined ? next('window-closed') : next('window-handoff', view.attempt.handoffFile)
   if (view.path === 'cheap')
-    return view.attempt.pathEvent?.pr === undefined ? next('pr', 'the journal event:path line records no PR') : prNext(view, details, kinds)
+    return view.attempt.pathEvent?.pr === undefined && view.pr.kind !== 'found' ? next('pr', 'the journal event:path line records no PR') : prNext(view, details, kinds)
   return ladderNext(view, details, kinds)
 }
