@@ -12,7 +12,7 @@ const BORDERS = {
 const RULE = '─'
 const SEPARATOR = '│'
 
-export function formatMinutes(minutes: number): string {
+function formatMinutes(minutes: number): string {
   if (minutes < 60)
     return `${minutes}m`
   if (minutes < 24 * 60)

@@ -31,7 +31,7 @@ export type PrsReading
     | { status: 'read', file: string, prs: PullRequest[] }
     | { status: 'unreadable', file: string, reason: string }
 
-export type CiState = 'none' | 'red' | 'green' | 'pending'
+type CiState = 'none' | 'red' | 'green' | 'pending'
 
 export interface Ci {
   state: CiState
@@ -46,6 +46,10 @@ function isTimeOrNull(value: unknown): boolean {
   return value == null || isTime(value)
 }
 
+function isListOfObjects(value: unknown): boolean {
+  return Array.isArray(value) && value.every(item => item != null && typeof item === 'object' && !Array.isArray(item))
+}
+
 function faultOf(entry: unknown, index: number): string | undefined {
   if (entry == null || typeof entry !== 'object' || Array.isArray(entry))
     return `entry ${index + 1} is not an object`
@@ -56,8 +60,8 @@ function faultOf(entry: unknown, index: number): string | undefined {
     return `entry ${index + 1} has no title or no state of OPEN, MERGED or CLOSED`
   if (!isTime(pr.createdAt) || !isTimeOrNull(pr.closedAt) || !isTimeOrNull(pr.mergedAt))
     return `entry ${index + 1} has a time that is not a date`
-  if (pr.statusCheckRollup != null && !Array.isArray(pr.statusCheckRollup))
-    return `entry ${index + 1} has a statusCheckRollup that is not a list`
+  if (pr.statusCheckRollup != null && !isListOfObjects(pr.statusCheckRollup))
+    return `entry ${index + 1} has a statusCheckRollup that is not a list of checks`
   return undefined
 }
 
