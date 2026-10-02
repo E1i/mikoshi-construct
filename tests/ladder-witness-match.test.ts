@@ -77,8 +77,8 @@ function contractCheckRunVerdict(override: Override): Record<string, unknown> {
   }
 }
 
-async function outcomes(override: Override): Promise<{ result: LadderResult, calls: Record<string, number>, outcomes: string[] }> {
-  const { result, calls } = await run([contractCheckRunVerdict(override), contractCheckRunVerdict(AS_AGREED)])
+async function outcomes(override: Override, onSecondRung: Override = AS_AGREED): Promise<{ result: LadderResult, calls: Record<string, number>, outcomes: string[] }> {
+  const { result, calls } = await run([contractCheckRunVerdict(override), contractCheckRunVerdict(onSecondRung)])
   return { result, calls, outcomes: result.attempts.map(attempt => attempt.outcome) }
 }
 
@@ -109,9 +109,10 @@ describe('a reported witness is matched to the agreed one by its criterion and i
     expect(run1.outcomes).toEqual(['passed'])
     expect(run1.calls).toEqual({ architect: 0, implementer: 1, harness: 2 })
 
-    const invalid = await outcomes(onFirst({ command: paraphrased(1), afterExitCode: 1, afterExcerpt: 'the lines of AGENTS.md, never those of CLAUDE.md: witness 1 red on the base' }))
+    const failingAsOnTheBase = onFirst({ command: paraphrased(1), afterExitCode: 1, afterExcerpt: 'the lines of AGENTS.md, never those of CLAUDE.md: witness 1 red on the base' })
+    const invalid = await outcomes(failingAsOnTheBase, failingAsOnTheBase)
     expect(invalid.result.status).toBe('base unverified')
-    expect(invalid.outcomes).toEqual(['witness invalid'])
+    expect(invalid.outcomes).toEqual(['acceptance not witnessed', 'witness invalid'])
 
     const environment = await outcomes(onFirst({ command: paraphrased(1), baseExitCode: 127, baseExcerpt: 'bash: pnpm: command not found' }))
     expect(environment.outcomes).toEqual(['base environment'])
