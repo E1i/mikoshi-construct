@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>overlap</title>
+<style>
+body { margin: 0; font: 16px sans-serif }
+.box { position: absolute; width: 100px; height: 100px }
+#a { left: 10px; top: 10px; background: #fcc }
+#b { left: 60px; top: 60px; background: #cfc }
+#c { left: 10px; top: 200px; background: #ccf }
+#d { left: 110px; top: 200px; background: #ffc }
+#off { left: -50px; top: 320px; background: #eee }
+#menu { left: 10px; top: 420px }
+#gone { display: none }
+</style>
+<div id="a" class="box">a</div>
+<div id="b" class="box">b</div>
+<div id="c" class="box">c</div>
+<div id="d" class="box">d</div>
+<div id="off" class="box">off</div>
+<button id="menu" class="box" aria-expanded="false" hidden>menu</button>
+<div id="gone" class="box">gone</div>

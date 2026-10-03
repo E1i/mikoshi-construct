@@ -14,6 +14,7 @@ const CARRIED_SCRIPT = /scripts\/construct\/[\w.-]+\.mjs/g
 const SCRIPTS = [
   'scripts/construct/implement.workflow',
   'scripts/construct/check-acceptance.mjs',
+  'scripts/construct/browser-witness.mjs',
 ]
 
 const RE_KEYED_TEMPLATES = [
@@ -45,8 +46,8 @@ describe('the carried commands read the attach record when there is no construct
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names seven targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(7)
+  it('names eight targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(8)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })
