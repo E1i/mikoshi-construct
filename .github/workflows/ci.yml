@@ -3,7 +3,8 @@
 # checks · lint · typecheck · vitest (two shards) · docs — the steps of package.json's `quality`,
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
-#              docs/ and architecture/*.md.
+#              docs/ and architecture/*.md. checks also runs scripts/release/version-pr-guard.ts, red on a
+#              changeset-release/* pull request whose merged tree still carries a changeset.
 # package    — builds and packs the publishable tarball the acceptance legs install. It runs on every
 #              change and waits on nothing, so the preset matrix starts once both it and changes are done.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
@@ -82,6 +83,7 @@ jobs:
       - run: pnpm composition:check
       - run: pnpm model:check
       - run: pnpm privacy:check
+      - run: pnpm exec tsx scripts/release/version-pr-guard.ts
 
   lint:
     runs-on: ubuntu-24.04
