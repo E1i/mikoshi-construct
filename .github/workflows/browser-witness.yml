@@ -1,0 +1,27 @@
+name: browser-witness
+
+on:
+  pull_request:
+    paths:
+      - templates/ai/claude/scripts/construct/browser-witness.mjs
+      - scripts/construct/browser-witness.mjs
+      - tests/fixtures/browser/**
+      - .github/workflows/browser-witness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: google-chrome --version
+      - run: node tests/fixtures/browser/check.mjs

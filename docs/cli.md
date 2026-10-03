@@ -1034,7 +1034,7 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes seven carriers and a commit guard, hides them and the ledger directory through
+tracked file. It writes eight carriers and a commit guard, hides them and the ledger directory through
 `.git/info/exclude`, adds one entry to the untracked `.claude/settings.local.json`, and records what it
 did in `.construct/attach.json`. No `construct.json`, no
 `construct.model.json`, no discovery markers, no harness, lint or CI files. Alias: `jack-in`.
@@ -1126,10 +1126,10 @@ yourself, then run it again. A collision found during the write keeps the output
 1. The exclude block: `.git/info/exclude` gains a `# construct:begin` … `# construct:end` block
    listing `.construct/`, every path attach writes and `.claude/settings.local.json`, one per line.
    When the file does not exist, it is created with only that block and the record says so.
-2. The seven carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
+2. The eight carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
-   byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs`.
+   `scripts/construct/browser-witness.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs`.
 3. The guard entry in `.claude/settings.local.json` (below). The file is read again at this moment: if
    it no longer parses, or already carries a guard entry, the files of this run are rolled back and
    attach refuses.
@@ -1302,8 +1302,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the seven carriers and the guard into a repository with none of their
-directories, N is 16: eight files, seven directories and the settings file attach created.
+and directories actually removed. On the eight carriers and the guard into a repository with none of their
+directories, N is 17: nine files, seven directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 

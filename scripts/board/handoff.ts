@@ -14,6 +14,7 @@ import { readLedgerStage } from '../ghosts/watch-ledger.js'
 import { readBudgetLines } from './eddies.js'
 import { handLadderRows } from './policy.js'
 import { readModelMismatches } from './roles.js'
+import { callsBrowserWitness } from './verification.js'
 import { readWindow } from './window.js'
 
 export type TaskEvent = JournalEntry & { event: 'task', ts: string }
@@ -86,6 +87,7 @@ export interface Attempt {
   row: StatusRow | undefined
   handLadderUpdated: string | undefined
   ledger: LedgerStage | null | 'unreadable'
+  browserWitness: boolean
   modelMismatches: ModelMismatch[]
   budgetLines: BudgetLine[]
   taskEvent: TaskEvent | undefined
@@ -174,6 +176,10 @@ function approvalOf(brief: string): Approval | undefined {
     return undefined
   const sha8 = /sha256: ([0-9a-f]{8})/.exec(readFileSync(approvedPath, 'utf8'))?.[1]
   return { at: statSync(approvedPath).mtime, sha8 }
+}
+
+function browserWitnessOf(brief: string | undefined): boolean {
+  return brief !== undefined && existsSync(brief) && callsBrowserWitness(readFileSync(brief, 'utf8'))
 }
 
 function ledgerOf(worktree: string | undefined): Attempt['ledger'] {
@@ -279,6 +285,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       row: ghostRow(statusText, id),
       handLadderUpdated: handLadders.get(id),
       ledger: ledgerOf(worktree),
+      browserWitness: browserWitnessOf(facts.brief),
       modelMismatches: readModelMismatches(worktree),
       budgetLines: [...readBudgetLines(worktree), ...(session === undefined || worktree === repoRoot ? [] : windowBudgetLines.filter(line => line.session === session))],
       taskEvent: lastOf(id, 'task'),

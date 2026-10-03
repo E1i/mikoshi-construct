@@ -147,6 +147,10 @@ function handLadderFacts(attempt: Attempt): Stage[] {
   return [{ name: 'hand-ladder', ...fact('finished', `status.md policy ${handLadderPolicy(attempt.id)}, updated ${attempt.handLadderUpdated}; a later journal event:task, review or merge`) }]
 }
 
+function browserWitnessFacts(attempt: Attempt): Stage[] {
+  return attempt.browserWitness ? [{ name: 'verification', ...fact('browser', 'a brief witness calls browser-witness.mjs') }] : []
+}
+
 function reviewStage(attempt: Attempt): StageBody {
   if (attempt.reviewEvent !== undefined)
     return done(attempt.reviewEvent.ts, `verdict ${attempt.reviewEvent.verdict}`)
@@ -374,6 +378,7 @@ function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): Att
       { name: 'status.md', ...statusFact(attempt) },
       { name: 'ledger', ...ledgerFact(attempt) },
       ...handLadderFacts(attempt),
+      ...browserWitnessFacts(attempt),
     ],
     category: categoryOf(attempt, merged),
     startedAt: isHandLadderRunning(attempt) ? handLadderStart(attempt) : localStamp(attempt.row?.start),
