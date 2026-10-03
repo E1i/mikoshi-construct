@@ -1,3 +1,4 @@
+import type { SignalStyle } from '../../src/ui/signal.js'
 import type { BudgetLine } from '../board/eddies.js'
 import type { GhRunner, PrList } from '../board/gh.js'
 import type { TaskLine } from './places.js'
@@ -5,14 +6,14 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
-import { cardHead } from '../ghosts/card.js'
-import { exitedWithoutReport, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
+import { cardHead, cardTerms } from '../ghosts/card.js'
+import { exitedWithoutReport, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 
 export const PREFIX = '[shift:report] '
 export const USAGE = 'usage: pnpm shift:report <dir>'
-const COLUMNS = ['task', 'exit', 'duration', 'PR', 'eddies stop', 'report'] as const
 const RESULT_LINE = /^result:(.*)$/m
 
 export interface ReportDeps {
@@ -22,6 +23,7 @@ export interface ReportDeps {
   budget: (worktree: string) => BudgetLine[]
   out: (line: string) => void
   err: (line: string) => void
+  style?: SignalStyle
 }
 
 function taskLines(text: string): TaskLine[] {
@@ -87,11 +89,6 @@ function reportCell(deps: ReportDeps, dir: string, line: TaskLine): string {
   return RESULT_LINE.exec(text)?.[1]?.trim() || 'report has no result: line'
 }
 
-export function table(rows: string[][]): string[] {
-  const widths = COLUMNS.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join('  ').trimEnd())
-}
-
 export function runReport(argv: string[], deps: ReportDeps): number {
   if (argv.length !== 1 || argv[0]!.startsWith('-')) {
     deps.err(`${PREFIX}${USAGE}`)
@@ -105,16 +102,16 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   }
   const lines = taskLines(journal)
   const prs = listPrs(deps.gh, REPO)
-  const rows = lines.map(line => [
-    taskCell(line),
-    exitCell(line),
-    durationCell(line.started, line.ended),
-    prCell(prs, line),
-    eddiesCell(deps, line),
-    reportCell(deps, dir, line),
-  ])
-  for (const row of table([[...COLUMNS], ...rows]))
-    deps.out(row)
+  for (const line of lines) {
+    const block = renderSignal(taskCell(line), {
+      CONTRACT: line.card === undefined ? 'card not in shift.jsonl · law none recorded' : `${cardTerms(line.card)} · touches not in shift.jsonl · law none recorded`,
+      EXPECT: 'expect none — shift.jsonl records no forecast',
+      ACTION: `claude session ${line.session} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
+      RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
+    }, deps.style ?? PLAIN_STYLE, succeeded(line) ? undefined : 'red')
+    for (const row of block)
+      deps.out(row)
+  }
   return 0
 }
 
@@ -126,6 +123,7 @@ function realDeps(): ReportDeps {
     budget: worktree => readBudgetLines(worktree),
     out: line => console.log(line),
     err: line => console.error(line),
+    style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
   }
 }
 

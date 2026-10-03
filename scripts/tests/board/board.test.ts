@@ -1,6 +1,6 @@
+import type { Tone } from '../../../src/ui/signal.js'
 import type { GhRunner } from '../../board/gh.js'
 import type { BoardResult } from '../../board/run.js'
-import type { Tone } from '../../board/tone.js'
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

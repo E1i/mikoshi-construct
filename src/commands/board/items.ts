@@ -1,4 +1,4 @@
-import type { LedgerEntry } from '../cost/ledger.js'
+import type { LedgerEntry, TokenCount } from '../cost/ledger.js'
 import type { PullRequest } from './prs.js'
 import { ciOf } from './prs.js'
 
@@ -16,6 +16,12 @@ export interface Item {
   at: Date
   next: string
   tone: Tone
+  spent?: Spent
+}
+
+export interface Spent {
+  tokens: TokenCount
+  seconds: number
 }
 
 function cut(text: string): string {
@@ -25,7 +31,7 @@ function cut(text: string): string {
 export function ladderItems(entries: LedgerEntry[]): Item[] {
   return entries.map((entry, index) => {
     const superseded = entries.slice(index + 1).some(later => later.task === entry.task)
-    const base = { task: cut(entry.task), path: 'ladder' as const, stage: `ladder ${entry.status}`, at: new Date(entry.at) }
+    const base = { task: cut(entry.task), path: 'ladder' as const, stage: `ladder ${entry.status}`, at: new Date(entry.at), spent: { tokens: entry.tokens, seconds: entry.seconds } }
     if (superseded)
       return { ...base, state: 'superseded', next: NO_NEXT, tone: null }
     if (entry.status === 'done')

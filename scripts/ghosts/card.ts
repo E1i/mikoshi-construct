@@ -67,6 +67,10 @@ export function cardHead(card: Card): string {
   return `#${card.id} ${card.name} [${card.kind}/${card.milestone}/${card.size}/${card.contour}/${card.decision}]`
 }
 
+export function cardTerms(card: Card): string {
+  return `${card.kind} · ${card.contour} · ${card.decision}`
+}
+
 export function parseCard(text: string): ParsedCard {
   const line = text.trim()
   const head = HEAD.exec(line)
