@@ -62,7 +62,9 @@ opinion over the findings, not a witness: never cite it as a red→green proof f
 The report is written at every outcome, including a stop on budget or by Eddies: what was done, where it stopped,
 what remains. It lives outside the repository, in the scratch directory or the shift directory.
 
-- Line 1: the card. Line 2: `result: …`. Then the verdict line, the paths of `findings.jsonl` and `coverage.md`,
+- Line 1: the card. Then one line each, in this order: `contract: …` (the question and the target pinned at its sha),
+  `expect: …` (the forecast, or `expect none — not recorded`), `action: …` (what was read and run), `result: …`.
+  Then the verdict line, the paths of `findings.jsonl` and `coverage.md`,
   counts by class, the tests run, and what waits for the owner.
 - Close with `pnpm task:close <id> --report <path> --verification <word>`, the word from
   [AGENTS.md § The path line and its verification word](../../../AGENTS.md#the-path-line-and-its-verification-word),

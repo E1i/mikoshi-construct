@@ -91,7 +91,9 @@ task's number in the parking list, the name a slug, `kind` is `implement` or `pr
 `scripts/ghosts/milestones.ts`, and `blocks` may end in free text after its ids. The card is the owner's statement: the
 machine checks its form and its mechanical consequences — a probe takes decision `none`, an implement task `owner`
 or `auto` — and never re-classifies what it means. The window's report on a task opens with the card and then
-`result:`; the first line of its pull request description is the card.
+the four signal fields of [0046](decisions/0046-four-signal-fields-and-their-sources.md), in their order:
+`contract:`, `expect:`, `action:`, `result:`, each saying what it does not hold rather than staying empty; the first line
+of its pull request description is the card.
 
 A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
 `../mc-<id>` from `origin/main` and writes the journal start line carrying the card; a task with no start line was not
