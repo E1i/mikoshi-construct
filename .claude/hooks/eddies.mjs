@@ -3,10 +3,10 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFil
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, hasBeenRead, readTranscript, SPEND_BASIS, spentOf, sumTranscripts } from './eddies-measure.mjs'
 
 export const EDDIES_JOURNAL_FILE = '.construct/eddies.jsonl'
 
+const MEASURE_MODULE = './eddies-measure.mjs'
 const CONFIG_FILE = '.claude/eddies.json'
 const WARNED_DIR = '.construct/eddies.d/warned'
 const TASK_CACHE_DIR = '.construct/eddies.d/task'
@@ -24,6 +24,7 @@ const WARN_ACTION = 'finish the current step, save (milestone commit / handoff),
 const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
 const WINDOW = 'window'
+const AGENT_TRANSCRIPT_MISSING = 'agent-transcript-missing'
 
 class Unread extends Error {}
 
@@ -145,7 +146,7 @@ function subagentsDirOf(transcript) {
   return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
 }
 
-function sessionGauges(root, transcript, config, caller) {
+function sessionGauges({ addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, readTranscript, SPEND_BASIS, spentOf, sumTranscripts }, root, transcript, config, caller) {
   const parent = readTranscript(root, transcript)
   const others = sumTranscripts(root, agentTranscriptsUnder(subagentsDirOf(transcript)))
   const spend = addTokens({ ...parent.tokens }, others)
@@ -156,19 +157,23 @@ function sessionGauges(root, transcript, config, caller) {
   ]
 }
 
-function agentFileOf(transcript, agentId) {
+function agentFileOf(agentTranscriptsUnder, transcript, agentId) {
   const name = `agent-${agentId}.jsonl`
   const subagents = subagentsDirOf(transcript)
   if (existsSync(path.join(subagents, name)))
     return { file: path.join(subagents, name), runId: null }
   const found = agentTranscriptsUnder(path.join(subagents, 'workflows')).find(file => path.basename(file) === name)
   if (found == null)
-    throw new Unread('agent-transcript-missing')
+    return null
   return { file: found, runId: path.basename(path.dirname(found)) }
 }
 
-function agentGauges(root, transcript, config, caller) {
-  const agent = agentFileOf(transcript, caller.agent_id)
+function agentGauges({ agentTranscriptsUnder, readTranscript, SPEND_BASIS, spentOf, sumTranscripts }, root, transcript, config, caller) {
+  const agent = agentFileOf(agentTranscriptsUnder, transcript, caller.agent_id)
+  if (agent == null) {
+    journal(root, { event: 'unread', hook: 'eddies-guard', reason: AGENT_TRANSCRIPT_MISSING, session_id: caller.session_id, agent_id: caller.agent_id })
+    return []
+  }
   const tokens = readTranscript(root, agent.file).tokens
   const gauges = [{ level: 'agent', key: caller.agent_id, name: 'spent', value: spentOf(tokens), limitName: 'agentSpend', limit: config.agentSpend, tokens, basis: SPEND_BASIS, action: AGENT_ACTION }]
   if (agent.runId != null) {
@@ -217,16 +222,18 @@ function warningOf(gauge, config) {
   return `eddies: ${gauge.level} warn — ${gauge.name} ${Math.round(gauge.value)} / warn threshold ${Math.round(gauge.limit * config.warnRatio)} (limit ${gauge.limit}, ${gauge.limitName} in ${CONFIG_FILE}); ${WARN_ACTION}\n`
 }
 
-function measuredGauges(root, input, config, caller) {
+function measuredGauges(measure, root, input, config, caller) {
   const tool = input.tool_name
   const asAgent = caller.agent_id != null && tool !== RETURN_TOOL
   const asSession = caller.agent_id == null || isNewWork(input)
   if (!asSession && !asAgent)
     return []
   const transcript = transcriptOf(input)
+  if (notCreatedYet(measure, root, transcript))
+    return []
   return [
-    ...(asSession ? sessionGauges(root, transcript, config, caller) : []),
-    ...(asAgent ? agentGauges(root, transcript, config, caller) : []),
+    ...(asSession ? sessionGauges(measure, root, transcript, config, caller) : []),
+    ...(asAgent ? agentGauges(measure, root, transcript, config, caller) : []),
   ]
 }
 
@@ -234,11 +241,11 @@ function stops(gauge, input) {
   return gauge.value >= gauge.limit && (gauge.level === 'agent' || gauge.level === 'run' || isNewWork(input))
 }
 
-function decide(root, input, config) {
+function decide(measure, root, input, config) {
   const caller = callerOf(input)
   const warnings = []
   let stop = null
-  for (const gauge of measuredGauges(root, input, config, caller)) {
+  for (const gauge of measuredGauges(measure, root, input, config, caller)) {
     const warning = crossesWarning(gauge, config) ? warnOnce(root, gauge, caller, config) : null
     if (warning != null)
       warnings.push(warning)
@@ -272,22 +279,23 @@ function recordUnread(root, input, hook, error) {
   try {
     const caller = callerOf(input)
     journal(root, { event: 'unread', hook, reason: reasonOf(error), session_id: caller.session_id, agent_id: caller.agent_id })
+    return true
   }
   catch {
-    process.stderr.write(`eddies: nothing measured (${reasonOf(error)}), and the line recording it was not written\n`)
+    return false
   }
 }
 
-function notCreatedYet(root, transcript) {
+function notCreatedYet({ hasBeenRead }, root, transcript) {
   return !existsSync(transcript) && !hasBeenRead(root, transcript)
 }
 
-function sessionWarnings(root, input, config) {
+function sessionWarnings(measure, root, input, config) {
   const caller = callerOf(input)
   const transcript = transcriptOf(input)
-  if (notCreatedYet(root, transcript))
+  if (notCreatedYet(measure, root, transcript))
     return []
-  return sessionGauges(root, transcript, config, caller)
+  return sessionGauges(measure, root, transcript, config, caller)
     .filter(gauge => crossesWarning(gauge, config))
     .map(gauge => warnOnce(root, gauge, caller, config))
     .filter(warning => warning != null)
@@ -302,28 +310,42 @@ async function hookInput() {
   }
 }
 
-async function run(hook, act) {
+function refuse(line) {
+  process.stderr.write(`${line}; refused — a guard that cannot measure lets nothing through\n`)
+  process.exitCode = 2
+}
+
+async function run(hook, { act, failClosed }) {
   const input = await hookInput()
   if (input == null) {
     process.stderr.write('eddies: the hook input could not be read as a JSON object; refused\n')
     process.exitCode = 2
     return
   }
-  const root = projectRoot()
-  if (root == null) {
-    process.stderr.write('eddies: CLAUDE_PROJECT_DIR is not a directory; nothing measured\n')
-    return
-  }
+  let root = null
   try {
-    act(root, input, readConfig(root))
+    root = projectRoot()
+    if (root == null) {
+      if (failClosed)
+        refuse('eddies: CLAUDE_PROJECT_DIR is not a directory')
+      else
+        process.stderr.write('eddies: CLAUDE_PROJECT_DIR is not a directory; nothing measured\n')
+      return
+    }
+    act(await import(MEASURE_MODULE), root, input, readConfig(root))
   }
   catch (error) {
-    recordUnread(root, input, hook, error)
+    const recorded = root != null && recordUnread(root, input, hook, error)
+    const line = `eddies: nothing measured (${reasonOf(error)})${recorded ? '' : ', and the line recording it was not written'}`
+    if (failClosed)
+      refuse(line)
+    else if (!recorded)
+      process.stderr.write(`${line}\n`)
   }
 }
 
-function guard(root, input, config) {
-  const { warnings, stop } = decide(root, input, config)
+function guard(measure, root, input, config) {
+  const { warnings, stop } = decide(measure, root, input, config)
   if (stop == null) {
     if (warnings.length > 0)
       process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: warnings.join('') } }))
@@ -334,11 +356,11 @@ function guard(root, input, config) {
   journal(root, stopLine(stop, input.tool_name))
 }
 
-function prompt(root, input, config) {
-  process.stdout.write(sessionWarnings(root, input, config).join(''))
+function prompt(measure, root, input, config) {
+  process.stdout.write(sessionWarnings(measure, root, input, config).join(''))
 }
 
-const MODES = { guard, prompt }
+const MODES = { guard: { act: guard, failClosed: true }, prompt: { act: prompt, failClosed: false } }
 
 if (Object.hasOwn(MODES, process.argv[2]))
   void run(`eddies-${process.argv[2]}`, MODES[process.argv[2]])

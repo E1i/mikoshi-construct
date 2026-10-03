@@ -2,8 +2,8 @@ import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { appendRoleLine, definitionsDigest, snapshotPath } from './role-definitions.mjs'
 
+const ROLE_DEFINITIONS_MODULE = './role-definitions.mjs'
 const REFUSAL = 'role definitions changed since this session started (.claude/agents); start a new session'
 const GUARDED_TOOL = 'Agent'
 const SOURCES_NOT_KNOWN_TO_REREAD_ROLE_DEFINITIONS = ['clear', 'compact', 'resume']
@@ -43,7 +43,7 @@ function projectRoot() {
   return root != null && root !== '' && existsSync(root) && statSync(root).isDirectory() ? root : null
 }
 
-function takeSnapshot(root, input) {
+function takeSnapshot({ appendRoleLine, definitionsDigest, snapshotPath }, root, input) {
   const session = sessionOf(input)
   if (session == null) {
     appendRoleLine(root, { kind: 'unread', hook: 'role-snapshot', reason: 'no-session' })
@@ -58,7 +58,7 @@ function takeSnapshot(root, input) {
   renameSync(temporary, file)
 }
 
-function snapshotOf(root, session) {
+function snapshotOf(snapshotPath, root, session) {
   try {
     return readFileSync(snapshotPath(root, session), 'utf8').trim()
   }
@@ -69,7 +69,7 @@ function snapshotOf(root, session) {
   }
 }
 
-function recordNoSnapshot(root, session) {
+function recordNoSnapshot(appendRoleLine, root, session) {
   try {
     appendRoleLine(root, { kind: 'no-snapshot', session })
   }
@@ -78,35 +78,36 @@ function recordNoSnapshot(root, session) {
   }
 }
 
-function guard(root, input) {
+function guard(definitions, root, input) {
   if (input.tool_name !== GUARDED_TOOL)
     return
   const session = sessionOf(input)
   if (session == null)
     throw new Refusal('role-guard: the hook input names no session; start a new session')
-  const snapshot = snapshotOf(root, session)
+  const snapshot = snapshotOf(definitions.snapshotPath, root, session)
   if (snapshot == null) {
-    recordNoSnapshot(root, session)
+    recordNoSnapshot(definitions.appendRoleLine, root, session)
     return
   }
-  if (definitionsDigest(root) !== snapshot)
+  if (definitions.definitionsDigest(root) !== snapshot)
     throw new Refusal(REFUSAL)
 }
 
 async function snapshotMain() {
+  const definitions = await import(ROLE_DEFINITIONS_MODULE)
   const root = projectRoot()
   if (root == null)
     return
   try {
     const input = parsedInput(await readInput())
     if (input == null)
-      appendRoleLine(root, { kind: 'unread', hook: 'role-snapshot', reason: 'not-an-object' })
+      definitions.appendRoleLine(root, { kind: 'unread', hook: 'role-snapshot', reason: 'not-an-object' })
     else
-      takeSnapshot(root, input)
+      takeSnapshot(definitions, root, input)
   }
   catch (error) {
     try {
-      appendRoleLine(root, { kind: 'unread', hook: 'role-snapshot', reason: reasonOf(error, 'snapshot-error') })
+      definitions.appendRoleLine(root, { kind: 'unread', hook: 'role-snapshot', reason: reasonOf(error, 'snapshot-error') })
     }
     catch {
       process.stderr.write(`role-guard: the snapshot was not taken (${reasonOf(error, 'snapshot-error')})\n`)
@@ -116,13 +117,14 @@ async function snapshotMain() {
 
 async function guardMain() {
   try {
+    const definitions = await import(ROLE_DEFINITIONS_MODULE)
     const root = projectRoot()
     if (root == null)
       throw new Refusal('role-guard: CLAUDE_PROJECT_DIR is not a directory, so the role definitions cannot be compared; start a new session')
     const input = parsedInput(await readInput())
     if (input == null)
       throw new Refusal('role-guard: the hook input is not a JSON object; start a new session')
-    guard(root, input)
+    guard(definitions, root, input)
   }
   catch (error) {
     process.stderr.write(error instanceof Refusal ? `${error.message}\n` : `role-guard: the role definitions could not be compared (${reasonOf(error, 'read-error')}); start a new session\n`)
