@@ -94,6 +94,12 @@ describe('detect', () => {
     expect(detect(dir).layout).toBe('unknown')
   })
 
+  it('does not take a directory holding only .construct/ for an empty one', () => {
+    const dir = scratch()
+    mkdirSync(path.join(dir, '.construct'))
+    expect(detect(dir).layout).toBe('unknown')
+  })
+
   it('finds existing contracts, AI files and construct.json', () => {
     const dir = scratch()
     mkdirSync(path.join(dir, 'contracts', 'api'), { recursive: true })
