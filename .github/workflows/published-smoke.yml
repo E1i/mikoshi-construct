@@ -30,7 +30,7 @@ concurrency: published-smoke-${{ github.event.workflow_run.head_sha || github.sh
 jobs:
   smoke:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: node:24-bookworm-slim
     steps:
       - name: Resolve the version this release published

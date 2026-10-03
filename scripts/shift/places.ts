@@ -11,6 +11,10 @@ export function logPath(dir: string, number: string): string {
   return path.join(dir, `log-${number}.txt`)
 }
 
+export function exitedWithoutReport(line: TaskLine): boolean {
+  return line.exit === 0 && line.report === false
+}
+
 export interface TaskLine {
   event: 'task'
   file: string
@@ -23,6 +27,7 @@ export interface TaskLine {
   ended: string
   exit: number | null
   signal: string | null
+  report?: boolean
   refused?: string
   error?: string
 }

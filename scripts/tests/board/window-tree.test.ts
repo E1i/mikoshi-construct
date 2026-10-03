@@ -164,3 +164,19 @@ describe('w7: the windows\' journals are read from the main worktree', () => {
     expect(windowsRoot(reader(undefined), '/mc-101')).toBe('/mc-101')
   })
 })
+
+describe('w8: a task session started in its own tree writes its turns there', () => {
+  it('w8: WINDOW reads the turns from the .construct/turns.jsonl of the tree the start line names', () => {
+    const world = newWorld([START], [])
+    mkdirSync(path.join(world.tree, '.construct'))
+    writeFileSync(path.join(world.tree, '.construct', 'turns.jsonl'), `${JSON.stringify(TURN)}\n`)
+    expect(board(world).cells[5]).toBe('0d538601 · turn 5m')
+  })
+
+  it('w8: a session end written in the tree closes the window', () => {
+    const world = newWorld([START], [])
+    mkdirSync(path.join(world.tree, '.construct'))
+    writeFileSync(path.join(world.tree, '.construct', 'turns.jsonl'), [TURN, SESSION_END].map(entry => `${JSON.stringify(entry)}\n`).join(''))
+    expect(board(world).summary).toMatch(/ · windows live 0 · /)
+  })
+})

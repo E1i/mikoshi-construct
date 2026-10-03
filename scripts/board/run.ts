@@ -228,7 +228,7 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     summary: summarize(tasks, deps.now, attemptView => staleAge(attemptView, deps.now, args.staleHours) !== undefined),
     windowMismatches: readModelMismatches(deps.repoRoot),
     limits: readContextLimits(deps.repoRoot),
-    miko: deps.session === undefined ? undefined : { session: deps.session, context: readWindow(deps.repoRoot, deps.session).context },
+    miko: deps.session === undefined ? undefined : { session: deps.session, context: readWindow([deps.repoRoot], deps.session).context },
     contextWarnPercent: args.contextWarnPercent,
     staleHours: args.staleHours,
     edges: handoff.edges,
