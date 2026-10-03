@@ -1,6 +1,6 @@
 # Attach entry protocol
 
-You are the agent about to attach the construct's /plan and /implement carriers to this repository. The one thing attach cannot know is the harness command the ladder verifies every change with. Read the repository, propose one command, and let the owner answer yes or no. Write nothing, install nothing, commit nothing while you do.
+You are the agent about to attach the construct's /plan and /implement carriers to this repository. The one thing attach cannot know is the harness command the ladder verifies every change with. Read the repository, propose one command, and let the owner answer yes or no. How the repository names its branches and writes its commits is read from its history, never asked. Write nothing, install nothing, commit nothing while you do.
 
 ## Where the tree stands
 
@@ -8,6 +8,7 @@ You are the agent about to attach the construct's /plan and /implement carriers 
 - The current branch, and its upstream through `@{upstream}`.
 - Ahead and behind as last fetched: `git rev-list --left-right --count HEAD...@{upstream}`. The first number is what this branch has and the upstream lacks, the second is the reverse.
 - The age of that reading is the modification time of `.git/FETCH_HEAD`; say when it is older than a day, or absent.
+- A branch with no upstream, or no `FETCH_HEAD`, is an absence: give the command that showed it and what it returned, as An absence is a finding says.
 - Fetch only when the owner says yes: git fetch rewrites the remote-tracking refs. Run no fetch otherwise.
 
 ## What an earlier construct left
@@ -23,6 +24,16 @@ Look for `.construct/`, `.claude/`, `.cursor/`, `scripts/construct/` and `constr
 Every absence you report needs the same proof as something you found: a suite CI does not run, a script, setting or hook nothing uses, a step left out because nothing checks its output or a secret is missing, no hooks at all. Search until you reach the place where the value decides: the CI step that runs the command, the call that reads the setting and acts on it. A file that declares the value, or the loader that reads it in, is not that place: declared or converted is not used. Write the search command and what it returned beside the absence, never the bare word. A search that stopped before that place is reported as `not determined`, with where it stopped.
 
 Example: `grep -rn pytest .github/workflows` returning nothing does not prove that CI skips pytest. Follow what the steps run: `grep -rn 'run:' .github/workflows` → `ci.yml:31: run: make check`, then `grep -n -A3 '^check:' Makefile` → `ruff check .` and no pytest. Those two searches and their output stand beside `not run by CI`.
+
+## The conventions in the history
+
+Each convention is an observation with its share, not a law: give the count, the total it is out of, and the command that counted it, as `41 of 50 remote branches (82%) are feature/<ticket>-<slug>, counted by git for-each-ref refs/remotes/origin`. Read only what is already here: the branches are the remote-tracking refs as last fetched, and the same fetch rule holds.
+
+Branches: list them with `git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/<remote>` for the remote the upstream lives on, leaving out `HEAD`. Group them by the prefix before the first `/` (a type such as `feature/` or `fix/`, a person's name, or none), the separator between words, and whether a ticket key such as `ABC-123` or `#123` stands in the name, and where.
+
+Commits: read the subjects on the default branch, the one `git symbolic-ref refs/remotes/<remote>/HEAD` names, with `git log --no-merges --format=%s -n 200 <default branch>`. Count the subjects in the conventional form `type(scope): subject` against the free ones, name the language they are written in, give the median and the longest subject length, and say whether a ticket key stands in the subject and where.
+
+With fewer than 20 branches or 20 commits to count, say the history is too small to name a convention, and give the count. When no form holds at least 60% of what was counted, say there is no convention, and give each form with its share. There is no convention is an absence: it carries the command and the distribution it returned, as An absence is a finding says.
 
 ## What CI runs
 
@@ -62,7 +73,7 @@ Say at once, before any install:
 - what is on `PATH`: `python3 --version`, and whether `python3.X` resolves;
 - the command that makes the project's own manager use that interpreter: `poetry env use python3.X`, `uv python install 3.X` or `pyenv install 3.X`.
 
-Name the interpreter as `python3.X`. Where it is missing, that is the Homebrew formula `python@3.X` on macOS, and a distribution package or pyenv on Linux. Install nothing: name the command and leave it to the owner.
+Name the interpreter as `python3.X`. Where it is missing, that is the Homebrew formula `python@3.X` on macOS, and a distribution package or pyenv on Linux. Install nothing: name the command and leave it to the owner. An interpreter that does not resolve, or a lock entry with no wheel for it, is an absence: give the command and what it returned, as An absence is a finding says.
 
 Native dependencies come from the lock, not from a list of package names kept here. A package whose lock entry carries no wheel matching the named interpreter and this platform, only a source distribution, builds from source: read `files` in `poetry.lock`, and `sdist` and `wheels` in `uv.lock`. What that build needs is taken from the package's own installation documentation, cited by link, never from memory. Also compare architectures: `uname -m` against `file "$(command -v pg_config)"`, or against the build tool that documentation names. A build tool of the other architecture on `PATH`, such as an x86_64 `pg_config` from `/usr/local` feeding an arm64 build, fails the install on the machine, not on the project.
 
