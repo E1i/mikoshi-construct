@@ -4,6 +4,12 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.38.0
+
+### Minor Changes
+
+- [#483](https://github.com/E1i/mikoshi-construct/pull/483) [`235f3bb`](https://github.com/E1i/mikoshi-construct/commit/235f3bbe8f9d26913e4d7dcb2b4d1a745d5c07fc) Thanks [@E1i](https://github.com/E1i)! - templates: `/implement` opens its report with `contract:`, `expect:`, `action:` and `result:`, in that order, each carried from the build's handle, the Workflow run and `.construct/runs.jsonl`; a value no record holds reads `<what> not recorded <where>`, and `expect:` says `expect not recorded in .construct/runs.jsonl` instead of a forecast of the agent's own
+
 ## 0.37.0
 
 ### Minor Changes
