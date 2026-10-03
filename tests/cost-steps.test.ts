@@ -9,7 +9,7 @@ const CLAUDE_CODE_ENV = { CLAUDECODE: '1' }
 interface AgentFixture {
   label: string
   type: string
-  phase: string
+  phase?: string
   start: string
   end: string
   usages: Array<{ requestId: string, input: number, cacheWrite: number, cacheRead: number, output: number }>
@@ -80,26 +80,29 @@ function fixture(): { projects: string, cwd: string, run: string } {
 describe('construct cost: a run decomposed into its steps', () => {
   it('splits a run into one step per agent in start order, with role, attempt, effort, tokens and seconds', () => {
     const { projects } = fixture()
-    expect(new ClaudeCodeCostSource(projects).steps('wf_steps')).toEqual([
-      { step: 'preflight', role: 'harness', attempt: 1, effort: null, tokens: 1055, seconds: 40 },
-      { step: 'implement', role: 'implementer', attempt: 1, effort: 'low', tokens: 2310, seconds: 120 },
-      { step: 'verify', role: 'harness', attempt: 1, effort: null, tokens: 723, seconds: 30 },
-      { step: 'implement', role: 'implementer', attempt: 2, effort: 'medium', tokens: 4920, seconds: 300 },
-      { step: 'verify', role: 'harness', attempt: 2, effort: null, tokens: 834, seconds: 60 },
-    ])
+    expect(new ClaudeCodeCostSource(projects).steps('wf_steps')).toEqual({
+      steps: [
+        { step: 'preflight', role: 'harness', attempt: 1, effort: null, tokens: 1055, seconds: 40 },
+        { step: 'implement', role: 'implementer', attempt: 1, effort: 'low', tokens: 2310, seconds: 120 },
+        { step: 'verify', role: 'harness', attempt: 1, effort: null, tokens: 723, seconds: 30 },
+        { step: 'implement', role: 'implementer', attempt: 2, effort: 'medium', tokens: 4920, seconds: 300 },
+        { step: 'verify', role: 'harness', attempt: 2, effort: null, tokens: 834, seconds: 60 },
+      ],
+      unread: [],
+    })
   })
 
   it('counts a request written twice under one requestId once', () => {
     const { projects, run } = fixture()
     const twice = readFileSync(path.join(run, 'agent-2.jsonl'), 'utf8').split('\n').filter(line => line.includes('req_i1'))[0]
     appendFileSync(path.join(run, 'agent-2.jsonl'), `${twice}\n`)
-    expect(new ClaudeCodeCostSource(projects).steps('wf_steps')![1].tokens).toBe(2310)
+    expect(new ClaudeCodeCostSource(projects).steps('wf_steps')!.steps[1].tokens).toBe(2310)
   })
 
   it('finds the run under another project key, as the ledger join does', () => {
     const projects = mkdtempSync(path.join(tmpdir(), 'construct-steps-projects-'))
     recordRun(projects, '/Users/someone/projects/mc-worktree', 'wf_elsewhere', ESCALATED_RUN.slice(0, 1))
-    expect(new ClaudeCodeCostSource(projects).steps('wf_elsewhere')).toHaveLength(1)
+    expect(new ClaudeCodeCostSource(projects).steps('wf_elsewhere')?.steps).toHaveLength(1)
     expect(new ClaudeCodeCostSource(projects).steps('wf_absent')).toBeNull()
   })
 
@@ -158,6 +161,71 @@ describe('construct cost: a run decomposed into its steps', () => {
     const { projects, cwd } = fixture()
     const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(billable(report.runs![0].total)).toBe(167_842)
+  })
+})
+
+describe('construct cost: a run whose directory is not exactly one', () => {
+  it('has no decomposition and caches nothing when no directory holds the run', () => {
+    const { projects, cwd } = fixture()
+    expect(new ClaudeCodeCostSource(projects).steps('wf_absent')).toBeNull()
+    expect(recordedSteps(cwd, ['wf_absent'], new ClaudeCodeCostSource(projects)).runs.has('wf_absent')).toBe(false)
+    expect(existsSync(path.join(cwd, STEP_CACHE_FILE))).toBe(false)
+  })
+
+  it('has no decomposition and caches nothing when two project keys each hold a directory of the run', () => {
+    const { projects, cwd } = fixture()
+    recordRun(projects, '/Users/someone/projects/mc-worktree', 'wf_steps', ESCALATED_RUN.slice(0, 1))
+    expect(new ClaudeCodeCostSource(projects).steps('wf_steps')).toBeNull()
+    expect(recordedSteps(cwd, ['wf_steps'], new ClaudeCodeCostSource(projects)).runs.has('wf_steps')).toBe(false)
+    expect(existsSync(path.join(cwd, STEP_CACHE_FILE))).toBe(false)
+  })
+})
+
+describe('construct cost: an agent whose step is not one of STEPS', () => {
+  const WITHOUT_PHASE: AgentFixture = { label: 'a stray agent', type: 'implementer', start: '2026-09-30T10:10:20.000Z', end: '2026-09-30T10:10:30.000Z', usages: [{ requestId: 'req_s', input: 1, cacheWrite: 1, cacheRead: 1, output: 1 }] }
+  const OFF_LIST_PHASE: AgentFixture = { ...WITHOUT_PHASE, label: 'a review', type: 'review', phase: 'Review' }
+
+  function runWith(agent: AgentFixture): { projects: string, cwd: string } {
+    const projects = mkdtempSync(path.join(tmpdir(), 'construct-steps-projects-'))
+    const cwd = workspace()
+    recordRun(projects, cwd, 'wf_stray', [...ESCALATED_RUN, agent])
+    writeLedger(cwd, ['wf_stray'])
+    return { projects, cwd }
+  }
+
+  function cachedStepNames(cwd: string): string[] {
+    const file = path.join(cwd, STEP_CACHE_FILE)
+    if (!existsSync(file))
+      return []
+    return readFileSync(file, 'utf8').split('\n').filter(line => line.trim() !== '').flatMap(line => (JSON.parse(line) as { steps: Array<{ step: string }> }).steps.map(step => step.step))
+  }
+
+  it('writes no step outside STEPS and no line for the run when an agent has no workflow phase', () => {
+    const { projects, cwd } = runWith(WITHOUT_PHASE)
+    costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    expect(cachedStepNames(cwd).filter(step => !(STEPS as readonly string[]).includes(step))).toEqual([])
+    expect(readStepCache(cwd).runs.has('wf_stray')).toBe(false)
+  })
+
+  it('names the agent without a phase as unread, with its run and the reason', () => {
+    const { projects, cwd } = runWith(WITHOUT_PHASE)
+    const cache = recordedSteps(cwd, ['wf_stray'], new ClaudeCodeCostSource(projects))
+    expect(cache.runs.has('wf_stray')).toBe(false)
+    expect(cache.unread).toEqual([{ run: 'wf_stray', agent: 'a stray agent', reason: 'no workflow phase' }])
+  })
+
+  it('takes no step from the agent type, even when the type is spelled like a step', () => {
+    const { projects, cwd } = runWith({ ...WITHOUT_PHASE, label: 'a verify agent', type: 'verify' })
+    const cache = recordedSteps(cwd, ['wf_stray'], new ClaudeCodeCostSource(projects))
+    expect(cache.unread).toEqual([{ run: 'wf_stray', agent: 'a verify agent', reason: 'no workflow phase' }])
+    expect(cache.runs.has('wf_stray')).toBe(false)
+  })
+
+  it('names an agent whose phase is not one of STEPS as unread and caches nothing for its run', () => {
+    const { projects, cwd } = runWith(OFF_LIST_PHASE)
+    const cache = recordedSteps(cwd, ['wf_stray'], new ClaudeCodeCostSource(projects))
+    expect(cache.unread).toEqual([{ run: 'wf_stray', agent: 'a review', reason: 'phase review is not a step' }])
+    expect(existsSync(path.join(cwd, STEP_CACHE_FILE))).toBe(false)
   })
 })
 

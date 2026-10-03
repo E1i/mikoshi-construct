@@ -1,5 +1,5 @@
 import type { CostReading, CostSource, Runtime } from './source.js'
-import type { RunStep, StepAgent } from './steps.js'
+import type { RunDecomposition, StepAgent } from './steps.js'
 import type { Usage, WorkflowRun } from './usage.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -196,8 +196,8 @@ export class ClaudeCodeCostSource implements CostSource {
     return { status: 'empty', runs: [], key, candidates: [] }
   }
 
-  steps(run: string): RunStep[] | null {
+  steps(run: string): RunDecomposition | null {
     const dirs = runDirsNamed(run, this.projectsDir)
-    return dirs.length === 1 ? stepsOf(agentsIn(dirs[0])) : null
+    return dirs.length === 1 ? stepsOf(run, agentsIn(dirs[0])) : null
   }
 }
