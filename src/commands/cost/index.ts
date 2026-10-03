@@ -5,7 +5,7 @@ import { VERSION } from '../../version.js'
 import { ClaudeCodeCostSource } from './claude-code.js'
 import { hasLedgerFindings, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
 import { resolveRuntime } from './runtime.js'
-import { readStepCache, recordRunSteps } from './step-cache.js'
+import { knownRunSteps, readStepCache, recordRunSteps } from './step-cache.js'
 import { readTurnJournal } from './turns.js'
 
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey } from './claude-code.js'
@@ -25,6 +25,10 @@ export type { AgentUsage, Usage, WorkflowRun } from './usage.js'
 
 export function recordedSteps(cwd: string, runs: string[], source: CostSource | null): StepCache {
   return source != null && source.readable() ? recordRunSteps(cwd, runs, run => source.steps(run)) : readStepCache(cwd)
+}
+
+export function knownSteps(cwd: string, runs: string[], source: CostSource | null): StepCache {
+  return source != null && source.readable() ? knownRunSteps(cwd, runs, run => source.steps(run)) : readStepCache(cwd)
 }
 
 export function costReport(cwd: string, options: { projectsDir?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): CostReport {

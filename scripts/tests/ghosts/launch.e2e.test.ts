@@ -25,12 +25,12 @@ afterEach(() => {
     world('clean', createdWorlds.pop()!)
 })
 
-function launch(worldDir: string, answer: string): { status: number | null } {
+function launch(worldDir: string, answer: string, env: NodeJS.ProcessEnv = {}): { status: number | null } {
   const bin = path.join(worldDir, 'bin')
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(worldDir, 'tasks.json')], {
     input: `${answer}\n`,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...env },
   })
   writeFileSync(path.join(worldDir, 'launch.out'), `${result.stdout}${result.stderr}`)
   return { status: result.status }
@@ -245,6 +245,14 @@ describe('ghosts launch, end to end through the stub', () => {
   it.each(['expect', 'expect-none', 'expect-steps'])('ends each task line with its forecast before the yes confirmation (%s)', (kind) => {
     const w = world('new', kind)
     const { status } = launch(w, 'no')
+    expect(status).not.toBe(0)
+    world('check-decision', w)
+    world('check-untouched', w)
+  })
+
+  it('reads the steps of runs the step cache lacks from their transcripts and writes no step cache before the yes confirmation (expect-uncached)', () => {
+    const w = world('new', 'expect-uncached')
+    const { status } = launch(w, 'no', { HOME: path.join(w, 'home') })
     expect(status).not.toBe(0)
     world('check-decision', w)
     world('check-untouched', w)

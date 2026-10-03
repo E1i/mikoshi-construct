@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -13,6 +13,7 @@ EXPECT_NONE_LINE='expect: none — n=3 for effort low'
 EXPECT_MALFORMED_LINE='expect: tokens ≈ lots — effort medium, n=61, median'
 EXPECT_MISPLACED_LINE='expect: none — written below the blank line'
 EXPECT_STEPS_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5 — n=5; design none — n=3 for medium/design; implement tokens ≈ 100k, minutes ≈ 5 — n=5; verify tokens ≈ 20k, minutes ≈ 1 — n=5'
+EXPECT_UNCACHED_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5 — n=5; design none — n=0 for medium/design; implement tokens ≈ 100k, minutes ≈ 5 — n=5; verify tokens ≈ 20k, minutes ≈ 1 — n=5'
 CLEAN_SKETCH_REASON='world fixture'
 FAILING_EXIT=3
 
@@ -68,7 +69,7 @@ sketch_line_for() {
 expect_lines_for() {
   [ "$2" = g2 ] || return 0
   case $(cat "$1/.world/kind") in
-    expect | expect-steps) printf '\n%s' "$EXPECT_FORECAST_LINE" ;;
+    expect | expect-steps | expect-uncached) printf '\n%s' "$EXPECT_FORECAST_LINE" ;;
     expect-none) printf '\n%s' "$EXPECT_NONE_LINE" ;;
     expect-malformed) printf '\n%s' "$EXPECT_MALFORMED_LINE" ;;
     expect-misplaced) printf '\n\n%s' "$EXPECT_MISPLACED_LINE" ;;
@@ -107,6 +108,24 @@ write_step_sample() {
   done
   printf '%s\n' '{"v":1,"run":"run-old","steps":[]}' >>"$W/main/.construct/steps.jsonl"
   cp "$W/main/.construct/steps.jsonl" "$W/.world/steps.jsonl"
+}
+
+write_transcript_agent() {
+  local dir=$1 index=$2 type=$3 phase=$4 label=$5 cache_write=$6 output=$7 start=$8 end=$9
+  printf '{"type":"user","timestamp":"2026-09-26T%s.000Z","message":{"role":"user","content":"the prompt"}}\n{"type":"assistant","requestId":"req_%s","timestamp":"2026-09-26T%s.000Z","message":{"role":"assistant","model":"sonnet","usage":{"input_tokens":0,"cache_creation_input_tokens":%s,"cache_read_input_tokens":0,"output_tokens":%s}}}\n' "$start" "$index" "$end" "$cache_write" "$output" >"$dir/agent-$index.jsonl"
+  printf '{"description":"%s","agentType":"%s","workflowPhase":"%s"}\n' "$label" "$type" "$phase" >"$dir/agent-$index.meta.json"
+}
+
+write_transcript_sample() {
+  local W=$1 n dir
+  for n in 1 2 3 4 5; do
+    printf '{"run":"wf_u%s","at":"2026-09-26T1%s:00:00.000Z","task":"an uncached run","effort":"medium","status":"done","rung":"medium","attempts":[{"rung":1,"effort":"medium","outcome":"done","reason":""}],"agents":3,"tokens":150000,"toolUses":9,"seconds":430}\n' "$n" "$n" >>"$W/main/.construct/runs.jsonl"
+    dir="$W/home/.claude/projects/-world-main/session-1/subagents/workflows/wf_u$n"
+    mkdir -p "$dir"
+    write_transcript_agent "$dir" 1 harness Preflight preflight 29000 1000 10:00:00 10:00:30
+    write_transcript_agent "$dir" 2 implementer Implement 'implement 1/1 @ medium' 99000 1000 10:01:00 10:06:00
+    write_transcript_agent "$dir" 3 harness Verify 'verify 1/1' 19000 1000 10:06:10 10:07:10
+  done
 }
 
 insert_header_implement_line() {
@@ -345,6 +364,7 @@ new_world() {
     trailing-newline) printf '\n\n\n' >>"$W/handoff/brief-g2.md" ;;
     two-implement) insert_header_implement_line "$W" g2 ;;
     expect-steps) printf '\n\nEffort: medium — the world samples five medium runs' >>"$W/handoff/brief-g2.md" && write_approval "$W" g2 && write_step_sample "$W" ;;
+    expect-uncached) printf '\n\nEffort: medium — the world samples five medium runs' >>"$W/handoff/brief-g2.md" && write_approval "$W" g2 && write_transcript_sample "$W" ;;
     journal-exists) printf '%s\n' '{"event":"review","task":"g0","verdict":"changes","ts":"2026-09-27T20:00:00.000Z"}' >"$W/handoff/ghosts.jsonl" && cp "$W/handoff/ghosts.jsonl" "$W/.world/ghosts.jsonl" ;;
   esac
   echo "$kind" >"$W/.world/kind"
@@ -396,6 +416,7 @@ expected_expect_description() {
   case "$(cat "$1/.world/kind"):$2" in
     expect:g2) echo "expect ${EXPECT_FORECAST_LINE#expect: }" ;;
     expect-steps:g2) echo "expect ${EXPECT_FORECAST_LINE#expect: }; $EXPECT_STEPS_DESCRIPTION" ;;
+    expect-uncached:g2) echo "expect ${EXPECT_FORECAST_LINE#expect: }; $EXPECT_UNCACHED_DESCRIPTION" ;;
     expect-none:g2) echo "expect ${EXPECT_NONE_LINE#expect: }" ;;
     *) echo 'expect not recorded in the brief' ;;
   esac
@@ -444,6 +465,7 @@ check_untouched() {
   cmp -s "$W/.world/status.md" "$W/handoff/status.md" || fail "status.md differs from the original"
   [ -z "$(ls -A "$W/stub")" ] || fail "the stub ran: $(ls -A "$W/stub" | tr '\n' ' ')"
   [ -z "$(cd "$W/handoff" && ls ghost-*.jsonl 2>/dev/null || true)" ] || fail "a ghost-*.jsonl exists in $W/handoff"
+  [ "$(cat "$W/.world/kind")" != expect-uncached ] || [ ! -e "$W/main/.construct/steps.jsonl" ] || fail "the step cache was written before the yes confirmation"
   [ ! -f "$W/.world/steps.jsonl" ] || cmp -s "$W/.world/steps.jsonl" "$W/main/.construct/steps.jsonl" || fail "the step cache differs from the one the world wrote"
 }
 

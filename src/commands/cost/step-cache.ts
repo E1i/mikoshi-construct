@@ -56,21 +56,38 @@ function stepRecord(step: RunStep): RunStep {
   return { step: step.step, role: step.role, attempt: step.attempt, effort: step.effort, tokens: step.tokens, seconds: step.seconds }
 }
 
-export function recordRunSteps(root: string, runs: string[], decompose: (run: string) => RunStep[] | null): StepCache {
-  const cache = readStepCache(root)
-  const lines: string[] = []
+type Decompose = (run: string) => RunStep[] | null
+
+function missingRunSteps(cache: StepCache, runs: string[], decompose: Decompose): Array<[string, RunStep[]]> {
+  const missing: Array<[string, RunStep[]]> = []
   for (const run of new Set(runs)) {
     if (cache.runs.has(run))
       continue
     const steps = decompose(run)
-    if (steps == null)
-      continue
-    cache.runs.set(run, steps)
-    lines.push(JSON.stringify({ v: STEP_CACHE_VERSION, run, steps: steps.map(stepRecord) }))
+    if (steps != null)
+      missing.push([run, steps])
   }
+  return missing
+}
+
+function withRunSteps(cache: StepCache, missing: Array<[string, RunStep[]]>): StepCache {
+  for (const [run, steps] of missing)
+    cache.runs.set(run, steps)
+  return cache
+}
+
+export function knownRunSteps(root: string, runs: string[], decompose: Decompose): StepCache {
+  const cache = readStepCache(root)
+  return withRunSteps(cache, missingRunSteps(cache, runs, decompose))
+}
+
+export function recordRunSteps(root: string, runs: string[], decompose: Decompose): StepCache {
+  const cache = readStepCache(root)
+  const missing = missingRunSteps(cache, runs, decompose)
+  const lines = missing.map(([run, steps]) => JSON.stringify({ v: STEP_CACHE_VERSION, run, steps: steps.map(stepRecord) }))
   if (lines.length > 0) {
     mkdirSync(path.dirname(path.join(root, STEP_CACHE_FILE)), { recursive: true })
     appendFileSync(path.join(root, STEP_CACHE_FILE), `${lines.join('\n')}\n`)
   }
-  return cache
+  return withRunSteps(cache, missing)
 }

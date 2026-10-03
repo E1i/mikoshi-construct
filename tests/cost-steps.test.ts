@@ -1,8 +1,8 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { billable, ClaudeCodeCostSource, costReport, projectKey, readStepCache, recordedSteps, STEP_CACHE_FILE } from '../src/commands/cost/index.js'
+import { billable, ClaudeCodeCostSource, costReport, knownSteps, projectKey, readStepCache, recordedSteps, STEP_CACHE_FILE } from '../src/commands/cost/index.js'
 
 const CLAUDE_CODE_ENV = { CLAUDECODE: '1' }
 
@@ -121,6 +121,12 @@ describe('construct cost: a run decomposed into its steps', () => {
     costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(readFileSync(path.join(cwd, STEP_CACHE_FILE), 'utf8')).toBe(before)
     expect(recordedSteps(cwd, ['wf_steps'], new ClaudeCodeCostSource(projects)).runs.get('wf_steps')).toHaveLength(5)
+  })
+
+  it('reads the steps of a run the cache lacks without writing the cache', () => {
+    const { projects, cwd } = fixture()
+    expect(knownSteps(cwd, ['wf_steps'], new ClaudeCodeCostSource(projects)).runs.get('wf_steps')).toHaveLength(5)
+    expect(existsSync(path.join(cwd, STEP_CACHE_FILE))).toBe(false)
   })
 
   it('stores only counts, times and the role of each step — no message content', () => {

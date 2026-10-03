@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { ClaudeCodeCostSource, recordedSteps, STEPS } from '../../src/commands/cost/index.js'
+import { ClaudeCodeCostSource, knownSteps, STEPS } from '../../src/commands/cost/index.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 
@@ -161,7 +161,7 @@ export function ledgerRuns(ledgers: { lines: string[] }[]): string[] {
 }
 
 export function stepsOfRepository(root: string, runs: string[], warnings: string[]): Map<string, RunStep[]> {
-  const cache = recordedSteps(root, runs, new ClaudeCodeCostSource())
+  const cache = knownSteps(root, runs, new ClaudeCodeCostSource())
   for (const line of cache.malformed)
     warnings.push(`step cache line ${line} is malformed; skipped`)
   return cache.runs
