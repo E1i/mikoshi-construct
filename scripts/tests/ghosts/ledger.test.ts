@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ghosts/ledger.js'
+import { carryLedgerLines, countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ghosts/ledger.js'
 
 function runsPath(): { dir: string, runs: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-ledger-'))
@@ -71,5 +71,46 @@ describe('readLadderOutcome', () => {
     const { runs } = runsPath()
     writeFileSync(runs, `${row({ run: 'run-old' })}\n${text}\n`)
     expect(readLadderOutcome(runs, 1)).toEqual({ status: `${MALFORMED_LEDGER_LINE}: ${reason}`, run: null, iterations: null, actual: null })
+  })
+})
+
+describe('carryLedgerLines', () => {
+  function pair(): { from: string, into: string } {
+    const { dir } = runsPath()
+    return { from: path.join(dir, 'tree.jsonl'), into: path.join(dir, 'main', 'runs.jsonl') }
+  }
+
+  it('appends only the lines whose run the main ledger lacks, in the tree\'s order', () => {
+    const { from, into } = pair()
+    mkdirSync(path.dirname(into))
+    writeFileSync(into, `${row({ run: 'b' })}\n`)
+    writeFileSync(from, `${row({ run: 'a' })}\n${row({ run: 'b', task: 'restated' })}\n${row({ run: 'c' })}\n`)
+    expect(carryLedgerLines(from, into)).toBe(2)
+    expect(readFileSync(into, 'utf8')).toBe(`${row({ run: 'b' })}\n${row({ run: 'a' })}\n${row({ run: 'c' })}\n`)
+  })
+
+  it('keys a line without a run on its full text', () => {
+    const { from, into } = pair()
+    mkdirSync(path.dirname(into))
+    writeFileSync(into, `${row({ run: null })}\n`)
+    writeFileSync(from, `${row({ run: null })}\n${row({ run: null, task: 'other' })}\n${row({ run: null, task: 'other' })}\n`)
+    expect(carryLedgerLines(from, into)).toBe(1)
+    expect(readFileSync(into, 'utf8')).toBe(`${row({ run: null })}\n${row({ run: null, task: 'other' })}\n`)
+  })
+
+  it('creates the main ledger, and ends an unterminated last line before appending', () => {
+    const { from, into } = pair()
+    writeFileSync(from, `${row({ run: 'a' })}\n`)
+    expect(carryLedgerLines(from, into)).toBe(1)
+    writeFileSync(into, row({ run: 'a' }))
+    writeFileSync(from, `${row({ run: 'z' })}\n`)
+    expect(carryLedgerLines(from, into)).toBe(1)
+    expect(readFileSync(into, 'utf8')).toBe(`${row({ run: 'a' })}\n${row({ run: 'z' })}\n`)
+  })
+
+  it('carries nothing from an absent tree ledger', () => {
+    const { from, into } = pair()
+    expect(carryLedgerLines(from, into)).toBe(0)
+    expect(existsSync(into)).toBe(false)
   })
 })
