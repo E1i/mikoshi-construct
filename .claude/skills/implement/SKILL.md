@@ -184,8 +184,18 @@ repository's CLAUDE.md and `construct.json`.
    it is written here, not by the script. Nothing enforces this step: the ledger is L0, and
    `construct cost` reconciles it against the runtime instead of trusting it. `.construct/` is
    gitignored, or excluded through `.git/info/exclude` in an attached repository.
-5. Relay the result: status, the effort rung that succeeded and how many attempts it took, the
-   files changed, and the harness tail. A `done` result carries `argsSha256` and `agreedSha256`; put
+5. Relay the result. It opens with four lines, each value carried from the source named below:
+   `contract:`, `expect:`, `action:` and `result:`, in this order.
+   - `contract:` — from the handle the build printed in step 2: `task`, `effort`, the number of
+     `acceptance` items and `immutable`.
+   - `expect:` — the forecast the repository records for this run. No record holds one, so the line
+     is `expect not recorded in .construct/runs.jsonl`, never an estimate of your own.
+   - `action:` — the Workflow run identifier from step 3, then each entry of the result's `attempts`
+     in order, its `effort` and `outcome`.
+   - `result:` — the `status` step 4 wrote to `.construct/runs.jsonl`, verbatim.
+   Never compose, estimate or round a value: a value its source does not hold is written
+   `<what> not recorded <where>`, naming the place that holds no record, and no line is left empty.
+   Below the four lines come the files changed and the harness tail. A `done` result carries `argsSha256` and `agreedSha256`; put
    `agreedSha256` next to the approved hash when there is one. Put the result's `acceptance` — the items the ladder received,
    echoed verbatim — next to the agreed line, and name any agreed item missing from it. When the status is `blocked`, put the architect's or
    implementer's question to the user verbatim. When `failed` or `base red`, give the last failure excerpt. When
