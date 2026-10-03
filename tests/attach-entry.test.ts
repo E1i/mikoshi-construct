@@ -89,6 +89,9 @@ function section(heading: string): string {
 }
 
 const SECTIONS_THAT_REPORT_AN_ABSENCE: Record<string, string> = {
+  'Where the tree stands': 'no upstream',
+  'The conventions in the history': 'no convention',
+  'What the toolchain needs': 'does not resolve',
   'What the repository can run': 'no hooks',
   'The test surface': 'not run by CI',
   'The proposal': 'left out',
@@ -122,6 +125,39 @@ describe('the attach entry protocol proves an absence like a finding', () => {
     expect(proposal).toContain('Propose exactly one command, in one form.')
     expect(proposal).toContain('It carries no `:fix` script, no `--fix` and no `--write`')
     expect(proposal).toContain('Do not run it to find out whether it passes.')
+  })
+})
+
+describe('the attach entry protocol reads the conventions from the history', () => {
+  const HISTORY = 'The conventions in the history'
+
+  it('derives the branch convention from the remote branches as last fetched, by prefix, separator and ticket key', () => {
+    const body = section(HISTORY)
+    expect(body).toContain('git for-each-ref --format=\'%(refname:lstrip=3)\' refs/remotes/<remote>')
+    expect(body).toMatch(/the remote-tracking refs as last fetched, and the same fetch rule holds/)
+    for (const form of ['the prefix before the first `/`', 'the separator between words', 'a ticket key'])
+      expect(body).toContain(form)
+    expect(PROTOCOL).toContain('How the repository names its branches and writes its commits is read from its history, never asked.')
+  })
+
+  it('derives the commit style from the subjects on the default branch: form, language, length and ticket key', () => {
+    const body = section(HISTORY)
+    expect(body).toContain('git log --no-merges --format=%s -n 200 <default branch>')
+    for (const measure of ['the conventional form `type(scope): subject` against the free ones', 'the language', 'the median and the longest subject length', 'a ticket key stands in the subject'])
+      expect(body).toContain(measure)
+  })
+
+  it('states a convention as an observed share with its count, total and command, never as a rule', () => {
+    const body = section(HISTORY)
+    expect(body).toContain('Each convention is an observation with its share, not a law')
+    expect(body).toContain('give the count, the total it is out of, and the command that counted it')
+    expect(body).toMatch(/`\d+ of \d+ remote branches \(\d+%\) are [^`]+, counted by git [^`]+`/)
+  })
+
+  it('says so when the history is too small or no form holds more than half', () => {
+    const body = section(HISTORY)
+    expect(body).toContain('With fewer than 20 branches or 20 commits to count, say the history is too small to name a convention, and give the count.')
+    expect(body).toContain('When no form holds more than half of what was counted, say there is no convention, and give each form with its share.')
   })
 })
 
