@@ -185,7 +185,7 @@ mkdir -p "$dir"
 printf '%s\0' "$@" >"$dir/argv"
 pwd -P >"$dir/cwd"
 printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" >"$dir/ceiling"
-cp "$W/handoff/status.md" "$dir/status-at-start"
+cat <"$W/handoff/status.md" >"$dir/status-at-start"
 if [ -f "$PWD/.ghost-installed" ]; then echo yes; else echo no; fi >"$dir/installed-at-start"
 if [ -f "$PWD/.construct/implement-agreed.txt" ]; then cp "$PWD/.construct/implement-agreed.txt" "$dir/agreed-at-start"; fi
 : >"$dir/stdout"
