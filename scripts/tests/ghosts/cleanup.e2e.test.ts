@@ -129,6 +129,13 @@ function ledgerRuns(file: string): string[] {
   return readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => (JSON.parse(line) as { run: string }).run)
 }
 
+const STEPS_A = { v: 1, run: 'wf_a', steps: [{ step: 'implement', role: 'implementer', attempt: 1, effort: 'low', tokens: 10, seconds: 60 }] }
+const STEPS_B = { ...STEPS_A, run: 'wf_b' }
+
+function mainStepCache(w: World): string {
+  return path.join(w.repo, '.construct', 'steps.jsonl')
+}
+
 function logsLeft(w: World): string[] {
   return readdirSync(w.logs).sort()
 }
@@ -252,5 +259,40 @@ describe('ghosts:cleanup carries a tree\'s ledger lines into the main ledger bef
     expect(ledgerRuns(mainLedger(w))).toEqual(['wf_a', 'wf_b'])
     expect(existsSync(w.worktree)).toBe(true)
     expect(logsLeft(w)).toEqual(ALL_LOGS)
+  })
+})
+
+describe('ghosts:cleanup carries a tree\'s step cache lines into the main step cache before it removes the tree', () => {
+  it('s1: a tree with two step cache lines, one already in the main cache, leaves both in the main cache once, in order, and the tree removed', () => {
+    const w = newWorld('MERGED')
+    writeLedger(mainStepCache(w), [STEPS_A])
+    writeLedger(path.join(w.worktree, '.construct', 'steps.jsonl'), [STEPS_A, STEPS_B])
+    const out = cleanup(w)
+    expect(ledgerRuns(mainStepCache(w))).toEqual(['wf_a', 'wf_b'])
+    expect(existsSync(w.worktree)).toBe(false)
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; 0 ledger lines carried into ${mainLedger(w)}; 1 step cache lines carried into ${mainStepCache(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+  })
+
+  it('s2: keeps the tree and names the reason when the main step cache cannot be written', () => {
+    const w = newWorld('MERGED')
+    writeLedger(mainStepCache(w), [STEPS_A])
+    chmodSync(mainStepCache(w), 0o444)
+    writeLedger(path.join(w.worktree, '.construct', 'steps.jsonl'), [STEPS_B])
+    const out = cleanup(w)
+    expect(existsSync(path.join(w.worktree, '.construct', 'steps.jsonl'))).toBe(true)
+    expect(logsLeft(w)).toEqual(ALL_LOGS)
+    expect(out).toContain(`[ghosts:cleanup] ghost-g1 kept: PR #7 merged, but its step cache lines could not be carried into ${mainStepCache(w)}: EACCES`)
+    expect(ledgerRuns(mainStepCache(w))).toEqual(['wf_a'])
+  })
+
+  it('s3: --ledger-only carries the step cache lines of a tree whose PR is still open and removes nothing', () => {
+    const w = newWorld('OPEN')
+    writeLedger(path.join(w.worktree, '.construct', 'runs.jsonl'), [RUN_A])
+    writeLedger(path.join(w.worktree, '.construct', 'steps.jsonl'), [STEPS_A, STEPS_B])
+    const result = runRaw(w, CLEANUP, ['--logs', w.logs, '--ledger-only'])
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toBe(`[ghosts:cleanup] ghost-g1 ledger: 1 lines carried into ${mainLedger(w)}; 2 step cache lines carried into ${mainStepCache(w)}; worktree kept\n`)
+    expect(ledgerRuns(mainStepCache(w))).toEqual(['wf_a', 'wf_b'])
+    expect(existsSync(w.worktree)).toBe(true)
   })
 })

@@ -1414,6 +1414,18 @@ A line that does not parse, or that is missing a declared field, is reported as 
 line number rather than skipped: a ledger that quietly drops what it cannot read is worse than no
 ledger.
 
+### Steps of a run
+
+`construct cost` also splits every run the ledger names into its steps, one per agent of the run in
+start order: the step (`preflight`, `design`, `implement` or `verify`, from the agent's workflow
+phase), its role (the agent type), the attempt (the second `implement` of a run is attempt 2), the
+effort its label names after `@`, its tokens (input, cache-write and output, each request counted once
+by `requestId`; cache reads are left out) and its seconds (first record to last). Claude Code clears
+old session files, so the split of each run is appended to `.construct/steps.jsonl` the first time it
+is read, and every later read takes that line instead of the transcript; a line is never rewritten.
+The cache holds those counts and nothing of a prompt or a response. The text and `--json` reports do
+not print it; `ghosts:expect-sample --effort` reads it for its forecast by step.
+
 ### Reconciliation
 
 Where the runtime exposes session data, `cost` joins ledger entries to runtime runs on `run` and

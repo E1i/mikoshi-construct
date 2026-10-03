@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatExpect, parseExpect } from '../../ghosts/expect.js'
+import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from '../../ghosts/expect.js'
 
 const SHA = '0123456789abcdef0123456789abcdef01234567'
 const DASH = String.fromCharCode(8212)
@@ -65,5 +65,31 @@ describe('formatExpect', () => {
 
   it('renders a dash when the brief has no expect: line', () => {
     expect(formatExpect(null)).toBe(`expect ${DASH}`)
+  })
+})
+
+describe('briefEffort', () => {
+  it('takes the first word on the Effort: line', () => {
+    expect(briefEffort(`${HEAD}\n\nEffort: medium ${DASH} reason`)).toBe('medium')
+    expect(briefEffort(`${HEAD}\n\nEffort: high.`)).toBe('high')
+  })
+
+  it('returns null without an Effort: line or when only a newline follows it', () => {
+    expect(briefEffort(HEAD)).toBeNull()
+    expect(briefEffort(`${HEAD}\nEffort:\nmedium`)).toBeNull()
+  })
+})
+
+describe('formatStepBreakdown', () => {
+  const steps = [{ kind: 'forecast', step: 'implement', effort: 'medium', tokens: 100_000, minutes: 5, n: 5 } as const]
+
+  it('is empty for no steps', () => {
+    expect(formatStepBreakdown([])).toBe('')
+  })
+
+  it('is what formatExpect appends to the overall text', () => {
+    const expected = { kind: 'none', reason: 'why' } as const
+    expect(formatExpect(expected, steps)).toBe(`${formatExpect(expected)}${formatStepBreakdown(steps)}`)
+    expect(formatStepBreakdown(steps)).toMatch(/^; by step \(effort medium, median\): implement /)
   })
 })

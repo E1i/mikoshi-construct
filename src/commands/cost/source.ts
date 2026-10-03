@@ -1,4 +1,5 @@
 import type { LedgerSummary, Reconciliation } from './ledger.js'
+import type { RunStep } from './steps.js'
 import type { TurnSummary } from './turns.js'
 import type { WorkflowRun } from './usage.js'
 
@@ -19,6 +20,7 @@ export interface CostSource {
   runtime: Runtime
   readable: () => boolean
   read: (cwd: string, ledgerRuns: string[]) => CostReading
+  steps: (run: string) => RunStep[] | null
 }
 
 export interface CostReport {

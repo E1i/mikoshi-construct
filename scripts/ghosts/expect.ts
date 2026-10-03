@@ -1,4 +1,5 @@
-import { formatTokens } from './expect-sample.js'
+import type { StepExpect } from './expect-sample.js'
+import { formatStepExpect, formatTokens } from './expect-sample.js'
 
 export type Expect
   = | { kind: 'forecast', tokens: number, minutes: number, basis: { effort: Effort, n: number } }
@@ -12,6 +13,7 @@ const LOOKS_LIKE_EXPECT = /^\s*expect:/i
 const MINIMUM_SAMPLE = 5
 const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median$/
 const NONE_AND_REASON = /^none — (\S.*)$/
+const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m
 const TOKEN_SCALE: Record<string, number> = { '': 1, 'k': 1_000, 'M': 1_000_000 }
 
 export function parseExpect(implementText: string): Expect | null {
@@ -47,12 +49,26 @@ export function parseExpect(implementText: string): Expect | null {
   throw malformed(line)
 }
 
-export function formatExpect(expected: Expect | null): string {
+export function briefEffort(implementText: string): string | null {
+  return EFFORT_LINE.exec(implementText)?.[1] ?? null
+}
+
+function formatOverall(expected: Expect | null): string {
   if (expected === null)
     return 'expect —'
   if (expected.kind === 'none')
     return `expect none — ${expected.reason}`
   return `expect tokens ≈ ${formatTokens(expected.tokens)}, minutes ≈ ${expected.minutes} — effort ${expected.basis.effort}, n=${expected.basis.n}, median`
+}
+
+export function formatStepBreakdown(steps: readonly StepExpect[]): string {
+  if (steps.length === 0)
+    return ''
+  return `; by step (effort ${steps[0].effort}, median): ${steps.map(formatStepExpect).join('; ')}`
+}
+
+export function formatExpect(expected: Expect | null, steps: readonly StepExpect[] = []): string {
+  return `${formatOverall(expected)}${formatStepBreakdown(steps)}`
 }
 
 function malformed(line: string): Error {

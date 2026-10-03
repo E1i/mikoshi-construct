@@ -45,11 +45,21 @@ function ledgerKey(line: string): string {
   return typeof entry !== 'string' && entry.run !== null ? `run ${entry.run}` : `line ${line}`
 }
 
-export function carryLedgerLines(fromPath: string, intoPath: string): number {
-  const present = new Set(ledgerLines(intoPath).map(ledgerKey))
+function stepCacheKey(line: string): string {
+  try {
+    const run = (JSON.parse(line) as { run?: unknown }).run
+    return typeof run === 'string' ? `run ${run}` : `line ${line}`
+  }
+  catch {
+    return `line ${line}`
+  }
+}
+
+function carryLines(fromPath: string, intoPath: string, keyOf: (line: string) => string): number {
+  const present = new Set(ledgerLines(intoPath).map(keyOf))
   const missing: string[] = []
   for (const line of ledgerLines(fromPath)) {
-    const key = ledgerKey(line)
+    const key = keyOf(line)
     if (present.has(key))
       continue
     present.add(key)
@@ -62,4 +72,12 @@ export function carryLedgerLines(fromPath: string, intoPath: string): number {
   mkdirSync(path.dirname(intoPath), { recursive: true })
   appendFileSync(intoPath, `${separator}${missing.map(line => `${line}\n`).join('')}`)
   return missing.length
+}
+
+export function carryLedgerLines(fromPath: string, intoPath: string): number {
+  return carryLines(fromPath, intoPath, ledgerKey)
+}
+
+export function carryStepCacheLines(fromPath: string, intoPath: string): number {
+  return carryLines(fromPath, intoPath, stepCacheKey)
 }

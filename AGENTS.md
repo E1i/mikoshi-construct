@@ -109,7 +109,7 @@ here. Before proposing an architecture, answer the questions and name the catego
   clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
   picks `stderrWriter` over `stdoutWriter` so a `--json` run keeps stdout machine-readable.
 
-  Three roots write, and each writes somewhere different. `runInit` in `src/commands/init.ts`
+  Four roots write, and each writes somewhere different. `runInit` in `src/commands/init.ts`
   ([init.yaml](architecture/composition/init.yaml)) is the only path that materializes a tree, through
   `applyPlan`, `writeManifest` and `writeModel`. `applySync` in `src/commands/sync/index.ts`
   ([sync.yaml](architecture/composition/sync.yaml)) writes only the paths the construct owns and records
@@ -117,11 +117,13 @@ here. Before proposing an architecture, answer the questions and name the catego
   `src/commands/graph.ts` ([graph.yaml](architecture/composition/graph.yaml)) writes one HTML file at
   the path `--out` names, outside the repository it read.
 
+  `costReport` in `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads
+  the session files and the ladder record, and writes one file: it appends to `.construct/steps.jsonl`
+  the step split of each run the ledger names and the cache does not hold yet, never rewriting a line.
+
   The rest only read. `runDoctor` in `src/commands/doctor/index.ts`
   ([doctor.yaml](architecture/composition/doctor.yaml)) reads `construct.json` and
-  `construct.model.json` and writes nothing, including the manifest it just normalised. `costReport` in
-  `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads the session files
-  and the ladder record. `soulkill` is a `detect` call followed by a print.
+  `construct.model.json` and writes nothing, including the manifest it just normalised. `soulkill` is a `detect` call followed by a print.
 
   Adding a command: define it in `src/program.ts`; put the logic in `src/commands/<name>.ts`, or
   `<name>/index.ts` once it needs more than one file, as `run<Name>(...)` plus `print<Name>(ui, ...)`
