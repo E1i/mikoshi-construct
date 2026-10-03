@@ -33,7 +33,7 @@ Branches: list them with `git for-each-ref --format='%(refname:lstrip=3)' refs/r
 
 Commits: read the subjects on the default branch, the one `git symbolic-ref refs/remotes/<remote>/HEAD` names, with `git log --no-merges --format=%s -n 200 <default branch>`. Count the subjects in the conventional form `type(scope): subject` against the free ones, name the language they are written in, give the median and the longest subject length, and say whether a ticket key stands in the subject and where.
 
-With fewer than 20 branches or 20 commits to count, say the history is too small to name a convention, and give the count. When no form holds more than half of what was counted, say there is no convention, and give each form with its share. There is no convention is an absence: it carries the command and the distribution it returned, as An absence is a finding says.
+With fewer than 20 branches or 20 commits to count, say the history is too small to name a convention, and give the count. When no form holds at least 60% of what was counted, say there is no convention, and give each form with its share. There is no convention is an absence: it carries the command and the distribution it returned, as An absence is a finding says.
 
 ## What CI runs
 

@@ -154,10 +154,10 @@ describe('the attach entry protocol reads the conventions from the history', () 
     expect(body).toMatch(/`\d+ of \d+ remote branches \(\d+%\) are [^`]+, counted by git [^`]+`/)
   })
 
-  it('says so when the history is too small or no form holds more than half', () => {
+  it('says so when the history is too small or no form holds at least 60%', () => {
     const body = section(HISTORY)
     expect(body).toContain('With fewer than 20 branches or 20 commits to count, say the history is too small to name a convention, and give the count.')
-    expect(body).toContain('When no form holds more than half of what was counted, say there is no convention, and give each form with its share.')
+    expect(body).toContain('When no form holds at least 60% of what was counted, say there is no convention, and give each form with its share.')
   })
 })
 
