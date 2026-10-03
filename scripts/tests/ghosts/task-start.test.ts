@@ -8,6 +8,7 @@ import { runTaskStart } from '../../ghosts/task-start.js'
 
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')
+const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 
 function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
   return `#${id} task-${id} [${bracket}] · depends — · blocks —`
@@ -43,10 +44,13 @@ function newWorld(): World {
   return { root, repo, handoff, journal: path.join(handoff, 'ghosts.jsonl') }
 }
 
-function depsOf(world: World, session: string | null = SESSION): TaskStartDeps {
+function depsOf(world: World, session: string | null = SESSION, installs: [string, string[]][] = []): TaskStartDeps {
   return {
     cwd: world.repo,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
+    install: (cwd, args) => {
+      installs.push([cwd, args])
+    },
     exists: existsSync,
     append: (file, text) => {
       mkdirSync(path.dirname(file), { recursive: true })
@@ -122,6 +126,35 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     const world = newWorld()
     expect(runTaskStart(['feat/x', '--card'], depsOf(world)).stderr[0]).toMatch(/^\[task:start\] usage:/)
     expect(runTaskStart(['--card', card(5)], depsOf(world)).stderr[0]).toMatch(/^\[task:start\] usage:/)
+  })
+})
+
+describe('w3: task:start installs the dependencies in the new tree', () => {
+  it('w3: runs pnpm install --frozen-lockfile --prefer-offline once, in the cut tree, before the start line', () => {
+    const world = newWorld()
+    const installs: [string, string[]][] = []
+    const result = runTaskStart(['feat/i1', '--card', card(31)], depsOf(world, SESSION, installs))
+    expect(result.exitCode).toBe(0)
+    expect(installs).toEqual([[path.join(world.root, 'mc-31'), INSTALL_ARGS]])
+    expect(lines(world)).toHaveLength(1)
+  })
+
+  it('w3: a failed install refuses with its first line, writes no start line, and removes the tree and the branch so a retry starts clean', () => {
+    const world = newWorld()
+    const deps: TaskStartDeps = {
+      ...depsOf(world),
+      install: () => {
+        throw new Error('ERR_PNPM_NO_OFFLINE_TARBALL picocolors\nmore')
+      },
+    }
+    const worktree = path.join(world.root, 'mc-32')
+    const result = runTaskStart(['feat/i2', '--card', card(32)], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] pnpm install --frozen-lockfile --prefer-offline failed in ${worktree}: ERR_PNPM_NO_OFFLINE_TARBALL picocolors; the tree and branch feat/i2 were removed; nothing written`])
+    expect(existsSync(world.journal)).toBe(false)
+    expect(existsSync(worktree)).toBe(false)
+    expect(git(world.repo, ['branch', '--list', 'feat/i2']).trim()).toBe('')
+    expect(runTaskStart(['feat/i2', '--card', card(32)], depsOf(world)).exitCode).toBe(0)
   })
 })
 
