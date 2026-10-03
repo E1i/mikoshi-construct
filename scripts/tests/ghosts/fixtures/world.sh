@@ -379,6 +379,20 @@ expected_sketch_description() {
   fi
 }
 
+expected_expect_description() {
+  case "$(cat "$1/.world/kind"):$2" in
+    expect:g2) echo "expect ${EXPECT_FORECAST_LINE#expect: }" ;;
+    expect-none:g2) echo "expect ${EXPECT_NONE_LINE#expect: }" ;;
+    *) echo 'expect —' ;;
+  esac
+}
+
+task_line_ends_with() {
+  local line
+  line=$(grep -F -- "  $2: /implement" "$1/launch.out" | head -n 1)
+  [[ $line == *", $3" ]] || fail "the task line of $2 does not end with ', $3': '$line'"
+}
+
 check_decision() {
   local W=$1 sha id
   [ -f "$W/launch.out" ] || fail "no $W/launch.out"
@@ -392,6 +406,7 @@ check_decision() {
     output_has "$W" "$(approved_sha "$W/handoff/brief-$id.approved-sha256" | cut -c1-7)"
     output_has "$W" "$W/handoff/ghost-$id.jsonl"
     output_has "$W" "@ ${sha:0:7} $(expected_sketch_description "$W" "$id"), report $W/handoff/ghost-$id.jsonl"
+    task_line_ends_with "$W" "$id" "$(expected_expect_description "$W" "$id")"
   done
 }
 

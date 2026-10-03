@@ -1,3 +1,5 @@
+import { formatTokens } from './expect-sample.js'
+
 export type Expect
   = | { kind: 'forecast', tokens: number, minutes: number, basis: { effort: Effort, n: number } }
     | { kind: 'none', reason: string }
@@ -43,6 +45,14 @@ export function parseExpect(implementText: string): Expect | null {
     return { kind: 'none', reason: none[1] }
 
   throw malformed(line)
+}
+
+export function formatExpect(expected: Expect | null): string {
+  if (expected === null)
+    return 'expect —'
+  if (expected.kind === 'none')
+    return `expect none — ${expected.reason}`
+  return `expect tokens ≈ ${formatTokens(expected.tokens)}, minutes ≈ ${expected.minutes} — effort ${expected.basis.effort}, n=${expected.basis.n}, median`
 }
 
 function malformed(line: string): Error {

@@ -13,7 +13,7 @@ import { createInterface } from 'node:readline'
 import { writeAgreedText } from './agreed.js'
 import { checkApproval } from './approval.js'
 import { tiedArgsSha256 } from './args-chain.js'
-import { parseExpect } from './expect.js'
+import { formatExpect, parseExpect } from './expect.js'
 import { runInstall } from './install.js'
 import { appendJournalLine } from './journal.js'
 import { countLedgerLines, readLadderOutcome } from './ledger.js'
@@ -191,7 +191,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
 }
 
 function describeTask(task: PreparedTask, baseSha: string): string {
-  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedSha256.slice(0, 7)}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`
+  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedSha256.slice(0, 7)}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}, ${formatExpect(task.expected)}`
 }
 
 function errorMessage(error: unknown): string {
