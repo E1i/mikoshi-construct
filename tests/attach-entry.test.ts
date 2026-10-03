@@ -140,6 +140,16 @@ describe('the attach entry protocol reads the conventions from the history', () 
     expect(PROTOCOL).toContain('How the repository names its branches and writes its commits is read from its history, never asked.')
   })
 
+  it('leaves the remote HEAD out of the branches it counts', () => {
+    expect(section(HISTORY)).toContain('git for-each-ref --format=\'%(refname:lstrip=3)\' refs/remotes/<remote>` for the remote the upstream lives on, leaving out `HEAD`.')
+  })
+
+  it('takes the default branch from the remote HEAD, never from a fixed name', () => {
+    const body = section(HISTORY)
+    expect(body).toContain('read the subjects on the default branch, the one `git symbolic-ref refs/remotes/<remote>/HEAD` names, with `git log')
+    expect(body).not.toMatch(/git log [^`]*\b(?:main|master)\b/)
+  })
+
   it('derives the commit style from the subjects on the default branch: form, language, length and ticket key', () => {
     const body = section(HISTORY)
     expect(body).toContain('git log --no-merges --format=%s -n 200 <default branch>')
