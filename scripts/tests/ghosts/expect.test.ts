@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseExpect } from '../../ghosts/expect.js'
+import { formatExpect, parseExpect } from '../../ghosts/expect.js'
 
 const SHA = '0123456789abcdef0123456789abcdef01234567'
 const DASH = String.fromCharCode(8212)
@@ -51,5 +51,19 @@ describe('parseExpect', () => {
     expect(() => parseExpect(`/implement x\n${forecastLine(61)}`)).toThrow('line 2 is')
     expect(() => parseExpect(`${HEAD}\n\n\n  EXPECT: none ${DASH} late`)).toThrow('line 5 is')
     expect(() => parseExpect(`${HEAD}\n${forecastLine(61)}\n${forecastLine(61)}`)).toThrow('line 4 is')
+  })
+})
+
+describe('formatExpect', () => {
+  it('renders a forecast in the form of the brief, tokens through formatTokens', () => {
+    expect(formatExpect({ kind: 'forecast', tokens: 166_000, minutes: 7.8, basis: { effort: 'medium', n: 61 } })).toBe(`expect tokens ${APPROX} 166k, minutes ${APPROX} 7.8 ${DASH} effort medium, n=61, median`)
+  })
+
+  it('renders none with its reason', () => {
+    expect(formatExpect({ kind: 'none', reason: 'n=3 for effort low' })).toBe(`expect none ${DASH} n=3 for effort low`)
+  })
+
+  it('renders a dash when the brief has no expect: line', () => {
+    expect(formatExpect(null)).toBe(`expect ${DASH}`)
   })
 })

@@ -242,6 +242,14 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
   })
 
+  it.each(['expect', 'expect-none'])('ends each task line with its forecast before the yes confirmation (%s)', (kind) => {
+    const w = world('new', kind)
+    const { status } = launch(w, 'no')
+    expect(status).not.toBe(0)
+    world('check-decision', w)
+    world('check-untouched', w)
+  })
+
   it('journals expect: none of g2 with its reason beside the ladder\'s actual, as a valid line and not a refusal', () => {
     const w = world('new', 'expect-none')
     const { status } = launch(w, 'yes')
