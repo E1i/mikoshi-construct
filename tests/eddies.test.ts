@@ -4,6 +4,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readd
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CONTINUE_PROMPT } from '../scripts/shift/continuation.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/eddies.mjs')
 const SESSION = 'sess-eddies'
@@ -102,6 +103,10 @@ function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number):
 }
 
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
+
+function continueLine(s: Scratch): string {
+  return `eddies: to continue in a new window — cd '${s.root}' && claude '${CONTINUE_PROMPT}'\n`
+}
 const WARN_FIELDS = ['v', 'event', 'level', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'warn_ratio', 'at']
 const STOP_FIELDS = ['event', 'level', 'reason', 'tool', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'at']
 
@@ -231,12 +236,22 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     const second = hook(high, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
     const low = scratch(LIMITS, [{ input: 105000 }])
 
-    expect(first).toMatchObject({ status: 0, stdout: `eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n` })
+    expect(first).toMatchObject({ status: 0, stdout: `eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n${continueLine(high)}` })
     expect(second).toMatchObject({ status: 0, stdout: '' })
     expect(lines(high)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'session-context', spent: 127500, limit: 150000, warn_ratio: 0.8 })])
     expect(Object.keys(lines(high)[0])).toEqual(WARN_FIELDS)
     expect(hook(low, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })).toMatchObject({ status: 0, stdout: '' })
     expect(lines(low)).toEqual([])
+  })
+
+  it('gives the window a ready continuation command — cd into the tree, then claude with the continuation prompt — on a session warn, and an agent none', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    agentFile(s, 'a1', [{ input: 1300000 }])
+    const agent = call(s, 'Read', { file_path: '/x' }, { agent_id: 'a1', agent_type: 'general-purpose' })
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout.split('\n').at(-2)).toBe(continueLine(s).trimEnd())
+    expect(contextOf(agent)).not.toContain('to continue in a new window')
   })
 
   it('puts the warn into the context of an agent past 80% of agentSpend on its next call, once, as PreToolUse additionalContext (W10)', () => {
@@ -270,7 +285,7 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     const second = call(s, 'Bash', { command: 'ls' })
 
     expect(first.status).toBe(0)
-    expect(contextOf(first)).toBe(`eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n`)
+    expect(contextOf(first)).toBe(`eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n${continueLine(s)}`)
     expect(second).toMatchObject({ status: 0, stdout: '' })
     expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).stdout).toBe('')
     expect(lines(s)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'session-context', session_id: SESSION, agent_id: null })])
@@ -284,7 +299,7 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     const warn = `eddies: session-context warn — context 127500 / warn threshold 120000 (limit 150000, contextLimit in .claude/eddies.json); ${WARN_ACTION}\n`
 
     expect(contextOf(agent)).toBe(warn)
-    expect(window).toMatchObject({ status: 0, stdout: warn })
+    expect(window).toMatchObject({ status: 0, stdout: `${warn}${continueLine(s)}` })
     expect(call(s, 'Read', { file_path: '/x' }).stdout).toBe('')
     expect(call(s, 'Bash', { command: 'claude -p y' }, { agent_id: 'a1', agent_type: 'general-purpose' }).stdout).toBe('')
     expect(lines(s).map(line => [line.event, line.level, line.agent_id])).toEqual([['budget-warn', 'session-context', 'a1'], ['budget-warn', 'session-context', null]])

@@ -1,7 +1,8 @@
 # Shift task {{task}}
 
 You run unattended in a headless session started by `pnpm shift`. Nobody answers questions until the
-shift is over; where a decision is the owner's, stop, write it into the report and exit.
+shift is over; where a decision is the owner's, stop, write it into the report as a
+`question: <what the owner decides>` line and exit.
 
 - Your tree is `{{worktree}}`, already cut on branch `{{branch}}` from `origin/main`. Work only there.
   Do not run `git pull`, do not cut another branch or worktree.

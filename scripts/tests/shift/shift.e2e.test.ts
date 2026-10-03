@@ -8,6 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readBudgetLines } from '../../board/eddies.js'
 import { runClaude } from '../../shift/claude.js'
+import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { runReport } from '../../shift/report.js'
 import { runShift } from '../../shift/shift.js'
 
@@ -65,8 +66,12 @@ function cardOf(id: string, kind: 'implement' | 'probe' = 'implement'): string {
   return `#${id} task-${id} [${kind}/runner/S/cheap/${kind === 'probe' ? 'none' : 'auto'}] · depends — · blocks —`
 }
 
-function taskFile(world: World, file: string, id: string, touches: string, body: string, kind: 'implement' | 'probe' = 'implement'): void {
-  writeFileSync(path.join(world.shift, file), `card: ${cardOf(id, kind)}\nbranch: feat/${id}\ntouches: ${touches}\n\n${body}\n`)
+function taskFile(world: World, file: string, id: string, touches: string, body: string, kind: 'implement' | 'probe' = 'implement', extraHeader = ''): void {
+  writeFileSync(path.join(world.shift, file), `card: ${cardOf(id, kind)}\nbranch: feat/${id}\ntouches: ${touches}\n${extraHeader}\n${body}\n`)
+}
+
+function continuingTask(world: World, file: string, id: string, body: string, mode: 'auto' | 'stop' = 'auto'): void {
+  taskFile(world, file, id, `scripts/${id}/**`, body, 'implement', `continue: ${mode}\n`)
 }
 
 function ghOf(openPrs: OpenPrFixture[], allPrs: unknown[] = []): (args: string[]) => string {
@@ -78,7 +83,7 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
   let uuids = 0
   return {
     cwd: world.repo,
-    claude: `STUB_OUT=${world.stubOut} sh ${STUB}`,
+    claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
@@ -107,7 +112,16 @@ function jsonl(file: string): Record<string, unknown>[] {
   return readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
-function stubSaw(world: World, id: string, what: 'cwd' | 'session' | 'flags' | 'prompt'): string {
+function stubRuns(world: World, id: string): number {
+  const file = path.join(world.stubOut, `mc-${id}.runs`)
+  return existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) : 0
+}
+
+function reportDeps(world: World, io: Captured): ReportDeps {
+  return { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: worktree => readBudgetLines(worktree), out: line => io.out.push(line), err: line => io.err.push(line) }
+}
+
+function stubSaw(world: World, id: string, what: 'cwd' | 'session' | 'flags' | 'prompt' | `${'session' | 'prompt'}.${number}`): string {
   return readFileSync(path.join(world.stubOut, `mc-${id}.${what}`), 'utf8').trim()
 }
 
@@ -191,12 +205,12 @@ describe('w3: shift:report builds the table from the shift', () => {
       'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
       'EXPECT   | expect not recorded in shift.jsonl',
       `ACTION   | claude session ${stubSaw(world, '1', 'session')} on feat/1, 2m 02s`,
-      'RESULT   | exit 1 · no PR · not closed · eddies stop session-context 250000/250000 · report: no report',
+      'RESULT   | exit 1 · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop session-context 250000/250000 · report: no report',
       expect.stringMatching(/^-{4} 02\.md #2 task-2 \[implement\/runner\/S\/cheap\/auto\] -+$/),
       'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
       'EXPECT   | expect not recorded in shift.jsonl',
       `ACTION   | claude session ${stubSaw(world, '2', 'session')} on feat/2, 2m 02s`,
-      'RESULT   | exit 0 · PR #436 · not closed · eddies stop — · report: did mc-2',
+      'RESULT   | exit 0 · PR #436 · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-2',
     ])
   })
 })
@@ -306,8 +320,8 @@ describe('w6: a session that exits 0 without writing its report is not a success
     expect(io.out).toContain('[shift] 02.md 2: exit 0')
     const report = captured()
     runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
-    expect(report.out[4]).toBe('RESULT   | exit 0, no report · no PR · not closed · eddies stop — · report: no report')
-    expect(report.out[9]).toBe('RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-2')
+    expect(report.out[4]).toBe('RESULT   | exit 0, no report · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: no report')
+    expect(report.out[9]).toBe('RESULT   | exit 0 · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-2')
   })
 })
 
@@ -324,9 +338,9 @@ describe('w8: shift:report shows whether each task was closed with task:close', 
     const report = captured()
     expect(runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })).toBe(0)
     expect(report.out.filter(row => row.startsWith('RESULT'))).toEqual([
-      'RESULT   | exit 0 · no PR · closed run · eddies stop — · report: did mc-1',
-      'RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-2',
-      'RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-3',
+      'RESULT   | exit 0 · no PR · closed run · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-1',
+      'RESULT   | exit 0 · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-2',
+      'RESULT   | exit 0 · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-3',
     ])
   })
 })
@@ -342,8 +356,8 @@ describe('w7: a probe card closes with a report, not a pull request', () => {
     expect(io.out).toContain('[shift] 02.md 2: exit 0, no report')
     const report = captured()
     runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
-    expect(report.out[4]).toBe('RESULT   | exit 0 · — · not closed · eddies stop — · report: did mc-1')
-    expect(report.out[9]).toBe('RESULT   | exit 0, no report · — · not closed · eddies stop — · report: no report')
+    expect(report.out[4]).toBe('RESULT   | exit 0 · — · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-1')
+    expect(report.out[9]).toBe('RESULT   | exit 0, no report · — · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: no report')
   })
 
   it('w7: the runner passes the card to task:start, and the start line carries it', async () => {
@@ -372,5 +386,78 @@ describe('--help: caffeinate wraps the runner', () => {
     const help = io.out.join('\n').split('\n')
     expect(help).toContain('  caffeinate -dis pnpm shift <dir>')
     expect(help.filter(line => line.includes('SHIFT_CLAUDE=') && line.includes('caffeinate'))).toEqual([])
+  })
+})
+
+describe('w9: continue: auto restarts a session that left on an Eddies warn', () => {
+  it('w9: the session warned and exited, the task is open, so a new headless session runs in the same tree with the header and the continuation prompt', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-WARN here')
+    const io = captured()
+    expect(await runShift([world.shift], shiftDeps(world, io))).toBe(0)
+    expect(stubRuns(world, '1')).toBe(2)
+    expect(stubSaw(world, '1', 'session.2')).not.toBe(stubSaw(world, '1', 'session.1'))
+    const second = stubSaw(world, '1', 'prompt.2')
+    expect(second.startsWith('# Shift task 1')).toBe(true)
+    expect(second).toContain(`Your tree is \`${path.join(world.root, 'mc-1')}\``)
+    expect(second).toContain(`${CONTINUE_PROMPT}: the shift report \`${path.join(world.shift, 'report-01.md')}\``)
+    expect(second).not.toContain('STUB-WARN')
+    const line = jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')
+    expect(line).toMatchObject({ session: stubSaw(world, '1', 'session.1'), continuations: [stubSaw(world, '1', 'session.2')], lastExit: 'ended', exit: 0, report: true })
+    expect(io.out).toContain(`[shift] 01.md 1: eddies warn, restart 1/${MAX_RESTARTS} in ${path.join(world.root, 'mc-1')}`)
+    expect(io.out).toContain('[shift] 01.md 1: exit 0, 1 restart')
+  })
+
+  it.each([
+    ['continue: stop', 'STUB-WARN here', 'stop', 'eddies-warn'],
+    ['an Eddies stop', 'STUB-STOP here', 'auto', 'eddies-stop'],
+    ['a refusal of the eddies guard', 'STUB-REFUSED here', 'auto', 'guard-refusal'],
+    ['a question to the owner', 'STUB-QUESTION here', 'auto', 'owner-question'],
+    ['a task closed with task:close', 'STUB-CLOSE here', 'auto', 'closed'],
+  ] as const)('w9: no restart after %s', async (_, body, mode, reason) => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', body, mode)
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(stubRuns(world, '1')).toBe(1)
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')).toMatchObject({ continuations: [], lastExit: reason })
+  })
+
+  it('w9: a task file without continue: never restarts', async () => {
+    const world = newWorld()
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'STUB-WARN here')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(stubRuns(world, '1')).toBe(1)
+  })
+
+  it('w9: a session that warns every time is restarted at most MAX_RESTARTS times', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-WARN-ALWAYS here')
+    const io = captured()
+    await runShift([world.shift], shiftDeps(world, io))
+    expect(MAX_RESTARTS).toBe(3)
+    expect(stubRuns(world, '1')).toBe(1 + MAX_RESTARTS)
+    const line = jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')!
+    expect(line).toMatchObject({ lastExit: 'eddies-warn' })
+    expect(line.continuations).toHaveLength(MAX_RESTARTS)
+    expect(existsSync(path.join(world.shift, 'log-01.3.txt'))).toBe(true)
+  })
+})
+
+describe('w10: shift:report shows the restarts and why the last session left', () => {
+  it('w10: RESULT carries the restart count and the last exit; a journal without them says not recorded', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-WARN-ALWAYS here')
+    continuingTask(world, '02.md', '2', 'STUB-STOP here')
+    taskFile(world, '03.md', '3', 'scripts/c/**', 'do c')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    appendFileSync(path.join(world.shift, 'shift.jsonl'), `${JSON.stringify({ event: 'task', file: '04.md', number: '04', task: '4', branch: 'feat/4', session: 's4', worktree: path.join(world.root, 'mc-4'), started: 'x', ended: 'x', exit: 0, signal: null, report: true })}\n`)
+    const io = captured()
+    expect(runReport([world.shift], reportDeps(world, io))).toBe(0)
+    expect(io.out.filter(row => row.startsWith('RESULT'))).toEqual([
+      'RESULT   | exit 0 · no PR · not closed · restarts 3/3, last exit eddies warn · eddies stop — · report: did mc-1',
+      'RESULT   | exit 0 · no PR · not closed · restarts 0/3, last exit eddies stop · eddies stop session-context 200000/250000 · report: did mc-2',
+      'RESULT   | exit 0 · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-3',
+      'RESULT   | exit 0 · no PR · not closed · restarts not recorded in shift.jsonl, last exit not recorded in shift.jsonl · eddies stop — · report: no report',
+    ])
   })
 })

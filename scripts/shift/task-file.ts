@@ -1,5 +1,7 @@
 import type { Card } from '../ghosts/card.js'
+import type { ContinueMode } from './continuation.js'
 import { parseCard } from '../ghosts/card.js'
+import { CONTINUE_MODES } from './continuation.js'
 
 export interface ShiftTask {
   file: string
@@ -9,12 +11,15 @@ export interface ShiftTask {
   branch: string
   touches: string[]
   body: string
+  continue: ContinueMode
 }
 
 export type ParsedTaskFile = { kind: 'task', task: ShiftTask } | { kind: 'refused', reason: string }
 
 export const TASK_FILE = /^(\d+)\.md$/
-const KEYS = ['card', 'branch', 'touches'] as const
+const REQUIRED_KEYS = ['card', 'branch', 'touches'] as const
+const KEYS = [...REQUIRED_KEYS, 'continue'] as const
+const DEFAULT_CONTINUE: ContinueMode = 'stop'
 const HEADER_LINE = /^([a-z]+):(.*)$/
 export const PREFIX_SUFFIX = '/**'
 
@@ -54,9 +59,12 @@ export function parseTaskFile(file: string, text: string): ParsedTaskFile {
       return refused(file, `header key '${key}' appears twice`)
     header.set(key, value.trim())
   }
-  const missing = KEYS.filter(key => (header.get(key) ?? '') === '')
+  const missing = REQUIRED_KEYS.filter(key => (header.get(key) ?? '') === '')
   if (missing.length > 0)
     return refused(file, `header is missing ${missing.join(', ')}`)
+  const continueMode = header.get('continue') ?? DEFAULT_CONTINUE
+  if (!(CONTINUE_MODES as readonly string[]).includes(continueMode))
+    return refused(file, `continue '${continueMode}' is not one of ${CONTINUE_MODES.join(', ')}`)
   const card = parseCard(header.get('card')!)
   if (card.kind === 'refused')
     return refused(file, `card refused: ${card.reason}`)
@@ -67,5 +75,5 @@ export function parseTaskFile(file: string, text: string): ParsedTaskFile {
   const body = blank === -1 ? '' : lines.slice(blank + 1).join('\n').trim()
   if (body === '')
     return refused(file, 'the prompt body after the first blank line is empty')
-  return { kind: 'task', task: { file, number, id: String(card.card.id), card: card.card, branch: header.get('branch')!, touches, body } }
+  return { kind: 'task', task: { file, number, id: String(card.card.id), card: card.card, branch: header.get('branch')!, touches, body, continue: continueMode as ContinueMode } }
 }
