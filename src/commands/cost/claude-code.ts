@@ -1,12 +1,15 @@
 import type { CostReading, CostSource, Runtime } from './source.js'
+import type { RunStep } from './steps.js'
 import type { Usage, WorkflowRun } from './usage.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { stepsOf } from './steps.js'
 import { add, emptyUsage } from './usage.js'
 
 interface SessionLine {
   requestId?: string
+  timestamp?: string
   message?: {
     role?: string
     model?: string
@@ -27,9 +30,22 @@ export function claudeProjectsDir(): string {
   return path.join(homedir(), '.claude', 'projects')
 }
 
-function readUsage(file: string): Usage {
+interface AgentRecord {
+  usage: Usage
+  first: string | null
+  last: string | null
+}
+
+interface AgentMeta {
+  description?: string
+  agentType?: string
+  workflowPhase?: string
+}
+
+function readAgentRecord(file: string): AgentRecord {
   const totals = emptyUsage()
   const counted = new Set<string>()
+  const stamps: string[] = []
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     if (!line.startsWith('{'))
       continue
@@ -40,6 +56,8 @@ function readUsage(file: string): Usage {
     catch {
       continue
     }
+    if (typeof entry.timestamp === 'string')
+      stamps.push(entry.timestamp)
     const message = entry.message
     if (message?.role !== 'assistant' || message.usage == null)
       continue
@@ -56,7 +74,8 @@ function readUsage(file: string): Usage {
     if (message.model != null && !totals.models.includes(message.model))
       totals.models.push(message.model)
   }
-  return totals
+  const ordered = stamps.sort((a, b) => Date.parse(a) - Date.parse(b))
+  return { usage: totals, first: ordered[0] ?? null, last: ordered.at(-1) ?? null }
 }
 
 function directories(parent: string): string[] {
@@ -73,18 +92,29 @@ function collectRuns(sessionDir: string): WorkflowRun[] {
   return directories(workflowsDir(sessionDir)).map(dir => runOf(sessionDir, dir))
 }
 
-function runOf(sessionDir: string, dir: string): WorkflowRun {
-  const agents = readdirSync(dir)
+function agentsIn(dir: string): Array<AgentRecord & { label: string, type: string, phase: string | null }> {
+  return readdirSync(dir)
     .filter(file => file.startsWith('agent-') && file.endsWith('.jsonl'))
     .map((file) => {
       const metaPath = path.join(dir, file.replace(/\.jsonl$/, '.meta.json'))
-      const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as { description?: string, agentType?: string } : {}
-      return { label: meta.description ?? path.basename(file), type: meta.agentType ?? '?', usage: readUsage(path.join(dir, file)) }
+      const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as AgentMeta : {}
+      return { label: meta.description ?? path.basename(file), type: meta.agentType ?? '?', phase: meta.workflowPhase ?? null, ...readAgentRecord(path.join(dir, file)) }
     })
+}
+
+function runOf(sessionDir: string, dir: string): WorkflowRun {
+  const agents = agentsIn(dir).map(({ label, type, usage }) => ({ label, type, usage }))
   const total = emptyUsage()
   for (const agent of agents)
     add(total, agent.usage)
   return { session: path.basename(sessionDir), run: path.basename(dir), startedAt: statSync(dir).mtime.toISOString(), agents, total }
+}
+
+function runDirsNamed(run: string, projectsDir: string): string[] {
+  return directories(projectsDir)
+    .flatMap(directories)
+    .map(session => path.join(workflowsDir(session), run))
+    .filter(dir => existsSync(dir))
 }
 
 function byStart(a: WorkflowRun, b: WorkflowRun): number {
@@ -164,5 +194,10 @@ export class ClaudeCodeCostSource implements CostSource {
     if (lookalikes.length > 0)
       return { status: 'unknown', runs: [], key, candidates: lookalikes }
     return { status: 'empty', runs: [], key, candidates: [] }
+  }
+
+  steps(run: string): RunStep[] | null {
+    const dirs = runDirsNamed(run, this.projectsDir)
+    return dirs.length === 1 ? stepsOf(agentsIn(dirs[0])) : null
   }
 }

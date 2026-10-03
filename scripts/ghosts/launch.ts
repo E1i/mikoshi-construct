@@ -1,4 +1,5 @@
 import type { SignalStyle } from '../../src/ui/signal.js'
+import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
 import type { JournalEntry } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
@@ -15,7 +16,8 @@ import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { writeAgreedText } from './agreed.js'
 import { checkApproval } from './approval.js'
 import { tiedArgsSha256 } from './args-chain.js'
-import { formatExpect, parseExpect } from './expect.js'
+import { launchStepExpects } from './expect-sample.js'
+import { briefEffort, formatExpect, parseExpect } from './expect.js'
 import { runInstall } from './install.js'
 import { appendJournalLine } from './journal.js'
 import { countLedgerLines, readLadderOutcome } from './ledger.js'
@@ -31,6 +33,7 @@ interface PreparedTask extends Task {
   approvedSha256: string
   sketch: Sketch
   expected: Expect | null
+  stepsExpected: StepExpect[]
   sessionId: string
   reportPath: string
   stderrPath: string
@@ -183,6 +186,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       approvedSha256: approval.sha256,
       sketch,
       expected,
+      stepsExpected: launchStepExpects(repo, briefEffort(approval.text)),
       sessionId: randomUUID(),
       reportPath,
       stderrPath: path.join(out, `ghost-${task.id}.stderr`),
@@ -199,7 +203,7 @@ function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): 
   const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law not recorded in the brief'
   return renderSignal(`ghosts:launch ${task.id}`, {
     CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved} · ${law}`,
-    EXPECT: task.expected === null ? 'expect not recorded in the brief' : formatExpect(task.expected),
+    EXPECT: task.expected === null ? 'expect not recorded in the brief' : formatExpect(task.expected, task.stepsExpected),
     ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`,
     RESULT: `— not launched; the outcome line ${task.id}: … follows the yes`,
   }, style)

@@ -5,7 +5,7 @@ run `pnpm composition:render`; `pnpm composition:check` fails when the diagram a
 apart.
 
 <!-- composition:cost -->
-`costReport(cwd)` in `src/commands/cost/index.ts` is the composition root. It resolves the runtime first — the environment variables a coding agent sets, and only failing those the `ai` the manifest recorded — then picks the `CostSource` for it. The contract has one implementation: Claude Code, which reads the session files under `~/.claude/projects/<key>` and sums token counts per workflow run through `usage.ts`; any other runtime is `unsupported`, reported rather than guessed at. In parallel the root reads the ladder's own record, `.construct/runs.jsonl`, which `/implement` appends to. Where both sides can be read, `reconcile` joins what the ladder said it did to what the session files show it spent, and the two are reported side by side rather than merged into one number. No message content is read past the token counts, and nothing is written. `COST_EXIT` maps the status to the exit code, so a run that could not be read is a non-zero exit rather than a zero total.
+`costReport(cwd)` in `src/commands/cost/index.ts` is the composition root. It resolves the runtime first — the environment variables a coding agent sets, and only failing those the `ai` the manifest recorded — then picks the `CostSource` for it. The contract has one implementation: Claude Code, which reads the session files under `~/.claude/projects/<key>` and sums token counts per workflow run through `usage.ts`; any other runtime is `unsupported`, reported rather than guessed at. In parallel the root reads the ladder's own record, `.construct/runs.jsonl`, which `/implement` appends to. Where both sides can be read, `reconcile` joins what the ladder said it did to what the session files show it spent, and the two are reported side by side rather than merged into one number. `recordedSteps` splits every run the ledger names into its steps — role, attempt, effort, tokens and seconds of each agent, in start order — and appends a run not cached yet to `.construct/steps.jsonl`; a cached run is read from that line and never rewritten, so the split survives the transcripts. No message content is read past the token counts and the record times, and the step cache is the only file written. `COST_EXIT` maps the status to the exit code, so a run that could not be read is a non-zero exit rather than a zero total.
 
 ```mermaid
 flowchart LR
@@ -21,9 +21,13 @@ flowchart LR
     claude["ClaudeCodeCostSource · ~/.claude/projects/<key> session lines"]
     usage["add / billable / weighted · token arithmetic, no message content"]
     ledger["readLedger → .construct/runs.jsonl · what the ladder recorded about itself"]
+    steps["stepsOf · one step per agent, tokens = input + cache-write + output"]
   end
   subgraph b_join["Join"]
     reconcile["reconcile · ladder entries against the runs the session files hold"]
+  end
+  subgraph b_cache["Cache · append only"]
+    stepCache["recordRunSteps → .construct/steps.jsonl · a cached run is never rewritten"]
   end
   subgraph b_report["Report"]
     print["printCost / costJson · COST_EXIT sets the exit code"]
@@ -37,6 +41,9 @@ flowchart LR
   claude -->|"fan-in"| reconcile
   ledger -->|"fan-in"| reconcile
   reconcile --> print
+  claude -.-> steps
+  ledger -->|"runs it names"| stepCache
+  steps -->|"fan-in"| stepCache
 ```
 <!-- /composition:cost -->
 
