@@ -1,0 +1,1 @@
+export const MILESTONES = ['fixer', 'shredder', 'morse', 'operator', 'ghosts', 'ice', 'netwatch', 'engram', 'eddies', 'daemons', 'black-ice', 'kilroy', 'airlock', 'decks', 'runner', 'construct', 'init', 'infra', 'mega-filter', 'lore', 'ghost-protocol', 'dogfood', 'contract'] as const

@@ -26,7 +26,7 @@ export const USAGE = [
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
   'A task file starts with a header and a blank line, then the prompt:',
-  '  task: <id>',
+  '  card: #<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>',
   '  branch: <branch>',
   '  touches: <path>, <dir>/**',
   '',
@@ -95,8 +95,8 @@ function warnOpenPrs(deps: ShiftDeps, tasks: ShiftTask[]): void {
 async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string): Promise<TaskLine> {
   const session = deps.uuid()
   const started = deps.now().toISOString()
-  const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, branch: task.branch, session, started }
-  const start = runTaskStart([task.id, task.branch], { cwd: deps.cwd, git: deps.git, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir })
+  const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
+  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir })
   if (start.exitCode !== 0 || start.worktree === undefined)
     return { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }
   const worktree = start.worktree

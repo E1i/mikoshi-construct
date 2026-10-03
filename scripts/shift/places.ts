@@ -1,3 +1,4 @@
+import type { Card } from '../ghosts/card.js'
 import path from 'node:path'
 
 export const SHIFT_JOURNAL = 'shift.jsonl'
@@ -20,6 +21,7 @@ export interface TaskLine {
   file: string
   number: string
   task: string
+  card?: Card
   branch: string
   session: string
   worktree: string | null
