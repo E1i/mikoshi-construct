@@ -4,6 +4,14 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.37.0
+
+### Minor Changes
+
+- [#480](https://github.com/E1i/mikoshi-construct/pull/480) [`21f9059`](https://github.com/E1i/mikoshi-construct/commit/21f9059f9f00dd63f4b42a9cb7ef9d8649523004) Thanks [@E1i](https://github.com/E1i)! - cli: `attach` no longer counts a `.construct/` directory as something to attach to: a repository holding nothing but `.construct/`, empty or not, is refused with nothing to attach, as a repository holding only a README already was
+
+- [#482](https://github.com/E1i/mikoshi-construct/pull/482) [`84d86c6`](https://github.com/E1i/mikoshi-construct/commit/84d86c6dc1ea0fc584101afb008ac1341b2c3262) Thanks [@E1i](https://github.com/E1i)! - templates: `attach --entry` has the agent read how the repository names its branches and writes its commits from its history instead of asking: each convention is reported as an observed share with its count and the command that counted it, and a history too small to count, or one where no form holds at least 60%, is said as such, with its search; an absent upstream, `FETCH_HEAD` or interpreter now points to the same rule as every other absence
+
 ## 0.36.0
 
 ### Minor Changes
