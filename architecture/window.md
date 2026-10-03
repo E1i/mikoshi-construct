@@ -27,8 +27,9 @@ It waits for the subagents it started itself, writes their results into the hand
 Ghosts: their state is in the ledger and the journal, and the next session reads it there. Eddies enforces the budget
 half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
 either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and
-records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. The merge half is not
-enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
+records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. A line there names the
+`task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. The merge half is
+not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
 ## Pull requests and branches
 

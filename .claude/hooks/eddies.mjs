@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, hasBeenRead, readTranscript, SPEND_BASIS, spentOf, sumTranscripts } from './eddies-measure.mjs'
@@ -8,6 +9,9 @@ export const EDDIES_JOURNAL_FILE = '.construct/eddies.jsonl'
 
 const CONFIG_FILE = '.claude/eddies.json'
 const WARNED_DIR = '.construct/eddies.d/warned'
+const TASK_CACHE_DIR = '.construct/eddies.d/task'
+const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
+const GHOST_JOURNAL = 'ghosts.jsonl'
 const JOURNAL_VERSION = 1
 const THRESHOLDS = ['contextLimit', 'sessionSpend', 'agentSpend', 'runSpend', 'warnRatio']
 const NEW_WORK_TOOLS = ['Agent', 'Workflow']
@@ -70,9 +74,54 @@ function readConfig(root) {
   return config
 }
 
+function ghostJournalPath() {
+  const dir = process.env[HANDOFF_DIR_VARIABLE]
+  return path.join(dir != null && dir !== '' ? dir : path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
+}
+
+function startedTaskIn(text, session) {
+  let task = null
+  for (const line of text.split('\n')) {
+    const entry = parsedInput(line)
+    if (entry?.event === 'path' && entry.session === session && entry.started !== undefined && plainId(entry.task) != null)
+      task = entry.task
+  }
+  return task
+}
+
+function readCache(file) {
+  try {
+    return parsedInput(readFileSync(file, 'utf8'))
+  }
+  catch {
+    return null
+  }
+}
+
+function taskOf(root, session) {
+  if (session == null)
+    return null
+  try {
+    const journalPath = ghostJournalPath()
+    const size = existsSync(journalPath) ? statSync(journalPath).size : 0
+    const cacheFile = path.join(root, TASK_CACHE_DIR, `${session}.json`)
+    const cached = readCache(cacheFile)
+    if (cached != null && (cached.task != null || cached.size === size))
+      return cached.task
+    const task = size === 0 ? null : startedTaskIn(readFileSync(journalPath, 'utf8'), session)
+    mkdirSync(path.dirname(cacheFile), { recursive: true })
+    writeFileSync(cacheFile, JSON.stringify({ size, task }))
+    return task
+  }
+  catch {
+    return null
+  }
+}
+
 function journal(root, line) {
   mkdirSync(path.join(root, '.construct'), { recursive: true })
-  appendFileSync(path.join(root, EDDIES_JOURNAL_FILE), `${JSON.stringify({ v: JOURNAL_VERSION, ...line, at: new Date().toISOString() })}\n`)
+  const task = taskOf(root, line.session_id ?? null)
+  appendFileSync(path.join(root, EDDIES_JOURNAL_FILE), `${JSON.stringify({ v: JOURNAL_VERSION, ...line, ...(task == null ? {} : { task }), at: new Date().toISOString() })}\n`)
 }
 
 function callerOf(input) {
