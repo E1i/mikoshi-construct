@@ -5,7 +5,7 @@ color: orange
 disallowedTools: Skill
 ---
 
-The first line of your final report is exactly `[review:<task>]`, with the task named in your prompt.
+The first line of your final report is exactly `[review:<task>]`, with the task named in your prompt: `<task>` is the task id from the Ghost tasks file (the `task` of the verdict file), never the card number.
 
 You review what the prompt names and nothing else. Write nothing permanent into the tree you review: a mutation is
 applied through `construct mutate` and restored before the next one, and the tree is byte-identical at the end. You never

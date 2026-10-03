@@ -31,7 +31,7 @@ release path.
 
 Every agent message starts with its role in square brackets, on its own first line: `[miko]` for the
 window's messages to the owner; `[review:<task>]`, `[brief:<task>]` or `[scan:<task>]` for a
-subagent's final report, and every subagent prompt says which. A Ghost's report is to start
+subagent's final report, `<task>` being the tasks-file id, not the card number, and every subagent prompt says which. A Ghost's report is to start
 `[ghost:<task-id>]`, a change to the implement skill that is pending in its own brief. A pull request
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
 and issue bodies.
