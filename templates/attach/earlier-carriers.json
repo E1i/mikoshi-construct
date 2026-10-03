@@ -403,5 +403,15 @@
     "target": ".claude/commands/plan.md",
     "sha256": "f8513b6f31c1984ce612f06b7149c8beb8d45f78bf66697790f4633f3b9da89b",
     "date": "2026-10-02"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "46b80e70901ac7e77112fb2eed15bfba9ddfd2425dc5b4b593034eed19a4d482",
+    "date": "2026-10-03"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "1b8aa701fd9e21ceec762bb50e709cd3a2cda6705c19a96d99840e4aa4b6fdd3",
+    "date": "2026-10-03"
   }
 ]
