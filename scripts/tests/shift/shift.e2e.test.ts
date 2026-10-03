@@ -188,13 +188,13 @@ describe('w3: shift:report builds the table from the shift', () => {
     expect(runReport([world.shift], deps)).toBe(0)
     expect(io.out).toEqual([
       expect.stringMatching(/^-{4} 01\.md #1 task-1 \[implement\/runner\/S\/cheap\/auto\] -+$/),
-      'CONTRACT | implement · cheap · auto · touches not in shift.jsonl · law none recorded',
-      'EXPECT   | expect none — shift.jsonl records no forecast',
+      'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
+      'EXPECT   | expect not recorded in shift.jsonl',
       `ACTION   | claude session ${stubSaw(world, '1', 'session')} on feat/1, 2m 02s`,
       'RESULT   | exit 1 · no PR · not closed · eddies stop session-context 250000/250000 · report: no report',
       expect.stringMatching(/^-{4} 02\.md #2 task-2 \[implement\/runner\/S\/cheap\/auto\] -+$/),
-      'CONTRACT | implement · cheap · auto · touches not in shift.jsonl · law none recorded',
-      'EXPECT   | expect none — shift.jsonl records no forecast',
+      'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
+      'EXPECT   | expect not recorded in shift.jsonl',
       `ACTION   | claude session ${stubSaw(world, '2', 'session')} on feat/2, 2m 02s`,
       'RESULT   | exit 0 · PR #436 · not closed · eddies stop — · report: did mc-2',
     ])
@@ -209,8 +209,8 @@ describe('w8: the shift prints the four fields when it starts a task', () => {
     await runShift([world.shift], shiftDeps(world, io))
     expect(io.out.slice(0, 5)).toEqual([
       expect.stringMatching(/^-{4} shift 01\.md #1 task-1 -+$/),
-      'CONTRACT | implement · cheap · auto · touches scripts/a/**, docs/a.md · law none recorded',
-      'EXPECT   | expect none — a shift task reads no forecast',
+      'CONTRACT | implement · cheap · auto · touches scripts/a/**, docs/a.md · law not recorded in the task file',
+      'EXPECT   | expect not recorded in the task file',
       'ACTION   | task:start feat/1 #1, then a headless claude session in its tree',
       'RESULT   | — running; the outcome line [shift] 01.md 1: … follows',
     ])

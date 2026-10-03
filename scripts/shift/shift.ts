@@ -115,8 +115,8 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
 
 function startBlock(task: ShiftTask, style: SignalStyle): string[] {
   return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
-    CONTRACT: `${cardTerms(task.card)} · touches ${task.touches.join(', ')} · law none recorded`,
-    EXPECT: 'expect none — a shift task reads no forecast',
+    CONTRACT: `${cardTerms(task.card)} · touches ${task.touches.join(', ')} · law not recorded in the task file`,
+    EXPECT: 'expect not recorded in the task file',
     ACTION: `task:start ${task.branch} #${task.id}, then a headless claude session in its tree`,
     RESULT: `— running; the outcome line ${PREFIX}${task.file} ${task.id}: … follows`,
   }, style)

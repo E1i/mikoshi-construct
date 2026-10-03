@@ -196,10 +196,10 @@ const ACCEPTANCE_LINE = /^Acceptance:/m
 
 function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
   const approved = task.approvedSha256.slice(0, 7)
-  const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law none recorded'
+  const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law not recorded in the brief'
   return renderSignal(`ghosts:launch ${task.id}`, {
     CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved} · ${law}`,
-    EXPECT: formatExpect(task.expected),
+    EXPECT: task.expected === null ? 'expect not recorded in the brief' : formatExpect(task.expected),
     ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`,
     RESULT: `— not launched; the outcome line ${task.id}: … follows the yes`,
   }, style)

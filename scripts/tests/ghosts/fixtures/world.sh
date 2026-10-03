@@ -383,7 +383,7 @@ expected_expect_description() {
   case "$(cat "$1/.world/kind"):$2" in
     expect:g2) echo "expect ${EXPECT_FORECAST_LINE#expect: }" ;;
     expect-none:g2) echo "expect ${EXPECT_NONE_LINE#expect: }" ;;
-    *) echo 'expect —' ;;
+    *) echo 'expect not recorded in the brief' ;;
   esac
 }
 

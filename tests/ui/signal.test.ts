@@ -5,7 +5,7 @@ import { renderSignal, SIGNAL_FIELDS, terminalStyle, themePainter, tonePainter }
 import { resolveTheme } from '../../src/ui/theme.js'
 
 const SIGNAL: Signal = {
-  CONTRACT: 'implement · cheap · owner · law none recorded',
+  CONTRACT: 'implement · cheap · owner · law not recorded in the journal',
   EXPECT: 'expect none — n=2 for effort low',
   ACTION: 'task:start signal-blocks #135',
   RESULT: 'start line written to https://example.com/journal',

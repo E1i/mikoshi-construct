@@ -127,8 +127,8 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   const closed = verificationsByTask(deps.read(path.join(deps.handoffDir, 'ghosts.jsonl')))
   for (const line of lines) {
     const block = renderSignal(taskCell(line), {
-      CONTRACT: line.card === undefined ? 'card not in shift.jsonl · law none recorded' : `${cardTerms(line.card)} · touches not in shift.jsonl · law none recorded`,
-      EXPECT: 'expect none — shift.jsonl records no forecast',
+      CONTRACT: line.card === undefined ? 'card not recorded in shift.jsonl · law not recorded in shift.jsonl' : `${cardTerms(line.card)} · touches not recorded in shift.jsonl · law not recorded in shift.jsonl`,
+      EXPECT: 'expect not recorded in shift.jsonl',
       ACTION: `claude session ${line.session} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
       RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · ${closedCell(closed, line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
     }, deps.style ?? PLAIN_STYLE, succeeded(line) ? undefined : 'red')

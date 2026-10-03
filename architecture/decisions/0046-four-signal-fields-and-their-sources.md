@@ -19,21 +19,23 @@ things in the same place.
 
    | Point | CONTRACT | EXPECT | ACTION | RESULT |
    |-------|----------|--------|--------|--------|
-   | `task:start` | the `--card` | none | the branch and the tree it cuts | the start line it wrote |
-   | `shift` (start of a task) | the task file's card and `touches:` | none | the branch and the session it starts | the outcome line that follows |
-   | `shift:report` | the card in `shift.jsonl` | none | the session, branch and duration in `shift.jsonl` | exit, the PR from `gh`, the Eddies stop, the report's `result:` |
+   | `task:start` | the `--card` | not recorded | the branch and the tree it cuts | the start line it wrote |
+   | `shift` (start of a task) | the task file's card and `touches:` | not recorded | the branch and the session it starts | the outcome line that follows |
+   | `shift:report` | the card in `shift.jsonl` | not recorded | the session, branch and duration in `shift.jsonl` | exit, the PR from `gh`, whether `task:close` closed it (`closed <verification>` or `not closed`), the Eddies stop, the report's `result:` |
    | `ghosts:launch` | the brief and its approved sha; the law is the brief's `Acceptance:` line | `formatExpect` of the brief's `expect:` | the `/implement` call, tree, sketch, report and session | not launched yet; the outcome line follows the yes |
    | `pnpm board` (card) | the card on the start line | `formatExpect` of `event:task` `expected` | the start line or `event:task` | the latest stage |
    | `construct board` | — | `EXPECT` column | — | `ACTUAL` column: the ledger's tokens and seconds |
 
    `construct board` prints only the `EXPECT` and `ACTUAL` columns, with no block per row and no view of its own.
    `--json` is unchanged.
-3. **A value that no source holds says so**: `law none recorded`, `touches not in shift.jsonl`,
-   `expect none — task:start reads no forecast`, `none — .construct/runs.jsonl records no forecast`. A field is never
-   empty and never guessed.
+3. **A value that no source holds says so, in one form everywhere**: `<what> not recorded <where>`, naming the
+   place that holds no record — `law not recorded in the journal`, `touches not recorded in shift.jsonl`,
+   `expect not recorded on the card`, `expect not recorded in .construct/runs.jsonl`. A field is never empty and
+   never guessed. `—` stays only where a value does not apply, such as `EXPECT` on a pull request row.
 4. **The visual contract**: no emoji and no pictograms; uppercase labels; ASCII-safe, so that without colour the
    rule is `-` and the separator `|`, and a value passes through byte for byte. Only `RESULT` is coloured, by its
    tone. `NO_COLOR` or a stream that is not a TTY drops the colour and loses no information.
+   ASCII-safe binds the frame only: a value from `formatExpect` keeps its `≈` and `—` as they are.
 5. **The report form follows the same order.** A window report, a shift report and a probe report open with the
    card, then `contract:`, `expect:`, `action:`, `result:`, one line each. The labels stay lowercase in a file so
    that the `result:` line every reader already parses keeps its form.

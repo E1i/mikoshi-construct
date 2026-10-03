@@ -101,8 +101,8 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toEqual([
       expect.stringMatching(/^-{4} task:start #8 task-8 -+$/),
-      'CONTRACT | implement · cheap · owner · touches not on the card · law none recorded',
-      'EXPECT   | expect none — task:start reads no forecast',
+      'CONTRACT | implement · cheap · owner · touches not recorded on the card · law not recorded on the card',
+      'EXPECT   | expect not recorded on the card',
       `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main`,
       `RESULT   | start line written to ${world.journal}`,
     ])

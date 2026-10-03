@@ -50,7 +50,7 @@ export const NOTHING_OPEN = ['nothing running — no tasks, no live windows.', '
 const RULE = '─'
 const SEPARATOR = '│'
 
-const ROW_DEFINITION = '# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR\'s CI and architecture/owner-merges.md, led by stale <age> when the task is stale; EDDIES = ctx <percent> of its live window, stop <n> and warn <n> of its budget lines, — with none; EXPECT = the journal event:task expected, as ghosts:launch printed it, expect — when the journal has none (the cheap path, a ladder still running); ACTUAL = the journal event:task actual tokens and minutes beside it, — with none'
+const ROW_DEFINITION = '# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR\'s CI and architecture/owner-merges.md, led by stale <age> when the task is stale; EDDIES = ctx <percent> of its live window, stop <n> and warn <n> of its budget lines, — with none; EXPECT = the journal event:task expected, as ghosts:launch printed it, expect not recorded in the journal when it has none (the cheap path, a ladder still running); ACTUAL = the journal event:task actual tokens and minutes beside it, actual not recorded in the journal with none'
 
 export const DEFINITIONS = [
   `# board: read-only, except that each --every frame is written to <handoff dir>/${FRAME_FILE}; a stage is a recorded fact, — when it did not happen, or UNKNOWN naming the record that is missing`,
@@ -275,16 +275,16 @@ function edgeLines(task: TaskView, edges: string[] | undefined): string[] {
   return own.length > 0 ? own.map(edge => `edge: ${edge}`) : ['edge: — (the matrix records none for this task)']
 }
 
-const NOT_IN_JOURNAL = 'not in the journal'
+const NOT_RECORDED_IN_JOURNAL = 'not recorded in the journal'
 
 function contractText(live: AttemptView): string {
   const { attempt } = live
   if (live.path === 'ladder')
-    return `ladder · brief ${attempt.brief ?? '—'} · law ${NOT_IN_JOURNAL}`
+    return `ladder · brief ${attempt.brief ?? '—'} · law ${NOT_RECORDED_IN_JOURNAL}`
   const card = attempt.pathEvent?.card
   if (card === undefined)
-    return `cheap · the start line carries no card · touches ${NOT_IN_JOURNAL} · law ${NOT_IN_JOURNAL}`
-  return `${card.kind} · ${card.contour} · ${card.decision} · touches ${NOT_IN_JOURNAL} · law ${NOT_IN_JOURNAL}`
+    return `cheap · card not recorded on the start line · touches ${NOT_RECORDED_IN_JOURNAL} · law ${NOT_RECORDED_IN_JOURNAL}`
+  return `${card.kind} · ${card.contour} · ${card.decision} · touches ${NOT_RECORDED_IN_JOURNAL} · law ${NOT_RECORDED_IN_JOURNAL}`
 }
 
 function actionText(live: AttemptView): string {

@@ -63,7 +63,7 @@ The report is written at every outcome, including a stop on budget or by Eddies:
 what remains. It lives outside the repository, in the scratch directory or the shift directory.
 
 - Line 1: the card. Then one line each, in this order: `contract: …` (the question and the target pinned at its sha),
-  `expect: …` (the forecast, or `expect none — not recorded`), `action: …` (what was read and run), `result: …`.
+  `expect: …` (the forecast, or `expect not recorded in <where>`), `action: …` (what was read and run), `result: …`.
   Then the verdict line, the paths of `findings.jsonl` and `coverage.md`,
   counts by class, the tests run, and what waits for the owner.
 - Close with `pnpm task:close <id> --report <path> --verification <word>`, the word from

@@ -181,7 +181,7 @@ describe('construct board', () => {
     const header = lines.find(line => line.includes('TASK'))!.split('\u2502').slice(1, -1).map(cell => cell.trim())
     expect(header).toEqual(['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'])
     const all = lines.filter(line => line.startsWith('\u2502')).slice(1).map(line => line.split('\u2502').slice(1, -1).map(cell => cell.trim()))
-    expect(all.find(row => row[0] === 'alpha')!.slice(5)).toEqual(['none — .construct/runs.jsonl records no forecast', 'tokens 120000, seconds 840'])
+    expect(all.find(row => row[0] === 'alpha')!.slice(5)).toEqual(['expect not recorded in .construct/runs.jsonl', 'tokens 120000, seconds 840'])
     expect(all.find(row => row[0] === '#7 seven')!.slice(5)).toEqual(['—', '—'])
     expect(json(dir, file).rows).toEqual(boardJson(readBoard(dir, { all: false, staleHours: 4, prs: file, readStdin: NO_STDIN, now: NOW })).rows)
     expect(Object.keys((json(dir, file).rows as Array<Record<string, unknown>>)[0]!)).toEqual(['task', 'path', 'stage', 'state', 'at', 'next', 'tone', 'stale', 'shown'])

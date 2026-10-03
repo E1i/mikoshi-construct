@@ -1085,13 +1085,13 @@ describe('w9: EXPECT stands next to ACTUAL, and a card ends with the four fields
     return dir
   }
 
-  it('w9: the table carries EXPECT from the journal\'s expected and ACTUAL from its actual, side by side, and — where the journal has none', () => {
+  it('w9: the table carries EXPECT from the journal\'s expected and ACTUAL from its actual, side by side, and not recorded in the journal where it has none', () => {
     const dir = withForecast()
     const stdout = board(['--dir', dir]).stdout
     const header = stdout.map(line => stripVTControlCharacters(line)).find(line => line.startsWith('│ TASK'))!
     expect(cellsOf(header).slice(-2)).toEqual(['EXPECT', 'ACTUAL'])
     expect(rowOf(stdout, 'delta-1').slice(-2)).toEqual(['expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median', 'tokens 950k, minutes 32.5'])
-    expect(rowOf(stdout, 'beta-1').slice(-2)).toEqual(['expect —', '—'])
+    expect(rowOf(stdout, 'beta-1').slice(-2)).toEqual(['expect not recorded in the journal', 'actual not recorded in the journal'])
   })
 
   it('w9: the card ends with CONTRACT, EXPECT, ACTION and RESULT read from the journal', () => {
@@ -1099,7 +1099,7 @@ describe('w9: EXPECT stands next to ACTUAL, and a card ends with the four fields
     const card = board(['--dir', dir, 'delta-1']).stdout
     expect(card.slice(-5)).toEqual([
       expect.stringMatching(/^-{4} board delta-1 -+$/),
-      `CONTRACT | ladder · brief ${path.join(dir, 'brief-delta.md')} · law not in the journal`,
+      `CONTRACT | ladder · brief ${path.join(dir, 'brief-delta.md')} · law not recorded in the journal`,
       'EXPECT   | expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median',
       `ACTION   | ghosts:launch delta-1: /implement ${path.join(dir, 'brief-delta.md')}, session session-delta`,
       'RESULT   | ghost done 2026-09-28T09:40:00.000Z (ladder done, exit 0)',
