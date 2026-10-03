@@ -22,8 +22,12 @@ function toolchainSection(): string {
   return end === -1 ? rest : rest.slice(0, end)
 }
 
+function sourceLists(): RegExpExecArray[] {
+  return [...toolchainSection().matchAll(/^(?:Exact|Range) sources[^\n]*\n\n((?:- [^\n]*\n)+)/gm)]
+}
+
 function versionSources(): string[] {
-  const lists = [...toolchainSection().matchAll(/^(?:Exact|Range) sources[^\n]*\n\n((?:- [^\n]*\n)+)/gm)]
+  const lists = sourceLists()
   const bullets = lists.flatMap(match => match[1].trimEnd().split('\n'))
   return [...new Set(bullets.flatMap(bullet => [...bullet.matchAll(/`([^`]+)`/g)].map(span => span[1])))]
 }
@@ -85,7 +89,8 @@ describe.each(PROTOCOL_FILES)('%s carries the toolchain step', (file) => {
 
   it('names every member of the attach entry list', () => {
     const sources = versionSources()
-    expect(sources.length).toBeGreaterThan(0)
+    expect(sourceLists()).toHaveLength(2)
+    expect(sources.length).toBeGreaterThanOrEqual(20)
     for (const source of sources)
       expect(protocol, source).toContain(source)
   })
