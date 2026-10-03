@@ -1,14 +1,13 @@
 import type { Layout, MonorepoTool, WorkspacePackage } from './report.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { IGNORED_ENTRIES } from './ignored-entries.js'
 import { declaresNpmWorkspaces, declaresPnpmPackages } from './workspaces.js'
 
-const IGNORED_ENTRIES = new Set(['.git', '.DS_Store', '.gitignore', '.gitattributes', 'LICENSE', 'README.md', '.idea', '.vscode'])
-
-export function isEmptyDir(dir: string): boolean {
+export function isEmptyDir(dir: string, alsoIgnored: readonly string[] = []): boolean {
   if (!existsSync(dir))
     return true
-  return readdirSync(dir).every(entry => IGNORED_ENTRIES.has(entry))
+  return readdirSync(dir).every(entry => IGNORED_ENTRIES.has(entry) || alsoIgnored.includes(entry))
 }
 
 export function detectMonorepoTools(dir: string): MonorepoTool[] {

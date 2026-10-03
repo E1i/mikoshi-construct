@@ -8,10 +8,12 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
+import { ATTACH_LEDGER_DIR } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
+import { IGNORED_ENTRIES } from '../src/detect/ignored-entries.js'
 import { planMaterialize } from '../src/materialize/plan.js'
 import { ATTACH_CARRIERS, ATTACH_GUARD, getPreset, groupsFor } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -229,6 +231,20 @@ const LEDGER_DIRECTORY_CASES: { name: string, arrange: (dir: string) => void, re
     writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
   } },
 ]
+
+describe('what attach does not count as a project is what detect ignores plus the ledger directory', () => {
+  it('refuses a repository holding every ignored entry and the ledger directory and nothing else', async () => {
+    const dir = emptiedFixture()
+    for (const entry of [...IGNORED_ENTRIES, ATTACH_LEDGER_DIR]) {
+      if (!existsSync(path.join(dir, entry)))
+        mkdirSync(path.join(dir, entry))
+    }
+
+    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+
+    expect(result.refusal).toBe('nothing-to-attach')
+  })
+})
 
 describe('the ledger directory is not something to attach to', () => {
   for (const ledger of LEDGER_DIRECTORY_CASES) {
