@@ -227,13 +227,20 @@ describe('the installed commit guard, what it is given', () => {
   })
 
   for (const [name, stdin] of Object.entries({ 'text that is not JSON': 'not json', 'a JSON array': '[]', 'JSON null': 'null' })) {
-    it(`exits 1 with a line on stderr for ${name}, so a call that was not checked never reads as one that was`, () => {
+    it(`refuses with exit 2 and one line on stderr for ${name}, since Claude Code runs the call on any other non-zero exit`, () => {
       const result = runGuard(stdin)
 
-      expect(result.status).toBe(1)
+      expect(result.status).toBe(2)
       expect(result.stderr.trim().split('\n')).toHaveLength(1)
     })
   }
+
+  it('refuses with exit 2 and one line on stderr when checking the call throws, as a commit nested past the stack does', () => {
+    const result = bash(`git commit -m x; echo ${'$('.repeat(100000)}`, world.attached)
+
+    expect(result.status).toBe(2)
+    expect(result.stderr.trim().split('\n')).toEqual([expect.stringMatching(/^commit-guard: could not check the call: /)])
+  })
 })
 
 function guardWithLateStdin(stdin: string, delayMs: number): Promise<{ status: number | null, stderr: string }> {

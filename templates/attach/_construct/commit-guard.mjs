@@ -6,6 +6,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
+const verdict = { allowed: false }
+process.on('exit', () => {
+  process.exitCode = verdict.allowed ? 0 : 2
+})
+
 const PATTERNS = Symbol('patterns')
 const GUARDED = ['commit', 'push', 'merge', 'rebase', 'tag']
 const ALLOWED_FORMS = [
@@ -642,12 +647,10 @@ function decide(input) {
 
 function fail(message) {
   process.stderr.write(`commit-guard: ${message}\n`)
-  process.exitCode = 1
 }
 
 function refuse(lines) {
   process.stderr.write(`${lines.join('\n')}\n`)
-  process.exitCode = 2
 }
 
 function refusedUnread(reason) {
@@ -693,6 +696,8 @@ async function main() {
   const refusal = decide(input)
   if (refusal != null)
     refuse(refusal)
+  else
+    verdict.allowed = true
 }
 
 void (async () => {

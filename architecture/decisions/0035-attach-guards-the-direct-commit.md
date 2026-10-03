@@ -57,6 +57,11 @@ longer what its owner had read.
    the call it never saw could be a commit. Input that arrives but is not a JSON object exits 1 with
    one line on stderr, a non-blocking error the user sees. Without `node` the hook errors visibly and
    does not block.
+   Amended (#129): input that is not a JSON object, and any error while checking the call, refuses with
+   exit 2 and one line on stderr. Claude Code runs the call on exit 1 as on a crash (probe #118), so a
+   non-blocking error is an open guard; only the explicit allow exits 0. A file that cannot be loaded,
+   a host without `node` and a run past the hook's `timeout` stay open: none of them reaches the hook's
+   own code.
 10. **The record moves to version 2.** `.construct/attach.json` gains `settingsHook` (the file, which of
     the file, `hooks` and `PreToolUse` attach created, and the entry as written) and the guard in
     `files`. An older detach would remove the guard and leave an entry that runs a missing file on every
