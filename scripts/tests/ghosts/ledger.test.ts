@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { carryLedgerLines, countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ghosts/ledger.js'
+import { carryLedgerLines, carryStepCacheLines, countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ghosts/ledger.js'
 
 function runsPath(): { dir: string, runs: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-ledger-'))
@@ -112,5 +112,22 @@ describe('carryLedgerLines', () => {
     const { from, into } = pair()
     expect(carryLedgerLines(from, into)).toBe(0)
     expect(existsSync(into)).toBe(false)
+  })
+})
+
+describe('carryStepCacheLines', () => {
+  function cacheLine(run: string, tokens: number): string {
+    return JSON.stringify({ v: 1, run, steps: [{ step: 'implement', role: 'implementer', attempt: 1, effort: 'low', tokens, seconds: 60 }] })
+  }
+
+  it('appends only the lines whose run the main step cache lacks, keyed on the run and not the text', () => {
+    const { dir } = runsPath()
+    const from = path.join(dir, 'tree-steps.jsonl')
+    const into = path.join(dir, 'main', 'steps.jsonl')
+    mkdirSync(path.dirname(into))
+    writeFileSync(into, `${cacheLine('b', 1)}\n`)
+    writeFileSync(from, `${cacheLine('a', 1)}\n${cacheLine('b', 2)}\nnot json\n`)
+    expect(carryStepCacheLines(from, into)).toBe(2)
+    expect(readFileSync(into, 'utf8')).toBe(`${cacheLine('b', 1)}\n${cacheLine('a', 1)}\nnot json\n`)
   })
 })
