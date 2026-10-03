@@ -101,6 +101,7 @@ whose start line carries no card. That `event:path` line carries `verification`,
 does not close the task: the board shows its verification as UNKNOWN until a line that carries it is written. The line
 and the words are in
 [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
+A probe is run by `/probe` ([.claude/skills/probe/SKILL.md](../.claude/skills/probe/SKILL.md)).
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
