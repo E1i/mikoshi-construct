@@ -1483,7 +1483,9 @@ never added to the runs' figures above.
 instead of every run of the same effort. It reads two files and writes none: the Ghost journal
 (`--journal`, by default `ghosts.jsonl` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`) and one
 or more run ledgers (`--runs`, repeatable, by default `.construct/runs.jsonl` here). A Ghost's ladder
-writes its ledger in the Ghost's own worktree, so pass each worktree's ledger that should count.
+writes its ledger in the Ghost's own worktree, and `pnpm ghosts:cleanup` carries those lines into the
+main tree's ledger before it removes the worktree, so the main ledger is enough once a tree is gone;
+pass `--runs` for a worktree still running.
 
 A journal line with `event: task` names the task's `class` and the `run` its ladder reported; the
 ledger row with the same `run` carries the run's `effort`, `status`, `tokens` and `seconds`. The join
