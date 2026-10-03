@@ -418,5 +418,10 @@
     "target": "scripts/construct/browser-witness.mjs",
     "sha256": "964afd99cb70192c33256bde26e5463475a15d99c937aa2a9153a5f1929b091d",
     "date": "2026-10-03"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "04ec540f2b48df1227ae6adf9eddcc7e441f5a92f2ab28b22d818dab74fa19ac",
+    "date": "2026-10-04"
   }
 ]
