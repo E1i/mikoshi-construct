@@ -8,7 +8,7 @@ const CARD = parseCard('#1 overlap [implement/ghosts/S/cheap/auto] Â· depends â€
 function task(file: string, id: string, touches: string[], branch = `feat/${id}`): ShiftTask {
   if (CARD.kind === 'refused')
     throw new Error(CARD.reason)
-  return { file, number: file.slice(0, 2), id, card: CARD.card, branch, touches, body: 'x' }
+  return { file, number: file.slice(0, 2), id, card: CARD.card, branch, touches, body: 'x', continue: 'stop' }
 }
 
 describe('relation', () => {

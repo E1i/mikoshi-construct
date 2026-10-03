@@ -12,7 +12,8 @@ import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cardHead, cardTerms } from '../ghosts/card.js'
-import { exitedWithoutReport, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
+import { EXIT_REASON_TEXT, MAX_RESTARTS } from './continuation.js'
+import { closedTasks, exitedWithoutReport, GHOST_JOURNAL, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 
 export const PREFIX = '[shift:report] '
 export const USAGE = 'usage: pnpm shift:report <dir>'
@@ -74,18 +75,6 @@ function prCell(list: PrList, line: TaskLine): string {
   return line.card?.kind === 'probe' ? '—' : 'no PR'
 }
 
-function verificationsByTask(journal: string | null): Map<string, string> {
-  return new Map((journal ?? '').split('\n').flatMap((line) => {
-    try {
-      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, verification?: unknown } | null
-      return entry?.event === 'path' && typeof entry.task === 'string' && typeof entry.verification === 'string' ? [[entry.task, entry.verification] as const] : []
-    }
-    catch {
-      return []
-    }
-  }))
-}
-
 function closedCell(closed: Map<string, string>, line: TaskLine): string {
   if (line.refused !== undefined)
     return 'closed —'
@@ -93,10 +82,23 @@ function closedCell(closed: Map<string, string>, line: TaskLine): string {
   return verification === undefined ? 'not closed' : `closed ${verification}`
 }
 
+function sessionsOf(line: TaskLine): string[] {
+  return [line.session, ...(line.continuations ?? [])]
+}
+
+function restartsCell(line: TaskLine): string {
+  if (line.worktree === null || line.error !== undefined)
+    return 'restarts —'
+  if (line.continuations === undefined || line.lastExit === undefined)
+    return 'restarts not recorded in shift.jsonl, last exit not recorded in shift.jsonl'
+  return `restarts ${line.continuations.length}/${MAX_RESTARTS}, last exit ${EXIT_REASON_TEXT[line.lastExit]}`
+}
+
 function eddiesCell(deps: ReportDeps, line: TaskLine): string {
   if (line.worktree === null)
     return '—'
-  const stop = deps.budget(line.worktree).find(entry => entry.event === 'budget-stop' && entry.session === line.session)
+  const sessions = sessionsOf(line)
+  const stop = deps.budget(line.worktree).find(entry => entry.event === 'budget-stop' && sessions.includes(entry.session))
   return stop === undefined ? '—' : `${stop.level} ${Math.round(stop.spent)}/${stop.limit}`
 }
 
@@ -124,13 +126,13 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   }
   const lines = taskLines(journal)
   const prs = listPrs(deps.gh, REPO)
-  const closed = verificationsByTask(deps.read(path.join(deps.handoffDir, 'ghosts.jsonl')))
+  const closed = closedTasks(deps.read(path.join(deps.handoffDir, GHOST_JOURNAL)))
   for (const line of lines) {
     const block = renderSignal(taskCell(line), {
       CONTRACT: line.card === undefined ? 'card not recorded in shift.jsonl · law not recorded in shift.jsonl' : `${cardTerms(line.card)} · touches not recorded in shift.jsonl · law not recorded in shift.jsonl`,
       EXPECT: 'expect not recorded in shift.jsonl',
-      ACTION: `claude session ${line.session} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
-      RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · ${closedCell(closed, line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
+      ACTION: `claude session ${sessionsOf(line).join(', then ')} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
+      RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · ${closedCell(closed, line)} · ${restartsCell(line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
     }, deps.style ?? PLAIN_STYLE, succeeded(line) ? undefined : 'red')
     for (const row of block)
       deps.out(row)

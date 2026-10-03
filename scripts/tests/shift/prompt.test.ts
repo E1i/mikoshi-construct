@@ -36,4 +36,8 @@ describe('renderPrompt', () => {
   it('adds no probe skill line to a probe body that already points at the skill', () => {
     expect(promptOf('probe', 'Read .claude/skills/probe/SKILL.md first.\n\nLook at the target.')).not.toContain(PROBE_LINE)
   })
+
+  it('tells the session to put a question for the owner on a question: line of the report, which the runner reads', () => {
+    expect(promptOf('implement', 'Do it.')).toContain('`question: <what the owner decides>`')
+  })
 })

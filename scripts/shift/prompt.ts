@@ -1,4 +1,5 @@
 import type { ShiftTask } from './task-file.js'
+import { CONTINUE_PROMPT } from './continuation.js'
 
 const PROBE_SKILL = '.claude/skills/probe/SKILL.md'
 const PROBE_SKILL_LINE = `Прочитай ${PROBE_SKILL} целиком и работай по нему`
@@ -24,6 +25,10 @@ export function renderPrompt(header: string, task: ShiftTask, places: PromptPlac
     return value
   })
   return `${rendered}${bodyOf(task)}\n`
+}
+
+export function continuationBody(task: ShiftTask, places: PromptPlaces): string {
+  return `${CONTINUE_PROMPT}: the shift report \`${places.report}\`, the handoff and the commits on \`${task.branch}\` say where the last session stopped.`
 }
 
 function bodyOf(task: ShiftTask): string {

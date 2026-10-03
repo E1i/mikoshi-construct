@@ -21,6 +21,7 @@ const RETURN_TOOL = 'SubagentHandback'
 const SESSION_ACTION = 'no new work — write the handoff and stop'
 const AGENT_ACTION = 'return what you have now'
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
+const CONTINUE_PROMPT = 'Прочитай handoff задачи целиком и продолжай с места остановки'
 const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
 const WINDOW = 'window'
@@ -215,11 +216,20 @@ function warnOnce(root, gauge, caller, config) {
     throw error
   }
   journal(root, { event: 'budget-warn', ...measurementOf(gauge, caller), warn_ratio: config.warnRatio })
-  return warningOf(gauge, config)
+  const warning = warningOf(gauge, config)
+  return gauge.level.startsWith('session-') && caller.agent_id == null ? `${warning}${continueLineOf(root)}` : warning
 }
 
 function warningOf(gauge, config) {
   return `eddies: ${gauge.level} warn — ${gauge.name} ${Math.round(gauge.value)} / warn threshold ${Math.round(gauge.limit * config.warnRatio)} (limit ${gauge.limit}, ${gauge.limitName} in ${CONFIG_FILE}); ${WARN_ACTION}\n`
+}
+
+function shellQuoted(text) {
+  return `'${text.replaceAll('\'', '\'\\\'\'')}'`
+}
+
+function continueLineOf(root) {
+  return `eddies: to continue in a new window — cd ${shellQuoted(root)} && claude ${shellQuoted(CONTINUE_PROMPT)}\n`
 }
 
 function measuredGauges(measure, root, input, config, caller) {

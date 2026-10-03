@@ -2,6 +2,7 @@ import type { SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { TaskStartDeps } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
+import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { OpenPr } from './overlap.js'
 import type { TaskLine } from './places.js'
 import type { ShiftTask } from './task-file.js'
@@ -18,9 +19,10 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cardTerms } from '../ghosts/card.js'
 import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
+import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { exitedWithoutReport, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
-import { renderPrompt } from './prompt.js'
+import { closedTasks, eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
+import { continuationBody, renderPrompt } from './prompt.js'
 import { parseTaskFile, TASK_FILE } from './task-file.js'
 
 export const PREFIX = '[shift] '
@@ -32,6 +34,8 @@ export const USAGE = [
   '  card: #<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>',
   '  branch: <branch>',
   '  touches: <path>, <dir>/**',
+  '  continue: auto | stop   (optional, default stop)',
+  `With continue: auto, a session that leaves on an Eddies warn while its task is open is followed by a new session in the same tree that reads the handoff and goes on, at most ${MAX_RESTARTS} times.`,
   '',
   'Recommended layout: one directory per shift, e.g. ~/.construct/shift/2026-10-03-1500/.',
   `${CLAUDE_VARIABLE} is the claude command, without caffeinate, e.g.:`,
@@ -97,6 +101,16 @@ function warnOpenPrs(deps: ShiftDeps, tasks: ShiftTask[]): void {
     deps.err(`${PREFIX}warning: ${line}`)
 }
 
+function sessionEvidence(deps: ShiftDeps, dir: string, task: ShiftTask, worktree: string, session: string, exit: number | null): SessionEvidence {
+  const readIfThere = (file: string): string => deps.exists(file) ? deps.read(file) : ''
+  return {
+    exit,
+    closed: closedTasks(readIfThere(path.join(deps.handoffDir, GHOST_JOURNAL))).has(task.id),
+    question: QUESTION_LINE.test(readIfThere(reportPath(dir, task.number))),
+    ...eddiesEvidence(readIfThere(eddiesJournalPath(worktree)), session),
+  }
+}
+
 async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string): Promise<TaskLine> {
   const session = deps.uuid()
   const started = deps.now().toISOString()
@@ -105,12 +119,25 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   if (start.exitCode !== 0 || start.worktree === undefined)
     return { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }
   const worktree = start.worktree
-  const prompt = renderPrompt(deps.header, task, { worktree, report: reportPath(dir, task.number) })
-  const exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, prompt, log: logPath(dir, task.number) })
+  const places = { worktree, report: reportPath(dir, task.number) }
+  const continuations: string[] = []
+  let current = session
+  let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, task.number) })
+  let lastExit: ExitReason = 'ended'
+  while (exit.kind === 'exited') {
+    lastExit = exitReason(sessionEvidence(deps, dir, task, worktree, current, exit.signal === null ? exit.code : null))
+    if (!continues(task.continue, lastExit, continuations.length))
+      break
+    current = deps.uuid()
+    continuations.push(current)
+    deps.out(`${PREFIX}${task.file} ${task.id}: eddies warn, restart ${continuations.length}/${MAX_RESTARTS} in ${worktree}`)
+    const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
+    exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, prompt, log: logPath(dir, task.number, continuations.length) })
+  }
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
-    return { ...base, worktree, ended, exit: null, signal: null, error: exit.error }
-  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report: deps.exists(reportPath(dir, task.number)) }
+    return { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }
+  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report: deps.exists(places.report), continuations, lastExit }
 }
 
 function startBlock(task: ShiftTask, style: SignalStyle): string[] {
@@ -129,7 +156,9 @@ function outcome(line: TaskLine): string {
     return `not spawned: ${line.error}`
   if (line.signal !== null)
     return `signal ${line.signal}`
-  return exitedWithoutReport(line) ? `exit ${line.exit}, no report` : `exit ${line.exit}`
+  const exit = exitedWithoutReport(line) ? `exit ${line.exit}, no report` : `exit ${line.exit}`
+  const restarts = line.continuations?.length ?? 0
+  return restarts === 0 ? exit : `${exit}, ${restarts} ${restarts === 1 ? 'restart' : 'restarts'}`
 }
 
 export async function runShift(argv: string[], deps: ShiftDeps): Promise<number> {
