@@ -82,6 +82,7 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
     header: HEADER,
     handoffDir: world.handoff,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
+    install: () => {},
     gh: ghOf(openPrs),
     listDir: dir => readdirSync(dir),
     read: file => readFileSync(file, 'utf8'),
@@ -177,6 +178,7 @@ describe('w3: shift:report builds the table from the shift', () => {
     const io = captured()
     const deps: ReportDeps = {
       cwd: world.repo,
+      handoffDir: world.handoff,
       gh: ghOf([], [{ number: 436, headRefName: 'feat/2', headRefOid: 'x', state: 'OPEN', mergedAt: null, mergeCommit: null }]),
       read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
       budget: (worktree): BudgetLine[] => readBudgetLines(worktree),
@@ -189,12 +191,12 @@ describe('w3: shift:report builds the table from the shift', () => {
       'CONTRACT | implement · cheap · auto · touches not in shift.jsonl · law none recorded',
       'EXPECT   | expect none — shift.jsonl records no forecast',
       `ACTION   | claude session ${stubSaw(world, '1', 'session')} on feat/1, 2m 02s`,
-      'RESULT   | exit 1 · no PR · eddies stop session-context 250000/250000 · report: no report',
+      'RESULT   | exit 1 · no PR · not closed · eddies stop session-context 250000/250000 · report: no report',
       expect.stringMatching(/^-{4} 02\.md #2 task-2 \[implement\/runner\/S\/cheap\/auto\] -+$/),
       'CONTRACT | implement · cheap · auto · touches not in shift.jsonl · law none recorded',
       'EXPECT   | expect none — shift.jsonl records no forecast',
       `ACTION   | claude session ${stubSaw(world, '2', 'session')} on feat/2, 2m 02s`,
-      'RESULT   | exit 0 · PR #436 · eddies stop — · report: did mc-2',
+      'RESULT   | exit 0 · PR #436 · not closed · eddies stop — · report: did mc-2',
     ])
   })
 })
@@ -303,9 +305,29 @@ describe('w6: a session that exits 0 without writing its report is not a success
     expect(io.out).toContain('[shift] 01.md 1: exit 0, no report')
     expect(io.out).toContain('[shift] 02.md 2: exit 0')
     const report = captured()
-    runReport([world.shift], { cwd: world.repo, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
-    expect(report.out[4]).toBe('RESULT   | exit 0, no report · no PR · eddies stop — · report: no report')
-    expect(report.out[9]).toBe('RESULT   | exit 0 · no PR · eddies stop — · report: did mc-2')
+    runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
+    expect(report.out[4]).toBe('RESULT   | exit 0, no report · no PR · not closed · eddies stop — · report: no report')
+    expect(report.out[9]).toBe('RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-2')
+  })
+})
+
+describe('w8: shift:report shows whether each task was closed with task:close', () => {
+  it('w8: RESULT of a task with a task:close line carrying verification reads closed with the word; one without reads not closed', async () => {
+    const world = newWorld()
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
+    taskFile(world, '02.md', '2', 'scripts/b/**', 'do b')
+    taskFile(world, '03.md', '3', 'scripts/c/**', 'do c')
+    expect(await runShift([world.shift], shiftDeps(world, captured()))).toBe(0)
+    const journal = path.join(world.handoff, 'ghosts.jsonl')
+    appendFileSync(journal, `${JSON.stringify({ event: 'path', task: '1', path: 'cheap', pr: 501, verification: 'run', ts: 'x' })}\n`)
+    appendFileSync(journal, `${JSON.stringify({ event: 'path', task: '3', path: 'cheap', pr: 503, ts: 'x' })}\n`)
+    const report = captured()
+    expect(runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })).toBe(0)
+    expect(report.out.filter(row => row.startsWith('RESULT'))).toEqual([
+      'RESULT   | exit 0 · no PR · closed run · eddies stop — · report: did mc-1',
+      'RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-2',
+      'RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-3',
+    ])
   })
 })
 
@@ -319,9 +341,9 @@ describe('w7: a probe card closes with a report, not a pull request', () => {
     expect(io.out).toContain('[shift] 01.md 1: exit 0')
     expect(io.out).toContain('[shift] 02.md 2: exit 0, no report')
     const report = captured()
-    runReport([world.shift], { cwd: world.repo, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
-    expect(report.out[4]).toBe('RESULT   | exit 0 · — · eddies stop — · report: did mc-1')
-    expect(report.out[9]).toBe('RESULT   | exit 0, no report · — · eddies stop — · report: no report')
+    runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
+    expect(report.out[4]).toBe('RESULT   | exit 0 · — · not closed · eddies stop — · report: did mc-1')
+    expect(report.out[9]).toBe('RESULT   | exit 0, no report · — · not closed · eddies stop — · report: no report')
   })
 
   it('w7: the runner passes the card to task:start, and the start line carries it', async () => {

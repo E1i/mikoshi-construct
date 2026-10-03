@@ -1181,8 +1181,11 @@ repository, the words inside a quoted string, a comment, `git status`, `git log`
 `git revert`, `git am`, `git stash`, `git commit-tree`, a read in a worktree and a call to another tool.
 It is a guard against the direct form, not a sandbox: a commit inside a script, an alias, `bash -c` or
 `eval` passes. It reads stdin to its end however late it arrives; a read that fails or ends empty is
-refused with exit `2`, and input that is not a JSON object exits `1` with one line on stderr. It needs `node` and
-`git` on the host; without `node` the hook errors visibly and does not block, so the guard fails open.
+refused with exit `2`, and so is everything that is not an explicit allow: input that is not a JSON object, or an
+error while checking the call, refuses with exit `2` and one line on stderr, since Claude Code runs the call on any
+other non-zero exit. It needs `node` and `git` on the host. Three outcomes stay open, because the hook cannot reach
+them: without `node`, or when the file cannot be loaded at all, the hook errors visibly and does not block; and a
+run longer than its 30 s `timeout` is killed by Claude Code, which then runs the call.
 
 attach refuses instead of editing `.claude/settings.local.json` when it is tracked, unreadable or
 already carries a guard entry (the three settings refusals above). [`construct detach`](#construct-detach)

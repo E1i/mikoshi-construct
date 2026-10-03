@@ -14,10 +14,12 @@ export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
 const CARD_FLAG = '--card'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
+const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 
 export interface TaskStartDeps {
   cwd: string
   git: (cwd: string, args: string[]) => string
+  install: (cwd: string, args: string[]) => void
   exists: (target: string) => boolean
   append: (file: string, text: string) => void
   now: () => Date
@@ -48,6 +50,17 @@ function branchExists(deps: TaskStartDeps, repo: string, branch: string): boolea
   }
   catch {
     return false
+  }
+}
+
+function removeTree(deps: TaskStartDeps, repo: string, worktree: string, branch: string): string {
+  try {
+    deps.git(repo, ['worktree', 'remove', '--force', worktree])
+    deps.git(repo, ['branch', '-D', branch])
+    return `the tree and branch ${branch} were removed`
+  }
+  catch (error) {
+    return `removing the tree failed (${firstLine(error)}); remove ${worktree} and branch ${branch} by hand`
   }
 }
 
@@ -93,6 +106,12 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   catch (error) {
     return refuse(`could not cut ${worktree}: ${firstLine(error)}; nothing written`)
   }
+  try {
+    deps.install(worktree, INSTALL_ARGS)
+  }
+  catch (error) {
+    return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
+  }
   const at = deps.now().toISOString()
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, ts: at }
@@ -112,10 +131,15 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   return { stdout, stderr: [], exitCode: 0, worktree }
 }
 
+export function pnpmInstall(cwd: string, args: string[]): void {
+  execFileSync('pnpm', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
 function realDeps(): TaskStartDeps {
   return {
     cwd: process.cwd(),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+    install: pnpmInstall,
     exists: existsSync,
     append: (file, text) => {
       mkdirSync(path.dirname(file), { recursive: true })

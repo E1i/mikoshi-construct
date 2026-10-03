@@ -16,7 +16,7 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cardTerms } from '../ghosts/card.js'
-import { runTaskStart } from '../ghosts/task-start.js'
+import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
 import { exitedWithoutReport, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
@@ -48,6 +48,7 @@ export interface ShiftDeps {
   header: string
   handoffDir: string
   git: TaskStartDeps['git']
+  install: TaskStartDeps['install']
   gh: GhRunner
   listDir: (dir: string) => string[]
   read: (file: string) => string
@@ -100,7 +101,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   const session = deps.uuid()
   const started = deps.now().toISOString()
   const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
-  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir })
+  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir })
   if (start.exitCode !== 0 || start.worktree === undefined)
     return { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }
   const worktree = start.worktree
@@ -181,6 +182,7 @@ function realDeps(): ShiftDeps {
     header: readFileSync(path.join(import.meta.dirname, 'header.md'), 'utf8'),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+    install: pnpmInstall,
     gh: execGh,
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
     read: file => readFileSync(file, 'utf8'),

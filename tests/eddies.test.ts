@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -45,11 +45,11 @@ function agentFile(s: Scratch, agentId: string, responses: Usage[], run?: string
   transcriptFile(path.join(s.subagents, ...(run === undefined ? [] : ['workflows', run]), `agent-${agentId}.jsonl`), responses)
 }
 
-function hook(s: Scratch, mode: string, input: Record<string, unknown> | string): { status: number | null, stdout: string, stderr: string, ms: number } {
+function hook(s: Scratch, mode: string, input: Record<string, unknown> | string, script = HOOK, projectDir = s.root): { status: number | null, stdout: string, stderr: string, ms: number } {
   const started = performance.now()
-  const result = spawnSync('node', [HOOK, mode], {
+  const result = spawnSync('node', [script, mode], {
     input: typeof input === 'string' ? input : JSON.stringify({ session_id: SESSION, transcript_path: s.transcript, cwd: s.root, ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: s.root, CONSTRUCT_HANDOFF_DIR: s.handoff },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff },
     encoding: 'utf8',
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, ms: performance.now() - started }
@@ -58,6 +58,19 @@ function hook(s: Scratch, mode: string, input: Record<string, unknown> | string)
 function call(s: Scratch, tool: string, toolInput: Record<string, unknown> = {}, agent: Record<string, string> = {}): ReturnType<typeof hook> {
   return hook(s, 'guard', { hook_event_name: 'PreToolUse', tool_name: tool, tool_input: toolInput, ...agent })
 }
+
+function hookBeside(s: Scratch, measure: 'intact' | 'throwing'): string {
+  const dir = path.join(path.dirname(s.root), 'hooks')
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(HOOK, path.join(dir, 'eddies.mjs'))
+  if (measure === 'intact')
+    copyFileSync(path.join(path.dirname(HOOK), 'eddies-measure.mjs'), path.join(dir, 'eddies-measure.mjs'))
+  else
+    writeFileSync(path.join(dir, 'eddies-measure.mjs'), 'throw new Error(\'broken on load\')\n')
+  return path.join(dir, 'eddies.mjs')
+}
+
+const REFUSED_UNMEASURED = /^eddies: .*; refused — a guard that cannot measure lets nothing through\n$/
 
 function contextOf(result: { stdout: string }): unknown {
   const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { hookEventName?: string, additionalContext?: unknown } }
@@ -294,15 +307,62 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(lines(s)).toEqual([expect.objectContaining({ event: 'unread', hook: 'eddies-prompt', reason: 'transcript-ENOENT', session_id: SESSION })])
   })
 
-  it('lets the call through with an unread line when the transcript or the config cannot be read, and refuses unreadable stdin (W8)', () => {
-    const noTranscript = scratch()
-    rmSync(noTranscript.transcript)
+  it('lets the call through and records nothing when the session transcript is not created yet', () => {
+    const s = scratch()
+    rmSync(s.transcript)
+
+    expect(call(s, 'Agent', { prompt: 'p' })).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(lines(s)).toEqual([])
+  })
+
+  it('lets the call of an agent with no transcript under the session through with an agent-transcript-missing unread line', () => {
+    const s = scratch()
+
+    expect(call(s, 'Bash', { command: 'ls' }, { agent_id: 'a9', agent_type: 'general-purpose' })).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'unread', hook: 'eddies-guard', reason: 'agent-transcript-missing', agent_id: 'a9' })])
+  })
+
+  it('lets the call through from a copy of the hook beside an intact eddies-measure.mjs, so the copy is not what refuses below', () => {
+    const s = scratch()
+
+    expect(hook(s, 'guard', { hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { prompt: 'p' } }, hookBeside(s, 'intact'))).toMatchObject({ status: 0, stdout: '', stderr: '' })
+  })
+
+  const UNMEASURED: Record<string, { arrange: (s: Scratch) => void, input?: Record<string, unknown>, projectDir?: (s: Scratch) => string, script?: (s: Scratch) => string, reason: string | null }> = {
+    'the config is missing': { arrange: s => rmSync(path.join(s.root, '.claude', 'eddies.json')), reason: 'config-missing' },
+    'the config is not an object': { arrange: s => writeFileSync(path.join(s.root, '.claude', 'eddies.json'), '[]'), reason: 'config-not-an-object' },
+    'a threshold is not a positive number': { arrange: s => writeFileSync(path.join(s.root, '.claude', 'eddies.json'), JSON.stringify({ ...LIMITS, agentSpend: 0 })), reason: 'config-agentSpend-invalid' },
+    'the input names no absolute transcript_path': { arrange: () => {}, input: { transcript_path: 'relative.jsonl' }, reason: 'no-transcript-path' },
+    'the transcript it already read is gone': { arrange: (s) => {
+      expect(call(s, 'Bash', { command: 'ls' }).status).toBe(0)
+      rmSync(s.transcript)
+    }, reason: 'transcript-ENOENT' },
+    'the transcript cannot be read': { arrange: (s) => {
+      rmSync(s.transcript)
+      mkdirSync(s.transcript)
+    }, reason: 'transcript-EISDIR' },
+    'a subagent transcript cannot be read': { arrange: s => mkdirSync(path.join(s.subagents, 'agent-x1.jsonl'), { recursive: true }), reason: 'transcript-EISDIR' },
+    'eddies-measure.mjs throws while it loads': { arrange: () => {}, script: s => hookBeside(s, 'throwing'), reason: 'measure-error' },
+    'CLAUDE_PROJECT_DIR is not a directory': { arrange: () => {}, projectDir: s => path.join(s.root, 'absent'), reason: null },
+  }
+
+  for (const [name, { arrange, input = {}, projectDir, script, reason }] of Object.entries(UNMEASURED)) {
+    it(`refuses a tool call with exit 2 and one stderr line when ${name}, recording the unread reason where it can`, () => {
+      const s = scratch()
+      arrange(s)
+      const result = hook(s, 'guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, ...input }, script?.(s) ?? HOOK, projectDir?.(s) ?? s.root)
+
+      expect(result).toMatchObject({ status: 2, stdout: '' })
+      expect(result.stderr).toMatch(REFUSED_UNMEASURED)
+      expect(lines(s).filter(line => line.event === 'unread').map(line => line.reason)).toEqual(reason == null ? [] : [reason])
+    })
+  }
+
+  it('still lets the prompt through with an unread line when the config cannot be read, and refuses unreadable stdin on a tool call (W8)', () => {
     const noConfig = scratch(null)
 
-    expect(call(noTranscript, 'Agent', { prompt: 'p' }).status).toBe(0)
-    expect(lines(noTranscript)).toEqual([expect.objectContaining({ event: 'unread', reason: 'transcript-ENOENT', session_id: SESSION })])
-    expect(call(noConfig, 'Agent', { prompt: 'p' }).status).toBe(0)
-    expect(lines(noConfig)).toEqual([expect.objectContaining({ event: 'unread', reason: 'config-missing' })])
+    expect(hook(noConfig, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(lines(noConfig)).toEqual([expect.objectContaining({ event: 'unread', hook: 'eddies-prompt', reason: 'config-missing' })])
     expect(hook(noConfig, 'guard', 'not json').status).toBe(2)
   })
 
@@ -338,7 +398,7 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
 
     expect(call(stopped, 'Agent', { prompt: 'p' }).status).toBe(2)
     expect(stops(stopped)).toEqual([expect.objectContaining({ level: 'session-context', task: 'decisions-0310' })])
-    expect(call(unread, 'Agent', { prompt: 'p' }).status).toBe(0)
+    expect(call(unread, 'Agent', { prompt: 'p' }).status).toBe(2)
     expect(lines(unread)).toEqual([expect.objectContaining({ event: 'unread', reason: 'config-missing', task: 'decisions-0310' })])
   })
 
