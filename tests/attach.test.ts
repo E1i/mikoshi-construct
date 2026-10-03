@@ -46,6 +46,13 @@ function fixture(): string {
   return dir
 }
 
+function emptiedFixture(): string {
+  const dir = fixture()
+  for (const entry of readdirSync(dir).filter(entry => entry !== '.git'))
+    rmSync(path.join(dir, entry), { recursive: true })
+  return dir
+}
+
 function sha256(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
@@ -200,6 +207,44 @@ const REFUSALS: RefusalCase[] = [
   { name: '--ai cursor', refusal: 'cursor', reason: PLAIN_LORE.attachRefusedCursor, arrange: () => {}, options: { ai: 'cursor' } },
   { name: 'a harness that is a script name', refusal: 'not-a-command', reason: PLAIN_LORE.attachRefusedNotACommand('quality', ['npm run quality', 'npx quality']).what, arrange: () => {}, options: { harness: 'quality' } },
 ]
+
+const LEDGER_DIRECTORY_CASES: { name: string, arrange: (dir: string) => void, refusal: string | undefined }[] = [
+  { name: 'an empty .construct/ and nothing else', refusal: 'nothing-to-attach', arrange: dir => mkdirSync(path.join(dir, '.construct')) },
+  { name: 'a .construct/ holding files and nothing else', refusal: 'nothing-to-attach', arrange: (dir) => {
+    mkdirSync(path.join(dir, '.construct/mutations'), { recursive: true })
+    writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
+  } },
+  { name: 'a .construct/ holding files beside a README', refusal: 'nothing-to-attach', arrange: (dir) => {
+    mkdirSync(path.join(dir, '.construct'))
+    writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
+    writeFileSync(path.join(dir, 'README.md'), '# only\n')
+  } },
+  { name: 'construct.json beside an empty .construct/ and nothing else', refusal: 'constructed', arrange: (dir) => {
+    mkdirSync(path.join(dir, '.construct'))
+    writeFileSync(path.join(dir, 'construct.json'), '{}\n')
+  } },
+  { name: 'a .construct/ holding files beside a project', refusal: undefined, arrange: (dir) => {
+    cpSync(EXISTING_MONOREPO, dir, { recursive: true })
+    mkdirSync(path.join(dir, '.construct'))
+    writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
+  } },
+]
+
+describe('the ledger directory is not something to attach to', () => {
+  for (const ledger of LEDGER_DIRECTORY_CASES) {
+    it(`${ledger.name}: ${ledger.refusal ?? 'attaches'}`, async () => {
+      const dir = emptiedFixture()
+      ledger.arrange(dir)
+      const before = listing(dir)
+
+      const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+
+      expect(result.refusal).toBe(ledger.refusal)
+      if (ledger.refusal != null)
+        expect(listing(dir)).toEqual(before)
+    })
+  }
+})
 
 describe('a3: every refusal exits before anything is written', () => {
   for (const refusal of REFUSALS) {
