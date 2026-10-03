@@ -4,6 +4,12 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.36.0
+
+### Minor Changes
+
+- [#475](https://github.com/E1i/mikoshi-construct/pull/475) [`4ebe900`](https://github.com/E1i/mikoshi-construct/commit/4ebe900ddcb7597af19456f31cea3cbd128c9f28) Thanks [@E1i](https://github.com/E1i)! - templates: `attach --entry` has the agent prove every absence it reports — a suite CI does not run, a step left out, no hooks — with the search that reached the CI step or the call where the value decides and what that search returned, and say `not determined` when the search stopped at a config file or a loader
+
 ## 0.35.0
 
 ### Minor Changes
