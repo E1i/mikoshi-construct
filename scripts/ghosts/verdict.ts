@@ -13,6 +13,7 @@ import { appendJournalEvent } from './journal.js'
 const JOURNAL_FILE = 'ghosts.jsonl'
 const VERDICT_SCHEMA = 'review-verdict'
 const JOURNAL_LINE = '#/$defs/journalLine'
+const CARD_NUMBER_MARKER = /^\[review:\d+\]$/
 
 interface Digest {
   path: string
@@ -71,7 +72,14 @@ function taskReasons(verdict: Verdict, dir: string): string[] {
     return []
   const firstLine = readFileSync(reportFile, 'utf8').split('\n', 1)[0]
   const expected = `[review:${verdict.task}]`
-  return firstLine === expected ? [] : [`task ${verdict.task}: ${verdict.report.path} starts with ${JSON.stringify(firstLine)}, not ${expected}`]
+  if (firstLine === expected)
+    return []
+  const mismatch = `task ${verdict.task}: ${verdict.report.path} starts with ${JSON.stringify(firstLine)}, not ${expected}`
+  return [namesCardNumber(firstLine, verdict.task) ? `${mismatch}; the marker names a card number; the review marker takes the task id ${verdict.task} from the tasks file` : mismatch]
+}
+
+function namesCardNumber(firstLine: string, task: string): boolean {
+  return CARD_NUMBER_MARKER.test(firstLine) && !/^\d+$/.test(task)
 }
 
 function briefReasons(brief: Digest, dir: string): string[] {

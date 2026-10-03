@@ -6,7 +6,7 @@ color: blue
 disallowedTools: Skill
 ---
 
-The first line of your final report is exactly `[brief:<task>]`, with the task named in your prompt.
+The first line of your final report is exactly `[brief:<task>]`, with the task named in your prompt: `<task>` is the task id from the Ghost tasks file, never the card number.
 
 You write the brief and the scratch material it needs, outside the repository unless the prompt names a worktree of your
 own. You never merge or open a pull request, and you never approve a brief: you return its hash and the first 80
