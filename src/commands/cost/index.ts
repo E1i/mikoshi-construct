@@ -8,6 +8,8 @@ import { resolveRuntime } from './runtime.js'
 import { knownRunSteps, readStepCache, recordRunSteps } from './step-cache.js'
 import { readTurnJournal } from './turns.js'
 
+export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, MINIMUM_CHEAP_SAMPLE, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE } from './cheap.js'
+export type { CheapForecast, CheapRow, CheapTask } from './cheap.js'
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey } from './claude-code.js'
 export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
 export type { Cause, LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconciliation, TokenCount, TokenSource } from './ledger.js'
