@@ -1,7 +1,11 @@
+import type { Card } from '../ghosts/card.js'
+import { parseCard } from '../ghosts/card.js'
+
 export interface ShiftTask {
   file: string
   number: string
   id: string
+  card: Card
   branch: string
   touches: string[]
   body: string
@@ -10,7 +14,7 @@ export interface ShiftTask {
 export type ParsedTaskFile = { kind: 'task', task: ShiftTask } | { kind: 'refused', reason: string }
 
 export const TASK_FILE = /^(\d+)\.md$/
-const KEYS = ['task', 'branch', 'touches'] as const
+const KEYS = ['card', 'branch', 'touches'] as const
 const HEADER_LINE = /^([a-z]+):(.*)$/
 export const PREFIX_SUFFIX = '/**'
 
@@ -42,6 +46,8 @@ export function parseTaskFile(file: string, text: string): ParsedTaskFile {
     if (match === null)
       return refused(file, `header line '${line}' is not 'key: value'`)
     const [, key, value] = match as unknown as [string, string, string]
+    if (key === 'task')
+      return refused(file, `'task:' is replaced by 'card: <the task's card>'; the id is the card's #<id>`)
     if (!(KEYS as readonly string[]).includes(key))
       return refused(file, `unknown header key '${key}'; the keys are ${KEYS.join(', ')}`)
     if (header.has(key))
@@ -51,6 +57,9 @@ export function parseTaskFile(file: string, text: string): ParsedTaskFile {
   const missing = KEYS.filter(key => (header.get(key) ?? '') === '')
   if (missing.length > 0)
     return refused(file, `header is missing ${missing.join(', ')}`)
+  const card = parseCard(header.get('card')!)
+  if (card.kind === 'refused')
+    return refused(file, `card refused: ${card.reason}`)
   const touches = header.get('touches')!.split(',').map(entry => entry.trim())
   const touchErrors = touches.map(touchError).filter(error => error !== null)
   if (touchErrors.length > 0)
@@ -58,5 +67,5 @@ export function parseTaskFile(file: string, text: string): ParsedTaskFile {
   const body = blank === -1 ? '' : lines.slice(blank + 1).join('\n').trim()
   if (body === '')
     return refused(file, 'the prompt body after the first blank line is empty')
-  return { kind: 'task', task: { file, number, id: header.get('task')!, branch: header.get('branch')!, touches, body } }
+  return { kind: 'task', task: { file, number, id: String(card.card.id), card: card.card, branch: header.get('branch')!, touches, body } }
 }

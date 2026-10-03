@@ -7,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
+import { cardHead } from '../ghosts/card.js'
 import { exitedWithoutReport, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
 
 export const PREFIX = '[shift:report] '
@@ -55,11 +56,17 @@ export function durationCell(started: string, ended: string): string {
   return hours > 0 ? `${hours}h ${pad(minutes)}m` : `${minutes}m ${pad(seconds % 60)}s`
 }
 
-function prCell(list: PrList, branch: string): string {
-  const pr = lookupPr(list, branch)
+function taskCell(line: TaskLine): string {
+  return `${line.file} ${line.card === undefined ? line.task : cardHead(line.card)}`
+}
+
+function prCell(list: PrList, line: TaskLine): string {
+  const pr = lookupPr(list, line.branch)
   if (pr.kind === 'found')
     return `PR #${pr.pr.number}`
-  return pr.kind === 'none' ? 'no PR' : '?'
+  if (pr.kind !== 'none')
+    return '?'
+  return line.card?.kind === 'probe' ? '—' : 'no PR'
 }
 
 function eddiesCell(deps: ReportDeps, line: TaskLine): string {
@@ -99,10 +106,10 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   const lines = taskLines(journal)
   const prs = listPrs(deps.gh, REPO)
   const rows = lines.map(line => [
-    `${line.file} ${line.task}`,
+    taskCell(line),
     exitCell(line),
     durationCell(line.started, line.ended),
-    prCell(prs, line.branch),
+    prCell(prs, line),
     eddiesCell(deps, line),
     reportCell(deps, dir, line),
   ])

@@ -8,6 +8,7 @@ export interface PromptPlaces {
 export function renderPrompt(header: string, task: ShiftTask, places: PromptPlaces): string {
   const values: Record<string, string> = {
     task: task.id,
+    card: task.card.line,
     branch: task.branch,
     touches: task.touches.map(entry => `\`${entry}\``).join(', '),
     worktree: places.worktree,

@@ -1,6 +1,6 @@
 import type { TaskStartDeps } from '../../ghosts/task-start.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,10 @@ import { runTaskStart } from '../../ghosts/task-start.js'
 
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')
+
+function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
+  return `#${id} task-${id} [${bracket}] · depends — · blocks —`
+}
 
 interface World {
   root: string
@@ -64,20 +68,31 @@ afterEach(() => {
 })
 
 describe('w1: task:start cuts the tree and writes the start line', () => {
-  it('w1: cuts ../mc-<id> on the branch from origin/main and writes one start line with worktree, branch and session', () => {
+  it('w1: cuts ../mc-<id> on the branch from origin/main and writes one start line with worktree, branch, session and the card', () => {
     const world = newWorld()
-    const result = runTaskStart(['t1', 'feat/t1'], depsOf(world))
-    const worktree = path.join(world.root, 'mc-t1')
+    const line = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 · blocks #124 the board card'
+    const result = runTaskStart(['feat/t1', '--card', line], depsOf(world))
+    const worktree = path.join(world.root, 'mc-101')
     expect(result.exitCode).toBe(0)
     expect(result.worktree).toBe(worktree)
     expect(existsSync(worktree)).toBe(true)
     expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/t1')
-    expect(lines(world)).toEqual([{ event: 'path', task: 't1', path: 'cheap', started: NOW.toISOString(), session: SESSION, worktree, branch: 'feat/t1', ts: NOW.toISOString() }])
+    expect(lines(world)).toEqual([{
+      event: 'path',
+      task: '101',
+      path: 'cheap',
+      started: NOW.toISOString(),
+      session: SESSION,
+      worktree,
+      branch: 'feat/t1',
+      card: { id: 101, name: 'task-card', kind: 'implement', milestone: 'ghosts', size: 'M', contour: 'cheap', decision: 'owner', depends: [86], blocks: [124], line },
+      ts: NOW.toISOString(),
+    }])
   })
 
   it('w1: writes a line without session and says the board will show WINDOW UNKNOWN when no session is set', () => {
     const world = newWorld()
-    const result = runTaskStart(['t2', 'feat/t2'], depsOf(world, null))
+    const result = runTaskStart(['--card', card(2), 'feat/t2'], depsOf(world, null))
     expect(result.exitCode).toBe(0)
     expect(lines(world)[0]).not.toHaveProperty('session')
     expect(result.stdout.join('\n')).toContain('WINDOW UNKNOWN (no session)')
@@ -85,10 +100,10 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
 
   it('w1: refuses an existing tree path and writes nothing', () => {
     const world = newWorld()
-    mkdirSync(path.join(world.root, 'mc-t3'))
-    const result = runTaskStart(['t3', 'feat/t3'], depsOf(world))
+    mkdirSync(path.join(world.root, 'mc-3'))
+    const result = runTaskStart(['feat/t3', '--card', card(3)], depsOf(world))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr[0]).toMatch(/^\[task:start\] .*mc-t3 already exists/)
+    expect(result.stderr[0]).toMatch(/^\[task:start\] .*mc-3 already exists/)
     expect(existsSync(world.journal)).toBe(false)
     expect(git(world.repo, ['branch', '--list', 'feat/t3']).trim()).toBe('')
   })
@@ -96,16 +111,49 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
   it('w1: refuses an existing local branch and writes nothing', () => {
     const world = newWorld()
     git(world.repo, ['branch', 'feat/t4'])
-    const result = runTaskStart(['t4', 'feat/t4'], depsOf(world))
+    const result = runTaskStart(['feat/t4', '--card', card(4)], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toMatch(/^\[task:start\] branch feat\/t4 already exists/)
-    expect(existsSync(path.join(world.root, 'mc-t4'))).toBe(false)
+    expect(existsSync(path.join(world.root, 'mc-4'))).toBe(false)
     expect(existsSync(world.journal)).toBe(false)
   })
 
-  it('w1: refuses a task id that would leave the parent directory', () => {
+  it('w1: refuses a --card with no value or without a branch', () => {
     const world = newWorld()
-    expect(runTaskStart(['../x', 'feat/x'], depsOf(world)).exitCode).toBe(1)
-    expect(runTaskStart(['x'], depsOf(world)).stderr[0]).toMatch(/^\[task:start\] usage:/)
+    expect(runTaskStart(['feat/x', '--card'], depsOf(world)).stderr[0]).toMatch(/^\[task:start\] usage:/)
+    expect(runTaskStart(['--card', card(5)], depsOf(world)).stderr[0]).toMatch(/^\[task:start\] usage:/)
+  })
+})
+
+describe('w2: task:start refuses a card of the wrong form, and the old call', () => {
+  it.each([
+    ['an unknown milestone', card(11, 'implement/moon/S/cheap/auto'), `milestone 'moon' is not one of`],
+    ['kind probe with decision owner', card(12, 'probe/ghosts/S/cheap/owner'), 'kind probe takes decision none, not owner'],
+    ['a bad size', card(13, 'implement/ghosts/XL/cheap/auto'), `size 'XL' is not one of XS, S, M, L`],
+    ['no · depends', '#14 x [implement/ghosts/S/cheap/auto] · blocks —', `'· depends <#id …|—>' must follow`],
+  ])('w2: refuses %s with the reason, cuts no tree and writes no line', (_, line, reason) => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/bad', '--card', line], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toContain('[task:start] card refused: ')
+    expect(result.stderr[0]).toContain(reason)
+    expect(readdirSync(world.root).filter(name => name.startsWith('mc-'))).toEqual([])
+    expect(existsSync(world.journal)).toBe(false)
+  })
+
+  it('w2: refuses the old task:start <id> <branch> and names the new form', () => {
+    const world = newWorld()
+    const result = runTaskStart(['t1', 'feat/t1'], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] a task starts from its card now: usage: pnpm task:start <branch> --card "<card>"; the id is the card's #<id>`])
+    expect(existsSync(path.join(world.root, 'mc-t1'))).toBe(false)
+  })
+})
+
+describe('the journal path follows the card contour', () => {
+  it('writes path ladder for a ladder card', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/l', '--card', card(21, 'implement/ghosts/L/ladder/owner')], depsOf(world)).exitCode).toBe(0)
+    expect(lines(world)[0]).toMatchObject({ task: '21', path: 'ladder' })
   })
 })

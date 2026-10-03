@@ -83,11 +83,23 @@ brief, witnesses and a Ghost). What fits each is listed there and not repeated h
 not the default, and the cheap path keeps its discipline: CI and
 [architecture/owner-merges.md](owner-merges.md) apply to it unchanged.
 
-A cheap-path task starts only with `pnpm task:start <id> <branch>`, which cuts `../mc-<id>` from `origin/main` and
-writes the journal start line; a task with no start line was not started on the cheap path, whatever its branch is
-called. The `event:path` line that closes the task — the one carrying its `pr`, or its `report` when the outcome is a
-refusal or a report — carries `verification`, and a closing line without that word does not close the task: the board
-shows its verification as UNKNOWN until a line that carries it is written. The line and the words are in
+Work handed over has a card, and the journal, the shift report and the window's report only project it. The card is
+one line, for a person and for the machine alike:
+`#<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>`. The id is the
+task's number in the parking list, the name a slug, `kind` is `implement` or `probe`, `size` one of `XS`, `S`, `M`,
+`L`, `contour` `cheap` or `ladder`, `decision` `owner`, `auto` or `none`; the milestones are the closed list in
+`scripts/ghosts/milestones.ts`, and `blocks` may end in free text after its ids. The card is the owner's statement: the
+machine checks its form and its mechanical consequences — a probe takes decision `none`, an implement task `owner`
+or `auto` — and never re-classifies what it means. The window's report on a task opens with the card and then
+`result:`; the first line of its pull request description is the card.
+
+A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
+`../mc-<id>` from `origin/main` and writes the journal start line carrying the card; a task with no start line was not
+started on the cheap path, whatever its branch is called. It closes with `pnpm task:close <id> (--pr <N> | --report
+<path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
+whose start line carries no card. That `event:path` line carries `verification`, and a closing line without that word
+does not close the task: the board shows its verification as UNKNOWN until a line that carries it is written. The line
+and the words are in
 [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement

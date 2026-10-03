@@ -5,11 +5,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { parseCard } from './card.js'
 
 export const PREFIX = '[task:start] '
-export const USAGE = 'usage: tsx scripts/ghosts/task-start.ts <task-id> <branch>'
+export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
+const CARD_FLAG = '--card'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
-const SAFE_ID = /^[\w.-]+$/
 const SAFE_BRANCH = /^[^\s-]\S*$/
 
 export interface TaskStartDeps {
@@ -47,12 +48,27 @@ function branchExists(deps: TaskStartDeps, repo: string, branch: string): boolea
   }
 }
 
+function cardArgs(argv: string[]): { branch: string, card: string } | null {
+  const at = argv.indexOf(CARD_FLAG)
+  const card = argv[at + 1]
+  if (at === -1 || card === undefined)
+    return null
+  const positional = argv.filter((_, index) => index !== at && index !== at + 1)
+  return positional.length === 1 ? { branch: positional[0]!, card } : null
+}
+
 export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResult {
-  const [id, branch, ...extra] = argv
-  if (id === undefined || branch === undefined || extra.length > 0)
+  if (!argv.includes(CARD_FLAG))
+    return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
+  const args = cardArgs(argv)
+  if (args === null)
     return refuse(USAGE)
-  if (!SAFE_ID.test(id))
-    return refuse(`task id '${id}' must be letters, digits, '.', '_' or '-'`)
+  const { branch } = args
+  const parsed = parseCard(args.card)
+  if (parsed.kind === 'refused')
+    return refuse(`card refused: ${parsed.reason}; nothing written`)
+  const { card } = parsed
+  const id = String(card.id)
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
   let repo: string
@@ -76,7 +92,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   }
   const at = deps.now().toISOString()
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const line = { event: 'path', task: id, path: 'cheap', started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, ts: at }
   try {
     deps.append(journal, `${JSON.stringify(line)}\n`)
   }

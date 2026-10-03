@@ -1,9 +1,14 @@
 import type { ShiftTask } from '../../shift/task-file.js'
 import { describe, expect, it } from 'vitest'
+import { parseCard } from '../../ghosts/card.js'
 import { openPrWarnings, relation, taskConflicts } from '../../shift/overlap.js'
 
+const CARD = parseCard('#1 overlap [implement/ghosts/S/cheap/auto] · depends — · blocks —')
+
 function task(file: string, id: string, touches: string[], branch = `feat/${id}`): ShiftTask {
-  return { file, number: file.slice(0, 2), id, branch, touches, body: 'x' }
+  if (CARD.kind === 'refused')
+    throw new Error(CARD.reason)
+  return { file, number: file.slice(0, 2), id, card: CARD.card, branch, touches, body: 'x' }
 }
 
 describe('relation', () => {
