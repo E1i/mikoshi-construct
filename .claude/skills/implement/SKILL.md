@@ -129,11 +129,13 @@ repository's CLAUDE.md and `construct.json`.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
      ran; `validationError` carries the validator's text. It is also the status of a rung whose
      witness is invalid (outcome `witness invalid`, checked after a witness not run verbatim and
-     before an unwitnessed acceptance): after the change the witness exited 126 or 127, exited 2 with
-     a shell syntax error, or failed with the same exit code and the same last lines as on the base
-     once every temporary path is replaced by `<tmp>`. No implementation can turn such a witness
-     green, so the run stops at that rung, with no higher rung and no design step, and the reason
-     names the witness; `validationError` carries it.
+     before an unwitnessed acceptance): after the change the witness exited 126 or 127, or exited 2
+     with a shell syntax error, on any rung; or it failed with the same exit code and the same last
+     lines as on the base, once every temporary path is replaced by `<tmp>`, on this rung and on the
+     rung before it. One rung failing as on the base is an unwitnessed acceptance and the ladder goes
+     on; a rung between that does not fail that way starts the count again. No implementation can turn
+     such a witness green, so the run stops at that rung, with no higher rung and no design step, and
+     the reason names the witness; `validationError` carries it.
    - `stopped` — the run was stopped from outside before it returned, so the runtime gave no result.
      It is the one status the script never returns; you write it.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)

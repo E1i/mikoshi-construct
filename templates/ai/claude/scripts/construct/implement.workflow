@@ -238,6 +238,7 @@ function implementerPrompt(spec, feedback) {
 
 let spec = null
 let feedback = null
+let failingAsOnTheBase = { rung: 0, criteria: [] }
 let designComplete = false
 let designFailed = false
 let designError = ''
@@ -290,11 +291,21 @@ function shellCouldNotRun(witness) {
     || (witness.afterExitCode === SHELL_SYNTAX_ERROR_EXIT && SHELL_SYNTAX_ERROR.test(witness.afterExcerpt ?? ''))
 }
 
-function invalidWitnessItems(observed) {
+function failingAsOnTheBaseItems(observed) {
   return witnessDigests
     .filter((fixed) => {
       const witness = observedFor(fixed, observed)
-      return witness != null && witness.afterExitCode !== 0 && (shellCouldNotRun(witness) || failsTheSameWay(witness))
+      return witness != null && witness.afterExitCode !== 0 && failsTheSameWay(witness)
+    })
+    .map(fixed => fixed.criterion)
+}
+
+function invalidWitnessItems(observed, failingAsOnTheBaseOnThePreviousRung) {
+  return witnessDigests
+    .filter((fixed) => {
+      const witness = observedFor(fixed, observed)
+      return witness != null && witness.afterExitCode !== 0
+        && (shellCouldNotRun(witness) || (failsTheSameWay(witness) && failingAsOnTheBaseOnThePreviousRung.includes(fixed.criterion)))
     })
     .map(fixed => fixed.criterion)
 }
@@ -527,7 +538,10 @@ for (const [index, effort] of rungs.entries()) {
   }
   const touchedImmutable = harnessPassed && !unchanged ? verdict.changedFiles.filter(isImmutable) : []
   const unrun = harnessPassed && !unchanged && touchedImmutable.length === 0 ? unrunVerbatimItems(verdict.witnesses ?? []) : []
-  const invalid = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 ? invalidWitnessItems(verdict.witnesses ?? []) : []
+  const witnessesReached = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0
+  const failingAsOnTheBaseOnThePreviousRung = failingAsOnTheBase.rung === rung - 1 ? failingAsOnTheBase.criteria : []
+  failingAsOnTheBase = { rung, criteria: witnessesReached ? failingAsOnTheBaseItems(verdict.witnesses ?? []) : [] }
+  const invalid = witnessesReached ? invalidWitnessItems(verdict.witnesses ?? [], failingAsOnTheBaseOnThePreviousRung) : []
   const unwitnessed = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 ? unwitnessedItems(verdict.witnesses ?? []) : []
   const changedSourceFiles = harnessPassed && !unchanged ? verdict.changedFiles.filter(isSourceFile) : []
   const untested = harnessPassed && !unchanged && touchedImmutable.length === 0 && unrun.length === 0 && invalid.length === 0 && unwitnessed.length === 0
