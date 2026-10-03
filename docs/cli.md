@@ -1420,7 +1420,10 @@ ledger.
 start order: the step (`preflight`, `design`, `implement` or `verify`, from the agent's workflow
 phase), its role (the agent type), the attempt (the second `implement` of a run is attempt 2), the
 effort its label names after `@`, its tokens (input, cache-write and output, each request counted once
-by `requestId`; cache reads are left out) and its seconds (first record to last). Claude Code clears
+by `requestId`; cache reads are left out) and its seconds (first record to last). The step comes from
+the workflow phase alone: an agent with no phase, or with a phase that is none of the four, is unread
+(its run, its label and the reason), and its run is not split at all. A run whose directory is not
+exactly one under the Claude Code projects is not split either. Claude Code clears
 old session files, so the split of each run is appended to `.construct/steps.jsonl` the first time it
 is read, and every later read takes that line instead of the transcript; a line is never rewritten.
 The cache holds those counts and nothing of a prompt or a response. The text and `--json` reports do
