@@ -82,9 +82,12 @@ brief, witnesses and a Ghost). What fits each is listed there and not repeated h
 not the default, and the cheap path keeps its discipline: CI and
 [architecture/owner-merges.md](owner-merges.md) apply to it unchanged.
 
-A cheap-path task starts with `pnpm task:start <id> <branch>`, which cuts `../mc-<id>` from `origin/main` and writes the journal start line.
-
-The journal line and its `verification` word are in [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
+A cheap-path task starts only with `pnpm task:start <id> <branch>`, which cuts `../mc-<id>` from `origin/main` and
+writes the journal start line; a task with no start line was not started on the cheap path, whatever its branch is
+called. The `event:path` line that closes the task — the one carrying its `pr`, or its `report` when the outcome is a
+refusal or a report — carries `verification`, and a closing line without that word does not close the task: the board
+shows its verification as UNKNOWN until a line that carries it is written. The line and the words are in
+[AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
