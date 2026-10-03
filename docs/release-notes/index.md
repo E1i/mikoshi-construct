@@ -4,6 +4,12 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.34.0
+
+### Minor Changes
+
+- [#456](https://github.com/E1i/mikoshi-construct/pull/456) [`2400dcb`](https://github.com/E1i/mikoshi-construct/commit/2400dcb84e187b8be4a8e59744da0765585e773f) Thanks [@E1i](https://github.com/E1i)! - templates: the `/implement` ladder stops on a witness that fails as on the base only when it does so on two rungs in a row; on one rung the ladder goes on to the next, and a witness the shell cannot run still stops the run at once
+
 ## 0.33.1
 
 ### Patch Changes
