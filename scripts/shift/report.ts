@@ -2,21 +2,24 @@ import type { BudgetLine } from '../board/eddies.js'
 import type { GhRunner, PrList } from '../board/gh.js'
 import type { TaskLine } from './places.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
+import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cardHead } from '../ghosts/card.js'
 import { exitedWithoutReport, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
 
 export const PREFIX = '[shift:report] '
 export const USAGE = 'usage: pnpm shift:report <dir>'
-const COLUMNS = ['task', 'exit', 'duration', 'PR', 'eddies stop', 'report'] as const
+const COLUMNS = ['task', 'exit', 'duration', 'PR', 'closed', 'eddies stop', 'report'] as const
 const RESULT_LINE = /^result:(.*)$/m
 
 export interface ReportDeps {
   cwd: string
+  handoffDir: string
   gh: GhRunner
   read: (file: string) => string | null
   budget: (worktree: string) => BudgetLine[]
@@ -69,6 +72,24 @@ function prCell(list: PrList, line: TaskLine): string {
   return line.card?.kind === 'probe' ? '—' : 'no PR'
 }
 
+function verificationsByTask(journal: string | null): Map<string, string> {
+  return new Map((journal ?? '').split('\n').flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, verification?: unknown } | null
+      return entry?.event === 'path' && typeof entry.task === 'string' && typeof entry.verification === 'string' ? [[entry.task, entry.verification] as const] : []
+    }
+    catch {
+      return []
+    }
+  }))
+}
+
+function closedCell(closed: Map<string, string>, line: TaskLine): string {
+  if (line.refused !== undefined)
+    return '—'
+  return closed.get(line.task) ?? 'not closed'
+}
+
 function eddiesCell(deps: ReportDeps, line: TaskLine): string {
   if (line.worktree === null)
     return '—'
@@ -105,11 +126,13 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   }
   const lines = taskLines(journal)
   const prs = listPrs(deps.gh, REPO)
+  const closed = verificationsByTask(deps.read(path.join(deps.handoffDir, 'ghosts.jsonl')))
   const rows = lines.map(line => [
     taskCell(line),
     exitCell(line),
     durationCell(line.started, line.ended),
     prCell(prs, line),
+    closedCell(closed, line),
     eddiesCell(deps, line),
     reportCell(deps, dir, line),
   ])
@@ -121,6 +144,7 @@ export function runReport(argv: string[], deps: ReportDeps): number {
 function realDeps(): ReportDeps {
   return {
     cwd: process.cwd(),
+    handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
     gh: execGh,
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     budget: worktree => readBudgetLines(worktree),
