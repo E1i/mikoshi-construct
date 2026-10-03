@@ -6,6 +6,8 @@ const CONFIG_EXTENSIONS = ['.json', '.yaml', '.yml', '.workflow']
 const MODULE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json']
 const TEST_SEGMENTS = ['tests', '__tests__', 'e2e', 'fixtures']
 const TEST_BASENAME = /\.(?:test|spec)\./
+const TEMPLATES_DIR = 'templates/'
+const PRODUCT_DIR = 'src/'
 
 export function isTestPath(file: string): boolean {
   const segments = file.split('/')
@@ -45,9 +47,20 @@ export function reaches(file: string, text: string, target: string): boolean {
   return importedPaths(file, text).some(imported => imported === stem || imported === indexed)
 }
 
+function templateGroups(target: string): string[] {
+  if (!target.startsWith(TEMPLATES_DIR))
+    return []
+  const segments = target.slice(TEMPLATES_DIR.length).split('/').slice(0, -1)
+  return segments.map((_, index) => segments.slice(0, index + 1).join('/'))
+}
+
+function namesTemplateGroup(file: string, text: string, target: string): boolean {
+  return file.startsWith(PRODUCT_DIR) && templateGroups(target).some(group => text.includes(`'${group}'`) || text.includes(`"${group}"`))
+}
+
 export function unreachedFiles(tree: Tree, files: Iterable<string>): string[] {
   const reachers = [...tree.files].filter(file => !isTestPath(file) && (isCodeOrConfig(file) || (file.startsWith('.claude/') && file.endsWith('.md'))))
-  return [...new Set(files)].filter(target => !reachers.some(file => file !== target && reaches(file, tree.read(file), target))).sort()
+  return [...new Set(files)].filter(target => !reachers.some(file => file !== target && (reaches(file, tree.read(file), target) || namesTemplateGroup(file, tree.read(file), target)))).sort()
 }
 
 export function nameAppearsElsewhere(tree: Tree, declaringFile: string, name: string, nameStart: number): boolean {
