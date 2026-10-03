@@ -1,3 +1,4 @@
+import type { Card } from '../ghosts/card.js'
 import type { JournalEntry } from '../ghosts/journal.js'
 import type { TasksFile } from '../ghosts/tasks.js'
 import type { LedgerStage } from '../ghosts/watch-ledger.js'
@@ -55,6 +56,7 @@ export interface PathEvent {
   session?: string
   worktree?: string
   branch?: string
+  card?: Card
   ts: string
 }
 

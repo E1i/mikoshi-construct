@@ -4,10 +4,12 @@ import type { GhRunner, PrDetails, PullRequest } from './gh.js'
 import type { GitReader } from './git.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { styleFor } from '../../src/ui/signal.js'
 import { parseEverySeconds } from '../ghosts/every.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
 import { deriveTasks, selectShown, summarize } from './derive.js'
 import { readContextLimits } from './eddies.js'
+import { forecastOf } from './forecast.js'
 import { FRAME_FILE, frameFileIn } from './frame.js'
 import { listPrs, prDetails } from './gh.js'
 import { execGit } from './git.js'
@@ -17,7 +19,7 @@ import { nextOf } from './next.js'
 import { DEFINITIONS, renderBoard, renderCard } from './render.js'
 import { readModelMismatches } from './roles.js'
 import { STALE_HOURS, staleAge } from './stale.js'
-import { legendLines, painter } from './tone.js'
+import { legendLines } from './tone.js'
 import { readTree, readUnregistered } from './tree.js'
 import { readWindow } from './window.js'
 
@@ -236,8 +238,9 @@ export function runBoard(argv: string[], deps: BoardDeps): BoardResult {
     trees,
     unregistered: readUnregistered(deps.repoRoot, handoff.attempts, git),
     nextOf: (attempt: AttemptView) => nextOf(attempt, details.get(attempt.attempt.id), kinds),
+    forecastOf,
     now: deps.now,
-    paint: painter(deps.colour),
+    style: styleFor(deps.colour),
   }
   let stdout: string[]
   if (args.json)

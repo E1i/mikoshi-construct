@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { stripVTControlCharacters } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
+import { colourFor, tonePainter as painter } from '../../../src/ui/signal.js'
 import { CLEAR_SCREEN, FRAME_FILE, frameText, writeFrameFile } from '../../board/frame.js'
 import { ghRunner } from '../../board/gh.js'
 import { runBoardLoop } from '../../board/loop.js'
@@ -15,7 +16,7 @@ import { NEXT_BY_SITUATION } from '../../board/next.js'
 import { formatAge, formatMinutes, summaryLine } from '../../board/render.js'
 import { ageSince } from '../../board/row.js'
 import { HELP, runBoard, USAGE } from '../../board/run.js'
-import { colourFor, painter, TONES } from '../../board/tone.js'
+import { TONES } from '../../board/tone.js'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 
 const STATUS_MD_ZONE = 'UTC'
@@ -715,7 +716,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
     const merged = situation === 'merged'
     expect(mergedIds(list).includes(id)).toBe(merged)
     const cells = rowOf(merged ? board(['--dir', dir, id], stubGh(), undefined, now).stdout : list, id)
-    expect(cells).toHaveLength(8)
+    expect(cells).toHaveLength(10)
     const next = stale === undefined ? NEXT_BY_SITUATION[situation] : `stale ${stale} · ${NEXT_BY_SITUATION[situation]}`
     expect([cells[0], cells[1], cells[2], cells[4]]).toEqual([id, taskPath, stage, next])
   })
@@ -963,7 +964,7 @@ describe('board: a bordered table measured by visible width', () => {
       expect(coloured[index]).toBe(plain[index])
     const table = coloured.slice(start, end + 1).map(line => stripVTControlCharacters(line))
     expect(new Set(table.map(line => line.length)).size).toBe(1)
-    expect(table.filter(line => line.startsWith('│')).map(line => [...line].filter(char => char === '│').length)).toEqual(table.filter(line => line.startsWith('│')).map(() => 9))
+    expect(table.filter(line => line.startsWith('│')).map(line => [...line].filter(char => char === '│').length)).toEqual(table.filter(line => line.startsWith('│')).map(() => 11))
     expect(table).toEqual(plain.slice(start, end + 1))
   })
 })
@@ -1067,5 +1068,41 @@ describe('board --every: the frame on the terminal and in board.txt', () => {
     finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('w9: EXPECT stands next to ACTUAL, and a card ends with the four fields', () => {
+  function withForecast(): string {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-expect-'))
+    cpSync(BASIC, dir, { recursive: true })
+    const journal = path.join(dir, 'ghosts.jsonl')
+    const lines = readFileSync(journal, 'utf8').split('\n').map((line) => {
+      if (!line.includes('"task":"delta-1"') || !line.includes('"event":"task"'))
+        return line
+      return JSON.stringify({ ...JSON.parse(line) as object, session: 'session-delta', expected: { kind: 'forecast', tokens: 1_200_000, minutes: 40, basis: { effort: 'medium', n: 7 } }, actual: { tokens: 950_000, minutes: 32.5 } })
+    })
+    writeFileSync(journal, lines.join('\n'))
+    return dir
+  }
+
+  it('w9: the table carries EXPECT from the journal\'s expected and ACTUAL from its actual, side by side, and — where the journal has none', () => {
+    const dir = withForecast()
+    const stdout = board(['--dir', dir]).stdout
+    const header = stdout.map(line => stripVTControlCharacters(line)).find(line => line.startsWith('│ TASK'))!
+    expect(cellsOf(header).slice(-2)).toEqual(['EXPECT', 'ACTUAL'])
+    expect(rowOf(stdout, 'delta-1').slice(-2)).toEqual(['expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median', 'tokens 950k, minutes 32.5'])
+    expect(rowOf(stdout, 'beta-1').slice(-2)).toEqual(['expect —', '—'])
+  })
+
+  it('w9: the card ends with CONTRACT, EXPECT, ACTION and RESULT read from the journal', () => {
+    const dir = withForecast()
+    const card = board(['--dir', dir, 'delta-1']).stdout
+    expect(card.slice(-5)).toEqual([
+      expect.stringMatching(/^-{4} board delta-1 -+$/),
+      `CONTRACT | ladder · brief ${path.join(dir, 'brief-delta.md')} · law not in the journal`,
+      'EXPECT   | expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median',
+      `ACTION   | ghosts:launch delta-1: /implement ${path.join(dir, 'brief-delta.md')}, session session-delta`,
+      'RESULT   | ghost done 2026-09-28T09:40:00.000Z (ladder done, exit 0)',
+    ])
   })
 })

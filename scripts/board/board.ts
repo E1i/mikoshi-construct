@@ -1,13 +1,13 @@
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { colourFor } from '../../src/ui/signal.js'
 import { sleep } from '../ghosts/every.js'
 import { writeFrameFile } from './frame.js'
 import { execGh } from './gh.js'
 import { execGit, windowsRoot } from './git.js'
 import { runBoardLoop } from './loop.js'
 import { HANDOFF_DIR_VARIABLE, PREFIX, runBoard } from './run.js'
-import { colourFor } from './tone.js'
 
 const defaultDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
 const colour = colourFor(process.stdout.isTTY, process.env.NO_COLOR)

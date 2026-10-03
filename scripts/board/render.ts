@@ -1,12 +1,14 @@
+import type { Paint, Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { AttemptView, Summary, TaskView } from './derive.js'
 import type { ContextLimits } from './eddies.js'
+import type { ForecastOf } from './forecast.js'
 import type { PrDetails } from './gh.js'
 import type { ModelMismatch } from './roles.js'
 import type { Age, NextOf, Row } from './row.js'
-import type { Paint } from './tone.js'
 import type { Tree, Unregistered } from './tree.js'
 import { stripVTControlCharacters } from 'node:util'
-import { FINISHED_SHOWN_HOURS, finishedAt, reportOf, stageText } from './derive.js'
+import { renderSignal } from '../../src/ui/signal.js'
+import { FINISHED_SHOWN_HOURS, finishedAt, latestStage, reportOf, stageText } from './derive.js'
 import { budgetText, contextPercent, eddiesOf, eddiesText } from './eddies.js'
 import { FRAME_FILE } from './frame.js'
 import { REQUIRED_CHECK } from './gh.js'
@@ -31,11 +33,12 @@ export interface BoardView {
   trees: Map<string, Tree | undefined>
   unregistered: Unregistered[]
   nextOf: NextOf
+  forecastOf: ForecastOf
   now: Date
-  paint: Paint
+  style: SignalStyle
 }
 
-const COLUMNS = ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'WINDOW', 'TREE', 'EDDIES'] as const
+const COLUMNS = ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'WINDOW', 'TREE', 'EDDIES', 'EXPECT', 'ACTUAL'] as const
 const ROW_ORDER = ['blocked', 'stale', 'waiting', 'running'] as const
 const BORDERS = {
   top: ['┌', '┬', '┐'],
@@ -47,7 +50,7 @@ export const NOTHING_OPEN = ['nothing running — no tasks, no live windows.', '
 const RULE = '─'
 const SEPARATOR = '│'
 
-const ROW_DEFINITION = '# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR\'s CI and architecture/owner-merges.md, led by stale <age> when the task is stale; EDDIES = ctx <percent> of its live window, stop <n> and warn <n> of its budget lines, — with none'
+const ROW_DEFINITION = '# columns: TASK = the live attempt; PATH = ladder or cheap; STAGE = the latest stage recorded done; AGE = the time since it, "clock skew" when that time is ahead of now; NEXT (derived) = what the task waits for and from whom, from the stage, the PR\'s CI and architecture/owner-merges.md, led by stale <age> when the task is stale; EDDIES = ctx <percent> of its live window, stop <n> and warn <n> of its budget lines, — with none; EXPECT = the journal event:task expected, as ghosts:launch printed it, expect — when the journal has none (the cheap path, a ladder still running); ACTUAL = the journal event:task actual tokens and minutes beside it, — with none'
 
 export const DEFINITIONS = [
   `# board: read-only, except that each --every frame is written to <handoff dir>/${FRAME_FILE}; a stage is a recorded fact, — when it did not happen, or UNKNOWN naming the record that is missing`,
@@ -147,6 +150,8 @@ interface Entry {
   window: string
   tree: string
   eddies: string
+  expect: string
+  actual: string
 }
 
 export function attemptEddies(live: AttemptView): ReturnType<typeof eddiesOf> {
@@ -161,13 +166,14 @@ function entryOf(task: TaskView, view: BoardView): Entry {
     window: windowText(task.live, view.now),
     tree: treeText(view.trees.get(task.live.attempt.id)),
     eddies: eddiesText(attemptEddies(task.live), view.limits),
+    ...view.forecastOf(task.live),
   }
 }
 
-function rowCells({ row, stale, window, tree, eddies }: Entry, paint: Paint): string[] {
+function rowCells({ row, stale, window, tree, eddies, expect, actual }: Entry, paint: Paint): string[] {
   const tone = toneOf(row)
   const next = stale === undefined ? row.next.text : `stale ${formatAge(stale)} · ${row.next.text}`
-  return [row.id, row.path, paint(tone, row.stage?.name ?? '—'), row.age === undefined ? '—' : formatAge(row.age), paint(tone, next), window, tree, eddies]
+  return [row.id, row.path, paint(tone, row.stage?.name ?? '—'), row.age === undefined ? '—' : formatAge(row.age), paint(tone, next), window, tree, eddies, expect, actual]
 }
 
 function rankOf({ stale }: Entry, category: string): number {
@@ -238,7 +244,7 @@ export function renderBoard(view: BoardView): string[] {
   return [
     summaryLine(view.summary, mikoText(view)),
     ...mismatchSummaryLines(view),
-    ...openLines(ordered(view.shown.filter(task => !finished.includes(task)), view), view.paint),
+    ...openLines(ordered(view.shown.filter(task => !finished.includes(task)), view), view.style.paint),
     ...mergedLines(finished, view),
     ...unregisteredLines(view),
   ]
@@ -269,13 +275,44 @@ function edgeLines(task: TaskView, edges: string[] | undefined): string[] {
   return own.length > 0 ? own.map(edge => `edge: ${edge}`) : ['edge: — (the matrix records none for this task)']
 }
 
+const NOT_IN_JOURNAL = 'not in the journal'
+
+function contractText(live: AttemptView): string {
+  const { attempt } = live
+  if (live.path === 'ladder')
+    return `ladder · brief ${attempt.brief ?? '—'} · law ${NOT_IN_JOURNAL}`
+  const card = attempt.pathEvent?.card
+  if (card === undefined)
+    return `cheap · the start line carries no card · touches ${NOT_IN_JOURNAL} · law ${NOT_IN_JOURNAL}`
+  return `${card.kind} · ${card.contour} · ${card.decision} · touches ${NOT_IN_JOURNAL} · law ${NOT_IN_JOURNAL}`
+}
+
+function actionText(live: AttemptView): string {
+  const { attempt } = live
+  if (live.path === 'cheap')
+    return `task:start ${attempt.branch ?? '—'} #${attempt.id}: ${attempt.worktree ?? '—'}`
+  if (attempt.taskEvent === undefined)
+    return `ghosts:launch ${attempt.id}: no journal event:task yet`
+  return `ghosts:launch ${attempt.id}: /implement ${attempt.brief ?? '—'}, session ${attempt.taskEvent.session ?? '—'}`
+}
+
+function resultText(live: AttemptView): string {
+  const stage = latestStage(live)
+  return stage === undefined ? '—' : `${stage.name} ${stageText(stage)}`
+}
+
+function signalOf(entry: Entry, live: AttemptView): Signal {
+  return { CONTRACT: contractText(live), EXPECT: entry.expect, ACTION: actionText(live), RESULT: resultText(live) }
+}
+
 export function renderCard(task: TaskView, view: BoardView): string[] {
   const entry = entryOf(task, view)
   const { row } = entry
   return [
-    ...tableLines([entry], view.paint),
+    ...tableLines([entry], view.style.paint),
     ...attemptLines(task, view.details),
     `next ${row.next.text} (derived${row.next.why === undefined ? '' : `; ${row.next.why}`})`,
     ...edgeLines(task, view.edges),
+    ...renderSignal(`board ${row.id}`, signalOf(entry, task.live), view.style, toneOf(row)),
   ]
 }
