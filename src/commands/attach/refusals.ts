@@ -1,11 +1,11 @@
 import type { CollisionReading } from './earlier.js'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { isEmptyDir } from '../../detect/layout.js'
 import { readTrackedPaths } from '../detach/index-reader.js'
 import { ATTACH_WRITES } from './carriers.js'
 import { collisionReading } from './earlier.js'
 import { unresolvedCommandWord } from './harness.js'
+import { ATTACH_LEDGER_DIR } from './record.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
 export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'no-harness' | 'cursor' | 'not-a-command'
@@ -26,8 +26,14 @@ export interface AttachFlags {
 
 const AI_OUT_OF_SCOPE = ['cursor', 'both']
 
+const NOT_A_PROJECT = new Set(['.git', '.DS_Store', '.gitignore', '.gitattributes', 'LICENSE', 'README.md', '.idea', '.vscode', ATTACH_LEDGER_DIR])
+
 function refusal(reason: AttachRefusalReason, paths: string[] = []): AttachRefusal {
   return { reason, paths }
+}
+
+function holdsNothingToAttach(root: string): boolean {
+  return readdirSync(root).every(entry => NOT_A_PROJECT.has(entry))
 }
 
 function settingsRefusal(root: string): AttachRefusal | null {
@@ -55,7 +61,7 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
     return refusal('linked-git')
   if (existsSync(path.join(root, 'construct.json')))
     return refusal('constructed')
-  if (isEmptyDir(root))
+  if (holdsNothingToAttach(root))
     return refusal('nothing-to-attach')
   const colliding = ATTACH_WRITES.filter(target => existsSync(path.join(root, target)))
   if (colliding.length > 0)
