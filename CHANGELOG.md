@@ -1,5 +1,11 @@
 # mikoshi-construct
 
+## 0.33.1
+
+### Patch Changes
+
+- [#446](https://github.com/E1i/mikoshi-construct/pull/446) [`8fda43b`](https://github.com/E1i/mikoshi-construct/commit/8fda43b14a55a1fad83f50f1509209008e8a76a4) Thanks [@E1i](https://github.com/E1i)! - cli: `construct board` reads a `--prs` list with a null check as unreadable and still prints the board (exit 0), keeps pull request titles whole, and sorts a time ahead of now as the newest in its group
+
 ## 0.33.0
 
 ### Minor Changes
