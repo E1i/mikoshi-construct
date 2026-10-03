@@ -18,6 +18,12 @@ Look for `.construct/`, `.claude/`, `.cursor/`, `scripts/construct/` and `constr
 - When attach has refused on a collision, each path it prints carries one of two labels. construct's own: byte for byte a carrier template of an earlier construct run, so deleting it loses nothing the construct cannot write again. not recognised: attach never writes over it, so it is the owner's; never delete a file labelled not recognised and never put one on a delete command.
 - Attach writes over nothing, not even its own earlier files. The refusal prints the one command that deletes only what is construct's own and runs attach again; give it to the owner as printed.
 
+## An absence is a finding
+
+Every absence you report needs the same proof as something you found: a suite CI does not run, a script, setting or hook nothing uses, a step left out because nothing checks its output or a secret is missing, no hooks at all. Search until you reach the place where the value decides: the CI step that runs the command, the call that reads the setting and acts on it. A file that declares the value, or the loader that reads it in, is not that place: declared or converted is not used. Write the search command and what it returned beside the absence, never the bare word. A search that stopped before that place is reported as `not determined`, with where it stopped.
+
+Example: `grep -rn pytest .github/workflows` returning nothing does not prove that CI skips pytest. Follow what the steps run: `grep -rn 'run:' .github/workflows` → `ci.yml:31: run: make check`, then `grep -n -A3 '^check:' Makefile` → `ruff check .` and no pytest. Those two searches and their output stand beside `not run by CI`.
+
 ## What CI runs
 
 Read every CI definition whole: `.github/workflows`, `.gitlab-ci.yml`, and any other pipeline file the repository carries. For each job that runs on a pull request, list its commands in order and what they need first: a service, a secret, a build output, an installed toolchain.
@@ -72,19 +78,20 @@ A `requirements.txt` with no lock behind it: say "not determinable from a lock".
 - `Makefile`, `pyproject.toml` and the other task and test configs the languages here use.
 - The hooks in `.husky/`, `.pre-commit-config.yaml` and the non-sample files in `.git/hooks/`.
 - Every README, read whole: they name the commands the maintainers say to run.
+- A place that holds nothing, such as no hooks, is an absence: give the listing that showed it empty, as An absence is a finding says.
 
 ## The test surface
 
-Give one table, headed `Suite | Runner | Where | Run by CI`. One row per suite, with the last column holding the job and step that runs it, or `not run by CI`.
+Give one table, headed `Suite | Runner | Where | Run by CI`. One row per suite, with the last column holding the job and step that runs it, or `not run by CI`. A step runs a suite when it calls the suite's runner, directly or through a script you followed to it. `not run by CI` carries the searches that went through every job's steps and what they returned, as An absence is a finding says.
 
-A suite CI does not run is listed in the table and is never added to the proposal. After the table, print those suites again in a list headed `Not run by CI:`, one line per suite, each with where it lives.
+A suite CI does not run is listed in the table and is never added to the proposal. After the table, print those suites again in a list headed `Not run by CI:`, one line per suite, each with where it lives and the search that showed no step runs it.
 
 ## The proposal
 
 Propose exactly one command, in one form. There is no second form that adds the suites CI does not run.
 
 - It mirrors the CI jobs, in order.
-- It leaves out builds whose output nothing checks, image builds, deploys, publishing, and steps that need a secret or a service that is missing. Name each one left out, with why.
+- It leaves out builds whose output nothing checks, image builds, deploys, publishing, and steps that need a secret or a service that is missing. Name each one left out, with why. A why that is an absence, such as nothing checks the output or the secret is not set, carries its search, as An absence is a finding says.
 - Its first word is on `PATH`; a package script name or a binary under `node_modules/.bin` is not. Write the runner in front of it.
 - It carries no `:fix` script, no `--fix` and no `--write`: the gate checks, it never edits.
 - Do not run it to find out whether it passes.
