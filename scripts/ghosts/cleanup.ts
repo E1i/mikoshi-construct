@@ -6,12 +6,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { execGh, listPrs } from '../board/gh.js'
 import { execGit } from '../board/git.js'
 import { readHandoff } from '../board/handoff.js'
 import { handLadderPolicy, handLadderRows } from '../board/policy.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
+import { carryLedgerLines } from './ledger.js'
 import { readTasksFile } from './tasks.js'
 
 const PREFIX = '[ghosts:cleanup] '
@@ -30,6 +32,7 @@ export interface CleanupContext {
   statusText: string | undefined
   journalPath: string
   logsDir: string
+  ledger: string
 }
 
 function escapeRegExp(text: string): string {
@@ -73,6 +76,21 @@ function kept(task: Target, reason: string): string {
   return `ghost-${task.id} kept: ${reason}`
 }
 
+function treeLedger(task: Target): string {
+  return path.join(task.worktree, LEDGER_FILE)
+}
+
+export function carryLedgerOnly(task: Target, ledger: string): string {
+  if (!existsSync(task.worktree))
+    return `ghost-${task.id} ledger: no worktree at ${task.worktree}`
+  try {
+    return `ghost-${task.id} ledger: ${carryLedgerLines(treeLedger(task), ledger)} lines carried into ${ledger}; worktree kept`
+  }
+  catch (error) {
+    return `ghost-${task.id} ledger: lines could not be carried into ${ledger}: ${firstLine(error)}; worktree kept`
+  }
+}
+
 export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   if (handLadderRows(ctx.statusText).has(task.id))
     return kept(task, `status.md policy ${handLadderPolicy(task.id)}; a hand-ladder worktree is never removed`)
@@ -87,6 +105,7 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
     return kept(task, `PR #${pr.number} is ${pr.state}, not merged`)
 
   const removed: string[] = []
+  let carried = ''
   if (existsSync(task.worktree)) {
     let dirty: number
     try {
@@ -97,6 +116,12 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
     }
     if (dirty > 0)
       return kept(task, `PR #${pr.number} merged, but ${task.worktree} is dirty (${dirty} changed paths)`)
+    try {
+      carried = `; ${carryLedgerLines(treeLedger(task), ctx.ledger)} ledger lines carried into ${ctx.ledger}`
+    }
+    catch (error) {
+      return kept(task, `PR #${pr.number} merged, but its ledger lines could not be carried into ${ctx.ledger}: ${firstLine(error)}`)
+    }
     execFileSync('git', ['-C', ctx.repo, 'worktree', 'remove', task.worktree], { stdio: 'pipe' })
     removed.push(`worktree ${task.worktree}`)
   }
@@ -105,7 +130,7 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   for (const log of logs)
     rmSync(log)
   removed.push(`${logs.length} quality logs`)
-  return `ghost-${task.id} removed: PR #${pr.number} merged; ${removed.join(' and ')}`
+  return `ghost-${task.id} removed: PR #${pr.number} merged${carried}; ${removed.join(' and ')}`
 }
 
 function defaultRepo(cwd: string): string | undefined {
@@ -122,6 +147,11 @@ function toplevel(): string {
   return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
+function mainLedger(repoRoot: string): string {
+  const commonDir = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return path.join(path.dirname(commonDir), LEDGER_FILE)
+}
+
 function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target[], unregistered: string[] } {
   const { attempts } = readHandoff(handoffDir)
   const targets = attempts.flatMap(attempt => attempt.worktree === undefined || attempt.branch === undefined
@@ -132,10 +162,17 @@ function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target
 }
 
 function main(): void {
-  const { values } = parseArgs({ args: process.argv.slice(2), options: { tasks: { type: 'string' }, repo: { type: 'string' }, logs: { type: 'string' } } })
+  const { values } = parseArgs({ args: process.argv.slice(2), options: { 'tasks': { type: 'string' }, 'repo': { type: 'string' }, 'logs': { type: 'string' }, 'ledger-only': { type: 'boolean' } } })
   const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   const tasksData = values.tasks === undefined ? undefined : readTasksFile(values.tasks)
   const repoRoot = tasksData?.repo ?? toplevel()
+  const ledger = mainLedger(repoRoot)
+  const { targets, unregistered } = tasksData === undefined ? handoffTargets(handoffDir, repoRoot) : { targets: tasksData.tasks, unregistered: [] }
+  if (values['ledger-only'] === true) {
+    for (const task of targets)
+      console.log(`${PREFIX}${carryLedgerOnly(task, ledger)}`)
+    return
+  }
   const repo = values.repo ?? defaultRepo(repoRoot)
   const statusPath = tasksData?.status ?? path.join(handoffDir, 'status.md')
   const ctx: CleanupContext = {
@@ -144,8 +181,8 @@ function main(): void {
     statusText: existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined,
     journalPath: path.join(tasksData?.out ?? handoffDir, 'ghosts.jsonl'),
     logsDir: values.logs ?? DEFAULT_LOGS_DIR,
+    ledger,
   }
-  const { targets, unregistered } = tasksData === undefined ? handoffTargets(handoffDir, repoRoot) : { targets: tasksData.tasks, unregistered: [] }
   for (const task of targets)
     console.log(`${PREFIX}${cleanupMerged(task, ctx)}`)
   for (const line of unregistered)

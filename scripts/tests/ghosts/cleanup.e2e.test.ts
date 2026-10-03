@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,6 +15,7 @@ const ALL_LOGS = [...TASK_LOGS, FOREIGN_LOG].sort()
 
 interface World {
   root: string
+  repo: string
   worktree: string
   logs: string
   handoff: string
@@ -47,6 +48,7 @@ function newWorld(prState: string, statusExtra = '', ghMode: GhMode = 'answers')
 
   git(repo, ['init', '-q', '-b', 'main'])
   writeFileSync(path.join(repo, 'README.md'), 'world\n')
+  writeFileSync(path.join(repo, '.gitignore'), '.construct/\n')
   git(repo, ['add', '.'])
   git(repo, ['commit', '-q', '-m', 'world'])
   git(repo, ['worktree', 'add', '-q', '-b', 'ghost/g1', worktree])
@@ -66,7 +68,14 @@ function newWorld(prState: string, statusExtra = '', ghMode: GhMode = 'answers')
     out: handoff,
     tasks: [{ id: 'g1', brief: path.join(handoff, 'brief-g1.md'), worktree, branch: 'ghost/g1' }],
   }))
-  return { root, worktree, logs, handoff }
+  return { root, repo, worktree, logs, handoff }
+}
+
+function runRaw(w: World, script: string, args: string[]): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, [TSX_CLI, script, '--tasks', path.join(w.root, 'tasks.json'), ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}` },
+  })
 }
 
 function run(w: World, script: string, args: string[]): string {
@@ -103,6 +112,23 @@ function cleanup(w: World): string {
   return run(w, CLEANUP, ['--logs', w.logs])
 }
 
+const RUN_A = { run: 'wf_a', at: '2026-10-01T10:00:00.000Z', task: 'a', effort: 'low', status: 'done', rung: 'low', attempts: [], agents: 1, tokens: 10, toolUses: 1, seconds: 60 }
+const RUN_B = { ...RUN_A, run: 'wf_b', at: '2026-10-02T10:00:00.000Z', task: 'b' }
+const OLDER = { ...RUN_A, run: 'wf_old', at: '2026-09-20T10:00:00.000Z', task: 'old' }
+
+function mainLedger(w: World): string {
+  return path.join(w.repo, '.construct', 'runs.jsonl')
+}
+
+function writeLedger(file: string, rows: object[]): void {
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, rows.map(row => `${JSON.stringify(row)}\n`).join(''))
+}
+
+function ledgerRuns(file: string): string[] {
+  return readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => (JSON.parse(line) as { run: string }).run)
+}
+
 function logsLeft(w: World): string[] {
   return readdirSync(w.logs).sort()
 }
@@ -118,7 +144,7 @@ describe('ghosts:cleanup removes a merged task\'s worktree and quality logs', ()
     const out = cleanup(w)
     expect(existsSync(w.worktree)).toBe(false)
     expect(logsLeft(w)).toEqual([FOREIGN_LOG])
-    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; worktree ${w.worktree} and 2 quality logs\n`)
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
   })
 
   it('w2: keeps the worktree and the logs while the PR is open', () => {
@@ -172,7 +198,7 @@ describe('w4: ghosts:cleanup without --tasks reads the attempts from the journal
     startLines(w)
     const out = cleanupFromHandoff(w)
     expect(existsSync(w.worktree)).toBe(false)
-    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; worktree ${w.worktree} and 2 quality logs\n`)
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
   })
 })
 
@@ -191,5 +217,40 @@ describe('w5: ghosts:cleanup never removes a tree no task names', () => {
     expect(existsSync(stray)).toBe(true)
     expect(existsSync(w.worktree)).toBe(true)
     expect(out).toContain(`[ghosts:cleanup] unregistered ${stray} kept: named by no task\n`)
+  })
+})
+
+describe('ghosts:cleanup carries a tree\'s ledger lines into the main ledger before it removes the tree', () => {
+  it('l1: a tree with two lines, one already in the main ledger, leaves both in the main ledger once, in order, and the tree removed', () => {
+    const w = newWorld('MERGED')
+    writeLedger(mainLedger(w), [OLDER, RUN_A])
+    writeLedger(path.join(w.worktree, '.construct', 'runs.jsonl'), [RUN_A, RUN_B])
+    const out = cleanup(w)
+    expect(ledgerRuns(mainLedger(w))).toEqual(['wf_old', 'wf_a', 'wf_b'])
+    expect(existsSync(w.worktree)).toBe(false)
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; 1 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+  })
+
+  it('l2: keeps the tree and names the reason when the main ledger cannot be written', () => {
+    const w = newWorld('MERGED')
+    writeLedger(mainLedger(w), [OLDER])
+    chmodSync(mainLedger(w), 0o444)
+    writeLedger(path.join(w.worktree, '.construct', 'runs.jsonl'), [RUN_A])
+    const out = cleanup(w)
+    expect(existsSync(path.join(w.worktree, '.construct', 'runs.jsonl'))).toBe(true)
+    expect(logsLeft(w)).toEqual(ALL_LOGS)
+    expect(out).toContain(`[ghosts:cleanup] ghost-g1 kept: PR #7 merged, but its ledger lines could not be carried into ${mainLedger(w)}: EACCES`)
+    expect(ledgerRuns(mainLedger(w))).toEqual(['wf_old'])
+  })
+
+  it('l3: --ledger-only carries the lines of a tree whose PR is still open and removes nothing', () => {
+    const w = newWorld('OPEN')
+    writeLedger(path.join(w.worktree, '.construct', 'runs.jsonl'), [RUN_A, RUN_B])
+    const result = runRaw(w, CLEANUP, ['--logs', w.logs, '--ledger-only'])
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toBe(`[ghosts:cleanup] ghost-g1 ledger: 2 lines carried into ${mainLedger(w)}; worktree kept\n`)
+    expect(ledgerRuns(mainLedger(w))).toEqual(['wf_a', 'wf_b'])
+    expect(existsSync(w.worktree)).toBe(true)
+    expect(logsLeft(w)).toEqual(ALL_LOGS)
   })
 })
