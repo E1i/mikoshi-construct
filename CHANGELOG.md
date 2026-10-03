@@ -1,5 +1,25 @@
 # mikoshi-construct
 
+## 0.35.0
+
+### Minor Changes
+
+- [#463](https://github.com/E1i/mikoshi-construct/pull/463) [`86cfe6e`](https://github.com/E1i/mikoshi-construct/commit/86cfe6e9c1b731daf49071a85f327baf6d4a3398) Thanks [@E1i](https://github.com/E1i)! - templates: a browser witness carrier, `scripts/construct/browser-witness.mjs`, starts a dev server on a free port, opens its pages in system Chrome at the widths asked for, and exits 0 when every assertion holds, 1 when one is false and 127 when it could not observe (`could not observe: …`) or was called wrongly (`usage error: …`); `init` and `attach` write it
+
+- [#471](https://github.com/E1i/mikoshi-construct/pull/471) [`2bfdb52`](https://github.com/E1i/mikoshi-construct/commit/2bfdb5295c6bf909891e027fed56c7e546fe1c5b) Thanks [@E1i](https://github.com/E1i)! - templates: the commit guard `attach` installs refuses with exit 2 on everything but an explicit allow, so input that is not a JSON object or an error while checking a call no longer exits 1, on which Claude Code runs the `git commit` anyway
+
+- [#459](https://github.com/E1i/mikoshi-construct/pull/459) [`d6280bf`](https://github.com/E1i/mikoshi-construct/commit/d6280bf0687b93a826f7935d01c2b02ae7df6af0) Thanks [@E1i](https://github.com/E1i)! - templates: `attach --entry` and `/construct-discover` have the agent name, before anything is installed, the Python version a repository needs and the file it came from, the interpreter and the command that selects it, and which locked packages build from source, what that build needs and for which architecture
+
+- [#472](https://github.com/E1i/mikoshi-construct/pull/472) [`a73d5f8`](https://github.com/E1i/mikoshi-construct/commit/a73d5f86c2869e5302d33e1ab11cc11178f333f7) Thanks [@E1i](https://github.com/E1i)! - cli: `construct board` adds the columns `EXPECT` (`expect not recorded in .construct/runs.jsonl` on a ladder row) and `ACTUAL` (the run's tokens and seconds) after `NEXT`; `--json` is unchanged
+
+- [#473](https://github.com/E1i/mikoshi-construct/pull/473) [`90bf98c`](https://github.com/E1i/mikoshi-construct/commit/90bf98cfe0f34face12f2662aed5d58bbda2a5f2) Thanks [@E1i](https://github.com/E1i)! - cli: `construct cost` keeps the steps of each ledger run — role, attempt, effort, tokens, seconds — in `.construct/steps.jsonl`, so a run's split survives after Claude Code clears its session files.
+
+### Patch Changes
+
+- [#460](https://github.com/E1i/mikoshi-construct/pull/460) [`38ac698`](https://github.com/E1i/mikoshi-construct/commit/38ac69839d23367a1e8a10c881f64b018e8abd37) Thanks [@E1i](https://github.com/E1i)! - ghosts: `pnpm ghosts:cleanup` appends a worktree's ladder ledger lines that the main tree's `.construct/runs.jsonl` lacks before it removes the worktree, keeps the worktree when they cannot be written, and `--ledger-only` carries them without removing anything
+
+- [#474](https://github.com/E1i/mikoshi-construct/pull/474) [`30c3a92`](https://github.com/E1i/mikoshi-construct/commit/30c3a9288d973cc8a79623169ca08b8796db31eb) Thanks [@E1i](https://github.com/E1i)! - cli: `construct cost` takes a run's step only from the agent's workflow phase, never from its type; an agent whose phase is not a step is reported unread and its run is not written to the step cache
+
 ## 0.34.0
 
 ### Minor Changes
