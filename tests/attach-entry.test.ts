@@ -77,6 +77,54 @@ describe('attach --entry', () => {
   })
 })
 
+const ABSENCE_RULE = 'An absence is a finding'
+
+function section(heading: string): string {
+  const start = PROTOCOL.indexOf(`\n## ${heading}\n`)
+  if (start === -1)
+    return ''
+  const body = PROTOCOL.slice(start + heading.length + 5)
+  const end = body.indexOf('\n## ')
+  return end === -1 ? body : body.slice(0, end)
+}
+
+const SECTIONS_THAT_REPORT_AN_ABSENCE: Record<string, string> = {
+  'What the repository can run': 'no hooks',
+  'The test surface': 'not run by CI',
+  'The proposal': 'left out',
+}
+
+describe('the attach entry protocol proves an absence like a finding', () => {
+  it('sends the search past the declaring file and the loader to the step or call where the value decides', () => {
+    const rule = section(ABSENCE_RULE)
+    expect(rule).toContain('the place where the value decides')
+    expect(rule).toContain('the CI step that runs the command')
+    expect(rule).toContain('the call that reads the setting and acts on it')
+    expect(rule).toMatch(/A file that declares the value, or the loader that reads it in, is not that place/)
+    expect(rule).toContain('`not determined`')
+  })
+
+  it('puts the search command and what it returned beside every absence', () => {
+    const rule = section(ABSENCE_RULE)
+    expect(rule).toContain('Write the search command and what it returned beside the absence, never the bare word')
+    expect(section('The test surface')).toMatch(/`not run by CI` carries the searches that went through every job's steps and what they returned/)
+    expect(section('The test surface')).toMatch(/`Not run by CI:`, one line per suite, each with where it lives and the search that showed no step runs it/)
+  })
+
+  it.each(Object.entries(SECTIONS_THAT_REPORT_AN_ABSENCE))('holds %s to the rule where it asks for %s', (heading, absence) => {
+    const body = section(heading)
+    expect(body).toContain(absence)
+    expect(body).toContain(`as ${ABSENCE_RULE} says`)
+  })
+
+  it('keeps the proposal one command that carries no fix and is never run', () => {
+    const proposal = section('The proposal')
+    expect(proposal).toContain('Propose exactly one command, in one form.')
+    expect(proposal).toContain('It carries no `:fix` script, no `--fix` and no `--write`')
+    expect(proposal).toContain('Do not run it to find out whether it passes.')
+  })
+})
+
 describe('attach --yes without --harness', () => {
   it.each(['plain', 'arasaka'] as const)('is refused in the %s theme with a next step that names attach --entry, and writes nothing', async (name) => {
     const root = repository()
