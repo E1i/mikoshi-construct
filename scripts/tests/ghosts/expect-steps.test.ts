@@ -1,10 +1,18 @@
-import type { RunStep } from '../../../src/commands/cost/index.js'
+import type { CostSource, RunDecomposition, RunStep } from '../../../src/commands/cost/index.js'
 import type { LedgerEntry } from '../../../src/commands/cost/ledger.js'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { parseLedgerLine } from '../../../src/commands/cost/ledger.js'
-import { expectSample, formatStepExpect, renderSample, stepExpects } from '../../ghosts/expect-sample.js'
+import { expectSample, formatStepExpect, renderSample, stepExpects, stepsOfRepository } from '../../ghosts/expect-sample.js'
 import { formatExpect } from '../../ghosts/expect.js'
 
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
+const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ghosts/expect-sample.ts')
+const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const DASH = String.fromCharCode(8212)
 const APPROX = String.fromCharCode(8776)
 
@@ -81,5 +89,46 @@ describe('expect-sample by effort and step', () => {
     const { ledger, steps } = mediumSample()
     const breakdown = expectSample([], [{ source: 'runs.jsonl', lines: ledger }], 'any', 'medium', [], steps).steps
     expect(formatExpect({ kind: 'none', reason: 'n=0 for any' }, breakdown)).toBe(`expect none ${DASH} n=0 for any; by step (effort medium, median): preflight tokens ${APPROX} 30k, minutes ${APPROX} 1 ${DASH} n=5; design none ${DASH} n=4 for medium/design; implement tokens ${APPROX} 80k, minutes ${APPROX} 4 ${DASH} n=5; verify tokens ${APPROX} 10k, minutes ${APPROX} 0.5 ${DASH} n=5`)
+  })
+})
+
+function sourceOf(decompositions: Record<string, RunDecomposition>): CostSource {
+  return {
+    runtime: 'claude-code',
+    readable: () => true,
+    read: () => ({ status: 'empty', runs: [], key: '', candidates: [] }),
+    steps: run => decompositions[run] ?? null,
+  }
+}
+
+function emptyRoot(): string {
+  return mkdtempSync(path.join(tmpdir(), 'expect-steps-'))
+}
+
+describe('expect-sample warnings about the step cache', () => {
+  it('names each run left out for an unread agent, with the agent and the reason the decomposition gave', () => {
+    const warnings: string[] = []
+    const source = sourceOf({
+      u1: { steps: [step('preflight', 1, 1)], unread: [{ run: 'u1', agent: 'scout', reason: 'no workflow phase' }, { run: 'u1', agent: 'notes', reason: 'phase notes is not a step' }] },
+      k1: { steps: [step('preflight', 1, 1)], unread: [] },
+    })
+    const runs = stepsOfRepository(emptyRoot(), ['u1', 'k1'], warnings, source)
+    expect(warnings).toEqual(['run u1 is left out of the step forecast: agent scout (no workflow phase); agent notes (phase notes is not a step)'])
+    expect([...runs.keys()]).toEqual(['k1'])
+  })
+
+  it('warns about nothing when no run has an unread agent', () => {
+    const warnings: string[] = []
+    stepsOfRepository(emptyRoot(), ['k1'], warnings, sourceOf({ k1: { steps: [step('preflight', 1, 1)], unread: [] } }))
+    expect(warnings).toEqual([])
+  })
+
+  it('reports a malformed step cache line by its number', () => {
+    const root = emptyRoot()
+    mkdirSync(path.join(root, '.construct'))
+    writeFileSync(path.join(root, '.construct/steps.jsonl'), `${JSON.stringify({ v: 1, run: 'm1', steps: [] })}\n{broken\n`)
+    const result = spawnSync(process.execPath, [TSX_CLI, EXPECT_SAMPLE, 'R2', '--effort', 'medium', '--journal', path.join(root, 'none.jsonl')], { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root } })
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('step cache line 2 is malformed; skipped\n')
   })
 })

@@ -1,4 +1,4 @@
-import type { RunStep, Step } from '../../src/commands/cost/index.js'
+import type { CostSource, RunStep, Step, UnreadAgent } from '../../src/commands/cost/index.js'
 import type { LedgerEntry } from '../../src/commands/cost/ledger.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -160,10 +160,18 @@ function ledgerRuns(ledgers: { lines: string[] }[]): string[] {
   return ledgers.flatMap(ledger => ledger.lines.map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
 }
 
-function stepsOfRepository(root: string, runs: string[], warnings: string[]): Map<string, RunStep[]> {
-  const cache = knownSteps(root, runs, new ClaudeCodeCostSource())
+function unreadWarnings(unread: UnreadAgent[]): string[] {
+  const byRun = new Map<string, UnreadAgent[]>()
+  for (const agent of unread)
+    byRun.set(agent.run, [...byRun.get(agent.run) ?? [], agent])
+  return [...byRun].map(([run, agents]) => `run ${run} is left out of the step forecast: ${agents.map(agent => `agent ${agent.agent} (${agent.reason})`).join('; ')}`)
+}
+
+export function stepsOfRepository(root: string, runs: string[], warnings: string[], source: CostSource = new ClaudeCodeCostSource()): Map<string, RunStep[]> {
+  const cache = knownSteps(root, runs, source)
   for (const line of cache.malformed)
     warnings.push(`step cache line ${line} is malformed; skipped`)
+  warnings.push(...unreadWarnings(cache.unread))
   return cache.runs
 }
 
