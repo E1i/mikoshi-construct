@@ -152,6 +152,16 @@ describe('recordVerdict', () => {
     expect(journalLines(journal)).toEqual([])
   })
 
+  it('refuses a report whose marker names a card number and points to the task id from the tasks file, and writes nothing', async () => {
+    const { dir, verdict, journal, good } = handoff()
+    const cardReport = '[review:129]\nThe witnesses ran.\n'
+    writeFileSync(path.join(dir, 'review-t.md'), cardReport)
+    write(verdict, { ...good, report: { path: 'review-t.md', sha256: sha256(cardReport) } })
+    const result = await recordVerdict(verdict, dir, TARGET)
+    expect(reasonsOf(result)).toEqual(['task t: review-t.md starts with "[review:129]", not [review:t]; the marker names a card number; the review marker takes the task id t from the tasks file'])
+    expect(journalLines(journal)).toEqual([])
+  })
+
   it('appends exactly one line to ghosts.jsonl in the handoff directory, and that line holds the journal schema', async () => {
     const { dir, verdict, journal, good } = handoff()
     write(verdict, good)
