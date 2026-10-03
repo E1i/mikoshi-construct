@@ -1478,7 +1478,7 @@ never added to the runs' figures above.
 
 ### A forecast by task class
 
-`pnpm exec tsx scripts/ghosts/expect-sample.ts <class> [--effort <low|medium|high>]` prints the
+`pnpm ghosts:expect-sample <class> [--effort <low|medium|high>]` prints the
 `expect:` line a brief would carry, with the forecast drawn from runs of tasks of the same class
 instead of every run of the same effort. It reads two files and writes none: the Ghost journal
 (`--journal`, by default `ghosts.jsonl` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`) and one

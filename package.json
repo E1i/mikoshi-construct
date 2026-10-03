@@ -53,6 +53,7 @@
     "docs:preview": "vitepress preview docs",
     "done:check": "tsx scripts/done/check.ts",
     "ghosts:cleanup": "tsx scripts/ghosts/cleanup.ts",
+    "ghosts:expect-sample": "tsx scripts/ghosts/expect-sample.ts",
     "task:start": "tsx scripts/ghosts/task-start.ts",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",
     "ghosts:launch": "tsx scripts/ghosts/launch.ts",
