@@ -22,6 +22,50 @@ Look for `.construct/`, `.claude/`, `.cursor/`, `scripts/construct/` and `constr
 
 Read every CI definition whole: `.github/workflows`, `.gitlab-ci.yml`, and any other pipeline file the repository carries. For each job that runs on a pull request, list its commands in order and what they need first: a service, a secret, a build output, an installed toolchain.
 
+## What the toolchain needs
+
+Dependencies are resolved for one interpreter, and the machine may hold another. Before anyone runs an install, name the interpreter the repository wants and what building its lock needs, so the first install is not the one that finds out. This section is written for Python; ask the same questions of any other language in its own terms.
+
+Search every directory that holds a Python project, below the root as well as at it: a `backend/pyproject.toml` counts as much as one at the root.
+
+Exact sources name one interpreter:
+
+- `.python-version`
+- `.tool-versions`
+- `runtime.txt`
+- `python-version` of `actions/setup-python` in a CI workflow
+- `FROM python:<X>` in a `Dockerfile`
+- `python=` in a conda `environment.yml`
+
+Range sources name a bound, not an interpreter:
+
+- `requires-python` under `[project]` in `pyproject.toml`
+- `python` under `[tool.poetry.dependencies]` in `pyproject.toml`
+- `python_requires` in `setup.cfg`
+- `python_requires=` in `setup.py`
+- `python_version` under `[requires]` in `Pipfile`
+- `envlist` in `tox.ini`
+- `requires-python` in `uv.lock`
+- `python-versions` under `[metadata]` in `poetry.lock`
+
+An exact source wins. From a range, name its lower bound and say why: a lock written years ago was resolved against that bound, and the newest interpreter on the machine may have no wheels for what the lock pins. Example: `python = "^3.10"` with a 2023 lock means 3.10, and Poetry picked 3.13 and failed on pillow 9.4.0.
+
+Say at once, before any install:
+
+- the version, and the file and line it came from;
+- what is on `PATH`: `python3 --version`, and whether `python3.X` resolves;
+- the command that makes the project's own manager use that interpreter: `poetry env use python3.X`, `uv python install 3.X` or `pyenv install 3.X`.
+
+Name the interpreter as `python3.X`. Where it is missing, that is the Homebrew formula `python@3.X` on macOS, and a distribution package or pyenv on Linux. Install nothing: name the command and leave it to the owner.
+
+Native dependencies come from the lock, not from a list of package names kept here. A package whose lock entry carries no wheel matching the named interpreter and this platform, only a source distribution, builds from source: read `files` in `poetry.lock`, and `sdist` and `wheels` in `uv.lock`. What that build needs is taken from the package's own installation documentation, cited by link, never from memory. Also compare architectures: `uname -m` against `file "$(command -v pg_config)"`, or against the build tool that documentation names. A build tool of the other architecture on `PATH`, such as an x86_64 `pg_config` from `/usr/local` feeding an arm64 build, fails the install on the machine, not on the project.
+
+A `requirements.txt` with no lock behind it: say "not determinable from a lock". The check is `pip download --only-binary=:all: --python-version <X.Y> -r requirements.txt -d <tmp dir>`. It needs the network, so it is a check the owner may run, not one you run without a yes. Verified on 2026-10-03 with pip 26.2.1 on macOS arm64:
+
+- It fails with `No matching distribution found for <pkg>` on a package with no wheel, and builds nothing: no "Building wheel" line, nothing saved.
+- Without `--python-version` it judges by the interpreter pip itself runs on and gives a false result: pillow 9.4.0 fails on 3.14, and with `--python-version 3.10` it saves a cp310 wheel.
+- It stops at the first package without a wheel: with psycopg2 and then lxml 4.9.2 in the file, only psycopg2 is named. It proves that at least one package builds from source, not the full set.
+
 ## What the repository can run
 
 - Every `package.json` scripts block, in every workspace package.
