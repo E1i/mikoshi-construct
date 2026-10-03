@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -19,8 +19,19 @@ function repository(): string {
   return root
 }
 
-function run(root: string, mode: string, input: Record<string, unknown>): { status: number | null, stdout: string, stderr: string } {
-  const result = spawnSync('node', [HOOK, mode], {
+function hookBeside(definitions: 'intact' | 'missing' | 'throwing'): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'construct-role-hook-'))
+  roots.push(dir)
+  copyFileSync(HOOK, path.join(dir, 'role-guard.mjs'))
+  if (definitions === 'intact')
+    copyFileSync(path.join(path.dirname(HOOK), 'role-definitions.mjs'), path.join(dir, 'role-definitions.mjs'))
+  if (definitions === 'throwing')
+    writeFileSync(path.join(dir, 'role-definitions.mjs'), 'throw new Error(\'broken on load\')\n')
+  return path.join(dir, 'role-guard.mjs')
+}
+
+function run(root: string, mode: string, input: Record<string, unknown>, hook = HOOK): { status: number | null, stdout: string, stderr: string } {
+  const result = spawnSync('node', [hook, mode], {
     input: JSON.stringify({ session_id: SESSION, cwd: root, ...input }),
     env: { ...process.env, CLAUDE_PROJECT_DIR: root },
     encoding: 'utf8',
@@ -32,8 +43,8 @@ function start(root: string, source = 'startup'): void {
   expect(run(root, 'snapshot', { hook_event_name: 'SessionStart', source })).toMatchObject({ status: 0, stdout: '' })
 }
 
-function launch(root: string, toolName = 'Agent'): { status: number | null, stdout: string, stderr: string } {
-  return run(root, 'guard', { hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: { subagent_type: 'brief', prompt: 'p' } })
+function launch(root: string, toolName = 'Agent', hook = HOOK): { status: number | null, stdout: string, stderr: string } {
+  return run(root, 'guard', { hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: { subagent_type: 'brief', prompt: 'p' } }, hook)
 }
 
 function roleLines(root: string): RoleLine[] {
@@ -124,6 +135,31 @@ describe('the role guard, when it cannot read what it compares', () => {
     mkdirSync(path.join(root, '.construct', 'turns.d', `${SESSION}.agents-sha`), { recursive: true })
 
     expect(launch(root).status).toBe(2)
+  })
+
+  it('lets a role through from a copy of the hook beside intact role definitions, so the copy is not what refuses below', () => {
+    const root = repository()
+    start(root)
+
+    expect(launch(root, 'Agent', hookBeside('intact'))).toMatchObject({ status: 0, stdout: '', stderr: '' })
+  })
+
+  it('refuses a role with exit 2 and one stderr line when role-definitions.mjs is missing beside the hook', () => {
+    const root = repository()
+    start(root)
+    const result = launch(root, 'Agent', hookBeside('missing'))
+
+    expect(result.status).toBe(2)
+    expect(result.stderr).toMatch(/^role-guard: the role definitions could not be compared \(ERR_MODULE_NOT_FOUND\); start a new session\n$/)
+  })
+
+  it('refuses a role with exit 2 and one stderr line when role-definitions.mjs throws while it loads', () => {
+    const root = repository()
+    start(root)
+    const result = launch(root, 'Agent', hookBeside('throwing'))
+
+    expect(result.status).toBe(2)
+    expect(result.stderr).toBe('role-guard: the role definitions could not be compared (read-error); start a new session\n')
   })
 
   it('records an unread line and exits 0 when the snapshot input is not JSON', () => {
