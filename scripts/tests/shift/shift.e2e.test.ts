@@ -187,10 +187,34 @@ describe('w3: shift:report builds the table from the shift', () => {
     }
     expect(runReport([world.shift], deps)).toBe(0)
     expect(io.out).toEqual([
-      'task                                             exit  duration  PR       closed      eddies stop                    report',
-      '01.md #1 task-1 [implement/runner/S/cheap/auto]  1     2m 02s    no PR    not closed  session-context 250000/250000  no report',
-      '02.md #2 task-2 [implement/runner/S/cheap/auto]  0     2m 02s    PR #436  not closed  —                              did mc-2',
+      expect.stringMatching(/^-{4} 01\.md #1 task-1 \[implement\/runner\/S\/cheap\/auto\] -+$/),
+      'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
+      'EXPECT   | expect not recorded in shift.jsonl',
+      `ACTION   | claude session ${stubSaw(world, '1', 'session')} on feat/1, 2m 02s`,
+      'RESULT   | exit 1 · no PR · not closed · eddies stop session-context 250000/250000 · report: no report',
+      expect.stringMatching(/^-{4} 02\.md #2 task-2 \[implement\/runner\/S\/cheap\/auto\] -+$/),
+      'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
+      'EXPECT   | expect not recorded in shift.jsonl',
+      `ACTION   | claude session ${stubSaw(world, '2', 'session')} on feat/2, 2m 02s`,
+      'RESULT   | exit 0 · PR #436 · not closed · eddies stop — · report: did mc-2',
     ])
+  })
+})
+
+describe('w8: the shift prints the four fields when it starts a task', () => {
+  it('w8: CONTRACT carries the card and the declared touches, EXPECT reads none, ACTION names the branch, RESULT waits for the outcome line', async () => {
+    const world = newWorld()
+    taskFile(world, '01.md', '1', 'scripts/a/**, docs/a.md', 'do a')
+    const io = captured()
+    await runShift([world.shift], shiftDeps(world, io))
+    expect(io.out.slice(0, 5)).toEqual([
+      expect.stringMatching(/^-{4} shift 01\.md #1 task-1 -+$/),
+      'CONTRACT | implement · cheap · auto · touches scripts/a/**, docs/a.md · law not recorded in the task file',
+      'EXPECT   | expect not recorded in the task file',
+      'ACTION   | task:start feat/1 #1, then a headless claude session in its tree',
+      'RESULT   | — running; the outcome line [shift] 01.md 1: … follows',
+    ])
+    expect(io.out).toContain('[shift] 01.md 1: exit 0')
   })
 })
 
@@ -282,13 +306,13 @@ describe('w6: a session that exits 0 without writing its report is not a success
     expect(io.out).toContain('[shift] 02.md 2: exit 0')
     const report = captured()
     runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
-    expect(report.out[1]).toMatch(/^01\.md #1 task-1 \[implement\/runner\/S\/cheap\/auto\] {2}0, no report {2}.* no report$/)
-    expect(report.out[2]).toMatch(/^02\.md #2 task-2 \[implement\/runner\/S\/cheap\/auto\] {2}0 {13}.* did mc-2$/)
+    expect(report.out[4]).toBe('RESULT   | exit 0, no report · no PR · not closed · eddies stop — · report: no report')
+    expect(report.out[9]).toBe('RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-2')
   })
 })
 
 describe('w8: shift:report shows whether each task was closed with task:close', () => {
-  it('w8: a task with a task:close line carrying verification reads closed with the word; one without reads not closed', async () => {
+  it('w8: RESULT of a task with a task:close line carrying verification reads closed with the word; one without reads not closed', async () => {
     const world = newWorld()
     taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
     taskFile(world, '02.md', '2', 'scripts/b/**', 'do b')
@@ -299,10 +323,11 @@ describe('w8: shift:report shows whether each task was closed with task:close', 
     appendFileSync(journal, `${JSON.stringify({ event: 'path', task: '3', path: 'cheap', pr: 503, ts: 'x' })}\n`)
     const report = captured()
     expect(runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })).toBe(0)
-    expect(report.out[0]).toMatch(/ PR +closed +eddies stop +report$/)
-    expect(report.out[1]).toMatch(/ no PR {2}run {9}— +did mc-1$/)
-    expect(report.out[2]).toMatch(/ no PR {2}not closed {2}— +did mc-2$/)
-    expect(report.out[3]).toMatch(/ no PR {2}not closed {2}— +did mc-3$/)
+    expect(report.out.filter(row => row.startsWith('RESULT'))).toEqual([
+      'RESULT   | exit 0 · no PR · closed run · eddies stop — · report: did mc-1',
+      'RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-2',
+      'RESULT   | exit 0 · no PR · not closed · eddies stop — · report: did mc-3',
+    ])
   })
 })
 
@@ -317,8 +342,8 @@ describe('w7: a probe card closes with a report, not a pull request', () => {
     expect(io.out).toContain('[shift] 02.md 2: exit 0, no report')
     const report = captured()
     runReport([world.shift], { cwd: world.repo, handoffDir: world.handoff, gh: ghOf([]), read: file => existsSync(file) ? readFileSync(file, 'utf8') : null, budget: () => [], out: line => report.out.push(line), err: line => report.err.push(line) })
-    expect(report.out[1]).toMatch(/^01\.md #1 task-1 \[probe\/runner\/S\/cheap\/none\] {2}0 {13}\S+ \S+ +— +not closed +— +did mc-1$/)
-    expect(report.out[2]).toMatch(/^02\.md #2 task-2 \[probe\/runner\/S\/cheap\/none\] {2}0, no report {2}.* no report$/)
+    expect(report.out[4]).toBe('RESULT   | exit 0 · — · not closed · eddies stop — · report: did mc-1')
+    expect(report.out[9]).toBe('RESULT   | exit 0, no report · — · not closed · eddies stop — · report: no report')
   })
 
   it('w7: the runner passes the card to task:start, and the start line carries it', async () => {

@@ -1,3 +1,4 @@
+import type { SignalStyle } from '../../src/ui/signal.js'
 import type { Expect } from './expect.js'
 import type { JournalEntry } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
@@ -10,6 +11,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
+import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { writeAgreedText } from './agreed.js'
 import { checkApproval } from './approval.js'
 import { tiedArgsSha256 } from './args-chain.js'
@@ -190,8 +192,17 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
   return { baseSha, prepared, refusals }
 }
 
-function describeTask(task: PreparedTask, baseSha: string): string {
-  return `  ${task.id}: /implement ${task.brief} (approved ${task.approvedSha256.slice(0, 7)}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}, ${formatExpect(task.expected)}`
+const ACCEPTANCE_LINE = /^Acceptance:/m
+
+function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
+  const approved = task.approvedSha256.slice(0, 7)
+  const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law not recorded in the brief'
+  return renderSignal(`ghosts:launch ${task.id}`, {
+    CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved} · ${law}`,
+    EXPECT: task.expected === null ? 'expect not recorded in the brief' : formatExpect(task.expected),
+    ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`,
+    RESULT: `— not launched; the outcome line ${task.id}: … follows the yes`,
+  }, style)
 }
 
 function errorMessage(error: unknown): string {
@@ -339,8 +350,11 @@ async function main(): Promise<void> {
   }
 
   console.log(`DECISION: open ${prepared.length} sessions`)
-  for (const task of prepared)
-    console.log(describeTask(task, baseSha))
+  const style = terminalStyle(process.stdout.isTTY, process.env.NO_COLOR)
+  for (const task of prepared) {
+    for (const line of describeTask(task, baseSha, style))
+      console.log(line)
+  }
 
   const answer = await readLine()
   if (answer !== 'yes') {

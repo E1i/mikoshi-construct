@@ -1520,12 +1520,14 @@ gh pr list --state all --limit 100 --json number,title,state,createdAt,closedAt,
 ```
 
 The first line counts the open rows (`running`, `waiting`, `blocked`), how many of them are stale, and
-the pull requests merged in the last 12 hours. The table has the columns `TASK`, `PATH`, `STAGE`, `AGE`
-and `NEXT`, ordered blocked, stale, waiting, running, the oldest first within each. A ladder run is a
+the pull requests merged in the last 12 hours. The table has the columns `TASK`, `PATH`, `STAGE`, `AGE`,
+`NEXT`, `EXPECT` and `ACTUAL`, ordered blocked, stale, waiting, running, the oldest first within each. A ladder run is a
 row with the path `ladder`: `ladder done` waits for a review and a pull request, any other status
 waits for a decision. An open pull request is a row with the path `pr`: ready when its checks are
 green, open and blocked when one failed, open and running while they are pending. Nothing is joined: a
-ladder run and a pull request are two rows. An open row older than 4 hours is stale, and its `NEXT` starts with `stale` and its age. A row that waits for you is red on `STAGE` and `NEXT`
+ladder run and a pull request are two rows. `EXPECT` on a ladder row reads
+`expect not recorded in .construct/runs.jsonl`, because the ledger holds none, and `ACTUAL` reads the run's
+`tokens <n>, seconds <s>`; on a pull request row both read `—`. `--json` carries neither. An open row older than 4 hours is stale, and its `NEXT` starts with `stale` and its age. A row that waits for you is red on `STAGE` and `NEXT`
 and nowhere else, and a plain run (`--plain`, `NO_COLOR`, a pipe) carries no colour at all. A pull
 request merged in the last 12 hours is named on the `merged:` line, never as a row.
 

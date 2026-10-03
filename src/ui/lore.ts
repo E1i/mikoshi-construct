@@ -222,6 +222,8 @@ export interface Lore {
   mutateFileFailedToRun: string
   mutateRestsOn: (report: string, startedAt: string) => string
   boardColumns: string[]
+  boardExpectNotRecorded: string
+  boardActual: (tokens: number | 'unknown', seconds: number) => string
   boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => string
   boardLedgerRead: (file: string, runs: number) => string
   boardLedgerAbsent: (file: string) => string
@@ -515,7 +517,9 @@ export const LORE: Lore = {
   mutateUnmatched: 'PREDICTION MISSED.',
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
-  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT'],
+  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
+  boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
+  boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
   boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
   boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
   boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,
@@ -801,7 +805,9 @@ export const PLAIN_LORE: Lore = {
   mutateUnmatched: 'The outcome does not match the prediction.',
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
-  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT'],
+  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
+  boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
+  boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
   boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
   boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
   boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,

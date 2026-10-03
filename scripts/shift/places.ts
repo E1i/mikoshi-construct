@@ -16,6 +16,10 @@ export function exitedWithoutReport(line: TaskLine): boolean {
   return line.exit === 0 && line.report === false
 }
 
+export function succeeded(line: TaskLine): boolean {
+  return line.exit === 0 && !exitedWithoutReport(line)
+}
+
 export interface TaskLine {
   event: 'task'
   file: string

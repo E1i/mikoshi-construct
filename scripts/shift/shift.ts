@@ -1,3 +1,4 @@
+import type { SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { TaskStartDeps } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
@@ -11,12 +12,14 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { cardTerms } from '../ghosts/card.js'
 import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { exitedWithoutReport, logPath, REPO, reportPath, SHIFT_JOURNAL } from './places.js'
+import { exitedWithoutReport, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { renderPrompt } from './prompt.js'
 import { parseTaskFile, TASK_FILE } from './task-file.js'
 
@@ -56,6 +59,7 @@ export interface ShiftDeps {
   run: (run: ClaudeRun) => Promise<ClaudeExit>
   out: (line: string) => void
   err: (line: string) => void
+  style?: SignalStyle
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -109,6 +113,15 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report: deps.exists(reportPath(dir, task.number)) }
 }
 
+function startBlock(task: ShiftTask, style: SignalStyle): string[] {
+  return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
+    CONTRACT: `${cardTerms(task.card)} · touches ${task.touches.join(', ')} · law not recorded in the task file`,
+    EXPECT: 'expect not recorded in the task file',
+    ACTION: `task:start ${task.branch} #${task.id}, then a headless claude session in its tree`,
+    RESULT: `— running; the outcome line ${PREFIX}${task.file} ${task.id}: … follows`,
+  }, style)
+}
+
 function outcome(line: TaskLine): string {
   if (line.refused !== undefined)
     return `not started: ${line.refused}`
@@ -117,10 +130,6 @@ function outcome(line: TaskLine): string {
   if (line.signal !== null)
     return `signal ${line.signal}`
   return exitedWithoutReport(line) ? `exit ${line.exit}, no report` : `exit ${line.exit}`
-}
-
-function succeeded(line: TaskLine): boolean {
-  return line.exit === 0 && !exitedWithoutReport(line)
 }
 
 export async function runShift(argv: string[], deps: ShiftDeps): Promise<number> {
@@ -155,7 +164,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file) })}\n`)
   let clean = true
   for (const task of tasks) {
-    deps.out(`${PREFIX}${task.file} ${task.id} on ${task.branch}: starting`)
+    for (const line of startBlock(task, deps.style ?? PLAIN_STYLE))
+      deps.out(line)
     const line = await runTask(deps, dir, task, claude)
     deps.append(journal, `${JSON.stringify(line)}\n`)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(line)}`)
@@ -186,6 +196,7 @@ function realDeps(): ShiftDeps {
     run: runClaude,
     out: line => console.log(line),
     err: line => console.error(line),
+    style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
   }
 }
 

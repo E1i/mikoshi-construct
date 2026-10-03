@@ -17,8 +17,10 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - On an Eddies warn: finish the step you are in, commit, push, write the handoff and the report, exit.
   On an Eddies stop: write the report and exit.
 - Before you exit, for any reason, write the shift report to `{{report}}`. Its first line is the
-  card above, its second `result: <one line: what was done, or where and why it stopped>`; then the
-  pull request (`PR #N`, or `no PR` — the norm for a probe), what was verified and how, and what
+  card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the
+  law the task answers to, or what is not recorded>`, `expect: <the forecast, or expect not
+  recorded in <where>>`, `action: <what was run>`, `result: <one line: what was done, or where and why it
+  stopped>`; then the pull request (`PR #N`, or `no PR` — the norm for a probe), what was verified and how, and what
   waits for the owner.
 
 The task follows.

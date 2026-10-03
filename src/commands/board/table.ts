@@ -43,7 +43,9 @@ function cellLine(cells: string[], widths: number[]): string {
 function rowCells(row: Row, theme: Theme, lore: Lore): string[] {
   const paint = row.tone === 'red' ? theme.primary : (text: string) => text
   const next = row.stale && row.age !== undefined ? `${lore.boardStale(formatAge(row.age, lore))}${row.next}` : row.next
-  return [row.task, row.path, paint(row.stage), row.age === undefined ? NO_NEXT : formatAge(row.age, lore), paint(next)]
+  const expected = row.spent === undefined ? NO_NEXT : lore.boardExpectNotRecorded
+  const actual = row.spent === undefined ? NO_NEXT : lore.boardActual(row.spent.tokens, row.spent.seconds)
+  return [row.task, row.path, paint(row.stage), row.age === undefined ? NO_NEXT : formatAge(row.age, lore), paint(next), expected, actual]
 }
 
 export function tableLines(rows: Row[], theme: Theme, lore: Lore): string[] {

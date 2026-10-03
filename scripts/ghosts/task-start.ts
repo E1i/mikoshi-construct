@@ -1,11 +1,13 @@
+import type { SignalStyle } from '../../src/ui/signal.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { parseCard } from './card.js'
+import { cardTerms, parseCard } from './card.js'
 
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
@@ -23,6 +25,7 @@ export interface TaskStartDeps {
   now: () => Date
   session: string | undefined
   handoffDir: string
+  style?: SignalStyle
 }
 
 export interface TaskStartResult {
@@ -118,9 +121,13 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   catch (error) {
     return refuse(`${worktree} was cut on ${branch} but the start line could not be written to ${journal}: ${firstLine(error)}`)
   }
-  const stdout = [`${PREFIX}cut ${worktree} on ${branch} from origin/main; start line written to ${journal}`]
-  if (deps.session === undefined)
-    stdout.push(`${PREFIX}${SESSION_VARIABLE} is not set; the board will show WINDOW UNKNOWN (no session)`)
+  const written = `start line written to ${journal}`
+  const stdout = renderSignal(`task:start #${id} ${card.name}`, {
+    CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,
+    EXPECT: 'expect not recorded on the card',
+    ACTION: `task:start ${branch} #${id}: cut ${worktree} from origin/main`,
+    RESULT: deps.session === undefined ? `${written}; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : written,
+  }, deps.style ?? PLAIN_STYLE, deps.session === undefined ? 'yellow' : undefined)
   return { stdout, stderr: [], exitCode: 0, worktree }
 }
 
@@ -141,6 +148,7 @@ function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
   }
 }
 

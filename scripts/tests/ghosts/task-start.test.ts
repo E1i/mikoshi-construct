@@ -94,6 +94,20 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     }])
   })
 
+  it('w8: prints CONTRACT, EXPECT, ACTION and RESULT from the card and the start line it wrote', () => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/t8', '--card', card(8, 'implement/ghosts/M/cheap/owner')], depsOf(world))
+    const worktree = path.join(world.root, 'mc-8')
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toEqual([
+      expect.stringMatching(/^-{4} task:start #8 task-8 -+$/),
+      'CONTRACT | implement · cheap · owner · touches not recorded on the card · law not recorded on the card',
+      'EXPECT   | expect not recorded on the card',
+      `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main`,
+      `RESULT   | start line written to ${world.journal}`,
+    ])
+  })
+
   it('w1: writes a line without session and says the board will show WINDOW UNKNOWN when no session is set', () => {
     const world = newWorld()
     const result = runTaskStart(['--card', card(2), 'feat/t2'], depsOf(world, null))
