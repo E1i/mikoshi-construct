@@ -140,6 +140,16 @@ line 3, the forecast from the ladder's own record that the journal sets beside t
 the skeleton leaves it out. The brief's positive control is PR-equivalent: it runs every check the `required` job in
 `.github/workflows/ci.yml` needs and `Secret scan`, not only `pnpm run quality`, and a working sketch lives on
 `sketch/<task>`, committed and pushed after each milestone.
+
+Choose the contour by the task's class: cheap is the default for D-small, I-instr, C-ci, P-cli-small and W-world —
+documentation XS/S, instructions under `.claude/`, CI, harness scripts and root config, a CLI change XS/S, and the
+witnesses' world built before a ladder — 66 pull requests in one week, 65 green on the first attempt. Take the
+ladder for one of them only with its reason written in the brief.
+
+A change under `.claude/hooks/**` is proven on live Claude Code events, and fixture tests do not replace that. In a
+scratch git repository holding the changed `.claude/hooks/` and `.claude/settings.json`, run
+`claude -p '<a prompt that raises the event>' --session-id <uuid>`, then `grep <uuid> <the hook's journal>`: the line the
+hook is expected to write, quoted from that run, is the proof the pull request carries.
 <!-- factory:end -->
 Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — risk: <level>, <sign>; acceptance: …; effort: <class>`. Do not

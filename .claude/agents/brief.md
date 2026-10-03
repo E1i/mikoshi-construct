@@ -28,6 +28,16 @@ their `tokens` and of their `seconds`/60, and `n` the number of those rows. Belo
 `expect: none — <reason>` instead; the launcher refuses a forecast from fewer, and an `expect:` line anywhere but line
 3.
 
+Cheap is the default for D-small, I-instr, C-ci, P-cli-small and W-world — documentation XS/S, instructions under
+`.claude/`, CI, harness scripts and root config, a CLI change XS/S, and the witnesses' world built before a ladder. A
+brief for a task of one of these classes writes, under `Effort:`, why the ladder and not the cheap path; without that
+reason it is not a brief to write.
+
+A change under `.claude/hooks/**` is proven on live Claude Code events, and fixture tests do not replace that: its
+positive control is a real session, `claude -p '<a prompt that raises the event>' --session-id <uuid>` in a scratch
+git repository holding the changed `.claude/hooks/` and `.claude/settings.json`, and the line the hook is expected to
+write, found by `grep <uuid> <the hook's journal>`, quoted in the brief's evidence.
+
 Mutations go only through `construct mutate apply` / `judge` (read `construct mutate --help` for the
 current flags), never through a hand-rolled copy and restore, and a red-on-base check runs in a
 disposable worktree, never by swapping files in the ladder's tree. A changed test is shown intact by a

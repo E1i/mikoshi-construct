@@ -71,6 +71,10 @@ function run(w: World, rows: unknown, base = w.base): { passed: boolean, lines: 
   return doneCheck(w.root, { args: w.args, map, base })
 }
 
+function withoutMapPath(result: { lines: string[] }): string[] {
+  return result.lines.map(line => line.replace(/^ {2}\S+: /, '  '))
+}
+
 const TOTAL_PASS = [
   'PASS',
   '2 requirements mapped, 3 functions checked, no stub, nothing unwired',
@@ -132,6 +136,22 @@ describe('doneCheck', () => {
     expect(run(w, full, 'no-such-ref').lines[2]).toBe('  --base no-such-ref is not a commit')
     writeFileSync(w.args, JSON.stringify({ acceptance: [] }))
     input(run(w, full))
+  })
+
+  it('a map row carrying a key the map does not define fails as input and names the key', () => {
+    const w = world(REAL, true)
+    expect(withoutMapPath(run(w, [row('A1', 6), { ...row('D1', 6), more: 'x' }]))).toEqual(['FAIL', 'input:', '  requirements[1] has an unknown key "more"'])
+  })
+
+  it('a test entry carrying a key the map does not define fails as input and names the key', () => {
+    const w = world(REAL, true)
+    const noted = { ...row('D1', 6), tests: [{ file: 'tests/total.test.ts', title: 'sums the items', note: 'x' }] }
+    expect(withoutMapPath(run(w, [row('A1', 6), noted]))).toEqual(['FAIL', 'input:', '  requirements[1].tests[0] has an unknown key "note"'])
+  })
+
+  it('a map whose rows and test entries carry only the keys the map defines passes', () => {
+    const w = world(REAL, true)
+    expect(run(w, [row('A1', 6), row('D1', 6)])).toEqual({ passed: true, lines: TOTAL_PASS })
   })
 
   it('a function the change leaves untouched is not checked', () => {

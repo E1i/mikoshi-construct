@@ -27,8 +27,9 @@ It waits for the subagents it started itself, writes their results into the hand
 Ghosts: their state is in the ledger and the journal, and the next session reads it there. Eddies enforces the budget
 half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
 either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and
-records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. The merge half is not
-enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
+records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. A line there names the
+`task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. The merge half is
+not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
 ## Pull requests and branches
 
@@ -82,9 +83,12 @@ brief, witnesses and a Ghost). What fits each is listed there and not repeated h
 not the default, and the cheap path keeps its discipline: CI and
 [architecture/owner-merges.md](owner-merges.md) apply to it unchanged.
 
-A cheap-path task starts with `pnpm task:start <id> <branch>`, which cuts `../mc-<id>` from `origin/main` and writes the journal start line.
-
-The journal line and its `verification` word are in [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
+A cheap-path task starts only with `pnpm task:start <id> <branch>`, which cuts `../mc-<id>` from `origin/main` and
+writes the journal start line; a task with no start line was not started on the cheap path, whatever its branch is
+called. The `event:path` line that closes the task — the one carrying its `pr`, or its `report` when the outcome is a
+refusal or a report — carries `verification`, and a closing line without that word does not close the task: the board
+shows its verification as UNKNOWN until a line that carries it is written. The line and the words are in
+[AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each

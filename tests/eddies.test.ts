@@ -14,7 +14,7 @@ const scratches: string[] = []
 
 interface Usage { input?: number, cacheWrite?: number, cacheRead?: number, request?: string | null }
 interface EddiesLine { event: string, level?: string, [key: string]: unknown }
-interface Scratch { root: string, transcript: string, subagents: string }
+interface Scratch { root: string, transcript: string, subagents: string, handoff: string }
 
 let requests = 0
 
@@ -38,7 +38,7 @@ function scratch(limits: Record<string, number> | null = LIMITS, parent: Usage[]
     writeFileSync(path.join(root, '.claude', 'eddies.json'), `${JSON.stringify(limits)}\n`)
   const transcript = path.join(base, 'projects', `${SESSION}.jsonl`)
   transcriptFile(transcript, parent)
-  return { root, transcript, subagents: path.join(base, 'projects', SESSION, 'subagents') }
+  return { root, transcript, subagents: path.join(base, 'projects', SESSION, 'subagents'), handoff: path.join(base, 'handoff') }
 }
 
 function agentFile(s: Scratch, agentId: string, responses: Usage[], run?: string): void {
@@ -49,7 +49,7 @@ function hook(s: Scratch, mode: string, input: Record<string, unknown> | string)
   const started = performance.now()
   const result = spawnSync('node', [HOOK, mode], {
     input: typeof input === 'string' ? input : JSON.stringify({ session_id: SESSION, transcript_path: s.transcript, cwd: s.root, ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: s.root },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: s.root, CONSTRUCT_HANDOFF_DIR: s.handoff },
     encoding: 'utf8',
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, ms: performance.now() - started }
@@ -76,7 +76,7 @@ function stops(s: Scratch): EddiesLine[] {
 
 function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number): Promise<{ status: number | null, stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn('node', [HOOK, 'guard'], { env: { ...process.env, CLAUDE_PROJECT_DIR: s.root } })
+    const child = spawn('node', [HOOK, 'guard'], { env: { ...process.env, CLAUDE_PROJECT_DIR: s.root, CONSTRUCT_HANDOFF_DIR: s.handoff } })
     let stderr = ''
     child.stderr.on('data', (chunk: Uint8Array) => {
       stderr += String(chunk)
@@ -91,6 +91,12 @@ function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number):
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
 const WARN_FIELDS = ['v', 'event', 'level', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'warn_ratio', 'at']
 const STOP_FIELDS = ['event', 'level', 'reason', 'tool', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'at']
+
+function taskStarted(s: Scratch, task: string, session: string): void {
+  mkdirSync(s.handoff, { recursive: true })
+  const at = '2026-10-03T10:00:00.000Z'
+  appendFileSync(path.join(s.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'path', task, path: 'cheap', started: at, session, worktree: `../mc-${task}`, branch: `feat/${task}`, ts: at })}\n`)
+}
 
 afterEach(() => {
   for (const base of scratches.splice(0))
@@ -304,6 +310,47 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     const s = scratch(LIMITS, [{ input: 1, cacheWrite: 1000, cacheRead: 149000 }])
 
     expect(await lateGuard(s, { hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { prompt: 'p' } }, 200)).toMatchObject({ status: 2, stderr: expect.stringContaining('session-context stop') })
+  })
+
+  it('names the task task:start registered for the session on its budget-warn line', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    taskStarted(s, 'other-task', 'sess-other')
+    taskStarted(s, 'decisions-0310', SESSION)
+
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).status).toBe(0)
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'budget-warn', level: 'session-context', session_id: SESSION, task: 'decisions-0310' })])
+  })
+
+  it('writes no task on the budget-warn line of a session no task:start line registered', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    taskStarted(s, 'other-task', 'sess-other')
+
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).status).toBe(0)
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'budget-warn', session_id: SESSION })])
+    expect(Object.keys(lines(s)[0])).toEqual(WARN_FIELDS)
+  })
+
+  it('names the registered task on the budget-stop and the unread line of the session too', () => {
+    const stopped = scratch(LIMITS, [{ input: 1, cacheWrite: 1000, cacheRead: 149000 }])
+    taskStarted(stopped, 'decisions-0310', SESSION)
+    const unread = scratch(null)
+    taskStarted(unread, 'decisions-0310', SESSION)
+
+    expect(call(stopped, 'Agent', { prompt: 'p' }).status).toBe(2)
+    expect(stops(stopped)).toEqual([expect.objectContaining({ level: 'session-context', task: 'decisions-0310' })])
+    expect(call(unread, 'Agent', { prompt: 'p' }).status).toBe(0)
+    expect(lines(unread)).toEqual([expect.objectContaining({ event: 'unread', reason: 'config-missing', task: 'decisions-0310' })])
+  })
+
+  it('names the task on the next line once task:start registers a session that already wrote a line without one', () => {
+    const s = scratch(null, [{ input: 127500 }])
+    taskStarted(s, 'other-task', 'sess-other')
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).status).toBe(0)
+    taskStarted(s, 'decisions-0310', SESSION)
+    writeFileSync(path.join(s.root, '.claude', 'eddies.json'), `${JSON.stringify(LIMITS)}\n`)
+
+    expect(hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' }).status).toBe(0)
+    expect(lines(s).map(line => [line.event, line.task])).toEqual([['unread', undefined], ['budget-warn', 'decisions-0310']])
   })
 
   it('reads only the tail of a grown 50 MB transcript on the second call and stays inside the 5 s timeout (W9)', () => {
