@@ -124,7 +124,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   const written = `start line written to ${journal}`
   const stdout = renderSignal(`task:start #${id} ${card.name}`, {
     CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,
-    EXPECT: 'expect not recorded on the card',
+    EXPECT: `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`,
     ACTION: `task:start ${branch} #${id}: cut ${worktree} from origin/main`,
     RESULT: deps.session === undefined ? `${written}; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : written,
   }, deps.style ?? PLAIN_STYLE, deps.session === undefined ? 'yellow' : undefined)

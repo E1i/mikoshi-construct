@@ -13,10 +13,12 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { cheapClass, claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cardTerms } from '../ghosts/card.js'
+import { cheapExpect } from '../ghosts/cheap-expect.js'
 import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
@@ -51,6 +53,7 @@ export interface ShiftDeps {
   claude: string | undefined
   header: string
   handoffDir: string
+  projectsDir: string
   git: TaskStartDeps['git']
   install: TaskStartDeps['install']
   gh: GhRunner
@@ -140,10 +143,10 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report: deps.exists(places.report), continuations, lastExit }
 }
 
-function startBlock(task: ShiftTask, style: SignalStyle): string[] {
+function startBlock(task: ShiftTask, expected: string, style: SignalStyle): string[] {
   return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
     CONTRACT: `${cardTerms(task.card)} · touches ${task.touches.join(', ')} · law not recorded in the task file`,
-    EXPECT: 'expect not recorded in the task file',
+    EXPECT: expected,
     ACTION: `task:start ${task.branch} #${task.id}, then a headless claude session in its tree`,
     RESULT: `— running; the outcome line ${PREFIX}${task.file} ${task.id}: … follows`,
   }, style)
@@ -193,7 +196,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file) })}\n`)
   let clean = true
   for (const task of tasks) {
-    for (const line of startBlock(task, deps.style ?? PLAIN_STYLE))
+    for (const line of startBlock(task, cheapExpect(path.dirname(dir), cheapClass(task.card), deps.projectsDir), deps.style ?? PLAIN_STYLE))
       deps.out(line)
     const line = await runTask(deps, dir, task, claude)
     deps.append(journal, `${JSON.stringify(line)}\n`)
@@ -210,6 +213,7 @@ function realDeps(): ShiftDeps {
     claude: process.env[CLAUDE_VARIABLE],
     header: readFileSync(path.join(import.meta.dirname, 'header.md'), 'utf8'),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    projectsDir: claudeProjectsDir(),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     install: pnpmInstall,
     gh: execGh,
