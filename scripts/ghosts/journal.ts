@@ -2,6 +2,8 @@ import type { Expect } from './expect.js'
 import type { LadderOutcome } from './ledger.js'
 import { appendFile } from 'node:fs/promises'
 
+export type RangeDiffOutcome = 'identical' | 'equal'
+
 export interface JournalEntry {
   task: string
   session: string | null
@@ -20,6 +22,9 @@ export interface JournalEntry {
   duration_ms: number | null
   usage: unknown | null
   agreedSha256: string
+  approvedSha256: string
+  approvedSketch: string | null
+  rangeDiff: RangeDiffOutcome | null
   argsSha256: string | null
   expected: Expect | null
   actual: LadderOutcome['actual']

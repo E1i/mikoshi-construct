@@ -26,9 +26,9 @@ function agreedSha256Of(bytes: Buffer): unknown {
   }
 }
 
-export function tiedArgsSha256(worktree: string, approvedSha256: string, rowArgsSha256: string | undefined): string | null {
+export function tiedArgsSha256(worktree: string, agreedSha256: string, rowArgsSha256: string | undefined): string | null {
   const bytes = readBytes(path.join(worktree, ARGS_PATH))
-  if (bytes === null || agreedSha256Of(bytes) !== approvedSha256)
+  if (bytes === null || agreedSha256Of(bytes) !== agreedSha256)
     return null
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   return sha256 === rowArgsSha256 ? sha256 : null

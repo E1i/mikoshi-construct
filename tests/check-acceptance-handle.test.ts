@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { hashBrief } from '../scripts/ghosts/hash.js'
+import { canonicalImplementText, sha256Hex } from '../scripts/ghosts/approval.js'
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts/construct/check-acceptance.mjs')
 
@@ -87,13 +87,13 @@ describe('the build writes the args file and prints a handle', () => {
     expect('argsSha256' in file).toBe(false)
   })
 
-  it('agreedSha256 is the sha256 pnpm ghosts:hash prints, with or without the /implement prefix', () => {
+  it('agreedSha256 is the sha256 of the whole canonical /implement text, Sketch: line included, with or without the /implement prefix', () => {
     const directory = scratch()
     const body = 'Do the thing (handle).\n\nEffort: low — copy the pattern.\n\nAcceptance: the item holds — witness: `true`\n\nInvariants: the harness is green\n'
     const brief = path.join(directory, 'brief.md')
     const briefText = `# Brief: a title\n\nProse above the rule with the word implement in it.\n\n---\n\n/implement ${body}\n\n`
     writeFileSync(brief, briefText)
-    const want = hashBrief(brief)
+    const want = sha256Hex(canonicalImplementText(briefText)!)
 
     expect(buildHandle(briefText).agreedSha256).toBe(want)
     expect(buildHandle(`/implement ${body}`.replace(/\n+$/, '')).agreedSha256).toBe(want)

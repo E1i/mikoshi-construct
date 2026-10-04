@@ -295,7 +295,39 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
   })
 
+  it('launches a sketch rebased with no code change without a new approval, and journals both shas and the range-diff (sketch-rebased)', () => {
+    const w = world('new', 'sketch-rebased')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+    world('check-sketch', w)
+    world('check-args', w)
+    world('check-journal', w)
+  })
+
+  it('launches a sketch the approval names, journalling identical and no range-diff (sketch)', () => {
+    const w = world('new', 'sketch')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-sketch', w)
+    world('check-journal', w)
+  })
+
+  it('launches a Sketch: none brief as before, journalling a null approved sketch and a null range-diff (sketch-none)', () => {
+    const w = world('new', 'ok')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+    world('check-journal', w)
+  })
+
   it.each([
+    { title: 'refuses a rebase that changed a commit, naming the commits range-diff shows as =', kind: 'sketch-rebased-changed' },
+    { title: 'refuses an edited Design, whose sketch-free hash differs from the approved one', kind: 'design-edited' },
+    { title: 'refuses an approval written when the Sketch: line was part of the hash, saying re-approve', kind: 'approval-old-rule' },
+    { title: 'refuses an approved sketch that is not in the repository, saying range-diff cannot compare it', kind: 'sketch-approved-unknown' },
     { title: 'refuses a brief with no Sketch: line before any listing', kind: 'sketch-no-line' },
     { title: 'refuses a sketch whose branch does not exist', kind: 'sketch-no-branch' },
     { title: 'refuses a sketch whose branch tip is not the approved sha', kind: 'sketch-moved' },

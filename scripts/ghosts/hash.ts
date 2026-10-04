@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { canonicalImplementText, sha256Hex } from './approval.js'
+import { approvalSha256, canonicalImplementText } from './approval.js'
 import { parseSketch } from './sketch.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -30,7 +30,7 @@ function implementTextOf(briefPath: string): string {
 }
 
 export function hashBrief(briefPath: string): string {
-  return sha256Hex(implementTextOf(briefPath))
+  return approvalSha256(implementTextOf(briefPath))
 }
 
 function firstBuildError(stderr: string): string {
@@ -51,8 +51,8 @@ function refuseUnlessBuilt(briefPath: string, text: string, runBuild: BuildRunne
   }
 }
 
-function sketchNote(sketch: Sketch): string {
-  return sketch.kind === 'branch' ? `sketch ${sketch.sha.slice(0, 7)}` : 'sketch none'
+function approvedSketchOf(sketch: Sketch): string {
+  return sketch.kind === 'branch' ? sketch.sha : 'none'
 }
 
 function localDate(now: Date): string {
@@ -78,7 +78,7 @@ export function resolveApprover(by: string | undefined, readGitName: () => strin
 export function approvalLine(briefPath: string, now: Date, approver: string, runBuild: BuildRunner = checkAcceptanceBuild): string {
   const text = implementTextOf(briefPath)
   refuseUnlessBuilt(briefPath, text, runBuild)
-  return `approved /implement text sha256: ${sha256Hex(text)} (${localDate(now)}, ${approver}; ${sketchNote(parseSketch(text))})`
+  return `approved /implement text sha256: ${approvalSha256(text)} sketch: ${approvedSketchOf(parseSketch(text))} (${localDate(now)}, ${approver})`
 }
 
 function hashArgs(argv: string[]): { briefPath: string, by: string | undefined } | null {
