@@ -186,7 +186,7 @@ with examples and exit codes, is in [docs/cli.md](https://github.com/E1i/mikoshi
 
 ## Mikoshi, constructs and other words
 
-The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here, except Engram, which is lore only.
+The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 
 | Word | Here |
 |---|---|
@@ -195,7 +195,8 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here, 
 | Soulkiller | `construct soulkill`: extracts the facts about a repository and writes nothing |
 | Netrunner | The coding agent — Claude Code, Cursor — that connects to the project through the construct |
 | Relic | The files at the root the agent reads first: `AGENTS.md`, `CLAUDE.md`, `construct.json` |
-| Engram | A lore name only, with no fixed meaning: the output uses it, and no engineering sentence names `construct.json`, the run record or the model by it |
+| Engram | The input of discovery about a repository |
+| Atlas | The view derived from Engram, an interactive map — not a second model. Mikoshi builds the Atlas of any repository, its own included |
 | Braindance | `construct sync`: replaying what `construct.json` records `init` wrote against today's templates and reporting where the two disagree |
 | Jack in | `construct attach`: the agent carriers alone, into a repository the construct did not write, hidden from git and recorded in `.construct/attach.json` |
 | Jack out | `construct detach`: the inverse of jack in — removes what the record lists, leaves a carrier git has adopted or a file attach did not write, and reports each by name |

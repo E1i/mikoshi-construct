@@ -341,9 +341,12 @@ as a failure where nothing failed. Check a line by reading it as the person in t
 prints it, and ask whether a fast reading inverts the action they should take next. When one symptom
 has several causes and the evidence in hand already carries one cause's signature, the line states
 that cause instead of listing the others as guesses. Two renderings of one value (plain and lore,
-text and `--json`) are projections, not duplication. "Engram" is a lore name with no fixed meaning:
-engineering documents neither define nor use it; the per-run record is the run record
-([architecture/run-record.md](architecture/run-record.md)), and `construct.model.json` is the model.
+text and `--json`) are projections, not duplication. Engram is the input of discovery about a
+repository; Atlas is the view derived from it, an interactive map, and not a second, competing model.
+Atlas is a capability, not an artifact of Mikoshi: Mikoshi builds the Atlas of any repository, and gets
+its own by the same mechanism. Both words may be used in documentation and in command output. The
+per-run record is the run record ([architecture/run-record.md](architecture/run-record.md)), and
+`construct.model.json` is the model.
 
 ## Citing and recording
 
