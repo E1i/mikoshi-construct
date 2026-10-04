@@ -2,7 +2,9 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { billable, ClaudeCodeCostSource, costReport, knownSteps, projectKey, readStepCache, recordedSteps, STEP_CACHE_FILE, STEPS } from '../src/commands/cost/index.js'
+import { ClaudeCodeCostSource, costReport, knownSteps, printCost, projectKey, readStepCache, recordedSteps, STEP_CACHE_FILE, STEPS } from '../src/commands/cost/index.js'
+import { createUi } from '../src/ui/console.js'
+import { resolveTheme } from '../src/ui/theme.js'
 import { isolatedCostRoots } from './cost-roots.js'
 
 const CLAUDE_CODE_ENV = { CLAUDECODE: '1' }
@@ -158,10 +160,15 @@ describe('construct cost: a run decomposed into its steps', () => {
       expect(Object.keys(step).sort()).toEqual(['attempt', 'effort', 'role', 'seconds', 'step', 'tokens'])
   })
 
-  it('leaves the run total construct cost reports as it was', () => {
+  it('prints the run total in the unit of its steps, so the total is the sum of the steps', () => {
     const { projects, cwd } = fixture()
     const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
-    expect(billable(report.runs![0].total)).toBe(167_842)
+    const steps = recordedSteps(cwd, ['wf_steps'], new ClaudeCodeCostSource(projects)).runs.get('wf_steps')!
+    const sum = steps.reduce((total, step) => total + step.tokens, 0)
+    const lines: string[] = []
+    printCost(createUi(resolveTheme({ plain: true }), text => lines.push(text)), report, false)
+    expect(sum).toBe(9_842)
+    expect(lines.join('')).toContain(`total ${sum.toLocaleString('en-US')} tokens without cache reads (input, cache writes and output) in 5 calls`)
   })
 })
 

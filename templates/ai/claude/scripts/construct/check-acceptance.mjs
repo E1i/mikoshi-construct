@@ -25,6 +25,7 @@ const TITLE_LEAD = 4
 const LABEL_WIDTH = Math.max(...SIGNAL_FIELDS.map(field => field.length))
 const EXPECT_LINE_INDEX = 2
 const EXPECT_PREFIX = 'expect: '
+const STEPS_OUTSIDE_THE_LADDER = ['brief', 'review']
 const TASK_LENGTH = 120
 const SHA_LENGTH = 7
 export const ENTRY_RESULT = 'accepted · not started'
@@ -216,7 +217,8 @@ function countOrNotRecorded(items, what, unit) {
 
 function briefExpect(text) {
   const line = text.split('\n')[EXPECT_LINE_INDEX] ?? ''
-  return line.startsWith(EXPECT_PREFIX) ? `expect ${line.slice(EXPECT_PREFIX.length)}` : 'expect not recorded in the brief'
+  const ladder = line.startsWith(EXPECT_PREFIX) ? line.slice(EXPECT_PREFIX.length) : 'expect not recorded in the brief'
+  return `ladder: ${ladder} · ${STEPS_OUTSIDE_THE_LADDER.join(', ')} not recorded`
 }
 
 export function intakeSignal(text, { action, result } = {}) {

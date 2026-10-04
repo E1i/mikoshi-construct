@@ -27,10 +27,6 @@ export function emptyUsage(): Usage {
   return { calls: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, models: [] }
 }
 
-export function billable(usage: Usage): number {
-  return usage.input + usage.cacheWrite + usage.cacheRead + usage.output
-}
-
 export function tokensWithoutCacheReads(usage: Usage): number {
   return usage.input + usage.cacheWrite + usage.output
 }

@@ -19,7 +19,7 @@ flowchart LR
   end
   subgraph b_read["Read · token counts only"]
     claude["ClaudeCodeCostSource · ~/.claude/projects/<key> session lines"]
-    usage["add / billable / weighted · token arithmetic, no message content"]
+    usage["add / tokensWithoutCacheReads / weighted · token arithmetic, no message content"]
     ledger["readLedger → .construct/runs.jsonl · what the ladder recorded about itself"]
     steps["stepsOf · one step per agent, tokens = input + cache-write + output"]
   end

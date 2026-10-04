@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { billable, COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, costReport, printCost, projectKey, readLedger, weighted } from '../src/commands/cost/index.js'
+import { COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, costReport, printCost, projectKey, readLedger, tokensWithoutCacheReads, weighted } from '../src/commands/cost/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
@@ -74,7 +74,7 @@ describe('construct cost', () => {
     expect(only.run).toBe('wf_abc')
     expect(only.agents.map(agent => [agent.type, agent.label, agent.usage.calls])).toEqual([['implementer', 'implement 1/4 @ low', 2], ['?', 'agent-2.jsonl', 1]])
     expect(only.total).toMatchObject({ calls: 3, input: 130, cacheRead: 400, output: 57, models: ['sonnet'] })
-    expect(billable(only.total)).toBe(587)
+    expect(tokensWithoutCacheReads(only.total)).toBe(187)
     expect(weighted(only.total)).toBe(455)
     expect(printed(report).exit).toBe(0)
   })
@@ -350,7 +350,7 @@ describe('one response is one response, however many blocks the journal splits i
 
     const [recorded] = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(1)
-    expect(billable(recorded.total)).toBe(51302)
+    expect(tokensWithoutCacheReads(recorded.total)).toBe(1302)
   })
 
   it('counts separate responses separately, so deduplication never hides a real call', () => {
@@ -364,7 +364,7 @@ describe('one response is one response, however many blocks the journal splits i
 
     const [recorded] = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(2)
-    expect(billable(recorded.total)).toBe(22)
+    expect(tokensWithoutCacheReads(recorded.total)).toBe(22)
   })
 
   it('still counts a line the runtime recorded without a request identifier', () => {
@@ -377,7 +377,7 @@ describe('one response is one response, however many blocks the journal splits i
 
     const [recorded] = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(2)
-    expect(billable(recorded.total)).toBe(20)
+    expect(tokensWithoutCacheReads(recorded.total)).toBe(20)
   })
 })
 
@@ -402,7 +402,7 @@ describe('a figure names the tool that produced it', () => {
     for (const theme of [{ plain: true }, { plain: false }]) {
       const { text } = printed(report, theme)
       expect(text, JSON.stringify(theme)).toContain(VERSION)
-      expect(text.indexOf(VERSION), JSON.stringify(theme)).toBeLessThan(text.indexOf('billable tokens'))
+      expect(text.indexOf(VERSION), JSON.stringify(theme)).toBeLessThan(text.indexOf('tokens without cache reads'))
     }
   })
 
@@ -431,7 +431,7 @@ describe('a figure names the tool that produced it', () => {
     const [only] = report.runs!
     expect(only.total).toMatchObject({ calls: 3, input: 130, cacheWrite: 0, cacheRead: 400, output: 57 })
     expect(only.agents.map(agent => agent.usage.calls)).toEqual([2, 1])
-    expect(billable(only.total)).toBe(587)
+    expect(tokensWithoutCacheReads(only.total)).toBe(187)
     expect(weighted(only.total)).toBe(455)
   })
 })

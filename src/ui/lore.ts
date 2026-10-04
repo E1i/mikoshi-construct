@@ -90,6 +90,8 @@ export interface Lore {
   costKeyUnknown: (key: string) => string
   turnsNotRecorded: (file: string) => string
   turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => string
+  costRunTotal: (tokens: string, calls: number, inputEquivalent: string) => string
+  costRunsTotal: (runs: number, tokens: string, calls: number, inputEquivalent: string, cacheWrite: number, cacheRead: number, output: number) => string
   turnsMalformed: (count: number) => string
   ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => string
   ledgerMalformed: (count: number) => string
@@ -346,7 +348,9 @@ export const LORE: Lore = {
   costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
   costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
   turnsNotRecorded: (file: string) => `Turn journal: not recorded \u2014 ${file} is absent, so no turn of any session was measured here.`,
-  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent billable tokens, ${unmeasured} unmeasured, ${unread} unread, ${gaps} gaps.`,
+  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent tokens without cache reads, ${unmeasured} unmeasured, ${unread} unread, ${gaps} gaps.`,
+  costRunTotal: (tokens: string, calls: number, inputEquivalent: string) => `total ${tokens} tokens without cache reads (input, cache writes and output) in ${calls} calls \u2248 ${inputEquivalent} input-equivalent`,
+  costRunsTotal: (runs: number, tokens: string, calls: number, inputEquivalent: string, cacheWrite: number, cacheRead: number, output: number) => `${runs} runs: ${tokens} tokens without cache reads (input, cache writes and output) in ${calls} calls \u2248 ${inputEquivalent} input-equivalent (cache-write \u00D7${cacheWrite}, cache-read \u00D7${cacheRead}, output \u00D7${output})`,
   turnsMalformed: (count: number) => `${count} turn journal line${count === 1 ? '' : 's'} could not be read.`,
   ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => `Ledger, kept by hand and trusted by nobody: ${runs} runs, ${agents} agents, ${failures} unfinished, ${tokens} tokens.`,
   ledgerMalformed: (count: number) => `${count} ledger line${count === 1 ? '' : 's'} could not be read as a run record.`,
@@ -646,7 +650,9 @@ export const PLAIN_LORE: Lore = {
   costKeyMismatch: (key: string) => `Runs for this repository were recorded under another path. Looked up: ${key}`,
   costKeyUnknown: (key: string) => `Runs may be recorded under another path — the evidence is not conclusive. Looked up: ${key}`,
   turnsNotRecorded: (file: string) => `Turn journal: not recorded \u2014 ${file} is absent, so no turn of any session was measured here.`,
-  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent billable tokens, ${unmeasured} unmeasured, ${unread} unread, ${gaps} gaps.`,
+  turnsCounts: (turns: number, sessions: number, main: string, subagents: string, unmeasured: number, unread: number, gaps: number) => `Turn journal, written by hooks: ${turns} turns, ${sessions} sessions, ${main} main-thread and ${subagents} subagent tokens without cache reads, ${unmeasured} unmeasured, ${unread} unread, ${gaps} gaps.`,
+  costRunTotal: (tokens: string, calls: number, inputEquivalent: string) => `total ${tokens} tokens without cache reads (input, cache writes and output) in ${calls} calls \u2248 ${inputEquivalent} input-equivalent`,
+  costRunsTotal: (runs: number, tokens: string, calls: number, inputEquivalent: string, cacheWrite: number, cacheRead: number, output: number) => `${runs} runs: ${tokens} tokens without cache reads (input, cache writes and output) in ${calls} calls \u2248 ${inputEquivalent} input-equivalent (cache-write \u00D7${cacheWrite}, cache-read \u00D7${cacheRead}, output \u00D7${output})`,
   turnsMalformed: (count: number) => `${count} turn journal line${count === 1 ? '' : 's'} could not be read.`,
   ledgerCounts: (runs: number, agents: number, failures: number, tokens: string) => `Ledger (a skill step writes it, nothing enforces it): ${runs} runs, ${agents} agents, ${failures} unfinished, ${tokens} tokens.`,
   ledgerMalformed: (count: number) => `${count} ledger line${count === 1 ? '' : 's'} could not be read as a run record.`,
