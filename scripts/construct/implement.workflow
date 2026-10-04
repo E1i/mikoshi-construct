@@ -57,7 +57,6 @@ const VERDICT = {
       },
     },
     setSha256: { type: ['string', 'null'] },
-    baselineSha256: { type: 'string' },
     stagedTree: { type: 'string' },
     unstagedPaths: { type: 'array', items: { type: 'string' } },
     witnesses: {
@@ -216,7 +215,7 @@ const BASELINE_SCRIPT = 'node scripts/construct/check-baseline.mjs'
 function baselineScriptLine() {
   if (!Array.isArray(harness.steps))
     return ''
-  return `Run \`${BASELINE_SCRIPT}\` once, in the working tree, with every step of the harness, each quoted exactly as given:\n${harness.steps.map(step => `- ${step}`).join('\n')}\nReport its \`steps\` verbatim as the verdict's steps, its \`sha256\` as setSha256 (null when it printed null) and what \`shasum -a 256\` prints for its whole stdout as baselineSha256. Retell no failure in your own words: the caller compares the identities item by item. passed is whether every step's exitCode is 0.`
+  return `Run \`${BASELINE_SCRIPT}\` once, in the working tree, with every step of the harness, each quoted exactly as given:\n${harness.steps.map(step => `- ${step}`).join('\n')}\nReport its \`steps\` verbatim as the verdict's steps, its \`sha256\` as setSha256 (null when it printed null). Retell no failure in your own words: the caller compares the identities item by item. passed is whether every step's exitCode is 0.`
 }
 
 function harnessPrompt(baseSha) {
@@ -550,6 +549,11 @@ if (base.passed !== true) {
   const identified = redSteps.length > 0 && redSteps.every(entry => Array.isArray(entry.failures) && entry.failures.length > 0)
   if (!identified)
     return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants, immutable }
+  const missingSteps = Array.isArray(harness.steps) ? harness.steps.filter(step => !base.steps.some(entry => entry.step === step)) : []
+  if (missingSteps.length > 0) {
+    const reason = `the base is red and its verdict leaves out a step of the harness, so its failure set is not known: ${missingSteps.join(', ')}`
+    return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'base unverified', reason }], validationError: reason, acceptance, invariants, immutable }
+  }
   if (typeof harness.baseFailuresSha256 !== 'string' || harness.baseFailuresSha256 !== base.setSha256) {
     const reason = `the base is red and its failure set is not the pinned one: the brief pins ${typeof harness.baseFailuresSha256 === 'string' ? harness.baseFailuresSha256 : 'no sha256 (no Base failures line)'}, the harness saw ${base.setSha256 ?? 'none'}`
     return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'base unverified', reason }], validationError: reason, acceptance, invariants, immutable }

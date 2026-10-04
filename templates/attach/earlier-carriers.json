@@ -488,5 +488,10 @@
     "target": ".claude/agents/harness.md",
     "sha256": "fc9f27788ac3371005cc72e157df92d288a49962fbaae586fe4e4bbd331c516f",
     "date": "2026-10-04"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "a48ad7b5f7ac107e3d9caedd3f4a7f74c12f59aaaba7904d2b899e84d8fa91db",
+    "date": "2026-10-04"
   }
 ]

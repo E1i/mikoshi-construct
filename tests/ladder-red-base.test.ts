@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
+const WORKFLOW_TWIN = 'templates/ai/claude/scripts/construct/implement.workflow'
 
 interface LadderResult {
   status: string
@@ -97,7 +98,7 @@ function stepsOf(lint: string[] | null, tests: string[] | null): unknown[] {
 
 function verdict(steps: unknown[], extra: Record<string, unknown> = {}): Record<string, unknown> {
   const red = (steps as { exitCode: number }[]).some(entry => entry.exitCode !== 0)
-  return { ...(red ? RED : GREEN), steps, setSha256: PIN, baselineSha256: 'c'.repeat(64), ...extra }
+  return { ...(red ? RED : GREEN), steps, setSha256: PIN, ...extra }
 }
 
 const RED_BASE = verdict(stepsOf([LINT], TESTS))
@@ -185,7 +186,7 @@ describe('the ladder on a red base', () => {
     expect(calls.map(call => call.agentType)).toEqual(['harness'])
   })
 
-  it('w10: the preflight and the verify prompts of a red base tell the harness to run check-baseline.mjs with every step and to pass its stdout on verbatim', async () => {
+  it('w10: the preflight and the verify prompts of a red base tell the harness to run check-baseline.mjs with every step and to report its steps verbatim, and nothing asks for a baselineSha256', async () => {
     const { calls } = await run({ task: 'fix', effort: 'low' }, { implementer: [REPORTED], harness: [verdict(stepsOf([LINT], TESTS), GREEN_AFTER)] }, RED_BASE)
 
     for (const call of calls.filter(entry => entry.agentType === 'harness')) {
@@ -193,18 +194,36 @@ describe('the ladder on a red base', () => {
       for (const step of STEPS)
         expect(call.prompt).toContain(`- ${step}`)
       expect(call.prompt).toContain('verbatim')
-      expect(call.prompt).toContain('shasum -a 256')
+      expect(call.prompt).not.toContain('baselineSha256')
     }
+    for (const file of [WORKFLOW, WORKFLOW_TWIN])
+      expect(readFileSync(path.join(REPO_ROOT, file), 'utf8')).not.toContain('baselineSha256')
   })
 
-  it('w11: the harness agent and the implement skill templates name check-baseline.mjs, the verbatim stdout with its shasum, base unverified and the red-base result line', () => {
+  it('w11: the harness agent and the implement skill templates name check-baseline.mjs, the verbatim steps, base unverified and the red-base result line', () => {
     const agent = readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/agents/harness.md'), 'utf8')
     const skill = readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/skills/implement/SKILL.md'), 'utf8')
 
     expect(agent).toContain('check-baseline.mjs')
-    expect(agent).toContain('shasum -a 256')
     expect(agent).toContain('verbatim')
+    expect(agent).not.toContain('baselineSha256')
     expect(skill).toContain('base unverified')
     expect(skill).toContain('passed on a red base: N known, 0 new')
+  })
+
+  it('w12: a red base whose verdict leaves out a step of the harness is base unverified naming the step and runs nothing, and the same verdict with the step restored runs the implementer', async () => {
+    const lintOnly = verdict(stepsOf([LINT], TESTS).slice(0, 1))
+    const omitted = await run({ task: 'fix', effort: 'low' }, {}, lintOnly)
+
+    expect(omitted.result.status).toBe('base unverified')
+    expect(omitted.result.validationError).toContain(STEPS[1])
+    expect(omitted.result.validationError).not.toContain(STEPS[0])
+    expect(omitted.result.attempts[0].reason).toBe(omitted.result.validationError)
+    expect(omitted.calls.map(call => call.agentType)).toEqual(['harness'])
+
+    const restored = await run({ task: 'fix', effort: 'low' }, { implementer: [REPORTED], harness: [verdict(stepsOf([LINT], TESTS), GREEN_AFTER)] }, RED_BASE)
+
+    expect(restored.calls.map(call => call.agentType)).toEqual(['harness', 'implementer', 'harness'])
+    expect(restored.result.status).toBe('done')
   })
 })

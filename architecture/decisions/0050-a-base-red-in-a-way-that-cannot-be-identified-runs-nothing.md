@@ -18,6 +18,8 @@ This record narrows #184 to one rule: a base red in a way that cannot be identif
    `Base failures: sha256 <64 hex>` line into `harness.baseFailuresSha256`. A red base whose every red step has
    identities runs only when the pin equals the `setSha256` the harness reported; otherwise `base unverified`, the
    reason naming the pin and the sha256 seen. A green base needs no pin.
+   Before the pin is compared, a red base whose verdict leaves out a step of the harness is base unverified,
+   the reason naming the step, because the pin covers the steps the harness reported and not the ones it left out.
 3. **A rung on an identified red base passes when it adds no failure.** Each step's failures after the change must be a
    sub-multiset of the base's; a step green on the base and red after fails whatever it parsed. The result carries
    `onRedBase`, `knownBaseFailures`, `newFailures: 0` and `fixedOnTheWay`. A failure the base had and the tree lost is
@@ -38,3 +40,5 @@ A pass on a red base is found to have hidden a failure the identities did not di
 
 - L3 tests: `tests/ladder-red-base.test.ts` and `tests/check-acceptance-build.test.ts`; `tests/ladder-run.test.ts`
   keeps the two positive controls.
+- L1 review: the known blind spot above, and the harness agent running `check-baseline.mjs` once with every
+  step quoted as given.
