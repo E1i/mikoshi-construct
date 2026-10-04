@@ -325,6 +325,7 @@ describe('ghosts launch, end to end through the stub', () => {
 
   it.each([
     { title: 'refuses a rebase that changed a commit, naming the commits range-diff shows as =', kind: 'sketch-rebased-changed' },
+    { title: 'refuses a rebase that reworded a commit, which range-diff marks !', kind: 'sketch-rebased-reworded' },
     { title: 'refuses an edited Design, whose sketch-free hash differs from the approved one', kind: 'design-edited' },
     { title: 'refuses an approval written when the Sketch: line was part of the hash, saying re-approve', kind: 'approval-old-rule' },
     { title: 'refuses an approved sketch that is not in the repository, saying range-diff cannot compare it', kind: 'sketch-approved-unknown' },

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -47,11 +47,11 @@ approved_sketch_of_brief() {
 }
 
 rebased_kind() {
-  case $1 in sketch-rebased | sketch-rebased-changed) return 0 ;; *) return 1 ;; esac
+  case $1 in sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded) return 0 ;; *) return 1 ;; esac
 }
 
 sketch_world_kind() {
-  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
+  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
 }
 
 approved_sha() {
@@ -92,7 +92,7 @@ sketch_line_for() {
   kind=$(cat "$W/.world/kind")
   if [ "$id" != g2 ]; then echo "$CLEAN_SKETCH_LINE"; return; fi
   case $kind in
-    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
+    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
     sketch-moved) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-parent")" ;;
     sketch-no-line) echo '' ;;
     *) echo "$CLEAN_SKETCH_LINE" ;;
@@ -344,11 +344,11 @@ EOF
 }
 
 commit_sketch_in_seed() {
-  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2}
+  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2} message=${4:-sketch g2}
   git_quiet -C "$seed" checkout -q --detach "$parent"
   echo "$content" >"$seed/sketch.txt"
   git_quiet -C "$seed" add sketch.txt
-  git_quiet -C "$seed" commit -m 'sketch g2'
+  git_quiet -C "$seed" commit -m "$message"
   git -C "$seed" rev-parse HEAD >"$W/.world/sketch-tip"
   git -C "$seed" rev-parse "$parent" >"$W/.world/sketch-parent"
   git_quiet -C "$seed" checkout -q main
@@ -362,7 +362,11 @@ make_sketch() {
     commit_sketch_in_seed "$W" 'main~1'
     cp "$W/.world/sketch-tip" "$W/.world/sketch-approved"
     git_quiet -C "$seed" push "$W/main" "$(cat "$W/.world/sketch-approved"):refs/world/approved"
-    if [ "$kind" = sketch-rebased-changed ]; then commit_sketch_in_seed "$W" main 'sketch g2 edited'; else commit_sketch_in_seed "$W" main; fi
+    case $kind in
+      sketch-rebased-changed) commit_sketch_in_seed "$W" main 'sketch g2 edited' ;;
+      sketch-rebased-reworded) commit_sketch_in_seed "$W" main 'sketch g2' 'sketch g2, reworded' ;;
+      *) commit_sketch_in_seed "$W" main ;;
+    esac
   else
     commit_sketch_in_seed "$W" "$parent"
     cp "$W/.world/sketch-tip" "$W/.world/sketch-approved"
@@ -532,9 +536,10 @@ check_refused() {
     approval-old-rule)
       output_has "$W" "task g2: $W/handoff/brief-g2.md: brief-g2.approved-sha256 names no 'sketch: <40-hex sha|none>': it was written when the Sketch: line was part of the hash; re-approve the brief with pnpm ghosts:hash"
       ;;
-    sketch-rebased-changed)
+    sketch-rebased-changed | sketch-rebased-reworded)
       output_has "$W" "task g2: the sketch $(cut -c1-7 "$W/.world/sketch-tip") is not the approved $(cut -c1-7 "$W/.world/sketch-approved") rebased: git range-diff shows '"
       output_has "$W" "' for 1 launched commits, not every one '='; re-approve the brief"
+      [ "$kind" != sketch-rebased-reworded ] || output_has "$W" "git range-diff shows '!' for 1 launched commits"
       ;;
     sketch-approved-unknown)
       output_has "$W" "task g2: git range-diff cannot compare the approved sketch ${UNKNOWN_SKETCH:0:7} with $(cut -c1-7 "$W/.world/sketch-tip") (${UNKNOWN_SKETCH:0:7} is not in the repository); re-approve the brief"
