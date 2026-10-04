@@ -23,9 +23,6 @@ A fact is something deterministic code can look at without judgement
 |---|---|
 | `file-exists` | The file at `path` is present in the repository. |
 | `file-contains` | The file at `path` is present and contains the literal `needle`. |
-| `file-lacks` | The file at `path` was read and does not contain the literal `needle`; a missing file is `unevaluable`. |
-| `report-covers` | The runner's report at `path` lists at least one file of `surface` (globs, minus the construct's own paths) as executed. |
-| `report-misses` | The exact negation of `report-covers` over the same report and `surface`. |
 | `file-lacks` | The file at `path` was read and does not contain the literal `needle`; a missing file is `unevaluable`, never `holds`. |
 | `report-covers` | The runner's report at `path` lists at least one file of the `surface` globs as executed, minus the construct's own recorded paths ([decision 0033](decisions/0033-checked-means-the-target-was-verified.md)). |
 | `report-misses` | The exact negation of `report-covers` over the same report and `surface`: it holds where that does not hold, and is `unevaluable` where that is. |

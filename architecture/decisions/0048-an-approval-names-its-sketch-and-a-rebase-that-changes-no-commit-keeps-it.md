@@ -1,6 +1,6 @@
 # 0048 — An approval names the sketch it approved, and a rebase that changes no commit keeps it
 
-Status: proposed · 2026-10-04
+Status: accepted · 2026-10-04
 
 ## Context
 

@@ -105,6 +105,19 @@ and the words are in
 [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 A probe is run by `/probe` ([.claude/skills/probe/SKILL.md](../.claude/skills/probe/SKILL.md)).
 
+Cheap-path tasks can also run unattended as a shift: `pnpm shift <dir> [--parking <parking>] [--check]`
+starts each task through the same `task:start`, as a fresh headless session in its tree. Without
+`--parking` the tasks are the `NN.md` files in `<dir>`; with it they are the cards in
+`<parking>/<id>.md` marked `who: shift` whose `depends` are closed in `ghosts.jsonl` and which are
+not closed themselves, `p0` first and then by id, leaving a card whose `touches` overlap one already
+taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `parking` and the cards
+`left` when the tasks came from the parking), then one `task` line per task — and a shift whose
+`shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
+is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `auto` with no
+owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
+nothing. `pnpm shift:report <dir>` reads it back. The flags and refusals are in
+[CONTRIBUTING.md](../CONTRIBUTING.md).
+
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
 of which reads as critical: the mechanism of the ladder itself (the implement skill, the agent files, the
