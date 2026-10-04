@@ -191,14 +191,18 @@ repository's CLAUDE.md and `construct.json`.
    - `expect:` — the forecast the repository records for this run. No record holds one, so the line
      is `expect not recorded in .construct/runs.jsonl`, never an estimate of your own.
    - `action:` — the Workflow run identifier from step 3, then each entry of the result's `attempts`
-     in order, its `effort` and `outcome`.
+     in order, its `effort` and `outcome`, then the rung that passed by name: the `rung` and `effort`
+     of the entry whose `outcome` is `passed`, or `passing rung not recorded in attempts` when no
+     entry has that outcome.
    - `result:` — the `status` step 4 wrote to `.construct/runs.jsonl`, verbatim.
    Never compose, estimate or round a value: a value its source does not hold is written
    `<what> not recorded <where>`, naming the place that holds no record, and no line is left empty.
-   Below the four lines come the files changed and the harness tail. A `done` result carries `argsSha256` and `agreedSha256`; put
-   `agreedSha256` next to the approved hash when there is one. Put the result's `acceptance` — the items the ladder received,
-   echoed verbatim — next to the agreed line, and name any agreed item missing from it. When the status is `blocked`, put the architect's or
-   implementer's question to the user verbatim. When `failed` or `base red`, give the last failure excerpt. When
+   Below the four lines come the files changed and the harness tail. A `done` result carries
+   `argsSha256` and `agreedSha256`; put `agreedSha256` next to the approved hash when there is one.
+   Put the result's `acceptance` — the items the ladder received, echoed verbatim — next to the
+   agreed line, and name any agreed item missing from it. When the status is `blocked`, put the
+   architect's or implementer's question to the user verbatim. When `failed` or `base red`, give the
+   last failure excerpt. When
    `design incomplete`, say that the design step did not complete, give `validationError` as the
    runtime reported it, and relay `recovery` verbatim — a dead end that names no way out is how the
    next person decides the ladder is broken rather than that this run needs re-running lower; when `degraded`, say which design step was rejected and that the reported
