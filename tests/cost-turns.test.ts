@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { collectWorkflowRuns, costJson, costReport, printCost, projectKey, readTurnJournal, TURN_JOURNAL_FILE } from '../src/commands/cost/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { isolatedCostRoots } from './cost-roots.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/turn-journal.mjs')
 const SAMPLE = path.resolve(import.meta.dirname, 'fixtures/transcripts/claude-code-2.1.284.jsonl')
@@ -35,7 +36,7 @@ function text(report: ReturnType<typeof costReport>): string {
 describe('construct cost reads the turn journal', () => {
   it('an absent turn journal reads as not recorded', () => {
     for (const env of [{ CLAUDECODE: '1' }, { CURSOR_AGENT: '1' }]) {
-      const report = costReport(world(null), { projectsDir: mkdtempSync(path.join(tmpdir(), 'construct-turns-projects-')), env })
+      const report = costReport(world(null), { ...isolatedCostRoots(), projectsDir: mkdtempSync(path.join(tmpdir(), 'construct-turns-projects-')), env })
       expect(costJson(report, false).turns).toEqual({ status: 'not recorded' })
       expect(text(report)).toContain('not recorded')
       expect(text(report)).toContain(TURN_JOURNAL_FILE)
@@ -58,7 +59,7 @@ describe('construct cost reads the turn journal', () => {
     const summary = readTurnJournal(dir)
     expect(summary).toMatchObject({ status: 'recorded', turns: 4, sessions: 2, main: usage(4, 16, 0, 100, 11), subagents: usage(2, 20, 10, 0, 4), unmeasured: 1, gaps: 1 })
     expect(summary.status === 'recorded' && summary.malformed.map(entry => entry.line)).toEqual([7, 8])
-    const report = costReport(dir, { projectsDir: mkdtempSync(path.join(tmpdir(), 'construct-turns-projects-')), env: { CLAUDECODE: '1' } })
+    const report = costReport(dir, { ...isolatedCostRoots(), projectsDir: mkdtempSync(path.join(tmpdir(), 'construct-turns-projects-')), env: { CLAUDECODE: '1' } })
     expect(text(report)).toContain('4 turns')
     expect(text(report)).toContain('2 sessions')
   })
