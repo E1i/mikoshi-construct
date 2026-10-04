@@ -160,6 +160,16 @@ After every Ghost, a `scan` agent first runs a blind Design check (about two min
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
 keeps, changes or drops it.
 
+## Mutations
+
+A mutation is applied only with `construct mutate apply` and undone only with `construct mutate judge`:
+judge restores the file from the copy apply took, uncommitted changes included, checks it byte for byte
+and deletes the record. Undoing a mutation with `git checkout`, `git restore` or `git stash` is
+forbidden: each restores from git, not from that copy, and erases whatever the tree held uncommitted
+(#139, #153). A mutation applied by hand, an editor or `sed` is forbidden for the same reason. Every
+prompt the window writes for a subagent that mutates carries the same line. The hook that refuses
+those commands while a `.construct/mutations/<id>.json` is open is #162.
+
 ## Giving the verdict
 
 The coordinating window gives the verdict. A small divergence from the brief is merged, with a
