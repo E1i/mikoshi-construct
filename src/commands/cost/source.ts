@@ -1,3 +1,4 @@
+import type { CheapReading } from './cheap.js'
 import type { LedgerSummary, Reconciliation } from './ledger.js'
 import type { RunDecomposition } from './steps.js'
 import type { TurnSummary } from './turns.js'
@@ -33,4 +34,5 @@ export interface CostReport {
   ledger?: LedgerSummary
   reconciliation?: Reconciliation
   turns: TurnSummary
+  cheap?: CheapReading
 }

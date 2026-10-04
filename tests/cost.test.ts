@@ -98,8 +98,10 @@ describe('construct cost', () => {
   })
 
   it('reports a runtime that does not expose per-run usage as unsupported, not as absence', () => {
-    const report = costReport(workspace(), { projectsDir: projectsRoot(), env: CURSOR_ENV })
-    expect(report).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION, turns: { status: 'not recorded' } })
+    const projectsDir = projectsRoot()
+    const shiftRoot = path.join(projectsDir, 'no-shift')
+    const report = costReport(workspace(), { projectsDir, shiftRoot, env: CURSOR_ENV })
+    expect(report).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION, turns: { status: 'not recorded' }, cheap: { shiftRoot, projectsDir, classes: [] } })
     expect(costJson(report, false)).toEqual({ schemaVersion: COST_JSON_SCHEMA_VERSION, status: 'unsupported', runtime: 'cursor', version: VERSION, turns: { status: 'not recorded' } })
     const { exit, text } = printed(report)
     expect(exit).toBe(COST_EXIT.unsupported)
@@ -111,8 +113,9 @@ describe('construct cost', () => {
 
   it('reports a runtime whose usage store is absent as unsupported', () => {
     const projects = path.join(projectsRoot(), 'never-written')
-    const report = costReport(workspace(), { projectsDir: projects, env: CLAUDE_CODE_ENV })
-    expect(report).toEqual({ status: 'unsupported', runtime: 'claude-code', version: VERSION, turns: { status: 'not recorded' } })
+    const shiftRoot = path.join(projects, 'no-shift')
+    const report = costReport(workspace(), { projectsDir: projects, shiftRoot, env: CLAUDE_CODE_ENV })
+    expect(report).toEqual({ status: 'unsupported', runtime: 'claude-code', version: VERSION, turns: { status: 'not recorded' }, cheap: { shiftRoot, projectsDir: projects, classes: [] } })
   })
 
   it('names the key it looked up when the runs were recorded under the path the directory resolves to', () => {
