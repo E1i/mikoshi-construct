@@ -80,4 +80,16 @@ describe('parseTasksFile', () => {
     object.tasks[0].id = ''
     expect(() => parseTasksFile(JSON.stringify(object))).toThrow(/expected a non-empty string/)
   })
+
+  it('reads an optional task card into the parsed card', () => {
+    const object = JSON.parse(VALID) as { tasks: [Record<string, unknown>] }
+    object.tasks[0].card = '#160 window-close [implement/ghosts/S/ladder/owner] · depends — · blocks —'
+    expect(parseTasksFile(JSON.stringify(object)).tasks[0]!.card).toMatchObject({ id: 160, name: 'window-close', kind: 'implement', contour: 'ladder' })
+  })
+
+  it('refuses a task card that is not a card, naming the field', () => {
+    const object = JSON.parse(VALID) as { tasks: [Record<string, unknown>] }
+    object.tasks[0].card = 'not a card'
+    expect(() => parseTasksFile(JSON.stringify(object))).toThrow(/tasks\[0\] field card: 'not a card' is not a card/)
+  })
 })

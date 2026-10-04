@@ -124,6 +124,54 @@ describe('task:close records when the task ended and the sessions it used, each 
   })
 })
 
+const LAUNCH_SESSION = 'ghost-session'
+
+function launchEntryLine(id: string, kind: 'implement' | 'probe' = 'implement'): string {
+  const decision = kind === 'probe' ? 'none' : 'owner'
+  return JSON.stringify({ event: 'entry', task: id, CONTRACT: ENTRY_CONTRACT, EXPECT: ENTRY_EXPECT, ACTION: 'a', RESULT: 'accepted · not started', ts: 'entry-ts', card: { id: Number(id), name: 'launched', kind, milestone: 'ghosts', size: 'S', contour: 'ladder', decision, depends: [], blocks: [], line: 'l' } })
+}
+
+function launchTaskLine(id: string): string {
+  return JSON.stringify({ event: 'task', ts: 'task-ts', task: id, session: LAUNCH_SESSION, ladder: 'done' })
+}
+
+describe('task:close closes a ghosts:launch run by the lines the launcher wrote, with no task:start line', () => {
+  it('closes by --pr, taking the card from the entry line and the session from the task line', () => {
+    const { deps, written } = world([launchEntryLine('160'), launchTaskLine('160')], [sessionFile('-work', LAUNCH_SESSION)])
+    const result = runTaskClose(['160', '--pr', '518', '--verification', 'review'], deps)
+    expect(result.exitCode).toBe(0)
+    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '160', path: 'ladder', pr: 518, verification: 'review', ended: NOW.toISOString(), sessions: [{ id: LAUNCH_SESSION, project: '-work' }], ts: NOW.toISOString() }])
+    expect(result.stdout[0]).toMatch(/^-{4} task:close #160 launched -+$/)
+  })
+
+  it('writes no time field the launcher lines did not carry', () => {
+    const { deps, written } = world([launchEntryLine('160'), launchTaskLine('160')])
+    runTaskClose(['160', '--pr', '518', '--verification', 'review'], deps)
+    const line = JSON.parse(written[0]!) as Record<string, unknown>
+    expect(line).not.toHaveProperty('started')
+    expect(Object.values(line)).not.toContain('entry-ts')
+    expect(Object.values(line)).not.toContain('task-ts')
+  })
+
+  it('still closes a launched probe only through --report', () => {
+    const { deps, written } = world([launchEntryLine('8', 'probe')])
+    expect(runTaskClose(['8', '--pr', '518', '--verification', 'run'], deps).stderr).toEqual(['[task:close] #8 is kind probe, which closes with --report only; nothing written'])
+    expect(written).toEqual([])
+  })
+
+  it('prefers the task:start line when the task has one', () => {
+    const { deps, written } = world([startLine('160', 'implement'), launchEntryLine('160')])
+    runTaskClose(['160', '--pr', '518', '--verification', 'run'], deps)
+    expect(JSON.parse(written[0]!)).toMatchObject({ path: 'cheap' })
+  })
+
+  it('refuses an entry line without a card, as before the launcher carried one', () => {
+    const { deps, written } = world([entryLine('160'), launchTaskLine('160')])
+    expect(runTaskClose(['160', '--pr', '518', '--verification', 'run'], deps).stderr[0]).toContain('has no task:start line with a card for #160')
+    expect(written).toEqual([])
+  })
+})
+
 describe('w3: task:close refuses and writes nothing', () => {
   it.each([
     ['no verification', ['123', '--pr', '460'], `--verification is required: one of ${VERIFICATION_WORDS.join(', ')}`],

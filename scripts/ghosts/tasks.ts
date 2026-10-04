@@ -1,10 +1,13 @@
+import type { Card } from './card.js'
 import { readFileSync } from 'node:fs'
+import { parseCard } from './card.js'
 
 export interface Task {
   id: string
   brief: string
   worktree: string
   branch: string
+  card?: Card
 }
 
 export interface TasksFile {
@@ -18,7 +21,8 @@ export interface TasksFile {
 const REQUIRED_TOP_LEVEL_KEYS = ['repo', 'status', 'out', 'tasks'] as const
 const OPTIONAL_TOP_LEVEL_KEYS = ['matrix'] as const
 const TOP_LEVEL_KEYS = [...REQUIRED_TOP_LEVEL_KEYS, ...OPTIONAL_TOP_LEVEL_KEYS] as const
-const TASK_KEYS = ['id', 'brief', 'worktree', 'branch'] as const
+const REQUIRED_TASK_KEYS = ['id', 'brief', 'worktree', 'branch'] as const
+const TASK_KEYS = [...REQUIRED_TASK_KEYS, 'card'] as const
 
 function assertPlainObject(value: unknown, where: string): asserts value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
@@ -45,13 +49,21 @@ function assertString(value: unknown, where: string): string {
 function parseTask(raw: unknown, index: number): Task {
   const where = `tasks[${index}]`
   assertPlainObject(raw, where)
-  assertKeys(raw, TASK_KEYS, TASK_KEYS, where)
-  return {
+  assertKeys(raw, TASK_KEYS, REQUIRED_TASK_KEYS, where)
+  const task: Task = {
     id: assertString(raw.id, `${where} field id`),
     brief: assertString(raw.brief, `${where} field brief`),
     worktree: assertString(raw.worktree, `${where} field worktree`),
     branch: assertString(raw.branch, `${where} field branch`),
   }
+  return raw.card === undefined ? task : { ...task, card: parseTaskCard(raw.card, `${where} field card`) }
+}
+
+function parseTaskCard(value: unknown, where: string): Card {
+  const parsed = parseCard(assertString(value, where))
+  if (parsed.kind === 'refused')
+    throw new Error(`${where}: ${parsed.reason}`)
+  return parsed.card
 }
 
 export function parseTasksFile(raw: string): TasksFile {
