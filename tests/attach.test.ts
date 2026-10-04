@@ -270,11 +270,18 @@ async function attachedAlready(dir: string, removeCarriers: boolean): Promise<vo
   for (const target of Object.keys(record?.files ?? {}))
     rmSync(path.join(dir, target), { force: true })
   rmSync(path.join(dir, '.construct/commit-guard.mjs'), { force: true })
+  rmSync(path.join(dir, SETTINGS_FILE), { force: true })
 }
 
 const ATTACHED_RECORD_CASES: { name: string, arrange: (dir: string) => Promise<void>, refusal: string | undefined }[] = [
   { name: 'the record beside a project, carriers removed', refusal: 'attached', arrange: dir => attachedAlready(dir, true) },
   { name: 'the record beside its carriers and the commit guard', refusal: 'attached', arrange: dir => attachedAlready(dir, false) },
+  { name: 'the record and nothing else', refusal: 'attached', arrange: async (dir) => {
+    for (const entry of readdirSync(dir).filter(entry => entry !== '.git'))
+      rmSync(path.join(dir, entry), { recursive: true })
+    mkdirSync(path.join(dir, '.construct'))
+    writeFileSync(path.join(dir, ATTACH_RECORD_FILE), '{}\n')
+  } },
   { name: 'the record and construct.json', refusal: 'constructed', arrange: async (dir) => {
     await attachedAlready(dir, true)
     writeFileSync(path.join(dir, 'construct.json'), '{}\n')
