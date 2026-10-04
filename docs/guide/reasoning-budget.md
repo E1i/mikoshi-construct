@@ -19,8 +19,10 @@ a decision that already exists is the most expensive way to produce nothing.
 ## The ladder
 
 Before the first rung, and before the design step of a `high` run, the harness runs once on the base.
-A red base stops the run as `base red` with the failure excerpt, and no implementer or architect is
-paid for: a rung on a red base cannot tell its own failure from one that was already there.
+The rule is that a base red in a way that cannot be identified runs nothing: it stops the run as `base red` with the failure
+excerpt, and no implementer or architect is paid for. A red base whose every red step has identified failures and
+whose failure set matches the sha256 pinned in the brief (`Base failures: sha256 <64 hex>`) runs, and a rung
+passes when it adds no failure; with no pin, or another one, the run stops as `base unverified`.
 
 A run is a sequence of rungs. Each rung implements, then a separate agent verifies:
 

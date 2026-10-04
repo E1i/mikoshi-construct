@@ -186,6 +186,7 @@ describe('the harness in the built args', () => {
 
     expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({
       command: 'pnpm run quality',
+      steps: ['pnpm run quality'],
       extra: [],
       contractPaths: ['contract/openapi.yaml', 'src/contracts/openapi.ts', 'contract/surface.json', 'contract/events.json'],
       contractCheck: '',
@@ -198,7 +199,7 @@ describe('the harness in the built args', () => {
       'AGENTS.md': 'Contract paths: api/openapi.yaml\n',
     })
 
-    expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({ command: 'make check', extra: [], contractPaths: ['api/openapi.yaml'], contractCheck: '' })
+    expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({ command: 'make check', extra: [], contractPaths: ['api/openapi.yaml'], contractCheck: '', steps: ['make check'] })
   })
 
   it('reads Contract paths and Contract check from AGENTS.md', () => {
@@ -210,10 +211,36 @@ describe('the harness in the built args', () => {
 
     expect(JSON.parse(buildIn(dir, brief).stdout).harness).toEqual({
       command: 'make check',
+      steps: ['make check'],
       extra: [],
       contractPaths: ['api/openapi.yaml', 'src/api.ts', 'contract/surface.json', 'contract/events.json'],
       contractCheck: 'make contract-marker-283',
     })
+  })
+
+  const withScript = (script: string, command = 'pnpm run quality'): string => buildIn(scratch({
+    'construct.json': JSON.stringify({ harness: { command }, contracts: null }),
+    'package.json': JSON.stringify({ scripts: { quality: script } }),
+  }), brief).stdout
+
+  it('b1: the built harness carries steps split at the top-level && of the package.json script harness.command names', () => {
+    expect(JSON.parse(withScript('pnpm lint && pnpm test -- "a && b" && tsc --noEmit')).harness.steps).toEqual(['pnpm lint', 'pnpm test -- "a && b"', 'tsc --noEmit'])
+    expect(JSON.parse(withScript('pnpm lint && pnpm test', 'pnpm quality')).harness.steps).toEqual(['pnpm lint', 'pnpm test'])
+  })
+
+  it('b2: a script with ||, a semicolon, a pipe or a subshell, or a command that names no script, gives the one step harness.command', () => {
+    for (const script of ['a || b', 'a; b', 'a | b', '(a && b)', 'a & b', 'a $(b)', 'a "unbalanced'])
+      expect(JSON.parse(withScript(script)).harness.steps).toEqual(['pnpm run quality'])
+    expect(JSON.parse(withScript('a && b', 'make check')).harness.steps).toEqual(['make check'])
+    expect(JSON.parse(withScript('a && b', 'pnpm run missing')).harness.steps).toEqual(['pnpm run missing'])
+  })
+
+  it('b3: a Base failures line of the brief lands in harness.baseFailuresSha256, and a brief without it leaves the key out', () => {
+    const pin = 'ab'.repeat(32)
+    const dir = scratch(CONSTRUCTED)
+
+    expect(JSON.parse(buildIn(dir, `Task.\nBase failures: sha256 ${pin}\nAcceptance: one holds — witness: \`true\``).stdout).harness.baseFailuresSha256).toBe(pin)
+    expect(JSON.parse(buildIn(dir, brief).stdout).harness).not.toHaveProperty('baseFailuresSha256')
   })
 
   it('refuses a contract line found only in CLAUDE.md', () => {

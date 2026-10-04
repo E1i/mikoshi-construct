@@ -2,7 +2,7 @@ export const meta = {
   name: 'implement',
   description: 'Implement a task at low effort, verify with the harness, escalate on repeated failure or ambiguity',
   phases: [
-    { title: 'Preflight', detail: 'harness against the base before any change; a red base stops the run' },
+    { title: 'Preflight', detail: 'harness against the base before any change; a base red in a way that cannot be identified stops the run' },
     { title: 'Design', detail: 'architect inside the run, for high effort before the first rung and after a blocked or failed attempt' },
     { title: 'Implement', detail: 'implementer at the current rung' },
     { title: 'Verify', detail: 'harness against the working tree, and each acceptance item witnessed red before the change and green after it' },
@@ -44,6 +44,19 @@ const VERDICT = {
       properties: { command: { type: 'string' }, exitCode: { type: 'integer' } },
     },
     argsSha256: { type: 'string' },
+    steps: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['step', 'exitCode', 'failures'],
+        properties: {
+          step: { type: 'string' },
+          exitCode: { type: 'integer' },
+          failures: { type: ['array', 'null'], items: { type: 'string' } },
+        },
+      },
+    },
+    setSha256: { type: ['string', 'null'] },
     stagedTree: { type: 'string' },
     unstagedPaths: { type: 'array', items: { type: 'string' } },
     witnesses: {
@@ -138,6 +151,7 @@ const rungs = LADDERS[args.effort] ?? LADDERS.low
 const retryLimit = Number.isInteger(args.retryLimit) && args.retryLimit >= 0 ? args.retryLimit : DEFAULT_RETRY_LIMIT
 
 let lastValidationError = null
+let baseFailures = null
 
 function touchesContract(changedFiles) {
   return changedFiles.some(file => harness.contractPaths.includes(file))
@@ -196,9 +210,18 @@ function argsMismatchReason(observed) {
 
 const WITNESS_DIR_LINE = 'Make <dir> once, before the first witness, with mktemp -d, and write the absolute path it printed wherever <dir> stands: it lies outside the repository, so it still resolves after the cd into the base worktree and adds no file to the working tree.'
 
+const BASELINE_SCRIPT = 'node scripts/construct/check-baseline.mjs'
+
+function baselineScriptLine() {
+  if (!Array.isArray(harness.steps))
+    return ''
+  return `Run \`${BASELINE_SCRIPT}\` once, in the working tree, with every step of the harness, each quoted exactly as given:\n${harness.steps.map(step => `- ${step}`).join('\n')}\nReport its \`steps\` verbatim as the verdict's steps, its \`sha256\` as setSha256 (null when it printed null). Retell no failure in your own words: the caller compares the identities item by item. passed is whether every step's exitCode is 0.`
+}
+
 function harnessPrompt(baseSha) {
   return [
     `Harness command: ${harness.command}`,
+    baseFailures == null ? '' : baselineScriptLine(),
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     ARGS_SHA_LINE,
     `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(digest, index + 1)}`).join('\n')}`,
@@ -219,6 +242,58 @@ function architectPrompt(reason) {
   ].filter(Boolean).join('\n\n')
 }
 
+function identitiesOf(failuresByStep) {
+  return Object.entries(failuresByStep).flatMap(([step, failures]) => failures.map(failure => `${step} › ${failure}`))
+}
+
+function multisetDifference(left, right) {
+  const remaining = [...right]
+  return left.filter((item) => {
+    const index = remaining.indexOf(item)
+    if (index === -1)
+      return true
+    remaining.splice(index, 1)
+    return false
+  })
+}
+
+function verdictStep(verdict, step) {
+  return Array.isArray(verdict?.steps) ? verdict.steps.find(entry => entry.step === step) : undefined
+}
+
+function stepWithinTheBase(entry, known) {
+  if (entry == null)
+    return false
+  if (entry.exitCode === 0)
+    return true
+  return Array.isArray(entry.failures) && entry.failures.length > 0 && multisetDifference(entry.failures, known).length === 0
+}
+
+function withinTheBase(verdict) {
+  return Object.entries(baseFailures).every(([step, known]) => stepWithinTheBase(verdictStep(verdict, step), known))
+}
+
+function newFailuresOf(verdict) {
+  return Object.entries(baseFailures).flatMap(([step, known]) => {
+    const entry = verdictStep(verdict, step)
+    if (entry == null)
+      return [`${step} › not reported by the harness`]
+    if (entry.exitCode === 0)
+      return []
+    const added = Array.isArray(entry.failures) ? multisetDifference(entry.failures, known).map(failure => `${step} › ${failure}`) : []
+    return added.length > 0 || stepWithinTheBase(entry, known) ? added : [`${step} › red with no identified failure`]
+  })
+}
+
+function fixedOnTheWayOf(verdict) {
+  return Object.entries(baseFailures).flatMap(([step, known]) => {
+    const entry = verdictStep(verdict, step)
+    if (entry == null || (entry.exitCode !== 0 && !Array.isArray(entry.failures)))
+      return []
+    return multisetDifference(known, entry.exitCode === 0 ? [] : entry.failures).map(failure => `${step} › ${failure}`)
+  })
+}
+
 function implementerPrompt(spec, feedback) {
   return [
     `Task: ${task}`,
@@ -231,6 +306,7 @@ function implementerPrompt(spec, feedback) {
     spec == null
       ? ''
       : `Design spec from the architect:\n${spec.decision}\n\nContract changes: ${spec.contractChanges || 'none'}\nComposition changes: ${spec.compositionChanges || 'none'}\nConstraints:\n- ${spec.constraints.join('\n- ')}\nFiles: ${spec.files.join(', ')}`,
+    baseFailures == null ? '' : `These failures were on the base before any change (by step). They are known and out of this task: do not touch them. The run counts only new ones.\n${identitiesOf(baseFailures).join('\n')}`,
     feedback == null ? '' : `The previous attempt failed the harness. Fix the cause of this before anything else:\n${feedback}`,
     'Return the report object.',
   ].filter(Boolean).join('\n\n')
@@ -439,6 +515,7 @@ function preflightPrompt() {
     `Harness command: ${harness.command}`,
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     baseLine(),
+    baselineScriptLine(),
     ARGS_SHA_LINE,
     'Verify the current working tree and return the verdict object.',
   ].filter(Boolean).join('\n')
@@ -467,8 +544,23 @@ if (mismatch != null)
 const beyond = sketch == null ? null : beyondTheSketch(base)
 if (beyond != null)
   return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: beyond }], lastFailure: beyond, acceptance, invariants, immutable }
-if (base.passed !== true)
-  return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants, immutable }
+if (base.passed !== true) {
+  const redSteps = (base.steps ?? []).filter(entry => entry.exitCode !== 0)
+  const identified = redSteps.length > 0 && redSteps.every(entry => Array.isArray(entry.failures) && entry.failures.length > 0)
+  if (!identified)
+    return { status: 'base red', attempts: [{ rung: 0, effort: 'low', outcome: 'base red', reason: base.failureExcerpt }], lastFailure: base.failureExcerpt, acceptance, invariants, immutable }
+  const missingSteps = Array.isArray(harness.steps) ? harness.steps.filter(step => !base.steps.some(entry => entry.step === step)) : []
+  if (missingSteps.length > 0) {
+    const reason = `the base is red and its verdict leaves out a step of the harness, so its failure set is not known: ${missingSteps.join(', ')}`
+    return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'base unverified', reason }], validationError: reason, acceptance, invariants, immutable }
+  }
+  if (typeof harness.baseFailuresSha256 !== 'string' || harness.baseFailuresSha256 !== base.setSha256) {
+    const reason = `the base is red and its failure set is not the pinned one: the brief pins ${typeof harness.baseFailuresSha256 === 'string' ? harness.baseFailuresSha256 : 'no sha256 (no Base failures line)'}, the harness saw ${base.setSha256 ?? 'none'}`
+    return { status: 'base unverified', attempts: [{ rung: 0, effort: 'low', outcome: 'base unverified', reason }], validationError: reason, acceptance, invariants, immutable }
+  }
+  baseFailures = Object.fromEntries(base.steps.map(entry => [entry.step, Array.isArray(entry.failures) ? entry.failures : []]))
+  log(`preflight: the base is red with ${identitiesOf(baseFailures).length} known failures, pinned by ${harness.baseFailuresSha256}`)
+}
 
 for (const [index, effort] of rungs.entries()) {
   const rung = index + 1
@@ -529,7 +621,10 @@ for (const [index, effort] of rungs.entries()) {
     attempts.push({ rung, effort, outcome: 'args mismatch', reason, securityFinding: verdict.securityFinding ?? '' })
     return { status: 'args unverified', attempts, validationError: reason, acceptance, invariants, immutable }
   }
-  const harnessPassed = verdict?.passed === true && verdict.testsWeakened === false
+  const harnessPassed = baseFailures == null
+    ? verdict?.passed === true && verdict.testsWeakened === false
+    : verdict != null && verdict.testsWeakened === false && withinTheBase(verdict)
+  const newOnRedBase = baseFailures != null && verdict != null && !harnessPassed ? newFailuresOf(verdict).join('\n') : ''
   const unchanged = harnessPassed && verdict.changedFiles.length === 0
   const environment = harnessPassed && !unchanged ? baseEnvironmentProblem(verdict) : null
   if (environment != null) {
@@ -558,7 +653,7 @@ for (const [index, effort] of rungs.entries()) {
         reason: passed
           ? ''
           : !harnessPassed
-              ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : verdict.failureExcerpt)
+              ? (verdict.testsWeakened ? 'a test was deleted, skipped or narrowed' : baseFailures == null ? verdict.failureExcerpt : newOnRedBase)
               : unchanged ? 'the harness saw no changed file' : touchedImmutable.length > 0 ? immutableReason(touchedImmutable) : unrun.length > 0 ? unrunVerbatimReason(unrun) : invalid.length > 0 ? invalidWitnessReason(invalid) : unwitnessed.length > 0 ? unwitnessedReason(unwitnessed) : untested ? untestedReason(changedSourceFiles) : contractCheckReason(verdict.contractCheck),
         securityFinding: verdict.securityFinding ?? '',
       })
@@ -580,6 +675,7 @@ for (const [index, effort] of rungs.entries()) {
       contractChanged: touchesContract(verdict.changedFiles),
       changedFiles: verdict.changedFiles,
       diffStat: verdict.diffStat,
+      ...(baseFailures == null ? {} : { onRedBase: true, knownBaseFailures: identitiesOf(baseFailures).length, newFailures: 0, fixedOnTheWay: fixedOnTheWayOf(verdict) }),
       acceptance,
       invariants,
       immutable,
@@ -589,9 +685,9 @@ for (const [index, effort] of rungs.entries()) {
   feedback = verdict == null
     ? `The harness produced no verdict the schema could validate: ${lastValidationError}`
     : verdict.testsWeakened
-      ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.\n${verdict.failureExcerpt}`
+      ? `A test was deleted, skipped or narrowed. Restore it and make the implementation pass it.${baseFailures == null ? `\n${verdict.failureExcerpt}` : ''}`
       : !harnessPassed
-          ? verdict.failureExcerpt
+          ? (baseFailures == null ? verdict.failureExcerpt : `The change added failures the base did not have:\n${newOnRedBase}`)
           : unchanged
             ? NO_CHANGE
             : touchedImmutable.length > 0

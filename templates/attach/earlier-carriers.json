@@ -463,5 +463,35 @@
     "target": ".claude/skills/intake/SKILL.md",
     "sha256": "7e7518aed467ee1d353a8833d965ee6d0b16319e86d6c99014f787b14bd0ff33",
     "date": "2026-10-04"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "3956e806fb2f03542f565fa5655a4097977b74cf5db239b4b76c0d5bb4d4832f",
+    "date": "2026-10-05"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "f835cd4971716b588ff5fad8c88ac97e67306cb36ee5072465a27d088f5dfa0e",
+    "date": "2026-10-05"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "0d4d89c46004623949af6e46dc91aa26f48adbda86a418785ea7fc6df8515f10",
+    "date": "2026-10-04"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "e488eb9461d5912d2b0c17e8bae30433b74129e07aadb4aeb8ebdc84225419c6",
+    "date": "2026-10-04"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "fc9f27788ac3371005cc72e157df92d288a49962fbaae586fe4e4bbd331c516f",
+    "date": "2026-10-04"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "a48ad7b5f7ac107e3d9caedd3f4a7f74c12f59aaaba7904d2b899e84d8fa91db",
+    "date": "2026-10-04"
   }
 ]

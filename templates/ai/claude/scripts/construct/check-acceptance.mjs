@@ -19,6 +19,9 @@ const SKETCH_PREFIX = 'Sketch: '
 const SKETCH_BRANCH_AND_SHA = /^Sketch: (\S+) @ ([0-9a-f]{40})$/
 const SKETCH_NONE = /^Sketch: none — \S/
 const SHA256_HEX = /^[0-9a-f]{64}$/
+const BASE_FAILURES_LINE = /^Base failures: sha256 ([0-9a-f]{64})$/m
+const PNPM_SCRIPT_COMMAND = /^pnpm (?:run )?([\w:.-]+)$/
+const UNSPLITTABLE_SHELL = ['||', ';', '|', '\n', '`', '$(', '(', ')']
 const SIGNAL_FIELDS = ['CONTRACT', 'EXPECT', 'ACTION', 'RESULT']
 const TITLE_RULE_WIDTH = 64
 const TITLE_LEAD = 4
@@ -287,6 +290,50 @@ function agentsContractCheck(root) {
   return agentsContractLine(root, CONTRACT_CHECK_LINE) ?? ''
 }
 
+function topLevelAndAndSteps(script) {
+  const steps = []
+  let quote = null
+  let start = 0
+  for (let index = 0; index < script.length; index++) {
+    const char = script[index]
+    if (quote != null) {
+      if (char === quote)
+        quote = null
+      else if (char === '\\' && quote === '"')
+        index++
+      continue
+    }
+    if (char === '\'' || char === '"') {
+      quote = char
+      continue
+    }
+    if (char === '\\') {
+      index++
+      continue
+    }
+    if (script.startsWith('&&', index)) {
+      steps.push(script.slice(start, index))
+      start = index + 2
+      index++
+      continue
+    }
+    if (UNSPLITTABLE_SHELL.some(token => script.startsWith(token, index)) || char === '&')
+      return null
+  }
+  if (quote != null)
+    return null
+  steps.push(script.slice(start))
+  const trimmed = steps.map(step => step.trim())
+  return trimmed.includes('') ? null : trimmed
+}
+
+function harnessSteps(root, command) {
+  const name = PNPM_SCRIPT_COMMAND.exec(command)?.[1]
+  const script = name == null ? undefined : readRecord(path.join(root, 'package.json'))?.scripts?.[name]
+  const steps = typeof script === 'string' ? topLevelAndAndSteps(script) : null
+  return steps ?? [command]
+}
+
 export function repositoryHarness(root) {
   const record = readRecord(path.join(root, 'construct.json')) ?? readRecord(path.join(root, '.construct', 'attach.json'))
   const command = record?.harness?.command
@@ -295,6 +342,7 @@ export function repositoryHarness(root) {
   const recorded = record.contracts == null ? [] : [record.contracts.path, record.contracts.types]
   return {
     command,
+    steps: harnessSteps(root, command),
     extra: [],
     contractPaths: [...recorded, ...agentsContractPaths(root)].filter(item => typeof item === 'string' && item !== ''),
     contractCheck: agentsContractCheck(root),
@@ -405,7 +453,9 @@ export function build(argv) {
   try {
     const text = readInput(option(argv, '--brief'))
     const argsPath = optionalValue(argv, '--out')
-    const json = JSON.stringify({ ...buildArgs(text), harness: repositoryHarness(process.cwd()) })
+    const pin = BASE_FAILURES_LINE.exec(text)?.[1]
+    const harness = repositoryHarness(process.cwd())
+    const json = JSON.stringify({ ...buildArgs(text), harness: pin == null ? harness : { ...harness, baseFailuresSha256: pin } })
     if (argsPath == null)
       return { code: 0, stdout: [json], stderr: [] }
     writeArgs(argsPath, json)

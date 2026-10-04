@@ -133,15 +133,23 @@ and `.construct/high-effort-areas.md`.
      the acceptance was not witnessed; `lastFailure` carries the last reason.
    - `blocked` — the last rung stopped on a question, or the brief carried no acceptance or an
      acceptance item with no witness; `question` carries it verbatim.
-   - `base red` — the harness was red on the base before any change, so no rung ran; `lastFailure`
-     carries the excerpt. Make the base green, or name what is red on purpose, before running again.
+   - `base red` — the harness was red on the base before any change in a way that cannot be
+     identified (a red step whose failures no parser read, a verdict with no `steps`, or a diff beyond
+     the sketch), so no rung ran; `lastFailure` carries the excerpt. Make the base green, or name what
+     is red on purpose, before running again. A base red in a way that can be identified does not stop
+     the run when the brief pins its failure set (a `Base failures: sha256 <64 hex>` line): the run
+     records the base's failures per step and a rung passes when it adds none.
    - `args unverified` — the harness reported an `argsSha256` other than the handle's: the file the
      agents read is not the file the build wrote. At preflight no rung ran, and the one attempt is a
      rung-0 `args mismatch`; at a verify the run stops at that rung with an `args mismatch` attempt,
      with no higher rung and no design step. `validationError` names the file and both hashes. Build
      again and pass the handle it prints.
    - `base unverified` — the harness's verdict on the base was rejected by the schema, so no rung
-     ran; `validationError` carries the validator's text. It is also the status of a rung whose
+     ran; `validationError` carries the validator's text. It is also the status of a red base whose
+     failures are all identified but whose failure set is not the pinned one (no `Base failures:` line
+     in the brief, or a sha256 that is not the `setSha256` the harness reported): the base is not the
+     one the brief was written against, so nothing runs, and `validationError` names the pin and the
+     sha256 seen. It is also the status of a rung whose
      witness is invalid (outcome `witness invalid`, checked after a witness not run verbatim and
      before an unwitnessed acceptance): after the change the witness exited 126 or 127, or exited 2
      with a shell syntax error, on any rung; or it failed with the same exit code and the same last
@@ -215,7 +223,9 @@ and `.construct/high-effort-areas.md`.
    Put the result's `acceptance` — the items the ladder received, echoed verbatim — next to the
    agreed line, and name any agreed item missing from it. When the status is `blocked`, put the
    architect's or implementer's question to the user verbatim. When `failed` or `base red`, give the
-   last failure excerpt. When
+   last failure excerpt. A `done` result with `onRedBase: true` is not a clean pass: write the line
+   `passed on a red base: N known, 0 new` with `N` from `knownBaseFailures`, and list `fixedOnTheWay`
+   when it is not empty, so that a pass on a red base is never read as a green one. When
    `design incomplete`, say that the design step did not complete, give `validationError` as the
    runtime reported it, and relay `recovery` verbatim — a dead end that names no way out is how the
    next person decides the ladder is broken rather than that this run needs re-running lower; when `degraded`, say which design step was rejected and that the reported
