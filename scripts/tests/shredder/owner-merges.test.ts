@@ -36,6 +36,7 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['scripts/ghosts/expect-sample.ts'], ownerMerged: false },
     { files: ['scripts/ghosts/launch.ts'], ownerMerged: true },
     { files: ['scripts/ghosts/journal.ts'], ownerMerged: true },
+    { files: ['architecture/owner-merges.md'], ownerMerged: true },
   ])('$files → ownerMerged $ownerMerged', ({ files, ownerMerged }) => {
     expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)
   })

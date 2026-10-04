@@ -9,7 +9,8 @@ kind `ghosts` were added the same day, also at Eli's instruction, with Eli's glo
 2026-09-28 at Eli's instruction. From now on, only Eli changes it. The kind `agents-md` is Eli's decision of 2026-09-28,
 which was not written here then; window A added it on 2026-09-29 at Eli's instruction. The glob `templates/attach/**` under `own-instructions` is Eli's decision of 2026-09-30, added by window A
 at Eli's instruction. On 2026-10-04, at Eli's instruction (task #35), the coordinating window replaced the glob
-`scripts/ghosts/**` of the kind `ghosts` with Eli's 13 paths and added the plain list below with Eli's 15 paths.
+`scripts/ghosts/**` of the kind `ghosts` with Eli's 13 paths, added the plain list below with Eli's 15 paths, and added
+`architecture/owner-merges.md` to `own-instructions`: the file that decides who merges is never auto-merged.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -18,7 +19,7 @@ is matched by its title.)
 | kind | paths (globs) | what it covers | example |
 |---|---|---|---|
 | release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 |
-| own-instructions | `.claude/**`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**` | the agent's own working instructions: the implement skill, the agent files (`implementer.md`, `harness.md`, `architect.md`), the ladder script, `check-acceptance` — in the repository or in `templates/ai/` — and what `attach` hands the agent from `templates/attach/` | PR #244, PR #282; issues #257, #269, #271 |
+| own-instructions | `.claude/**`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md` | the agent's own working instructions: the implement skill, the agent files (`implementer.md`, `harness.md`, `architect.md`), the ladder script, `check-acceptance` — in the repository or in `templates/ai/` — and what `attach` hands the agent from `templates/attach/` | PR #244, PR #282; issues #257, #269, #271 |
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init` or `attach` writes: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
