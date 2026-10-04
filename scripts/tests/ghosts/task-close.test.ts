@@ -61,12 +61,45 @@ describe('w3: task:close writes the closing line the board reads', () => {
   })
 })
 
+const ENTRY_CONTRACT = 'implement · cheap · owner · touches not recorded on the card · law not recorded on the card'
+const ENTRY_EXPECT = 'expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone'
+
+function entryLine(id: string): string {
+  return JSON.stringify({ event: 'entry', task: id, CONTRACT: ENTRY_CONTRACT, EXPECT: ENTRY_EXPECT, ACTION: 'a', RESULT: 'accepted · not started', ts: 'x' })
+}
+
+describe('the exit card repeats the entry card', () => {
+  it('prints the entry\'s CONTRACT and EXPECT byte for byte and fills RESULT with the closing fact', () => {
+    const { deps } = world([startLine('123', 'implement'), entryLine('123')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps)
+    expect(result.stdout.slice(0, 5)).toEqual([
+      expect.stringMatching(/^-{4} task:close #123 n -+$/),
+      `CONTRACT | ${ENTRY_CONTRACT}`,
+      `EXPECT   | ${ENTRY_EXPECT}`,
+      'ACTION   | task:close #123 --pr 460 --verification run',
+      `RESULT   | closed run · PR #460 · line written to ${JOURNAL}`,
+    ])
+  })
+
+  it('names the contract and the forecast as not recorded when no entry line holds them', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps)
+    expect(result.stdout[1]).toBe(`CONTRACT | contract not recorded in ${JOURNAL}: no entry line for #123`)
+    expect(result.stdout[2]).toBe(`EXPECT   | expect not recorded in ${JOURNAL}: no entry line for #123`)
+  })
+
+  it('takes the entry line of its own task and the last of two', () => {
+    const { deps } = world([startLine('123', 'implement'), entryLine('9'), entryLine('123').replace(ENTRY_CONTRACT, 'old'), entryLine('123')])
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps).stdout[1]).toBe(`CONTRACT | ${ENTRY_CONTRACT}`)
+  })
+})
+
 describe('task:close records when the task ended and the sessions it used, each with the project key its file lies under', () => {
   it('records the window session under the key of the directory the window runs in, not the task worktree', () => {
     const { deps, written } = world([startLine('5', 'implement', WINDOW_SESSION)], [sessionFile('-work', WINDOW_SESSION)])
     const result = runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps)
     expect(JSON.parse(written[0]!)).toMatchObject({ ended: NOW.toISOString(), sessions: [{ id: WINDOW_SESSION, project: '-work' }] })
-    expect(result.stdout).toHaveLength(1)
+    expect(result.stdout).toHaveLength(5)
   })
 
   it('records the start session and a different closing session once each, found under the cwd or the task worktree', () => {
@@ -82,12 +115,12 @@ describe('task:close records when the task ended and the sessions it used, each 
     const { deps, written } = world([startLine('5', 'implement', WINDOW_SESSION)])
     const result = runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps)
     expect(JSON.parse(written[0]!)).toMatchObject({ sessions: [{ id: WINDOW_SESSION }] })
-    expect(result.stdout[1]).toBe(`[task:close] #5 session ${WINDOW_SESSION} project not recorded: no session file under -work or -mc-5 in ${PROJECTS}`)
+    expect(result.stdout[5]).toBe(`[task:close] #5 session ${WINDOW_SESSION} project not recorded: no session file under -work or -mc-5 in ${PROJECTS}`)
   })
 
   it('names the sessions as not recorded when neither the start line nor the closing window carries one', () => {
     const { deps } = world([startLine('5', 'implement')])
-    expect(runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps).stdout[1]).toBe('[task:close] #5 sessions not recorded on the start line or in CLAUDE_CODE_SESSION_ID')
+    expect(runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps).stdout[5]).toBe('[task:close] #5 sessions not recorded on the start line or in CLAUDE_CODE_SESSION_ID')
   })
 })
 

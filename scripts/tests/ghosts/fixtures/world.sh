@@ -742,8 +742,20 @@ const text = fs.readFileSync(journal, 'utf8')
 if (!text.startsWith(seed)) failWith(`${journal} does not start with the lines it held before the launch, byte for byte`)
 const seedLines = seed.split('\n').filter(line => line !== '').length
 const lines = text.split('\n').filter(line => line !== '').slice(seedLines)
-if (lines.length !== tasks.length) failWith(`${lines.length} lines appended to ${journal}, not ${tasks.length}`)
-const rows = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
+const parsed = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
+const entries = parsed.filter(row => row.event === 'entry')
+const rows = parsed.filter(row => row.event !== 'entry')
+if (rows.length !== tasks.length) failWith(`${rows.length} lines appended to ${journal}, not ${tasks.length}`)
+if (entries.length !== tasks.length) failWith(`${entries.length} entry lines appended to ${journal}, not ${tasks.length}`)
+const ENTRY_KEYS = 'ACTION,CONTRACT,EXPECT,RESULT,event,task,ts'
+for (const [id] of tasks) {
+  const found = entries.filter(entry => entry.task === id)
+  if (found.length !== 1) failWith(`${found.length} entry lines for task ${id}, not 1`)
+  if (Object.keys(found[0]).sort().join(',') !== ENTRY_KEYS) failWith(`${id}: the entry keys are ${Object.keys(found[0]).sort().join(',')}, not ${ENTRY_KEYS}`)
+  if (found[0].RESULT !== 'accepted · not started') failWith(`${id}: the entry RESULT is ${JSON.stringify(found[0].RESULT)}`)
+  if (['CONTRACT', 'EXPECT', 'ACTION'].some(field => found[0][field] === '')) failWith(`${id}: an entry field is empty`)
+  if (parsed.indexOf(found[0]) > parsed.findIndex(row => row.event === 'task' && row.task === id)) failWith(`${id}: the entry line is after its task line`)
+}
 const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'sketch', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review', 'agreedSha256', 'argsSha256', 'expected', 'actual']
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
