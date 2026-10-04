@@ -15,11 +15,9 @@ whoever changes the thing they describe.
 `mikoshi-construct` is a CLI (`construct`, `miko`, `npx mikoshi-construct`) that materializes a
 construct — architecture policy, an optional OpenAPI contract, a quality harness and agent
 instructions — into a new or existing repository, hands the repository to the agent for discovery,
-and afterwards reads back what that repository has become. Six commands: `init` (detect, configure,
-materialize), `sync` (classify what today's construct would change; `--apply` writes only what it
-owns), `doctor` (are the baseline, the discovery and the knowledge intact), `graph` (draw the claims
-and the evidence under them), `cost` (token usage of `/implement` runs), `soulkill` (print the
-detected facts, write nothing; aliases `inspect`, `capture`). Pitch and lifecycle:
+and afterwards reads back what that repository has become. Ten commands, as `src/program.ts` lists
+them: `init`, `attach` (alias `jack-in`), `detach` (alias `jack-out`), `soulkill` (aliases `inspect`,
+`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `mutate`. Pitch and lifecycle:
 [README.md § What it does](README.md#what-it-does); every command, its flags and its output:
 [docs/cli.md](docs/cli.md).
 
@@ -256,7 +254,7 @@ Contract check: pnpm contract:bump
 | `src/materialize/` | `templates.ts` (walk, `_`→`.`, `.eta`→`{{var}}` + `{{#if}}` blocks), `plan.ts` (mount + layer groups → FileOp, canonical `package.json` key order), `strategies.ts` (create / merge-json / append-block, `preserveDiscovery`), `apply.ts` |
 | `src/manifest.ts` | `construct.json`: preset, harness command, contract paths, file hashes, `DISCOVERY_MARKERS` |
 | `src/failure.ts` | Turns a thrown error into one reading for the composition root: a `ManifestAheadOfReader` becomes the version-gap line, anything else its own message. Sits outside `src/ui/` because it needs both the error and the vocabulary, and the dependency policy keeps `src/ui` from importing the manifest |
-| `src/commands/doctor/` | `index.ts` is the composition root; `baseline.ts` / `discovery.ts` / `harness.ts` keep the three verdicts (baseline intact, each discovery marker filled or named as missing, harness intact), `evidence.ts` and its readers do every read of the inspected repository, and `checks/*` turn that evidence into `{id, level, state, evidence}` — see [docs/cli.md](docs/cli.md) |
+| `src/commands/doctor/` | `index.ts` is the composition root; `baseline.ts` / `discovery.ts` / `harness.ts` keep the three verdicts (baseline intact, each discovery marker filled or named as missing, harness intact), `readings.ts` (`FileReadings`) does every read of the inspected repository, the other modules turn what it read into readings, and `report.ts` prints the text and the `--json` — see [docs/cli.md](docs/cli.md) |
 | `src/ui/` | `theme.ts` (arasaka / johnny / plain, `NO_COLOR`), `lore.ts` (all user-facing strings), `console.ts` (`createUi(theme, writer)`), `prompts.ts` (`Prompter` + the `@clack/prompts` implementation; `init` without `--yes` asks only for what flags left open) |
 | `templates/base` | Stack-agnostic: `architecture/principles.md`, `checklists.md`, `security-invariants.md`, gitleaks, security workflow |
 | `templates/harness` | Composition engine, contracts check scripts, eslint/tsconfig/vitest, `ci.yml`, `pnpm-workspace.yaml`, `package.json.eta` partial |
@@ -345,7 +343,7 @@ has several causes and the evidence in hand already carries one cause's signatur
 that cause instead of listing the others as guesses. Two renderings of one value (plain and lore,
 text and `--json`) are projections, not duplication. "Engram" is a lore name with no fixed meaning:
 engineering documents neither define nor use it; the per-run record is the run record
-([architecture/run-record.md](architecture/run-record.md)), and `construct.json` is the model.
+([architecture/run-record.md](architecture/run-record.md)), and `construct.model.json` is the model.
 
 ## Citing and recording
 

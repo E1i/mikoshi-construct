@@ -32,15 +32,15 @@ beside it is noted as *revision*, because it names a tree, not the input.
 | 13 | launcher → status row | `ghosts:launch` → board, shredder, `ghosts:watch` | the `ghost-<id>` row of `status.md` | `scripts/ghosts/status.ts` (refuses a file with no window table); read by cell position in `scripts/board/handoff.ts` and `scripts/shredder/reader.ts` | unvalidated | no |
 | 14 | session stream → launcher | the Ghost session's stdout → `ghosts:launch`, `ghosts:watch` | `ghost-<id>.jsonl` | the runtime's stream format; `readResultFields` in `scripts/ghosts/result.ts`, `lastToolName` in `scripts/ghosts/watch-report.ts`, read field by field | unvalidated | no |
 | 15 | review → report | review agent → window | the agent's final message | `.claude/agents/review.md` fixes the first line (`[review:<task>]`) and nothing after it | prose | no |
-| 16 | report → verdict | window → `pnpm board` | `event:review` line in `ghosts.jsonl`, written by hand | `ReviewEvent` in `scripts/board/handoff.ts` (`verdict`, `ts`); read with a cast | unvalidated | no: neither the report, the head it reviewed nor the brief is named by a digest |
+| 16 | report → verdict | review agent's `review-<task>.verdict.json` → `pnpm ghosts:verdict` → `pnpm board` | `event:review` line in `ghosts.jsonl`, appended by `ghosts:verdict` (a line written by hand before it carries no `file`) | `contract/contours/review-verdict.schema.json`; `scripts/ghosts/verdict.ts` checks the verdict against it, its `tree` against the pull request's head commit, `report.sha256`, the report's `[review:<task>]` line and `brief.sha256` against `.approved-sha256`, and writes nothing on a fault; `readJournal` in `scripts/board/handoff.ts` checks a line carrying `file` against the schema's `journalLine` and skips one that fails | validated | yes: `tree`, `commit`, `brief.sha256`, `report.sha256`, `file.sha256` |
 | 17 | scan → findings | scan agent → window (including the blind Design check after a Ghost) | the agent's final message | `.claude/agents/scan.md` fixes the first line (`[scan:<task>]`) | prose | no |
 | 18 | window → journal (path, merge, superseded) | window → `pnpm board` | `event:path`, `event:merge`, `event:superseded` lines in `ghosts.jsonl`, written by hand | `PathEvent`, `MergeEvent`, `SupersededEvent` in `scripts/board/handoff.ts`; `event:path` also in window.md § Choosing the contour and AGENTS.md § The path line and its verification word; verification words in `scripts/board/verification.ts` | unvalidated | revision only, when a path line carries `sha` |
 | 19 | morse → prediction | `scripts/morse/cli.ts predict` → nothing in code | one JSON line appended to the journal named by `--journal` | `runPredict` in `scripts/morse/cli.ts` (`task`, `base`, `head`, `verdict`, `rule`, `why`); refuses a journal inside a repository (`scripts/morse/journal.ts`) | unvalidated | revision only (`base`, `head`) |
 | 20 | mutation → judgement → review | `construct mutate apply` → `construct mutate judge` → review agent | `.construct/mutations/<id>.json` and `.orig`, then the `--json` output | `MutationRecord`, `BaselineRecord` in `src/commands/mutate/record.ts`; judge refuses a copy whose sha differs (`src/commands/mutate/judge.ts`, line 84); output keys pinned in `contract/surface.json` (`jsonKeys["mutate judge"]`) | validated | yes: `baselineSha`, `mutatedSha` |
 | 21 | board → reader | `pnpm board` → window, owner | `--json` (`format: board/4`, `JSON_FORMAT` in `scripts/board/json.ts`) and `board.txt` in the handoff directory | `boardJson` in `scripts/board/json.ts`; `scripts/tests/board/board.test.ts` | unvalidated (versioned, not checked by its reader) | reads the first eight hex of `.approved-sha256` (`approvalOf`, `scripts/board/handoff.ts`, line 137) and shows it; no digest of its own inputs |
 
-Counts: validated 6 (#2, #6, #8, #10, #11, #20; #10 and #11 on one side only), unvalidated 10
-(#3, #4, #9, #12, #13, #14, #16, #18, #19, #21), prose 5 (#1, #5, #7, #15, #17).
+Counts: validated 7 (#2, #6, #8, #10, #11, #16, #20; #10 and #11 on one side only), unvalidated 9
+(#3, #4, #9, #12, #13, #14, #18, #19, #21), prose 5 (#1, #5, #7, #15, #17).
 
 ## Records of a retelling that went wrong
 
@@ -69,9 +69,9 @@ Each is a hand-over where one party restated what another produced, instead of p
 
 ## Gaps
 
-- **The verdict is a retelling of a prose report.** #15 → #16: the review report has no shape past its
-  first line, and the journal line that carries the verdict names no digest of the report, the head it
-  reviewed or the brief it reviewed against. The same holds for scan findings (#17).
+- **The verdict stands on a prose report.** #15 → #16: since `ghosts:verdict`, the journal line names
+  the digest of the report, the tree it reviewed and the brief it reviewed against, but the review
+  report itself still has no shape past its first line. The same holds for scan findings (#17).
 - **The hash chain reaches the journal, through a row written by hand.** #1 → #6 → #10 → #12: the
   args file names the approved hash it was built from, the ledger row copies the args hash and the
   approved hash from the build's handle, and the launcher writes `argsSha256` on `event:task` only when
