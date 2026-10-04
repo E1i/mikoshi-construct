@@ -40,6 +40,10 @@ function refused(reason: string): ParsedCard {
   return { kind: 'refused', reason }
 }
 
+export function decisionsOf(kind: Kind): readonly Decision[] {
+  return DECISIONS_OF_KIND[kind]
+}
+
 function oneOf<T extends string>(values: readonly T[], value: string): value is T {
   return (values as readonly string[]).includes(value)
 }

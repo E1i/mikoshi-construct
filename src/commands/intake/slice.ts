@@ -1,7 +1,9 @@
 import type { Contour, Decision, Kind, Milestone, Size } from '../../card/grammar.js'
+import type { CheckedCard, Correction } from './check.js'
 import type { DraftCard, UnclearField } from './draft.js'
 import { cardLine } from '../../card/grammar.js'
 import { parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
+import { CARD_REFERENCE, correctionText, DEFAULT_CONTOUR } from './check.js'
 
 export interface SlicedCard {
   id: number
@@ -9,18 +11,18 @@ export interface SlicedCard {
   line: string
   who: string
   unclear: UnclearField[]
+  corrections: Correction[]
   text: string
 }
 
 export type Slice = { kind: 'sliced', cards: SlicedCard[] } | { kind: 'refused', reasons: string[] }
 
 export const UNCLEAR_PREFIX = 'unclear: '
+export const CORRECTED_PREFIX = 'corrected: '
 export const WITNESSES_HEADING = 'Witnesses:'
-const DEFAULT_CONTOUR = 'ladder'
 const DEFAULT_IMPLEMENT_DECISION = 'owner'
 const PROBE_DECISION = 'none'
 const DEFAULT_CONTINUE = 'stop'
-const CARD_REFERENCE = /^#(\d+)$/
 
 function defaulted(card: DraftCard): { contour: string, decision: string, unclear: UnclearField[] } {
   const unclear = [...card.unclear]
@@ -47,13 +49,17 @@ function resolve(references: readonly string[], ids: ReadonlyMap<string, number>
   })
 }
 
-function bodyOf(card: DraftCard, unclear: readonly UnclearField[]): string {
+function bodyOf(card: CheckedCard, unclear: readonly UnclearField[]): string {
+  const notes = [
+    ...unclear.map(entry => `${UNCLEAR_PREFIX}${entry.field} — ${entry.reason}`),
+    ...card.corrections.map(correction => `${CORRECTED_PREFIX}${correctionText(correction)}`),
+  ]
   return [
     card.task.trim(),
     '',
     WITNESSES_HEADING,
     ...card.witnesses.map(witness => `- ${witness.trim()}`),
-    ...(unclear.length === 0 ? [] : ['', ...unclear.map(entry => `${UNCLEAR_PREFIX}${entry.field} — ${entry.reason}`)]),
+    ...(notes.length === 0 ? [] : ['', ...notes]),
   ].join('\n')
 }
 
@@ -61,7 +67,7 @@ function sorted(ids: Iterable<number>): number[] {
   return [...new Set(ids)].sort((a, b) => a - b)
 }
 
-export function sliceCards(cards: readonly DraftCard[], numbers: readonly number[]): Slice {
+export function sliceCards(cards: readonly CheckedCard[], numbers: readonly number[]): Slice {
   const ids = new Map(cards.map((card, index) => [card.name, numbers[index]!]))
   const reasons: string[] = []
   const depends = cards.map(card => resolve(card.depends, ids, card.name, reasons))
@@ -81,7 +87,7 @@ export function sliceCards(cards: readonly DraftCard[], numbers: readonly number
       depends: sorted(depends[index]!),
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
-    const who = unclear.length > 0 ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
+    const who = unclear.length > 0 || card.corrections.length > 0 ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
     const file = `${id}.md`
     const text = parkingFileText({
       card: line,
@@ -94,7 +100,7 @@ export function sliceCards(cards: readonly DraftCard[], numbers: readonly number
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, text }
+    return { id, file, line, who, unclear, corrections: card.corrections, text }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
 }

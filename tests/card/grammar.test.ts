@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardHead, cardLine, parseCard } from '../../src/card/grammar.js'
+import { cardHead, cardLine, decisionsOf, parseCard } from '../../src/card/grammar.js'
 import { MILESTONES } from '../../src/card/milestones.js'
 
 const VALID = '#123 task-card [implement/ghosts/M/cheap/owner] · depends #86, #90 · blocks #124 the board card'
@@ -65,5 +65,12 @@ describe('cardLine', () => {
     const line = cardLine({ id: 9, name: 'x', kind: 'probe', milestone: 'ghosts', size: 'XS', contour: 'cheap', decision: 'none', depends: [], blocks: [] })
     expect(line).toBe('#9 x [probe/ghosts/XS/cheap/none] · depends — · blocks —')
     expect(parseCard(line).kind).toBe('card')
+  })
+})
+
+describe('decisionsOf', () => {
+  it('lists the decisions a kind takes, the default first', () => {
+    expect(decisionsOf('implement')).toEqual(['owner', 'auto'])
+    expect(decisionsOf('probe')).toEqual(['none'])
   })
 })

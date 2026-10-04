@@ -8,7 +8,11 @@ description: >-
   hands over, in sequence: `parseDraft` refuses a draft that lacks a field with no default rather than
   inventing it, and `parseTaken` refuses anything that is not a number. The numbers are the next free
   after every number taken in the parking directory and in `--taken`, because card numbers are shared
-  with pull requests and issues. `sliceCards` resolves `depends` by name inside the draft, adds the
+  with pull requests and issues. `checkDraft` corrects or marks unclear, by facts, each wrong path,
+  named number, contour, decision, closed depends/blocks and command-less witness. It reads the
+  repository under --dir only through `facts.ts` and closed tasks from --journal through
+  `closedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line, and any corrected card
+  stays at `who: window`. `sliceCards` resolves `depends` by name inside the draft, adds the
   matching `blocks`, defaults only `contour` and `decision` and marks each default as an `unclear:`
   line, keeps every card with an unclear line at `who: window`, renders the card line and the file with
   the renderers that sit beside the card grammar in `src/card/`, and parses every file back with
@@ -21,7 +25,7 @@ boundaries:
   - id: entry
     label: Entry
   - id: read
-    label: Read · the draft and the taken numbers
+    label: Read · the draft, the taken numbers, the journal and the repository
   - id: slice
     label: Number, render, check
   - id: write
@@ -32,7 +36,7 @@ nodes:
     path: src/program.ts
     boundary: entry
   - id: run
-    label: runIntake · refuses without --draft or --taken
+    label: runIntake · refuses without --draft or --taken, or a --dir that is no directory
     path: src/commands/intake/index.ts
     boundary: entry
   - id: draft
@@ -42,6 +46,14 @@ nodes:
   - id: numbers
     label: parseTaken / parkedNumbers / nextFreeNumbers · after every number taken
     path: src/commands/intake/numbers.ts
+    boundary: read
+  - id: check
+    label: checkDraft · touches, number, contour, decision, depends, blocks, witnesses checked by facts; every correction written, none applied silently
+    path: src/commands/intake/check.ts
+    boundary: read
+  - id: facts
+    label: repository facts · reads --dir and PATH, writes nothing
+    path: src/commands/intake/facts.ts
     boundary: read
   - id: slice
     label: sliceCards · depends by name, defaults marked unclear, who window when unclear
@@ -63,7 +75,10 @@ edges:
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: draft, kind: sequence}
   - {from: draft, to: numbers, kind: sequence}
-  - {from: numbers, to: slice, kind: sequence}
+  - {from: numbers, to: check, kind: sequence}
+  - {from: check, to: slice, kind: sequence}
+  - {from: check, to: facts, kind: wires}
+  - {from: check, to: grammar, kind: wires}
   - {from: slice, to: grammar, kind: wires}
   - {from: slice, to: write, kind: sequence}
   - {from: write, to: print, kind: sequence}

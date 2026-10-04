@@ -4,11 +4,13 @@ USAGE construct intake [OPTIONS]
 
 OPTIONS
 
-              --plain    No colors, no lore (CI-friendly) (Default: false)                                             
-             --johnny    Wake up, Netrunner. (Default: false)                                                          
-      --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                            
-      --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin
-  --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                
-             --dryRun    Print the cards, write nothing (Default: false)                                               
+              --plain    No colors, no lore (CI-friendly) (Default: false)                                                        
+             --johnny    Wake up, Netrunner. (Default: false)                                                                     
+      --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                                       
+      --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin           
+  --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                           
+          --dir=<dir>    Target directory (Default: .)                                                                            
+  --journal=<journal>    The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)
+             --dryRun    Print the cards, write nothing (Default: false)                                                          
 
 

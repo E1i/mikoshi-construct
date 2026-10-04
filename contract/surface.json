@@ -184,6 +184,9 @@
     },
     "intake": {
       "flags": {
+        "dir": {
+          "type": "string"
+        },
         "draft": {
           "type": "string"
         },
@@ -192,6 +195,9 @@
         },
         "johnny": {
           "type": "boolean"
+        },
+        "journal": {
+          "type": "string"
         },
         "parking": {
           "type": "string"
