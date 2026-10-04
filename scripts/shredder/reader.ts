@@ -93,6 +93,10 @@ export function readOwnerMergeKinds(ownerMergesText: string): OwnerMergeKind[] {
   })
 }
 
+export function readPlainPaths(ownerMergesText: string): string[] {
+  return tableRows(ownerMergesText, '| plain |').flatMap(cells => [...(cells[0] ?? '').matchAll(/`([^`]+)`/g)].map(match => match[1]!))
+}
+
 const TASK_FILE_NAME = /^\d+-(.+)\.(issue|brief)\.md$/
 
 export function readTaskFiles(dir: string): TaskFile[] {
