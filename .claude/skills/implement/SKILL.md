@@ -36,8 +36,9 @@ repository's CLAUDE.md and `construct.json`.
    `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt --out .construct/implement-args.json`.
    The build writes the whole args object to that file as one line of JSON: `task` (the brief's first
    line, without a leading `/implement `), `effort` (the first word after `Effort:`), `agreedSha256`
-   (the sha256 of the agreed `/implement` text, by the rule `pnpm ghosts:hash` uses, so on a Ghost it
-   is the approved hash), `acceptance`, `witnesses`, `witnessDigests`, `invariants`, `immutable`,
+   (the sha256 of the whole agreed `/implement` text, the `Sketch:` line included; on a Ghost the
+   approved hash is the same text without that line, so the two differ whenever the brief carries one),
+   `acceptance`, `witnesses`, `witnessDigests`, `invariants`, `immutable`,
    `harness` and, when the brief carries a `Design:` section, `design` (its body, verbatim). On stdout
    it prints the handle, one line of JSON: `argsPath`, `argsSha256` (the sha256 of the bytes it
    wrote), every field of the file except `witnesses` and `design`, and `hasDesign`. The handle is

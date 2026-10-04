@@ -139,9 +139,12 @@ A brief that produced a working sketch names it on the line after its `/implemen
 sha and moves HEAD back to `origin/main`, so the sketch is staged and the base the witnesses must be
 red on is still `origin/main`. The exception is a brief that wants an independent implementation as
 its witness, which says so, `Sketch: none — independent implementation is the witness`; a brief with
-neither line is refused. The sketch's sha is inside the approved text, so a sketch changed after
-approval needs a new approval, and a sketch cut from an older `origin/main` is refused until it is
-rebased and re-approved ([0043](decisions/0043-the-ladder-starts-from-the-sketch.md)).
+neither line is refused. The approval hash leaves the `Sketch:` line out and the approval line names the
+approved sketch's sha; a sketch cut from an older `origin/main` is refused until it is rebased, and a
+rebased one launches without a new approval only when `git range-diff` shows every commit as `=`,
+otherwise it is refused with `re-approve`
+([0043](decisions/0043-the-ladder-starts-from-the-sketch.md),
+[0048](decisions/0048-an-approval-names-its-sketch-and-a-rebase-that-changes-no-commit-keeps-it.md)).
 
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger

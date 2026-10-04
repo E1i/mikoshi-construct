@@ -1,7 +1,7 @@
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
-import type { JournalEntry } from './journal.js'
+import type { JournalEntry, RangeDiffOutcome } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
 import type { Sketch } from './sketch.js'
 import type { Task } from './tasks.js'
@@ -15,7 +15,7 @@ import { createInterface } from 'node:readline'
 import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { writeAgreedText } from './agreed.js'
-import { checkApproval } from './approval.js'
+import { checkApproval, sha256Hex } from './approval.js'
 import { tiedArgsSha256 } from './args-chain.js'
 import { ENTRY_RESULT, entryEvent } from './entry.js'
 import { launchStepExpects } from './expect-sample.js'
@@ -26,13 +26,16 @@ import { carryLedgerLines, countLedgerLines, readLadderOutcome } from './ledger.
 import { lookupMatrixRow } from './matrix.js'
 import { readResultFields } from './result.js'
 import { spawnSession } from './session.js'
-import { describeSketch, parseSketch } from './sketch.js'
+import { describeSketch, parseSketch, rangeDiffVerdict } from './sketch.js'
 import { freeRow, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
 import { readTasksFile } from './tasks.js'
 
 interface PreparedTask extends Task {
   approvedText: string
   approvedSha256: string
+  approvedSketch: string
+  agreedSha256: string
+  rangeDiff: RangeDiffOutcome | null
   sketch: Sketch
   expected: Expect | null
   stepsExpected: StepExpect[]
@@ -75,21 +78,30 @@ function branchExists(repo: string, branch: string): boolean {
   }
 }
 
-function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: Sketch): string[] {
-  if (sketch.kind === 'none')
-    return []
+function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: Sketch, approvedSketch: string): { refusals: string[], rangeDiff: RangeDiffOutcome | null } {
+  const refused = (reason: string): { refusals: string[], rangeDiff: null } => ({ refusals: [`task ${taskId}: ${reason}`], rangeDiff: null })
+  if (sketch.kind === 'none') {
+    return approvedSketch === 'none'
+      ? { refusals: [], rangeDiff: null }
+      : refused(`the approval names sketch ${approvedSketch.slice(0, 7)} and the brief says Sketch: none; re-approve the brief`)
+  }
+  if (approvedSketch === 'none')
+    return refused(`the approval names Sketch: none and the brief names ${sketch.branch} @ ${sketch.sha.slice(0, 7)}; re-approve the brief`)
   if (!branchExists(repo, sketch.branch))
-    return [`task ${taskId}: sketch branch ${sketch.branch} does not exist in ${repo}`]
+    return refused(`sketch branch ${sketch.branch} does not exist in ${repo}`)
   const tip = git(repo, ['rev-parse', `refs/heads/${sketch.branch}`])
   if (tip !== sketch.sha)
-    return [`task ${taskId}: sketch branch ${sketch.branch} is at ${tip}, not the approved ${sketch.sha}`]
+    return refused(`sketch branch ${sketch.branch} is at ${tip}, not the ${sketch.sha} the brief names`)
   try {
     execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', baseSha, sketch.sha], { stdio: 'pipe' })
   }
   catch {
-    return [`task ${taskId}: sketch ${sketch.sha.slice(0, 7)} does not contain origin/main ${baseSha.slice(0, 7)}; rebase ${sketch.branch} onto origin/main and re-approve the brief`]
+    return refused(`sketch ${sketch.sha.slice(0, 7)} does not contain origin/main ${baseSha.slice(0, 7)}; rebase ${sketch.branch} onto origin/main and re-approve the brief`)
   }
-  return []
+  if (approvedSketch === sketch.sha)
+    return { refusals: [], rangeDiff: 'identical' }
+  const verdict = rangeDiffVerdict(args => git(repo, args), approvedSketch, sketch.sha, baseSha)
+  return verdict.ok ? { refusals: [], rangeDiff: 'equal' } : refused(verdict.reason)
 }
 
 function parseArgs(argv: string[]): { tasksFile: string } {
@@ -155,7 +167,8 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       refusals.push(`task ${task.id}: ${task.brief}: ${errorMessage(error)}`)
       continue
     }
-    refusals.push(...sketchRefusals(repo, task.id, baseSha, sketch))
+    const sketchCheck = sketchRefusals(repo, task.id, baseSha, sketch, approval.approvedSketch)
+    refusals.push(...sketchCheck.refusals)
 
     let expected: Expect | null
     try {
@@ -186,6 +199,9 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       ...task,
       approvedText: approval.text,
       approvedSha256: approval.sha256,
+      approvedSketch: approval.approvedSketch,
+      agreedSha256: sha256Hex(approval.text),
+      rangeDiff: sketchCheck.rangeDiff,
       sketch,
       expected,
       stepsExpected: launchStepExpects(repo, briefEffort(approval.text)),
@@ -200,13 +216,18 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
 
 const ACCEPTANCE_LINE = /^Acceptance:/m
 
+function describeSketchOf(task: PreparedTask): string {
+  const described = describeSketch(task.sketch)
+  return task.rangeDiff === 'equal' ? `${described}, approved ${task.approvedSketch.slice(0, 7)} with range-diff all =` : described
+}
+
 function signalOf(task: PreparedTask, baseSha: string): Signal {
   const approved = task.approvedSha256.slice(0, 7)
   const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law not recorded in the brief'
   return {
     CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved} · ${law}`,
     EXPECT: task.expected === null ? `expect not recorded in the brief${formatStepBreakdown(task.stepsExpected)}` : formatExpect(task.expected, task.stepsExpected),
-    ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`,
+    ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketchOf(task)}, report ${task.reportPath}, session ${task.sessionId}`,
     RESULT: ENTRY_RESULT,
   }
 }
@@ -221,6 +242,15 @@ function errorMessage(error: unknown): string {
 
 function sketchSha(task: PreparedTask): string | null {
   return task.sketch.kind === 'branch' ? task.sketch.sha : null
+}
+
+function approvalFields(task: PreparedTask): Pick<JournalEntry, 'agreedSha256' | 'approvedSha256' | 'approvedSketch' | 'rangeDiff'> {
+  return {
+    agreedSha256: task.agreedSha256,
+    approvedSha256: task.approvedSha256,
+    approvedSketch: task.approvedSketch === 'none' ? null : task.approvedSketch,
+    rangeDiff: task.rangeDiff,
+  }
 }
 
 function addWorktree(ctx: TaskContext, task: PreparedTask): void {
@@ -250,7 +280,7 @@ function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: M
     num_turns: null,
     duration_ms: null,
     usage: null,
-    agreedSha256: task.approvedSha256,
+    ...approvalFields(task),
     argsSha256: null,
     expected: task.expected,
     actual: null,
@@ -336,8 +366,8 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     num_turns: resultFields.num_turns,
     duration_ms: resultFields.duration_ms,
     usage: resultFields.usage,
-    agreedSha256: task.approvedSha256,
-    argsSha256: tiedArgsSha256(task.worktree, task.approvedSha256, ladder.argsSha256),
+    ...approvalFields(task),
+    argsSha256: tiedArgsSha256(task.worktree, task.agreedSha256, ladder.argsSha256),
     expected: task.expected,
     actual: ladder.actual,
   })
