@@ -10,6 +10,16 @@ Run the reasoning-budget ladder for the task in `$ARGUMENTS`. The rules are in t
 section of `architecture/principles.md`; repo specifics (harness command, high-effort areas) are in the
 repository's CLAUDE.md and `construct.json`.
 
+0. Before the first token is spent on classification and before any agent, print the entry card. Place
+   the agreed text: when `.construct/implement-agreed.txt`
+   already exists, the Ghost launcher wrote it from the approved brief before this session: use it as
+   it is and never rewrite it, not even from `$ARGUMENTS`. Otherwise write `$ARGUMENTS` verbatim there
+   (create the directory if needed). Then run
+   `node scripts/construct/check-acceptance.mjs card --brief .construct/implement-agreed.txt` and print
+   its stdout unchanged, never retyped: four rows, `CONTRACT`, `EXPECT`, `ACTION` and `RESULT`, whose
+   `RESULT` is `accepted · not started`. A value the brief does not hold is written
+   `<what> not recorded in the brief`, never estimated. On a non-zero exit relay its stderr verbatim and
+   stop.
 1. Classify the effort class and tell the user the class and the one-line reason before anything
    else. Read the repository's CLAUDE.md for its harness command and its high-effort areas. A task
    that names or must touch a high-effort area, the API contract, a composition model, the
@@ -21,10 +31,8 @@ repository's CLAUDE.md and `construct.json`.
    tasks is `medium`, and the one-line reason says whose design it carries.
 2. Write the acceptance criteria in two to four verifiable lines. If the task has no statable
    criterion, say so and stop; the ladder is not for one-line edits or open-ended exploration.
-   The args come from one deterministic parser, never from you. When `.construct/implement-agreed.txt`
-   already exists, the Ghost launcher wrote it from the approved brief before this session: use it as
-   it is and never rewrite it, not even from `$ARGUMENTS`. Otherwise write `$ARGUMENTS` verbatim there
-   (create the directory if needed). Then run
+   The args come from one deterministic parser, never from you. The agreed file is the one step 0
+   placed; run
    `node scripts/construct/check-acceptance.mjs build --brief .construct/implement-agreed.txt --out .construct/implement-args.json`.
    The build writes the whole args object to that file as one line of JSON: `task` (the brief's first
    line, without a leading `/implement `), `effort` (the first word after `Effort:`), `agreedSha256`
@@ -184,20 +192,19 @@ repository's CLAUDE.md and `construct.json`.
    it is written here, not by the script. Nothing enforces this step: the ledger is L0, and
    `construct cost` reconciles it against the runtime instead of trusting it. `.construct/` is
    gitignored, or excluded through `.git/info/exclude` in an attached repository.
-5. Relay the result. It opens with four lines, each value carried from the source named below:
-   `contract:`, `expect:`, `action:` and `result:`, in this order.
-   - `contract:` — from the handle the build printed in step 2: `task`, `effort`, the number of
-     `acceptance` items and `immutable`.
-   - `expect:` — the forecast the repository records for this run. No record holds one, so the line
-     is `expect not recorded in .construct/runs.jsonl`, never an estimate of your own.
-   - `action:` — the Workflow run identifier from step 3, then each entry of the result's `attempts`
+5. Relay the result. It opens with the exit card: run
+   `node scripts/construct/check-acceptance.mjs card --brief .construct/implement-agreed.txt --action '<action>' --result '<status>'`
+   and print its stdout unchanged. Its `CONTRACT` and `EXPECT` rows are the entry card's byte for byte,
+   because the same command derives them from the same file; never copy, retype or reword them. The two
+   flags carry values from their sources:
+   - `<action>` — the Workflow run identifier from step 3, then each entry of the result's `attempts`
      in order, its `effort` and `outcome`, then the rung that passed by name: the `rung` and `effort`
      of the entry whose `outcome` is `passed`, or `passing rung not recorded in attempts` when no
      entry has that outcome.
-   - `result:` — the `status` step 4 wrote to `.construct/runs.jsonl`, verbatim.
+   - `<status>` — the `status` step 4 wrote to `.construct/runs.jsonl`, verbatim.
    Never compose, estimate or round a value: a value its source does not hold is written
-   `<what> not recorded <where>`, naming the place that holds no record, and no line is left empty.
-   Below the four lines come the files changed and the harness tail. A `done` result carries
+   `<what> not recorded <where>`, naming the place that holds no record, and no row is left empty.
+   Below the card come the files changed and the harness tail. A `done` result carries
    `argsSha256` and `agreedSha256`; put `agreedSha256` next to the approved hash when there is one.
    Put the result's `acceptance` — the items the ladder received, echoed verbatim — next to the
    agreed line, and name any agreed item missing from it. When the status is `blocked`, put the
