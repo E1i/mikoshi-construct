@@ -232,6 +232,11 @@ function signalOf(task: PreparedTask, baseSha: string): Signal {
   }
 }
 
+function launchEntryEvent(task: PreparedTask, baseSha: string): object {
+  const entry = entryEvent(task.id, signalOf(task, baseSha), new Date().toISOString())
+  return task.card === undefined ? entry : { ...entry, card: task.card }
+}
+
 function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
   return renderSignal(`ghosts:launch ${task.id}`, signalOf(task, baseSha), style)
 }
@@ -417,7 +422,7 @@ async function main(): Promise<void> {
   const journalPath = path.join(out, 'ghosts.jsonl')
   const ctx: TaskContext = { repo, statusPath: status, journalPath, baseSha, out, matrixPath: matrix }
   for (const task of prepared)
-    await appendJournalEvent(journalPath, entryEvent(task.id, signalOf(task, baseSha), new Date().toISOString()))
+    await appendJournalEvent(journalPath, launchEntryEvent(task, baseSha))
   const results = await Promise.all(prepared.map(task => launchTask(ctx, task)))
 
   let allOk = true

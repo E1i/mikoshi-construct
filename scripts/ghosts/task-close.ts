@@ -9,7 +9,7 @@ import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-co
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
-import { entryOf } from './entry.js'
+import { ENTRY_EVENT, entryOf } from './entry.js'
 
 export const PREFIX = '[task:close] '
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word>'
@@ -77,21 +77,32 @@ function readArgs(argv: string[]): { id: string, flags: Map<Flag, string> } | st
   return positional.length === 1 ? { id: positional[0]!, flags } : 'one task id is needed'
 }
 
-function isStartLine(entry: unknown, id: string): entry is StartLine {
-  const line = entry as Partial<StartLine> | null
-  return line?.event === 'path' && line.task === id && typeof line.card === 'object' && line.card !== null
-}
-
-function startLineOf(journal: string, id: string): StartLine | undefined {
+function journalLines(journal: string): Record<string, unknown>[] {
   return journal.split('\n').flatMap((text) => {
     try {
       const entry: unknown = JSON.parse(text)
-      return isStartLine(entry, id) ? [entry] : []
+      return typeof entry === 'object' && entry !== null ? [entry as Record<string, unknown>] : []
     }
     catch {
       return []
     }
-  }).at(-1)
+  })
+}
+
+function hasCard(line: Record<string, unknown>): line is Record<string, unknown> & { card: Card } {
+  return typeof line.card === 'object' && line.card !== null
+}
+
+function startLineOf(lines: Record<string, unknown>[], id: string): StartLine | undefined {
+  return lines.filter((line): line is Record<string, unknown> & StartLine => line.event === 'path' && line.task === id && hasCard(line)).at(-1)
+}
+
+function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine | undefined {
+  const entry = lines.filter(line => line.event === ENTRY_EVENT && line.task === id).filter(hasCard).at(-1)
+  if (entry === undefined)
+    return undefined
+  const session = lines.filter(line => line.event === 'task' && line.task === id).at(-1)?.session
+  return { event: 'path', task: id, path: entry.card.contour, session, card: entry.card }
 }
 
 function sessionDirs(deps: TaskCloseDeps, start: StartLine): string[] {
@@ -128,9 +139,10 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const journalText = deps.read(journal) ?? ''
-  const start = startLineOf(journalText, id)
+  const lines = journalLines(journalText)
+  const start = startLineOf(lines, id) ?? launchStartOf(lines, id)
   if (start === undefined)
-    return refuse(`${journal} has no task:start line with a card for #${id}; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
+    return refuse(`${journal} has no task:start line with a card for #${id} and no ghosts:launch entry line with one; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
   const outcome = OUTCOME_OF_KIND[start.card.kind]
   const other = outcome === '--pr' ? '--report' : '--pr'
   if (flags.has(other) || !flags.has(outcome))
