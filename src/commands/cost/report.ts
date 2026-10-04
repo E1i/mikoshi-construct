@@ -8,7 +8,7 @@ import type { WorkflowRun } from './usage.js'
 import { renderSignal, themePainter } from '../../ui/signal.js'
 import { MINIMUM_SAMPLE } from './sample.js'
 import { TURN_JOURNAL_FILE } from './turns.js'
-import { add, billable, emptyUsage, PRICE_RELATIVE_TO_INPUT, weighted } from './usage.js'
+import { add, emptyUsage, PRICE_RELATIVE_TO_INPUT, tokensWithoutCacheReads, weighted } from './usage.js'
 
 export const COST_EXIT: Record<CostStatus, number> = {
   ok: 0,
@@ -71,7 +71,7 @@ function printTurns(ui: Ui, turns: TurnSummary): void {
     ui.line(ui.theme.dim(ui.lore.turnsNotRecorded(TURN_JOURNAL_FILE)))
     return
   }
-  ui.line(ui.theme.dim(ui.lore.turnsCounts(turns.turns, turns.sessions, fmt(billable(turns.main)), fmt(billable(turns.subagents)), turns.unmeasured, turns.unread, turns.gaps)))
+  ui.line(ui.theme.dim(ui.lore.turnsCounts(turns.turns, turns.sessions, fmt(tokensWithoutCacheReads(turns.main)), fmt(tokensWithoutCacheReads(turns.subagents)), turns.unmeasured, turns.unread, turns.gaps)))
   if (turns.malformed.length > 0)
     ui.glitch(ui.lore.turnsMalformed(turns.malformed.length), turns.malformed.map(entry => `line ${entry.line}: ${entry.reason}`))
 }
@@ -116,12 +116,12 @@ function printRuns(ui: Ui, runs: WorkflowRun[]): void {
     ui.line(`${ui.theme.accent(run.run)} ${ui.theme.dim(`${run.startedAt} · ${run.total.models.join(', ')}`)}`)
     for (const agent of run.agents)
       ui.line(`  ${agent.type.padEnd(12)} ${agent.label.padEnd(28)} calls ${String(agent.usage.calls).padStart(3)}  in ${fmt(agent.usage.input).padStart(8)}  cache-w ${fmt(agent.usage.cacheWrite).padStart(9)}  cache-r ${fmt(agent.usage.cacheRead).padStart(10)}  out ${fmt(agent.usage.output).padStart(7)}`)
-    ui.line(`  ${ui.theme.bold(`total ${fmt(billable(run.total))} billable tokens in ${run.total.calls} calls`)} ${ui.theme.dim(`≈ ${fmt(weighted(run.total))} input-equivalent`)}`)
+    ui.line(`  ${ui.theme.bold(ui.lore.costRunTotal(fmt(tokensWithoutCacheReads(run.total)), run.total.calls, fmt(weighted(run.total))))}`)
     ui.line()
     add(grand, run.total)
   }
   if (runs.length > 1)
-    ui.line(`${ui.theme.bold(`${runs.length} runs: ${fmt(billable(grand))} billable tokens in ${grand.calls} calls`)} ${ui.theme.dim(`≈ ${fmt(weighted(grand))} input-equivalent (cache-write ×${PRICE_RELATIVE_TO_INPUT.cacheWrite}, cache-read ×${PRICE_RELATIVE_TO_INPUT.cacheRead}, output ×${PRICE_RELATIVE_TO_INPUT.output})`)}`)
+    ui.line(ui.theme.bold(ui.lore.costRunsTotal(runs.length, fmt(tokensWithoutCacheReads(grand)), grand.calls, fmt(weighted(grand)), PRICE_RELATIVE_TO_INPUT.cacheWrite, PRICE_RELATIVE_TO_INPUT.cacheRead, PRICE_RELATIVE_TO_INPUT.output)))
 }
 
 export function printCost(ui: Ui, report: CostReport, last: boolean): number {

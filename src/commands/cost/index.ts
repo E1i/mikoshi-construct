@@ -25,7 +25,7 @@ export { STEPS } from './steps.js'
 export type { RunDecomposition, RunStep, Step, UnreadAgent } from './steps.js'
 export { readTurnJournal, TURN_JOURNAL_FILE } from './turns.js'
 export type { MalformedTurnLine, TurnSummary } from './turns.js'
-export { billable, tokensWithoutCacheReads, weighted } from './usage.js'
+export { tokensWithoutCacheReads, weighted } from './usage.js'
 export type { AgentUsage, Usage, WorkflowRun } from './usage.js'
 
 export function recordedSteps(cwd: string, runs: string[], source: CostSource | null): StepCache {

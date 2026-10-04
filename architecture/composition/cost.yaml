@@ -51,7 +51,7 @@ nodes:
     path: src/commands/cost/claude-code.ts
     boundary: read
   - id: usage
-    label: add / billable / weighted · token arithmetic, no message content
+    label: add / tokensWithoutCacheReads / weighted · token arithmetic, no message content
     path: src/commands/cost/usage.ts
     boundary: read
   - id: ledger

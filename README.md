@@ -107,7 +107,7 @@ Every command, flag and exit code: [docs/cli.md](https://github.com/E1i/mikoshi-
    policy lives in lint, and every security invariant names the check that enforces it.
 
 The second principle in numbers, from thirteen `/implement` runs on this repository (Claude Opus).
-Two `low` tasks cost 557k and 740k billable tokens. Nine `medium` tasks cost between 847k and 5.9M —
+Two `low` tasks cost 557k and 740k billable tokens (cache reads included, unlike the totals `construct cost` prints today). Nine `medium` tasks cost between 847k and 5.9M —
 the class is a weak predictor on its own. Two `high` tasks, each with an architect designing before
 any code, cost 14.19M and 14.14M.
 
@@ -157,7 +157,7 @@ with a named check, not a second fix.
 | `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
 | `construct graph` | Draw the model — claims, hypotheses and the evidence under them — as a Mermaid flowchart on stdout |
-| `construct cost` | Token usage of the `/implement` runs in this directory, per agent, billable and price-weighted (`--last`, `--json`) |
+| `construct cost` | Token usage of the `/implement` runs in this directory, per agent, in tokens without cache reads and price-weighted (`--last`, `--json`) |
 | `construct board` | Where each task stands, from the ladder runs in `.construct/runs.jsonl` and a pull request list handed over with `--prs` (`--all`, `--stale`, `--every`, `--json`) |
 | `construct mutate` | Apply a brief's named wrong implementation (`mutate apply --from <file> --id <id>`), then restore it from its copy and judge the Vitest report the runner hands over (`mutate judge --id <id> --report <file>`); runs no test itself |
 

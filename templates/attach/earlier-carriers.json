@@ -443,5 +443,10 @@
     "target": "scripts/construct/check-baseline.mjs",
     "sha256": "eae96c5d3e62de0b0206da7efd9de3d6174a78d81c45faf3f8a34c19b4fefa48",
     "date": "2026-10-04"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "4a54f0f1a9aae3303dbf9a331f153253201fb274044cfdcd7977a65ebbe0b663",
+    "date": "2026-10-04"
   }
 ]
