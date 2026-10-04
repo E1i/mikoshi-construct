@@ -16,15 +16,22 @@ function read(file: string): string {
   return readFileSync(path.join(REPO_ROOT, file), 'utf8')
 }
 
+function classifyStep(skill: string): string {
+  const start = skill.indexOf('\n1. Classify')
+  const end = skill.indexOf('\n2. Write')
+  return skill.slice(start, end)
+}
+
 describe('an attached repository records its high-effort areas in .construct and /implement reads them there', () => {
-  it('names the areas file and the attach record in the implement skill', () => {
-    const skill = read(SKILL)
-    expect(skill).toContain(AREAS_FILE)
-    expect(skill).toContain(ATTACH_RECORD_FILE)
+  it('names the areas file and the attach record in the classify step of the implement skill', () => {
+    const step = classifyStep(read(SKILL))
+    expect(step).toContain('Classify the effort class')
+    expect(step).toContain(AREAS_FILE)
+    expect(step).toContain(ATTACH_RECORD_FILE)
   })
 
-  it('tells /implement what to say when an attached repository has no areas file', () => {
-    expect(read(SKILL)).toContain(NOT_RECORDED)
+  it('tells /implement, in the classify step, what to say when an attached repository has no areas file', () => {
+    expect(classifyStep(read(SKILL))).toContain(NOT_RECORDED)
   })
 
   it('has discovery write the areas file when there is an attach record and no construct.json', () => {
