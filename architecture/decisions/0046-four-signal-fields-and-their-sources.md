@@ -19,8 +19,8 @@ things in the same place.
 
    | Point | CONTRACT | EXPECT | ACTION | RESULT |
    |-------|----------|--------|--------|--------|
-   | `task:start` | the `--card` | not recorded | the branch and the tree it cuts | the start line it wrote |
-   | `shift` (start of a task) | the task file's card and `touches:` | not recorded | the branch and the session it starts | the outcome line that follows |
+   | `task:start` | the `--card` | not recorded: the session is the window's, shared by every task in the window, so none is this task's alone | the branch and the tree it cuts | the start line it wrote |
+   | `shift` (start of a task) | the task file's card and `touches:` | `formatCheapExpect`: the median tokens (input, cache writes and output; cache reads left out, the unit of the ladder's `expect:`) and minutes of the finished cheap tasks of its kind and size in the shift journals, or none with n and the class below five | the branch and the session it starts | the outcome line that follows |
    | `shift:report` | the card in `shift.jsonl` | not recorded | the session, branch and duration in `shift.jsonl` | exit, the PR from `gh`, whether `task:close` closed it (`closed <verification>` or `not closed`), the Eddies stop, the report's `result:` |
    | `ghosts:launch` | the brief and its approved sha; the law is the brief's `Acceptance:` line | `formatExpect` of the brief's `expect:` | the `/implement` call, tree, sketch, report and session | not launched yet; the outcome line follows the yes |
    | `pnpm board` (card) | the card on the start line | `formatExpect` of `event:task` `expected` | the start line or `event:task` | the latest stage |

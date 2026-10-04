@@ -1,4 +1,5 @@
 import type { StepExpect } from './expect-sample.js'
+import { MINIMUM_SAMPLE } from '../../src/commands/cost/index.js'
 import { formatStepExpect, formatTokens } from './expect-sample.js'
 
 export type Expect
@@ -10,7 +11,6 @@ type Effort = 'low' | 'medium' | 'high'
 const EXPECT_LINE_INDEX = 2
 const EXPECT_PREFIX = 'expect: '
 const LOOKS_LIKE_EXPECT = /^\s*expect:/i
-const MINIMUM_SAMPLE = 5
 const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median$/
 const NONE_AND_REASON = /^none — (\S.*)$/
 const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m

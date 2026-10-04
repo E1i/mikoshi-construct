@@ -3,8 +3,8 @@ import { formatCheapExpect } from '../../ghosts/cheap-expect.js'
 import { formatExpect } from '../../ghosts/expect.js'
 
 describe('the cheap EXPECT line', () => {
-  it('prints the median tokens and minutes of the class with n, in the ladder\'s form with the class where the ladder names the effort', () => {
-    expect(formatCheapExpect({ kind: 'forecast', taskClass: 'implement/XS', n: 8, tokens: 1_068_352, minutes: 4.4105 })).toBe('expect tokens ≈ 1.1M, minutes ≈ 4.4 — class implement/XS, n=8, median')
+  it('prints the median tokens in words of their unit and minutes of the class with n, in the ladder\'s form with the class where the ladder names the effort', () => {
+    expect(formatCheapExpect({ kind: 'forecast', taskClass: 'implement/XS', n: 8, tokens: 68_352, minutes: 4.4105 })).toBe('expect tokens ≈ 68k (input, cache writes and output; cache reads left out), minutes ≈ 4.4 — class implement/XS, n=8, median')
   })
 
   it('prints none with n and the class below five, through the ladder\'s formatExpect', () => {

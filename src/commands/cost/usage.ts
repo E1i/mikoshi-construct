@@ -31,6 +31,10 @@ export function billable(usage: Usage): number {
   return usage.input + usage.cacheWrite + usage.cacheRead + usage.output
 }
 
+export function tokensWithoutCacheReads(usage: Usage): number {
+  return usage.input + usage.cacheWrite + usage.output
+}
+
 export function weighted(usage: Usage): number {
   return Math.round(usage.input + usage.cacheWrite * PRICE_RELATIVE_TO_INPUT.cacheWrite + usage.cacheRead * PRICE_RELATIVE_TO_INPUT.cacheRead + usage.output * PRICE_RELATIVE_TO_INPUT.output)
 }

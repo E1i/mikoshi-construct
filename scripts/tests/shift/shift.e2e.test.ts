@@ -253,7 +253,7 @@ describe('w8: the shift prints the four fields when it starts a task', () => {
     taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
     const io = captured()
     await runShift([world.shift], shiftDeps(world, io))
-    expect(io.out[2]).toBe('EXPECT   | expect tokens ≈ 3k, minutes ≈ 3 — class implement/S, n=5, median')
+    expect(io.out[2]).toBe('EXPECT   | expect tokens ≈ 3k (input, cache writes and output; cache reads left out), minutes ≈ 3 — class implement/S, n=5, median')
   })
 
   it('w8: below five finished tasks of the class EXPECT reads none with n and the class', async () => {

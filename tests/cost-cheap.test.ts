@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { cheapForecast, cheapForecastOf, cheapRows, projectKey, readCheapTasks, sessionTokens } from '../src/commands/cost/index.js'
+import { cheapForecast, cheapForecastOf, cheapRows, ClaudeCodeCostSource, projectKey, readCheapTasks, sessionTokens } from '../src/commands/cost/index.js'
 
 function root(): string {
   return realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-cheap-')))
@@ -66,6 +66,23 @@ describe('the cheap forecast', () => {
     writeFileSync(subagent, `${usageLine(7, 'r9')}\n`)
     expect(sessionTokens(projects, '/work/mc-1', 's1')).toBe(157)
     expect(sessionTokens(projects, '/work/mc-1', 'absent')).toBeNull()
+  })
+
+  it('counts one session file in the unit the ladder forecasts in: input, cache writes and output, cache reads left out', () => {
+    const projects = root()
+    const lines = [
+      JSON.stringify({ requestId: 'r1', timestamp: '2026-10-01T00:00:00.000Z', message: { role: 'assistant', usage: { input_tokens: 3, cache_creation_input_tokens: 500, cache_read_input_tokens: 90_000, output_tokens: 40 } } }),
+      JSON.stringify({ requestId: 'r1', timestamp: '2026-10-01T00:00:01.000Z', message: { role: 'assistant', usage: { input_tokens: 3, cache_creation_input_tokens: 500, cache_read_input_tokens: 90_000, output_tokens: 40 } } }),
+      JSON.stringify({ requestId: 'r2', timestamp: '2026-10-01T00:01:00.000Z', message: { role: 'assistant', usage: { input_tokens: 7, cache_creation_input_tokens: 1_200, cache_read_input_tokens: 95_000, output_tokens: 300 } } }),
+    ]
+    writeSession(projects, '/work/mc-1', 'cheap', lines)
+    const runDir = path.join(projects, projectKey('/work/mc-1'), 'ladder', 'subagents', 'workflows', 'wf_1')
+    mkdirSync(runDir, { recursive: true })
+    writeFileSync(path.join(runDir, 'agent-a.jsonl'), `${lines.join('\n')}\n`)
+    writeFileSync(path.join(runDir, 'agent-a.meta.json'), JSON.stringify({ description: 'implement @ low', agentType: 'implementer', workflowPhase: 'Implement' }))
+    const ladderTokens = new ClaudeCodeCostSource(projects).steps('wf_1')?.steps.map(step => step.tokens)
+    expect(ladderTokens).toEqual([2_050])
+    expect(sessionTokens(projects, '/work/mc-1', 'cheap')).toBe(2_050)
   })
 
   it('sums a task\'s sessions and leaves out a task whose session file is gone', () => {

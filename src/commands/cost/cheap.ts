@@ -1,10 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { projectKey } from './claude-code.js'
+import { projectKey, readAgentRecord } from './claude-code.js'
+import { median, MINIMUM_SAMPLE } from './sample.js'
+import { tokensWithoutCacheReads } from './usage.js'
 
 export const SHIFT_JOURNAL_FILE = 'shift.jsonl'
-export const MINIMUM_CHEAP_SAMPLE = 5
 
 const CHEAP_CONTOUR = 'cheap'
 const SUBAGENTS_DIR = 'subagents'
@@ -40,19 +41,6 @@ interface ShiftTaskLine {
   ended?: unknown
   exit?: unknown
   report?: unknown
-}
-
-interface UsageLine {
-  requestId?: string
-  message?: {
-    role?: string
-    usage?: {
-      input_tokens?: number
-      cache_creation_input_tokens?: number
-      cache_read_input_tokens?: number
-      output_tokens?: number
-    }
-  }
 }
 
 export function defaultShiftRoot(): string {
@@ -103,32 +91,6 @@ export function readCheapTasks(shiftRoot: string): CheapTask[] {
     })
 }
 
-function fileTokens(file: string): number {
-  const counted = new Set<string>()
-  let tokens = 0
-  for (const text of readFileSync(file, 'utf8').split('\n')) {
-    if (!text.startsWith('{'))
-      continue
-    let entry: UsageLine
-    try {
-      entry = JSON.parse(text) as UsageLine
-    }
-    catch {
-      continue
-    }
-    const usage = entry.message?.role === 'assistant' ? entry.message.usage : undefined
-    if (usage == null)
-      continue
-    if (entry.requestId != null) {
-      if (counted.has(entry.requestId))
-        continue
-      counted.add(entry.requestId)
-    }
-    tokens += (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.output_tokens ?? 0)
-  }
-  return tokens
-}
-
 function subagentFiles(sessionDir: string): string[] {
   const dir = path.join(sessionDir, SUBAGENTS_DIR)
   if (!existsSync(dir) || !statSync(dir).isDirectory())
@@ -143,7 +105,7 @@ export function sessionTokens(projectsDir: string, worktree: string, session: st
   const main = `${sessionDir}${SESSION_FILE_SUFFIX}`
   if (!existsSync(main))
     return null
-  return [main, ...subagentFiles(sessionDir)].reduce((sum, file) => sum + fileTokens(file), 0)
+  return [main, ...subagentFiles(sessionDir)].reduce((sum, file) => sum + tokensWithoutCacheReads(readAgentRecord(file).usage), 0)
 }
 
 export function cheapRows(tasks: CheapTask[], taskClass: string, projectsDir: string): CheapRow[] {
@@ -155,14 +117,8 @@ export function cheapRows(tasks: CheapTask[], taskClass: string, projectsDir: st
   })
 }
 
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const middle = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
-}
-
 export function cheapForecast(rows: CheapRow[], taskClass: string): CheapForecast {
-  if (rows.length < MINIMUM_CHEAP_SAMPLE)
+  if (rows.length < MINIMUM_SAMPLE)
     return { kind: 'none', taskClass, n: rows.length }
   return { kind: 'forecast', taskClass, n: rows.length, tokens: median(rows.map(row => row.tokens)), minutes: median(rows.map(row => row.minutes)) }
 }

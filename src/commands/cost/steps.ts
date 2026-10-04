@@ -1,4 +1,5 @@
 import type { Usage } from './usage.js'
+import { tokensWithoutCacheReads } from './usage.js'
 
 export const STEPS = ['preflight', 'design', 'implement', 'verify'] as const
 export type Step = typeof STEPS[number]
@@ -34,10 +35,6 @@ export interface RunDecomposition {
 
 const EFFORT_IN_LABEL = /@ (\S+)$/
 
-function stepTokens(usage: Usage): number {
-  return usage.input + usage.cacheWrite + usage.output
-}
-
 function secondsBetween(first: string | null, last: string | null): number {
   if (first == null || last == null)
     return 0
@@ -72,7 +69,7 @@ export function stepsOf(run: string, agents: StepAgent[]): RunDecomposition {
       role: agent.type,
       attempt,
       effort: EFFORT_IN_LABEL.exec(agent.label)?.[1] ?? null,
-      tokens: stepTokens(agent.usage),
+      tokens: tokensWithoutCacheReads(agent.usage),
       seconds: secondsBetween(agent.first, agent.last),
     })
   }
