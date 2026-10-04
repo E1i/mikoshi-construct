@@ -930,6 +930,7 @@
         ".claude/skills/implement/SKILL.md",
         ".construct/attach.json",
         ".construct/commit-guard.mjs",
+        ".construct/shell-parser.mjs",
         "scripts/construct/browser-witness.mjs",
         "scripts/construct/check-acceptance.mjs",
         "scripts/construct/check-baseline.mjs",

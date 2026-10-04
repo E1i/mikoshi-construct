@@ -24,7 +24,7 @@ function carrierVars(root: string, harnessCommand: string): TemplateVars {
   }
 }
 
-export const ATTACH_WRITES: readonly string[] = [...ATTACH_CARRIERS.targets, ATTACH_GUARD.target]
+export const ATTACH_WRITES: readonly string[] = [...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser]
 
 const ATTACH_GROUPS: string[] = [...ATTACH_CARRIERS.groups, ATTACH_GUARD.group]
 

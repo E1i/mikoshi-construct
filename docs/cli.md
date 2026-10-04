@@ -1036,7 +1036,8 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes nine carriers and a commit guard, hides them and the ledger directory through
+tracked file. It writes nine carriers, a commit guard and the shell parser the guard reads the command
+line through, hides them and the ledger directory through
 `.git/info/exclude`, adds one entry to the untracked `.claude/settings.local.json`, and records what it
 did in `.construct/attach.json`. No `construct.json`, no
 `construct.model.json`, no discovery markers, no harness, lint or CI files. Alias: `jack-in`.
@@ -1132,7 +1133,7 @@ yourself, then run it again. A collision found during the write keeps the output
 2. The nine carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
-   `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs`.
+   `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`.
 3. The guard entry in `.claude/settings.local.json` (below). The file is read again at this moment: if
    it no longer parses, or already carries a guard entry, the files of this run are rolled back and
    attach refuses.
@@ -1155,7 +1156,9 @@ it by appending one element to `hooks.PreToolUse` in `.claude/settings.local.jso
 It creates the file, `hooks` or `PreToolUse` only where each is missing, appends after any existing
 element and changes nothing else in the object; the file is written to a temporary file and renamed over
 the original, so the formatting of the rest of it may change. A session started after attach reads the
-entry; nothing here claims that a session already running does.
+entry; nothing here claims that a session already running does. The guard imports its reader of the
+command line, `.construct/shell-parser.mjs`, when a call arrives; attach writes and detach removes both
+files, and a call arriving while the parser is missing is refused with exit 2.
 
 The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase` or `git tag` into the
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
@@ -1206,7 +1209,7 @@ lists.
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
 | `harness.command` | The command passed or answered. Never a default. |
-| `files` | Every carrier path and `.construct/commit-guard.mjs` with the sha256 of the bytes written. The record itself is not in it. |
+| `files` | Every carrier path, `.construct/commit-guard.mjs` and `.construct/shell-parser.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
@@ -1308,8 +1311,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the nine carriers and the guard into a repository with none of their
-directories, N is 18: ten files, seven directories and the settings file attach created.
+and directories actually removed. On the nine carriers, the guard and its parser into a repository with none of
+their directories, N is 19: eleven files, seven directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 
