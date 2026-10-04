@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, symlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,18 +8,37 @@ import { VERSION_PACKAGES_EDITS } from './version-packages.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const VERSION_COMMIT_FILES = path.resolve(import.meta.dirname, '../fixtures/contract/version-packages-files.txt')
-const NOT_COPIED = new Set(['node_modules', '.git', 'dist'])
 
 function versionCommitFiles(): string[] {
   return readFileSync(VERSION_COMMIT_FILES, 'utf8').split('\n').filter(line => line !== '')
 }
 
+function repositoryFiles(): string[] {
+  return execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    .split('\0')
+    .filter(file => file !== '')
+}
+
+function vanishedWhileCopying(error: unknown, source: string): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT' && !existsSync(source)
+}
+
+function copyIfPresent(source: string, target: string): void {
+  try {
+    copyFileSync(source, target)
+  }
+  catch (error) {
+    if (!vanishedWhileCopying(error, source))
+      throw error
+  }
+}
+
 function repositoryCopy(): string {
   const root = path.join(mkdtempSync(path.join(tmpdir(), 'construct-surface-version-')), 'repo')
-  cpSync(REPO_ROOT, root, {
-    recursive: true,
-    filter: source => !NOT_COPIED.has(path.basename(source)),
-  })
+  for (const file of repositoryFiles()) {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+    copyIfPresent(path.join(REPO_ROOT, file), path.join(root, file))
+  }
   symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(root, 'node_modules'))
   return root
 }
