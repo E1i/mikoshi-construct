@@ -1,0 +1,8 @@
+[96mprobe-cb/bad.ts[0m:[93m2[0m:[93m14[0m - [91merror[0m[90m TS2322: [0mType 'string' is not assignable to type 'number'.
+
+[7m2[0m export const x: number = 'a'
+[7m [0m [91m             ~[0m
+
+
+Found 1 error in probe-cb/bad.ts[90m:2[0m
+

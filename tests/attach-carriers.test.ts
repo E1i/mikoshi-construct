@@ -15,6 +15,7 @@ const SCRIPTS = [
   'scripts/construct/implement.workflow',
   'scripts/construct/check-acceptance.mjs',
   'scripts/construct/browser-witness.mjs',
+  'scripts/construct/check-baseline.mjs',
 ]
 
 const RE_KEYED_TEMPLATES = [
@@ -46,8 +47,8 @@ describe('the carried commands read the attach record when there is no construct
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names eight targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(8)
+  it('names nine targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(9)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })
