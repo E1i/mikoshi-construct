@@ -2068,3 +2068,17 @@ DO NOT MERGE. STOP.` and the path that could not be read. Whether the interactiv
 is not confirmed. The check needed the scratch folder to be trusted, and trusting it pre-approves
 `gh pr merge --auto` there through the folder's `.claude/settings.json`. The owner declined, so the
 check was not run.
+
+## 2026-10-04 · The attach commit guard holds live, for sessions rooted in the attached repository
+
+[#61](https://github.com/E1i/mikoshi-construct/issues/61) required the commit guard to be proven outside the tests. Probe 80 attached the construct from the tree on main (`mikoshi-construct` 0.39.0) to a scratch repository, then started a headless Claude Code 2.1.289 session in that repository and gave it three Bash calls. The session's own transcript shows `git commit` blocked by the PreToolUse hook: the refusal text reached the agent and no commit was made. `git -C <another repo> commit` ran and committed there, and `git tag -l` ran. The installed hook, fed the same three calls on stdin, exited 2, 0 and 0. The transcript does not carry the hook's exit code, so exit 2 inside the session is inferred from the blocked call together with the stdin run.
+
+**The boundary is the hook's scope, not its parser.** attach writes the entry into the attached repository's `.claude/settings.local.json`, and Claude Code reads project settings from the directory a session starts in. A session started in a different project that `cd`s into the attached repository never runs the guard. The probe's own session, rooted elsewhere, committed into the attached repository unopposed.
+
+**Boundary.** One repository, one headless session, three calls; push, merge, rebase, tag creation and an interactive session were not run live. It shows the guard is wired and blocks in the case it was installed for. It says nothing about the bypass forms, which the guard's tests cover, and it does not decide whether sessions rooted elsewhere fall under #61.
+
+## 2026-10-04 · window-core missing: the systemMessage is shown to the person at session start
+
+The entry of 2026-10-01 left open whether the interactive UI shows the message the SessionStart hook of PR #417 returns when `architecture/window-core.md` cannot be read. Probe #99 settled it. It used a scratch clone of main with the file renamed, no `.claude/settings.local.json`, and the pre-approved `gh pr merge --auto` removed from the clone's `.claude/settings.json`. In that clone the owner started a fresh interactive Claude Code 2.1.289 session. Before any input, the start screen shows under the banner `SessionStart:startup says: WINDOW-CORE MISSING: DO NOT COMMIT. DO NOT MERGE. STOP. window-core: <repo>/architecture/window-core.md could not be read (ENOENT); the coordinating window starts without its laws`. After the `SessionStart:startup says:` prefix, the text matches the `hook_system_message` attachment in the session transcript character for character. The line stays in the scrollback after the first turn. The model, which receives the same warning through `additionalContext`, opened its first reply by reporting the missing file and refusing to work until it was restored.
+
+**Boundary.** One interactive session on one version, started fresh (`startup`). Resume, `/clear` and compact starts were not run, and no other Claude Code version was tried; how a hook's `systemMessage` is rendered belongs to Claude Code and can change. Verdict of the probe: Capability — at session start, `systemMessage` is a channel the person sees.
