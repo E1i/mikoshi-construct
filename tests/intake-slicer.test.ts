@@ -1,5 +1,5 @@
-import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import type { ShiftDeps } from '../scripts/shift/shift.js'
+import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
