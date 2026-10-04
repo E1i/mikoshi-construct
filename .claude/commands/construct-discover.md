@@ -87,7 +87,12 @@ Work in this order:
    that lint does not enforce is not a policy.
 8. **`high-effort-areas`** (AGENTS.md): the paths where a wrong low-effort guess is expensive —
    attribution, authentication, money, schema, anything a shipped client depends on. This list is what
-   `/implement` uses to classify a task as `high`.
+   `/implement` uses to classify a task as `high`. In a repository with no `construct.json` and a
+   `.construct/attach.json` (an attached repository) there is no marker to fill and the construct
+   owns neither `AGENTS.md` nor `CLAUDE.md`: write the same list to
+   `.construct/high-effort-areas.md`, one `- <path or directory/> — <why>` line per area, and write
+   nothing outside `.construct/`. The attach exclude block already covers `.construct/`, so the file
+   stays out of `git status`; `/implement` reads it from there.
 9. **`composition`** (`<discovery.markers.composition.file>/*.yaml` from `construct.json`): one model per real flow the code has today
    (the HTTP app, a worker, a sync, a CLI, the browser bootstrap) — small, one per flow, every `path`
    must exist. A baseline model, when the construct shipped one, is updated, not duplicated; a

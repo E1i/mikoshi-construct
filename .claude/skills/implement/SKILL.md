@@ -8,7 +8,8 @@ argument-hint: <task with an acceptance criterion>
 
 Run the reasoning-budget ladder for the task in `$ARGUMENTS`. The rules are in the Reasoning budget
 section of `architecture/principles.md`; repo specifics (harness command, high-effort areas) are in the
-repository's CLAUDE.md and `construct.json`.
+repository's CLAUDE.md and `construct.json`, and in an attached repository in `.construct/attach.json`
+and `.construct/high-effort-areas.md`.
 
 0. Before the first token is spent on classification and before any agent, print the entry card. Place
    the agreed text: when `.construct/implement-agreed.txt`
@@ -21,7 +22,11 @@ repository's CLAUDE.md and `construct.json`.
    `<what> not recorded in the brief`, never estimated. On a non-zero exit relay its stderr verbatim and
    stop.
 1. Classify the effort class and tell the user the class and the one-line reason before anything
-   else. Read the repository's CLAUDE.md for its harness command and its high-effort areas. A task
+   else. Read the repository's CLAUDE.md for its harness command and its high-effort areas; in a
+   repository with no `construct.json` and a `.construct/attach.json` (an attached one) the areas are
+   the lines of `.construct/high-effort-areas.md`, which discovery writes, and when that file is
+   absent the one-line reason says `high-effort areas not recorded` and the class comes from the task
+   alone. A task
    that names or must touch a high-effort area, the API contract, a composition model, the
    dependency policy or the security invariants is `high`. A new endpoint, a new integration or a
    change across several modules is `medium`. Everything with an existing pattern to copy and a
