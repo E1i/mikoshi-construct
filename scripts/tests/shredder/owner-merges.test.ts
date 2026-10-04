@@ -13,6 +13,10 @@ const ghostFiles = readdirSync(path.join(root, 'scripts/ghosts'), { recursive: t
   .filter(entry => entry.isFile())
   .map(entry => path.relative(root, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
   .sort()
+const shiftMergeDeciders = readdirSync(path.join(root, 'scripts/shift'), { withFileTypes: true })
+  .filter(entry => entry.isFile() && /merge/i.test(readFileSync(path.join(entry.parentPath, entry.name), 'utf8')))
+  .map(entry => `scripts/shift/${entry.name}`)
+  .sort()
 
 function classificationErrors(files: string[]): string[] {
   const ownerGlobs = kinds.find(kind => kind.kind === 'ghosts')?.globs ?? []
@@ -37,6 +41,9 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['scripts/ghosts/launch.ts'], ownerMerged: true },
     { files: ['scripts/ghosts/journal.ts'], ownerMerged: true },
     { files: ['architecture/owner-merges.md'], ownerMerged: true },
+    { files: ['scripts/shift/header.md'], ownerMerged: true },
+    { files: ['scripts/shift/merge.ts'], ownerMerged: true },
+    { files: ['scripts/shift/overlap.ts'], ownerMerged: false },
   ])('$files → ownerMerged $ownerMerged', ({ files, ownerMerged }) => {
     expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)
   })
@@ -48,6 +55,12 @@ describe('architecture/owner-merges.md as the window reads it', () => {
 
   it('names a new file under scripts/ghosts/** that no list classifies', () => {
     expect(classificationErrors([...ghostFiles, 'scripts/ghosts/x.ts'])).toEqual(['classify scripts/ghosts/x.ts in owner-merges.md'])
+  })
+
+  it('classifies every file under scripts/shift that names a merge as own-instructions', () => {
+    const ownInstructions = kinds.find(kind => kind.kind === 'own-instructions')?.globs ?? []
+    expect(shiftMergeDeciders).toContain('scripts/shift/header.md')
+    expect(shiftMergeDeciders.filter(file => !ownInstructions.some(glob => matchGlob(glob, file)))).toEqual([])
   })
 
   it('lists only plain paths that exist', () => {
