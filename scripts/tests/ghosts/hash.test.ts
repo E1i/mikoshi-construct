@@ -51,9 +51,9 @@ describe('approvalLine', () => {
     const brief = briefWith(SOUND_TEXT)
     const line = approvalLine(brief, NOW, APPROVER)
 
-    expect(line).toBe(`approved /implement text sha256: ${hashBrief(brief)} (2026-10-04, ${APPROVER}; sketch none)`)
+    expect(line).toBe(`approved /implement text sha256: ${hashBrief(brief)} sketch: none (2026-10-04, ${APPROVER})`)
     writeFileSync(approvedHashPath(brief), `${line}\n`)
-    expect(checkApproval(brief)).toEqual({ ok: true, text: SOUND_TEXT, sha256: hashBrief(brief) })
+    expect(checkApproval(brief)).toEqual({ ok: true, text: SOUND_TEXT, sha256: hashBrief(brief), approvedSketch: 'none' })
   })
 
   it('names only the first line the build printed on stderr', () => {
@@ -63,10 +63,10 @@ describe('approvalLine', () => {
     expect(() => approvalLine(brief, NOW, APPROVER, runBuild)).toThrow(/: first problem$/)
   })
 
-  it('names the sketch by its short sha when the brief starts from one', () => {
+  it('names the whole sketch sha when the brief starts from one', () => {
     const brief = briefWith(SOUND_TEXT.replace(/^Sketch: .*$/m, `Sketch: sketch/t @ ${HEAD_SHA}`))
 
-    expect(approvalLine(brief, NOW, APPROVER)).toBe(`approved /implement text sha256: ${hashBrief(brief)} (2026-10-04, ${APPROVER}; sketch ${HEAD_SHA.slice(0, 7)})`)
+    expect(approvalLine(brief, NOW, APPROVER)).toBe(`approved /implement text sha256: ${hashBrief(brief)} sketch: ${HEAD_SHA} (2026-10-04, ${APPROVER})`)
   })
 })
 
@@ -117,14 +117,14 @@ describe('ghosts:hash from the command line', () => {
 
     const result = runHash([link, brief, '--by', APPROVER], 'Git Name')
     expect(result.status).toBe(0)
-    expect(result.stdout.trim()).toMatch(new RegExp(`^approved /implement text sha256: ${hashBrief(brief)} \\(\\d{4}-\\d{2}-\\d{2}, ${APPROVER}; sketch none\\)$`))
+    expect(result.stdout.trim()).toMatch(new RegExp(`^approved /implement text sha256: ${hashBrief(brief)} sketch: none \\(\\d{4}-\\d{2}-\\d{2}, ${APPROVER}\\)$`))
   })
 
   it('signs with git config user.name when --by is not given', () => {
     const result = runHash([HASH, briefWith(SOUND_TEXT)], 'Git Name')
 
     expect(result.status).toBe(0)
-    expect(result.stdout.trim()).toMatch(/, Git Name; sketch none\)$/)
+    expect(result.stdout.trim()).toMatch(/ sketch: none \(\d{4}-\d{2}-\d{2}, Git Name\)$/)
   })
 
   it('refuses, printing no hash, when neither --by nor git config user.name names the approver', () => {

@@ -448,5 +448,10 @@
     "target": "scripts/construct/check-acceptance.mjs",
     "sha256": "4a54f0f1a9aae3303dbf9a331f153253201fb274044cfdcd7977a65ebbe0b663",
     "date": "2026-10-04"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "ebba3eb43e8de0a33296caf231fe29c47d6b9ce5b83b851152eab87e5494b3e1",
+    "date": "2026-10-04"
   }
 ]

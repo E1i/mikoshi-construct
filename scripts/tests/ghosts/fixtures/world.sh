@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -15,6 +15,7 @@ EXPECT_MISPLACED_LINE='expect: none — written below the blank line'
 EXPECT_STEPS_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5, p25–p75 20k–40k — n=5; design none — n=3 for medium/design; implement tokens ≈ 100k, minutes ≈ 5, p25–p75 100k–100k — n=5; verify tokens ≈ 20k, minutes ≈ 1, p25–p75 20k–20k — n=5'
 EXPECT_UNCACHED_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5, p25–p75 30k–30k — n=5; design none — n=0 for medium/design; implement tokens ≈ 100k, minutes ≈ 5, p25–p75 100k–100k — n=5; verify tokens ≈ 20k, minutes ≈ 1, p25–p75 20k–20k — n=5'
 CLEAN_SKETCH_REASON='world fixture'
+UNKNOWN_SKETCH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 FAILING_EXIT=3
 
 fail() {
@@ -34,6 +35,25 @@ implement_sha() {
   printf '%s' "$(sed -n '/^\/implement /,$p' "$1")" | shasum -a 256 | cut -c1-64
 }
 
+approval_sha() {
+  printf '%s' "$(sed -n '/^\/implement /,$p' "$1" | awk 'NR == 2 && /^Sketch: / { next } { print }')" | shasum -a 256 | cut -c1-64
+}
+
+approved_sketch_of_brief() {
+  case $(sed -n '/^\/implement /,$p' "$1" | sed -n 2p) in
+    'Sketch: sketch/'*) sed -n '/^\/implement /,$p' "$1" | sed -n 2p | sed 's/.* @ //' ;;
+    *) echo none ;;
+  esac
+}
+
+rebased_kind() {
+  case $1 in sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale) return 0 ;; *) return 1 ;; esac
+}
+
+sketch_world_kind() {
+  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
+}
+
 approved_sha() {
   sed -n 's/.*sha256: *\([0-9a-f]\{64\}\).*/\1/p' "$1" | head -n 1
 }
@@ -50,8 +70,21 @@ ids_of() {
   cat "$1/.world/ids"
 }
 
+approved_sketch_for() {
+  local W=$1 id=$2 kind
+  kind=$(cat "$W/.world/kind")
+  if [ "$id" = g2 ] && rebased_kind "$kind"; then cat "$W/.world/sketch-approved"; return; fi
+  if [ "$id" = g2 ] && [ "$kind" = sketch-approved-unknown ]; then printf '%s\n' "$UNKNOWN_SKETCH"; return; fi
+  approved_sketch_of_brief "$W/handoff/brief-$id.md"
+}
+
 write_approval() {
-  printf 'approved /implement text sha256: %s (2026-09-27, world)\n' "$(implement_sha "$1/handoff/brief-$2.md")" >"$1/handoff/brief-$2.approved-sha256"
+  local W=$1 id=$2
+  if [ "$id" = g2 ] && [ "$(cat "$W/.world/kind")" = approval-old-rule ]; then
+    printf 'approved /implement text sha256: %s (2026-09-27, world; sketch none)\n' "$(implement_sha "$W/handoff/brief-$id.md")" >"$W/handoff/brief-$id.approved-sha256"
+    return
+  fi
+  printf 'approved /implement text sha256: %s sketch: %s (2026-10-04, world)\n' "$(approval_sha "$W/handoff/brief-$id.md")" "$(approved_sketch_for "$W" "$id")" >"$W/handoff/brief-$id.approved-sha256"
 }
 
 sketch_line_for() {
@@ -59,7 +92,7 @@ sketch_line_for() {
   kind=$(cat "$W/.world/kind")
   if [ "$id" != g2 ]; then echo "$CLEAN_SKETCH_LINE"; return; fi
   case $kind in
-    sketch | sketch-no-branch | sketch-stale) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
+    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
     sketch-moved) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-parent")" ;;
     sketch-no-line) echo '' ;;
     *) echo "$CLEAN_SKETCH_LINE" ;;
@@ -311,11 +344,15 @@ EOF
 }
 
 commit_sketch_in_seed() {
-  local W=$1 seed="$1/.world/seed" parent=$2
+  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2} message=${4:-sketch g2} date=${5:-}
   git_quiet -C "$seed" checkout -q --detach "$parent"
-  echo 'sketch g2' >"$seed/sketch.txt"
+  echo "$content" >"$seed/sketch.txt"
   git_quiet -C "$seed" add sketch.txt
-  git_quiet -C "$seed" commit -m 'sketch g2'
+  if [ -n "$date" ]; then
+    GIT_COMMITTER_DATE=$date GIT_AUTHOR_DATE=$date git_quiet -C "$seed" commit -m "$message"
+  else
+    git_quiet -C "$seed" commit -m "$message"
+  fi
   git -C "$seed" rev-parse HEAD >"$W/.world/sketch-tip"
   git -C "$seed" rev-parse "$parent" >"$W/.world/sketch-parent"
   git_quiet -C "$seed" checkout -q main
@@ -323,9 +360,22 @@ commit_sketch_in_seed() {
 
 make_sketch() {
   local W=$1 kind=$2 seed="$1/.world/seed" parent=main
-  case $kind in sketch | sketch-no-branch | sketch-moved | sketch-stale) ;; *) return ;; esac
+  sketch_world_kind "$kind" || return 0
   [ "$kind" = sketch-stale ] && parent='main~1'
-  commit_sketch_in_seed "$W" "$parent"
+  if rebased_kind "$kind"; then
+    commit_sketch_in_seed "$W" 'main~1'
+    cp "$W/.world/sketch-tip" "$W/.world/sketch-approved"
+    git_quiet -C "$seed" push "$W/main" "$(cat "$W/.world/sketch-approved"):refs/world/approved"
+    case $kind in
+      sketch-rebased-changed) commit_sketch_in_seed "$W" main 'sketch g2 edited' ;;
+      sketch-rebased-reworded) commit_sketch_in_seed "$W" main 'sketch g2' 'sketch g2, reworded' ;;
+      sketch-rebased-stale) commit_sketch_in_seed "$W" 'main~1' 'sketch g2' 'sketch g2' 2026-01-01T00:00:00Z ;;
+      *) commit_sketch_in_seed "$W" main ;;
+    esac
+  else
+    commit_sketch_in_seed "$W" "$parent"
+    cp "$W/.world/sketch-tip" "$W/.world/sketch-approved"
+  fi
   case $kind in
     sketch-no-branch) ;;
     *) git_quiet -C "$seed" push "$W/main" "$(cat "$W/.world/sketch-tip"):refs/heads/sketch/g2" ;;
@@ -358,6 +408,7 @@ new_world() {
   ids_for_kind "$kind" >"$W/.world/ids"
   for id in $(ids_of "$W"); do write_brief "$W" "$id"; done
   case $kind in
+    design-edited) sed -i.bak 's/^- A line with a backslash/- A line, edited after approval, with a backslash/' "$W/handoff/brief-g2.md" && rm "$W/handoff/brief-g2.md.bak" ;;
     tampered) sed -i.bak 's/^\/implement Ghost g2:/\/implement Ghost g3:/' "$W/handoff/brief-g2.md" && rm "$W/handoff/brief-g2.md.bak" ;;
     unapproved) rm "$W/handoff/brief-g2.approved-sha256" ;;
     occupied) mkdir -p "$W/wt-g2" && echo occupied >"$W/wt-g2/keep.txt" ;;
@@ -402,11 +453,13 @@ output_has() {
 }
 
 sketch_task_in() {
-  [ "$(cat "$1/.world/kind")" = sketch ] && [ "$2" = g2 ]
+  case $(cat "$1/.world/kind") in sketch | sketch-rebased) [ "$2" = g2 ] ;; *) false ;; esac
 }
 
 expected_sketch_description() {
-  if sketch_task_in "$1" "$2"; then
+  if sketch_task_in "$1" "$2" && [ "$(cat "$1/.world/kind")" = sketch-rebased ]; then
+    echo "from sketch sketch/g2 @ $(cut -c1-7 "$1/.world/sketch-tip"), approved $(cut -c1-7 "$1/.world/sketch-approved") with range-diff all ="
+  elif sketch_task_in "$1" "$2"; then
     echo "from sketch sketch/g2 @ $(cut -c1-7 "$1/.world/sketch-tip")"
   else
     echo "clean tree ($CLEAN_SKETCH_REASON)"
@@ -480,7 +533,21 @@ check_refused() {
     tampered)
       output_has "$W" "brief-g2.md"
       output_has "$W" "$(approved_sha "$W/handoff/brief-g2.approved-sha256")"
-      output_has "$W" "$(implement_sha "$W/handoff/brief-g2.md")"
+      output_has "$W" "$(approval_sha "$W/handoff/brief-g2.md")"
+      ;;
+    design-edited)
+      output_has "$W" "task g2: $W/handoff/brief-g2.md: the /implement text does not match the approved hash (approved $(approved_sha "$W/handoff/brief-g2.approved-sha256"), actual $(approval_sha "$W/handoff/brief-g2.md"))"
+      ;;
+    approval-old-rule)
+      output_has "$W" "task g2: $W/handoff/brief-g2.md: brief-g2.approved-sha256 names no 'sketch: <40-hex sha|none>': it was written when the Sketch: line was part of the hash; re-approve the brief with pnpm ghosts:hash"
+      ;;
+    sketch-rebased-changed | sketch-rebased-reworded)
+      output_has "$W" "task g2: the sketch $(cut -c1-7 "$W/.world/sketch-tip") is not the approved $(cut -c1-7 "$W/.world/sketch-approved") rebased: git range-diff shows '"
+      output_has "$W" "' for 1 launched commits, not every one '='; re-approve the brief"
+      [ "$kind" != sketch-rebased-reworded ] || output_has "$W" "git range-diff shows '!' for 1 launched commits"
+      ;;
+    sketch-approved-unknown)
+      output_has "$W" "task g2: git range-diff cannot compare the approved sketch ${UNKNOWN_SKETCH:0:7} with $(cut -c1-7 "$W/.world/sketch-tip") (${UNKNOWN_SKETCH:0:7} is not in the repository); re-approve the brief"
       ;;
     unapproved)
       output_has "$W" "brief-g2.md"
@@ -501,7 +568,7 @@ check_refused() {
       output_has "$W" "task g2: sketch branch sketch/g2 does not exist in $W/main"
       ;;
     sketch-moved)
-      output_has "$W" "task g2: sketch branch sketch/g2 is at $(cat "$W/.world/sketch-tip"), not the approved $(cat "$W/.world/sketch-parent")"
+      output_has "$W" "task g2: sketch branch sketch/g2 is at $(cat "$W/.world/sketch-tip"), not the $(cat "$W/.world/sketch-parent") the brief names"
       ;;
     expect-malformed)
       output_has "$W" "task g2: $W/handoff/brief-g2.md: the expect: line is neither"
@@ -510,7 +577,7 @@ check_refused() {
     expect-misplaced)
       output_has "$W" "task g2: $W/handoff/brief-g2.md: an expect: line may stand only on line 3 of the /implement text, and line 4 is \"$EXPECT_MISPLACED_LINE\""
       ;;
-    sketch-stale)
+    sketch-stale | sketch-rebased-stale)
       output_has "$W" "task g2: sketch $(cut -c1-7 "$W/.world/sketch-tip") does not contain origin/main $(origin_sha "$W" | cut -c1-7); rebase sketch/g2 onto origin/main and re-approve the brief"
       ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
@@ -538,7 +605,7 @@ check_refused_two_implement() {
 
 check_sketch() {
   local W=$1 sha id wt unstaged
-  [ "$(kind_of "$W")" = sketch ] || fail "check-sketch applies to a sketch world only"
+  case $(kind_of "$W") in sketch | sketch-rebased) ;; *) fail "check-sketch applies to a launched sketch world only" ;; esac
   sha=$(origin_sha "$W")
   for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
@@ -575,7 +642,8 @@ check_launched() {
     echo "$session" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || fail "$id: session id '$session' is not a uuid"
     prompt=${ARGV[11]}
     case $prompt in '/implement '*) ;; *) fail "$id: the prompt does not start with '/implement '" ;; esac
-    [ "$(printf '%s' "$prompt" | shasum -a 256 | cut -c1-64)" = "$(approved_sha "$W/handoff/brief-$id.approved-sha256")" ] || fail "$id: the sha256 of the prompt is not the approved hash"
+    [ "$(printf '%s' "$prompt" | shasum -a 256 | cut -c1-64)" = "$(implement_sha "$W/handoff/brief-$id.md")" ] || fail "$id: the sha256 of the prompt is not the sha256 of the brief's /implement text"
+    [ "$(approval_sha "$W/handoff/brief-$id.md")" = "$(approved_sha "$W/handoff/brief-$id.approved-sha256")" ] || fail "$id: the sketch-free hash of the brief is not the approved hash"
     [ -f "$W/stub/wt-$id/agreed-at-start" ] || fail "$id: no .construct/implement-agreed.txt in $wt when the session started"
     [ "$(cat "$W/stub/wt-$id/agreed-at-start"; printf x)" = "${prompt}x" ] || fail "$id: .construct/implement-agreed.txt at session start is not the prompt byte for byte"
     [ "$(cat "$W/stub/wt-$id/ceiling")" = 0 ] || fail "$id: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS is '$(cat "$W/stub/wt-$id/ceiling")', not 0"
@@ -724,7 +792,7 @@ check_journal() {
   sha=$(origin_sha "$W")
   local pairs='' id
   for id in $(ids_of "$W"); do
-    pairs="$pairs $id=$(session_of_or_null "$W" "$id")=$(approved_sha "$W/handoff/brief-$id.approved-sha256")=$(args_broken_for "$W" "$id" && echo broken || echo tied)"
+    pairs="$pairs $id=$(session_of_or_null "$W" "$id")=$(approved_sha "$W/handoff/brief-$id.approved-sha256")=$(implement_sha "$W/handoff/brief-$id.md")=$(args_broken_for "$W" "$id" && echo broken || echo tied)"
   done
   node - "$W" "$sha" "$(kind_of "$W")" "$(cat "$W/.world/sketch-tip" 2>/dev/null || true)" "$ARGS_PATH" $pairs <<'EOF' || fail "$(cat "$W/.world/journal-failure" 2>/dev/null)"
 const fs = require('node:fs')
@@ -756,10 +824,11 @@ for (const [id] of tasks) {
   if (['CONTRACT', 'EXPECT', 'ACTION'].some(field => found[0][field] === '')) failWith(`${id}: an entry field is empty`)
   if (parsed.indexOf(found[0]) > parsed.findIndex(row => row.event === 'task' && row.task === id)) failWith(`${id}: the entry line is after its task line`)
 }
-const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'sketch', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review', 'agreedSha256', 'argsSha256', 'expected', 'actual']
+const KEYS = ['event', 'ts', 'task', 'session', 'baseSha', 'sketch', 'install', 'exit', 'ladder', 'run', 'iterations', 'class', 'contour', 'resultLine', 'total_cost_usd', 'num_turns', 'duration_ms', 'usage', 'review', 'agreedSha256', 'approvedSha256', 'approvedSketch', 'rangeDiff', 'argsSha256', 'expected', 'actual']
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const matrix = JSON.parse(fs.readFileSync(`${W}/matrix.json`, 'utf8'))
-for (const [id, session, approved, link] of tasks) {
+const approvedTip = fs.existsSync(`${W}/.world/sketch-approved`) ? fs.readFileSync(`${W}/.world/sketch-approved`, 'utf8').trim() : null
+for (const [id, session, approved, agreed, link] of tasks) {
   const found = rows.filter(row => row.task === id)
   if (found.length !== 1) failWith(`${found.length} journal lines for task ${id}, not 1`)
   const row = found[0]
@@ -781,7 +850,7 @@ for (const [id, session, approved, link] of tasks) {
     task: id,
     session: noSession ? null : session,
     baseSha: sha,
-    sketch: kind === 'sketch' && id === 'g2' ? sketchTip : null,
+    sketch: ['sketch', 'sketch-rebased'].includes(kind) && id === 'g2' ? sketchTip : null,
     install: installFailed ? 1 : (installUnspawnable ? null : 0),
     exit: noSession ? null : (kind === 'failing' && id === 'g2' ? 3 : 0),
     ladder: noLadder ? 'no ladder run' : (kind === 'failing' && id === 'g2' ? 'failed' : 'done'),
@@ -795,7 +864,10 @@ for (const [id, session, approved, link] of tasks) {
     duration_ms: noSession ? null : 430500,
     usage: result ? result.usage : null,
     review: null,
-    agreedSha256: approved,
+    agreedSha256: agreed,
+    approvedSha256: approved,
+    approvedSketch: ['sketch', 'sketch-rebased'].includes(kind) && id === 'g2' ? approvedTip : null,
+    rangeDiff: id !== 'g2' ? null : kind === 'sketch' ? 'identical' : kind === 'sketch-rebased' ? 'equal' : null,
     expected: id !== 'g2' ? null : kind === 'expect' ? { kind: 'forecast', tokens: 166000, minutes: 12, basis: { effort: 'medium', n: 61 } } : kind === 'expect-none' ? { kind: 'none', reason: 'n=3 for effort low' } : null,
     actual: noLadder ? null : { tokens: 100, minutes: 10 / 60 },
     argsSha256: noLadder || link === 'broken' ? null : crypto.createHash('sha256').update(fs.readFileSync(`${W}/wt-${id}/${argsPath}`)).digest('hex'),
@@ -816,7 +888,7 @@ check_args() {
   local W=$1 id link
   for id in $(ids_of "$W"); do
     if args_broken_for "$W" "$id"; then link=$(kind_of "$W"); else link=tied; fi
-    node - "$W" "$id" "$(approved_sha "$W/handoff/brief-$id.approved-sha256")" "$link" "$ARGS_PATH" <<'EOF' || fail "$(cat "$W/.world/args-failure" 2>/dev/null)"
+    node - "$W" "$id" "$(implement_sha "$W/handoff/brief-$id.md")" "$link" "$ARGS_PATH" <<'EOF' || fail "$(cat "$W/.world/args-failure" 2>/dev/null)"
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const [W, id, approved, link, argsPath] = process.argv.slice(2)

@@ -22,6 +22,9 @@ const BASE_ENTRY = {
   duration_ms: 1000,
   usage: { input_tokens: 1 },
   agreedSha256: 'a'.repeat(64),
+  approvedSha256: 'b'.repeat(64),
+  approvedSketch: null,
+  rangeDiff: null,
   argsSha256: null,
   expected: { kind: 'forecast' as const, tokens: 166_000, minutes: 12, basis: { effort: 'medium' as const, n: 61 } },
   actual: { tokens: 100, minutes: 10 / 60 },
@@ -37,7 +40,7 @@ describe('appendJournalLine', () => {
     const lines = readFileSync(journal, 'utf8').split('\n').filter(line => line !== '')
     expect(lines).toHaveLength(1)
     const row = JSON.parse(lines[0])
-    expect(Object.keys(row).sort()).toEqual(['baseSha', 'class', 'contour', 'duration_ms', 'event', 'exit', 'install', 'iterations', 'ladder', 'num_turns', 'resultLine', 'review', 'run', 'session', 'sketch', 'task', 'total_cost_usd', 'ts', 'usage', 'agreedSha256', 'argsSha256', 'expected', 'actual'].sort())
+    expect(Object.keys(row).sort()).toEqual(['baseSha', 'class', 'contour', 'duration_ms', 'event', 'exit', 'install', 'iterations', 'ladder', 'num_turns', 'resultLine', 'review', 'run', 'session', 'sketch', 'task', 'total_cost_usd', 'ts', 'usage', 'agreedSha256', 'approvedSha256', 'approvedSketch', 'rangeDiff', 'argsSha256', 'expected', 'actual'].sort())
     expect(row.event).toBe('task')
     expect(row.review).toBeNull()
     expect(row.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/)
