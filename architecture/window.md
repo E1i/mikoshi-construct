@@ -158,6 +158,10 @@ A task is named by its component and its brief's version ("Launcher v0.1.1", "La
 issue number only in parentheses. A launch attempt lives in the journal, never in the name, and a batch
 is named by its contents.
 
+Before launching a `brief`, `scan` or `review` agent, the window prints that role's `role` line from
+`pnpm ghosts:expect-sample` (median and p25–p75 of the last 20 runs of the role in `.construct/turns.jsonl`, or
+`none` with its reason). With `--effort` the same command prints the task's contour, the sum of the step bands.
+
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
 keeps, changes or drops it.
