@@ -1,6 +1,6 @@
 mikoshi-construct — bootstrap for AI-native software projects (construct v<version>)
 
-USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|board|graph|mutate
+USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|board|graph|intake|mutate
 
 COMMANDS
 
@@ -17,6 +17,7 @@ COMMANDS
       cost    Token usage of the /implement runs recorded for this directory (from Claude Code session data)                                                                                                                                                                                                                                                       
      board    Where each task stands, from the ladder runs in .construct/runs.jsonl and the pull request list that gh pr list wrote and --prs hands over; the CLI runs no gh and writes no file. Rows that wait for you are red; a row older than 4 hours is stale (--stale); a run finished or a pull request merged more than 12 hours ago is hidden unless --all
      graph    Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout                                                                                                                                                                                                                                                          
+    intake    Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model                                                            
     mutate    Apply a named wrong implementation and judge it from the report the runner hands over; runs no test itself                                                                                                                                                                                                                                           
 
 Use construct <command> --help for more information about a command.

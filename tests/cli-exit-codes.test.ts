@@ -164,6 +164,19 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(w, 'soulkill', '--json')).toBe(0)
   })
 
+  it('intake: written 0, dry run 0, refused 1', async () => {
+    const w = world()
+    const draft = path.join(w.home, 'draft.json')
+    const taken = path.join(w.home, 'taken.txt')
+    const parking = path.join(w.home, 'parking')
+    writeFileSync(draft, JSON.stringify({ cards: [{ name: 'one-card', kind: 'implement', milestone: 'runner', size: 'S', who: 'shift', touches: ['src/**'], task: 'Do one thing.', witnesses: ['it is done'] }] }))
+    writeFileSync(taken, '1 2\n')
+    const intake = async (...args: string[]): Promise<number | null> => (await runCli(['intake', '--draft', draft, '--parking', parking, ...args], w.home)).status
+    expect(await intake('--taken', taken, '--dryRun')).toBe(0)
+    expect(await intake('--taken', taken)).toBe(0)
+    expect(await intake()).toBe(1)
+  })
+
   it('mutate apply: applied 0, refused 1', async () => {
     const w = await mutable()
     expect(await run(w, 'mutate', 'apply', '--from', w.brief, '--id', 'M1')).toBe(0)

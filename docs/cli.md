@@ -1313,7 +1313,7 @@ One `- path` line per removed path, files then directories; then every adopted, 
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
 and directories actually removed. On the ten carriers, the guard and its parser into a repository with none of
-their directories, N is 19: eleven files, seven directories and the settings file attach created.
+their directories, N is 21: twelve files, eight directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 

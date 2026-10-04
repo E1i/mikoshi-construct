@@ -145,7 +145,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
       expect(sha256(path.join(dir, file)), file).toBe(sha)
 
     const directories = record?.directories ?? []
-    expect([...directories].sort()).toEqual(['.claude', '.claude/agents', '.claude/commands', '.claude/skills', '.claude/skills/implement', 'scripts/construct'])
+    expect([...directories].sort()).toEqual(['.claude', '.claude/agents', '.claude/commands', '.claude/skills', '.claude/skills/implement', '.claude/skills/intake', 'scripts/construct'])
     for (const directory of directories)
       expect(directories.indexOf(path.dirname(directory)), `${directory} after its parent`).toBeLessThan(directories.indexOf(directory))
 
@@ -422,7 +422,7 @@ describe('a carrier path that appears after the collision check is never overwri
 
   const RACES = [
     { name: 'the first carrier, so nothing was written yet', target: ATTACH_CARRIERS.targets[0], appears: ['.claude/', '.claude/commands/', '.claude/commands/plan.md'], rolledBack: 0 },
-    { name: 'the last carrier, so six files and their directories were written', target: ATTACH_CARRIERS.targets[6], appears: ['scripts/construct/', 'scripts/construct/check-acceptance.mjs'], rolledBack: 6 },
+    { name: 'the last carrier, so six files and their directories were written', target: ATTACH_CARRIERS.targets[6], appears: ['scripts/construct/', 'scripts/construct/implement.workflow'], rolledBack: 6 },
   ]
 
   for (const race of RACES) {
@@ -654,7 +654,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
-    expect(result.rolledBack).toHaveLength(11)
+    expect(result.rolledBack).toHaveLength(12)
     expect(listing(dir)).toEqual([...before, '.claude/', SETTINGS_FILE].sort())
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ nope')
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)

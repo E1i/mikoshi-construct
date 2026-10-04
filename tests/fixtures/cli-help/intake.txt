@@ -1,0 +1,14 @@
+Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model (construct intake v<version>)
+
+USAGE construct intake [OPTIONS] 
+
+OPTIONS
+
+              --plain    No colors, no lore (CI-friendly) (Default: false)                                             
+             --johnny    Wake up, Netrunner. (Default: false)                                                          
+      --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                            
+      --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin
+  --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                
+             --dryRun    Print the cards, write nothing (Default: false)                                               
+
+
