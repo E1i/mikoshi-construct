@@ -1676,6 +1676,8 @@ It runs no model and no `gh`.
 | `--draft <file\|->` | — | The sliced cards, `{ "cards": [ … ] }`, from a file or stdin. Required. |
 | `--taken <file\|->` | — | The pull request and issue numbers already taken, separated by whitespace, from a file or stdin. Required. |
 | `--parking <dir>` | `~/.construct/parking` | Where the cards are written, outside the repository. |
+| `--dir <dir>` | `.` | The repository the `touches`, `creates` and witness checks read. Never written. |
+| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read closed from. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
 
 ```bash
@@ -1686,13 +1688,24 @@ It runs no model and no `gh`.
 
 Each card of the draft takes `name`, `kind`, `milestone`, `size`, `touches`, `task` and `witnesses`,
 none of which has a default, and optionally `contour`, `decision`, `branch`, `who`, `continue`,
-`depends`, `blocks` and `unclear` (a list of `{ "field", "reason" }`). `depends` and `blocks` name
+`depends`, `blocks`, `creates` (the `touches` entries the change makes, so they are not expected to
+exist), `number` and `unclear` (a list of `{ "field", "reason" }`). `depends` and `blocks` name
 another card of the draft by its `name` or an existing card as `#<id>`; a card another one depends on
 gets the matching `blocks` entry.
 
 **Numbers.** Card numbers are shared with pull requests and issues, so the cards take the next numbers
 after every number taken in the parking directory and in `--taken`. Without `--taken` the command
 refuses: a card that reuses a pull request's number is worse than no card.
+
+**Corrected is written down.** Each card is checked against the repository under `--dir` and the
+journal, and every correction is written into the card and printed as
+`corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
+path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
+card grammar becomes the grammar's default, a `depends` or `blocks` on a card closed in the journal is
+removed, and a `creates` entry that already exists is noted as not new. A path with no single
+candidate, a `#<id>` that is neither parked nor closed, and a witness with no backticked command or a
+command that is not on `PATH` are marked `unclear:` and kept. A card with a correction stays at
+`who: window`. A kind outside the grammar is still refused.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under

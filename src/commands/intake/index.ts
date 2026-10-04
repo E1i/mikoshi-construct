@@ -1,10 +1,14 @@
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { SlicedCard } from './slice.js'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
+import { closedTasks } from '../../card/closed.js'
+import { checkDraft, correctionText } from './check.js'
 import { parseDraft } from './draft.js'
+import { DirectoryFacts } from './facts.js'
 import { nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { sliceCards } from './slice.js'
 
@@ -24,6 +28,8 @@ export interface IntakeOptions {
   draft: string | undefined
   taken: string | undefined
   parking: string
+  dir?: string
+  journal?: string
   dryRun: boolean
   readStdin: () => string
 }
@@ -46,6 +52,19 @@ function refused(refusal: Refusal, detail: string[] = []): IntakeResult {
   return { status: 'refused', refusal, detail }
 }
 
+function isDirectory(dir: string): boolean {
+  try {
+    return statSync(dir).isDirectory()
+  }
+  catch {
+    return false
+  }
+}
+
+function readJournal(journal: string | undefined): string | null {
+  return journal !== undefined && existsSync(journal) ? readFileSync(journal, 'utf8') : null
+}
+
 function readInput(source: string, readStdin: () => string): string {
   return source === FROM_STDIN ? readStdin() : readFileSync(source, 'utf8')
 }
@@ -63,9 +82,13 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return refused('bothFromStdin')
   let draftText: string
   let takenText: string
+  let journalText: string | null
+  if (options.dir !== undefined && !isDirectory(options.dir))
+    return refused('unreadable', [`${options.dir} is not a directory`])
   try {
     draftText = readInput(options.draft, options.readStdin)
     takenText = readInput(options.taken, options.readStdin)
+    journalText = readJournal(options.journal)
   }
   catch (error) {
     return refused('unreadable', [error instanceof Error ? error.message : String(error)])
@@ -76,8 +99,15 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const taken = parseTaken(takenText)
   if (taken.kind === 'refused')
     return refused('invalid', [taken.reason])
-  const numbers = nextFreeNumbers([...taken.numbers, ...parkedNumbers(parkedFiles(options.parking))], draft.cards.length)
-  const slice = sliceCards(draft.cards, numbers)
+  const parked = parkedNumbers(parkedFiles(options.parking))
+  const numbers = nextFreeNumbers([...taken.numbers, ...parked], draft.cards.length)
+  const checked = checkDraft(draft.cards, numbers, {
+    taken: new Set(taken.numbers),
+    parked: new Set(parked),
+    closed: new Set(closedTasks(journalText).keys()),
+    repository: options.dir === undefined ? null : new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+  })
+  const slice = sliceCards(checked, numbers)
   if (slice.kind === 'refused')
     return refused('invalid', slice.reasons)
   if (options.dryRun)
@@ -98,10 +128,16 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
     return INTAKE_EXIT.refused
   }
   for (const card of result.cards) {
-    if (result.status === 'dryRun')
+    if (result.status === 'dryRun') {
       ui.line(card.text)
-    else
+    }
+    else {
       ui.ok(ui.lore.intakeWritten(path.join(result.parking, card.file), card.line))
+      for (const correction of card.corrections)
+        ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))
+    }
+    if (card.corrections.length > 0)
+      ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrections(card.corrections.length, card.who)}`))
     if (card.unclear.length > 0)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeUnclear(card.unclear.length, card.who)}`))
   }

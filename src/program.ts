@@ -7,7 +7,7 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { ATTACH_EXIT, printEntryProtocol, runAttach } from './commands/attach/index.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, readBoard, STALE_HOURS } from './commands/board/index.js'
-import { COST_EXIT, costJson, costReport, printCost } from './commands/cost/index.js'
+import { COST_EXIT, costJson, costReport, defaultWindowJournal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
@@ -331,6 +331,8 @@ const intake = withKnownFlags(defineCommand({
     draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
     taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
     parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
+    dir: commonArgs.dir,
+    journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
     dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
   },
   run({ args }) {
@@ -340,6 +342,8 @@ const intake = withKnownFlags(defineCommand({
         draft: args.draft,
         taken: args.taken,
         parking: path.resolve(args.parking ?? defaultParking()),
+        dir: path.resolve(args.dir),
+        journal: path.resolve(args.journal ?? defaultWindowJournal()),
         dryRun: args.dryRun,
         readStdin: () => readFileSync(0, 'utf8'),
       })

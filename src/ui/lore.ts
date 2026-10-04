@@ -149,6 +149,8 @@ export interface Lore {
   intakeRefusedInvalid: string
   intakeWritten: (file: string, card: string) => string
   intakeUnclear: (count: number, who: string) => string
+  intakeCorrected: (text: string) => string
+  intakeCorrections: (count: number, who: string) => string
   intakeDryRun: (parking: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
@@ -432,6 +434,8 @@ export const LORE: Lore = {
   intakeRefusedInvalid: 'INTAKE REFUSED // the draft does not slice into valid cards; nothing parked',
   intakeWritten: (file: string, card: string) => `CARD PARKED // ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
+  intakeCorrected: (text: string) => `CORRECTED // ${text}`,
+  intakeCorrections: (count: number, who: string) => `${count} CORRECTED // written in the card, held for who: ${who} until a person confirms them`,
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
@@ -743,6 +747,8 @@ export const PLAIN_LORE: Lore = {
   intakeRefusedInvalid: 'Refused: the draft does not slice into valid cards. Nothing was written:',
   intakeWritten: (file: string, card: string) => `Wrote ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
+  intakeCorrected: (text: string) => `corrected: ${text}`,
+  intakeCorrections: (count: number, who: string) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; it stays with who: ${who} until a person confirms them.`,
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
