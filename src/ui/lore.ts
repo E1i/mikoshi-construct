@@ -151,6 +151,7 @@ export interface Lore {
   attachRefusedNoGit: string
   attachRefusedLinkedGit: string
   attachRefusedConstructed: string
+  attachRefusedAttached: string
   attachRefusedNothingToAttach: string
   attachRefusedCollision: (paths: string[]) => string
   attachRefusedNoHarness: string
@@ -422,6 +423,7 @@ export const LORE: Lore = {
   attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
   attachRefusedLinkedGit: 'BREACH FAILED // LINKED NET: .git is a file',
   attachRefusedConstructed: 'BREACH FAILED // ALREADY CONSTRUCTED: construct.json is here',
+  attachRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
   attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
   attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
@@ -721,6 +723,7 @@ export const PLAIN_LORE: Lore = {
   attachRefusedNoGit: 'Refused: not a git repository.',
   attachRefusedLinkedGit: 'Refused: .git is a file (worktree or submodule); attach needs the .git directory.',
   attachRefusedConstructed: 'Refused: this repository already carries a construct; use init or sync.',
+  attachRefusedAttached: 'Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.',
   attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
   attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
