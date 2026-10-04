@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseCard } from '../../ghosts/card.js'
-import { parseTaskFile } from '../../shift/task-file.js'
+import { parseCard } from '../../src/card/grammar.js'
+import { parseTaskFile } from '../../src/card/task-file.js'
 
 const CARD = '#107 shift-runner [implement/runner/M/cheap/owner] · depends — · blocks —'
 

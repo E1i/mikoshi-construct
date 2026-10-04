@@ -63,8 +63,16 @@ function readBlocks(value: string): number[] | null {
   return idsOf(ids)
 }
 
-export function cardHead(card: Card): string {
+export function cardHead(card: Omit<Card, 'line'>): string {
   return `#${card.id} ${card.name} [${card.kind}/${card.milestone}/${card.size}/${card.contour}/${card.decision}]`
+}
+
+function idList(ids: readonly number[]): string {
+  return ids.length === 0 ? NONE : ids.map(id => `#${id}`).join(', ')
+}
+
+export function cardLine(card: Omit<Card, 'line'>): string {
+  return `${cardHead(card)}${DEPENDS}${idList(card.depends)}${BLOCKS}${idList(card.blocks)}`
 }
 
 export function cardTerms(card: Card): string {

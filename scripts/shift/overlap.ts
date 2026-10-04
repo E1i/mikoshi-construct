@@ -1,5 +1,5 @@
-import type { ShiftTask } from './task-file.js'
-import { PREFIX_SUFFIX } from './task-file.js'
+import type { ShiftTask } from '../../src/card/task-file.js'
+import { PREFIX_SUFFIX } from '../../src/card/task-file.js'
 
 export interface OpenPr {
   number: number

@@ -216,6 +216,7 @@ export const ATTACH_CARRIERS = {
   targets: [
     '.claude/commands/plan.md',
     '.claude/skills/implement/SKILL.md',
+    '.claude/skills/intake/SKILL.md',
     '.claude/agents/architect.md',
     '.claude/agents/harness.md',
     '.claude/agents/implementer.md',

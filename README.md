@@ -160,6 +160,7 @@ with a named check, not a second fix.
 | `construct cost` | Token usage of the `/implement` runs in this directory, per agent, in tokens without cache reads and price-weighted (`--last`, `--json`) |
 | `construct board` | Where each task stands, from the ladder runs in `.construct/runs.jsonl` and a pull request list handed over with `--prs` (`--all`, `--stale`, `--every`, `--json`) |
 | `construct mutate` | Apply a brief's named wrong implementation (`mutate apply --from <file> --id <id>`), then restore it from its copy and judge the Vitest report the runner hands over (`mutate judge --id <id> --report <file>`); runs no test itself |
+| `construct intake` | Turn the cards the `intake` skill sliced from a retelling into parking cards: the next free numbers, unclear fields marked, every card checked by the parking grammar before it is written (`--draft`, `--taken`, `--parking`, `--dry-run`) |
 
 `--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner. The full reference,
 with examples and exit codes, is in [docs/cli.md](https://github.com/E1i/mikoshi-construct/blob/main/docs/cli.md).

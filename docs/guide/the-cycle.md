@@ -63,6 +63,12 @@ named plausible wrong implementation
 JSON reporter, and `construct mutate judge` restores the file from its copy and reads the outcome
 from the report — see [the reference](/cli#construct-mutate).
 
+Work often arrives as a retelling rather than a feature. The `intake` skill slices one into parking
+cards — one card per change, every field the retelling does not settle marked unclear and left to a
+person — and `construct intake` numbers them past every pull request and issue you hand it, checks
+each card with the grammar `task:start` reads, and writes them to `~/.construct/parking`, outside the
+repository — see [the reference](/cli#construct-intake).
+
 ## 4. `/implement <task>` — the ladder
 
 Implementation starts at the lowest reasoning class the task can carry, under stronger constraints

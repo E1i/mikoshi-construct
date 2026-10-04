@@ -142,6 +142,14 @@ export interface Lore {
   recordAhead: (record: string, field: string, found: number, understood: number) => string
   modelIsWrittenByInit: string
   graphPageWritten: (target: string) => string
+  intakeRefusedNoDraft: string
+  intakeRefusedNoTaken: string
+  intakeRefusedBothFromStdin: string
+  intakeRefusedUnreadable: (why: string) => string
+  intakeRefusedInvalid: string
+  intakeWritten: (file: string, card: string) => string
+  intakeUnclear: (count: number, who: string) => string
+  intakeDryRun: (parking: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
   notCarriedUnevaluable: (claimId: string, target: string) => string
@@ -417,6 +425,14 @@ export const LORE: Lore = {
   recordAhead: (record: string, field: string, found: number, understood: number) => `RELIC FROM A LATER BUILD: ${record} declares ${field} ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
+  intakeRefusedNoDraft: 'INTAKE REFUSED // NO DRAFT: --draft names the sliced cards as JSON, a file or - for stdin',
+  intakeRefusedNoTaken: 'INTAKE REFUSED // NO TAKEN NUMBERS: --taken names the pull request and issue numbers, a file or - for stdin; a card number shared with one of them is worse than no card',
+  intakeRefusedBothFromStdin: 'INTAKE REFUSED // ONE STDIN: --draft and --taken cannot both read -',
+  intakeRefusedUnreadable: (why: string) => `INTAKE REFUSED // NO SIGNAL: ${why}`,
+  intakeRefusedInvalid: 'INTAKE REFUSED // the draft does not slice into valid cards; nothing parked',
+  intakeWritten: (file: string, card: string) => `CARD PARKED // ${file}: ${card}`,
+  intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
+  intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
@@ -720,6 +736,14 @@ export const PLAIN_LORE: Lore = {
   recordAhead: (record: string, field: string, found: number, understood: number) => `${record} declares ${field} ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
+  intakeRefusedNoDraft: 'Refused: --draft names the sliced cards as JSON, a file or - for stdin. Nothing was written.',
+  intakeRefusedNoTaken: 'Refused: --taken names the pull request and issue numbers, a file or - for stdin, because card numbers are shared with them. Nothing was written.',
+  intakeRefusedBothFromStdin: 'Refused: --draft and --taken cannot both read stdin. Nothing was written.',
+  intakeRefusedUnreadable: (why: string) => `Refused: ${why}. Nothing was written.`,
+  intakeRefusedInvalid: 'Refused: the draft does not slice into valid cards. Nothing was written:',
+  intakeWritten: (file: string, card: string) => `Wrote ${file}: ${card}`,
+  intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
+  intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,

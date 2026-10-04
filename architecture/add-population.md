@@ -8,16 +8,16 @@ that the presets do not produce. The population was first named in the observati
 [The `add` population, named before anything is done about it](observations.md#2026-09-21--the-add-population-named-before-anything-is-done-about-it),
 which records the counts as they stood on its date.
 
-**The population, partitioned.** Across the four available presets, `planMaterialize` produces 91
+**The population, partitioned.** Across the four available presets, `planMaterialize` produces 92
 distinct paths. 37 of them are reached only in an empty directory, through a mount marked
-`onlyWhenEmpty`. The remaining 54 are written into any tree that adopts the construct, and they fall
+`onlyWhenEmpty`. The remaining 55 are written into any tree that adopts the construct, and they fall
 into four kinds:
 
 `construct-subject` — the construct's own material, which cannot misfit because the construct is what
 it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
 `.claude/agents/implementer.md`, `.claude/commands/construct-discover.md`, `.claude/commands/plan.md`,
 `.claude/rules/conventions.md`, `.claude/rules/css.md`, `.claude/rules/secrets.md`,
-`.claude/rules/tests.md`, `.claude/skills/implement/SKILL.md`, `.github/workflows/security.yml`,
+`.claude/rules/tests.md`, `.claude/skills/implement/SKILL.md`, `.claude/skills/intake/SKILL.md`, `.github/workflows/security.yml`,
 `.gitignore`, `.gitleaks.toml`, `AGENTS.md`, `CLAUDE.md`, `architecture/checklists.md`,
 `architecture/decisions/README.md`, `architecture/open-questions.md`, `architecture/principles.md`,
 `architecture/security-invariants.md`, `scripts/construct/browser-witness.mjs`, `scripts/construct/check-acceptance.mjs`, `scripts/construct/check-baseline.mjs`, `scripts/construct/implement.workflow`.
