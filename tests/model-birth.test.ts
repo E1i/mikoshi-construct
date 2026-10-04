@@ -144,6 +144,9 @@ describe('a construct claim is only written when its evidence holds on the tree 
         },
       ],
       hypotheses: [],
+      stages: [],
+      nodes: [],
+      links: [],
     }
 
     const born = withoutStillbornClaims(named, null, dir)

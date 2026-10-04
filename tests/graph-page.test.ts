@@ -41,6 +41,9 @@ const THREE_STATES: RepositoryModel = {
     { id: 'a-held-hypothesis', statement: 'h', authoredBy: 'discovery', baseSha: 'abc', evidenceClean: true, supportedBy: ['present'] },
     { id: 'an-unsupported-hypothesis', statement: 'h', authoredBy: 'discovery', baseSha: null, evidenceClean: false, supportedBy: ['absent', 'needle'] },
   ],
+  stages: [],
+  nodes: [],
+  links: [],
 }
 
 function treeWith(model: RepositoryModel): string {

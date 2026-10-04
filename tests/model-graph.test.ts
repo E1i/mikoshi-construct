@@ -44,6 +44,9 @@ const SHARED: RepositoryModel = {
       supportedBy: ['shared-file', 'only-one-dependent'],
     },
   ],
+  stages: [],
+  nodes: [],
+  links: [],
 }
 
 function scratch(files: Record<string, string> = {}): string {
@@ -145,7 +148,7 @@ describe('the gate against a state the renderer decides for itself', () => {
 })
 
 describe('a repository with no model of its own', () => {
-  const empty: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] }
+  const empty: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [], stages: [], nodes: [], links: [] }
 
   it('says there is no construct.model.json and draws nothing at all', () => {
     const picture = pictureOfModel(null, scratch())
@@ -167,7 +170,7 @@ describe('a repository with no model of its own', () => {
 
 describe('the rendering states what is held and pronounces on nothing else', () => {
   it('carries no word in its own prose, labels or legend that reads as refutation or as proof', () => {
-    for (const picture of [pictureOfModel(SHARED, scratch()), pictureOfModel(null, scratch()), pictureOfModel({ modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] }, scratch())])
+    for (const picture of [pictureOfModel(SHARED, scratch()), pictureOfModel(null, scratch()), pictureOfModel({ modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [], stages: [], nodes: [], links: [] }, scratch())])
       expect(READS_AS_A_VERDICT.test(renderEmbedded(picture)), renderEmbedded(picture)).toBe(false)
   })
 

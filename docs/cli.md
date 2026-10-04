@@ -382,8 +382,9 @@ declares a `modelVersion` above what the running binary understands, the command
 and exits `1` — it does not reach `no-model`, and it does not offer `init`, which would propose
 overwriting the file it could not read
 ([decision 0028](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0028-a-model-ahead-of-the-reader-is-a-state.md)).
-A version *below* this binary's is a malformed document and is reported as one; nothing migrates an
-older model.
+A version *below* this binary's is read, with the lists it predates empty
+([engram.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/engram.md)); nothing
+migrates an older model.
 
 | `no-claim` | `construct.model.json` was read and names no claim: it asserts nothing about this repository. | `You are here: construct.model.json carries no claim, so there is none to place` |
 | `no-stop` | The model carries claims and none of their chains stops before its end. | `You are here: no claim stops before the end of its chain` |

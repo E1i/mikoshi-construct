@@ -44,7 +44,7 @@ export function withoutStillbornClaims(fresh: RepositoryModel, existing: Reposit
   })
 
   const released = new Set(dropped.flatMap(supportingFactIds))
-  const stoodOn = factsStoodOn(claims, fresh.hypotheses)
+  const stoodOn = factsStoodOn(claims, fresh.hypotheses, fresh.nodes)
   return {
     model: {
       ...fresh,

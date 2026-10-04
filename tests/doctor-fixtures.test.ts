@@ -141,7 +141,7 @@ function materializeFixture(name: string, options: FixtureOptions = {}): string 
   if (carried === 'built')
     writeModel(root, buildModel({ vars: VARS, contracts: false, sample: true }))
   if (carried === 'no-claim')
-    writeModel(root, { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] })
+    writeModel(root, { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [], stages: [], nodes: [], links: [] })
   return root
 }
 
