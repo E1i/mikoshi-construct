@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
+import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { writeAgreedText } from './agreed.js'
 import { checkApproval } from './approval.js'
@@ -21,7 +22,7 @@ import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
 import { runInstall } from './install.js'
 import { appendJournalEvent, appendJournalLine } from './journal.js'
-import { countLedgerLines, readLadderOutcome } from './ledger.js'
+import { carryLedgerLines, countLedgerLines, readLadderOutcome } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
 import { readResultFields } from './result.js'
 import { spawnSession } from './session.js'
@@ -315,6 +316,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   }
 
   const ladder = readLadderOutcome(runsPath, linesBefore)
+  const carryFailure = carryIntoMainLedger(runsPath, ctx.repo)
   const resultFields = readResultFields(task.reportPath)
   const outcome = sessionOutcome(code, ladder.status, task.reportPath, task.sessionId)
   await closeOut(ctx, task, start, outcome, {
@@ -340,9 +342,20 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     actual: ladder.actual,
   })
 
-  const line = ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`
+  const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
   const ok = code === 0 && ladder.status === 'done'
   return { id: task.id, line, ok }
+}
+
+function carryIntoMainLedger(runsPath: string, repo: string): string {
+  const mainLedger = path.join(repo, LEDGER_FILE)
+  try {
+    carryLedgerLines(runsPath, mainLedger)
+    return ''
+  }
+  catch (error) {
+    return `; ledger lines not carried into ${mainLedger}: ${errorMessage(error)}`
+  }
 }
 
 async function main(): Promise<void> {
