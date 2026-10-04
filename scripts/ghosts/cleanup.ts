@@ -1,4 +1,4 @@
-import type { PrList } from '../board/gh.js'
+import type { PrList, PullRequest } from '../board/gh.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -17,6 +17,7 @@ import { readUnregistered } from '../board/tree.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
 import { ghostRowState } from './status.js'
 import { readTasksFile } from './tasks.js'
+import { DISPOSITION_EVENT, MERGE_FOLLOW_UP } from './verdict.js'
 
 const PREFIX = '[ghosts:cleanup] '
 const DEFAULT_LOGS_DIR = '/tmp'
@@ -49,19 +50,45 @@ function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]
 }
 
-function lastVerdict(journalPath: string, id: string): string | undefined {
+interface Disposition {
+  pr: number
+  followUp: number
+}
+
+interface ReviewStanding {
+  verdict?: string
+  disposition?: Disposition
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+}
+
+function reviewStanding(journalPath: string, id: string): ReviewStanding {
+  const standing: ReviewStanding = {}
   if (!existsSync(journalPath))
-    return undefined
-  let verdict: string | undefined
+    return standing
   for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
     try {
-      const parsed = JSON.parse(line) as { event?: unknown, task?: unknown, verdict?: unknown }
-      if (parsed.event === 'review' && parsed.task === id && typeof parsed.verdict === 'string')
-        verdict = parsed.verdict
+      const parsed = JSON.parse(line) as { event?: unknown, task?: unknown, verdict?: unknown, decision?: unknown, pr?: unknown, followUp?: unknown }
+      if (parsed.task !== id)
+        continue
+      if (parsed.event === 'review' && typeof parsed.verdict === 'string') {
+        standing.verdict = parsed.verdict
+        standing.disposition = undefined
+      }
+      if (parsed.event === DISPOSITION_EVENT && parsed.decision === MERGE_FOLLOW_UP && isNumber(parsed.pr) && isNumber(parsed.followUp))
+        standing.disposition = { pr: parsed.pr, followUp: parsed.followUp }
     }
     catch {}
   }
-  return verdict
+  return standing
+}
+
+function changesRefusal(task: Target, disposition: Disposition, pr: PullRequest | undefined): string | undefined {
+  if (pr?.number === disposition.pr && pr.state === 'MERGED')
+    return undefined
+  return `the last review verdict is changes, and its disposition merge + follow-up #${disposition.followUp} lifts it only once PR #${disposition.pr} of ${task.branch} is merged`
 }
 
 function changedPaths(worktree: string): number {
@@ -221,11 +248,16 @@ function cleanupBlocked(task: Target, report: string, ctx: CleanupContext): stri
 export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   if (handLadderRows(ctx.statusText).has(task.id))
     return kept(task, `status.md policy ${handLadderPolicy(task.id)}; a hand-ladder worktree is never removed`)
-  if (lastVerdict(ctx.journalPath, task.id) === 'changes')
+  const standing = reviewStanding(ctx.journalPath, task.id)
+  const overruled = standing.verdict === 'changes' ? standing.disposition : undefined
+  if (standing.verdict === 'changes' && overruled === undefined)
     return kept(task, 'the last review verdict is changes')
   if (ctx.prs.kind === 'failed')
     return kept(task, 'gh unavailable; the pull request state is unknown')
   const pr = ctx.prs.prs.find(candidate => task.pr === undefined ? candidate.headRefName === task.branch : candidate.number === task.pr)
+  const refusal = overruled === undefined ? undefined : changesRefusal(task, overruled, pr)
+  if (refusal !== undefined)
+    return kept(task, refusal)
   if (pr === undefined) {
     const outcome = freeOutcome(ctx.statusText, task.id)
     const report = BLOCKED_OUTCOME.exec(outcome ?? '')?.[1]
@@ -258,7 +290,8 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   for (const log of logs)
     rmSync(log)
   removed.push(`${logs.length} quality logs`)
-  return `ghost-${task.id} removed: PR #${pr.number} merged${carried}; ${removed.join(' and ')}`
+  const overrule = overruled === undefined ? '' : ` over a changes verdict, follow-up #${overruled.followUp}`
+  return `ghost-${task.id} removed: PR #${pr.number} merged${overrule}${carried}; ${removed.join(' and ')}`
 }
 
 function defaultRepo(cwd: string): string | undefined {

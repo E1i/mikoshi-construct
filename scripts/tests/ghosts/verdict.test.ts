@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readContourSchema, violations } from '../../contract/contours.js'
-import { checkVerdict, recordVerdict } from '../../ghosts/verdict.js'
+import { checkDisposition, checkVerdict, recordDisposition, recordVerdict } from '../../ghosts/verdict.js'
 
 const IMPLEMENT = '/implement the contour contracts (t)'
 const REPORT = '[review:t]\nThe witnesses ran.\n'
@@ -50,7 +50,7 @@ function journalLines(journal: string): string[] {
   return existsSync(journal) ? readFileSync(journal, 'utf8').split('\n').filter(line => line !== '') : []
 }
 
-function reasonsOf(result: ReturnType<typeof checkVerdict>): string[] {
+function reasonsOf(result: { ok: true } | { ok: false, reasons: string[] }): string[] {
   return result.ok ? [] : result.reasons
 }
 
@@ -183,5 +183,37 @@ describe('recordVerdict', () => {
     write(verdict, good)
     expect((await recordVerdict(verdict, dir, TARGET)).ok).toBe(true)
     expect(journalLines(journal)).toHaveLength(2)
+  })
+})
+
+describe('recordDisposition', () => {
+  const INPUT = { task: 't', pr: '520', followUp: '519', by: 'window' }
+
+  it('appends one disposition line to ghosts.jsonl and reads it back as written', async () => {
+    const { dir, journal } = handoff()
+    writeFileSync(journal, '{"event":"review","task":"t","verdict":"changes"}\n')
+    const result = await recordDisposition(INPUT, dir, NOW)
+    const line = { event: 'disposition', ts: NOW.toISOString(), task: 't', decision: 'merge-follow-up', pr: 520, followUp: 519, by: 'window' }
+    expect(result).toEqual({ ok: true, line })
+    const lines = journalLines(journal)
+    expect(lines).toHaveLength(2)
+    expect(JSON.parse(lines[1])).toEqual(line)
+  })
+
+  it('takes the owner as the one who decided', () => {
+    const result = checkDisposition({ ...INPUT, by: 'owner' }, NOW)
+    expect(result.ok && result.line.by).toBe('owner')
+  })
+
+  it.each([
+    { name: 'a missing task', change: { task: undefined }, text: '--task is missing' },
+    { name: 'a pull request that is not a number', change: { pr: '#520' }, text: '--pr #520 is not a positive number' },
+    { name: 'a missing follow-up', change: { followUp: undefined }, text: '--follow-up (missing) is not a positive number' },
+    { name: 'a decider outside owner and window', change: { by: 'review' }, text: '--by review is not one of owner, window' },
+  ])('refuses $name and writes nothing', async ({ change, text }) => {
+    const { dir, journal } = handoff()
+    const result = await recordDisposition({ ...INPUT, ...change }, dir, NOW)
+    expect(reasonsOf(result)).toEqual([text])
+    expect(journalLines(journal)).toEqual([])
   })
 })
