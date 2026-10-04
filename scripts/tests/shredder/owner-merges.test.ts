@@ -43,6 +43,9 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['architecture/owner-merges.md'], ownerMerged: true },
     { files: ['scripts/shift/header.md'], ownerMerged: true },
     { files: ['scripts/shift/merge.ts'], ownerMerged: true },
+    { files: ['scripts/shredder/reader.ts'], ownerMerged: true },
+    { files: ['scripts/shredder/authority.ts'], ownerMerged: true },
+    { files: ['scripts/shredder/glob.ts'], ownerMerged: true },
     { files: ['scripts/shift/overlap.ts'], ownerMerged: false },
   ])('$files → ownerMerged $ownerMerged', ({ files, ownerMerged }) => {
     expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)

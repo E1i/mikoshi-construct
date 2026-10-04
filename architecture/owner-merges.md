@@ -12,7 +12,9 @@ at Eli's instruction. On 2026-10-04, at Eli's instruction (task #35), the coordi
 `scripts/ghosts/**` of the kind `ghosts` with Eli's 13 paths, added the plain list below with Eli's 15 paths, and added
 `architecture/owner-merges.md` to `own-instructions`: the file that decides who merges is never auto-merged. On 2026-10-04, at Eli's
 instruction (task #167), the coordinating window added `scripts/ghosts/role-sample.ts` to the plain list. On 2026-10-04, at Eli's instruction (task #178), the coordinating window added
-the shift's merge rule (`header.md`) and the script that applies it (`merge.ts`), both under `scripts/shift/`, to `own-instructions`.
+the shift's merge rule (`header.md`) and the script that applies it (`merge.ts`), both under `scripts/shift/`, to `own-instructions`. The same day, at Eli's instruction (task #178), it added
+`scripts/shredder/reader.ts`, `scripts/shredder/authority.ts` and `scripts/shredder/glob.ts` to `own-instructions`: the merge
+decision is taken on their output.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -21,7 +23,7 @@ is matched by its title.)
 | kind | paths (globs) | what it covers | example |
 |---|---|---|---|
 | release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 |
-| own-instructions | `.claude/**`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md`, `scripts/shift/header.md`, `scripts/shift/merge.ts` | the agent's own working instructions: the implement skill, the agent files (`implementer.md`, `harness.md`, `architect.md`), the ladder script, `check-acceptance` — in the repository or in `templates/ai/` — and what `attach` hands the agent from `templates/attach/` | PR #244, PR #282; issues #257, #269, #271 |
+| own-instructions | `.claude/**`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md`, `scripts/shift/header.md`, `scripts/shift/merge.ts`, `scripts/shredder/reader.ts`, `scripts/shredder/authority.ts`, `scripts/shredder/glob.ts` | the agent's own working instructions: the implement skill, the agent files (`implementer.md`, `harness.md`, `architect.md`), the ladder script, `check-acceptance` — in the repository or in `templates/ai/` — and what `attach` hands the agent from `templates/attach/` | PR #244, PR #282; issues #257, #269, #271 |
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init` or `attach` writes: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
