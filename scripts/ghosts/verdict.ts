@@ -2,10 +2,12 @@ import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
 import { appendJournalEvent } from './journal.js'
@@ -14,6 +16,10 @@ const JOURNAL_FILE = 'ghosts.jsonl'
 const VERDICT_SCHEMA = 'review-verdict'
 const JOURNAL_LINE = '#/$defs/journalLine'
 const CARD_NUMBER_MARKER = /^\[review:\d+\]$/
+const ISSUE_NUMBER = /^[1-9]\d*$/
+export const DISPOSITION_EVENT = 'disposition'
+export const MERGE_FOLLOW_UP = 'merge-follow-up'
+export const DISPOSITION_DECIDERS = ['owner', 'window'] as const
 
 interface Digest {
   path: string
@@ -149,16 +155,41 @@ export async function recordVerdict(verdictPath: string, dir: string, target: Re
   return checked
 }
 
-async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { dir: { type: 'string' }, commit: { type: 'string' }, repo: { type: 'string' } } })
-  const verdictPath = positionals[0]
-  const commit = values.commit
-  if (verdictPath === undefined || commit === undefined) {
-    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>]')
-    process.exitCode = 1
-    return
-  }
-  const checked = await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo: values.repo ?? process.cwd() })
+export interface DispositionInput {
+  task: string | undefined
+  pr: string | undefined
+  followUp: string | undefined
+  by: string | undefined
+}
+
+export type DispositionCheck
+  = | { ok: true, line: { event: typeof DISPOSITION_EVENT, ts: string, task: string, decision: typeof MERGE_FOLLOW_UP, pr: number, followUp: number, by: string } }
+    | { ok: false, reasons: string[] }
+
+function numberReasons(flag: string, value: string | undefined): string[] {
+  return value !== undefined && ISSUE_NUMBER.test(value) ? [] : [`--${flag} ${value ?? '(missing)'} is not a positive number`]
+}
+
+export function checkDisposition(input: DispositionInput, now: Date = new Date()): DispositionCheck {
+  const reasons = [
+    ...(input.task === undefined || input.task === '' ? ['--task is missing'] : []),
+    ...numberReasons('pr', input.pr),
+    ...numberReasons('follow-up', input.followUp),
+    ...((DISPOSITION_DECIDERS as readonly (string | undefined)[]).includes(input.by) ? [] : [`--by ${input.by ?? '(missing)'} is not one of ${DISPOSITION_DECIDERS.join(', ')}`]),
+  ]
+  if (reasons.length > 0 || input.task === undefined || input.by === undefined)
+    return { ok: false, reasons }
+  return { ok: true, line: { event: DISPOSITION_EVENT, ts: now.toISOString(), task: input.task, decision: MERGE_FOLLOW_UP, pr: Number(input.pr), followUp: Number(input.followUp), by: input.by } }
+}
+
+export async function recordDisposition(input: DispositionInput, dir: string, now: Date = new Date()): Promise<DispositionCheck> {
+  const checked = checkDisposition(input, now)
+  if (checked.ok)
+    await appendJournalEvent(path.join(dir, JOURNAL_FILE), checked.line)
+  return checked
+}
+
+function report(checked: VerdictCheck | DispositionCheck): void {
   if (checked.ok) {
     console.log(JSON.stringify(checked.line))
     return
@@ -166,6 +197,24 @@ async function main(): Promise<void> {
   for (const reason of checked.reasons)
     console.error(reason)
   process.exitCode = 1
+}
+
+async function main(): Promise<void> {
+  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { 'dir': { type: 'string' }, 'commit': { type: 'string' }, 'repo': { type: 'string' }, 'merge-follow-up': { type: 'string' }, 'task': { type: 'string' }, 'pr': { type: 'string' }, 'by': { type: 'string' } } })
+  if (values['merge-follow-up'] !== undefined) {
+    const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+    report(await recordDisposition({ task: values.task, pr: values.pr, followUp: values['merge-follow-up'], by: values.by }, dir))
+    return
+  }
+  const verdictPath = positionals[0]
+  const commit = values.commit
+  if (verdictPath === undefined || commit === undefined) {
+    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>]')
+    console.error('       verdict.ts --merge-follow-up <issue> --task <id> --pr <merged PR> --by <owner|window> [--dir <handoff directory>]')
+    process.exitCode = 1
+    return
+  }
+  report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo: values.repo ?? process.cwd() }))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

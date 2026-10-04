@@ -108,6 +108,16 @@ function cleanupFromHandoff(w: World): string {
   return result.stdout
 }
 
+const CHANGES = { event: 'review', task: 'g1', verdict: 'changes', ts: '2026-10-01T09:00:00Z' }
+
+function disposition(pr: number): object {
+  return { event: 'disposition', ts: '2026-10-01T09:30:00Z', task: 'g1', decision: 'merge-follow-up', pr, followUp: 519, by: 'window' }
+}
+
+function journal(w: World, lines: object[]): void {
+  writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+}
+
 function cleanup(w: World): string {
   return run(w, CLEANUP, ['--logs', w.logs])
 }
@@ -182,6 +192,40 @@ describe('ghosts:cleanup removes a merged task\'s worktree and quality logs', ()
     expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: the last review verdict is changes\n')
     expect(existsSync(w.worktree)).toBe(true)
     expect(logsLeft(w)).toEqual(ALL_LOGS)
+  })
+
+  it('w8: removes a merged task whose last review verdict is changes once a merge + follow-up disposition names its PR', () => {
+    const w = newWorld('MERGED')
+    journal(w, [CHANGES, disposition(7)])
+    const out = cleanup(w)
+    expect(existsSync(w.worktree)).toBe(false)
+    expect(logsLeft(w)).toEqual([FOREIGN_LOG])
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged over a changes verdict, follow-up #519; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+  })
+
+  it.each([
+    { name: 'its PR is open', state: 'OPEN', lines: () => [CHANGES, disposition(7)] },
+    { name: 'it names another PR', state: 'MERGED', lines: () => [CHANGES, disposition(8)] },
+    { name: 'a later review says changes again', state: 'MERGED', lines: () => [CHANGES, disposition(7), CHANGES] },
+  ])('w9: keeps the worktree under a changes verdict with a disposition when $name', ({ state, lines }) => {
+    const w = newWorld(state)
+    journal(w, lines())
+    expect(cleanup(w)).toMatch(/^\[ghosts:cleanup\] ghost-g1 kept: the last review verdict is changes/)
+    expect(existsSync(w.worktree)).toBe(true)
+    expect(logsLeft(w)).toEqual(ALL_LOGS)
+  })
+
+  it('w9: names the PR the disposition waits for when it is not merged', () => {
+    const w = newWorld('OPEN')
+    journal(w, [CHANGES, disposition(7)])
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: the last review verdict is changes, and its disposition merge + follow-up #519 lifts it only once PR #7 of ghost/g1 is merged\n')
+  })
+
+  it('w10: removes a merged task whose last review verdict is pass, as before (control)', () => {
+    const w = newWorld('MERGED')
+    journal(w, [CHANGES, { ...CHANGES, verdict: 'pass' }])
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+    expect(existsSync(w.worktree)).toBe(false)
   })
 
   it.each(['exits-1', 'not-json'] as const)('w6: removes nothing and says gh unavailable when gh %s', (mode) => {
