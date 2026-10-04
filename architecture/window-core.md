@@ -1,6 +1,6 @@
 # Window core
 
-window-core v2
+window-core v3
 
 If your context holds two versions of window-core, the higher version applies; stop and ask for a new session.
 
@@ -47,3 +47,4 @@ and issue bodies.
 - Before launching a Ghost, approving a brief or naming a task, read [architecture/window.md § Ghosts](window.md#ghosts).
 - Before publishing a release note, a changeset, a README line or a record, read [architecture/window.md § Published claims](window.md#published-claims).
 - Before giving a verdict on a run, read [architecture/window.md § Giving the verdict](window.md#giving-the-verdict).
+- Before mutating, or briefing a subagent that mutates, read [architecture/window.md § Mutations](window.md#mutations).
