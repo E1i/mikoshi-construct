@@ -41,11 +41,10 @@ a contract security test or the secret scan, so the reader sees the invariant, n
 Return these fields; the runtime validates the shape against the schema it gives you.
 
 - `passed` — whether every harness command succeeded.
-- `steps`, `setSha256` and `baselineSha256` — only when the prompt names steps: `steps` is the script's
+- `steps` and `setSha256` — only when the prompt names steps: `steps` is the script's
   `steps` array verbatim (`step`, `exitCode`, `failures`, where `failures` is a list of strings or
-  `null`), `setSha256` is the script's `sha256` field (`null` when it printed `null`), and
-  `baselineSha256` is what `shasum -a 256` prints for the script's whole stdout, taken from the same
-  run. `passed` is then whether every step's `exitCode` is 0.
+  `null`) and `setSha256` is the script's `sha256` field (`null` when it printed `null`).
+  `passed` is then whether every step's `exitCode` is 0.
 - `failureExcerpt` — the failing command and its last relevant lines, empty when passed.
 - `securityFinding` — the invariant that failed, empty when none.
 - `diffStat` — the output of `git diff --stat`, or why git could not be used.

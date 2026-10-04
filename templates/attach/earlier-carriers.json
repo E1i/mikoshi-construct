@@ -473,5 +473,20 @@
     "target": ".claude/agents/harness.md",
     "sha256": "f835cd4971716b588ff5fad8c88ac97e67306cb36ee5072465a27d088f5dfa0e",
     "date": "2026-10-05"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "0d4d89c46004623949af6e46dc91aa26f48adbda86a418785ea7fc6df8515f10",
+    "date": "2026-10-04"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "e488eb9461d5912d2b0c17e8bae30433b74129e07aadb4aeb8ebdc84225419c6",
+    "date": "2026-10-04"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "fc9f27788ac3371005cc72e157df92d288a49962fbaae586fe4e4bbd331c516f",
+    "date": "2026-10-04"
   }
 ]

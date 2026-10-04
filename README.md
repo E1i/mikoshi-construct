@@ -139,8 +139,8 @@ than criteria — and an effort class.
 `high` when the task warrants it). An `implementer` agent works under strict constraints, a `harness`
 agent verifies against the working tree and reports a structured verdict — a pass is never
 self-reported — and an `architect` agent designs only for `high` tasks or after a blocked or failed
-attempt. The harness checks the base first: a red base stops the run before any implementer or
-architect runs. Every run is logged to `.construct/runs.jsonl` with its rungs, attempts and usage.
+attempt. The harness checks the base first: a base red in a way that cannot be identified runs nothing, before any implementer or
+architect runs; a base whose failures are identified and pinned runs, and a rung passes when it adds none. Every run is logged to `.construct/runs.jsonl` with its rungs, attempts and usage.
 
 **Verify · Review · Harden** — `pnpm run quality` is the gate in CI and for every agent; `--review
 claude` adds a label-triggered AI review workflow; a finding that recurs becomes a named invariant
