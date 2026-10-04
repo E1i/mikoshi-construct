@@ -30,6 +30,17 @@ export type CheapForecast
   = | { kind: 'forecast', taskClass: string, n: number, tokens: number, minutes: number }
     | { kind: 'none', taskClass: string, n: number }
 
+export interface CheapClassReading {
+  forecast: CheapForecast
+  tasks: number
+}
+
+export interface CheapReading {
+  shiftRoot: string
+  projectsDir: string
+  classes: CheapClassReading[]
+}
+
 interface ShiftTaskLine {
   event?: unknown
   task?: unknown
@@ -125,4 +136,13 @@ export function cheapForecast(rows: CheapRow[], taskClass: string): CheapForecas
 
 export function cheapForecastOf(shiftRoot: string, taskClass: string, projectsDir: string): CheapForecast {
   return cheapForecast(cheapRows(readCheapTasks(shiftRoot), taskClass, projectsDir), taskClass)
+}
+
+export function readCheapClasses(shiftRoot: string, projectsDir: string): CheapReading {
+  const tasks = readCheapTasks(shiftRoot)
+  const classes = [...new Set(tasks.map(task => task.taskClass))].sort().map(taskClass => ({
+    forecast: cheapForecast(cheapRows(tasks, taskClass, projectsDir), taskClass),
+    tasks: tasks.filter(task => task.taskClass === taskClass).length,
+  }))
+  return { shiftRoot, projectsDir, classes }
 }
