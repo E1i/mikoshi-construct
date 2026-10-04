@@ -6,6 +6,7 @@ import { billable, COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, costReport, pr
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
+import { isolatedCostRoots } from './cost-roots.js'
 import { IN_UNIVERSE } from './lore-vocabulary.js'
 
 function line(model: string, usage: Record<string, number>): string {
@@ -66,7 +67,7 @@ describe('construct cost', () => {
     const cwd = '/Users/someone/projects/demo'
     recordRun(projects, cwd)
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('ok')
     expect(report.runs).toHaveLength(1)
     const [only] = report.runs!
@@ -83,7 +84,7 @@ describe('construct cost', () => {
     const cwd = workspace()
     mkdirSync(path.join(projects, projectKey(cwd), 'session-1'), { recursive: true })
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('empty')
     expect(costJson(report, false)).toMatchObject({ status: 'empty', runtime: 'claude-code' })
     const { exit, text } = printed(report)
@@ -92,7 +93,7 @@ describe('construct cost', () => {
   })
 
   it('reports a directory the runtime has never seen as a readable absence too', () => {
-    const report = costReport(workspace(), { projectsDir: projectsRoot(), env: CLAUDE_CODE_ENV })
+    const report = costReport(workspace(), { ...isolatedCostRoots(), projectsDir: projectsRoot(), env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('empty')
     expect(printed(report).exit).toBe(0)
   })
@@ -127,7 +128,7 @@ describe('construct cost', () => {
     const link = path.join(mkdtempSync(path.join(tmpdir(), 'construct-link-')), 'demo')
     symlinkSync(real, link)
 
-    const report = costReport(link, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(link, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('mismatch')
     expect(report.key).toBe(projectKey(link))
     expect(report.candidates).toContain(projectKey(real))
@@ -144,7 +145,7 @@ describe('construct cost', () => {
     const tree = workspace()
     writeFileSync(path.join(tree, '.git'), `gitdir: ${main}/.git/worktrees/feature\n`)
 
-    const report = costReport(tree, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(tree, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('mismatch')
     expect(report.key).toBe(projectKey(tree))
     expect(report.candidates).toEqual([projectKey(main)])
@@ -156,7 +157,7 @@ describe('construct cost', () => {
     mkdirSync(cwd)
     mkdirSync(path.join(projects, projectKey('/elsewhere/checkouts/demo')), { recursive: true })
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('unknown')
     expect(report.key).toBe(projectKey(cwd))
     expect(report.candidates).toEqual([projectKey('/elsewhere/checkouts/demo')])
@@ -250,7 +251,7 @@ describe('the run ledger', () => {
     mkdirSync(path.join(projects, projectKey(cwd)), { recursive: true })
     writeLedger(cwd, [JSON.stringify(ledgerEntry({ tokens: 'unknown' })), JSON.stringify(ledgerEntry({ run: 'wf_two', tokens: 5000 }))])
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.ledger).toMatchObject({ runs: 2, agents: 4, failures: 0, tokens: 'unknown' })
     expect(printed(report).text).toContain('unknown tokens')
   })
@@ -261,7 +262,7 @@ describe('the run ledger', () => {
     recordRun(projects, cwd)
     writeLedger(cwd, [JSON.stringify(ledgerEntry({ run: 'wf_gone', status: 'failed' }))])
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('ok')
     expect(report.reconciliation).toEqual({ entriesWithoutSession: ['wf_gone'], sessionsWithoutEntry: ['wf_abc'], unjoinable: 0 })
     expect(costJson(report, false)).toMatchObject({ status: 'ok', reconciliation: { entriesWithoutSession: ['wf_gone'], sessionsWithoutEntry: ['wf_abc'], unjoinable: 0 } })
@@ -280,7 +281,7 @@ describe('the run ledger', () => {
     recordRun(projects, removedWorktree, 'wf_not_in_this_ledger')
     writeLedger(main, [JSON.stringify(ledgerEntry()), JSON.stringify(ledgerEntry({ run: 'wf_worktree' }))])
 
-    const report = costReport(main, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(main, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('ok')
     expect(report.runs!.map(run => run.run).sort()).toEqual(['wf_abc', 'wf_worktree'])
     expect(report.reconciliation).toEqual({ entriesWithoutSession: [], sessionsWithoutEntry: [], unjoinable: 0 })
@@ -292,7 +293,7 @@ describe('the run ledger', () => {
     recordRun(projects, path.join(path.dirname(main), 'mc-removed-worktree'), 'wf_worktree')
     writeLedger(main, [JSON.stringify(ledgerEntry({ run: 'wf_worktree' }))])
 
-    const report = costReport(main, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(main, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.status).toBe('ok')
     expect(report.runs!.map(run => run.run)).toEqual(['wf_worktree'])
     expect(report.reconciliation).toEqual({ entriesWithoutSession: [], sessionsWithoutEntry: [], unjoinable: 0 })
@@ -305,7 +306,7 @@ describe('the run ledger', () => {
     const { run: _run, ...withoutRun } = ledgerEntry()
     writeLedger(cwd, [JSON.stringify(withoutRun)])
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.reconciliation).toEqual({ entriesWithoutSession: [], sessionsWithoutEntry: ['wf_abc'], unjoinable: 1 })
   })
 
@@ -313,7 +314,7 @@ describe('the run ledger', () => {
     const cwd = workspace()
     writeLedger(cwd, [JSON.stringify(ledgerEntry()), JSON.stringify(ledgerEntry({ run: 'wf_two', status: 'failed' }))])
 
-    const report = costReport(cwd, { projectsDir: projectsRoot(), env: CURSOR_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projectsRoot(), env: CURSOR_ENV })
     expect(report.status).toBe('unsupported')
     expect(report.reconciliation).toBeUndefined()
     expect(report.ledger).toEqual({ runs: 2, agents: 4, failures: 1, tokens: 'unknown', malformed: [] })
@@ -327,7 +328,7 @@ describe('the run ledger', () => {
     const cwd = workspace()
     writeLedger(cwd, ['{ broken'])
 
-    const report = costReport(cwd, { projectsDir: projectsRoot(), env: CURSOR_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projectsRoot(), env: CURSOR_ENV })
     expect(report.ledger?.malformed).toEqual([{ line: 1, reason: 'not JSON' }])
     expect(printed(report).text).toContain('line 1: not JSON')
   })
@@ -347,7 +348,7 @@ describe('one response is one response, however many blocks the journal splits i
     writeFileSync(path.join(run, 'agent-1.jsonl'), block('req_1', usage) + block('req_1', usage) + block('req_1', usage))
     writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'design', agentType: 'architect' }))
 
-    const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
+    const [recorded] = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(1)
     expect(billable(recorded.total)).toBe(51302)
   })
@@ -361,7 +362,7 @@ describe('one response is one response, however many blocks the journal splits i
     writeFileSync(path.join(run, 'agent-1.jsonl'), block('req_1', usage) + block('req_1', usage) + block('req_2', usage))
     writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'design', agentType: 'architect' }))
 
-    const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
+    const [recorded] = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(2)
     expect(billable(recorded.total)).toBe(22)
   })
@@ -374,7 +375,7 @@ describe('one response is one response, however many blocks the journal splits i
     writeFileSync(path.join(run, 'agent-1.jsonl'), line('sonnet', { input_tokens: 5, output_tokens: 5 }) + line('sonnet', { input_tokens: 5, output_tokens: 5 }))
     writeFileSync(path.join(run, 'agent-1.meta.json'), JSON.stringify({ description: 'design', agentType: 'architect' }))
 
-    const [recorded] = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
+    const [recorded] = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }).runs!
     expect(recorded.total.calls).toBe(2)
     expect(billable(recorded.total)).toBe(20)
   })
@@ -386,7 +387,7 @@ describe('a figure names the tool that produced it', () => {
     const cwd = '/Users/someone/projects/demo'
     recordRun(projects, cwd)
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(report.version).toBe(VERSION)
     expect(costJson(report, false)).toMatchObject({ version: VERSION })
     expect(costJson(report, true)).toMatchObject({ version: VERSION })
@@ -396,7 +397,7 @@ describe('a figure names the tool that produced it', () => {
     const projects = projectsRoot()
     const cwd = '/Users/someone/projects/demo'
     recordRun(projects, cwd)
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
 
     for (const theme of [{ plain: true }, { plain: false }]) {
       const { text } = printed(report, theme)
@@ -406,7 +407,7 @@ describe('a figure names the tool that produced it', () => {
   })
 
   it('names the tool even when there are no numbers to name it for', () => {
-    const report = costReport(workspace(), { projectsDir: projectsRoot(), env: CURSOR_ENV })
+    const report = costReport(workspace(), { ...isolatedCostRoots(), projectsDir: projectsRoot(), env: CURSOR_ENV })
     expect(printed(report).text).toContain(VERSION)
   })
 
@@ -414,7 +415,7 @@ describe('a figure names the tool that produced it', () => {
     const projects = projectsRoot()
     const cwd = '/Users/someone/projects/demo'
     recordRun(projects, cwd)
-    const { text } = printed(costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV }))
+    const { text } = printed(costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV }))
 
     expect(text).not.toMatch(/\p{Extended_Pictographic}/u)
     for (const word of IN_UNIVERSE)
@@ -426,7 +427,7 @@ describe('a figure names the tool that produced it', () => {
     const cwd = '/Users/someone/projects/demo'
     recordRun(projects, cwd)
 
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     const [only] = report.runs!
     expect(only.total).toMatchObject({ calls: 3, input: 130, cacheWrite: 0, cacheRead: 400, output: 57 })
     expect(only.agents.map(agent => agent.usage.calls)).toEqual([2, 1])

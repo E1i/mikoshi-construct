@@ -15,6 +15,7 @@ import { createUi, silentWriter } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
+import { isolatedCostRoots } from './cost-roots.js'
 
 const AHEAD = MANIFEST_VERSION + 1
 const LEGACY = path.resolve(import.meta.dirname, 'fixtures/manifest/legacy-0.1.x')
@@ -65,7 +66,7 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
     expect(() => readManifest(dir)).toThrow(RecordAheadOfReader)
     expect(() => runDoctor(dir)).toThrow(RecordAheadOfReader)
     expect(() => runSync(dir, VERSION)).toThrow(RecordAheadOfReader)
-    expect(() => costReport(dir, { env: {} })).toThrow(RecordAheadOfReader)
+    expect(() => costReport(dir, { ...isolatedCostRoots(), env: {} })).toThrow(RecordAheadOfReader)
   })
 
   it('leaves every file where it found it when init reads a manifest from a later build, so an older CLI cannot damage a newer repository', async () => {
@@ -83,8 +84,8 @@ describe('a manifest ahead of this binary is a state, not a crash', () => {
   it('reads the manifest for cost only where the runtime is not already named by the environment', () => {
     const dir = treeAheadOfThisBinary()
 
-    expect(() => costReport(dir, { env: { CLAUDECODE: '1' } })).not.toThrow()
-    expect(() => costReport(dir, { env: {} })).toThrow(RecordAheadOfReader)
+    expect(() => costReport(dir, { ...isolatedCostRoots(), env: { CLAUDECODE: '1' } })).not.toThrow()
+    expect(() => costReport(dir, { ...isolatedCostRoots(), env: {} })).toThrow(RecordAheadOfReader)
   })
 
   it('leaves graph alone, because the picture is drawn from the model and never reads the manifest', () => {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { billable, ClaudeCodeCostSource, costReport, knownSteps, projectKey, readStepCache, recordedSteps, STEP_CACHE_FILE, STEPS } from '../src/commands/cost/index.js'
+import { isolatedCostRoots } from './cost-roots.js'
 
 const CLAUDE_CODE_ENV = { CLAUDECODE: '1' }
 
@@ -108,7 +109,7 @@ describe('construct cost: a run decomposed into its steps', () => {
 
   it('caches the steps of every ledger run construct cost reads, and the cache outlives the transcript', () => {
     const { projects, cwd, run } = fixture()
-    costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     const cached = readStepCache(cwd).runs.get('wf_steps')
     expect(cached).toHaveLength(5)
     rmSync(run, { recursive: true })
@@ -118,10 +119,10 @@ describe('construct cost: a run decomposed into its steps', () => {
 
   it('reads a cached run from the cache and never rewrites its line, even when the transcript changed since', () => {
     const { projects, cwd, run } = fixture()
-    costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     const before = readFileSync(path.join(cwd, STEP_CACHE_FILE), 'utf8')
     writeAgent(run, 6, { label: 'verify 3/3', type: 'harness', phase: 'Verify', start: '2026-09-30T10:11:00.000Z', end: '2026-09-30T10:12:00.000Z', usages: [{ requestId: 'req_late', input: 1, cacheWrite: 1, cacheRead: 1, output: 1 }] })
-    costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(readFileSync(path.join(cwd, STEP_CACHE_FILE), 'utf8')).toBe(before)
     expect(recordedSteps(cwd, ['wf_steps'], new ClaudeCodeCostSource(projects)).runs.get('wf_steps')).toHaveLength(5)
   })
@@ -148,7 +149,7 @@ describe('construct cost: a run decomposed into its steps', () => {
 
   it('stores only counts, times and the role of each step — no message content', () => {
     const { projects, cwd } = fixture()
-    costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     const text = readFileSync(path.join(cwd, STEP_CACHE_FILE), 'utf8')
     expect(text).not.toContain('the prompt')
     const line = JSON.parse(text.trim()) as { steps: Array<Record<string, unknown>> }
@@ -159,7 +160,7 @@ describe('construct cost: a run decomposed into its steps', () => {
 
   it('leaves the run total construct cost reports as it was', () => {
     const { projects, cwd } = fixture()
-    const report = costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    const report = costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(billable(report.runs![0].total)).toBe(167_842)
   })
 })
@@ -202,7 +203,7 @@ describe('construct cost: an agent whose step is not one of STEPS', () => {
 
   it('writes no step outside STEPS and no line for the run when an agent has no workflow phase', () => {
     const { projects, cwd } = runWith(WITHOUT_PHASE)
-    costReport(cwd, { projectsDir: projects, env: CLAUDE_CODE_ENV })
+    costReport(cwd, { ...isolatedCostRoots(), projectsDir: projects, env: CLAUDE_CODE_ENV })
     expect(cachedStepNames(cwd).filter(step => !(STEPS as readonly string[]).includes(step))).toEqual([])
     expect(readStepCache(cwd).runs.has('wf_stray')).toBe(false)
   })
