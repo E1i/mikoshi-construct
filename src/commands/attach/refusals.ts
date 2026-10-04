@@ -6,10 +6,10 @@ import { readTrackedPaths } from '../detach/index-reader.js'
 import { ATTACH_WRITES } from './carriers.js'
 import { collisionReading } from './earlier.js'
 import { unresolvedCommandWord } from './harness.js'
-import { ATTACH_LEDGER_DIR } from './record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE } from './record.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'no-harness' | 'cursor' | 'not-a-command'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'no-harness' | 'cursor' | 'not-a-command'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
@@ -56,6 +56,8 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
     return refusal('linked-git')
   if (existsSync(path.join(root, 'construct.json')))
     return refusal('constructed')
+  if (existsSync(path.join(root, ATTACH_RECORD_FILE)))
+    return refusal('attached')
   if (isEmptyDir(root, [ATTACH_LEDGER_DIR]))
     return refusal('nothing-to-attach')
   const colliding = ATTACH_WRITES.filter(target => existsSync(path.join(root, target)))

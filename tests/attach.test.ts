@@ -262,6 +262,65 @@ describe('the ledger directory is not something to attach to', () => {
   }
 })
 
+async function attachedAlready(dir: string, removeCarriers: boolean): Promise<void> {
+  await runAttach(ui, { dir, harness: HARNESS, yes: true })
+  if (!removeCarriers)
+    return
+  const record = readAttachRecord(dir)
+  for (const target of Object.keys(record?.files ?? {}))
+    rmSync(path.join(dir, target), { force: true })
+  rmSync(path.join(dir, '.construct/commit-guard.mjs'), { force: true })
+  rmSync(path.join(dir, SETTINGS_FILE), { force: true })
+}
+
+const ATTACHED_RECORD_CASES: { name: string, arrange: (dir: string) => Promise<void>, refusal: string | undefined }[] = [
+  { name: 'the record beside a project, carriers removed', refusal: 'attached', arrange: dir => attachedAlready(dir, true) },
+  { name: 'the record beside its carriers and the commit guard', refusal: 'attached', arrange: dir => attachedAlready(dir, false) },
+  { name: 'the record and nothing else', refusal: 'attached', arrange: async (dir) => {
+    for (const entry of readdirSync(dir).filter(entry => entry !== '.git'))
+      rmSync(path.join(dir, entry), { recursive: true })
+    mkdirSync(path.join(dir, '.construct'))
+    writeFileSync(path.join(dir, ATTACH_RECORD_FILE), '{}\n')
+  } },
+  { name: 'the record and construct.json', refusal: 'constructed', arrange: async (dir) => {
+    await attachedAlready(dir, true)
+    writeFileSync(path.join(dir, 'construct.json'), '{}\n')
+  } },
+  { name: 'an empty .construct/ beside a project', refusal: undefined, arrange: async (dir) => {
+    mkdirSync(path.join(dir, '.construct'))
+  } },
+]
+
+describe('a repository that already holds its attach record is not attached again', () => {
+  for (const attached of ATTACHED_RECORD_CASES) {
+    it(`${attached.name}: ${attached.refusal ?? 'attaches'}`, async () => {
+      const dir = fixture()
+      await attached.arrange(dir)
+      const recordFile = path.join(dir, ATTACH_RECORD_FILE)
+      const recordBefore = existsSync(recordFile) ? readFileSync(recordFile) : null
+      const before = listing(dir)
+      const { ui: plain, output } = capturing()
+
+      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+
+      expect(result.refusal).toBe(attached.refusal)
+      if (attached.refusal == null) {
+        expect(existsSync(recordFile)).toBe(true)
+        return
+      }
+      expect(listing(dir)).toEqual(before)
+      if (recordBefore != null)
+        expect(readFileSync(recordFile).equals(recordBefore)).toBe(true)
+      if (attached.refusal === 'attached')
+        expect(output()).toContain(PLAIN_LORE.attachRefusedAttached)
+    })
+  }
+
+  it('says which file holds the record and what to run first', () => {
+    expect(PLAIN_LORE.attachRefusedAttached).toBe('Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.')
+  })
+})
+
 describe('a3: every refusal exits before anything is written', () => {
   for (const refusal of REFUSALS) {
     it(`${refusal.name}: refuses with its own reason and changes nothing`, async () => {
