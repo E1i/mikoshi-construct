@@ -533,7 +533,8 @@ check_refused() {
       output_has "$W" "task g2: $W/handoff/brief-g2.md: brief-g2.approved-sha256 names no 'sketch: <40-hex sha|none>': it was written when the Sketch: line was part of the hash; re-approve the brief with pnpm ghosts:hash"
       ;;
     sketch-rebased-changed)
-      output_has "$W" "task g2: the sketch $(cut -c1-7 "$W/.world/sketch-tip") is not the approved $(cut -c1-7 "$W/.world/sketch-approved") rebased: git range-diff shows 0 of 1 commits as '='; re-approve the brief"
+      output_has "$W" "task g2: the sketch $(cut -c1-7 "$W/.world/sketch-tip") is not the approved $(cut -c1-7 "$W/.world/sketch-approved") rebased: git range-diff shows '"
+      output_has "$W" "' for 1 launched commits, not every one '='; re-approve the brief"
       ;;
     sketch-approved-unknown)
       output_has "$W" "task g2: git range-diff cannot compare the approved sketch ${UNKNOWN_SKETCH:0:7} with $(cut -c1-7 "$W/.world/sketch-tip") (${UNKNOWN_SKETCH:0:7} is not in the repository); re-approve the brief"
