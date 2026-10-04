@@ -17,6 +17,7 @@ import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, 
 import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
+import { ATTACH_RECORD_FILE } from './attach/record.js'
 import { printDetectReport } from './soulkill.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
@@ -254,6 +255,11 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
 export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
   const root = path.resolve(options.dir)
   mkdirSync(root, { recursive: true })
+
+  if (existsSync(path.join(root, ATTACH_RECORD_FILE))) {
+    ui.flatline(ui.lore.initRefusedAttached)
+    return { status: 'refused', written: [], skipped: [], conflicts: [] }
+  }
 
   if (!options.yes && prompter == null) {
     ui.glitch(ui.lore.needsTerminal)

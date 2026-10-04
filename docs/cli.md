@@ -74,6 +74,8 @@ Refused: --preset node-backend is a node preset, and this directory has go.mod a
 
 A `package.json` beside the other manifest makes Node part of the stack, and init proceeds.
 
+A repository with `.construct/attach.json` is refused before anything is written, whatever the file holds: `construct detach` first.
+
 ### A new project
 
 ```bash

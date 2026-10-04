@@ -36,6 +36,7 @@ export interface Lore {
   needsTerminal: string
   unknownFlag: (flags: string[]) => string
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => string
+  initRefusedAttached: string
   confirm: string
   dryRun: string
   sampleOmitted: string
@@ -292,6 +293,7 @@ export const LORE: Lore = {
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   unknownFlag: (flags: string[]) => `BREACH FAILED // UNKNOWN ICE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not wired into this command; nothing was written`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `BREACH FAILED // WRONG CHROME: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written`,
+  initRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
   confirm: 'Inject Construct into repository?',
   dryRun: 'DRY RUN — nothing was written.',
   sampleOmitted: 'Sample sources omitted: the directory is not empty. Discovery maps what is already here.',
@@ -594,6 +596,7 @@ export const PLAIN_LORE: Lore = {
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   unknownFlag: (flags: string[]) => `Unknown ${flags.length === 1 ? 'flag' : 'flags'}: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not part of this command; nothing was written.`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `Refused: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written.`,
+  initRefusedAttached: 'Refused: this repository is attached (.construct/attach.json is here); run `construct detach` first.',
   confirm: 'Write these files?',
   dryRun: 'Dry run — nothing was written.',
   sampleOmitted: 'Sample sources omitted: the directory is not empty. Discovery maps what is already here.',
