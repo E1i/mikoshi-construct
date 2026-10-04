@@ -27,12 +27,25 @@ When git is usable, also inspect `git diff` (staged and unstaged) for:
   `@pytest.mark.xfail`, with or without parentheses after it, or a `pytest.skip(` or `pytest.xfail(`
   call.
 
+When the prompt names steps (the `harness.steps` of the args file), run them with one call of
+`node scripts/construct/check-baseline.mjs '<step>' '<step>' ...`, each step quoted exactly as given,
+in the directory the prompt names, and do not run the harness command's chain: the script runs every
+step whatever the one before it did and prints, as JSON, each step's `exitCode` and `failures`, the
+`set` and its `sha256`. Report what it printed and nothing else about the failures: copy its `steps`
+verbatim, never retell, shorten, sort or merge a failure in your own words, because the caller compares
+those identities item by item.
+
 Report the security leg separately from the rest when a failure comes from a security lint rule,
 a contract security test or the secret scan, so the reader sees the invariant, not just the tool.
 
 Return these fields; the runtime validates the shape against the schema it gives you.
 
 - `passed` — whether every harness command succeeded.
+- `steps`, `setSha256` and `baselineSha256` — only when the prompt names steps: `steps` is the script's
+  `steps` array verbatim (`step`, `exitCode`, `failures`, where `failures` is a list of strings or
+  `null`), `setSha256` is the script's `sha256` field (`null` when it printed `null`), and
+  `baselineSha256` is what `shasum -a 256` prints for the script's whole stdout, taken from the same
+  run. `passed` is then whether every step's `exitCode` is 0.
 - `failureExcerpt` — the failing command and its last relevant lines, empty when passed.
 - `securityFinding` — the invariant that failed, empty when none.
 - `diffStat` — the output of `git diff --stat`, or why git could not be used.
