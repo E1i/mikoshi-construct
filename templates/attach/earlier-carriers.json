@@ -463,5 +463,15 @@
     "target": ".claude/skills/intake/SKILL.md",
     "sha256": "7e7518aed467ee1d353a8833d965ee6d0b16319e86d6c99014f787b14bd0ff33",
     "date": "2026-10-04"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "3956e806fb2f03542f565fa5655a4097977b74cf5db239b4b76c0d5bb4d4832f",
+    "date": "2026-10-05"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "f835cd4971716b588ff5fad8c88ac97e67306cb36ee5072465a27d088f5dfa0e",
+    "date": "2026-10-05"
   }
 ]
