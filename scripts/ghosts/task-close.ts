@@ -1,5 +1,5 @@
+import type { Card } from '../../src/card/grammar.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
-import type { Card } from './card.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

@@ -24,6 +24,10 @@ const RE_KEYED_TEMPLATES = [
   'templates/ai/claude/_claude/agents/architect.md',
 ]
 
+const CARRIED_SKILLS = [
+  'templates/ai/claude/_claude/skills/intake/SKILL.md',
+]
+
 function read(file: string): string {
   return readFileSync(path.join(REPO_ROOT, file), 'utf8')
 }
@@ -40,6 +44,11 @@ describe('the carried commands read the attach record when there is no construct
       expect(read(file.replace('templates/ai/claude/_claude/', '.claude/')), file).toBe(read(file))
   })
 
+  it('keeps this repository\'s carried skills identical to the templates', () => {
+    for (const file of CARRIED_SKILLS)
+      expect(read(file.replace('templates/ai/claude/_claude/', '.claude/')), file).toBe(read(file))
+  })
+
   it('keeps this repository\'s scripts byte-identical to the template copies', () => {
     for (const file of SCRIPTS)
       expect(readFileSync(path.join(REPO_ROOT, file)).equals(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude', file))), file).toBe(true)
@@ -47,8 +56,8 @@ describe('the carried commands read the attach record when there is no construct
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names nine targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(9)
+  it('names ten targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(10)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })

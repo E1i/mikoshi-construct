@@ -13,6 +13,7 @@ import { DETACH_EXIT } from '../../src/commands/detach/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
 import { GRAPH_EXIT } from '../../src/commands/graph.js'
 import { INIT_EXIT } from '../../src/commands/init.js'
+import { INTAKE_EXIT } from '../../src/commands/intake/index.js'
 import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/index.js'
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
 import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
@@ -133,6 +134,7 @@ function exits(): Record<string, Record<string, number>> {
     'board': withFailed(BOARD_EXIT),
     'cost': withFailed(COST_EXIT),
     'graph': withFailed(GRAPH_EXIT),
+    'intake': withFailed(INTAKE_EXIT),
     'mutate apply': withFailed(MUTATE_APPLY_EXIT),
     'mutate judge': withFailed(MUTATE_JUDGE_EXIT),
   }

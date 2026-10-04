@@ -182,6 +182,28 @@
     "inspect": {
       "aliasOf": "soulkill"
     },
+    "intake": {
+      "flags": {
+        "draft": {
+          "type": "string"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "parking": {
+          "type": "string"
+        },
+        "plain": {
+          "type": "boolean"
+        },
+        "taken": {
+          "type": "string"
+        }
+      }
+    },
     "jack-in": {
       "aliasOf": "attach"
     },
@@ -324,6 +346,12 @@
       "dry-run": 0,
       "failed": 1,
       "refused": 1
+    },
+    "intake": {
+      "dryRun": 0,
+      "failed": 1,
+      "refused": 1,
+      "written": 0
     },
     "mutate apply": {
       "applied": 0,
@@ -928,6 +956,7 @@
         ".claude/commands/plan.md",
         ".claude/settings.local.json",
         ".claude/skills/implement/SKILL.md",
+        ".claude/skills/intake/SKILL.md",
         ".construct/attach.json",
         ".construct/commit-guard.mjs",
         ".construct/shell-parser.mjs",
@@ -948,6 +977,7 @@
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
         ".claude/skills/implement/SKILL.md",
+        ".claude/skills/intake/SKILL.md",
         ".editorconfig",
         ".github/workflows/api-contract.yml",
         ".github/workflows/ci.yml",
@@ -1021,6 +1051,7 @@
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
         ".claude/skills/implement/SKILL.md",
+        ".claude/skills/intake/SKILL.md",
         ".editorconfig",
         ".github/workflows/api-contract.yml",
         ".github/workflows/ci.yml",
@@ -1089,6 +1120,7 @@
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
         ".claude/skills/implement/SKILL.md",
+        ".claude/skills/intake/SKILL.md",
         ".editorconfig",
         ".github/workflows/ci.yml",
         ".github/workflows/security.yml",
@@ -1143,6 +1175,7 @@
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
         ".claude/skills/implement/SKILL.md",
+        ".claude/skills/intake/SKILL.md",
         ".editorconfig",
         ".github/workflows/ci.yml",
         ".github/workflows/security.yml",

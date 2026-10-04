@@ -1,7 +1,9 @@
-import type { Card } from '../ghosts/card.js'
-import type { ContinueMode } from './continuation.js'
-import { parseCard } from '../ghosts/card.js'
-import { CONTINUE_MODES } from './continuation.js'
+import type { Card } from './grammar.js'
+import { parseCard } from './grammar.js'
+
+export const CONTINUE_MODES = ['auto', 'stop'] as const
+
+export type ContinueMode = typeof CONTINUE_MODES[number]
 
 export interface ShiftTask {
   file: string

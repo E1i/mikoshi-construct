@@ -1,6 +1,6 @@
-import type { ShiftTask } from '../../shift/task-file.js'
+import type { ShiftTask } from '../../../src/card/task-file.js'
 import { describe, expect, it } from 'vitest'
-import { parseCard } from '../../ghosts/card.js'
+import { parseCard } from '../../../src/card/grammar.js'
 import { openPrWarnings, relation, taskConflicts } from '../../shift/overlap.js'
 
 const CARD = parseCard('#1 overlap [implement/ghosts/S/cheap/auto] · depends — · blocks —')

@@ -40,7 +40,6 @@ below, which the window merges through auto-merge. A new file is merged only onc
 
 | plain | what it does |
 |---|---|
-| `scripts/ghosts/card.ts` | parses the card grammar |
 | `scripts/ghosts/cheap-expect.ts` | prints the cheap forecast |
 | `scripts/ghosts/entry.ts` | builds and reads the entry-card journal line |
 | `scripts/ghosts/every.ts` | parses the watch interval |
@@ -48,7 +47,6 @@ below, which the window merges through auto-merge. A new file is merged only onc
 | `scripts/ghosts/expect.ts` | parses and prints the expected cost |
 | `scripts/ghosts/ledger.ts` | reads and carries `runs.jsonl` lines; cleanup decides what is removed |
 | `scripts/ghosts/matrix.ts` | looks up a matrix row for printing |
-| `scripts/ghosts/milestones.ts` | the milestone names of the card grammar |
 | `scripts/ghosts/result.ts` | reads the fields of a report |
 | `scripts/ghosts/role-sample.ts` | reads role runs from `turns.jsonl` for the forecast |
 | `scripts/ghosts/status.ts` | formats the status rows |

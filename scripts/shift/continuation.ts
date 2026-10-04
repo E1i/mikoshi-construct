@@ -1,9 +1,9 @@
+import type { ContinueMode } from '../../src/card/task-file.js'
+
 export const MAX_RESTARTS = 3
 export const CONTINUE_PROMPT = 'Прочитай handoff задачи целиком и продолжай с места остановки'
-export const CONTINUE_MODES = ['auto', 'stop'] as const
 export const QUESTION_LINE = /^question:/m
 
-export type ContinueMode = typeof CONTINUE_MODES[number]
 export type ExitReason = 'closed' | 'eddies-stop' | 'guard-refusal' | 'owner-question' | 'eddies-warn' | 'ended'
 
 export interface SessionEvidence {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { cardHead, parseCard } from '../../ghosts/card.js'
-import { MILESTONES } from '../../ghosts/milestones.js'
+import { cardHead, cardLine, parseCard } from '../../src/card/grammar.js'
+import { MILESTONES } from '../../src/card/milestones.js'
 
 const VALID = '#123 task-card [implement/ghosts/M/cheap/owner] · depends #86, #90 · blocks #124 the board card'
 
@@ -49,5 +49,21 @@ describe('cardHead', () => {
   it('prints #<id> <name> [<kind>/…] without the lists', () => {
     const parsed = parseCard(VALID)
     expect(parsed.kind === 'card' && cardHead(parsed.card)).toBe('#123 task-card [implement/ghosts/M/cheap/owner]')
+  })
+})
+
+describe('cardLine', () => {
+  it('writes the line parseCard reads back to the same card', () => {
+    const parsed = parseCard(VALID.replace(' the board card', ''))
+    if (parsed.kind === 'refused')
+      throw new Error(parsed.reason)
+    const { line, ...fields } = parsed.card
+    expect(cardLine(fields)).toBe(line)
+  })
+
+  it('writes an empty list as —', () => {
+    const line = cardLine({ id: 9, name: 'x', kind: 'probe', milestone: 'ghosts', size: 'XS', contour: 'cheap', decision: 'none', depends: [], blocks: [] })
+    expect(line).toBe('#9 x [probe/ghosts/XS/cheap/none] · depends — · blocks —')
+    expect(parseCard(line).kind).toBe('card')
   })
 })
