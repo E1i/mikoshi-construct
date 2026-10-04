@@ -37,6 +37,7 @@ below, which the window merges through auto-merge. A new file is merged only onc
 |---|---|
 | `scripts/ghosts/card.ts` | parses the card grammar |
 | `scripts/ghosts/cheap-expect.ts` | prints the cheap forecast |
+| `scripts/ghosts/entry.ts` | builds and reads the entry-card journal line |
 | `scripts/ghosts/every.ts` | parses the watch interval |
 | `scripts/ghosts/expect-sample.ts` | reads the forecast sample |
 | `scripts/ghosts/expect.ts` | parses and prints the expected cost |
