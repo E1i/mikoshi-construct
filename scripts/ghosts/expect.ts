@@ -11,7 +11,7 @@ type Effort = 'low' | 'medium' | 'high'
 const EXPECT_LINE_INDEX = 2
 const EXPECT_PREFIX = 'expect: '
 const LOOKS_LIKE_EXPECT = /^\s*expect:/i
-const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median$/
+const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median(?:; .+)?$/
 const NONE_AND_REASON = /^none — (\S.*)$/
 const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m
 const TOKEN_SCALE: Record<string, number> = { '': 1, 'k': 1_000, 'M': 1_000_000 }

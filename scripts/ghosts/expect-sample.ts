@@ -27,6 +27,18 @@ export type StepExpect
   = | { kind: 'forecast', step: Step, effort: string, tokens: number, minutes: number, n: number }
     | { kind: 'none', step: Step, effort: string, n: number }
 
+export interface SampleSource {
+  source: string
+  lines: string[] | null
+}
+
+export interface LadderSampleInput {
+  ledgers: SampleSource[]
+  effort?: string
+  taskClass?: { name: string, journal: SampleSource }
+  runSteps?: Map<string, RunStep[]>
+}
+
 interface JournalTask {
   run: string
   class: string | null
@@ -36,9 +48,9 @@ const COUNTED_STATUS = 'done'
 const DASH = '—'
 const APPROX = '≈'
 
-function textLines(file: string): string[] {
+function textLines(file: string): string[] | null {
   if (!existsSync(file))
-    return []
+    return null
   return readFileSync(file, 'utf8').split('\n').filter(line => line.trim() !== '')
 }
 
@@ -61,24 +73,31 @@ export function readJournalTasks(lines: string[], warnings: string[]): JournalTa
   return tasks
 }
 
-export function readLedgerEntries(lines: string[], source: string, warnings: string[]): LedgerEntry[] {
+export function readLedgerEntries(ledger: SampleSource, notes: string[]): LedgerEntry[] {
+  if (ledger.lines === null)
+    return []
   const entries: LedgerEntry[] = []
-  lines.forEach((text, index) => {
+  const rejected = new Map<string, number>()
+  for (const text of ledger.lines) {
     const entry = parseLedgerLine(text)
     if (typeof entry === 'string')
-      warnings.push(`${source} line ${index + 1} is malformed (${entry}); skipped`)
+      rejected.set(entry, (rejected.get(entry) ?? 0) + 1)
     else
       entries.push(entry)
-  })
+  }
+  if (rejected.size > 0) {
+    const count = [...rejected.values()].reduce((sum, value) => sum + value, 0)
+    const reasons = [...rejected].map(([reason, times]) => `${times} ${reason}`).join(', ')
+    notes.push(`${count} row${count === 1 ? '' : 's'} the ledger parser rejects not counted in ${ledger.source} (${reasons})`)
+  }
   return entries
 }
 
-export function joinByClass(tasks: JournalTask[], entries: LedgerEntry[], taskClass: string, effort: string | undefined): SampleRow[] {
-  const runsOfClass = new Set(tasks.filter(task => task.class === taskClass).map(task => task.run))
+function countedRows(entries: LedgerEntry[], effort: string | undefined, runsOfClass: Set<string> | null): SampleRow[] {
   const seen = new Set<string>()
   const rows: SampleRow[] = []
   for (const entry of entries) {
-    if (entry.run === null || !runsOfClass.has(entry.run) || seen.has(entry.run))
+    if (entry.run === null || seen.has(entry.run) || (runsOfClass !== null && !runsOfClass.has(entry.run)))
       continue
     if (entry.status !== COUNTED_STATUS || entry.tokens === 'unknown')
       continue
@@ -88,6 +107,32 @@ export function joinByClass(tasks: JournalTask[], entries: LedgerEntry[], taskCl
     rows.push({ run: entry.run, effort: entry.effort, tokens: entry.tokens, minutes: entry.seconds / 60 })
   }
   return rows
+}
+
+function runsOfClass(taskClass: LadderSampleInput['taskClass'], notes: string[], warnings: string[]): { runs: Set<string> | null, missing: string | null } {
+  if (taskClass === undefined)
+    return { runs: null, missing: null }
+  const { name, journal } = taskClass
+  if (journal.lines === null)
+    return { runs: new Set(), missing: `task lines not recorded in ${journal.source}` }
+  const tasks = readJournalTasks(journal.lines, warnings)
+  const unclassed = tasks.filter(task => task.class === null).length
+  const classNote = unclassed === 0 ? null : `class not recorded on ${unclassed} line${unclassed === 1 ? '' : 's'} in ${journal.source}`
+  const runs = new Set(tasks.filter(task => task.class === name).map(task => task.run))
+  if (runs.size === 0)
+    return { runs, missing: classNote ?? `class ${name} not recorded in ${journal.source}` }
+  if (classNote !== null)
+    notes.push(classNote)
+  return { runs, missing: null }
+}
+
+function selection(taskClass: string | undefined, effort: string | undefined): string {
+  const parts = [...(taskClass === undefined ? [] : [`class ${taskClass}`]), ...(effort === undefined ? [] : [`effort ${effort}`])]
+  return parts.length === 0 ? 'every effort' : parts.join(', ')
+}
+
+function sources(input: LadderSampleInput): string[] {
+  return [`ledger ${input.ledgers.map(ledger => ledger.source).join(', ')}`, ...(input.taskClass === undefined ? [] : [`journal ${input.taskClass.journal.source}`])]
 }
 
 function oneDecimal(value: number): string {
@@ -102,14 +147,16 @@ export function formatTokens(tokens: number): string {
   return String(Math.round(tokens))
 }
 
-export function expectLine(rows: SampleRow[], taskClass: string, effort: string | undefined): string {
-  const efforts = [...new Set(rows.map(row => row.effort))]
+function headOf(rows: SampleRow[], label: string, effort: string | undefined, missing: string | null): string {
+  if (missing !== null && rows.length === 0)
+    return `none ${DASH} ${missing}`
   if (rows.length < MINIMUM_SAMPLE)
-    return `expect: none ${DASH} n=${rows.length} for ${taskClass}`
+    return `none ${DASH} n=${rows.length} for ${label}`
+  const efforts = [...new Set(rows.map(row => row.effort))]
   const basis = effort ?? (efforts.length === 1 ? efforts[0] : undefined)
   if (basis === undefined)
-    return `expect: none ${DASH} the sample for ${taskClass} mixes efforts ${efforts.sort().join(', ')}; pass --effort`
-  return `expect: tokens ${APPROX} ${formatTokens(median(rows.map(row => row.tokens)))}, minutes ${APPROX} ${oneDecimal(median(rows.map(row => row.minutes)))} ${DASH} effort ${basis}, n=${rows.length}, median`
+    return `none ${DASH} the sample for ${label} mixes efforts ${efforts.sort().join(', ')}; pass --effort`
+  return `tokens ${APPROX} ${formatTokens(median(rows.map(row => row.tokens)))}, minutes ${APPROX} ${oneDecimal(median(rows.map(row => row.minutes)))} ${DASH} effort ${basis}, n=${rows.length}, median`
 }
 
 export function stepExpects(entries: LedgerEntry[], runSteps: Map<string, RunStep[]>, effort: string): StepExpect[] {
@@ -142,15 +189,25 @@ export function formatStepExpect(expected: StepExpect): string {
   return `${expected.step} tokens ${APPROX} ${formatTokens(expected.tokens)}, minutes ${APPROX} ${expected.minutes} ${DASH} n=${expected.n}`
 }
 
-export function expectSample(journalLines: string[], ledgers: { source: string, lines: string[] }[], taskClass: string, effort: string | undefined, warnings: string[], runSteps: Map<string, RunStep[]> = new Map()): ExpectSample {
-  const tasks = readJournalTasks(journalLines, warnings)
-  const entries = ledgers.flatMap(ledger => readLedgerEntries(ledger.lines, ledger.source, warnings))
-  const rows = joinByClass(tasks, entries, taskClass, effort)
-  return { line: expectLine(rows, taskClass, effort), rows, steps: effort === undefined ? [] : stepExpects(entries, runSteps, effort) }
+function missingReason(input: LadderSampleInput, entries: LedgerEntry[], classMissing: string | null): string | null {
+  if (classMissing !== null)
+    return classMissing
+  const unrecorded = input.ledgers.filter(ledger => ledger.lines === null || ledger.lines.length === 0).map(ledger => ledger.source)
+  return entries.length === 0 && unrecorded.length > 0 ? `runs not recorded in ${unrecorded.join(', ')}` : null
 }
 
-function ledgerRuns(ledgers: { lines: string[] }[]): string[] {
-  return ledgers.flatMap(ledger => ledger.lines.map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
+export function ladderSample(input: LadderSampleInput, warnings: string[]): ExpectSample {
+  const notes: string[] = []
+  const entries = input.ledgers.flatMap(ledger => readLedgerEntries(ledger, notes))
+  const { runs, missing } = runsOfClass(input.taskClass, notes, warnings)
+  const rows = countedRows(entries, input.effort, runs)
+  const head = headOf(rows, selection(input.taskClass?.name, input.effort), input.effort, missingReason(input, entries, missing))
+  const line = [`expect: ${head}`, ...sources(input), ...notes].join('; ')
+  return { line, rows, steps: input.effort === undefined ? [] : stepExpects(entries, input.runSteps ?? new Map(), input.effort) }
+}
+
+function ledgerRuns(ledgers: SampleSource[]): string[] {
+  return ledgers.flatMap(ledger => (ledger.lines ?? []).map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
 }
 
 function unreadWarnings(unread: UnreadAgent[]): string[] {
@@ -172,7 +229,7 @@ export function launchStepExpects(repo: string, effort: string | null): StepExpe
   if (effort === null)
     return []
   const ledger = { source: path.join(repo, LEDGER_FILE), lines: textLines(path.join(repo, LEDGER_FILE)) }
-  const entries = readLedgerEntries(ledger.lines, ledger.source, [])
+  const entries = readLedgerEntries(ledger, [])
   return stepExpects(entries, stepsOfRepository(repo, ledgerRuns([ledger]), []), effort)
 }
 
@@ -186,19 +243,19 @@ function main(): void {
     allowPositionals: true,
     options: { effort: { type: 'string' }, journal: { type: 'string' }, runs: { type: 'string', multiple: true } },
   })
-  const taskClass = positionals[0]
-  if (taskClass === undefined) {
-    console.error('usage: expect-sample.ts <class> [--effort <low|medium|high>] [--journal <ghosts.jsonl>] [--runs <runs.jsonl>]...')
+  if (positionals.length > 1) {
+    console.error('usage: expect-sample.ts [<class>] [--effort <low|medium|high>] [--journal <ghosts.jsonl>] [--runs <runs.jsonl>]...')
     process.exitCode = 1
     return
   }
   const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   const journal = values.journal ?? path.join(handoffDir, 'ghosts.jsonl')
-  const runs = values.runs ?? [path.join(process.cwd(), LEDGER_FILE)]
+  const runs = values.runs ?? [LEDGER_FILE]
   const warnings: string[] = []
-  const ledgers = runs.map(source => ({ source, lines: textLines(source) }))
+  const ledgers = runs.map(source => path.resolve(source)).map(source => ({ source, lines: textLines(source) }))
+  const taskClass = positionals[0] === undefined ? undefined : { name: positionals[0], journal: { source: journal, lines: textLines(journal) } }
   const runSteps = values.effort === undefined ? new Map<string, RunStep[]>() : stepsOfRepository(process.cwd(), ledgerRuns(ledgers), warnings)
-  const sample = expectSample(textLines(journal), ledgers, taskClass, values.effort, warnings, runSteps)
+  const sample = ladderSample({ ledgers, effort: values.effort, taskClass, runSteps }, warnings)
   for (const warning of warnings)
     console.error(warning)
   for (const line of renderSample(sample))

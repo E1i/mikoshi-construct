@@ -22,10 +22,10 @@ them, and `Secret scan` in `.github/workflows/security.yml`. No one command runs
 files when you run it.
 
 Line 3 of the `/implement` text, right after `Sketch:`, may carry the forecast the journal later sets beside the run:
-`expect: tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median`. Read it from
-`.construct/runs.jsonl`: the rows with `status: done` and the brief's own effort, the median of
-their `tokens` and of their `seconds`/60, and `n` the number of those rows. Below five rows, write
-`expect: none — <reason>` instead; the launcher refuses a forecast from fewer, and an `expect:` line anywhere but line
+`expect: tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median`, followed by its sources
+and the rows it left out. Run `pnpm ghosts:expect-sample --effort <the brief's effort>` in the main tree and paste its
+first line verbatim; never count the rows yourself. Below five rows it prints `expect: none — <reason>` itself; the
+launcher refuses a forecast from fewer, and an `expect:` line anywhere but line
 3.
 
 Cheap is the default for D-small, I-instr, C-ci, P-cli-small and W-world — documentation XS/S, instructions under
