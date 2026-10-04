@@ -2,7 +2,8 @@
 
 `construct.model.json` is what this tool holds to be true about a repository, and on what grounds.
 It carries facts, claims made by the construct, hypotheses written by discovery, and the way each
-one is enforced and verified.
+one is enforced and verified. At `modelVersion` 4 it also carries stages, nodes and links, which
+[engram.md](engram.md) describes.
 
 It is a separate authority from `construct.json`, not a second view of it:
 [decision 0016](decisions/0016-the-model-is-the-source.md) draws the line — `construct.json` is the

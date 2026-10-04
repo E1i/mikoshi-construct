@@ -30,6 +30,9 @@ const TWO_EDGES_TO_ONE_FACT: RepositoryModel = {
     },
   ],
   hypotheses: [],
+  stages: [],
+  nodes: [],
+  links: [],
 }
 
 interface LabelPosition {
@@ -116,6 +119,9 @@ describe('elided labels stay distinguishable \u2014 a property nothing in this r
       ],
       claims: [],
       hypotheses: [],
+      stages: [],
+      nodes: [],
+      links: [],
     }
     const lines = visibleFirstLines(differingOnlyInTheMiddle, treeWithThePathTheFactsName())
 
@@ -133,6 +139,9 @@ describe('elided labels stay distinguishable \u2014 a property nothing in this r
       ],
       claims: [],
       hypotheses: [],
+      stages: [],
+      nodes: [],
+      links: [],
     }
 
     expect(repeated(visibleFirstLines(sameLongPath, treeWithThePathTheFactsName()))).toEqual([])

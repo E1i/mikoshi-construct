@@ -1,0 +1,24 @@
+{
+  "modelVersion": 4,
+  "facts": [
+    { "id": "api-module", "kind": "file-exists", "path": "src/orders/api.py", "authoredBy": "discovery" },
+    { "id": "api-saves-through-the-store", "kind": "file-contains", "path": "src/orders/api.py", "authoredBy": "discovery", "needle": "store.save" },
+    { "id": "store-module", "kind": "file-exists", "path": "src/orders/store.py", "authoredBy": "discovery" },
+    { "id": "orders-test", "kind": "file-exists", "path": "tests/test_orders.py", "authoredBy": "discovery" }
+  ],
+  "claims": [],
+  "hypotheses": [],
+  "stages": [
+    { "id": "accept", "label": "Accept an order" },
+    { "id": "keep", "label": "Keep an order" }
+  ],
+  "nodes": [
+    { "id": "place-order", "label": "Place an order", "stage": "accept", "source": { "path": "src/orders/api.py" }, "supportedBy": ["api-module", "api-saves-through-the-store"] },
+    { "id": "order-store", "label": "Store an order", "stage": "keep", "source": { "fact": "store-module" }, "supportedBy": ["store-module"] },
+    { "id": "order-test", "label": "Check an order is stored", "stage": "keep", "source": { "path": "tests/test_orders.py" }, "supportedBy": ["orders-test"] }
+  ],
+  "links": [
+    { "from": "place-order", "to": "order-store" },
+    { "from": "order-test", "to": "place-order" }
+  ]
+}

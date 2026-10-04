@@ -1,7 +1,7 @@
 import { RecordAheadOfReader } from '../record-ahead.js'
 
 export const MODEL_FILE = 'construct.model.json'
-export const MODEL_VERSION = 3
+export const MODEL_VERSION = 4
 const OLDEST_READABLE_MODEL_VERSION = 1
 
 export const FACT_KINDS = ['file-exists', 'file-contains', 'file-lacks', 'report-covers', 'report-misses'] as const
@@ -58,11 +58,34 @@ export interface Hypothesis {
   supportedBy: string[]
 }
 
+export interface Stage {
+  id: string
+  label: string
+}
+
+export type NodeSource = { path: string } | { fact: string }
+
+export interface AbilityNode {
+  id: string
+  label: string
+  stage: string
+  source: NodeSource
+  supportedBy: string[]
+}
+
+export interface Link {
+  from: string
+  to: string
+}
+
 export interface RepositoryModel {
   modelVersion: number
   facts: Fact[]
   claims: Claim[]
   hypotheses: Hypothesis[]
+  stages: Stage[]
+  nodes: AbilityNode[]
+  links: Link[]
 }
 
 const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle', 'surface', 'format']
@@ -70,14 +93,19 @@ const ENFORCEMENT_PROPERTIES = ['mechanism', 'level', 'supportedBy']
 const VERIFICATION_PROPERTIES = ['mechanism', 'supportedBy']
 const CLAIM_PROPERTIES = ['id', 'statement', 'authoredBy', 'enforcement', 'verification', 'checkId']
 export const HYPOTHESIS_PROPERTIES = ['id', 'statement', 'authoredBy', 'baseSha', 'evidenceClean', 'supportedBy']
-const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses']
+export const STAGE_PROPERTIES = ['id', 'label']
+export const NODE_PROPERTIES = ['id', 'label', 'stage', 'source', 'supportedBy']
+export const NODE_SOURCE_PROPERTIES = ['path', 'fact']
+export const LINK_PROPERTIES = ['from', 'to']
+const OPTIONAL_LISTS = ['stages', 'nodes', 'links']
+const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links']
 
 export class DanglingFactReference extends Error {
   readonly factId: string
   readonly entry: string
 
-  constructor(name: string, entry: string, factId: string) {
-    super(`${name}: ${entry} supportedBy refers to unknown fact "${factId}"`)
+  constructor(name: string, entry: string, property: string, factId: string) {
+    super(`${name}: ${entry} ${property} refers to unknown fact "${factId}"`)
     this.name = 'DanglingFactReference'
     this.factId = factId
     this.entry = entry
@@ -136,7 +164,7 @@ function member<T extends string>(name: string, value: string, values: readonly 
 }
 
 function list(name: string, record: Record<string, unknown>, key: string): Record<string, unknown>[] {
-  const value = record[key]
+  const value = OPTIONAL_LISTS.includes(key) && !(key in record) ? [] : record[key]
   if (!Array.isArray(value) || !value.every(isRecord))
     fail(name, `"${key}" must be a list of objects`)
   return value
@@ -165,9 +193,35 @@ function supportedBy(name: string, record: Record<string, unknown>, where: strin
   const ids = value as string[]
   for (const id of ids) {
     if (!facts.has(id))
-      throw new DanglingFactReference(name, where, id)
+      throw new DanglingFactReference(name, where, 'supportedBy', id)
   }
   return ids
+}
+
+function declared(name: string, value: string, ids: Set<string>, key: string, noun: string, where: string): string {
+  if (!ids.has(value))
+    fail(name, `${where} ${key} "${value}" names no ${noun} this document declares`)
+  return value
+}
+
+function parseSource(name: string, entry: Record<string, unknown>, where: string, facts: Set<string>): NodeSource {
+  const sourceWhere = `${where}.source`
+  const raw = entry.source
+  const choices = NODE_SOURCE_PROPERTIES.join(', ')
+  if (!isRecord(raw))
+    fail(name, `${where} needs a "source" object carrying exactly one of ${choices}`)
+  closed(name, raw, NODE_SOURCE_PROPERTIES, sourceWhere)
+  const present = NODE_SOURCE_PROPERTIES.filter(key => raw[key] !== undefined)
+  if (present.length === 0)
+    fail(name, `${sourceWhere} carries none of ${choices}: it needs exactly one`)
+  if (present.length > 1)
+    fail(name, `${sourceWhere} carries ${present.join(' and ')}: it needs exactly one of ${choices}`)
+  if (present[0] === 'path')
+    return { path: text(name, raw, 'path', sourceWhere) }
+  const fact = text(name, raw, 'fact', sourceWhere)
+  if (!facts.has(fact))
+    throw new DanglingFactReference(name, sourceWhere, 'fact', fact)
+  return { fact }
 }
 
 function globs(name: string, record: Record<string, unknown>, where: string): string[] {
@@ -265,6 +319,39 @@ function parseHypotheses(name: string, raw: Record<string, unknown>, facts: Set<
   })
 }
 
+function parseStages(name: string, raw: Record<string, unknown>): Stage[] {
+  return list(name, raw, 'stages').map((entry, index) => {
+    const where = `stages[${index}]`
+    closed(name, entry, STAGE_PROPERTIES, where)
+    return { id: text(name, entry, 'id', where), label: text(name, entry, 'label', where) }
+  })
+}
+
+function parseNodes(name: string, raw: Record<string, unknown>, facts: Set<string>, stages: Set<string>): AbilityNode[] {
+  return list(name, raw, 'nodes').map((entry, index) => {
+    const where = `nodes[${index}]`
+    closed(name, entry, NODE_PROPERTIES, where)
+    return {
+      id: text(name, entry, 'id', where),
+      label: text(name, entry, 'label', where),
+      stage: declared(name, text(name, entry, 'stage', where), stages, 'stage', 'stage', where),
+      source: parseSource(name, entry, where, facts),
+      supportedBy: supportedBy(name, entry, where, facts),
+    }
+  })
+}
+
+function parseLinks(name: string, raw: Record<string, unknown>, nodes: Set<string>): Link[] {
+  return list(name, raw, 'links').map((entry, index) => {
+    const where = `links[${index}]`
+    closed(name, entry, LINK_PROPERTIES, where)
+    return {
+      from: declared(name, text(name, entry, 'from', where), nodes, 'from', 'node', where),
+      to: declared(name, text(name, entry, 'to', where), nodes, 'to', 'node', where),
+    }
+  })
+}
+
 export function parseModel(source: string, name: string): RepositoryModel {
   let raw: unknown
   try {
@@ -287,6 +374,11 @@ export function parseModel(source: string, name: string): RepositoryModel {
   uniqueIds(name, claims.map(claim => claim.id), 'claim')
   const hypotheses = parseHypotheses(name, raw, factIds)
   uniqueIds(name, hypotheses.map(hypothesis => hypothesis.id), 'hypothesis')
+  const stages = parseStages(name, raw)
+  const stageIds = uniqueIds(name, stages.map(stage => stage.id), 'stage')
+  const nodes = parseNodes(name, raw, factIds, stageIds)
+  const nodeIds = uniqueIds(name, nodes.map(node => node.id), 'node')
+  const links = parseLinks(name, raw, nodeIds)
 
-  return { modelVersion: MODEL_VERSION, facts, claims, hypotheses }
+  return { modelVersion: MODEL_VERSION, facts, claims, hypotheses, stages, nodes, links }
 }

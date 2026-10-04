@@ -358,7 +358,7 @@
   },
   "formats": {
     "manifestVersion": 6,
-    "modelVersion": 3,
+    "modelVersion": 4,
     "recordVersion": 2
   },
   "jsonKeys": {

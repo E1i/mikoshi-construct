@@ -253,6 +253,9 @@ describe('file-lacks never turns a file it could not read into an observation', 
       facts: [fact],
       claims: [],
       hypotheses: [{ id: 'h', statement: 'the file does not run the harness', authoredBy: 'discovery', baseSha: null, evidenceClean: true, supportedBy: ['lacks'] }],
+      stages: [],
+      nodes: [],
+      links: [],
     }
     return deriveModelState(model, root).hypotheses.h?.state
   }

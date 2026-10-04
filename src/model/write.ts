@@ -1,6 +1,6 @@
 import type { TemplateVars } from '../presets/index.js'
 import type { AuthoredEntry } from './ownership.js'
-import type { Claim, Fact, Hypothesis, RepositoryModel } from './schema.js'
+import type { AbilityNode, Claim, Fact, Hypothesis, RepositoryModel } from './schema.js'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { authoredByOwner } from './ownership.js'
@@ -185,6 +185,9 @@ export function buildModel(input: ModelInput): RepositoryModel {
     facts: [...baselineFacts(harnessCommand), ...input.contracts ? contractFacts(contractPath) : [], ...lintPolicy ? sampleFacts() : []],
     claims: [...baselineClaims(harnessCommand, input.contracts), ...input.contracts ? contractClaims(contractPath) : [], ...lintPolicy ? sampleClaims(harnessCommand) : []],
     hypotheses: [],
+    stages: [],
+    nodes: [],
+    links: [],
   }
 }
 
@@ -216,7 +219,7 @@ function mergeEntries<T extends AuthoredEntry>(existing: T[], fresh: T[], keepDr
   return [...survivors, ...fresh.filter(entry => !present.has(entry.id))]
 }
 
-export function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Map<string, string[]> {
+export function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[], nodes: AbilityNode[]): Map<string, string[]> {
   const stoodOn = new Map<string, string[]>()
   const record = (factId: string, entryId: string): void => {
     stoodOn.set(factId, [...stoodOn.get(factId) ?? [], entryId])
@@ -228,6 +231,10 @@ export function factsStoodOn(claims: Claim[], hypotheses: Hypothesis[]): Map<str
   for (const hypothesis of hypotheses) {
     for (const factId of hypothesis.supportedBy)
       record(factId, hypothesis.id)
+  }
+  for (const node of nodes) {
+    for (const factId of [...node.supportedBy, ...'fact' in node.source ? [node.source.fact] : []])
+      record(factId, node.id)
   }
   return stoodOn
 }
@@ -247,7 +254,7 @@ export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryMo
     return { model: fresh, retained: [] }
   const claims = mergeEntries(existing.claims, fresh.claims, () => false)
   const hypotheses = mergeEntries(existing.hypotheses, fresh.hypotheses, () => false)
-  const stoodOn = factsStoodOn(claims, hypotheses)
+  const stoodOn = factsStoodOn(claims, hypotheses, existing.nodes)
   const rebuilt = new Set(fresh.facts.map(fact => fact.id))
   const retained = existing.facts
     .filter(fact => authoredByOwner(fact) === 'construct' && !rebuilt.has(fact.id) && stoodOn.has(fact.id))
@@ -258,6 +265,9 @@ export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryMo
       facts: mergeEntries(existing.facts, fresh.facts, fact => stoodOn.has(fact.id)),
       claims,
       hypotheses,
+      stages: existing.stages,
+      nodes: existing.nodes,
+      links: existing.links,
     },
     retained,
   }

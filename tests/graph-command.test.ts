@@ -39,9 +39,12 @@ const MODEL: RepositoryModel = {
       supportedBy: ['absent-file'],
     },
   ],
+  stages: [],
+  nodes: [],
+  links: [],
 }
 
-const EMPTY: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [] }
+const EMPTY: RepositoryModel = { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [], stages: [], nodes: [], links: [] }
 
 const EVERY_STATE_HELD: StateSource = model => ({
   facts: Object.fromEntries(model.facts.map(fact => [fact.id, 'holds'])),

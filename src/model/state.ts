@@ -37,6 +37,10 @@ export interface ModelStateReport {
   claims: Record<string, ClaimStages>
 }
 
+export interface EngramStateReport extends ModelStateReport {
+  nodes: Record<string, StageFinding>
+}
+
 const NEGATED: Record<FactEvaluation, FactEvaluation> = {
   'holds': 'does-not-hold',
   'does-not-hold': 'holds',
@@ -99,7 +103,7 @@ export function factOutcomes(facts: readonly Fact[], supportedBy: readonly strin
   })
 }
 
-export function deriveModelState(model: RepositoryModel, root: string, evidence: ModelEvidence = WITHHELD_EVIDENCE): ModelStateReport {
+export function deriveModelState(model: RepositoryModel, root: string, evidence: ModelEvidence = WITHHELD_EVIDENCE): EngramStateReport {
   const facts = evaluateFacts(model, root, evidence)
   return {
     facts,
@@ -108,5 +112,6 @@ export function deriveModelState(model: RepositoryModel, root: string, evidence:
       enforcement: resolveFinding(model.facts, claim.enforcement?.supportedBy ?? [], facts),
       verification: resolveFinding(model.facts, claim.verification?.supportedBy ?? [], facts),
     }])),
+    nodes: Object.fromEntries(model.nodes.map(node => [node.id, resolveFinding(model.facts, node.supportedBy, facts)])),
   }
 }
