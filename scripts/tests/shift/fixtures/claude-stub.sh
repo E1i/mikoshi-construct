@@ -28,5 +28,6 @@ case "$prompt" in *STUB-REFUSED*) printf '{"v":1,"event":"unread","hook":"eddies
 case "$prompt" in *STUB-CLOSE*) printf '{"event":"path","task":"%s","path":"cheap","pr":1,"verification":"run","ts":"x"}\n' "${task#mc-}" >> "$CONSTRUCT_HANDOFF_DIR/ghosts.jsonl" ;; esac
 case "$prompt" in *STUB-FAIL*) exit 1 ;; *STUB-SILENT*) exit 0 ;; esac
 report=$(printf '%s\n' "$prompt" | sed -n 's/.*write the shift report to `\([^`]*\)`.*/\1/p' | head -n 1)
-printf 'result: did %s\nPR #1\n' "$task" > "$report"
+case "$prompt" in *STUB-NO-PR*) pr='no PR' ;; *) pr='PR #1' ;; esac
+printf 'result: did %s\n%s\n' "$task" "$pr" > "$report"
 case "$prompt" in *STUB-QUESTION*) printf 'question: which way, owner?\n' >> "$report" ;; esac

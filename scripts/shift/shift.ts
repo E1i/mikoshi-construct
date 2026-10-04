@@ -3,6 +3,7 @@ import type { GhRunner } from '../board/gh.js'
 import type { TaskStartDeps } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
+import type { MergeResult } from './merge.js'
 import type { OpenPr } from './overlap.js'
 import type { Choice } from './parking.js'
 import type { TaskLine } from './places.js'
@@ -23,6 +24,7 @@ import { cheapExpect } from '../ghosts/cheap-expect.js'
 import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
+import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
 import { choose, parseParkingFile, SHIFT_WHO } from './parking.js'
 import { closedTasks, eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
@@ -30,6 +32,7 @@ import { continuationBody, renderPrompt } from './prompt.js'
 import { parseTaskFile, TASK_FILE } from './task-file.js'
 
 export const PREFIX = '[shift] '
+const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
 export const USAGE = [
   'usage: pnpm shift <dir> [--parking <parking>] [--check]',
   '',
@@ -137,7 +140,39 @@ function sessionEvidence(deps: ShiftDeps, dir: string, task: ShiftTask, worktree
   }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string): Promise<TaskLine> {
+type ShiftTaskLine = TaskLine & { merge?: string[] }
+
+function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
+  let result: MergeResult
+  try {
+    result = runMerge([number], {
+      gh: deps.gh,
+      ownerMergesText: () => {
+        deps.git(deps.cwd, ['fetch', 'origin', 'main'])
+        return deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN])
+      },
+    })
+  }
+  catch (error) {
+    return [`${MERGE_PREFIX}PR #${number} not merged: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]!}`]
+  }
+  return [...result.stdout, ...result.stderr]
+}
+
+function mergeFromReport(deps: ShiftDeps, task: ShiftTask, report: string): string[] | undefined {
+  if (task.card.kind === 'probe')
+    return undefined
+  const pr = REPORT_PR_LINE.exec(deps.read(report))
+  if (pr === null)
+    return undefined
+  const lines = mergeAfterSession(deps, pr[1]!)
+  deps.append(report, `\n${lines.join('\n')}\n`)
+  for (const line of lines)
+    deps.out(line)
+  return lines
+}
+
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string): Promise<ShiftTaskLine> {
   const session = deps.uuid()
   const started = deps.now().toISOString()
   const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
@@ -163,7 +198,9 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }
-  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report: deps.exists(places.report), continuations, lastExit }
+  const report = deps.exists(places.report)
+  const merge = report ? mergeFromReport(deps, task, places.report) : undefined
+  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge }) }
 }
 
 function startBlock(task: ShiftTask, expected: string, style: SignalStyle): string[] {

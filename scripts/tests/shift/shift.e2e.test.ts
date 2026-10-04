@@ -549,3 +549,86 @@ describe('w10: shift:report shows the restarts and why the last session left', (
     ])
   })
 })
+
+describe('w11: the runner runs shift:merge after the session exits, by the PR #N line of its report', () => {
+  const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
+
+  function ownerMergesOnMain(world: World): void {
+    mkdirSync(path.join(world.repo, 'architecture'))
+    writeFileSync(path.join(world.repo, 'architecture', 'owner-merges.md'), OWNER_MERGES)
+    git(world.repo, ['add', '.'])
+    git(world.repo, ['commit', '-q', '-m', 'owner merges'])
+    git(world.repo, ['push', '-q', 'origin', 'main'])
+  }
+
+  function decisionTask(world: World, file: string, id: string, decision: 'auto' | 'owner', body: string): void {
+    writeFileSync(path.join(world.shift, file), `card: #${id} task-${id} [implement/runner/S/cheap/${decision}] · depends — · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n\n${body}\n`)
+  }
+
+  interface GhCall { args: string[], stubRuns: number, report: boolean }
+
+  function recordingGh(world: World, id: string, calls: GhCall[], decision: 'auto' | 'owner'): (args: string[]) => string {
+    return (args) => {
+      calls.push({ args, stubRuns: stubRuns(world, id), report: existsSync(path.join(world.shift, `report-0${id}.md`)) })
+      if (args.includes('open'))
+        return '[]'
+      if (args[1] === 'view')
+        return JSON.stringify({ body: `#${id} task-${id} [implement/runner/S/cheap/${decision}] · depends — · blocks —\n\nbody`, headRefOid: 'a1b2c3d', files: [{ path: `scripts/${id}/x.ts` }] })
+      return ''
+    }
+  }
+
+  it('w11: a report with PR #N makes the runner call merge with N after the session exited', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'auto', 'do a')
+    const calls: GhCall[] = []
+    const io = captured()
+    expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: recordingGh(world, '1', calls, 'auto') })).toBe(0)
+    const view = calls.find(call => call.args[1] === 'view')
+    expect(view).toMatchObject({ args: ['pr', 'view', '1', '-R', 'E1i/mikoshi-construct', '--json', 'body,headRefOid,files'], stubRuns: 1, report: true })
+    expect(calls.find(call => call.args[1] === 'merge')?.args).toEqual(['pr', 'merge', '1', '--auto', '--squash', '--match-head-commit', 'a1b2c3d', '-R', 'E1i/mikoshi-construct'])
+    const armed = '[shift:merge] decision auto, no owner path — auto-merge armed on PR #1 at a1b2c3d'
+    expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toContain(armed)
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ merge: [armed] })
+  })
+
+  it('w11: a probe, and an implement report with no PR, call no merge and leave the report as the session wrote it', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'probe it', 'probe')
+    taskFile(world, '02.md', '2', 'scripts/b/**', 'STUB-NO-PR here')
+    const calls: GhCall[] = []
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), gh: recordingGh(world, '1', calls, 'auto') })).toBe(0)
+    expect(calls.filter(call => !call.args.includes('open'))).toEqual([])
+    expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toBe('result: did mc-1\nPR #1\n')
+    expect(readFileSync(path.join(world.shift, 'report-02.md'), 'utf8')).toBe('result: did mc-2\nno PR\n')
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).filter(line => line.event === 'task').map(line => line.merge)).toEqual([undefined, undefined])
+  })
+
+  it('w11: decision owner arms nothing, and the merge lines land in the report and the journal', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'owner', 'do a')
+    const calls: GhCall[] = []
+    const io = captured()
+    expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: recordingGh(world, '1', calls, 'owner') })).toBe(0)
+    expect(calls.some(call => call.args[1] === 'merge')).toBe(false)
+    const owner = '[shift:merge] decision owner — PR #1 and the report, merge is Eli\'s'
+    expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toBe(`result: did mc-1\nPR #1\n\n${owner}\n`)
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ merge: [owner] })
+    expect(io.out).toContain(owner)
+  })
+
+  it('w11: a merge that throws is recorded as a line and the shift goes on', async () => {
+    const world = newWorld()
+    decisionTask(world, '01.md', '1', 'auto', 'do a')
+    decisionTask(world, '02.md', '2', 'auto', 'do b')
+    const io = captured()
+    expect(await runShift([world.shift], shiftDeps(world, io))).toBe(0)
+    const merges = jsonl(path.join(world.shift, 'shift.jsonl')).filter(line => line.event === 'task').map(line => line.merge as string[])
+    expect(merges).toHaveLength(2)
+    for (const lines of merges)
+      expect(lines[0]).toMatch(/^\[shift:merge\] /)
+  })
+})
