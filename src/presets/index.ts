@@ -226,7 +226,7 @@ export const ATTACH_CARRIERS = {
   ],
 } as const
 
-export const ATTACH_GUARD = { group: 'attach', target: '.construct/commit-guard.mjs' } as const
+export const ATTACH_GUARD = { group: 'attach', target: '.construct/commit-guard.mjs', parser: '.construct/shell-parser.mjs' } as const
 
 export const SUCCESSORS: Readonly<Record<string, string>> = {
   'scripts/construct/implement.workflow.mjs': 'scripts/construct/implement.workflow',
