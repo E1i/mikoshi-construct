@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -47,11 +47,11 @@ approved_sketch_of_brief() {
 }
 
 rebased_kind() {
-  case $1 in sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded) return 0 ;; *) return 1 ;; esac
+  case $1 in sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale) return 0 ;; *) return 1 ;; esac
 }
 
 sketch_world_kind() {
-  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
+  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
 }
 
 approved_sha() {
@@ -92,7 +92,7 @@ sketch_line_for() {
   kind=$(cat "$W/.world/kind")
   if [ "$id" != g2 ]; then echo "$CLEAN_SKETCH_LINE"; return; fi
   case $kind in
-    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
+    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
     sketch-moved) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-parent")" ;;
     sketch-no-line) echo '' ;;
     *) echo "$CLEAN_SKETCH_LINE" ;;
@@ -344,11 +344,15 @@ EOF
 }
 
 commit_sketch_in_seed() {
-  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2} message=${4:-sketch g2}
+  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2} message=${4:-sketch g2} date=${5:-}
   git_quiet -C "$seed" checkout -q --detach "$parent"
   echo "$content" >"$seed/sketch.txt"
   git_quiet -C "$seed" add sketch.txt
-  git_quiet -C "$seed" commit -m "$message"
+  if [ -n "$date" ]; then
+    GIT_COMMITTER_DATE=$date GIT_AUTHOR_DATE=$date git_quiet -C "$seed" commit -m "$message"
+  else
+    git_quiet -C "$seed" commit -m "$message"
+  fi
   git -C "$seed" rev-parse HEAD >"$W/.world/sketch-tip"
   git -C "$seed" rev-parse "$parent" >"$W/.world/sketch-parent"
   git_quiet -C "$seed" checkout -q main
@@ -365,6 +369,7 @@ make_sketch() {
     case $kind in
       sketch-rebased-changed) commit_sketch_in_seed "$W" main 'sketch g2 edited' ;;
       sketch-rebased-reworded) commit_sketch_in_seed "$W" main 'sketch g2' 'sketch g2, reworded' ;;
+      sketch-rebased-stale) commit_sketch_in_seed "$W" 'main~1' 'sketch g2' 'sketch g2' 2026-01-01T00:00:00Z ;;
       *) commit_sketch_in_seed "$W" main ;;
     esac
   else
@@ -572,7 +577,7 @@ check_refused() {
     expect-misplaced)
       output_has "$W" "task g2: $W/handoff/brief-g2.md: an expect: line may stand only on line 3 of the /implement text, and line 4 is \"$EXPECT_MISPLACED_LINE\""
       ;;
-    sketch-stale)
+    sketch-stale | sketch-rebased-stale)
       output_has "$W" "task g2: sketch $(cut -c1-7 "$W/.world/sketch-tip") does not contain origin/main $(origin_sha "$W" | cut -c1-7); rebase sketch/g2 onto origin/main and re-approve the brief"
       ;;
     *) fail "check-refused does not apply to a '$kind' world" ;;
