@@ -2,15 +2,15 @@ import type { CostReport, CostSource } from './source.js'
 import type { StepCache } from './step-cache.js'
 import process from 'node:process'
 import { VERSION } from '../../version.js'
-import { defaultShiftRoot, readCheapClasses } from './cheap.js'
+import { defaultShiftRoot, defaultWindowJournal, readCheapClasses } from './cheap.js'
 import { ClaudeCodeCostSource, claudeProjectsDir } from './claude-code.js'
 import { hasLedgerFindings, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
 import { resolveRuntime } from './runtime.js'
 import { knownRunSteps, readStepCache, recordRunSteps } from './step-cache.js'
 import { readTurnJournal } from './turns.js'
 
-export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, readCheapClasses, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE } from './cheap.js'
-export type { CheapClassReading, CheapForecast, CheapReading, CheapRow, CheapTask } from './cheap.js'
+export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, defaultWindowJournal, readCheapClasses, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE, WINDOW_JOURNAL_FILE } from './cheap.js'
+export type { CheapClassReading, CheapForecast, CheapNote, CheapReading, CheapRow, CheapSample, CheapSession, CheapTask } from './cheap.js'
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey, readAgentRecord } from './claude-code.js'
 export type { AgentRecord } from './claude-code.js'
 export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
@@ -36,7 +36,7 @@ export function knownSteps(cwd: string, runs: string[], source: CostSource | nul
   return source != null && source.readable() ? knownRunSteps(cwd, runs, run => source.steps(run)) : readStepCache(cwd)
 }
 
-export function costReport(cwd: string, options: { projectsDir?: string, shiftRoot?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): CostReport {
+export function costReport(cwd: string, options: { projectsDir?: string, shiftRoot?: string, windowJournal?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): CostReport {
   const version = options.version ?? VERSION
   const runtime = resolveRuntime(cwd, options.env ?? process.env)
   const reading = readLedger(cwd)
@@ -44,7 +44,7 @@ export function costReport(cwd: string, options: { projectsDir?: string, shiftRo
   const reported = hasLedgerFindings(ledger)
   const turns = readTurnJournal(cwd)
   const projectsDir = options.projectsDir ?? claudeProjectsDir()
-  const cheap = readCheapClasses(options.shiftRoot ?? defaultShiftRoot(), projectsDir)
+  const cheap = readCheapClasses(options.shiftRoot ?? defaultShiftRoot(), options.windowJournal ?? defaultWindowJournal(), projectsDir)
   const source: CostSource | null = runtime === 'claude-code' ? new ClaudeCodeCostSource(projectsDir) : null
   if (source == null || !source.readable())
     return { status: 'unsupported', runtime, version, turns, cheap, ...(reported ? { ledger: withoutTokenTotals(ledger) } : {}) }

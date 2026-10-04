@@ -7,13 +7,15 @@ import { runTaskClose } from '../../ghosts/task-close.js'
 const HANDOFF = '/handoff'
 const JOURNAL = path.join(HANDOFF, 'ghosts.jsonl')
 const NOW = new Date('2026-10-03T09:00:00.000Z')
+const PROJECTS = '/projects'
+const WINDOW_SESSION = 'window-session'
 
-function startLine(id: string, kind: 'implement' | 'probe'): string {
+function startLine(id: string, kind: 'implement' | 'probe', session?: string): string {
   const decision = kind === 'probe' ? 'none' : 'owner'
-  return JSON.stringify({ event: 'path', task: id, path: 'cheap', started: 'x', worktree: `/mc-${id}`, branch: `feat/${id}`, card: { id: Number(id), name: 'n', kind, milestone: 'ghosts', size: 'S', contour: 'cheap', decision, depends: [], blocks: [], line: 'l' }, ts: 'x' })
+  return JSON.stringify({ event: 'path', task: id, path: 'cheap', started: 'x', ...(session === undefined ? {} : { session }), worktree: `/mc-${id}`, branch: `feat/${id}`, card: { id: Number(id), name: 'n', kind, milestone: 'ghosts', size: 'S', contour: 'cheap', decision, depends: [], blocks: [], line: 'l' }, ts: 'x' })
 }
 
-function world(journal: string[]): { deps: TaskCloseDeps, written: string[] } {
+function world(journal: string[], sessionFiles: string[] = []): { deps: TaskCloseDeps, written: string[] } {
   const written: string[] = []
   return {
     written,
@@ -26,8 +28,15 @@ function world(journal: string[]): { deps: TaskCloseDeps, written: string[] } {
       },
       now: () => NOW,
       handoffDir: HANDOFF,
+      exists: file => sessionFiles.includes(file),
+      session: undefined,
+      projectsDir: PROJECTS,
     },
   }
+}
+
+function sessionFile(key: string, id: string): string {
+  return path.join(PROJECTS, key, `${id}.jsonl`)
 }
 
 describe('w3: task:close writes the closing line the board reads', () => {
@@ -35,7 +44,7 @@ describe('w3: task:close writes the closing line the board reads', () => {
     const { deps, written } = world([startLine('123', 'implement')])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps)
     expect(result.exitCode).toBe(0)
-    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '123', path: 'cheap', pr: 460, verification: 'run', ts: NOW.toISOString() }])
+    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '123', path: 'cheap', pr: 460, verification: 'run', ended: NOW.toISOString(), sessions: [], ts: NOW.toISOString() }])
   })
 
   it('w3: a probe closes with its report, resolved against the working directory', () => {
@@ -49,6 +58,36 @@ describe('w3: task:close writes the closing line the board reads', () => {
     const { deps, written } = world(['{not json', JSON.stringify({ event: 'path', task: '9', path: 'cheap', ts: 'x' }), startLine('9', 'probe')])
     expect(runTaskClose(['9', '--report', '/r.md', '--verification', 'review'], deps).exitCode).toBe(0)
     expect(written).toHaveLength(1)
+  })
+})
+
+describe('task:close records when the task ended and the sessions it used, each with the project key its file lies under', () => {
+  it('records the window session under the key of the directory the window runs in, not the task worktree', () => {
+    const { deps, written } = world([startLine('5', 'implement', WINDOW_SESSION)], [sessionFile('-work', WINDOW_SESSION)])
+    const result = runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps)
+    expect(JSON.parse(written[0]!)).toMatchObject({ ended: NOW.toISOString(), sessions: [{ id: WINDOW_SESSION, project: '-work' }] })
+    expect(result.stdout).toHaveLength(1)
+  })
+
+  it('records the start session and a different closing session once each, found under the cwd or the task worktree', () => {
+    const { deps, written } = world([startLine('5', 'implement', 'opened')], [sessionFile('-mc-5', 'opened'), sessionFile('-work', 'closing')])
+    expect(runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, session: 'closing' }).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ sessions: [{ id: 'opened', project: '-mc-5' }, { id: 'closing', project: '-work' }] })
+    const again = world([startLine('5', 'implement', 'same')], [sessionFile('-work', 'same')])
+    runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...again.deps, session: 'same' })
+    expect(JSON.parse(again.written[0]!)).toMatchObject({ sessions: [{ id: 'same', project: '-work' }] })
+  })
+
+  it('records a session whose file it cannot find without a project and names it as not recorded', () => {
+    const { deps, written } = world([startLine('5', 'implement', WINDOW_SESSION)])
+    const result = runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps)
+    expect(JSON.parse(written[0]!)).toMatchObject({ sessions: [{ id: WINDOW_SESSION }] })
+    expect(result.stdout[1]).toBe(`[task:close] #5 session ${WINDOW_SESSION} project not recorded: no session file under -work or -mc-5 in ${PROJECTS}`)
+  })
+
+  it('names the sessions as not recorded when neither the start line nor the closing window carries one', () => {
+    const { deps } = world([startLine('5', 'implement')])
+    expect(runTaskClose(['5', '--pr', '9', '--verification', 'run'], deps).stdout[1]).toBe('[task:close] #5 sessions not recorded on the start line or in CLAUDE_CODE_SESSION_ID')
   })
 })
 
