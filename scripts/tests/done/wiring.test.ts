@@ -16,6 +16,7 @@ describe('a template is wired when product code names its group', () => {
 
   it.each([
     'templates/attach/_construct/commit-guard.mjs',
+    'templates/attach/_construct/shell-parser.mjs',
     'templates/presets/node-frontend/sample/src/main.ts',
   ])('%s is wired', (template) => {
     expect(unreachedFiles(repository, [template])).toEqual([])
