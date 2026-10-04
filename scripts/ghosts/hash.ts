@@ -1,5 +1,5 @@
 import type { Sketch } from './sketch.js'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,7 +10,9 @@ import { parseSketch } from './sketch.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const CHECK_ACCEPTANCE = path.join(REPO_ROOT, 'scripts/construct/check-acceptance.mjs')
-const APPROVER = 'Eli'
+const BY_FLAG = '--by'
+const USAGE = `usage: hash.ts <brief> [${BY_FLAG} <name>]`
+const APPROVER_NOT_RECORDED = `approver not recorded: pass ${BY_FLAG} or set git config user.name`
 
 export interface BuildResult { status: number | null, stderr: string }
 export type BuildRunner = (implementTextPath: string) => BuildResult
@@ -57,22 +59,46 @@ function localDate(now: Date): string {
   return [now.getFullYear(), now.getMonth() + 1, now.getDate()].map(part => String(part).padStart(2, '0')).join('-')
 }
 
-export function approvalLine(briefPath: string, now: Date, runBuild: BuildRunner = checkAcceptanceBuild): string {
+export function gitUserName(): string {
+  try {
+    return execFileSync('git', ['config', 'user.name'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  }
+  catch {
+    return ''
+  }
+}
+
+export function resolveApprover(by: string | undefined, readGitName: () => string = gitUserName): string {
+  const approver = (by ?? '').trim() || readGitName().trim()
+  if (approver === '')
+    throw new Error(APPROVER_NOT_RECORDED)
+  return approver
+}
+
+export function approvalLine(briefPath: string, now: Date, approver: string, runBuild: BuildRunner = checkAcceptanceBuild): string {
   const text = implementTextOf(briefPath)
   refuseUnlessBuilt(briefPath, text, runBuild)
-  return `approved /implement text sha256: ${sha256Hex(text)} (${localDate(now)}, ${APPROVER}; ${sketchNote(parseSketch(text))})`
+  return `approved /implement text sha256: ${sha256Hex(text)} (${localDate(now)}, ${approver}; ${sketchNote(parseSketch(text))})`
+}
+
+function hashArgs(argv: string[]): { briefPath: string, by: string | undefined } | null {
+  const at = argv.indexOf(BY_FLAG)
+  if (at !== -1 && argv[at + 1] === undefined)
+    return null
+  const positional = at === -1 ? argv : argv.filter((_, index) => index !== at && index !== at + 1)
+  return positional.length === 1 ? { briefPath: positional[0]!, by: at === -1 ? undefined : argv[at + 1] } : null
 }
 
 async function main(): Promise<void> {
-  const briefPath = process.argv[2]
-  if (briefPath === undefined) {
-    console.error('usage: hash.ts <brief>')
+  const args = hashArgs(process.argv.slice(2))
+  if (args === null) {
+    console.error(USAGE)
     process.exitCode = 1
     return
   }
 
   try {
-    console.log(approvalLine(briefPath, new Date()))
+    console.log(approvalLine(args.briefPath, new Date(), resolveApprover(args.by)))
   }
   catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
