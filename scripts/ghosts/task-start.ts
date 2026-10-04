@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cardTerms, parseCard } from './card.js'
+import { ENTRY_RESULT, entryLine } from './entry.js'
 
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
@@ -115,19 +116,20 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   const at = deps.now().toISOString()
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, ts: at }
+  const written = `start line written to ${journal}`
+  const signal = {
+    CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,
+    EXPECT: `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`,
+    ACTION: `task:start ${branch} #${id}: cut ${worktree} from origin/main; ${written}${deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''}`,
+    RESULT: ENTRY_RESULT,
+  }
   try {
-    deps.append(journal, `${JSON.stringify(line)}\n`)
+    deps.append(journal, `${JSON.stringify(line)}\n${entryLine(id, signal, at)}`)
   }
   catch (error) {
     return refuse(`${worktree} was cut on ${branch} but the start line could not be written to ${journal}: ${firstLine(error)}`)
   }
-  const written = `start line written to ${journal}`
-  const stdout = renderSignal(`task:start #${id} ${card.name}`, {
-    CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,
-    EXPECT: `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`,
-    ACTION: `task:start ${branch} #${id}: cut ${worktree} from origin/main`,
-    RESULT: deps.session === undefined ? `${written}; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : written,
-  }, deps.style ?? PLAIN_STYLE, deps.session === undefined ? 'yellow' : undefined)
+  const stdout = renderSignal(`task:start #${id} ${card.name}`, signal, deps.style ?? PLAIN_STYLE)
   return { stdout, stderr: [], exitCode: 0, worktree }
 }
 
