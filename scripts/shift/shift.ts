@@ -196,7 +196,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file) })}\n`)
   let clean = true
   for (const task of tasks) {
-    for (const line of startBlock(task, cheapExpect(path.dirname(dir), cheapClass(task.card), deps.projectsDir), deps.style ?? PLAIN_STYLE))
+    for (const line of startBlock(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir), deps.style ?? PLAIN_STYLE))
       deps.out(line)
     const line = await runTask(deps, dir, task, claude)
     deps.append(journal, `${JSON.stringify(line)}\n`)

@@ -15,6 +15,6 @@ export function formatCheapExpect(forecast: CheapForecast): string {
   return `expect tokens ≈ ${formatTokens(forecast.tokens)} (${UNIT}), minutes ≈ ${tenths(forecast.minutes)} — class ${forecast.taskClass}, n=${forecast.n}, median`
 }
 
-export function cheapExpect(shiftRoot: string, taskClass: string, projectsDir: string): string {
-  return formatCheapExpect(cheapForecastOf(shiftRoot, taskClass, projectsDir))
+export function cheapExpect(shiftRoot: string, windowJournal: string, taskClass: string, projectsDir: string): string {
+  return formatCheapExpect(cheapForecastOf(shiftRoot, windowJournal, taskClass, projectsDir))
 }

@@ -1431,11 +1431,15 @@ The cache holds those counts and nothing of a prompt or a response. The text and
 not print it; `ghosts:expect-sample --effort` reads it for its forecast by step.
 
 The text report ends with one signal block (decision 0046) per class of finished cheap task, a class
-being its card's kind and size, read from the shift journals under `~/.construct/shift`. `EXPECT` is
-the median tokens (input, cache writes and output; cache reads left out) and minutes of the tasks of
-that class whose every session file is still under the Claude Code projects, at five such tasks or
-more; below five it reads `none` with the count. With no finished cheap task recorded, one block says
-so. `--json` does not carry it.
+being its card's kind and size, read from the shift journals under `~/.construct/shift` and from the
+window journal `~/.construct/handoff/ghosts.jsonl`. A window task counts once `task:close` has written
+its closing line with a pull request or a report and a verification word; that line records when it
+ended and each session it used with the project key its session file lies under, and the session is
+read under that key. A session recorded under two tasks counts for neither, and `ACTION` names each
+task left out and why. `EXPECT` is the median tokens (input, cache writes and output; cache reads left
+out) and minutes of the tasks of that class whose every session file is still under the Claude Code
+projects, at five such tasks or more; below five it reads `none` with the count. With no finished
+cheap task recorded, one block says so. `--json` does not carry it.
 
 ### Reconciliation
 

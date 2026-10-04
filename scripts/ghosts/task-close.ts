@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 
@@ -11,6 +12,7 @@ export const PREFIX = '[task:close] '
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word>'
 const FLAGS = ['--pr', '--report', '--verification'] as const
 const PR_NUMBER = /^[1-9]\d*$/
+const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const OUTCOME_OF_KIND: Record<Card['kind'], typeof FLAGS[number]> = { implement: '--pr', probe: '--report' }
 
 type Flag = typeof FLAGS[number]
@@ -19,7 +21,14 @@ interface StartLine {
   event: 'path'
   task: string
   path: string
+  worktree?: unknown
+  session?: unknown
   card: Card
+}
+
+export interface TaskSession {
+  id: string
+  project?: string
 }
 
 export interface TaskCloseDeps {
@@ -28,6 +37,9 @@ export interface TaskCloseDeps {
   append: (file: string, text: string) => void
   now: () => Date
   handoffDir: string
+  exists: (file: string) => boolean
+  session: string | undefined
+  projectsDir: string
 }
 
 export interface TaskCloseResult {
@@ -78,6 +90,28 @@ function startLineOf(journal: string, id: string): StartLine | undefined {
   }).at(-1)
 }
 
+function sessionDirs(deps: TaskCloseDeps, start: StartLine): string[] {
+  return [...new Set([deps.cwd, ...(typeof start.worktree === 'string' ? [start.worktree] : [])])]
+}
+
+function taskSessions(deps: TaskCloseDeps, start: StartLine): TaskSession[] {
+  const ids = [...new Set([start.session, deps.session].filter((id): id is string => typeof id === 'string' && id !== ''))]
+  const keys = sessionDirs(deps, start).map(projectKey)
+  return ids.map((id) => {
+    const project = keys.find(key => deps.exists(path.join(deps.projectsDir, key, `${id}.jsonl`)))
+    return project === undefined ? { id } : { id, project }
+  })
+}
+
+function unplacedLine(deps: TaskCloseDeps, start: StartLine, sessions: TaskSession[]): string[] {
+  const unplaced = sessions.filter(session => session.project === undefined).map(session => session.id)
+  if (sessions.length === 0)
+    return [`${PREFIX}#${start.task} sessions not recorded on the start line or in ${SESSION_VARIABLE}`]
+  if (unplaced.length === 0)
+    return []
+  return [`${PREFIX}#${start.task} session ${unplaced.join(', ')} project not recorded: no session file under ${sessionDirs(deps, start).map(projectKey).join(' or ')} in ${deps.projectsDir}`]
+}
+
 export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResult {
   const args = readArgs(argv)
   if (typeof args === 'string')
@@ -101,14 +135,16 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(`--pr '${value}' is not a pull request number; nothing written`)
   const report = path.resolve(deps.cwd, value)
   const closing = outcome === '--pr' ? { pr: Number(value) } : { report }
-  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ts: deps.now().toISOString() }
+  const at = deps.now().toISOString()
+  const sessions = taskSessions(deps, start)
+  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ended: at, sessions, ts: at }
   try {
     deps.append(journal, `${JSON.stringify(line)}\n`)
   }
   catch (error) {
     return refuse(`the closing line could not be written to ${journal}: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
   }
-  return { stdout: [`${PREFIX}#${id} closed with ${outcome === '--pr' ? `PR #${value}` : `report ${report}`}, verification ${verification}; line written to ${journal}`], stderr: [], exitCode: 0 }
+  return { stdout: [`${PREFIX}#${id} closed with ${outcome === '--pr' ? `PR #${value}` : `report ${report}`}, verification ${verification}; line written to ${journal}`, ...unplacedLine(deps, start, sessions)], stderr: [], exitCode: 0 }
 }
 
 function realDeps(): TaskCloseDeps {
@@ -121,6 +157,9 @@ function realDeps(): TaskCloseDeps {
     },
     now: () => new Date(),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    exists: existsSync,
+    session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
+    projectsDir: claudeProjectsDir(),
   }
 }
 
