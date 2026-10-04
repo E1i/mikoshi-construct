@@ -82,7 +82,7 @@ function namedIdentifiers(value: unknown, kindByKey: KindByKey): NamedIdentifier
     Object.hasOwn(kindByKey, key) && typeof entry === 'string' ? [{ name: entry, kinds: [kindByKey[key]] }] : namedIdentifiers(entry, kindByKey))
 }
 
-const BLOCK_KINDS = ['doctor-result', 'repository-model', 'manifest', 'sync-report'] as const
+const BLOCK_KINDS = ['doctor-result', 'repository-model', 'manifest', 'sync-report', 'intake-draft'] as const
 type BlockKind = (typeof BLOCK_KINDS)[number]
 
 const SCANNED_KINDS: BlockKind[] = ['doctor-result', 'repository-model']
@@ -96,6 +96,8 @@ function kindOf(block: Record<string, unknown>): BlockKind | null {
     return 'manifest'
   if (typeof block.fromVersion === 'string' && typeof block.toVersion === 'string')
     return 'sync-report'
+  if (Array.isArray(block.cards))
+    return 'intake-draft'
   return null
 }
 

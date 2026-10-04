@@ -1037,7 +1037,7 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes nine carriers, a commit guard and the shell parser the guard reads the command
+tracked file. It writes ten carriers, a commit guard and the shell parser the guard reads the command
 line through, hides them and the ledger directory through
 `.git/info/exclude`, adds one entry to the untracked `.claude/settings.local.json`, and records what it
 did in `.construct/attach.json`. No `construct.json`, no
@@ -1131,7 +1131,8 @@ yourself, then run it again. A collision found during the write keeps the output
 1. The exclude block: `.git/info/exclude` gains a `# construct:begin` … `# construct:end` block
    listing `.construct/`, every path attach writes and `.claude/settings.local.json`, one per line.
    When the file does not exist, it is created with only that block and the record says so.
-2. The nine carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
+2. The ten carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
+   `.claude/skills/intake/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`.
@@ -1312,8 +1313,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the nine carriers, the guard and its parser into a repository with none of
-their directories, N is 19: eleven files, seven directories and the settings file attach created.
+and directories actually removed. On the ten carriers, the guard and its parser into a repository with none of
+their directories, N is 21: twelve files, eight directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 
@@ -1662,12 +1663,52 @@ This repository renders its own picture into
 through the same function the command calls, so the committed block and the command agree by
 construction.
 
+## construct intake
+
+Turns a draft of sliced cards into parking cards. The slicing — how many cards a person's retelling
+holds, what each one touches, what it left unclear — is done by the `intake` skill, which hands the
+result over as JSON; the command assigns the numbers, writes each card in the parking format and
+parses every file back with the parser `task:start` and the shift read before anything is written.
+It runs no model and no `gh`.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--draft <file\|->` | — | The sliced cards, `{ "cards": [ … ] }`, from a file or stdin. Required. |
+| `--taken <file\|->` | — | The pull request and issue numbers already taken, separated by whitespace, from a file or stdin. Required. |
+| `--parking <dir>` | `~/.construct/parking` | Where the cards are written, outside the repository. |
+| `--dry-run` | `false` | Print the cards, write nothing. |
+
+```bash
+{ gh pr list --state all --limit 1000 --json number -q '.[].number'
+  gh issue list --state all --limit 1000 --json number -q '.[].number'; } \
+  | npx mikoshi-construct intake --draft draft.json --taken -
+```
+
+Each card of the draft takes `name`, `kind`, `milestone`, `size`, `touches`, `task` and `witnesses`,
+none of which has a default, and optionally `contour`, `decision`, `branch`, `who`, `continue`,
+`depends`, `blocks` and `unclear` (a list of `{ "field", "reason" }`). `depends` and `blocks` name
+another card of the draft by its `name` or an existing card as `#<id>`; a card another one depends on
+gets the matching `blocks` entry.
+
+**Numbers.** Card numbers are shared with pull requests and issues, so the cards take the next numbers
+after every number taken in the parking directory and in `--taken`. Without `--taken` the command
+refuses: a card that reuses a pull request's number is worse than no card.
+
+**Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
+`implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
+the witnesses, beside every entry of the draft's own `unclear` list. A card with any `unclear:` line is
+written with `who: window`, so the shift does not take it until a person settles it. A missing field
+with no default refuses the draft.
+
+One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written
+or printed, `1` when the draft was refused.
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
-| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused. |
+| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft. |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure. |
 

@@ -15,9 +15,9 @@ whoever changes the thing they describe.
 `mikoshi-construct` is a CLI (`construct`, `miko`, `npx mikoshi-construct`) that materializes a
 construct — architecture policy, an optional OpenAPI contract, a quality harness and agent
 instructions — into a new or existing repository, hands the repository to the agent for discovery,
-and afterwards reads back what that repository has become. Ten commands, as `src/program.ts` lists
+and afterwards reads back what that repository has become. Eleven commands, as `src/program.ts` lists
 them: `init`, `attach` (alias `jack-in`), `detach` (alias `jack-out`), `soulkill` (aliases `inspect`,
-`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `mutate`. Pitch and lifecycle:
+`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `intake`, `mutate`. Pitch and lifecycle:
 [README.md § What it does](README.md#what-it-does); every command, its flags and its output:
 [docs/cli.md](docs/cli.md).
 

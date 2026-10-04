@@ -1,4 +1,4 @@
-import type { ShiftTask } from './task-file.js'
+import type { ShiftTask } from '../../src/card/task-file.js'
 import { CONTINUE_PROMPT } from './continuation.js'
 
 const PROBE_SKILL = '.claude/skills/probe/SKILL.md'

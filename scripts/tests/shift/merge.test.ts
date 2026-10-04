@@ -31,7 +31,7 @@ describe('runMerge', () => {
   })
 
   it('arms auto-merge at the head sha for decision auto when every path is plain', () => {
-    const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', 'scripts/ghosts/card.ts'])
+    const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', 'scripts/ghosts/entry.ts'])
     expect(calls).toContainEqual(['pr', 'merge', '42', '--auto', '--squash', '--match-head-commit', HEAD, '-R', 'E1i/mikoshi-construct'])
     expect(result.exitCode).toBe(0)
   })

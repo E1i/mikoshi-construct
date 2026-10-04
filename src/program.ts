@@ -12,6 +12,7 @@ import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
+import { defaultParking, printIntake, runIntake } from './commands/intake/index.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
@@ -322,6 +323,33 @@ const sync = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+const intake = withKnownFlags(defineCommand({
+  meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
+  args: {
+    plain: commonArgs.plain,
+    johnny: commonArgs.johnny,
+    draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
+    taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
+    parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
+    dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
+  },
+  run({ args }) {
+    const console = ui(args)
+    const failed = reported(console, () => {
+      const result = runIntake({
+        draft: args.draft,
+        taken: args.taken,
+        parking: path.resolve(args.parking ?? defaultParking()),
+        dryRun: args.dryRun,
+        readStdin: () => readFileSync(0, 'utf8'),
+      })
+      process.exitCode = printIntake(console, result)
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+}), ROOT_META)
+
 const mutateApply = withKnownFlags(defineCommand({
   meta: { name: 'apply', description: 'Apply one named wrong implementation from a brief: one find → replace in one file, with a copy and a record in .construct/mutations/' },
   args: {
@@ -396,6 +424,7 @@ export const main = defineCommand({
     cost,
     board,
     graph,
+    intake,
     mutate,
   },
 })

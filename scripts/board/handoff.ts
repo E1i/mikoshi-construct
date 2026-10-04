@@ -1,4 +1,4 @@
-import type { Card } from '../ghosts/card.js'
+import type { Card } from '../../src/card/grammar.js'
 import type { JournalEntry } from '../ghosts/journal.js'
 import type { TasksFile } from '../ghosts/tasks.js'
 import type { LedgerStage } from '../ghosts/watch-ledger.js'

@@ -4,6 +4,7 @@ import antfu from '@antfu/eslint-config'
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 
 const ALLOWED_INTERNAL_IMPORTS = {
+  'src/card': [],
   'src/detect': [],
   'src/manifest.ts': ['detect', 'materialize', 'presets', 'record-ahead'],
   'src/model': ['detect', 'presets', 'record-ahead'],
@@ -13,7 +14,7 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/ui': ['presets'],
   'src/failure.ts': ['record-ahead', 'ui'],
   'src/known-flags.ts': [],
-  'src/commands': ['detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
+  'src/commands': ['card', 'detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
   'src/program.ts': ['commands', 'detect', 'failure', 'known-flags', 'presets', 'ui', 'version'],
   'src/cli.ts': ['program'],
 }

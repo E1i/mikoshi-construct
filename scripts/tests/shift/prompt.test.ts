@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { parseTaskFile } from '../../../src/card/task-file.js'
 import { renderPrompt } from '../../shift/prompt.js'
-import { parseTaskFile } from '../../shift/task-file.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
 const PLACES = { worktree: '/tmp/tree', report: '/tmp/report.md' }

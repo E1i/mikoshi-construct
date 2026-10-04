@@ -1,4 +1,4 @@
-import type { Card } from '../ghosts/card.js'
+import type { Card } from '../../src/card/grammar.js'
 import type { ExitReason } from './continuation.js'
 import path from 'node:path'
 

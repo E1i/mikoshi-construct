@@ -1,6 +1,6 @@
-import type { Card } from './card.js'
+import type { Card } from '../../src/card/grammar.js'
 import { readFileSync } from 'node:fs'
-import { parseCard } from './card.js'
+import { parseCard } from '../../src/card/grammar.js'
 
 export interface Task {
   id: string
