@@ -11,10 +11,6 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Never approve a workflow run and never run `gh pr merge` yourself. The first line of the pull request's
   description is the task's card:
   `{{card}}`
-- After the pull request is open, run `pnpm shift:merge <N>` as its own command and copy its lines into the
-  report. It reads the card's decision from the pull request and its paths against
-  `architecture/owner-merges.md` on `origin/main`: decision `auto` with no owner-merged path arms auto-merge;
-  decision `owner`, or any owner-merged path, arms nothing and names why. Its output is the merge decision.
 - Run no background command, no monitor and no wait for a notification: nobody wakes a headless
   session, and a session that waits ends there. Run everything in the foreground and read its result
   in the same call.
@@ -25,7 +21,7 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the
   law the task answers to, or what is not recorded>`, `expect: <the forecast, or expect not
   recorded in <where>>`, `action: <what was run>`, `result: <one line: what was done, or where and why it
-  stopped>`; then the pull request (`PR #N`, or `no PR` — the norm for a probe), what was verified and how, and what
+  stopped>`; then the pull request on a line of its own (`PR #N`, or `no PR` — the norm for a probe), what was verified and how, and what
   waits for the owner.
 
 The task follows.
