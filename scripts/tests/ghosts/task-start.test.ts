@@ -81,7 +81,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.worktree).toBe(worktree)
     expect(existsSync(worktree)).toBe(true)
     expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/t1')
-    expect(lines(world)).toEqual([{
+    expect(lines(world).filter(entry => entry.event === 'path')).toEqual([{
       event: 'path',
       task: '101',
       path: 'cheap',
@@ -103,9 +103,40 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
       expect.stringMatching(/^-{4} task:start #8 task-8 -+$/),
       'CONTRACT | implement · cheap · owner · touches not recorded on the card · law not recorded on the card',
       'EXPECT   | expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
-      `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main`,
-      `RESULT   | start line written to ${world.journal}`,
+      `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main; start line written to ${world.journal}`,
+      'RESULT   | accepted · not started',
     ])
+  })
+
+  it('w8: writes the entry card beside the start line, in one append, in the four fields the card printed', () => {
+    const world = newWorld()
+    const appended: string[] = []
+    const deps = { ...depsOf(world), append: (file: string, text: string) => {
+      appended.push(text)
+      mkdirSync(path.dirname(file), { recursive: true })
+      appendFileSync(file, text)
+    } }
+    const result = runTaskStart(['feat/t9', '--card', card(9, 'implement/ghosts/M/cheap/owner')], deps)
+    const worktree = path.join(world.root, 'mc-9')
+    expect(appended).toHaveLength(1)
+    expect(lines(world).map(entry => entry.event)).toEqual(['path', 'entry'])
+    expect(lines(world)[1]).toEqual({
+      event: 'entry',
+      task: '9',
+      CONTRACT: 'implement · cheap · owner · touches not recorded on the card · law not recorded on the card',
+      EXPECT: 'expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
+      ACTION: `task:start feat/t9 #9: cut ${worktree} from origin/main; start line written to ${world.journal}`,
+      RESULT: 'accepted · not started',
+      ts: NOW.toISOString(),
+    })
+    expect(result.stdout.slice(1).map(row => row.replace(/^\w+\s+\| /, ''))).toEqual(['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'].map(field => (lines(world)[1] as Record<string, string>)[field]))
+  })
+
+  it('w8: a field with no data is named in the entry card: no session names it in ACTION', () => {
+    const world = newWorld()
+    const result = runTaskStart(['--card', card(2), 'feat/t2'], depsOf(world, null))
+    expect(result.stdout[3]).toContain('CLAUDE_CODE_SESSION_ID is not set, the board will show WINDOW UNKNOWN (no session)')
+    expect(result.stdout[4]).toBe('RESULT   | accepted · not started')
   })
 
   it('w1: writes a line without session and says the board will show WINDOW UNKNOWN when no session is set', () => {
@@ -150,7 +181,7 @@ describe('w3: task:start installs the dependencies in the new tree', () => {
     const result = runTaskStart(['feat/i1', '--card', card(31)], depsOf(world, SESSION, installs))
     expect(result.exitCode).toBe(0)
     expect(installs).toEqual([[path.join(world.root, 'mc-31'), INSTALL_ARGS]])
-    expect(lines(world)).toHaveLength(1)
+    expect(lines(world).filter(entry => entry.event === 'path')).toHaveLength(1)
   })
 
   it('w3: a failed install refuses with its first line, writes no start line, and removes the tree and the branch so a retry starts clean', () => {

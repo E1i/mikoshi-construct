@@ -19,6 +19,15 @@ const SKETCH_PREFIX = 'Sketch: '
 const SKETCH_BRANCH_AND_SHA = /^Sketch: (\S+) @ ([0-9a-f]{40})$/
 const SKETCH_NONE = /^Sketch: none — \S/
 const SHA256_HEX = /^[0-9a-f]{64}$/
+const SIGNAL_FIELDS = ['CONTRACT', 'EXPECT', 'ACTION', 'RESULT']
+const TITLE_RULE_WIDTH = 64
+const TITLE_LEAD = 4
+const LABEL_WIDTH = Math.max(...SIGNAL_FIELDS.map(field => field.length))
+const EXPECT_LINE_INDEX = 2
+const EXPECT_PREFIX = 'expect: '
+const TASK_LENGTH = 120
+const SHA_LENGTH = 7
+export const ENTRY_RESULT = 'accepted · not started'
 
 export class InputError extends Error {}
 
@@ -190,6 +199,43 @@ export function buildArgs(text) {
     immutable: agreedImmutable(text),
     sketch: briefSketch(text),
     ...(design == null ? {} : { design }),
+  }
+}
+
+export function renderPlainSignal(title, signal) {
+  const tail = Math.max(TITLE_LEAD, TITLE_RULE_WIDTH - title.length - TITLE_LEAD - 2)
+  return [
+    `${'-'.repeat(TITLE_LEAD)} ${title} ${'-'.repeat(tail)}`,
+    ...SIGNAL_FIELDS.map(field => `${field.padEnd(LABEL_WIDTH)} | ${signal[field]}`),
+  ]
+}
+
+function countOrNotRecorded(items, what, unit) {
+  return items == null ? `${what} not recorded in the brief` : `${items.length} ${unit}`
+}
+
+function briefExpect(text) {
+  const line = text.split('\n')[EXPECT_LINE_INDEX] ?? ''
+  return line.startsWith(EXPECT_PREFIX) ? `expect ${line.slice(EXPECT_PREFIX.length)}` : 'expect not recorded in the brief'
+}
+
+export function intakeSignal(text, { action, result } = {}) {
+  const agreed = canonicalImplementText(text)
+  const sha = sha256Hex(agreed).slice(0, SHA_LENGTH)
+  const effort = briefEffort(agreed)
+  return {
+    title: `implement ${sha}`,
+    signal: {
+      CONTRACT: [
+        briefTask(agreed).slice(0, TASK_LENGTH),
+        effort === '' ? 'effort not recorded in the brief' : `effort ${effort}`,
+        countOrNotRecorded(agreedItems(agreed), 'acceptance', 'acceptance items'),
+        countOrNotRecorded(sectionItems(agreed, 'Immutable'), 'immutable', 'immutable paths'),
+      ].join(' · '),
+      EXPECT: briefExpect(agreed),
+      ACTION: action ?? `/implement agreed ${sha}`,
+      RESULT: result ?? ENTRY_RESULT,
+    },
   }
 }
 
@@ -416,7 +462,19 @@ export function witness(argv) {
   }
 }
 
-const MODES = { build, witness }
+export function card(argv) {
+  try {
+    const { title, signal } = intakeSignal(readInput(option(argv, '--brief')), { action: optionalValue(argv, '--action') ?? undefined, result: optionalValue(argv, '--result') ?? undefined })
+    return { code: 0, stdout: renderPlainSignal(title, signal), stderr: [] }
+  }
+  catch (error) {
+    if (error instanceof InputError)
+      return { code: 2, stdout: [], stderr: [error.message] }
+    throw error
+  }
+}
+
+const MODES = { build, witness, card }
 
 function isEntry() {
   return process.argv[1] != null && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
