@@ -1036,7 +1036,8 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes nine carriers and a commit guard, hides them and the ledger directory through
+tracked file. It writes nine carriers, a commit guard and the shell parser the guard reads the command
+line through, hides them and the ledger directory through
 `.git/info/exclude`, adds one entry to the untracked `.claude/settings.local.json`, and records what it
 did in `.construct/attach.json`. No `construct.json`, no
 `construct.model.json`, no discovery markers, no harness, lint or CI files. Alias: `jack-in`.
@@ -1310,8 +1311,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the nine carriers and the guard into a repository with none of their
-directories, N is 18: ten files, seven directories and the settings file attach created.
+and directories actually removed. On the nine carriers, the guard and its parser into a repository with none of
+their directories, N is 19: eleven files, seven directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 
