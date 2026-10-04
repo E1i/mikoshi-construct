@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { ClaudeCodeCostSource, knownSteps, STEPS } from '../../src/commands/cost/index.js'
+import { ClaudeCodeCostSource, knownSteps, median, MINIMUM_SAMPLE, STEPS } from '../../src/commands/cost/index.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 
@@ -32,7 +32,6 @@ interface JournalTask {
   class: string | null
 }
 
-const MINIMUM_SAMPLE = 5
 const COUNTED_STATUS = 'done'
 const DASH = '—'
 const APPROX = '≈'
@@ -89,12 +88,6 @@ export function joinByClass(tasks: JournalTask[], entries: LedgerEntry[], taskCl
     rows.push({ run: entry.run, effort: entry.effort, tokens: entry.tokens, minutes: entry.seconds / 60 })
   }
   return rows
-}
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const middle = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
 }
 
 function oneDecimal(value: number): string {

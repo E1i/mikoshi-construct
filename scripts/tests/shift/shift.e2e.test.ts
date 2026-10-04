@@ -86,6 +86,7 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
     claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
+    projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},
     gh: ghOf(openPrs),
@@ -102,6 +103,20 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
     out: line => captured.out.push(line),
     err: line => captured.err.push(line),
   }
+}
+
+function pastShift(world: World, size: string, count: number): void {
+  const lines = Array.from({ length: count }, (_, index) => {
+    const worktree = path.join(world.root, `mc-past-${size}-${index}`)
+    const session = `past-${size}-${index}`
+    const sessionFile = path.join(world.root, 'projects', worktree.replace(/[/.]/g, '-'), `${session}.jsonl`)
+    mkdirSync(path.dirname(sessionFile), { recursive: true })
+    writeFileSync(sessionFile, `${JSON.stringify({ requestId: 'r1', message: { role: 'assistant', usage: { input_tokens: 1000 * (index + 1), output_tokens: 0 } } })}\n`)
+    const card = { id: 900 + index, name: `past-${index}`, kind: 'implement', milestone: 'runner', size, contour: 'cheap', decision: 'auto', depends: [], blocks: [], line: '' }
+    return JSON.stringify({ event: 'task', file: '01.md', number: '01', task: String(900 + index), card, branch: `past/${index}`, session, started: '2026-10-01T00:00:00.000Z', worktree, ended: `2026-10-01T00:0${index + 1}:00.000Z`, exit: 0, signal: null, report: true, continuations: [] })
+  })
+  mkdirSync(path.join(world.root, `past-${size}`))
+  writeFileSync(path.join(world.root, `past-${size}`, 'shift.jsonl'), `${lines.join('\n')}\n`)
 }
 
 function captured(): Captured {
@@ -224,11 +239,30 @@ describe('w8: the shift prints the four fields when it starts a task', () => {
     expect(io.out.slice(0, 5)).toEqual([
       expect.stringMatching(/^-{4} shift 01\.md #1 task-1 -+$/),
       'CONTRACT | implement · cheap · auto · touches scripts/a/**, docs/a.md · law not recorded in the task file',
-      'EXPECT   | expect not recorded in the task file',
+      'EXPECT   | expect none — n=0 for implement/S',
       'ACTION   | task:start feat/1 #1, then a headless claude session in its tree',
       'RESULT   | — running; the outcome line [shift] 01.md 1: … follows',
     ])
     expect(io.out).toContain('[shift] 01.md 1: exit 0')
+  })
+
+  it('w8: EXPECT carries the median tokens and minutes of the class once the shifts beside it hold five finished tasks of it', async () => {
+    const world = newWorld()
+    pastShift(world, 'S', 5)
+    pastShift(world, 'M', 9)
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
+    const io = captured()
+    await runShift([world.shift], shiftDeps(world, io))
+    expect(io.out[2]).toBe('EXPECT   | expect tokens ≈ 3k (input, cache writes and output; cache reads left out), minutes ≈ 3 — class implement/S, n=5, median')
+  })
+
+  it('w8: below five finished tasks of the class EXPECT reads none with n and the class', async () => {
+    const world = newWorld()
+    pastShift(world, 'S', 4)
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
+    const io = captured()
+    await runShift([world.shift], shiftDeps(world, io))
+    expect(io.out[2]).toBe('EXPECT   | expect none — n=4 for implement/S')
   })
 })
 

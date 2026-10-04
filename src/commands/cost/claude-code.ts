@@ -30,7 +30,7 @@ export function claudeProjectsDir(): string {
   return path.join(homedir(), '.claude', 'projects')
 }
 
-interface AgentRecord {
+export interface AgentRecord {
   usage: Usage
   first: string | null
   last: string | null
@@ -42,7 +42,7 @@ interface AgentMeta {
   workflowPhase?: string
 }
 
-function readAgentRecord(file: string): AgentRecord {
+export function readAgentRecord(file: string): AgentRecord {
   const totals = emptyUsage()
   const counted = new Set<string>()
   const stamps: string[] = []
