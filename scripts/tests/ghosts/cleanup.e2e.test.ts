@@ -296,3 +296,100 @@ describe('ghosts:cleanup carries a tree\'s step cache lines into the main step c
     expect(existsSync(w.worktree)).toBe(true)
   })
 })
+
+function ghostRow(w: World, state: string, outcome: string): void {
+  const statusPath = path.join(w.handoff, 'status.md')
+  const row = `| ghost-g1 | ${w.worktree} | ${state} | ${'c'.repeat(40)} | 2026-10-02 07:00 | ${outcome} | 2026-10-02 08:00 |`
+  writeFileSync(statusPath, readFileSync(statusPath, 'utf8').replace('|---|---|---|---|---|---|---|\n', `|---|---|---|---|---|---|---|\n${row}\n`))
+}
+
+function blockedWorld(prs: object[], outcome = (report: string) => `exit 0; ladder blocked; report ${report}; session s1`): { w: World, report: string } {
+  const w = newWorld('OPEN')
+  writeFileSync(path.join(w.root, 'prs.json'), JSON.stringify(prs))
+  const report = path.join(w.handoff, 'ghost-g1.jsonl')
+  writeFileSync(report, '{"type":"result"}\n')
+  ghostRow(w, 'free', outcome(report))
+  return { w, report }
+}
+
+function savedPatch(w: World): string {
+  return path.join(w.handoff, 'ghost-g1.removed.patch')
+}
+
+function hasBranch(w: World, branch: string): boolean {
+  return git(w.repo, ['branch', '--list', branch]).trim() !== ''
+}
+
+describe('b: ghosts:cleanup removes a run that ended blocked with no pull request', () => {
+  it('b1: removes the tree and the ghost branch, carries the ledger lines, and renames the report instead of deleting it', () => {
+    const { w, report } = blockedWorld([])
+    writeLedger(path.join(w.worktree, '.construct', 'runs.jsonl'), [RUN_A])
+    writeFileSync(path.join(w.worktree, 'README.md'), 'world\nblocked edit\n')
+    writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'blocked work\n')
+    const out = cleanup(w)
+    const renamed = path.join(w.handoff, 'ghost-g1.removed.jsonl')
+    const patch = readFileSync(savedPatch(w), 'utf8')
+    expect(patch).toContain('untracked: unsaved.txt\n')
+    expect(patch).toContain('diff --git a/README.md b/README.md')
+    expect(patch).toContain('+blocked edit\n')
+    expect(existsSync(w.worktree)).toBe(false)
+    expect(hasBranch(w, 'ghost/g1')).toBe(false)
+    expect(existsSync(report)).toBe(false)
+    expect(readFileSync(renamed, 'utf8')).toBe('{"type":"result"}\n')
+    expect(ledgerRuns(mainLedger(w))).toEqual(['wf_a'])
+    expect(logsLeft(w)).toEqual([FOREIGN_LOG])
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: ladder blocked and no pull request for ghost/g1; 1 ledger lines carried into ${mainLedger(w)}; uncommitted work saved to ${savedPatch(w)}; worktree ${w.worktree} and branch ghost/g1 and 2 quality logs and report renamed to ${renamed}\n`)
+  })
+
+  it('b4: writes no patch when the blocked tree is clean', () => {
+    const { w } = blockedWorld([])
+    const out = cleanup(w)
+    expect(existsSync(w.worktree)).toBe(false)
+    expect(existsSync(savedPatch(w))).toBe(false)
+    expect(out).not.toContain('uncommitted work')
+  })
+
+  it('b5: keeps the tree and removes nothing when its uncommitted work cannot be saved', () => {
+    const { w, report } = blockedWorld([])
+    writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'blocked work\n')
+    mkdirSync(savedPatch(w))
+    const out = cleanup(w)
+    expect(out).toMatch(new RegExp(`^\\[ghosts:cleanup\\] ghost-g1 kept: ladder blocked and no pull request for ghost/g1, but its uncommitted work could not be saved to ${savedPatch(w)}: E`))
+    expect(existsSync(path.join(w.worktree, 'unsaved.txt'))).toBe(true)
+    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(existsSync(report)).toBe(true)
+    expect(logsLeft(w)).toEqual(ALL_LOGS)
+  })
+
+  it.each([
+    'exit 1; ladder done; report {report}; session s1',
+    'exit 0; no ladder run; report {report}; session s1',
+  ])('b6: keeps a run with no pull request whose outcome is "%s", not ladder blocked, and names the outcome', (template) => {
+    const { w, report } = blockedWorld([], path => template.replace('{report}', path))
+    writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'work\n')
+    const outcome = template.replace('{report}', report)
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 kept: no pull request for ghost/g1, and status.md says "${outcome}", not ladder blocked\n`)
+    expect(existsSync(path.join(w.worktree, 'unsaved.txt'))).toBe(true)
+    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(existsSync(report)).toBe(true)
+    expect(existsSync(savedPatch(w))).toBe(false)
+    expect(logsLeft(w)).toEqual(ALL_LOGS)
+  })
+
+  it('b2: keeps a blocked run whose branch has an open pull request', () => {
+    const { w, report } = blockedWorld([{ number: 7, title: 'g1', headRefName: 'ghost/g1', headRefOid: 'a'.repeat(40), state: 'OPEN', mergedAt: null, mergeCommit: null }])
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: PR #7 is OPEN, not merged\n')
+    expect(existsSync(w.worktree)).toBe(true)
+    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(existsSync(report)).toBe(true)
+  })
+
+  it('b3: keeps a run that is still writing, with no pull request yet', () => {
+    const w = newWorld('OPEN')
+    writeFileSync(path.join(w.root, 'prs.json'), '[]')
+    ghostRow(w, 'writing', '/implement brief-g1.md, session s1')
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: no pull request for ghost/g1\n')
+    expect(existsSync(w.worktree)).toBe(true)
+    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+  })
+})

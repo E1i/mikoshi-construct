@@ -1,6 +1,6 @@
 import type { PrList } from '../board/gh.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,10 +15,14 @@ import { handLadderPolicy, handLadderRows } from '../board/policy.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
+import { ghostRowState } from './status.js'
 import { readTasksFile } from './tasks.js'
 
 const PREFIX = '[ghosts:cleanup] '
 const DEFAULT_LOGS_DIR = '/tmp'
+const BLOCKED_OUTCOME = /; ladder blocked; report (\S+);/
+const REMOVED_REPORT_MARK = '.removed'
+const OUTCOME_COLUMN = 6
 
 export interface Target {
   id: string
@@ -110,6 +114,110 @@ export function carryLedgerOnly(task: Target, ledger: string, stepCache: string)
   }
 }
 
+function carryTreeLines(task: Target, ctx: CleanupContext): { carried: string } | { failure: string } {
+  let carried: string
+  try {
+    carried = `; ${carryLedgerLines(treeLedger(task), ctx.ledger)} ledger lines carried into ${ctx.ledger}`
+  }
+  catch (error) {
+    return { failure: `its ledger lines could not be carried into ${ctx.ledger}: ${firstLine(error)}` }
+  }
+  try {
+    return { carried: carried + carriedSteps(task, ctx.stepCache) }
+  }
+  catch (error) {
+    return { failure: `its step cache lines could not be carried into ${ctx.stepCache}: ${firstLine(error)}` }
+  }
+}
+
+function freeOutcome(statusText: string | undefined, id: string): string | undefined {
+  if (statusText === undefined || ghostRowState(statusText, id) !== 'free')
+    return undefined
+  const row = statusText.split('\n').find(line => line.startsWith(`| ghost-${id} |`))
+  return row?.split('|')[OUTCOME_COLUMN]?.trim()
+}
+
+function unblockedRun(task: Target, outcome: string | undefined): string {
+  const noPr = `no pull request for ${task.branch}`
+  return kept(task, outcome === undefined ? noPr : `${noPr}, and status.md says "${outcome}", not ladder blocked`)
+}
+
+export function removedReportPath(report: string): string {
+  const extension = path.extname(report)
+  return `${report.slice(0, report.length - extension.length)}${REMOVED_REPORT_MARK}${extension}`
+}
+
+function hasLocalBranch(repo: string, branch: string): boolean {
+  try {
+    execFileSync('git', ['-C', repo, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], { stdio: 'pipe' })
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function git(worktree: string, args: string[]): string {
+  return execFileSync('git', ['-C', worktree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function uncommittedWork(worktree: string): string {
+  const untracked = git(worktree, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(line => line !== '')
+  const diff = git(worktree, ['diff', '--binary', 'HEAD'])
+  return `${untracked.map(file => `untracked: ${file}\n`).join('')}${diff}`
+}
+
+function savedPatchPath(task: Target, report: string): string {
+  return path.join(path.dirname(report), `ghost-${task.id}${REMOVED_REPORT_MARK}.patch`)
+}
+
+function saveUncommittedWork(task: Target, report: string): { saved: string } | { failure: string } {
+  const patch = savedPatchPath(task, report)
+  try {
+    const work = uncommittedWork(task.worktree)
+    if (work === '')
+      return { saved: '' }
+    writeFileSync(patch, work, { flag: 'wx' })
+    return { saved: `; uncommitted work saved to ${patch}` }
+  }
+  catch (error) {
+    return { failure: `its uncommitted work could not be saved to ${patch}: ${firstLine(error)}` }
+  }
+}
+
+function cleanupBlocked(task: Target, report: string, ctx: CleanupContext): string {
+  const reason = `ladder blocked and no pull request for ${task.branch}`
+  const renamed = removedReportPath(report)
+  if (existsSync(report) && existsSync(renamed))
+    return kept(task, `${reason}, but ${renamed} already exists`)
+  const removed: string[] = []
+  let carried = ''
+  if (existsSync(task.worktree)) {
+    const lines = carryTreeLines(task, ctx)
+    if ('failure' in lines)
+      return kept(task, `${reason}, but ${lines.failure}`)
+    const work = saveUncommittedWork(task, report)
+    if ('failure' in work)
+      return kept(task, `${reason}, but ${work.failure}`)
+    carried = lines.carried + work.saved
+    execFileSync('git', ['-C', ctx.repo, 'worktree', 'remove', '--force', task.worktree], { stdio: 'pipe' })
+    removed.push(`worktree ${task.worktree}`)
+  }
+  if (task.branch.startsWith('ghost/') && hasLocalBranch(ctx.repo, task.branch)) {
+    execFileSync('git', ['-C', ctx.repo, 'branch', '-D', task.branch], { stdio: 'pipe' })
+    removed.push(`branch ${task.branch}`)
+  }
+  const logs = qualityLogs(ctx.logsDir, task.worktree)
+  for (const log of logs)
+    rmSync(log)
+  removed.push(`${logs.length} quality logs`)
+  if (existsSync(report)) {
+    renameSync(report, renamed)
+    removed.push(`report renamed to ${renamed}`)
+  }
+  return `ghost-${task.id} removed: ${reason}${carried}; ${removed.join(' and ')}`
+}
+
 export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   if (handLadderRows(ctx.statusText).has(task.id))
     return kept(task, `status.md policy ${handLadderPolicy(task.id)}; a hand-ladder worktree is never removed`)
@@ -118,8 +226,11 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   if (ctx.prs.kind === 'failed')
     return kept(task, 'gh unavailable; the pull request state is unknown')
   const pr = ctx.prs.prs.find(candidate => task.pr === undefined ? candidate.headRefName === task.branch : candidate.number === task.pr)
-  if (pr === undefined)
-    return kept(task, `no pull request for ${task.branch}`)
+  if (pr === undefined) {
+    const outcome = freeOutcome(ctx.statusText, task.id)
+    const report = BLOCKED_OUTCOME.exec(outcome ?? '')?.[1]
+    return report === undefined ? unblockedRun(task, outcome) : cleanupBlocked(task, report, ctx)
+  }
   if (pr.state !== 'MERGED')
     return kept(task, `PR #${pr.number} is ${pr.state}, not merged`)
 
@@ -135,18 +246,10 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
     }
     if (dirty > 0)
       return kept(task, `PR #${pr.number} merged, but ${task.worktree} is dirty (${dirty} changed paths)`)
-    try {
-      carried = `; ${carryLedgerLines(treeLedger(task), ctx.ledger)} ledger lines carried into ${ctx.ledger}`
-    }
-    catch (error) {
-      return kept(task, `PR #${pr.number} merged, but its ledger lines could not be carried into ${ctx.ledger}: ${firstLine(error)}`)
-    }
-    try {
-      carried += carriedSteps(task, ctx.stepCache)
-    }
-    catch (error) {
-      return kept(task, `PR #${pr.number} merged, but its step cache lines could not be carried into ${ctx.stepCache}: ${firstLine(error)}`)
-    }
+    const lines = carryTreeLines(task, ctx)
+    if ('failure' in lines)
+      return kept(task, `PR #${pr.number} merged, but ${lines.failure}`)
+    carried = lines.carried
     execFileSync('git', ['-C', ctx.repo, 'worktree', 'remove', task.worktree], { stdio: 'pipe' })
     removed.push(`worktree ${task.worktree}`)
   }
