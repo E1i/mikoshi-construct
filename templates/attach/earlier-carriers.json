@@ -428,5 +428,10 @@
     "target": ".claude/skills/implement/SKILL.md",
     "sha256": "d0d0fd849875d96b5193a55be4f1163ec721fbfd1c960e3c1c9233f478802176",
     "date": "2026-10-04"
+  },
+  {
+    "target": "scripts/construct/check-baseline.mjs",
+    "sha256": "eae96c5d3e62de0b0206da7efd9de3d6174a78d81c45faf3f8a34c19b4fefa48",
+    "date": "2026-10-04"
   }
 ]

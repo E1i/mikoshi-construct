@@ -222,6 +222,7 @@ export const ATTACH_CARRIERS = {
     'scripts/construct/implement.workflow',
     'scripts/construct/check-acceptance.mjs',
     'scripts/construct/browser-witness.mjs',
+    'scripts/construct/check-baseline.mjs',
   ],
 } as const
 
