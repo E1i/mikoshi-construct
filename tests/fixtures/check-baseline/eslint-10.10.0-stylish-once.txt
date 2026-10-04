@@ -1,0 +1,6 @@
+
+<root>/bad.ts
+  1:7  error  'unused' is assigned a value but never used. Allowed unused vars must match /^_/u  unused-imports/no-unused-vars
+
+✖ 1 problem (1 error, 0 warnings)
+

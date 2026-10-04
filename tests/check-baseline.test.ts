@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -43,19 +43,18 @@ function failuresOf(name: string, output: string): string[] | null {
   return checkBaseline([redStep(name, output)], dir).steps[0]!.failures
 }
 
-function eslintOutput(problems: string[]): string {
-  return [
-    '',
-    path.join(dir, 'src/bad.ts'),
-    ...problems,
-    '',
-    `✖ ${problems.length} problems (${problems.length} errors, 0 warnings)`,
-    '',
-  ].join('\n')
+const FIXTURES = path.resolve(import.meta.dirname, 'fixtures/check-baseline')
+const ROOT_PLACEHOLDER = '<root>'
+
+function fixture(name: string): string {
+  return readFileSync(path.join(FIXTURES, name), 'utf8').replaceAll(ROOT_PLACEHOLDER, dir)
 }
 
-const UNUSED = 'error  \'unused\' is assigned a value but never used  unused-imports/no-unused-vars'
-const OTHER_UNUSED = 'error  \'other\' is assigned a value but never used  unused-imports/no-unused-vars'
+function fixtureFailures(name: string): string[] | null {
+  return failuresOf(name, fixture(name))
+}
+
+const UNUSED = 'bad.ts › unused-imports/no-unused-vars'
 
 function vitestOutput(failed: string[]): string {
   return [
@@ -92,24 +91,28 @@ describe('every step runs whatever the step before it did', () => {
   })
 })
 
-describe('an eslint failure is its file and rule, counted', () => {
+describe('an eslint failure is its file and rule, counted (eslint 10.10.0 stylish)', () => {
   it('keeps the set when the same error moves three lines down', () => {
-    const before = failuresOf('before.txt', eslintOutput([`  1:7  ${UNUSED}`]))
-    const after = failuresOf('after.txt', eslintOutput([`  4:7  ${UNUSED}`]))
-    expect(before).toEqual(['src/bad.ts › unused-imports/no-unused-vars'])
-    expect(after).toEqual(before)
+    const before = fixtureFailures('eslint-10.10.0-stylish.txt')
+    expect(before).toEqual([UNUSED, UNUSED])
+    expect(fixtureFailures('eslint-10.10.0-stylish-moved.txt')).toEqual(before)
   })
 
   it('counts a second occurrence of the same rule in the same file', () => {
-    const once = failuresOf('once.txt', eslintOutput([`  1:7  ${UNUSED}`]))
-    const twice = failuresOf('twice.txt', eslintOutput([`  1:7  ${UNUSED}`, `  2:7  ${OTHER_UNUSED}`]))
-    expect(twice).toEqual([...once!, ...once!])
+    expect(fixtureFailures('eslint-10.10.0-stylish-once.txt')).toEqual([UNUSED])
+    expect(fixtureFailures('eslint-10.10.0-stylish.txt')).toEqual([UNUSED, UNUSED])
   })
 })
 
 describe('a test failure is its file and full name, with a repeat number', () => {
-  it('reads the describe chain of a vitest failure', () => {
-    expect(failuresOf('vitest.txt', vitestOutput(['tests/a.test.ts > outer > inner > fails']))).toEqual(['tests/a.test.ts › outer › inner › fails'])
+  it('reads vitest 5.0.0: the describe chain, a repeated name numbered, a file that fails as a whole as file › <suite>', () => {
+    expect(fixtureFailures('vitest-5.0.0.txt')).toEqual([
+      'bad.test.ts › outer › fails first',
+      'bad.test.ts › outer › inner › fails second',
+      'bad.test.ts › outer › same name',
+      'bad.test.ts › outer › same name #2',
+      'broken.test.ts › <suite>',
+    ])
   })
 
   it('gives a renamed test a new identity', () => {
@@ -133,35 +136,31 @@ describe('a test failure is its file and full name, with a repeat number', () =>
     expect(failuresOf('vitest.txt', output)).toEqual(['tests/broken.test.ts › <suite>'])
   })
 
-  it('reads jest failures, a jest file that fails to run as file › <suite>, and stops at the summary', () => {
-    const output = [
-      'FAIL tests/a.test.js',
-      '  ● outer › fails',
-      '',
-      '    expect(received).toBe(expected)',
-      '  ● Console',
-      'FAIL tests/broken.test.js',
-      '  ● Test suite failed to run',
-      '',
-      'Summary of all failing tests',
-      'FAIL tests/a.test.js',
-      '  ● outer › fails',
-    ].join('\n')
-    expect(failuresOf('jest.txt', output)).toEqual(['tests/a.test.js › outer › fails', 'tests/broken.test.js › <suite>'])
+  it('reads jest 30.5.2 the same way, with a file that fails to run as file › <suite>', () => {
+    expect(fixtureFailures('jest-30.5.2.txt')).toEqual([
+      'tests/a.test.js › outer › fails first',
+      'tests/a.test.js › outer › inner › fails second',
+      'tests/a.test.js › outer › same name',
+      'tests/a.test.js › outer › same name #2',
+      'tests/broken.test.js › <suite>',
+    ])
+  })
+
+  it('stops reading jest at its summary of all failing tests, which repeats every failure', () => {
+    expect(fixtureFailures('jest-30.5.2-summary.txt')).toEqual(fixtureFailures('jest-30.5.2.txt'))
   })
 })
 
-describe('a tsc failure is its file, code and message, counted', () => {
+describe('a tsc failure is its file, code and message, counted (tsc 5.9.3)', () => {
   it('reads the plain and the pretty format without the line', () => {
-    const plain = failuresOf('plain.txt', 'src/a.ts(3,14): error TS2322: Type \'string\' is not assignable to type \'number\'.\n')
-    const pretty = failuresOf('pretty.txt', 'src/a.ts:9:2 - error TS2322: Type \'string\' is not assignable to type \'number\'.\n')
-    expect(plain).toEqual(['src/a.ts › TS2322 › Type \'string\' is not assignable to type \'number\'.'])
-    expect(pretty).toEqual(plain)
+    const plain = fixtureFailures('tsc-5.9.3-plain.txt')
+    expect(plain).toEqual(['probe-cb/bad.ts › TS2322 › Type \'string\' is not assignable to type \'number\'.'])
+    expect(fixtureFailures('tsc-5.9.3-pretty.txt')).toEqual(plain)
   })
 })
 
 describe('the set and its sha256', () => {
-  const lint = (): string => redStep('lint.txt', eslintOutput([`  1:7  ${UNUSED}`]))
+  const lint = (): string => redStep('lint.txt', fixture('eslint-10.10.0-stylish.txt'))
   const test = (): string => redStep('test.txt', vitestOutput(['tests/a.test.ts > fails']))
 
   it('prefixes each failure with its step', () => {

@@ -1,0 +1,85 @@
+FAIL tests/broken.test.js
+  ● Test suite failed to run
+
+    Cannot find module './missing-module' from 'tests/broken.test.js'
+
+    > 1 | const missing = require('./missing-module')
+        |                 ^
+      2 | test('never runs', () => { expect(missing).toBeDefined() })
+      3 |
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/index.js:1031:11)
+      at Object.require (tests/broken.test.js:1:17)
+
+FAIL tests/a.test.js
+  ● outer › fails first
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 1
+
+      1 | describe('outer', () => {
+    > 2 |   test('fails first', () => { expect(1).toBe(2) })
+        |                                         ^
+      3 |   describe('inner', () => {
+      4 |     test('fails second', () => { expect('a').toBe('b') })
+      5 |   })
+
+      at Object.toBe (tests/a.test.js:2:41)
+
+  ● outer › inner › fails second
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "b"
+    Received: "a"
+
+      2 |   test('fails first', () => { expect(1).toBe(2) })
+      3 |   describe('inner', () => {
+    > 4 |     test('fails second', () => { expect('a').toBe('b') })
+        |                                              ^
+      5 |   })
+      6 |   test('passes', () => { expect(1).toBe(1) })
+      7 |   test('same name', () => { expect(1).toBe(2) })
+
+      at Object.toBe (tests/a.test.js:4:46)
+
+  ● outer › same name
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 1
+
+       5 |   })
+       6 |   test('passes', () => { expect(1).toBe(1) })
+    >  7 |   test('same name', () => { expect(1).toBe(2) })
+         |                                       ^
+       8 |   test('same name', () => { expect(3).toBe(4) })
+       9 | })
+      10 |
+
+      at Object.toBe (tests/a.test.js:7:39)
+
+  ● outer › same name
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 4
+    Received: 3
+
+       6 |   test('passes', () => { expect(1).toBe(1) })
+       7 |   test('same name', () => { expect(1).toBe(2) })
+    >  8 |   test('same name', () => { expect(3).toBe(4) })
+         |                                       ^
+       9 | })
+      10 |
+
+      at Object.toBe (tests/a.test.js:8:39)
+
+Test Suites: 2 failed, 1 passed, 3 total
+Tests:       4 failed, 2 passed, 6 total
+Snapshots:   0 total
+Time:        0.254 s
+Ran all test suites.
