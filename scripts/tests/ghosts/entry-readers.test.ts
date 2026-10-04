@@ -21,6 +21,7 @@ describe('the readers of ghosts.jsonl read a journal that holds an entry line as
   it('gives the board the same attempts and no warning', () => {
     const without = readHandoff(journalDir([START, CLOSE]))
     const withEntry = readHandoff(journalDir([START, ENTRY, CLOSE]))
+    expect(without.attempts).toHaveLength(1)
     expect(withEntry.attempts).toEqual(without.attempts)
     expect(withEntry.warnings).toEqual(without.warnings)
   })
