@@ -1508,25 +1508,28 @@ never added to the runs' figures above.
 
 ### A forecast by task class
 
-`pnpm ghosts:expect-sample <class> [--effort <low|medium|high>]` prints the
-`expect:` line a brief would carry, with the forecast drawn from runs of tasks of the same class
-instead of every run of the same effort. It reads two files and writes none: the Ghost journal
-(`--journal`, by default `ghosts.jsonl` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`) and one
-or more run ledgers (`--runs`, repeatable, by default `.construct/runs.jsonl` here). A Ghost's ladder
-writes its ledger in the Ghost's own worktree, and `pnpm ghosts:cleanup` carries those lines into the
-main tree's ledger before it removes the worktree, so the main ledger is enough once a tree is gone;
-pass `--runs` for a worktree still running.
+`pnpm ghosts:expect-sample [<class>] --effort <low|medium|high>` prints the `expect:` line a brief
+carries, ready to paste as its line 3. The sample is the one the brief and the launcher read: the done
+runs of the asked effort in the run ledgers (`--runs`, repeatable, by default `.construct/runs.jsonl`
+here). It writes no file. A Ghost's ladder writes its ledger in the Ghost's own worktree, and
+`pnpm ghosts:cleanup` carries those lines into the main tree's ledger before it removes the worktree,
+so the main ledger is enough once a tree is gone; pass `--runs` for a worktree still running.
 
-A journal line with `event: task` names the task's `class` and the `run` its ladder reported; the
-ledger row with the same `run` carries the run's `effort`, `status`, `tokens` and `seconds`. The join
-is on `run` alone. A row counts when its task has the asked class, its `status` is `done`, its
-`tokens` is a number and, with `--effort`, its `effort` matches; a run named twice counts once.
+A row counts when `parseLedgerLine` accepts it, its `status` is `done`, its `tokens` is a number and
+its `effort` matches; a run named twice counts once. A class is optional: with one, the Ghost journal
+(`--journal`, by default `ghosts.jsonl` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`) is read
+too, and only rows whose `run` a journal line with `event: task` and that `class` names count.
 
-The first line is `expect: tokens ≈ <median>, minutes ≈ <median> — effort <e>, n=<n>, median` from five
-or more counted rows, `expect: none — n=<n> for <class>` from fewer, and `expect: none — the sample
-for <class> mixes efforts …; pass --effort` when no `--effort` was given and the rows span more than
-one. Each counted row follows as `<run>  tokens <n>  minutes <m>`. A journal line that is not JSON
-and a ledger line `parseLedgerLine` refuses are named on stderr, not dropped silently.
+The line is `expect: tokens ≈ <median>, minutes ≈ <median> — effort <e>, n=<n>, median` from five or
+more counted rows, `expect: none — n=<n> for <selection>` from fewer, and
+`expect: none — the sample for <selection> mixes efforts …; pass --effort` without `--effort` when the
+rows span more than one. After it, separated by `; `, come the sources read (`ledger <path>`, and
+`journal <path>` with a class) and every reason a row was left out:
+`<N> rows the ledger parser rejects not counted in <ledger> (<reasons>)` and
+`class not recorded on <N> lines in <journal>`. A source that is not there or a class no line carries
+is the reason itself — `runs not recorded in <ledger>`, `task lines not recorded in <journal>`,
+`class not recorded on <N> lines in <journal>` — never a bare `n=0`. Each counted row follows as
+`<run>  tokens <n>  minutes <m>`; a journal line that is not JSON is named on stderr.
 
 ## construct board
 
