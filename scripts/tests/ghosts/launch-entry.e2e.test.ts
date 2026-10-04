@@ -54,7 +54,10 @@ describe('ghosts:launch writes the entry card it prints', () => {
 
   it('writes the same CONTRACT, EXPECT and ACTION the card printed, byte for byte', () => {
     const { printed, journal } = launchOk()
-    for (const entry of journal.filter(line => line.event === 'entry')) {
+    const entries = journal.filter(line => line.event === 'entry')
+    expect(entries.length).toBeGreaterThan(0)
+    expect(entries).toHaveLength(printed.filter(line => line.startsWith('CONTRACT')).length)
+    for (const entry of entries) {
       for (const field of ['CONTRACT', 'EXPECT', 'ACTION'] as const)
         expect(printed, `${entry.task} ${field}`).toContain(`${field.padEnd(LABEL_WIDTH)} | ${entry[field]}`)
     }

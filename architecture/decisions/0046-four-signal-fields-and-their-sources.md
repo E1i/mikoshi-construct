@@ -81,7 +81,11 @@ should carry them is #138; this decision does not extend any record.
   `scripts/tests/ghosts/task-start.test.ts` (w8), `scripts/tests/shift/shift.e2e.test.ts` (w3, w6, w7, w8),
   `scripts/tests/ghosts/launch.e2e.test.ts` through `world.sh check-decision`, `scripts/tests/board/board.test.ts`
   (w9), `tests/board.test.ts` and `tests/cost-cheap.test.ts`; for the entry card, `tests/check-acceptance-card.test.ts` (the four fields, `not recorded`, byte equality with `renderSignal`, the exit repeating the entry),
-  `scripts/tests/ghosts/entry.test.ts`, `task-start.test.ts` (w8), `task-close.test.ts` and `world.sh check-journal`.
+  `scripts/tests/ghosts/entry.test.ts`, `task-start.test.ts` (w8), `task-start-entry.test.ts` (the entry line written
+  beside the start line, carrying what was printed), `launch-entry.e2e.test.ts` (one entry line per card `ghosts:launch`
+  prints, before its task line, byte equal to the printed CONTRACT, EXPECT and ACTION), `task-close.test.ts` (the exit
+  card repeating the task's entry line, `not recorded` when there is none), `entry-readers.test.ts` (the journal's
+  readers read past an entry line) and `world.sh check-journal`.
 - The template and its twin in `.claude/` are held by `tests/attach-carriers.test.ts`.
 - L1 review for the report form in a file, which no test reads.
 
