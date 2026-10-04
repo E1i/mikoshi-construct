@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { IGNORED_ENTRIES } from '../src/detect/ignored-entries.js'
 import { detect } from '../src/detect/index.js'
 import { declaresPnpmPackages } from '../src/detect/workspaces.js'
 
@@ -92,6 +93,13 @@ describe('detect', () => {
     const dir = scratch()
     writeFileSync(path.join(dir, 'notes.txt'), 'hello')
     expect(detect(dir).layout).toBe('unknown')
+  })
+
+  it('takes a directory holding every ignored entry and nothing else for an empty one', () => {
+    const dir = scratch()
+    for (const entry of IGNORED_ENTRIES)
+      mkdirSync(path.join(dir, entry))
+    expect(detect(dir).layout).toBe('empty')
   })
 
   it('does not take a directory holding only .construct/ for an empty one', () => {
