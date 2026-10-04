@@ -152,6 +152,8 @@ holds the owner's decisions; only the owner, or a window at the owner's explicit
 it, and a row whose condition is met gets "fulfilled, awaiting the owner's decision" appended, never a
 rewrite.
 
+Ghost worktrees are removed only with `pnpm ghosts:cleanup` (it carries the ledger); never `git worktree remove`.
+
 A task is named by its component and its brief's version ("Launcher v0.1.1", "Ladder v5 (#271)"), an
 issue number only in parentheses. A launch attempt lives in the journal, never in the name, and a batch
 is named by its contents.
