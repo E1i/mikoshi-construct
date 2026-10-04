@@ -1,5 +1,37 @@
 # mikoshi-construct
 
+## 0.39.0
+
+### Minor Changes
+
+- [#498](https://github.com/E1i/mikoshi-construct/pull/498) [`a459805`](https://github.com/E1i/mikoshi-construct/commit/a459805f6448d1aec3b68527a59fdb2459bf8d88) Thanks [@E1i](https://github.com/E1i)! - cli: `attach` refuses a repository that already holds `.construct/attach.json`, whether or not its carriers are still there, and leaves the record as it was
+
+- [#504](https://github.com/E1i/mikoshi-construct/pull/504) [`c0db020`](https://github.com/E1i/mikoshi-construct/commit/c0db020ac8ad242b411e6b0422d87717036a2548) Thanks [@E1i](https://github.com/E1i)! - templates: `init` and `attach` also write `scripts/construct/check-baseline.mjs`, which runs every harness step even after a red one and prints, for each step, the eslint, Vitest, Jest or tsc failures it recognises (`null` when it recognises none) and the sha256 of the whole set; nothing calls it yet.
+
+- [#495](https://github.com/E1i/mikoshi-construct/pull/495) [`cd991cc`](https://github.com/E1i/mikoshi-construct/commit/cd991ccf05bbde299dd06a1ab67733eacc64d901) Thanks [@E1i](https://github.com/E1i)! - cli: `construct cost` ends with a signal block per class of finished cheap task — the median tokens (input, cache writes and output; cache reads left out) and minutes from five tasks or more, or none with the count below that
+
+- [#511](https://github.com/E1i/mikoshi-construct/pull/511) [`3de32f4`](https://github.com/E1i/mikoshi-construct/commit/3de32f455bdcd876bd5147b0e7ed999f3e092e17) Thanks [@E1i](https://github.com/E1i)! - templates and cli: the `/implement` entry card's `EXPECT` names what it covers — `ladder: <forecast> · brief, review not recorded` — so it no longer reads as the cost of the whole task; `construct cost` prints its run, multi-run and turn-journal totals in tokens without cache reads (input, cache writes and output), the unit of the step split and the forecasts, and names that unit on the total line, so a total from before this release is larger than the same run reads now
+
+- [#494](https://github.com/E1i/mikoshi-construct/pull/494) [`e7609f7`](https://github.com/E1i/mikoshi-construct/commit/e7609f733ba4be64ff7a5dec734fb868c59b4de4) Thanks [@E1i](https://github.com/E1i)! - templates: /implement's report names the rung the run passed on, and says so when no rung passed
+
+- [#508](https://github.com/E1i/mikoshi-construct/pull/508) [`d380646`](https://github.com/E1i/mikoshi-construct/commit/d380646257489cffd222aa14da31d6837a50e28e) Thanks [@E1i](https://github.com/E1i)! - templates: `/implement` prints an entry card before the first token is spent and ends its report with the same card, whose CONTRACT and EXPECT repeat the entry's byte for byte
+
+- [#497](https://github.com/E1i/mikoshi-construct/pull/497) [`5daeac6`](https://github.com/E1i/mikoshi-construct/commit/5daeac67e3572967a772edcb5c855f77d448b816) Thanks [@E1i](https://github.com/E1i)! - cost: the cheap forecast also counts window tasks. `task:close` records when a task ended and each session it used with the project key its session file lies under, and the sample reads those sessions under that key. A session recorded under two tasks counts for neither, and `construct cost` names each task it leaves out, including a close without a verification word.
+
+### Patch Changes
+
+- [#501](https://github.com/E1i/mikoshi-construct/pull/501) [`f564649`](https://github.com/E1i/mikoshi-construct/commit/f5646491757e1030680b069645e5d7c815af4ca3) Thanks [@E1i](https://github.com/E1i)! - ghosts: `pnpm ghosts:hash` runs `check-acceptance build` on the brief's `/implement` text first and prints no hash when the build fails, naming its first error; when the build passes it prints the whole line for the `.approved-sha256` file, `approved /implement text sha256: <hash> (<date>, <approver>; sketch <short sha>|none)`, instead of the bare hash. The approver is `--by <name>`, else `git config user.name`; with neither it refuses and prints no hash
+
+- [#496](https://github.com/E1i/mikoshi-construct/pull/496) [`38a2c3e`](https://github.com/E1i/mikoshi-construct/commit/38a2c3e31999d6a014d27cea0316cffe1c032f75) Thanks [@E1i](https://github.com/E1i)! - cli: the cheap forecast in `construct cost` names its source, Claude Code shift sessions, on its EXPECT line
+
+- [#492](https://github.com/E1i/mikoshi-construct/pull/492) [`a7a8d5a`](https://github.com/E1i/mikoshi-construct/commit/a7a8d5a25fef93ac78a80d814c8631c5427ff26e) Thanks [@E1i](https://github.com/E1i)! - cost: one reader counts a Claude Code session file's tokens for both the step split and the cheap forecast, and the cheap forecast counts them in the ladder's unit — input, cache writes and output, cache reads left out
+
+- [#505](https://github.com/E1i/mikoshi-construct/pull/505) [`f09b1c9`](https://github.com/E1i/mikoshi-construct/commit/f09b1c9b2da8acf1b8de9695724d040e598f5fb6) Thanks [@E1i](https://github.com/E1i)! - ghosts: `pnpm ghosts:expect-sample --effort <e>` prints the brief's `expect:` line from the one sample the brief and the launcher use — the done runs of that effort that `parseLedgerLine` accepts — followed by its sources and every reason a row was left out. The class is optional. A missing ledger or journal, or a class no journal line carries, is named as the reason (`runs not recorded in <ledger>`, `class not recorded on <N> lines in <journal>`) instead of a bare `n=0`. Rows the parser rejects are counted and named (`<N> rows the ledger parser rejects not counted in <ledger>`). Briefs that counted raw rows printed n=64 where this line prints n=58 on the same ledger: the 6-row difference is exactly those rejected old-schema rows. `parseExpect` reads a forecast line that carries this tail.
+
+- [#510](https://github.com/E1i/mikoshi-construct/pull/510) [`29f982c`](https://github.com/E1i/mikoshi-construct/commit/29f982c5a68755b65e5939b42188744d525e34de) Thanks [@E1i](https://github.com/E1i)! - ghosts: `pnpm ghosts:launch` carries a Ghost's ledger lines into the main checkout's `.construct/runs.jsonl` as soon as its session ends, keyed by run, so a later carry adds no duplicate and a Ghost worktree removed by hand no longer takes its run with it. A carry that fails is named on the launcher's line for that task, and the status row is still freed. `architecture/window.md` now says Ghost worktrees are removed only with `pnpm ghosts:cleanup`, never `git worktree remove`.
+
+- [#502](https://github.com/E1i/mikoshi-construct/pull/502) [`4570316`](https://github.com/E1i/mikoshi-construct/commit/45703165cb7dfe8f20fad8e3136d4199dada37f3) Thanks [@E1i](https://github.com/E1i)! - ghosts: the owner-merged kind `ghosts` names the 13 files that change the ladder, approval, merge or security instead of all of `scripts/ghosts/**`, and the other 15 are listed as plain; a file under `scripts/ghosts/` in neither list turns the harness red until it is classified. `architecture/owner-merges.md` is itself owner-merged, under `own-instructions`.
+
 ## 0.38.0
 
 ### Minor Changes
