@@ -25,6 +25,7 @@ things in the same place.
    | `ghosts:launch` | the brief and its approved sha; the law is the brief's `Acceptance:` line | `formatExpect` of the brief's `expect:` | the `/implement` call, tree, sketch, report and session | not launched yet; the outcome line follows the yes |
    | `pnpm board` (card) | the card on the start line | `formatExpect` of `event:task` `expected` | the start line or `event:task` | the latest stage |
    | `construct board` | — | `EXPECT` column | — | `ACTUAL` column: the ledger's tokens and seconds |
+   | `construct cost` (one block per class) | the class and the shift root | the cheap forecast of the class, in the unit of the shift's `EXPECT`, or none with n below five; with no finished cheap task, `finished cheap tasks not recorded in <shift root>` | the tasks of the class read, and how many have every session readable | whether there is a forecast |
 
    `construct board` prints only the `EXPECT` and `ACTUAL` columns, with no block per row and no view of its own.
    `--json` is unchanged.
@@ -53,7 +54,7 @@ should carry them is #138; this decision does not extend any record.
 
 ## Consequences
 
-- One shape across six points: a reader finds the forecast and the outcome at the same place everywhere, and
+- One shape across seven points: a reader finds the forecast and the outcome at the same place everywhere, and
   `formatExpect`'s text is the same string at launch and on the board.
 - `shift:report` prints one block per task instead of a table; a script that read the table's columns reads the
   `RESULT` line instead.
@@ -64,7 +65,7 @@ should carry them is #138; this decision does not extend any record.
 - L3 tests under `pnpm run quality`: `tests/ui/signal.test.ts` (order, labels, ASCII and colour), and per point
   `scripts/tests/ghosts/task-start.test.ts` (w8), `scripts/tests/shift/shift.e2e.test.ts` (w3, w6, w7, w8),
   `scripts/tests/ghosts/launch.e2e.test.ts` through `world.sh check-decision`, `scripts/tests/board/board.test.ts`
-  (w9) and `tests/board.test.ts`.
+  (w9), `tests/board.test.ts` and `tests/cost-cheap.test.ts`.
 - L1 review for the report form in a file, which no test reads.
 
 ## What would reverse it

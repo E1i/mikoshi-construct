@@ -1429,6 +1429,13 @@ is read, and every later read takes that line instead of the transcript; a line 
 The cache holds those counts and nothing of a prompt or a response. The text and `--json` reports do
 not print it; `ghosts:expect-sample --effort` reads it for its forecast by step.
 
+The text report ends with one signal block (decision 0046) per class of finished cheap task, a class
+being its card's kind and size, read from the shift journals under `~/.construct/shift`. `EXPECT` is
+the median tokens (input, cache writes and output; cache reads left out) and minutes of the tasks of
+that class whose every session file is still under the Claude Code projects, at five such tasks or
+more; below five it reads `none` with the count. With no finished cheap task recorded, one block says
+so. `--json` does not carry it.
+
 ### Reconciliation
 
 Where the runtime exposes session data, `cost` joins ledger entries to runtime runs on `run` and

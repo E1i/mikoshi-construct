@@ -1,8 +1,12 @@
 import type { Ui } from '../../ui/console.js'
+import type { Signal, SignalStyle } from '../../ui/signal.js'
+import type { CheapClassReading, CheapReading } from './cheap.js'
 import type { LedgerSummary, Reconciliation, TokenCount } from './ledger.js'
 import type { CostReport, CostStatus } from './source.js'
 import type { TurnSummary } from './turns.js'
 import type { WorkflowRun } from './usage.js'
+import { renderSignal, themePainter } from '../../ui/signal.js'
+import { MINIMUM_SAMPLE } from './sample.js'
 import { TURN_JOURNAL_FILE } from './turns.js'
 import { add, billable, emptyUsage, PRICE_RELATIVE_TO_INPUT, weighted } from './usage.js'
 
@@ -72,6 +76,40 @@ function printTurns(ui: Ui, turns: TurnSummary): void {
     ui.glitch(ui.lore.turnsMalformed(turns.malformed.length), turns.malformed.map(entry => `line ${entry.line}: ${entry.reason}`))
 }
 
+function tenths(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function cheapSignal(ui: Ui, cheap: CheapReading, { forecast, tasks }: CheapClassReading): Signal {
+  return {
+    CONTRACT: ui.lore.costCheapContract(forecast.taskClass, cheap.shiftRoot),
+    EXPECT: forecast.kind === 'forecast'
+      ? ui.lore.costCheapForecast(fmt(forecast.tokens), tenths(forecast.minutes), forecast.taskClass, forecast.n)
+      : ui.lore.costCheapNone(forecast.taskClass, forecast.n, MINIMUM_SAMPLE),
+    ACTION: ui.lore.costCheapAction(tasks, forecast.n, cheap.projectsDir),
+    RESULT: forecast.kind === 'forecast' ? ui.lore.costCheapResultForecast : ui.lore.costCheapResultNone,
+  }
+}
+
+function printCheap(ui: Ui, cheap: CheapReading | undefined): void {
+  if (cheap == null)
+    return
+  const style: SignalStyle = { ascii: ui.theme.name === 'plain', paint: themePainter(ui.theme) }
+  const blocks = cheap.classes.length === 0
+    ? [renderSignal(ui.lore.costCheapNoTasksTitle, {
+        CONTRACT: ui.lore.costCheapNoTasksContract(cheap.shiftRoot),
+        EXPECT: ui.lore.costCheapNoTasksExpect(cheap.shiftRoot),
+        ACTION: ui.lore.costCheapNoTasksAction(cheap.shiftRoot),
+        RESULT: ui.lore.costCheapResultNone,
+      }, style, 'grey')]
+    : cheap.classes.map(reading => renderSignal(ui.lore.costCheapTitle(reading.forecast.taskClass), cheapSignal(ui, cheap, reading), style, reading.forecast.kind === 'forecast' ? undefined : 'grey'))
+  for (const block of blocks) {
+    ui.line()
+    for (const line of block)
+      ui.line(line)
+  }
+}
+
 function printRuns(ui: Ui, runs: WorkflowRun[]): void {
   const grand = emptyUsage()
   for (const run of runs) {
@@ -109,5 +147,6 @@ export function printCost(ui: Ui, report: CostReport, last: boolean): number {
   }
   printLedger(ui, report.ledger, report.reconciliation)
   printTurns(ui, report.turns)
+  printCheap(ui, report.cheap)
   return COST_EXIT[report.status]
 }

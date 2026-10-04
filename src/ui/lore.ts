@@ -96,6 +96,17 @@ export interface Lore {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => string
   ledgerEntryWithoutSession: string
   ledgerSessionWithoutEntry: string
+  costCheapTitle: (taskClass: string) => string
+  costCheapContract: (taskClass: string, shiftRoot: string) => string
+  costCheapForecast: (tokens: string, minutes: number, taskClass: string, n: number) => string
+  costCheapNone: (taskClass: string, n: number, minimum: number) => string
+  costCheapAction: (tasks: number, counted: number, projectsDir: string) => string
+  costCheapResultForecast: string
+  costCheapResultNone: string
+  costCheapNoTasksTitle: string
+  costCheapNoTasksContract: (shiftRoot: string) => string
+  costCheapNoTasksExpect: (shiftRoot: string) => string
+  costCheapNoTasksAction: (shiftRoot: string) => string
   graphNothingDrawn: (reading: string) => string
   syncTitle: string
   syncClasses: string
@@ -341,6 +352,17 @@ export const LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the traces it claims: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
+  costCheapTitle: (taskClass: string) => `cost \u00B7 cheap ${taskClass}`,
+  costCheapContract: (taskClass: string, shiftRoot: string) => `finished cheap tasks of class ${taskClass} in the shift journals under ${shiftRoot}`,
+  costCheapForecast: (tokens: string, minutes: number, taskClass: string, n: number) => `tokens \u2248 ${tokens} (input, cache writes and output; cache reads left out), minutes \u2248 ${minutes} \u2014 class ${taskClass}, n=${n}, median`,
+  costCheapNone: (taskClass: string, n: number, minimum: number) => `none: ${n} finished cheap task${n === 1 ? '' : 's'} of ${taskClass} with every session readable, fewer than ${minimum}, so no forecast`,
+  costCheapAction: (tasks: number, counted: number, projectsDir: string) => `read ${tasks} finished task${tasks === 1 ? '' : 's'} of the class; ${counted} with every session in ${projectsDir}`,
+  costCheapResultForecast: 'forecast for the next task of this class',
+  costCheapResultNone: 'no forecast for this class',
+  costCheapNoTasksTitle: 'cost \u00B7 cheap',
+  costCheapNoTasksContract: (shiftRoot: string) => `finished cheap tasks in the shift journals under ${shiftRoot}`,
+  costCheapNoTasksExpect: (shiftRoot: string) => `none: finished cheap tasks not recorded in ${shiftRoot}`,
+  costCheapNoTasksAction: (shiftRoot: string) => `read ${shiftRoot}/*/shift.jsonl`,
   graphNothingDrawn: (reading: string) => `NO SIGNAL: ${reading}`,
   syncTitle: 'BRAINDANCE \u2014 ENGRAM REPLAY',
   syncClasses: 'PATH CLASSES',
@@ -629,6 +651,17 @@ export const PLAIN_LORE: Lore = {
   ledgerDrift: (entriesWithoutSession: number, sessionsWithoutEntry: number, unjoinable: number) => `Ledger against the runtime: ${entriesWithoutSession} entries with no session, ${sessionsWithoutEntry} sessions with no entry, ${unjoinable} entries with no run id.`,
   ledgerEntryWithoutSession: 'logged as a run, no session behind it',
   ledgerSessionWithoutEntry: 'ran, never logged',
+  costCheapTitle: (taskClass: string) => `cost \u00B7 cheap ${taskClass}`,
+  costCheapContract: (taskClass: string, shiftRoot: string) => `finished cheap tasks of class ${taskClass} in the shift journals under ${shiftRoot}`,
+  costCheapForecast: (tokens: string, minutes: number, taskClass: string, n: number) => `tokens \u2248 ${tokens} (input, cache writes and output; cache reads left out), minutes \u2248 ${minutes} \u2014 class ${taskClass}, n=${n}, median`,
+  costCheapNone: (taskClass: string, n: number, minimum: number) => `none: ${n} finished cheap task${n === 1 ? '' : 's'} of ${taskClass} with every session readable, fewer than ${minimum}, so no forecast`,
+  costCheapAction: (tasks: number, counted: number, projectsDir: string) => `read ${tasks} finished task${tasks === 1 ? '' : 's'} of the class; ${counted} with every session in ${projectsDir}`,
+  costCheapResultForecast: 'forecast for the next task of this class',
+  costCheapResultNone: 'no forecast for this class',
+  costCheapNoTasksTitle: 'cost \u00B7 cheap',
+  costCheapNoTasksContract: (shiftRoot: string) => `finished cheap tasks in the shift journals under ${shiftRoot}`,
+  costCheapNoTasksExpect: (shiftRoot: string) => `none: finished cheap tasks not recorded in ${shiftRoot}`,
+  costCheapNoTasksAction: (shiftRoot: string) => `read ${shiftRoot}/*/shift.jsonl`,
   graphNothingDrawn: (reading: string) => reading,
   syncTitle: 'Sync report',
   syncClasses: 'Classes',
