@@ -112,7 +112,7 @@ describe('a1: init plans merges and appends where attach plans only creates', ()
     expect(porcelain(dir)).toBe('')
   })
 
-  it('attach plans only create ops, one per carrier and one for the guard', () => {
+  it('attach plans only create ops, one per carrier, one for the guard and one for its parser', () => {
     const dir = fixture()
     const ops = planCarriers(dir, HARNESS)
     expect(ops.map(op => op.action)).toEqual(ops.map(() => 'create'))
@@ -121,7 +121,7 @@ describe('a1: init plans merges and appends where attach plans only creates', ()
 })
 
 describe('a2: attach leaves the tracked tree untouched and records what it did', () => {
-  it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records eight hashes matching disk', async () => {
+  it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records a hash per recorded file matching disk', async () => {
     const dir = fixture()
     const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
     expect(result.status).toBe('done')
