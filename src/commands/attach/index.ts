@@ -55,6 +55,7 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'no-git': lore => lore.attachRefusedNoGit,
   'linked-git': lore => lore.attachRefusedLinkedGit,
   'constructed': lore => lore.attachRefusedConstructed,
+  'attached': lore => lore.attachRefusedAttached,
   'nothing-to-attach': lore => lore.attachRefusedNothingToAttach,
   'collision': (lore, { paths, collision }) => {
     if (collision == null)

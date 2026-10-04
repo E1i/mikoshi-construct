@@ -1085,6 +1085,7 @@ Every check runs before anything is written, in this order, and a refusal create
 | `<dir>/.git` does not exist | `Refused: not a git repository.` |
 | `<dir>/.git` is a file (a worktree or a submodule) | `Refused: .git is a file (worktree or submodule); attach needs the .git directory.` |
 | `construct.json` exists | `Refused: this repository already carries a construct; use init or sync.` |
+| `.construct/attach.json` exists | `Refused: this repository is already attached (.construct/attach.json is here); run \`construct detach\` first.` |
 | the directory holds nothing but `.git` and the files an empty directory may hold (`README.md`, `LICENSE`, editor settings) | `Refused: this repository holds nothing to attach to.` |
 | a path attach would create already exists | `Refused: N paths attach would create already exist:`, then why and the next step, then the paths, each labelled `construct's own: byte for byte the template of <date>` or `not recognised: attach never writes over it` (see [A collision](#a-collision)) |
 | `.claude/settings.local.json` exists and `.git/index` cannot be read (version 4, split, sparse or an unknown object format) | `Refused: .claude/settings.local.json exists and .git/index cannot be read here, so whether git tracks it cannot be told.`, then why and next |

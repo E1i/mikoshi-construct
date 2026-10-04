@@ -61,6 +61,7 @@ Every refusal happens before anything is written. The full list with the exact o
 | not a git repository | Run it at the root of a git repository. |
 | `.git` is a file | You are in a worktree or a submodule. Run it in the main checkout; worktrees are not supported yet. |
 | `construct.json` is here | The repository already carries a construct. Use `sync` and `doctor`, not `attach`. |
+| `.construct/attach.json` is here | The repository is already attached, even if its carriers are gone. Run `construct detach` first. |
 | nothing to attach to | The directory holds only `.git` and files such as a README or a LICENSE. attach works on any stack; it needs something to attach to and a harness command. |
 | paths already exist | A file attach would create is already there, and it is yours. Move it aside or keep working without attach; attach never writes over it. |
 | `.claude/settings.local.json` is tracked, unreadable, or already carries a guard entry | attach will not edit it. Stop tracking it, fix it or move it aside, then attach again. |
