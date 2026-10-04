@@ -1,4 +1,4 @@
-import type { SignalStyle } from '../../src/ui/signal.js'
+import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
 import type { JournalEntry } from './journal.js'
@@ -16,10 +16,11 @@ import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { writeAgreedText } from './agreed.js'
 import { checkApproval } from './approval.js'
 import { tiedArgsSha256 } from './args-chain.js'
+import { ENTRY_RESULT, entryEvent } from './entry.js'
 import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
 import { runInstall } from './install.js'
-import { appendJournalLine } from './journal.js'
+import { appendJournalEvent, appendJournalLine } from './journal.js'
 import { countLedgerLines, readLadderOutcome } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
 import { readResultFields } from './result.js'
@@ -198,15 +199,19 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
 
 const ACCEPTANCE_LINE = /^Acceptance:/m
 
-function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
+function signalOf(task: PreparedTask, baseSha: string): Signal {
   const approved = task.approvedSha256.slice(0, 7)
   const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law not recorded in the brief'
-  return renderSignal(`ghosts:launch ${task.id}`, {
+  return {
     CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved} · ${law}`,
     EXPECT: task.expected === null ? `expect not recorded in the brief${formatStepBreakdown(task.stepsExpected)}` : formatExpect(task.expected, task.stepsExpected),
     ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketch(task.sketch)}, report ${task.reportPath}, session ${task.sessionId}`,
-    RESULT: `— not launched; the outcome line ${task.id}: … follows the yes`,
-  }, style)
+    RESULT: ENTRY_RESULT,
+  }
+}
+
+function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
+  return renderSignal(`ghosts:launch ${task.id}`, signalOf(task, baseSha), style)
 }
 
 function errorMessage(error: unknown): string {
@@ -368,6 +373,8 @@ async function main(): Promise<void> {
 
   const journalPath = path.join(out, 'ghosts.jsonl')
   const ctx: TaskContext = { repo, statusPath: status, journalPath, baseSha, out, matrixPath: matrix }
+  for (const task of prepared)
+    await appendJournalEvent(journalPath, entryEvent(task.id, signalOf(task, baseSha), new Date().toISOString()))
   const results = await Promise.all(prepared.map(task => launchTask(ctx, task)))
 
   let allOk = true

@@ -24,8 +24,9 @@ npx mikoshi-construct detach
 
 ## What attach creates, and what it leaves alone
 
-It creates eight files: the `/plan` command, the `/implement` skill, the three agents, the ladder
-script, the acceptance check the skill runs before the ladder, and the commit guard
+It creates ten files: the `/plan` command, the `/implement` skill, the three agents, the ladder
+script, the acceptance check the skill runs before the ladder, the browser witness, the baseline
+runner, and the commit guard
 `.construct/commit-guard.mjs`. It hides them, and `.construct/`, through a block in
 `.git/info/exclude`, so `git status` stays empty. It records what it created, with a hash per file, in
 `.construct/attach.json`.
@@ -40,7 +41,7 @@ carries a guard entry. The details are in the [CLI reference](/cli#the-commit-gu
 
 It leaves alone every tracked file, `CLAUDE.md` and `AGENTS.md`, your lint, test and workspace
 configuration, and CI. It writes no `construct.json`, no model and no discovery markers. `.git/info/`
-and the entry in `.claude/settings.local.json` are the only places outside the eight files and
+and the entry in `.claude/settings.local.json` are the only places outside the ten files and
 `.construct/` that it touches, and nothing there is committed.
 
 **The harness command is never guessed.** Pass the command your repository already uses to check a

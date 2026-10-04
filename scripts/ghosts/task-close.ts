@@ -1,3 +1,4 @@
+import type { SignalStyle } from '../../src/ui/signal.js'
 import type { Card } from './card.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -5,8 +6,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
+import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { entryOf } from './entry.js'
 
 export const PREFIX = '[task:close] '
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word>'
@@ -40,6 +43,7 @@ export interface TaskCloseDeps {
   exists: (file: string) => boolean
   session: string | undefined
   projectsDir: string
+  style?: SignalStyle
 }
 
 export interface TaskCloseResult {
@@ -123,7 +127,8 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   if (!(VERIFICATION_WORDS as readonly string[]).includes(verification))
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const start = startLineOf(deps.read(journal) ?? '', id)
+  const journalText = deps.read(journal) ?? ''
+  const start = startLineOf(journalText, id)
   if (start === undefined)
     return refuse(`${journal} has no task:start line with a card for #${id}; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
   const outcome = OUTCOME_OF_KIND[start.card.kind]
@@ -144,7 +149,15 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   catch (error) {
     return refuse(`the closing line could not be written to ${journal}: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
   }
-  return { stdout: [`${PREFIX}#${id} closed with ${outcome === '--pr' ? `PR #${value}` : `report ${report}`}, verification ${verification}; line written to ${journal}`, ...unplacedLine(deps, start, sessions)], stderr: [], exitCode: 0 }
+  const entry = entryOf(journalText, id)
+  const closed = `closed ${verification} · ${outcome === '--pr' ? `PR #${value}` : `report ${report}`} · line written to ${journal}`
+  const card = renderSignal(`task:close #${id} ${start.card.name}`, {
+    CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${journal}: no entry line for #${id}`,
+    EXPECT: entry?.EXPECT ?? `expect not recorded in ${journal}: no entry line for #${id}`,
+    ACTION: `task:close #${id} ${outcome} ${value} --verification ${verification}`,
+    RESULT: closed,
+  }, deps.style ?? PLAIN_STYLE)
+  return { stdout: [...card, ...unplacedLine(deps, start, sessions)], stderr: [], exitCode: 0 }
 }
 
 function realDeps(): TaskCloseDeps {
@@ -160,6 +173,7 @@ function realDeps(): TaskCloseDeps {
     exists: existsSync,
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),
+    style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
   }
 }
 
