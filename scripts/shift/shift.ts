@@ -4,6 +4,7 @@ import type { TaskStartDeps } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { OpenPr } from './overlap.js'
+import type { Choice } from './parking.js'
 import type { TaskLine } from './places.js'
 import type { ShiftTask } from './task-file.js'
 import { execFileSync } from 'node:child_process'
@@ -23,15 +24,19 @@ import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
+import { choose, parseParkingFile, SHIFT_WHO } from './parking.js'
 import { closedTasks, eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 import { parseTaskFile, TASK_FILE } from './task-file.js'
 
 export const PREFIX = '[shift] '
 export const USAGE = [
-  'usage: pnpm shift <dir> [--check]',
+  'usage: pnpm shift <dir> [--parking <parking>] [--check]',
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
+  `With --parking, the tasks come from <parking>/<id>.md instead: the same header plus who: and an optional priority: p0.`,
+  `The shift takes every card with who: ${SHIFT_WHO} whose depends are closed in the journal and which is not closed itself,`,
+  'p0 first, then by id, and leaves a card whose touches overlap one already taken; <dir> keeps the journal and the reports.',
   'A task file starts with a header and a blank line, then the prompt:',
   '  card: #<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>',
   '  branch: <branch>',
@@ -75,13 +80,31 @@ function refuse(deps: ShiftDeps, lines: string[]): number {
   return 1
 }
 
+function taskFiles(deps: ShiftDeps, dir: string): string[] {
+  return deps.listDir(dir).filter(file => TASK_FILE.test(file)).sort((a, b) => Number(TASK_FILE.exec(a)![1]) - Number(TASK_FILE.exec(b)![1]) || a.localeCompare(b))
+}
+
 function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: string[] } {
-  const files = deps.listDir(dir).filter(file => TASK_FILE.test(file)).sort((a, b) => Number(TASK_FILE.exec(a)![1]) - Number(TASK_FILE.exec(b)![1]) || a.localeCompare(b))
-  const parsed = files.map(file => parseTaskFile(file, deps.read(path.join(dir, file))))
+  const parsed = taskFiles(deps, dir).map(file => parseTaskFile(file, deps.read(path.join(dir, file))))
   return {
     tasks: parsed.flatMap(entry => entry.kind === 'task' ? [entry.task] : []),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
+}
+
+function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
+  const parsed = taskFiles(deps, parking).map(file => parseParkingFile(file, deps.read(path.join(parking, file))))
+  const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  const closed = new Set(closedTasks(deps.exists(journal) ? deps.read(journal) : null).keys())
+  return {
+    choice: choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), closed),
+    errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
+  }
+}
+
+function choiceLines(choice: Choice): string[] {
+  const taken = choice.chosen.length === 0 ? 'none' : choice.chosen.map(task => `#${task.id}`).join(', ')
+  return [`${PREFIX}parking: takes ${taken}`, ...choice.left.map(card => `${PREFIX}parking: leaves #${card.id} (${card.reason})`)]
 }
 
 function openPrs(gh: GhRunner): OpenPr[] | string {
@@ -170,18 +193,27 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     return 0
   }
   const check = argv.includes('--check')
-  const rest = argv.filter(arg => arg !== '--check')
-  if (rest.length !== 1 || rest[0]!.startsWith('-'))
+  const parkingAt = argv.indexOf('--parking')
+  const parkingArg = parkingAt === -1 ? undefined : argv[parkingAt + 1]
+  const rest = argv.filter((arg, index) => arg !== '--check' && (parkingAt === -1 || (index !== parkingAt && index !== parkingAt + 1)))
+  if (rest.length !== 1 || rest[0]!.startsWith('-') || (parkingAt !== -1 && (parkingArg === undefined || parkingArg.startsWith('-'))))
     return refuse(deps, [USAGE.split('\n')[0]!])
   const dir = path.resolve(deps.cwd, rest[0]!)
   const journal = path.join(dir, SHIFT_JOURNAL)
   if (deps.exists(journal))
     return refuse(deps, [`${journal} exists: this shift already ran; start a new one in a new directory`])
-  const { tasks, errors } = readTasks(deps, dir)
+  const parking = parkingArg === undefined ? undefined : path.resolve(deps.cwd, parkingArg)
+  const read = parking === undefined ? { ...readTasks(deps, dir), choice: undefined } : readParking(deps, parking)
+  const { errors } = read
   if (errors.length > 0)
     return refuse(deps, errors)
+  if (read.choice !== undefined) {
+    for (const line of choiceLines(read.choice))
+      deps.out(line)
+  }
+  const tasks = read.choice?.chosen ?? ('tasks' in read ? read.tasks : [])
   if (tasks.length === 0)
-    return refuse(deps, [`no NN.md task file in ${dir}`])
+    return refuse(deps, [parking === undefined ? `no NN.md task file in ${dir}` : `no card in ${parking} is for the shift now`])
   const conflicts = taskConflicts(tasks)
   if (conflicts.length > 0)
     return refuse(deps, ['tasks of one shift declare overlapping touches; nothing started', ...conflicts])
@@ -193,7 +225,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const claude = deps.claude?.trim() ?? ''
   if (claude === '')
     return refuse(deps, [`${CLAUDE_VARIABLE} is not set; it names the claude command (see --help)`])
-  deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file) })}\n`)
+  const parked = read.choice === undefined ? {} : { parking, left: read.choice.left }
+  deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
   let clean = true
   for (const task of tasks) {
     for (const line of startBlock(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir), deps.style ?? PLAIN_STYLE))

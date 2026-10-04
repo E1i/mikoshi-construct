@@ -297,6 +297,60 @@ describe('w5: touches that meet an open pull request warn, and the shift starts'
   })
 })
 
+function parkedCard(dir: string, id: string, header: string, touches = `scripts/${id}/**`): void {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n`)
+}
+
+describe('w9: with --parking the shift takes the cards whose who is shift', () => {
+  it('w9: runs only the cards for the shift, p0 first, prints what it took and left, and records the choice in the journal', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    parkedCard(parking, '40', 'who: shift\npriority: p0')
+    parkedCard(parking, '20', 'who: window')
+    parkedCard(parking, '50', 'who: shift')
+    mkdirSync(world.handoff, { recursive: true })
+    writeFileSync(path.join(world.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'path', task: '50', path: 'cheap', pr: 1, verification: 'run' })}\n`)
+    const io = captured()
+    expect(await runShift([world.shift, '--parking', parking], shiftDeps(world, io))).toBe(0)
+    expect(io.out.slice(0, 3)).toEqual(['[shift] parking: takes #40, #30', '[shift] parking: leaves #20 (who window)', '[shift] parking: leaves #50 (closed)'])
+    const lines = jsonl(path.join(world.shift, 'shift.jsonl'))
+    expect(lines[0]).toMatchObject({ event: 'start', tasks: ['40.md', '30.md'], parking, left: [{ id: '20', reason: 'who window' }, { id: '50', reason: 'closed' }] })
+    expect(lines.filter(line => line.event === 'task').map(line => [line.task, line.exit])).toEqual([['40', 0], ['30', 0]])
+    expect([stubRuns(world, '20'), stubRuns(world, '50')]).toEqual([0, 0])
+    expect(readFileSync(path.join(world.shift, 'report-40.md'), 'utf8')).toContain('result: did mc-40')
+  })
+
+  it('w9: a parking with no card for the shift refuses and cuts nothing', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '20', 'who: window')
+    const io = captured()
+    expect(await runShift([world.shift, '--parking', parking], shiftDeps(world, io))).toBe(1)
+    expect(io.err).toEqual([`[shift] no card in ${parking} is for the shift now`])
+    expect(readdirSync(world.stubOut)).toEqual([])
+  })
+
+  it('w9: --parking ignores the NN.md files in the shift directory, and --check prints the choice and starts nothing', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
+    parkedCard(parking, '30', 'who: shift')
+    const io = captured()
+    expect(await runShift([world.shift, '--parking', parking, '--check'], shiftDeps(world, io))).toBe(0)
+    expect(io.out).toEqual(['[shift] parking: takes #30', '[shift] check passed: 30.md'])
+    expect(readdirSync(world.stubOut)).toEqual([])
+  })
+
+  it('w9: --parking without a directory refuses with the usage line', async () => {
+    const world = newWorld()
+    const io = captured()
+    expect(await runShift([world.shift, '--parking'], shiftDeps(world, io))).toBe(1)
+    expect(io.err).toEqual(['[shift] usage: pnpm shift <dir> [--parking <parking>] [--check]'])
+  })
+})
+
 describe('--check and a shift that already ran', () => {
   it('--check reports the tasks and the open-PR warnings and starts nothing', async () => {
     const world = newWorld()
