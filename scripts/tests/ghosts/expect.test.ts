@@ -81,7 +81,7 @@ describe('briefEffort', () => {
 })
 
 describe('formatStepBreakdown', () => {
-  const steps = [{ kind: 'forecast', step: 'implement', effort: 'medium', tokens: 100_000, minutes: 5, n: 5 } as const]
+  const steps = [{ kind: 'forecast', step: 'implement', effort: 'medium', tokens: 100_000, p25: 80_000, p75: 120_000, minutes: 5, n: 5 } as const]
 
   it('is empty for no steps', () => {
     expect(formatStepBreakdown([])).toBe('')

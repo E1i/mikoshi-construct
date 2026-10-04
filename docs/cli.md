@@ -1509,7 +1509,7 @@ never added to the runs' figures above.
 
 ### A forecast by task class
 
-`pnpm ghosts:expect-sample [<class>] --effort <low|medium|high>` prints the `expect:` line a brief
+`pnpm ghosts:expect-sample [<class>] --effort <low|medium|high> [--sketch <yes|no>]` prints the `expect:` line a brief
 carries, ready to paste as its line 3. The sample is the one the brief and the launcher read: the done
 runs of the asked effort in the run ledgers (`--runs`, repeatable, by default `.construct/runs.jsonl`
 here). It writes no file. A Ghost's ladder writes its ledger in the Ghost's own worktree, and
@@ -1521,7 +1521,8 @@ its `effort` matches; a run named twice counts once. A class is optional: with o
 (`--journal`, by default `ghosts.jsonl` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`) is read
 too, and only rows whose `run` a journal line with `event: task` and that `class` names count.
 
-The line is `expect: tokens ≈ <median>, minutes ≈ <median> — effort <e>, n=<n>, median` from five or
+Every figure comes from the last 20 counted rows by `at`, not the whole history. The line is
+`expect: tokens ≈ <median>, minutes ≈ <median> — effort <e>, n=<n>, median, p25–p75 <p25>–<p75>` from five or
 more counted rows, `expect: none — n=<n> for <selection>` from fewer, and
 `expect: none — the sample for <selection> mixes efforts …; pass --effort` without `--effort` when the
 rows span more than one. After it, separated by `; `, come the sources read (`ledger <path>`, and
@@ -1531,6 +1532,17 @@ rows span more than one. After it, separated by `; `, come the sources read (`le
 is the reason itself — `runs not recorded in <ledger>`, `task lines not recorded in <journal>`,
 `class not recorded on <N> lines in <journal>` — never a bare `n=0`. Each counted row follows as
 `<run>  tokens <n>  minutes <m>`; a journal line that is not JSON is named on stderr.
+
+With `--effort`, a `step <step> …` line follows per ladder step, from the last 20 runs that have it, and
+`--sketch yes` or `--sketch no` takes the `implement` step only from runs whose Ghost-journal `task` line
+carries a sketch or `sketch: null`; runs the journal does not name are counted on neither side and named
+as `<N> runs without a sketch record in <journal> not counted for implement`. A `role <brief|scan|review> …`
+line per role reads the `subagent` lines of `.construct/turns.jsonl`, one run per `agent`, in the same unit
+(input, cache writes and output), with `minutes not recorded`. Then
+`contour tokens ≈ <sum>, p25–p75 <sum>–<sum> (sum of step bands) — covers …; not covered: <step> (<reason>)`
+adds the medians and the band edges of every step and role with a sample; it is a sum of bands, not a
+quantile of past contours, because a role run is not tied to a task. Any figure from fewer than five
+runs is `none — <reason>`, never the overall median.
 
 ## construct board
 

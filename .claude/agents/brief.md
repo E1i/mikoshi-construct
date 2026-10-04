@@ -22,8 +22,9 @@ them, and `Secret scan` in `.github/workflows/security.yml`. No one command runs
 files when you run it.
 
 Line 3 of the `/implement` text, right after `Sketch:`, may carry the forecast the journal later sets beside the run:
-`expect: tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median`, followed by its sources
-and the rows it left out. Run `pnpm ghosts:expect-sample --effort <the brief's effort>` in the main tree and paste its
+`expect: tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median, p25–p75 <num>–<num>`, followed by
+its sources and the rows it left out. Run `pnpm ghosts:expect-sample --effort <the brief's effort> --sketch <yes|no>` in
+the main tree, `yes` when the brief names a sketch on its `Sketch:` line and `no` for `Sketch: none`, and paste its
 first line verbatim; never count the rows yourself. Below five rows it prints `expect: none — <reason>` itself; the
 launcher refuses a forecast from fewer, and an `expect:` line anywhere but line
 3.

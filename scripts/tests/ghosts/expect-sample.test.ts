@@ -87,12 +87,12 @@ describe('expectSample', () => {
 
   it('takes the median over the runs of the class, not over every run in the ledger', () => {
     const result = sample([...R2_JOURNAL, ...R1_JOURNAL], [...SIX_R1, ...FIVE_R2], 'R2')
-    expect(result.line).toBe(`expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median; ledger runs.jsonl; journal ghosts.jsonl`)
+    expect(result.line).toBe(`expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median, p25–p75 200k–400k; ledger runs.jsonl; journal ghosts.jsonl`)
   })
 
   it('prints a line parseExpect reads back as the same forecast', () => {
     const { line } = sample(R2_JOURNAL, FIVE_R2, 'R2')
-    expect(parseExpect(`${HEAD}\n${line}`)).toEqual({ kind: 'forecast', tokens: 300_000, minutes: 30, basis: { effort: 'medium', n: 5 } })
+    expect(parseExpect(`${HEAD}\n${line}`)).toEqual({ kind: 'forecast', tokens: 300_000, minutes: 30, basis: { effort: 'medium', n: 5 }, band: { p25: 200_000, p75: 400_000 } })
     expect(parseExpect(`${HEAD}\n${sample([], [], 'R2').line}`)).toEqual({ kind: 'none', reason: 'class R2 not recorded in ghosts.jsonl; ledger runs.jsonl; journal ghosts.jsonl' })
   })
 
@@ -105,7 +105,7 @@ describe('expectSample', () => {
   it('keeps only the asked effort, and names it as the basis', () => {
     const highRuns = FIVE_R2.map(row => ({ ...row, run: `${row.run}-high`, effort: 'high', tokens: row.tokens * 2 }))
     const journal = [...R2_JOURNAL, ...highRuns.map(row => journalTask(`${row.task}-high`, row.run, 'R2'))]
-    expect(sample(journal, [...FIVE_R2, ...highRuns], 'R2', 'high').line).toBe(`expect: tokens ${APPROX} 600k, minutes ${APPROX} 30 ${DASH} effort high, n=5, median; ledger runs.jsonl; journal ghosts.jsonl`)
+    expect(sample(journal, [...FIVE_R2, ...highRuns], 'R2', 'high').line).toBe(`expect: tokens ${APPROX} 600k, minutes ${APPROX} 30 ${DASH} effort high, n=5, median, p25–p75 400k–800k; ledger runs.jsonl; journal ghosts.jsonl`)
     expect(sample(journal, [...FIVE_R2, ...highRuns], 'R2').line).toBe(`expect: none ${DASH} the sample for class R2 mixes efforts high, medium; pass --effort; ledger runs.jsonl; journal ghosts.jsonl`)
   })
 
@@ -129,14 +129,14 @@ describe('one ladder sample for the CLI and the library', () => {
     const root = repositoryWith(ledger)
     const library = ladderSample({ ledgers: [{ source: path.join(root, '.construct/runs.jsonl'), lines: ledger }], effort: 'medium' }, [])
     const [line] = cli(root, ['--effort', 'medium'])
-    expect(library.line).toBe(`expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median; ledger ${path.join(root, '.construct/runs.jsonl')}`)
+    expect(library.line).toBe(`expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median, p25–p75 200k–400k; ledger ${path.join(root, '.construct/runs.jsonl')}`)
     expect(line).toBe(library.line)
   })
 
   it('counts only the rows the ledger parser accepts and names the rejected ones with their source', () => {
     const root = repositoryWith([...SIX_OLD_SCHEMA, ...FIVE_MEDIUM.map(ledgerLine)])
     const ledger = path.join(root, '.construct/runs.jsonl')
-    expect(cli(root, ['--effort', 'medium'])[0]).toBe(`expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median; ledger ${ledger}; 6 rows the ledger parser rejects not counted in ${ledger} (6 missing or invalid: attempts[0].reason)`)
+    expect(cli(root, ['--effort', 'medium'])[0]).toBe(`expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median, p25–p75 200k–400k; ledger ${ledger}; 6 rows the ledger parser rejects not counted in ${ledger} (6 missing or invalid: attempts[0].reason)`)
   })
 
   it('names the class not recorded in the journal instead of printing n=0', () => {
@@ -154,7 +154,7 @@ describe('one ladder sample for the CLI and the library', () => {
 
   it('prints a forecast line with its sources that parseExpect still reads as the forecast', () => {
     const { line } = ladderSample({ ledgers: [{ source: 'runs.jsonl', lines: [...SIX_OLD_SCHEMA, ...FIVE_MEDIUM.map(ledgerLine)] }], effort: 'medium' }, [])
-    expect(parseExpect(`${HEAD}\n${line}`)).toEqual({ kind: 'forecast', tokens: 300_000, minutes: 30, basis: { effort: 'medium', n: 5 } })
+    expect(parseExpect(`${HEAD}\n${line}`)).toEqual({ kind: 'forecast', tokens: 300_000, minutes: 30, basis: { effort: 'medium', n: 5 }, band: { p25: 200_000, p75: 400_000 } })
   })
 })
 

@@ -12,8 +12,8 @@ EXPECT_FORECAST_LINE='expect: tokens ≈ 166k, minutes ≈ 12 — effort medium,
 EXPECT_NONE_LINE='expect: none — n=3 for effort low'
 EXPECT_MALFORMED_LINE='expect: tokens ≈ lots — effort medium, n=61, median'
 EXPECT_MISPLACED_LINE='expect: none — written below the blank line'
-EXPECT_STEPS_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5 — n=5; design none — n=3 for medium/design; implement tokens ≈ 100k, minutes ≈ 5 — n=5; verify tokens ≈ 20k, minutes ≈ 1 — n=5'
-EXPECT_UNCACHED_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5 — n=5; design none — n=0 for medium/design; implement tokens ≈ 100k, minutes ≈ 5 — n=5; verify tokens ≈ 20k, minutes ≈ 1 — n=5'
+EXPECT_STEPS_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5, p25–p75 20k–40k — n=5; design none — n=3 for medium/design; implement tokens ≈ 100k, minutes ≈ 5, p25–p75 100k–100k — n=5; verify tokens ≈ 20k, minutes ≈ 1, p25–p75 20k–20k — n=5'
+EXPECT_UNCACHED_DESCRIPTION='by step (effort medium, median): preflight tokens ≈ 30k, minutes ≈ 0.5, p25–p75 30k–30k — n=5; design none — n=0 for medium/design; implement tokens ≈ 100k, minutes ≈ 5, p25–p75 100k–100k — n=5; verify tokens ≈ 20k, minutes ≈ 1, p25–p75 20k–20k — n=5'
 CLEAN_SKETCH_REASON='world fixture'
 FAILING_EXIT=3
 

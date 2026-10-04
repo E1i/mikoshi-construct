@@ -10,7 +10,8 @@ kind `ghosts` were added the same day, also at Eli's instruction, with Eli's glo
 which was not written here then; window A added it on 2026-09-29 at Eli's instruction. The glob `templates/attach/**` under `own-instructions` is Eli's decision of 2026-09-30, added by window A
 at Eli's instruction. On 2026-10-04, at Eli's instruction (task #35), the coordinating window replaced the glob
 `scripts/ghosts/**` of the kind `ghosts` with Eli's 13 paths, added the plain list below with Eli's 15 paths, and added
-`architecture/owner-merges.md` to `own-instructions`: the file that decides who merges is never auto-merged.
+`architecture/owner-merges.md` to `own-instructions`: the file that decides who merges is never auto-merged. On 2026-10-04, at Eli's
+instruction (task #167), the coordinating window added `scripts/ghosts/role-sample.ts` to the plain list.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -45,6 +46,7 @@ below, which the window merges through auto-merge. A new file is merged only onc
 | `scripts/ghosts/matrix.ts` | looks up a matrix row for printing |
 | `scripts/ghosts/milestones.ts` | the milestone names of the card grammar |
 | `scripts/ghosts/result.ts` | reads the fields of a report |
+| `scripts/ghosts/role-sample.ts` | reads role runs from `turns.jsonl` for the forecast |
 | `scripts/ghosts/status.ts` | formats the status rows |
 | `scripts/ghosts/task-close.ts` | writes the closing journal line of a window task |
 | `scripts/ghosts/watch-ledger.ts` | reads the ladder stage for `ghosts:watch` |

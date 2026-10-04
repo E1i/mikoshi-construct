@@ -28,9 +28,19 @@ export type TurnSummary
       malformed: MalformedTurnLine[]
     }
 
+export interface SubagentRecord {
+  agent: string
+  agentType: string
+  at: string
+  usage: Usage
+}
+
 interface JournalLine {
   v?: unknown
   kind?: unknown
+  agent?: unknown
+  agentType?: unknown
+  at?: unknown
   reason?: unknown
   session?: unknown
   usage?: unknown
@@ -118,4 +128,18 @@ export function readTurnJournal(root: string): TurnSummary {
     previousEnd.set(session, line.to)
   })
   return { status: 'recorded', turns, sessions: sessions.size, main, subagents, unmeasured, unread, gaps, malformed }
+}
+
+export function readSubagentRecords(root: string): SubagentRecord[] | null {
+  const file = path.join(root, TURN_JOURNAL_FILE)
+  if (!existsSync(file))
+    return null
+  return readFileSync(file, 'utf8').split('\n').flatMap((text) => {
+    const line = parsedLine(text)
+    if (line == null || problemWith(line) != null || line.kind !== 'subagent')
+      return []
+    if (typeof line.agent !== 'string' || typeof line.agentType !== 'string' || typeof line.at !== 'string')
+      return []
+    return [{ agent: line.agent, agentType: line.agentType, at: line.at, usage: line.usage as Usage }]
+  })
 }

@@ -3,18 +3,27 @@ import { MINIMUM_SAMPLE } from '../../src/commands/cost/index.js'
 import { formatStepExpect, formatTokens } from './expect-sample.js'
 
 export type Expect
-  = | { kind: 'forecast', tokens: number, minutes: number, basis: { effort: Effort, n: number } }
+  = | { kind: 'forecast', tokens: number, minutes: number, basis: { effort: Effort, n: number }, band?: TokenBand }
     | { kind: 'none', reason: string }
 
 type Effort = 'low' | 'medium' | 'high'
 
+export interface TokenBand {
+  p25: number
+  p75: number
+}
+
 const EXPECT_LINE_INDEX = 2
 const EXPECT_PREFIX = 'expect: '
 const LOOKS_LIKE_EXPECT = /^\s*expect:/i
-const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median(?:; .+)?$/
+const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median(?:, p25–p75 (\d+(?:\.\d+)?)([kM]?)–(\d+(?:\.\d+)?)([kM]?))?(?:; .+)?$/
 const NONE_AND_REASON = /^none — (\S.*)$/
 const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m
 const TOKEN_SCALE: Record<string, number> = { '': 1, 'k': 1_000, 'M': 1_000_000 }
+
+function scaled(value: string, scale: string): number {
+  return Math.round(Number(value) * TOKEN_SCALE[scale])
+}
 
 export function parseExpect(implementText: string): Expect | null {
   const lines = implementText.split('\n')
@@ -36,9 +45,10 @@ export function parseExpect(implementText: string): Expect | null {
       throw new Error(`the expect: line forecasts from n=${n}, below ${MINIMUM_SAMPLE}; write 'expect: none — <reason>' instead (${JSON.stringify(line)})`)
     return {
       kind: 'forecast',
-      tokens: Math.round(Number(forecast[1]) * TOKEN_SCALE[forecast[2]]),
+      tokens: scaled(forecast[1], forecast[2]),
       minutes: Number(forecast[3]),
       basis: { effort: forecast[4] as Effort, n },
+      ...(forecast[6] === undefined ? {} : { band: { p25: scaled(forecast[6], forecast[7]), p75: scaled(forecast[8], forecast[9]) } }),
     }
   }
 
@@ -58,7 +68,8 @@ function formatOverall(expected: Expect | null): string {
     return 'expect —'
   if (expected.kind === 'none')
     return `expect none — ${expected.reason}`
-  return `expect tokens ≈ ${formatTokens(expected.tokens)}, minutes ≈ ${expected.minutes} — effort ${expected.basis.effort}, n=${expected.basis.n}, median`
+  const band = expected.band === undefined ? '' : `, p25–p75 ${formatTokens(expected.band.p25)}–${formatTokens(expected.band.p75)}`
+  return `expect tokens ≈ ${formatTokens(expected.tokens)}, minutes ≈ ${expected.minutes} — effort ${expected.basis.effort}, n=${expected.basis.n}, median${band}`
 }
 
 export function formatStepBreakdown(steps: readonly StepExpect[]): string {
@@ -72,5 +83,5 @@ export function formatExpect(expected: Expect | null, steps: readonly StepExpect
 }
 
 function malformed(line: string): Error {
-  return new Error(`the expect: line is neither 'tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median' nor 'none — <reason>' (${JSON.stringify(line)})`)
+  return new Error(`the expect: line is neither 'tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median[, p25–p75 <num>[k|M]–<num>[k|M]]' nor 'none — <reason>' (${JSON.stringify(line)})`)
 }

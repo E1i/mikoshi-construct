@@ -51,8 +51,8 @@ describe('expect-sample by effort and step', () => {
   it('forecasts the median of each step from n >= 5 done runs of the effort, summing the attempts of a step within a run', () => {
     const { ledger, steps } = mediumSample()
     const sample = ladderSample({ ledgers: [{ source: 'runs.jsonl', lines: ledger }], effort: 'medium', runSteps: steps }, [])
-    expect(sample.steps.find(expected => expected.step === 'preflight')).toEqual({ kind: 'forecast', step: 'preflight', effort: 'medium', tokens: 30_000, minutes: 1, n: 5 })
-    expect(sample.steps.find(expected => expected.step === 'implement')).toEqual({ kind: 'forecast', step: 'implement', effort: 'medium', tokens: 80_000, minutes: 4, n: 5 })
+    expect(sample.steps.find(expected => expected.step === 'preflight')).toEqual({ kind: 'forecast', step: 'preflight', effort: 'medium', tokens: 30_000, p25: 30_000, p75: 30_000, minutes: 1, n: 5 })
+    expect(sample.steps.find(expected => expected.step === 'implement')).toEqual({ kind: 'forecast', step: 'implement', effort: 'medium', tokens: 80_000, p25: 60_000, p75: 100_000, minutes: 4, n: 5 })
   })
 
   it('writes none with n and the effort/step pair when fewer than five runs have the step', () => {
@@ -77,18 +77,18 @@ describe('expect-sample by effort and step', () => {
     const { ledger, steps } = mediumSample()
     const lines = renderSample(ladderSample({ ledgers: [{ source: 'runs.jsonl', lines: ledger }], effort: 'medium', runSteps: steps }, []))
     expect(lines.slice(0, 5)).toEqual([
-      `expect: tokens ${APPROX} 1k, minutes ${APPROX} 1 ${DASH} effort medium, n=5, median; ledger runs.jsonl`,
-      `step preflight tokens ${APPROX} 30k, minutes ${APPROX} 1 ${DASH} n=5`,
+      `expect: tokens ${APPROX} 1k, minutes ${APPROX} 1 ${DASH} effort medium, n=5, median, p25–p75 1k–1k; ledger runs.jsonl`,
+      `step preflight tokens ${APPROX} 30k, minutes ${APPROX} 1, p25–p75 30k–30k ${DASH} n=5`,
       `step design none ${DASH} n=4 for medium/design`,
-      `step implement tokens ${APPROX} 80k, minutes ${APPROX} 4 ${DASH} n=5`,
-      `step verify tokens ${APPROX} 10k, minutes ${APPROX} 0.5 ${DASH} n=5`,
+      `step implement tokens ${APPROX} 80k, minutes ${APPROX} 4, p25–p75 60k–100k ${DASH} n=5`,
+      `step verify tokens ${APPROX} 10k, minutes ${APPROX} 0.5, p25–p75 10k–10k ${DASH} n=5`,
     ])
   })
 
   it('extends the forecast launch prints with the breakdown by step', () => {
     const { ledger, steps } = mediumSample()
     const breakdown = ladderSample({ ledgers: [{ source: 'runs.jsonl', lines: ledger }], effort: 'medium', runSteps: steps }, []).steps
-    expect(formatExpect({ kind: 'none', reason: 'n=0 for any' }, breakdown)).toBe(`expect none ${DASH} n=0 for any; by step (effort medium, median): preflight tokens ${APPROX} 30k, minutes ${APPROX} 1 ${DASH} n=5; design none ${DASH} n=4 for medium/design; implement tokens ${APPROX} 80k, minutes ${APPROX} 4 ${DASH} n=5; verify tokens ${APPROX} 10k, minutes ${APPROX} 0.5 ${DASH} n=5`)
+    expect(formatExpect({ kind: 'none', reason: 'n=0 for any' }, breakdown)).toBe(`expect none ${DASH} n=0 for any; by step (effort medium, median): preflight tokens ${APPROX} 30k, minutes ${APPROX} 1, p25–p75 30k–30k ${DASH} n=5; design none ${DASH} n=4 for medium/design; implement tokens ${APPROX} 80k, minutes ${APPROX} 4, p25–p75 60k–100k ${DASH} n=5; verify tokens ${APPROX} 10k, minutes ${APPROX} 0.5, p25–p75 10k–10k ${DASH} n=5`)
   })
 })
 
