@@ -52,7 +52,8 @@ within a minute. The only difference was whether an assertion existed.
 ## What it costs
 
 Measured on this project's own repository with `construct cost`, in billable tokens (input, cache
-writes, cache reads and output summed). These figures were corrected on 2026-09-20: the command had
+writes, cache reads and output summed); `construct cost` now prints its totals without cache reads, so
+these figures are not comparable with what it prints today. These figures were corrected on 2026-09-20: the command had
 been summing every journal line, and the journal repeats one response's usage on each of its content
 blocks, so everything published before was roughly twice its true size. The comparisons are
 unaffected — the same bias ran through all of them — and the absolute numbers below are the

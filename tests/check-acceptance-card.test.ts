@@ -61,13 +61,18 @@ describe('the entry card of /implement', () => {
   it('reads CONTRACT and EXPECT from the brief and never from an estimate', () => {
     const lines = cardOf(BRIEF)
     expect(lines[1]).toBe('CONTRACT | do a thing · effort medium · 2 acceptance items · 1 immutable paths')
-    expect(lines[2]).toBe(`EXPECT   | expect ${FORECAST}`)
+    expect(lines[2]).toBe(`EXPECT   | ladder: ${FORECAST} · brief, review not recorded`)
   })
 
   it('names every value the brief does not hold as not recorded in the brief', () => {
     const lines = cardOf(BARE_BRIEF)
     expect(lines[1]).toBe('CONTRACT | do a thing · effort not recorded in the brief · acceptance not recorded in the brief · immutable not recorded in the brief')
-    expect(lines[2]).toBe('EXPECT   | expect not recorded in the brief')
+    expect(lines[2]).toBe('EXPECT   | ladder: expect not recorded in the brief · brief, review not recorded')
+  })
+
+  it('names the brief and review steps a user\'s card holds no data for, instead of leaving them out', () => {
+    for (const text of [BRIEF, BARE_BRIEF])
+      expect(cardOf(text)[2]).toMatch(/^EXPECT {3}\| ladder: .+ · brief, review not recorded$/)
   })
 
   it('is byte for byte what renderSignal prints in its plain form for the same signal', () => {

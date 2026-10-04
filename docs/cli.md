@@ -1360,7 +1360,8 @@ npx mikoshi-construct cost --last
 ```
 
 Each agent line carries its call count and its input, cache-write, cache-read and output tokens. The
-run total is printed twice: billable tokens, and an input-equivalent figure that weights cache writes
+run total is printed twice: tokens without cache reads (input, cache writes and output — the unit of the
+step split and the forecasts), and an input-equivalent figure that weights cache writes
 at 1.25, cache reads at 0.1 and output at 5, so a cheap run and an expensive one can be compared at a
 glance.
 
