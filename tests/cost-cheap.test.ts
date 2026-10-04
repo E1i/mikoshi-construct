@@ -146,7 +146,7 @@ describe('construct cost prints the cheap forecast as a signal block', () => {
     expect(block[0]).toMatch(/^---- cost · cheap implement\/S -+$/)
     expect(block.slice(1)).toEqual([
       `CONTRACT | finished cheap tasks of class implement/S in the shift journals under ${shifts}`,
-      'EXPECT   | tokens ≈ 3,000 (input, cache writes and output; cache reads left out), minutes ≈ 4 — class implement/S, n=5, median',
+      'EXPECT   | tokens ≈ 3,000 from Claude Code shift sessions (input, cache writes and output; cache reads left out), minutes ≈ 4 — class implement/S, n=5, median',
       `ACTION   | read 6 finished tasks of the class; 5 with every session in ${projects}`,
       'RESULT   | forecast for the next task of this class',
     ])
@@ -154,13 +154,13 @@ describe('construct cost prints the cheap forecast as a signal block', () => {
 
   it('moves the forecast when one task of the sample spends differently', () => {
     const { shifts, projects } = cheapWorld([1000, 2000, 9000, 4000, 5000])
-    expect(cheapBlock(costLines(shifts, projects))[2]).toBe('EXPECT   | tokens ≈ 4,000 (input, cache writes and output; cache reads left out), minutes ≈ 4 — class implement/S, n=5, median')
+    expect(cheapBlock(costLines(shifts, projects))[2]).toBe('EXPECT   | tokens ≈ 4,000 from Claude Code shift sessions (input, cache writes and output; cache reads left out), minutes ≈ 4 — class implement/S, n=5, median')
   })
 
   it('says none with n and the class below five tasks with readable sessions', () => {
     const { shifts, projects } = cheapWorld([1000, 2000, 3000, 4000])
     expect(cheapBlock(costLines(shifts, projects)).slice(2)).toEqual([
-      'EXPECT   | none: 4 finished cheap tasks of implement/S with every session readable, fewer than 5, so no forecast',
+      'EXPECT   | none: 4 finished cheap tasks of implement/S from Claude Code shift sessions with every session readable, fewer than 5, so no forecast',
       `ACTION   | read 5 finished tasks of the class; 4 with every session in ${projects}`,
       'RESULT   | no forecast for this class',
     ])
