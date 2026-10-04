@@ -1,6 +1,6 @@
 import type { PrList } from '../board/gh.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -22,6 +22,7 @@ const PREFIX = '[ghosts:cleanup] '
 const DEFAULT_LOGS_DIR = '/tmp'
 const BLOCKED_OUTCOME = /; ladder blocked; report (\S+);/
 const REMOVED_REPORT_MARK = '.removed'
+const OUTCOME_COLUMN = 6
 
 export interface Target {
   id: string
@@ -129,11 +130,16 @@ function carryTreeLines(task: Target, ctx: CleanupContext): { carried: string } 
   }
 }
 
-export function blockedReport(statusText: string | undefined, id: string): string | undefined {
+function freeOutcome(statusText: string | undefined, id: string): string | undefined {
   if (statusText === undefined || ghostRowState(statusText, id) !== 'free')
     return undefined
   const row = statusText.split('\n').find(line => line.startsWith(`| ghost-${id} |`))
-  return BLOCKED_OUTCOME.exec(row ?? '')?.[1]
+  return row?.split('|')[OUTCOME_COLUMN]?.trim()
+}
+
+function unblockedRun(task: Target, outcome: string | undefined): string {
+  const noPr = `no pull request for ${task.branch}`
+  return kept(task, outcome === undefined ? noPr : `${noPr}, and status.md says "${outcome}", not ladder blocked`)
 }
 
 export function removedReportPath(report: string): string {
@@ -151,6 +157,34 @@ function hasLocalBranch(repo: string, branch: string): boolean {
   }
 }
 
+function git(worktree: string, args: string[]): string {
+  return execFileSync('git', ['-C', worktree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function uncommittedWork(worktree: string): string {
+  const untracked = git(worktree, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(line => line !== '')
+  const diff = git(worktree, ['diff', '--binary', 'HEAD'])
+  return `${untracked.map(file => `untracked: ${file}\n`).join('')}${diff}`
+}
+
+function savedPatchPath(task: Target, report: string): string {
+  return path.join(path.dirname(report), `ghost-${task.id}${REMOVED_REPORT_MARK}.patch`)
+}
+
+function saveUncommittedWork(task: Target, report: string): { saved: string } | { failure: string } {
+  const patch = savedPatchPath(task, report)
+  try {
+    const work = uncommittedWork(task.worktree)
+    if (work === '')
+      return { saved: '' }
+    writeFileSync(patch, work, { flag: 'wx' })
+    return { saved: `; uncommitted work saved to ${patch}` }
+  }
+  catch (error) {
+    return { failure: `its uncommitted work could not be saved to ${patch}: ${firstLine(error)}` }
+  }
+}
+
 function cleanupBlocked(task: Target, report: string, ctx: CleanupContext): string {
   const reason = `ladder blocked and no pull request for ${task.branch}`
   const renamed = removedReportPath(report)
@@ -162,7 +196,10 @@ function cleanupBlocked(task: Target, report: string, ctx: CleanupContext): stri
     const lines = carryTreeLines(task, ctx)
     if ('failure' in lines)
       return kept(task, `${reason}, but ${lines.failure}`)
-    carried = lines.carried
+    const work = saveUncommittedWork(task, report)
+    if ('failure' in work)
+      return kept(task, `${reason}, but ${work.failure}`)
+    carried = lines.carried + work.saved
     execFileSync('git', ['-C', ctx.repo, 'worktree', 'remove', '--force', task.worktree], { stdio: 'pipe' })
     removed.push(`worktree ${task.worktree}`)
   }
@@ -190,8 +227,9 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
     return kept(task, 'gh unavailable; the pull request state is unknown')
   const pr = ctx.prs.prs.find(candidate => task.pr === undefined ? candidate.headRefName === task.branch : candidate.number === task.pr)
   if (pr === undefined) {
-    const report = blockedReport(ctx.statusText, task.id)
-    return report === undefined ? kept(task, `no pull request for ${task.branch}`) : cleanupBlocked(task, report, ctx)
+    const outcome = freeOutcome(ctx.statusText, task.id)
+    const report = BLOCKED_OUTCOME.exec(outcome ?? '')?.[1]
+    return report === undefined ? unblockedRun(task, outcome) : cleanupBlocked(task, report, ctx)
   }
   if (pr.state !== 'MERGED')
     return kept(task, `PR #${pr.number} is ${pr.state}, not merged`)
