@@ -29,7 +29,7 @@ export interface TaskStartDeps {
   now: () => Date
   session: string | undefined
   handoffDir: string
-  readJournal?: TaskStartJournalReader
+  readJournal: TaskStartJournalReader
   style?: SignalStyle
 }
 
@@ -154,8 +154,8 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const admitted = deps.readJournal === undefined && args.waiver === undefined ? undefined : admission(card, deps.readJournal?.(journal) ?? null, args.waiver)
-  if (admitted?.kind === 'refused')
+  const admitted = admission(card, deps.readJournal(journal), args.waiver)
+  if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
   let repo: string
   try {
@@ -183,7 +183,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
   const at = deps.now().toISOString()
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, ...(admitted === undefined ? {} : { admission: admissionRecord(admitted) }), ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, admission: admissionRecord(admitted), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
     CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,

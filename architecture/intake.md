@@ -5,13 +5,14 @@ run `pnpm composition:render`; `pnpm composition:check` fails when the diagram a
 apart.
 
 <!-- composition:intake -->
-`construct intake` turns a draft of sliced cards into parking cards. The slicing itself — how many cards a retelling holds, what each one touches, what the retelling left unclear — is the intake skill's, and arrives as the `--draft` JSON; the CLI runs no model and no `gh`. `runIntake` in `src/commands/intake/index.ts` is the composition root. It reads the draft and the numbers `--taken` hands over, in sequence: `parseDraft` refuses a draft that lacks a field with no default rather than inventing it, and `parseTaken` refuses anything that is not a number. The numbers are the next free after every number taken in the parking directory and in `--taken`, because card numbers are shared with pull requests and issues. `checkDraft` corrects or marks unclear, by facts, each wrong path, named number, contour, decision, closed depends/blocks and command-less witness. It reads the repository under --dir only through `facts.ts` and closed tasks from --journal through `closedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the matching `blocks`, defaults only `contour` and `decision` and marks each default as an `unclear:` line, keeps every card with an unclear line at `who: window`, renders the card line and the file with the renderers that sit beside the card grammar in `src/card/`, and parses every file back with `parseParkingFile` — the one parser `task:start` and the shift read. One refused card refuses the whole draft, and nothing is written. `--dry-run` prints the cards; otherwise, when any card carries a correction and neither `--auto-confirm` nor a `--confirm` naming the hash of exactly these cards was given, `confirm.ts` holds them: nothing is written, the corrections and the token are printed, and the exit is 2. A confirmed or correction-free draft is written card by card, once, exclusively, into the parking directory, which is outside the repository, so an attached repository gets no file; then each card gets an `intake` line in --journal naming its confirmation (`person`, `auto` or `none`) and its corrections.
+`construct intake` turns a draft of sliced cards into parking cards. The slicing itself — how many cards a retelling holds, what each one touches, what the retelling left unclear — is the intake skill's, and arrives as the `--draft` JSON; the CLI runs no model and no `gh`. `runIntake` in `src/commands/intake/index.ts` is the composition root. It reads the draft and the numbers `--taken` hands over, in sequence: `parseDraft` refuses a draft that lacks a field with no default rather than inventing it, and `parseTaken` refuses anything that is not a number. The numbers are the next free after every number taken in the parking directory and in `--taken`, because card numbers are shared with pull requests and issues. `checkDraft` corrects or marks unclear, by facts, each wrong path, named number, contour, decision, closed depends/blocks and command-less witness. It reads the repository under --dir only through `facts.ts` and closed tasks from --journal through `closedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the matching `blocks`, defaults only `contour` and `decision` and marks each default as an `unclear:` line, keeps every card with an unclear line at `who: window`, renders the card line and the file with the renderers that sit beside the card grammar in `src/card/`, and parses every file back with `parseParkingFile` — the one parser `task:start` and the shift read. One refused card refuses the whole draft, and nothing is written. `--dry-run` prints the cards; otherwise, when any card carries a correction and neither `--auto-confirm` nor a `--confirm` naming the hash of exactly these cards was given, `confirm.ts` holds them: nothing is written, the corrections and the token are printed, and the exit is 2. A confirmed or correction-free draft is written card by card, once, exclusively, into the parking directory, which is outside the repository, so an attached repository gets no file; then each card gets an `intake` line in --journal naming its confirmation (`person`, `auto` or `none`) and its corrections. `--admit <parking>/<id>.md` routes to `runAdmit` in `src/commands/intake/admit.ts` instead, for a card parked before the intake door: it parses the file with `parseParkingFile`, runs the same `checkDraft` under the card's own number, holds a corrected card behind the same confirmation token, rewrites only the card line, the touches line and the appended `corrected:` and `unclear:` lines, and writes one `intake` line with `source: admit`; a card whose line the journal already admitted is left alone.
 
 ```mermaid
 flowchart LR
   subgraph b_entry["Entry"]
     cli["construct intake (citty)"]
     run["runIntake · refuses without --draft or --taken, or a --dir that is no directory"]
+    admit["runAdmit · --admit a parked card under its own number, no new number; nothing when the journal already admitted it"]
   end
   subgraph b_read["Read · the draft, the taken numbers, the journal and the repository"]
     draft["parseDraft · a field with no default is refused, never invented"]
@@ -30,6 +31,11 @@ flowchart LR
     print["printIntake · INTAKE_EXIT"]
   end
   cli --> run
+  cli --> admit
+  admit -.-> grammar
+  admit --> check
+  admit --> confirm
+  admit --> journal
   run --> draft
   draft --> numbers
   numbers --> check
@@ -77,3 +83,13 @@ corrections in advance; those cards are parked at once. Every parked card leaves
 the journal with its confirmation (`person`, `auto` or `none`) and its corrections, so the corrections
 an auto-confirmed run accepted are not lost and the flag's use is on record. A confirmed card keeps the
 `who` of its draft; only an `unclear:` line still holds it at `who: window`.
+
+## A card parked before the door is admitted, not re-sliced
+
+`task:start` and the shift take only a card with an `intake` line, and a card parked before that door
+has none. `construct intake --admit <parking>/<id>.md` gives it one without slicing it again: the card
+keeps its number and its file, the same facts check runs under that number, and a correction is held
+behind the same token until a person confirms it. Only the card line and the `touches` line change,
+and only by a correction; the `corrected:` and `unclear:` lines are appended, and `who` stays as the
+card states it. The `intake` line carries `source: admit`. A second `--admit` of a card the journal
+already admitted writes nothing.

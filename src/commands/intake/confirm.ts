@@ -21,13 +21,14 @@ export function confirmationOf(card: SlicedCard, autoConfirm: boolean): Confirma
   return card.corrections.length > 0 ? 'person' : 'none'
 }
 
-export function intakeJournalLine(card: SlicedCard, confirmation: Confirmation, at: Date): string {
+export function intakeJournalLine(card: SlicedCard, confirmation: Confirmation, at: Date, source?: string): string {
   return JSON.stringify({
     event: INTAKE_EVENT,
     task: String(card.id),
     card: card.line,
     confirmation,
     corrections: card.corrections.map(correctionText),
+    ...(source === undefined ? {} : { source }),
     ts: at.toISOString(),
   })
 }

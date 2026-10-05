@@ -22,7 +22,12 @@ description: >-
   is 2. A confirmed or correction-free draft is written card by card, once, exclusively, into the
   parking directory, which is outside the repository, so an attached repository gets no file; then
   each card gets an `intake` line in --journal naming its confirmation (`person`, `auto` or `none`) and
-  its corrections.
+  its corrections. `--admit <parking>/<id>.md` routes to `runAdmit` in `src/commands/intake/admit.ts`
+  instead, for a card parked before the intake door: it parses the file with `parseParkingFile`, runs
+  the same `checkDraft` under the card's own number, holds a corrected card behind the same
+  confirmation token, rewrites only the card line, the touches line and the appended `corrected:` and
+  `unclear:` lines, and writes one `intake` line with `source: admit`; a card whose line the journal
+  already admitted is left alone.
 doc: architecture/intake.md
 boundaries:
   - id: entry
@@ -41,6 +46,10 @@ nodes:
   - id: run
     label: runIntake · refuses without --draft or --taken, or a --dir that is no directory
     path: src/commands/intake/index.ts
+    boundary: entry
+  - id: admit
+    label: runAdmit · --admit a parked card under its own number, no new number; nothing when the journal already admitted it
+    path: src/commands/intake/admit.ts
     boundary: entry
   - id: draft
     label: parseDraft · a field with no default is refused, never invented
@@ -83,7 +92,12 @@ nodes:
     path: src/commands/intake/index.ts
     boundary: write
 edges:
-  - {from: cli, to: run, kind: sequence}
+  - {from: cli, to: run, kind: route}
+  - {from: cli, to: admit, kind: route}
+  - {from: admit, to: grammar, kind: wires}
+  - {from: admit, to: check, kind: sequence}
+  - {from: admit, to: confirm, kind: sequence}
+  - {from: admit, to: journal, kind: sequence}
   - {from: run, to: draft, kind: sequence}
   - {from: draft, to: numbers, kind: sequence}
   - {from: numbers, to: check, kind: sequence}

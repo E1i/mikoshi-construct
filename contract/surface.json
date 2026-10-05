@@ -184,6 +184,9 @@
     },
     "intake": {
       "flags": {
+        "admit": {
+          "type": "string"
+        },
         "autoConfirm": {
           "type": "boolean"
         },
@@ -360,6 +363,8 @@
       "refused": 1
     },
     "intake": {
+      "admitted": 0,
+      "alreadyAdmitted": 0,
       "awaiting": 2,
       "dryRun": 0,
       "failed": 1,

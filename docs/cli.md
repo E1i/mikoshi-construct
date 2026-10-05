@@ -1719,6 +1719,15 @@ corrections in advance: the cards are parked at once. Every parked card gets an 
 `confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
 recorded with the corrections it accepted. A confirmed card keeps the `who` of the draft.
 
+**A card parked before the door.** `construct intake --admit <parking>/<id>.md` admits a card parked
+before intake confirmed cards: no `--draft`, no `--taken` (with either it refuses), and no new number.
+The card is checked like a sliced one under its own number; with a correction it is held behind a
+token (exit `2`) until `--confirm <token>` or `--auto-confirm`. Admitting rewrites only the card line
+and the `touches` line a correction changed, appends the `corrected:` and `unclear:` lines, leaves
+`who` as it is, and writes the card's `intake` line with `"source":"admit"`, which `task:start` and
+the shift read. A card the journal already admitted is reported and nothing is written; `--dry-run`
+prints the card it would admit.
+
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
 the witnesses, beside every entry of the draft's own `unclear` list. A card with any `unclear:` line is
@@ -1734,7 +1743,7 @@ or printed, `1` when the draft was refused, `2` when corrections wait for a pers
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
 | `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft. |
-| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards until a person confirms them. |
+| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards, or a corrected card under `--admit`, until a person confirms them. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure. |
 
 ### The recorded surface

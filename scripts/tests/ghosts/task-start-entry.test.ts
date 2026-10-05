@@ -24,6 +24,7 @@ function world(session: string | undefined): { deps: TaskStartDeps, appended: st
       now: () => NOW,
       session,
       handoffDir: '/handoff',
+      readJournal: () => `${JSON.stringify({ event: 'intake', task: '41', card: CARD, confirmation: 'none', corrections: [], ts: NOW.toISOString() })}\n`,
     },
   }
 }

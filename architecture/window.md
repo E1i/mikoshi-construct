@@ -97,7 +97,13 @@ of its pull request description is the card.
 
 A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
 `../mc-<id>` from `origin/main` and writes the journal start line carrying the card; a task with no start line was not
-started on the cheap path, whatever its branch is called. It closes with `pnpm task:close <id> (--pr <N> | --report
+started on the cheap path, whatever its branch is called. Before it cuts anything, `task:start` passes the card through the intake
+door: it takes a card only when `ghosts.jsonl` holds an `intake` line whose card is this one, written by `construct
+intake` when it sliced and confirmed the card, or by `construct intake --admit <parking>/<id>.md` for a card parked
+before the door; a card with no such line, or one that changed since its line, is refused with nothing written. The one
+exception is `--without-intake "<reason>"`, which admits the card and records the flag and its reason on the start line
+as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: intake}` with its confirmation. The
+shift starts its tasks through the same `task:start`, so the door holds there too. It closes with `pnpm task:close <id> (--pr <N> | --report
 <path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
 whose start line carries no card. That `event:path` line carries `verification`, and a closing line without that word
 does not close the task: the board shows its verification as UNKNOWN until a line that carries it is written. The line
