@@ -120,6 +120,8 @@ the `/implement` build turns into args, filled in so it can be pasted as-is:
 ```text
 /implement <the task in one sentence>
 
+expect: <the first line printed by construct cost --expect --effort low|medium|high --plain, pasted as it is>
+
 Effort: <low|medium|high> — <one-line reason>
 
 Design:
@@ -132,6 +134,9 @@ Invariants: <what is green before and after the change>
 Immutable: <a path the change may not touch>; <a directory, ending in />
 ```
 
-Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
+Line 3 is the `expect:` line and carries nothing but what the ledger says: paste the first line that
+`construct cost --expect --effort <the class on the Effort: line> --plain` prints (`npx mikoshi-construct cost …` is the same
+command), as it is. With fewer than five counted runs the command itself prints `expect: none — <reason>`; write that line, never
+figures of your own. Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — risk: <level>, <sign>; acceptance: …; effort: <class>`. Do not
 implement anything.

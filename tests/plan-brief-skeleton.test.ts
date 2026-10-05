@@ -12,7 +12,7 @@ const SCRIPT = path.join(ROOT, 'scripts/construct/check-acceptance.mjs')
 const FACTORY_COPY = '.claude/commands/plan.md'
 const TEMPLATE_COPY = 'templates/ai/claude/_claude/commands/plan.md'
 const COPIES = [FACTORY_COPY, TEMPLATE_COPY]
-const PLACEHOLDERS_BEFORE_EFFORT: Record<string, number> = { [FACTORY_COPY]: 3, [TEMPLATE_COPY]: 1 }
+const PLACEHOLDERS_BEFORE_EFFORT: Record<string, number> = { [FACTORY_COPY]: 4, [TEMPLATE_COPY]: 2 }
 const dirs: string[] = []
 
 afterEach(() => {
@@ -57,7 +57,7 @@ function build(brief: string): { status: number | null, stdout: string, stderr: 
 }
 
 describe('the brief skeleton /plan outputs for a ladder-path task', () => {
-  it.each(COPIES)('in %s, once filled in, is parsed by the implement build into every section', (copy) => {
+  it.each(COPIES)('in %s, once filled in with its expect: line, is parsed by the implement build into every section', (copy) => {
     const result = build(fillPlaceholders(skeletonIn(copy)))
     const p = (n: number): string => `p${PLACEHOLDERS_BEFORE_EFFORT[copy] + n}`
 

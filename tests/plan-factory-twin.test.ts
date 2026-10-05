@@ -65,8 +65,7 @@ function factoryBlocksOf(text: string): string {
 
 function withoutSketchLine(text: string): string {
   const lines = text.split('\n')
-  const kept = lines.filter((line, index) => !(SKETCH_LINE.test(line) && lines[index - 1]?.startsWith('/implement ')))
-  return kept.join('\n')
+  return lines.map((line, index) => SKETCH_LINE.test(line) && lines[index - 1]?.startsWith('/implement ') ? '' : line).join('\n')
 }
 
 function templateOf(factoryText: string): string {
@@ -74,7 +73,7 @@ function templateOf(factoryText: string): string {
 }
 
 describe('the factory /plan is the template plus what only the factory runs', () => {
-  it('is byte-identical to the template once its factory blocks and its Sketch: line are cut', () => {
+  it('is byte-identical to the template once its factory blocks are cut and its Sketch: line is blank', () => {
     expect(templateOf(read(FACTORY_COPY))).toBe(read(TEMPLATE_COPY))
   })
 

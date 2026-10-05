@@ -120,6 +120,7 @@ the `/implement` build turns into args, filled in so it can be pasted as-is:
 ```text
 /implement <the task in one sentence>
 Sketch: <branch> @ <40-hex sha>
+expect: <the first line printed by construct cost --expect --effort low|medium|high --plain, pasted as it is>
 
 Effort: <low|medium|high> — <one-line reason>
 
@@ -135,9 +136,10 @@ Immutable: <a path the change may not touch>; <a directory, ending in />
 
 <!-- factory:begin -->
 The line right after `/implement` names the sketch branch and its tip the Ghost starts from, or reads
-`Sketch: none — <reason>` when the task starts from a clean `origin/main`. The brief may add an `expect:` line as
-line 3, the forecast from the ladder's own record that the journal sets beside the run's actual tokens and minutes;
-the skeleton leaves it out. The brief's positive control is PR-equivalent: it runs every check the `required` job in
+`Sketch: none — <reason>` when the task starts from a clean `origin/main`. Line 3 is the `expect:` line the skeleton carries: the forecast from the ladder's own
+record that the journal sets beside the run's actual tokens and minutes. The launcher's `parseExpect` reads it there and refuses
+a forecast with fewer than five runs behind it. Its source is `construct cost --expect`, or `pnpm ghosts:expect-sample` when
+the brief wants the journal's class and the sketch subsample. The brief's positive control is PR-equivalent: it runs every check the `required` job in
 `.github/workflows/ci.yml` needs and `Secret scan`, not only `pnpm run quality`, and a working sketch lives on
 `sketch/<task>`, committed and pushed after each milestone.
 
@@ -151,6 +153,9 @@ scratch git repository holding the changed `.claude/hooks/` and `.claude/setting
 `claude -p '<a prompt that raises the event>' --session-id <uuid>`, then `grep <uuid> <the hook's journal>`: the line the
 hook is expected to write, quoted from that run, is the proof the pull request carries.
 <!-- factory:end -->
-Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
+Line 3 is the `expect:` line and carries nothing but what the ledger says: paste the first line that
+`construct cost --expect --effort <the class on the Effort: line> --plain` prints (`npx mikoshi-construct cost …` is the same
+command), as it is. With fewer than five counted runs the command itself prints `expect: none — <reason>`; write that line, never
+figures of your own. Each acceptance item ends with its witness, and `; ` separates the items. `Design:` is left out when the
 task carries no design. A cheap-path task is one line, `<task> — risk: <level>, <sign>; acceptance: …; effort: <class>`. Do not
 implement anything.
