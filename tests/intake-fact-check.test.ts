@@ -229,12 +229,21 @@ describe('directoryFacts walk', () => {
     expect(found).toEqual(['src/real/target.ts'])
   })
 
-  it('resolves a path to a file inside the repository and nothing outside it', () => {
+  it('resolves a relative path only to a file inside the repository, and an absolute path to any existing file', () => {
     const dir = repository(['scripts/run.sh'])
     const facts = new DirectoryFacts(dir, '')
     expect(facts.commandResolves('./scripts/run.sh')).toBe(true)
     expect(facts.commandResolves('scripts/missing.sh')).toBe(false)
     expect(facts.commandResolves('../scripts/run.sh')).toBe(false)
-    expect(facts.commandResolves(path.join(dir, 'scripts/run.sh'))).toBe(false)
+    expect(facts.commandResolves(path.join(dir, 'scripts/run.sh'))).toBe(true)
+    expect(facts.commandResolves(path.join(dir, 'scripts/missing.sh'))).toBe(false)
+    expect(facts.commandResolves(path.join(dir, 'scripts'))).toBe(false)
+  })
+
+  it('gives a witness naming /usr/bin/env no unclear line and still marks a missing absolute path unclear', () => {
+    const dir = repository(['src/a.ts'])
+    const missing = path.join(dir, 'no/such/tool')
+    const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env node -v` passes', `\`${missing} --flag\` fails`] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual([`'${missing}' is not on PATH and is no file of the repository`])
   })
 })
