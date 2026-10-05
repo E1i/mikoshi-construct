@@ -20,7 +20,9 @@ to `own-instructions`: the shift runner now runs that merge decision itself afte
 choice of a card now reads those merge lines. On 2026-10-06, at Eli's instruction (task #551), the coordinating window added
 `scripts/ghosts/supervise.ts` to `ghosts`: the launcher's work moved into it. The same day, at Eli's instruction (task #553), it added
 `scripts/ghosts/regenerated.ts` and `scripts/ghosts/review-carry.ts` to `ghosts`: the launcher accepts a regenerated sketch in place of
-an approval, and `ghosts:verdict` carries a review to a new head, on their output.
+an approval, and `ghosts:verdict` carries a review to a new head, on their output. The same day, at Eli's instruction (task #570), it added
+`scripts/ghosts/preflight.ts`, `scripts/ghosts/preflight-static.ts`, `scripts/ghosts/preflight-trees.ts` and
+`scripts/ghosts/preflight-witnesses.ts` to `ghosts`: `ghosts:hash` prints the approval hash only when their preflight is green.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -33,7 +35,7 @@ is matched by its title.)
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init` or `attach` writes: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
-| ghosts | `scripts/ghosts/agreed.ts`, `scripts/ghosts/approval.ts`, `scripts/ghosts/args-chain.ts`, `scripts/ghosts/cleanup.ts`, `scripts/ghosts/hash.ts`, `scripts/ghosts/install.ts`, `scripts/ghosts/journal.ts`, `scripts/ghosts/launch.ts`, `scripts/ghosts/regenerated.ts`, `scripts/ghosts/review-carry.ts`, `scripts/ghosts/session.ts`, `scripts/ghosts/sketch.ts`, `scripts/ghosts/supervise.ts`, `scripts/ghosts/task-start.ts`, `scripts/ghosts/task-merged.ts`, `scripts/ghosts/tasks.ts`, `scripts/ghosts/verdict.ts` | the Ghost launcher and what changes the ladder, approval, merge or security: launch, approval, hash, verdict, cleanup, and every file whose output one of them trusts with a decision | — |
+| ghosts | `scripts/ghosts/agreed.ts`, `scripts/ghosts/approval.ts`, `scripts/ghosts/args-chain.ts`, `scripts/ghosts/cleanup.ts`, `scripts/ghosts/hash.ts`, `scripts/ghosts/install.ts`, `scripts/ghosts/journal.ts`, `scripts/ghosts/launch.ts`, `scripts/ghosts/preflight-static.ts`, `scripts/ghosts/preflight-trees.ts`, `scripts/ghosts/preflight-witnesses.ts`, `scripts/ghosts/preflight.ts`, `scripts/ghosts/regenerated.ts`, `scripts/ghosts/review-carry.ts`, `scripts/ghosts/session.ts`, `scripts/ghosts/sketch.ts`, `scripts/ghosts/supervise.ts`, `scripts/ghosts/task-start.ts`, `scripts/ghosts/task-merged.ts`, `scripts/ghosts/tasks.ts`, `scripts/ghosts/verdict.ts` | the Ghost launcher and what changes the ladder, approval, merge or security: launch, approval, hash, verdict, cleanup, and every file whose output one of them trusts with a decision | — |
 | agents-md | `AGENTS.md` | this repository's `AGENTS.md`, the rules every agent working here reads | PR #366 |
 
 Everything else is merged through auto-merge by the window that gated it, including `quality`/CI gates and `formats.*`
