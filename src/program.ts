@@ -1,6 +1,5 @@
 import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import type { BoardReading } from './commands/board/index.js'
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
@@ -12,7 +11,7 @@ import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
-import { defaultParking, printIntake, runIntake } from './commands/intake/index.js'
+import { defaultParking, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
@@ -214,7 +213,7 @@ const board = withKnownFlags(defineCommand({
     if (everySeconds !== undefined && args.prs === PRS_FROM_STDIN)
       return refuse(lore.boardEveryWithStdin)
     const dir = path.resolve(args.dir)
-    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readFileSync(0, 'utf8') })
+    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd() })
     try {
       if (args.json) {
         process.stdout.write(`${JSON.stringify(boardJson(frame()), null, 2)}\n`)
@@ -349,7 +348,7 @@ const intake = withKnownFlags(defineCommand({
         dryRun: args.dryRun,
         confirm: args.confirm,
         autoConfirm: args.autoConfirm,
-        readStdin: () => readFileSync(0, 'utf8'),
+        readStdin: () => readStdinToEnd(),
       })
       process.exitCode = printIntake(console, result)
     })
