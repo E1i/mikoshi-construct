@@ -21,6 +21,9 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Run `pnpm run quality` as its own command and read its result before every commit you push.
 - On an Eddies warn: finish the step you are in, commit, push, write the handoff and the report, exit.
   On an Eddies stop: write the report and exit.
+- At a boundary — the session's context reached `contextLimit`, or an owner-merged pull request just
+  merged — finish the step you are in, commit, push, write the handoff and the report with a
+  `boundary: <which boundary>` line in it, and exit.
 - Before you exit, for any reason, write the shift report to `{{report}}`. Its first line is the
   card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the
   law the task answers to, or what is not recorded>`, `expect: <the forecast, or expect not

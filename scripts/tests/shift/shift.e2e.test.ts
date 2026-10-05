@@ -595,6 +595,44 @@ describe('w9: continue: auto restarts a session that left on an Eddies warn', ()
   })
 })
 
+describe('w12: continue: auto restarts a session that stopped at a boundary its report names', () => {
+  it('w12: the session left a boundary line and exited 0, so a new headless session runs in the same tree with the header and the continuation prompt', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-BOUNDARY here')
+    const io = captured()
+    expect(await runShift([world.shift], shiftDeps(world, io))).toBe(0)
+    expect(stubRuns(world, '1')).toBe(2)
+    expect(stubSaw(world, '1', 'cwd')).toBe(path.join(world.root, 'mc-1'))
+    expect(stubSaw(world, '1', 'session.2')).not.toBe(stubSaw(world, '1', 'session.1'))
+    const second = stubSaw(world, '1', 'prompt.2')
+    expect(second.startsWith('# Shift task 1')).toBe(true)
+    expect(second).toContain(`Your tree is \`${path.join(world.root, 'mc-1')}\``)
+    expect(second).toContain(`${CONTINUE_PROMPT}: the shift report \`${path.join(world.shift, 'report-01.md')}\``)
+    expect(second).not.toContain('STUB-BOUNDARY')
+    const line = jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')
+    expect(line).toMatchObject({ continuations: [stubSaw(world, '1', 'session.2')], lastExit: 'ended', exit: 0, report: true })
+    expect(io.out).toContain(`[shift] 01.md 1: stopped at a boundary, restart 1/${MAX_RESTARTS} in ${path.join(world.root, 'mc-1')}`)
+  })
+
+  it('w12: no restart after a boundary under continue: stop', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-BOUNDARY here', 'stop')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(stubRuns(world, '1')).toBe(1)
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')).toMatchObject({ continuations: [], lastExit: 'boundary' })
+  })
+
+  it('w12: a session that stops at a boundary every time is restarted at most MAX_RESTARTS times', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-BOUNDARY-ALWAYS here')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(stubRuns(world, '1')).toBe(1 + MAX_RESTARTS)
+    const line = jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')!
+    expect(line).toMatchObject({ lastExit: 'boundary' })
+    expect(line.continuations).toHaveLength(MAX_RESTARTS)
+  })
+})
+
 describe('w10: shift:report shows the restarts and why the last session left', () => {
   it('w10: RESULT carries the restart count and the last exit; a journal without them says not recorded', async () => {
     const world = newWorld()

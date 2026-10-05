@@ -29,7 +29,7 @@ import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
-import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
+import { BOUNDARY_LINE, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
 import { choose, isClosed, leftLine, leftSummary, QUEUE_FILE, queueText } from './parking.js'
@@ -53,7 +53,7 @@ export const USAGE = [
   '  branch: <branch>',
   '  touches: <path>, <dir>/**',
   '  continue: auto | stop   (optional, default stop)',
-  `With continue: auto, a session that leaves on an Eddies warn while its task is open is followed by a new session in the same tree that reads the handoff and goes on, at most ${MAX_RESTARTS} times.`,
+  `With continue: auto, a session that leaves on an Eddies warn, or exits 0 at a boundary its report names with a boundary: line, while its task is open is followed by a new session in the same tree that reads the handoff and goes on, at most ${MAX_RESTARTS} times.`,
   '',
   'Recommended layout: one directory per shift, e.g. ~/.construct/shift/2026-10-03-1500/.',
   `${CLAUDE_VARIABLE} is the claude command, without caffeinate, e.g.:`,
@@ -161,10 +161,12 @@ function warnOpenPrs(deps: ShiftDeps, tasks: ShiftTask[]): void {
 
 function sessionEvidence(deps: ShiftDeps, dir: string, task: ShiftTask, worktree: string, session: string, exit: number | null): SessionEvidence {
   const readIfThere = (file: string): string => deps.exists(file) ? deps.read(file) : ''
+  const report = readIfThere(reportPath(dir, task.number))
   return {
     exit,
     closed: closedTasks(readIfThere(path.join(deps.handoffDir, GHOST_JOURNAL))).has(task.id),
-    question: QUESTION_LINE.test(readIfThere(reportPath(dir, task.number))),
+    question: QUESTION_LINE.test(report),
+    boundary: BOUNDARY_LINE.test(report),
     ...eddiesEvidence(readIfThere(eddiesJournalPath(worktree)), session),
   }
 }
@@ -256,7 +258,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
       break
     current = deps.uuid()
     continuations.push(current)
-    deps.out(`${PREFIX}${task.file} ${task.id}: eddies warn, restart ${continuations.length}/${MAX_RESTARTS} in ${worktree}`)
+    deps.out(`${PREFIX}${task.file} ${task.id}: ${EXIT_REASON_TEXT[lastExit]}, restart ${continuations.length}/${MAX_RESTARTS} in ${worktree}`)
     const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
     exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, prompt, log: logPath(dir, task.number, continuations.length) })
   }
