@@ -13,13 +13,15 @@ export interface Choice {
   left: LeftCard[]
 }
 
+const CLOSED = 'closed'
+
 function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
   return Number(b.priority !== null) - Number(a.priority !== null) || Number(a.task.id) - Number(b.task.id)
 }
 
 function leftReason(parked: ParkedTask, closed: ReadonlySet<string>): string | null {
   if (closed.has(parked.task.id))
-    return 'closed'
+    return CLOSED
   if (parked.who !== SHIFT_WHO)
     return `who ${parked.who}`
   const open = parked.task.card.depends.filter(id => !closed.has(String(id)))
@@ -40,4 +42,30 @@ export function choose(parked: readonly ParkedTask[], closed: ReadonlySet<string
       chosen.push(card.task)
   }
   return { chosen, left }
+}
+
+export const QUEUE_FILE = 'queue.txt'
+
+function reasonGroup(reason: string): string {
+  return reason.startsWith('who ') ? reason : reason.split(' ')[0]!
+}
+
+export function isClosed(card: LeftCard): boolean {
+  return card.reason === CLOSED
+}
+
+export function leftSummary(left: readonly LeftCard[]): string {
+  const counts = new Map<string, number>()
+  for (const card of left)
+    counts.set(reasonGroup(card.reason), (counts.get(reasonGroup(card.reason)) ?? 0) + 1)
+  const groups = [...counts].sort((a, b) => b[1] - a[1]).map(([group, count]) => `${count} ${group}`)
+  return `left: ${groups.length === 0 ? 'none' : groups.join(' · ')}`
+}
+
+export function leftLine(card: LeftCard): string {
+  return `leaves #${card.id} (${card.reason})`
+}
+
+export function queueText(left: readonly LeftCard[]): string {
+  return left.map(card => `${leftLine(card)}\n`).join('')
 }
