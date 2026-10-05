@@ -334,6 +334,8 @@ const intake = withKnownFlags(defineCommand({
     dir: commonArgs.dir,
     journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
     dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
+    confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
+    autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the journal', default: false },
   },
   run({ args }) {
     const console = ui(args)
@@ -345,6 +347,8 @@ const intake = withKnownFlags(defineCommand({
         dir: path.resolve(args.dir),
         journal: path.resolve(args.journal ?? defaultWindowJournal()),
         dryRun: args.dryRun,
+        confirm: args.confirm,
+        autoConfirm: args.autoConfirm,
         readStdin: () => readFileSync(0, 'utf8'),
       })
       process.exitCode = printIntake(console, result)

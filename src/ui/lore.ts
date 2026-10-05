@@ -150,7 +150,11 @@ export interface Lore {
   intakeWritten: (file: string, card: string) => string
   intakeUnclear: (count: number, who: string) => string
   intakeCorrected: (text: string) => string
-  intakeCorrections: (count: number, who: string) => string
+  intakeCorrections: (count: number) => string
+  intakeConfirmed: (count: number, autoConfirm: boolean) => string
+  intakeAwaitingCard: (card: string) => string
+  intakeAwaiting: (parking: string, token: string) => string
+  intakeConfirmStale: string
   intakeDryRun: (parking: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
@@ -435,7 +439,11 @@ export const LORE: Lore = {
   intakeWritten: (file: string, card: string) => `CARD PARKED // ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
   intakeCorrected: (text: string) => `CORRECTED // ${text}`,
-  intakeCorrections: (count: number, who: string) => `${count} CORRECTED // written in the card, held for who: ${who} until a person confirms them`,
+  intakeCorrections: (count: number) => `${count} CORRECTED // written in the card; parked only once a person confirms them`,
+  intakeConfirmed: (count: number, autoConfirm: boolean) => `${count} CORRECTED // ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, recorded in the journal`,
+  intakeAwaitingCard: (card: string) => `CARD HELD // ${card}`,
+  intakeAwaiting: (parking: string, token: string) => `AWAITING CONFIRMATION // nothing parked in ${parking}; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
+  intakeConfirmStale: 'CONFIRMATION STALE // --confirm names a different list of corrections than this run holds; nothing parked',
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
@@ -748,7 +756,11 @@ export const PLAIN_LORE: Lore = {
   intakeWritten: (file: string, card: string) => `Wrote ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
   intakeCorrected: (text: string) => `corrected: ${text}`,
-  intakeCorrections: (count: number, who: string) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; it stays with who: ${who} until a person confirms them.`,
+  intakeCorrections: (count: number) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; the card is parked only once a person confirms them.`,
+  intakeConfirmed: (count: number, autoConfirm: boolean) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, and recorded in the journal.`,
+  intakeAwaitingCard: (card: string) => `Held: ${card}`,
+  intakeAwaiting: (parking: string, token: string) => `Nothing was written to ${parking}: the corrections above wait for a person. Run again with --confirm ${token} to park the cards as shown, or with --auto-confirm to accept corrections in advance.`,
+  intakeConfirmStale: 'Not confirmed: --confirm names a different list of corrections than this run holds. Nothing was written; confirm the list below.',
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,

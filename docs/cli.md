@@ -1679,6 +1679,8 @@ It runs no model and no `gh`.
 | `--dir <dir>` | `.` | The repository the `touches`, `creates` and witness checks read. Never written. |
 | `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read closed from. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
+| `--confirm <token>` | — | Park cards whose corrections a person has seen: the token the run that held them printed. |
+| `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in `--journal`. |
 
 ```bash
 { gh pr list --state all --limit 1000 --json number -q '.[].number'
@@ -1704,8 +1706,18 @@ path named like it, a named `number` becomes the assigned one, a `contour` or `d
 card grammar becomes the grammar's default, a `depends` or `blocks` on a card closed in the journal is
 removed, and a `creates` entry that already exists is noted as not new. A path with no single
 candidate, a `#<id>` that is neither parked nor closed, and a witness with no backticked command or a
-command that is not on `PATH` are marked `unclear:` and kept. A card with a correction stays at
-`who: window`. A kind outside the grammar is still refused.
+command that is not on `PATH` are marked `unclear:` and kept. A kind outside the grammar is still
+refused.
+
+**Corrected is confirmed.** When any card carries a correction, nothing is parked by default: the
+command prints each held card with its `corrected:` lines and a token, and exits `2`. A person reads
+the list and runs the same command again with `--confirm <token>`; the token is the hash of the cards
+as printed, so a run whose cards differ — a new number taken, a path changed — holds them again and
+says the confirmation was for another list. `--auto-confirm`, off by default, is a person accepting
+corrections in advance: the cards are parked at once. Every parked card gets an `intake` line in
+`--journal` — `{"event":"intake","task","card","confirmation","corrections","ts"}`, with
+`confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
+recorded with the corrections it accepted. A confirmed card keeps the `who` of the draft.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
@@ -1714,7 +1726,7 @@ written with `who: window`, so the shift does not take it until a person settles
 with no default refuses the draft.
 
 One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written
-or printed, `1` when the draft was refused.
+or printed, `1` when the draft was refused, `2` when corrections wait for a person's confirmation.
 
 ## Exit codes
 
@@ -1722,7 +1734,7 @@ or printed, `1` when the draft was refused.
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
 | `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft. |
-| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness. |
+| `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards until a person confirms them. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure. |
 
 ### The recorded surface

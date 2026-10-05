@@ -41,7 +41,7 @@ function intake(draft: unknown, taken: string, parking: string, options: Partial
   const root = path.dirname(parking)
   const draftFile = path.join(root, 'draft.json')
   writeFileSync(draftFile, typeof draft === 'string' ? draft : JSON.stringify(draft))
-  return runIntake({ draft: draftFile, taken: '-', parking, dryRun: false, readStdin: () => taken, ...options })
+  return runIntake({ draft: draftFile, taken: '-', parking, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
 }
 
 function cards(result: IntakeResult) {

@@ -184,6 +184,12 @@
     },
     "intake": {
       "flags": {
+        "autoConfirm": {
+          "type": "boolean"
+        },
+        "confirm": {
+          "type": "string"
+        },
         "dir": {
           "type": "string"
         },
@@ -354,6 +360,7 @@
       "refused": 1
     },
     "intake": {
+      "awaiting": 2,
       "dryRun": 0,
       "failed": 1,
       "refused": 1,
