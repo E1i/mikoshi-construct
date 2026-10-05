@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { countsTowardSteps } from '../../../src/commands/cost/expect.js'
 import { readStepCache } from '../../../src/commands/cost/index.js'
+import { parseLedgerLine } from '../../../src/commands/cost/ledger.js'
 import { runCli } from '../../../tests/cli-process.js'
 import * as expectSample from '../../ghosts/expect-sample.js'
 
@@ -196,6 +198,15 @@ describe('the script keeps its inputs and its output', () => {
     const exported = expectSample as Record<string, unknown>
     for (const name of ['formatTokens', 'formatStepExpect', 'launchStepExpects', 'ladderSample', 'renderSample', 'stepExpects', 'stepsOfRepository', 'formatContour'])
       expect(typeof exported[name], name).toBe('function')
+  })
+
+  it('notes the runs without a sketch record by the step-count rule of src', () => {
+    const counted = ledgerLine({ run: 'n1', tokens: 1_000, seconds: 10, at: stamp(300) })
+    const ledger = [counted, ledgerLine({ run: 'n2', tokens: 1_000, seconds: 10, status: 'failed', at: stamp(301) }), ledgerLine({ run: 'n3', effort: 'low', tokens: 1_000, seconds: 10, at: stamp(302) })]
+    const entries = ledger.map(text => parseLedgerLine(text)).filter(entry => typeof entry !== 'string')
+    expect(entries.map(entry => countsTowardSteps(entry, 'medium'))).toEqual([true, false, false])
+    const sample = expectSample.ladderSample({ ledgers: [{ source: SOURCE, lines: ledger }], effort: 'medium', runSteps: new Map(), sketch: { wanted: true, journal: { source: 'ghosts.jsonl', lines: [] } } }, [])
+    expect(sample.line).toContain('; 1 run without a sketch record in ghosts.jsonl not counted for implement')
   })
 
   it('prints, for a journal class, a sketch subsample, a step cache and the ledger, the lines it printed before the calculation moved', () => {

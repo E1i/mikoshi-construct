@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseExpect } from '../scripts/ghosts/expect.js'
+import { countsTowardSteps } from '../src/commands/cost/expect.js'
+import { parseLedgerLine } from '../src/commands/cost/ledger.js'
 import { runCli } from './cli-process.js'
 
 const DASH = String.fromCharCode(8212)
@@ -207,4 +209,22 @@ describe('construct cost without --expect', () => {
     expect(run.stdout).toContain('No /implement runs recorded here yet.')
     expect(run.stdout).not.toContain('expect:')
   })
+})
+
+describe('the step-count rule', () => {
+  const RULE_CASES: Array<{ name: string, row: Row, effort: string | undefined, counted: boolean }> = [
+    { name: 'a done run at the given effort', row: { run: 'r1' }, effort: 'medium', counted: true },
+    { name: 'a failed run at the given effort', row: { run: 'r2', status: 'failed' }, effort: 'medium', counted: false },
+    { name: 'a done run at another effort', row: { run: 'r3', effort: 'low' }, effort: 'medium', counted: false },
+    { name: 'a done run and no effort given', row: { run: 'r4' }, effort: undefined, counted: false },
+  ]
+
+  for (const scenario of RULE_CASES) {
+    it(`${scenario.counted ? 'counts' : 'does not count'} ${scenario.name}`, () => {
+      const entry = parseLedgerLine(ledgerLine(scenario.row))
+      if (typeof entry === 'string')
+        throw new Error(entry)
+      expect(countsTowardSteps(entry, scenario.effort)).toBe(scenario.counted)
+    })
+  }
 })
