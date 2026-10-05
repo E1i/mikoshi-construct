@@ -26,7 +26,7 @@ export const ADMIT_SOURCE = 'admit'
 
 export interface AdmitOptions {
   file: string
-  dir?: string
+  dir: string
   journal: string
   dryRun: boolean
   confirm?: string
@@ -150,7 +150,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     parked: new Set(parkedNumbers(siblings(options.file))),
     done: new Set(closedTasks(journal).keys()),
     merged: mergedTasks(journal),
-    repository: options.dir === undefined ? null : new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
   }) as [CheckedCard]
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {

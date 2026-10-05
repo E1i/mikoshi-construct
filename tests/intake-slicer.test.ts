@@ -19,9 +19,9 @@ const RETELLING = [
 
 const SLICED = {
   cards: [
-    { name: 'board-parking', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['scripts/board/**', 'tests/board/**'], task: RETELLING[0], witnesses: ['a parked card appears on the board with its who'] },
-    { name: 'shift-skips-open-pr', kind: 'implement', milestone: 'runner', size: 'M', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/**'], depends: ['board-parking'], task: RETELLING[1], witnesses: ['a card overlapping an open pull request is left with that pull request named'] },
-    { name: 'release-version-probe', kind: 'probe', milestone: 'infra', size: 'S', contour: 'cheap', who: 'window', touches: ['.github/workflows/**'], task: RETELLING[2], witnesses: ['the report names the file and line the version is read from'] },
+    { name: 'board-parking', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['scripts/board/**', 'tests/board/**'], task: RETELLING[0], witnesses: ['`pnpm test` shows a parked card on the board with its who'] },
+    { name: 'shift-skips-open-pr', kind: 'implement', milestone: 'runner', size: 'M', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/**'], depends: ['board-parking'], task: RETELLING[1], witnesses: ['`pnpm test` leaves a card overlapping an open pull request with that pull request named'] },
+    { name: 'release-version-probe', kind: 'probe', milestone: 'infra', size: 'S', contour: 'cheap', who: 'window', touches: ['.github/workflows/**'], task: RETELLING[2], witnesses: ['`pnpm test` reads the report naming the file and line the version is read from'] },
   ],
 }
 
@@ -38,11 +38,24 @@ function scratch(): string {
   return root
 }
 
+function repositoryOf(root: string, cards: unknown): string {
+  const repo = path.join(root, 'repo')
+  mkdirSync(repo, { recursive: true })
+  const touches = Array.isArray(cards) ? cards.flatMap(card => (card as { touches?: string[] }).touches ?? []) : []
+  for (const entry of touches) {
+    const target = path.join(repo, entry.replace(/\/\*\*$/, ''))
+    mkdirSync(entry.endsWith('/**') ? target : path.dirname(target), { recursive: true })
+    if (!entry.endsWith('/**'))
+      writeFileSync(target, '')
+  }
+  return repo
+}
+
 function intake(draft: unknown, taken: string, parking: string, options: Partial<IntakeOptions> = {}): IntakeResult {
   const root = path.dirname(parking)
   const draftFile = path.join(root, 'draft.json')
   writeFileSync(draftFile, typeof draft === 'string' ? draft : JSON.stringify(draft))
-  return runIntake({ draft: draftFile, taken: '-', parking, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
+  return runIntake({ draft: draftFile, taken: '-', parking, dir: repositoryOf(root, typeof draft === 'object' && draft !== null && 'cards' in draft ? draft.cards : []), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
 }
 
 function cards(result: IntakeResult) {
@@ -135,6 +148,7 @@ describe('intake marks what the retelling left unclear and guesses nothing silen
     expect(card!.text).toContain('who: window\n')
     expect(card!.text.split('\n').filter(line => line.startsWith('unclear: '))).toEqual([
       'unclear: milestone — attach repository: no milestone of its own, black-ice taken from the closed list',
+      'unclear: witnesses — \'a test\' names no command; a witness is run by a command',
       'unclear: contour — not stated in the retelling; set to ladder, the path with a brief and witnesses',
       'unclear: decision — not stated in the retelling; set to owner, so the owner merges',
     ])
