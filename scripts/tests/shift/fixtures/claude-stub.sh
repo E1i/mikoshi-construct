@@ -21,6 +21,7 @@ eddies() {
   mkdir -p "$PWD/.construct"
   printf '{"event":"%s","level":"session-context","spent":200000,"limit":250000,"tool":null,"at":"x","session_id":"%s"}\n' "$1" "$session" >> "$PWD/.construct/eddies.jsonl"
 }
+case "$prompt" in *STUB-BOUNDARY-ALWAYS*) : > "$STUB_OUT/$task.boundary-always" ;; esac
 case "$prompt" in *STUB-WARN-ALWAYS*) : > "$STUB_OUT/$task.warn-always" ;; esac
 case "$prompt" in *STUB-WARN*|*STUB-STOP*|*STUB-CLOSE*|*STUB-QUESTION*|*STUB-REFUSED*) eddies budget-warn ;; *) [ -e "$STUB_OUT/$task.warn-always" ] && eddies budget-warn ;; esac
 case "$prompt" in *STUB-STOP*) eddies budget-stop ;; esac
@@ -32,3 +33,4 @@ case "$prompt" in *STUB-NO-PR*) pr='no PR' ;; *) pr='PR #1' ;; esac
 printf 'result: did %s\n%s\n' "$task" "$pr" > "$report"
 case "$prompt" in *STUB-VERIFIED-*) printf 'verification: %s\n' "$(printf '%s\n' "$prompt" | sed -n 's/.*STUB-VERIFIED-\([a-z-]*\).*/\1/p' | head -n 1)" >> "$report" ;; esac
 case "$prompt" in *STUB-QUESTION*) printf 'question: which way, owner?\n' >> "$report" ;; esac
+case "$prompt" in *STUB-BOUNDARY*) printf 'boundary: contextLimit 250000\n' >> "$report" ;; *) if [ -e "$STUB_OUT/$task.boundary-always" ]; then printf 'boundary: contextLimit 250000\n' >> "$report"; fi ;; esac

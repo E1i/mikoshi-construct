@@ -3,8 +3,9 @@ import type { ContinueMode } from '../../src/card/task-file.js'
 export const MAX_RESTARTS = 3
 export const CONTINUE_PROMPT = 'Прочитай handoff задачи целиком и продолжай с места остановки'
 export const QUESTION_LINE = /^question:/m
+export const BOUNDARY_LINE = /^boundary:\s*\S/m
 
-export type ExitReason = 'closed' | 'eddies-stop' | 'guard-refusal' | 'owner-question' | 'eddies-warn' | 'ended'
+export type ExitReason = 'closed' | 'eddies-stop' | 'guard-refusal' | 'owner-question' | 'boundary' | 'eddies-warn' | 'ended'
 
 export interface SessionEvidence {
   exit: number | null
@@ -12,6 +13,7 @@ export interface SessionEvidence {
   stopped: boolean
   refused: boolean
   question: boolean
+  boundary: boolean
   warned: boolean
 }
 
@@ -20,6 +22,7 @@ export const EXIT_REASON_TEXT: Record<ExitReason, string> = {
   'eddies-stop': 'eddies stop',
   'guard-refusal': 'guard refusal',
   'owner-question': 'question to the owner',
+  'boundary': 'stopped at a boundary',
   'eddies-warn': 'eddies warn',
   'ended': 'ended on its own',
 }
@@ -33,13 +36,17 @@ export function exitReason(evidence: SessionEvidence): ExitReason {
     return 'guard-refusal'
   if (evidence.question)
     return 'owner-question'
+  if (evidence.boundary && evidence.exit === 0)
+    return 'boundary'
   if (evidence.warned && evidence.exit === 0)
     return 'eddies-warn'
   return 'ended'
 }
 
+const CONTINUED_REASONS: ReadonlySet<ExitReason> = new Set(['boundary', 'eddies-warn'])
+
 export function continues(mode: ContinueMode, reason: ExitReason, restarts: number): boolean {
-  return mode === 'auto' && reason === 'eddies-warn' && restarts < MAX_RESTARTS
+  return mode === 'auto' && CONTINUED_REASONS.has(reason) && restarts < MAX_RESTARTS
 }
 
 interface EddiesEntry {
