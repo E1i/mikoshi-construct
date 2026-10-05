@@ -88,7 +88,8 @@ describe('the /plan skeleton carries the expect line the entry card and the laun
 
     expect(line.startsWith(EXPECT_PREFIX)).toBe(true)
     expect(line).toContain('construct cost --expect')
-    expect(line.match(/<[^>]+>/g)).toHaveLength(1)
+    expect([...line].filter(char => char === '<')).toHaveLength(1)
+    expect([...line].filter(char => char === '>')).toHaveLength(1)
   })
 
   it('in the template copy, which has no Sketch: line, leaves line 2 blank so expect: is still line 3', () => {
