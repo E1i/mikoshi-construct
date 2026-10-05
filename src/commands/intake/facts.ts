@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { unresolvedCommandWord } from '../attach/harness.js'
 
@@ -14,6 +14,16 @@ export interface RepositoryFacts {
 
 function isFile(file: string): boolean {
   try {
+    return statSync(file).isFile()
+  }
+  catch {
+    return false
+  }
+}
+
+function isExecutableFile(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK)
     return statSync(file).isFile()
   }
   catch {
@@ -48,7 +58,7 @@ export class DirectoryFacts implements RepositoryFacts {
     if (!word.includes('/'))
       return unresolvedCommandWord(word, this.searchPath) === null
     if (path.isAbsolute(word))
-      return isFile(word)
+      return isExecutableFile(word)
     const relative = word.startsWith(CURRENT_DIRECTORY_PREFIX) ? word.slice(CURRENT_DIRECTORY_PREFIX.length) : word
     const file = path.resolve(this.root, relative)
     const inside = path.relative(this.root, file)
