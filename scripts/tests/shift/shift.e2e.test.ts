@@ -314,7 +314,8 @@ describe('w9: with --parking the shift takes the cards whose who is shift', () =
     writeFileSync(path.join(world.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'path', task: '50', path: 'cheap', pr: 1, verification: 'run' })}\n`)
     const io = captured()
     expect(await runShift([world.shift, '--parking', parking], shiftDeps(world, io))).toBe(0)
-    expect(io.out.slice(0, 3)).toEqual(['[shift] parking: takes #40, #30', '[shift] parking: leaves #20 (who window)', '[shift] parking: leaves #50 (closed)'])
+    expect(io.out.slice(0, 2)).toEqual(['[shift] parking: takes #40, #30', '[shift] parking: left: 1 who window · 1 closed'])
+    expect(readFileSync(path.join(world.shift, 'queue.txt'), 'utf8')).toBe('leaves #20 (who window)\nleaves #50 (closed)\n')
     const lines = jsonl(path.join(world.shift, 'shift.jsonl'))
     expect(lines[0]).toMatchObject({ event: 'start', tasks: ['40.md', '30.md'], parking, left: [{ id: '20', reason: 'who window' }, { id: '50', reason: 'closed' }] })
     expect(lines.filter(line => line.event === 'task').map(line => [line.task, line.exit])).toEqual([['40', 0], ['30', 0]])
@@ -339,15 +340,64 @@ describe('w9: with --parking the shift takes the cards whose who is shift', () =
     parkedCard(parking, '30', 'who: shift')
     const io = captured()
     expect(await runShift([world.shift, '--parking', parking, '--check'], shiftDeps(world, io))).toBe(0)
-    expect(io.out).toEqual(['[shift] parking: takes #30', '[shift] check passed: 30.md'])
+    expect(io.out).toEqual(['[shift] parking: takes #30', '[shift] parking: left: none', '[shift] check passed: 30.md'])
     expect(readdirSync(world.stubOut)).toEqual([])
+  })
+
+  it('w9: a parking of 30 cards prints the take and one count line before the first task, and queue.txt holds the list the count sums', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    const closed = Array.from({ length: 12 }, (_, index) => String(100 + index))
+    parkedCard(parking, '1', 'who: shift')
+    for (const id of closed)
+      parkedCard(parking, id, 'who: shift')
+    for (let index = 0; index < 10; index++)
+      parkedCard(parking, String(200 + index), 'who: window')
+    for (let index = 0; index < 5; index++)
+      writeFileSync(path.join(parking, `${300 + index}.md`), `card: #${300 + index} task-${300 + index} [implement/runner/S/cheap/auto] · depends #999 · blocks —\nbranch: feat/${300 + index}\ntouches: scripts/${300 + index}/**\nwho: shift\n\ndo it\n`)
+    parkedCard(parking, '400', 'who: shift', 'scripts/1/**')
+    parkedCard(parking, '401', 'who: shift', 'scripts/1/x.ts')
+    mkdirSync(world.handoff, { recursive: true })
+    writeFileSync(path.join(world.handoff, 'ghosts.jsonl'), closed.map(id => `${JSON.stringify({ event: 'path', task: id, path: 'cheap', pr: 1, verification: 'run' })}\n`).join(''))
+    expect(readdirSync(parking)).toHaveLength(30)
+
+    const checked = captured()
+    expect(await runShift([world.shift, '--parking', parking, '--check'], shiftDeps(world, checked))).toBe(0)
+    const io = captured()
+    expect(await runShift([world.shift, '--parking', parking], shiftDeps(world, io))).toBe(0)
+
+    const summary = '[shift] parking: left: 12 closed · 10 who window · 5 depends · 2 conflicts'
+    expect(io.out.slice(0, 2)).toEqual(['[shift] parking: takes #1', summary])
+    expect(io.out.findIndex(line => line.includes('CONTRACT'))).toBeLessThanOrEqual(10)
+    expect(io.out.some(line => line.includes('(closed)'))).toBe(false)
+    expect(checked.out).toEqual(['[shift] parking: takes #1', summary, '[shift] check passed: 1.md'])
+
+    const queue = readFileSync(path.join(world.shift, 'queue.txt'), 'utf8').trimEnd().split('\n')
+    expect(queue).toHaveLength(29)
+    const counted = (pattern: RegExp): number => queue.filter(line => pattern.test(line)).length
+    expect([counted(/\(closed\)$/), counted(/\(who window\)$/), counted(/\(depends /), counted(/\(conflicts with #1\)$/)]).toEqual([12, 10, 5, 2])
+    const start = jsonl(path.join(world.shift, 'shift.jsonl'))[0]!
+    expect(start.left).toEqual(queue.map(line => ({ id: /#(\d+)/.exec(line)![1], reason: /\((.+)\)$/.exec(line)![1] })))
+  })
+
+  it('w9: --queue prints every card left but the closed ones', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    parkedCard(parking, '20', 'who: window')
+    parkedCard(parking, '50', 'who: shift')
+    mkdirSync(world.handoff, { recursive: true })
+    writeFileSync(path.join(world.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'path', task: '50', path: 'cheap', pr: 1, verification: 'run' })}\n`)
+    const io = captured()
+    expect(await runShift([world.shift, '--parking', parking, '--check', '--queue'], shiftDeps(world, io))).toBe(0)
+    expect(io.out).toEqual(['[shift] parking: takes #30', '[shift] parking: left: 1 who window · 1 closed', '[shift] parking: leaves #20 (who window)', '[shift] check passed: 30.md'])
   })
 
   it('w9: --parking without a directory refuses with the usage line', async () => {
     const world = newWorld()
     const io = captured()
     expect(await runShift([world.shift, '--parking'], shiftDeps(world, io))).toBe(1)
-    expect(io.err).toEqual(['[shift] usage: pnpm shift <dir> [--parking <parking>] [--check]'])
+    expect(io.err).toEqual(['[shift] usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]'])
   })
 })
 
