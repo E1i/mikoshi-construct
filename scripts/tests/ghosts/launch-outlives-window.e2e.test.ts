@@ -9,7 +9,7 @@ import { ghostRowState } from '../../ghosts/status.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
 const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
-const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
+const TSX_LOADER = 'tsx'
 const ROW_APPEARS_MS = 20_000
 const FREE_ROW_MS = 30_000
 const POLL_MS = 100
@@ -20,7 +20,7 @@ const { spawn } = require('node:child_process')
 const { openSync, writeFileSync } = require('node:fs')
 const [tsx, launch, tasks, outPath, pidPath] = process.argv.slice(1)
 const out = openSync(outPath, 'w')
-const launcher = spawn(process.execPath, [tsx, launch, '--tasks', tasks], { stdio: ['pipe', out, out] })
+const launcher = spawn(process.execPath, ['--import', tsx, launch, '--tasks', tasks], { stdio: ['pipe', out, out] })
 writeFileSync(pidPath, String(launcher.pid))
 launcher.stdin.end('yes\\n')
 `
@@ -95,11 +95,12 @@ function journalTasks(w: string): string[] {
 }
 
 describe('ghosts:launch outlives the window that started it', () => {
-  it('w1: after SIGKILL of the window process group, the supervisor writes the free rows and the journal task lines', async () => {
+  it.each(['SIGHUP', 'SIGKILL'] as const)('w1: after %s to the window process group, the supervisor writes the free rows and the journal task lines', async (signal) => {
     const w = world('new', 'slow')
     const pidPath = path.join(w, '.world', 'launcher.pid')
-    const window = spawn(process.execPath, ['-e', WINDOW_SCRIPT, TSX, LAUNCH, path.join(w, 'tasks.json'), path.join(w, 'launch.out'), pidPath], {
+    const window = spawn(process.execPath, ['-e', WINDOW_SCRIPT, TSX_LOADER, LAUNCH, path.join(w, 'tasks.json'), path.join(w, 'launch.out'), pidPath], {
       detached: true,
+      cwd: REPO_ROOT,
       stdio: 'ignore',
       env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}` },
     })
@@ -111,7 +112,7 @@ describe('ghosts:launch outlives the window that started it', () => {
     survivors.push(...supervisors)
     const launcherPid = Number(readFileSync(pidPath, 'utf8'))
 
-    process.kill(-windowPgid, 'SIGKILL')
+    process.kill(-windowPgid, signal)
     const aliveAfterKill = supervisors.map(isAlive)
 
     expect(await waitFor(() => allInState(w, 'free'), FREE_ROW_MS), statusOf(w)).toBe(true)
