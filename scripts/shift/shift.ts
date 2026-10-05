@@ -23,7 +23,9 @@ import { cheapClass, claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { VERIFICATION_WORDS } from '../board/verification.js'
 import { cheapExpect } from '../ghosts/cheap-expect.js'
+import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
@@ -36,6 +38,7 @@ import { continuationBody, renderPrompt } from './prompt.js'
 
 export const PREFIX = '[shift] '
 const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
+const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 export const USAGE = [
   'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]',
   '',
@@ -184,12 +187,37 @@ function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
   return [...result.stdout, ...result.stderr]
 }
 
-function mergeFromReport(deps: ShiftDeps, task: ShiftTask, report: string): string[] | undefined {
+function notClosed(deps: ShiftDeps, task: ShiftTask, reason: string): string {
+  return (deps.style ?? PLAIN_STYLE).paint('red', `${PREFIX}#${task.id} not closed: ${reason}`)
+}
+
+function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, text: string, pr: string): string[] {
+  const word = REPORT_VERIFICATION_LINE.exec(text)?.[1]
+  if (word === undefined)
+    return [notClosed(deps, task, `the report has no verification: <word> line, one of ${VERIFICATION_WORDS.join(', ')}; no closing line written`)]
+  const closed = runTaskClose([task.id, '--pr', pr, '--verification', word], {
+    cwd: session.worktree,
+    read: file => deps.exists(file) ? deps.read(file) : null,
+    append: deps.append,
+    now: deps.now,
+    handoffDir: deps.handoffDir,
+    exists: deps.exists,
+    session: session.id,
+    projectsDir: deps.projectsDir,
+    style: deps.style,
+  })
+  return closed.exitCode === 0 ? closed.stdout : closed.stderr.map(line => notClosed(deps, task, line.slice(CLOSE_PREFIX.length)))
+}
+
+function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string): string[] | undefined {
   if (task.card.kind === 'probe')
     return undefined
-  const pr = REPORT_PR_LINE.exec(deps.read(report))
+  const text = deps.read(report)
+  const pr = REPORT_PR_LINE.exec(text)
   if (pr === null)
     return undefined
+  for (const line of closeFromReport(deps, task, session, text, pr[1]!))
+    deps.out(line)
   const lines = mergeAfterSession(deps, pr[1]!)
   deps.append(report, `\n${lines.join('\n')}\n`)
   for (const line of lines)
@@ -224,7 +252,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   if (exit.kind === 'unspawnable')
     return { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, places.report) : undefined
+  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report) : undefined
   return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge }) }
 }
 
