@@ -12,7 +12,7 @@ const SCRIPT = path.join(ROOT, 'scripts/construct/check-acceptance.mjs')
 const FACTORY_COPY = '.claude/commands/plan.md'
 const TEMPLATE_COPY = 'templates/ai/claude/_claude/commands/plan.md'
 const COPIES = [FACTORY_COPY, TEMPLATE_COPY]
-const PLACEHOLDERS_BEFORE_EFFORT: Record<string, number> = { [FACTORY_COPY]: 3, [TEMPLATE_COPY]: 1 }
+const PLACEHOLDERS_BEFORE_EFFORT: Record<string, number> = { [FACTORY_COPY]: 4, [TEMPLATE_COPY]: 2 }
 const dirs: string[] = []
 
 afterEach(() => {
