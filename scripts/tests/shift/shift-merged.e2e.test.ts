@@ -24,11 +24,11 @@ function git(cwd: string, args: string[]): string {
 
 interface World { root: string, repo: string, handoff: string, shift: string, stubOut: string, parking: string, journal: string }
 
-function cardLine(id: number, depends = '—'): string {
-  return `#${id} task-${id} [implement/runner/S/cheap/auto] · depends ${depends} · blocks —`
+function cardLine(id: number, depends = '—', kind = 'implement/runner/S/cheap/auto'): string {
+  return `#${id} task-${id} [${kind}] · depends ${depends} · blocks —`
 }
 
-function newWorld(journalLines: object[], cards: { id: number, depends?: string, body?: string }[]): World {
+function newWorld(journalLines: object[], cards: { id: number, depends?: string, body?: string, kind?: string }[]): World {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'shift-merged-')))
   roots.push(root)
   const origin = path.join(root, 'origin.git')
@@ -47,10 +47,10 @@ function newWorld(journalLines: object[], cards: { id: number, depends?: string,
   const handoff = path.join(root, 'handoff')
   for (const dir of [shift, stubOut, parking, handoff])
     mkdirSync(dir)
-  for (const { id, depends, body } of cards)
-    writeFileSync(path.join(parking, `${id}.md`), `card: ${cardLine(id, depends)}\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\n${body ?? `do ${id}`}\n`)
+  for (const { id, depends, body, kind } of cards)
+    writeFileSync(path.join(parking, `${id}.md`), `card: ${cardLine(id, depends, kind)}\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\n${body ?? `do ${id}`}\n`)
   const journal = path.join(handoff, 'ghosts.jsonl')
-  const intake = cards.map(({ id, depends }) => ({ event: 'intake', task: String(id), card: cardLine(id, depends), confirmation: 'none', corrections: [], ts: '2026-10-05T00:00:00.000Z' }))
+  const intake = cards.map(({ id, depends, kind }) => ({ event: 'intake', task: String(id), card: cardLine(id, depends, kind), confirmation: 'none', corrections: [], ts: '2026-10-05T00:00:00.000Z' }))
   writeFileSync(journal, [...journalLines, ...intake].map(line => `${JSON.stringify(line)}\n`).join(''))
   return { root, repo, handoff, shift, stubOut, parking, journal }
 }
@@ -209,5 +209,50 @@ describe('the shift closes a task from its report', () => {
   it('the header names every verification word the shift accepts', () => {
     for (const word of VERIFICATION_WORDS)
       expect(HEADER).toContain(`\`${word}\``)
+  })
+})
+
+const PROBE = 'probe/runner/S/cheap/none'
+
+function probeRun(reportLines: string[]): ShiftDeps['run'] {
+  return async (run) => {
+    const report = /write the shift report to `([^`]+)`/.exec(run.prompt)![1]!
+    writeFileSync(report, `${reportLines.join('\n')}\n`)
+    return { kind: 'exited', code: 0, signal: null }
+  }
+}
+
+describe('the shift closes a probe from its report', () => {
+  it('closes a probe by its report line', async () => {
+    const world = newWorld([], [{ id: 3, kind: PROBE }])
+    const { gh, calls } = ghMerged({})
+    const out: string[] = []
+    const written = path.join(world.root, 'probe-3.md')
+    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), run: probeRun(['result: measured', 'no PR', `Report: ${written}`, 'verification: measurement']) })
+    const closing = readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'report' in line)
+    expect(closing).toMatchObject([{ task: '3', report: written, verification: 'measurement' }])
+    expect(out.some(line => line.includes(`closed measurement · report ${written}`))).toBe(true)
+    expect(calls.filter(args => args[1] === 'merge')).toEqual([])
+  })
+
+  it('a closed probe is not taken again', async () => {
+    const world = newWorld([], [{ id: 3, kind: PROBE }])
+    const { gh } = ghMerged({})
+    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, [], []), run: probeRun(['no PR', 'result: report written to `probe-3.md`.', 'verification: run']) })
+    const next: string[] = []
+    const rerun = path.join(world.root, 'shift-2')
+    mkdirSync(rerun)
+    await runShift([rerun, '--parking', world.parking, '--check'], depsOf(world, gh, next, []))
+    expect(next[0]).toBe('[shift] parking: takes none')
+  })
+
+  it('a probe report with no Report: line writes no closing line and prints the red line', async () => {
+    const world = newWorld([], [{ id: 3, kind: PROBE }])
+    const { gh } = ghMerged({})
+    const out: string[] = []
+    const paint = (tone: string | undefined, text: string): string => tone === 'red' ? `<red>${text}</red>` : text
+    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), style: { ascii: true, paint }, run: probeRun(['no PR', 'verification: run']) })
+    expect(readFileSync(world.journal, 'utf8')).not.toContain('"verification"')
+    expect(out).toContain('<red>[shift] #3 not closed: the probe report has no Report: <path> line; no closing line written</red>')
   })
 })
