@@ -2,6 +2,7 @@ import type { Signal } from '../../src/ui/signal.js'
 import { SIGNAL_FIELDS } from '../../src/ui/signal.js'
 
 export const ENTRY_EVENT = 'entry'
+export const ENTRY_SCHEMA = 2
 export const ENTRY_RESULT = 'accepted · not started'
 
 export function entryEvent(task: string, signal: Signal, at: string): object {
@@ -9,7 +10,7 @@ export function entryEvent(task: string, signal: Signal, at: string): object {
 }
 
 export function entryLine(task: string, signal: Signal, at: string): string {
-  return `${JSON.stringify(entryEvent(task, signal, at))}\n`
+  return `${JSON.stringify({ ...entryEvent(task, signal, at), schema: ENTRY_SCHEMA })}\n`
 }
 
 function isSignal(entry: Record<string, unknown>): entry is Signal & Record<string, unknown> {

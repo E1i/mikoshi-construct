@@ -5,7 +5,7 @@ const SIGNAL = { CONTRACT: 'c', EXPECT: 'e', ACTION: 'a', RESULT: ENTRY_RESULT }
 
 describe('the entry line', () => {
   it('is one JSON line of event entry with the task, the four fields and the time', () => {
-    expect(JSON.parse(entryLine('7', SIGNAL, 't'))).toEqual({ event: 'entry', task: '7', ...SIGNAL, ts: 't' })
+    expect(JSON.parse(entryLine('7', SIGNAL, 't'))).toEqual({ event: 'entry', schema: 2, task: '7', ...SIGNAL, ts: 't' })
     expect(entryLine('7', SIGNAL, 't').endsWith('\n')).toBe(true)
   })
 
