@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { Signal } from '../../src/ui/signal.js'
 import type { JournalEntry } from '../ghosts/journal.js'
 import type { TasksFile } from '../ghosts/tasks.js'
 import type { LedgerStage } from '../ghosts/watch-ledger.js'
@@ -8,6 +9,7 @@ import type { Window } from './window.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { readContourSchema, violations } from '../contract/contours.js'
+import { entryOf } from '../ghosts/entry.js'
 import { lookupMatrixRow } from '../ghosts/matrix.js'
 import { ghostRowState } from '../ghosts/status.js'
 import { readTasksFile } from '../ghosts/tasks.js'
@@ -101,6 +103,8 @@ export interface Attempt {
   window: Window
   handoffFile: string | undefined
   supersededEvent: SupersededEvent | undefined
+  readonly entryLine: Signal | undefined
+  readonly journalPath: string
 }
 
 export interface Handoff {
@@ -246,6 +250,8 @@ function handoffFileOf(dir: string, id: string): string | undefined {
 export function readHandoff(dir: string, repoRoot?: string): Handoff {
   const warnings: string[] = []
   const journal = readJournal(dir, warnings)
+  const journalPath = path.join(dir, 'ghosts.jsonl')
+  const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
   const tasksFiles = readTasksFiles(dir, warnings)
   const statusPath = path.join(dir, 'status.md')
   const statusText = existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined
@@ -278,7 +284,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
     const pathEvent = foldPath(journal, id)
     const worktree = facts.worktree ?? pathEvent?.worktree
     const session = pathEvent?.session
-    return {
+    const attempt: Attempt = {
       id,
       brief: facts.brief,
       briefWrittenAt: facts.brief !== undefined && existsSync(facts.brief) ? statSync(facts.brief).mtime : undefined,
@@ -299,7 +305,11 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       window: readWindow([repoRoot, worktree], session),
       handoffFile: handoffFileOf(dir, id),
       supersededEvent: lastOf(id, 'superseded'),
-    }
+    } as Attempt
+    return Object.defineProperties(attempt, {
+      entryLine: { value: entryOf(journalText, id) },
+      journalPath: { value: journalPath },
+    })
   })
 
   return { attempts, edges: edgesFrom(dir, tasksFiles, warnings), warnings }

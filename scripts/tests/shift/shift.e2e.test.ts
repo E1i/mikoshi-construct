@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readBudgetLines } from '../../board/eddies.js'
+import { entryOf } from '../../ghosts/entry.js'
 import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { runReport } from '../../shift/report.js'
@@ -226,16 +227,17 @@ describe('w3: shift:report builds the table from the shift', () => {
       out: line => io.out.push(line),
       err: line => io.err.push(line),
     }
+    const entryFor = (task: string): NonNullable<ReturnType<typeof entryOf>> => entryOf(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8'), task)!
     expect(runReport([world.shift], deps)).toBe(0)
     expect(io.out).toEqual([
       expect.stringMatching(/^-{4} 01\.md #1 task-1 \[implement\/runner\/S\/cheap\/auto\] -+$/),
-      'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
-      'EXPECT   | expect not recorded in shift.jsonl',
+      `CONTRACT | ${entryFor('1').CONTRACT}`,
+      `EXPECT   | ${entryFor('1').EXPECT}`,
       `ACTION   | claude session ${stubSaw(world, '1', 'session')} on feat/1, 2m 02s`,
       'RESULT   | exit 1 · no PR · not closed · restarts 0/3, last exit ended on its own · eddies stop session-context 250000/250000 · report: no report',
       expect.stringMatching(/^-{4} 02\.md #2 task-2 \[implement\/runner\/S\/cheap\/auto\] -+$/),
-      'CONTRACT | implement · cheap · auto · touches not recorded in shift.jsonl · law not recorded in shift.jsonl',
-      'EXPECT   | expect not recorded in shift.jsonl',
+      `CONTRACT | ${entryFor('2').CONTRACT}`,
+      `EXPECT   | ${entryFor('2').EXPECT}`,
       `ACTION   | claude session ${stubSaw(world, '2', 'session')} on feat/2, 2m 02s`,
       'RESULT   | exit 0 · PR #436 · not closed · restarts 0/3, last exit ended on its own · eddies stop — · report: did mc-2',
     ])
