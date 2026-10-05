@@ -6,7 +6,7 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { ATTACH_EXIT, printEntryProtocol, runAttach } from './commands/attach/index.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, readBoard, STALE_HOURS } from './commands/board/index.js'
-import { COST_EXIT, costJson, costReport, defaultWindowJournal, printCost } from './commands/cost/index.js'
+import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
@@ -245,10 +245,27 @@ const cost = withKnownFlags(defineCommand({
     ...commonArgs,
     last: { type: 'boolean', description: 'Only the most recent run', default: false },
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
+    expect: { type: 'boolean', description: 'Forecast the next run from the done runs in .construct/runs.jsonl', default: false },
+    effort: { type: 'string', description: 'Effort the forecast is for: low, medium or high (needs --expect)' },
   },
   run({ args }) {
-    const console = ui(args, args.json ? stderrWriter : stdoutWriter)
+    const console = ui(args, args.json || args.expect || args.effort != null ? stderrWriter : stdoutWriter)
     const failed = reported(console, () => {
+      const refusal = expectRefusal(args.expect, args.effort, console.lore)
+      if (refusal !== null) {
+        console.flatline(refusal)
+        process.exitCode = FAILED_EXIT
+        return
+      }
+      if (args.expect) {
+        const warnings: string[] = []
+        const result = costExpect(path.resolve(args.dir), { effort: args.effort, lore: console.lore, warnings })
+        for (const warning of warnings)
+          console.line(warning)
+        const { line, head, sources, notes, steps } = result
+        process.stdout.write(args.json ? `${JSON.stringify({ line, head, sources, notes, steps }, null, 2)}\n` : `${expectLines(result, console.lore).join('\n')}\n`)
+        return
+      }
       const report = costReport(path.resolve(args.dir))
       if (args.json) {
         process.stdout.write(`${JSON.stringify(costJson(report, args.last), null, 2)}\n`)

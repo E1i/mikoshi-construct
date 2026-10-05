@@ -1,3 +1,6 @@
+import type { ExpectLore } from './expect-lore.js'
+import { EXPECT_LORE } from './expect-lore.js'
+
 const BLOCK_REPLACED_WHOLE = 'block-replaced-whole-discovery-bodies-carried-over'
 
 export const BANNER = String.raw`
@@ -14,7 +17,7 @@ export interface Notice {
   next: string
 }
 
-export interface Lore {
+export interface Lore extends ExpectLore {
   subtitle: (version: string) => string
   johnnyWakeUp: string
   soulkiller: string
@@ -292,6 +295,7 @@ function andMore(rest: readonly string[]): string {
 }
 
 export const LORE: Lore = {
+  ...EXPECT_LORE,
   subtitle: (version: string) => `--- CONSTRUCT ENGINE v${version} // ARASAKA SUB-NET ---`,
   johnnyWakeUp: 'Wake up, Netrunner. We have a repository to build.',
   soulkiller: 'RUNNING SOULKILLER PROTOCOL...',
@@ -615,6 +619,7 @@ export const LORE: Lore = {
 }
 
 export const PLAIN_LORE: Lore = {
+  ...EXPECT_LORE,
   subtitle: (version: string) => `mikoshi-construct v${version}`,
   johnnyWakeUp: 'Wake up, Netrunner. We have a repository to build.',
   soulkiller: 'Inspecting repository...',

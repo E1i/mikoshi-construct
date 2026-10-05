@@ -15,6 +15,10 @@ description: >-
   message content is read past the token counts and the record times, and the step cache is the only
   file written. `COST_EXIT` maps the status to the exit code, so a run that could not be read is a
   non-zero exit rather than a zero total.
+  `construct cost --expect` is a branch of the entry: `costExpect` reads the ledger and the step cache
+  only, writes only the step cache, and calls neither `reconcile` nor the runtime resolution, so
+  the forecast does not depend on the runtime. `expect.ts` is the one calculation `scripts/ghosts`
+  also calls.
 doc: architecture/cost.md
 boundaries:
   - id: entry
@@ -29,6 +33,8 @@ boundaries:
     label: Cache · append only
   - id: report
     label: Report
+  - id: forecast
+    label: Forecast · --expect
 nodes:
   - id: cli
     label: construct cost (citty)
@@ -74,6 +80,14 @@ nodes:
     label: printCost / costJson · COST_EXIT sets the exit code
     path: src/commands/cost/report.ts
     boundary: report
+  - id: costExpect
+    label: costExpect(cwd) · the ledger and the step cache, no runtime
+    path: src/commands/cost/index.ts
+    boundary: forecast
+  - id: expect
+    label: expectFor · the one forecast calculation, returns data
+    path: src/commands/cost/expect.ts
+    boundary: forecast
 edges:
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: runtime, kind: sequence}
@@ -87,3 +101,9 @@ edges:
   - {from: claude, to: steps, kind: wires}
   - {from: ledger, to: stepCache, kind: fan-in, label: runs it names}
   - {from: steps, to: stepCache, kind: fan-in}
+  - {from: cli, to: costExpect, kind: route, label: --expect}
+  - {from: ledger, to: expect, kind: fan-in}
+  - {from: stepCache, to: expect, kind: fan-in, label: steps}
+  - {from: claude, to: stepCache, kind: wires, label: knownSteps}
+  - {from: costExpect, to: expect, kind: sequence}
+  - {from: expect, to: print, kind: sequence}

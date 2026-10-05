@@ -1,10 +1,16 @@
+import type { Lore } from '../../ui/lore.js'
+import type { ExpectResult } from './expect.js'
 import type { CostReport, CostSource } from './source.js'
 import type { StepCache } from './step-cache.js'
+import type { RunStep, UnreadAgent } from './steps.js'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { VERSION } from '../../version.js'
 import { defaultShiftRoot, defaultWindowJournal, readCheapClasses } from './cheap.js'
 import { ClaudeCodeCostSource, claudeProjectsDir } from './claude-code.js'
-import { hasLedgerFindings, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
+import { expectFor } from './expect.js'
+import { hasLedgerFindings, LEDGER_FILE, parseLedgerLine, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
 import { resolveRuntime } from './runtime.js'
 import { knownRunSteps, readStepCache, recordRunSteps } from './step-cache.js'
 import { readTurnJournal } from './turns.js'
@@ -13,6 +19,8 @@ export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot
 export type { CheapClassReading, CheapForecast, CheapNote, CheapReading, CheapRow, CheapSample, CheapSession, CheapTask } from './cheap.js'
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey, readAgentRecord } from './claude-code.js'
 export type { AgentRecord } from './claude-code.js'
+export { EFFORTS, expectFor, expectLines, expectRefusal, formatContour, formatRoleExpect, formatStepExpect, formatTokens, readLedgerEntries, stepExpects } from './expect.js'
+export type { ExpectHead, ExpectInput, ExpectResult, ImplementSubsample, RoleBand, SampleRow, SampleSource, StepExpect, Subsample } from './expect.js'
 export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
 export type { Cause, LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconciliation, TokenCount, TokenSource } from './ledger.js'
 export { COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, printCost } from './report.js'
@@ -61,4 +69,36 @@ export function costReport(cwd: string, options: { projectsDir?: string, shiftRo
     ...(reported ? { ledger } : {}),
     ...(joinable && (reported || result.runs.length > 0) ? { reconciliation: reconcile(reading.entries, result.runs) } : {}),
   }
+}
+
+function ledgerLines(cwd: string): string[] | null {
+  const file = path.join(cwd, LEDGER_FILE)
+  if (!existsSync(file))
+    return null
+  return readFileSync(file, 'utf8').split('\n').filter(line => line.trim() !== '')
+}
+
+function runsOf(lines: string[]): string[] {
+  return lines.map(parseLedgerLine).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
+}
+
+function unreadWarnings(unread: UnreadAgent[], lore: Lore): string[] {
+  const byRun = new Map<string, UnreadAgent[]>()
+  for (const agent of unread)
+    byRun.set(agent.run, [...byRun.get(agent.run) ?? [], agent])
+  return [...byRun].map(([run, agents]) => lore.expectUnreadRun(run, agents.map(agent => lore.expectUnreadAgent(agent.agent, agent.reason)).join('; ')))
+}
+
+export function stepsOfRepository(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null): Map<string, RunStep[]> {
+  const cache = knownSteps(root, runs, source)
+  for (const line of cache.malformed)
+    warnings.push(lore.expectStepCacheMalformed(line))
+  warnings.push(...unreadWarnings(cache.unread, lore))
+  return cache.runs
+}
+
+export function costExpect(cwd: string, options: { effort?: string, lore: Lore, warnings: string[] }): ExpectResult {
+  const lines = ledgerLines(cwd)
+  const runSteps = options.effort === undefined ? undefined : stepsOfRepository(cwd, runsOf(lines ?? []), options.warnings, options.lore, new ClaudeCodeCostSource())
+  return expectFor({ ledgers: [{ source: LEDGER_FILE, lines }], effort: options.effort, runSteps }, options.lore)
 }

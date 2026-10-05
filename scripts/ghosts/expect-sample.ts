@@ -1,45 +1,28 @@
-import type { CostSource, RunStep, Step, UnreadAgent } from '../../src/commands/cost/index.js'
+import type { CostSource, ExpectInput, ImplementSubsample, RoleBand, RunStep, SampleRow, SampleSource, StepExpect } from '../../src/commands/cost/index.js'
 import type { LedgerEntry } from '../../src/commands/cost/ledger.js'
-import type { Band } from '../../src/commands/cost/sample.js'
 import type { SubagentRecord } from '../../src/commands/cost/turns.js'
-import type { RoleExpect } from './role-sample.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { ClaudeCodeCostSource, knownSteps, STEPS } from '../../src/commands/cost/index.js'
+import { ClaudeCodeCostSource, expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, readLedgerEntries as readLedgerEntriesIn, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/index.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
-import { recentBand } from '../../src/commands/cost/sample.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
+import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { roleExpects } from './role-sample.js'
 
-export interface SampleRow {
-  run: string
-  effort: string
-  tokens: number
-  minutes: number
-}
+export type { ImplementSubsample, SampleRow, SampleSource, StepExpect, Subsample } from '../../src/commands/cost/index.js'
+export { formatTokens, stepExpects }
 
 export interface ExpectSample {
   line: string
   rows: SampleRow[]
   steps: StepExpect[]
-  roles: RoleExpect[]
+  roles: ReturnType<typeof roleExpects>
   contour: string | null
-}
-
-export type Subsample = 'sketch' | 'no sketch'
-
-export type StepExpect
-  = | { kind: 'forecast', step: Step, effort: string, tokens: number, p25: number, p75: number, minutes: number, n: number, subsample?: Subsample }
-    | { kind: 'none', step: Step, effort: string, n: number, subsample?: Subsample }
-
-export interface SampleSource {
-  source: string
-  lines: string[] | null
 }
 
 export interface LadderSampleInput {
@@ -57,11 +40,7 @@ interface JournalTask {
   sketch: boolean | null
 }
 
-const COUNTED_STATUS = 'done'
-const DASH = '—'
-const APPROX = '≈'
-const BAND = 'p25–p75'
-const CONTOUR_LABEL = 'sum of step bands'
+const COUNTED_RUN_STATUS = 'done'
 
 function textLines(file: string): string[] | null {
   if (!existsSync(file))
@@ -95,43 +74,15 @@ export function readJournalTasks(lines: string[], warnings: string[]): JournalTa
 }
 
 export function readLedgerEntries(ledger: SampleSource, notes: string[]): LedgerEntry[] {
-  if (ledger.lines === null)
-    return []
-  const entries: LedgerEntry[] = []
-  const rejected = new Map<string, number>()
-  for (const text of ledger.lines) {
-    const entry = parseLedgerLine(text)
-    if (typeof entry === 'string')
-      rejected.set(entry, (rejected.get(entry) ?? 0) + 1)
-    else
-      entries.push(entry)
-  }
-  if (rejected.size > 0) {
-    const count = [...rejected.values()].reduce((sum, value) => sum + value, 0)
-    const reasons = [...rejected].map(([reason, times]) => `${times} ${reason}`).join(', ')
-    notes.push(`${count} row${count === 1 ? '' : 's'} the ledger parser rejects not counted in ${ledger.source} (${reasons})`)
-  }
-  return entries
+  return readLedgerEntriesIn(ledger, notes, PLAIN_LORE)
 }
 
-function countedRows(entries: LedgerEntry[], effort: string | undefined, runsOfClass: Set<string> | null): SampleRow[] {
-  const seen = new Set<string>()
-  const rows: SampleRow[] = []
-  for (const entry of entries) {
-    if (entry.run === null || seen.has(entry.run) || (runsOfClass !== null && !runsOfClass.has(entry.run)))
-      continue
-    if (entry.status !== COUNTED_STATUS || entry.tokens === 'unknown')
-      continue
-    if (effort !== undefined && entry.effort !== effort)
-      continue
-    seen.add(entry.run)
-    rows.push({ run: entry.run, effort: entry.effort, tokens: entry.tokens, minutes: entry.seconds / 60 })
-  }
-  return rows
+export function formatStepExpect(expected: StepExpect): string {
+  return formatStepExpectIn(expected, PLAIN_LORE)
 }
 
-function oldestFirst(entries: LedgerEntry[]): LedgerEntry[] {
-  return [...entries].sort((a, b) => a.at.localeCompare(b.at))
+export function formatContour(steps: StepExpect[], roles: RoleBand[]): string {
+  return formatContourIn(steps, roles, PLAIN_LORE)
 }
 
 function runsOfClass(taskClass: LadderSampleInput['taskClass'], notes: string[], warnings: string[]): { runs: Set<string> | null, missing: string | null } {
@@ -151,181 +102,47 @@ function runsOfClass(taskClass: LadderSampleInput['taskClass'], notes: string[],
   return { runs, missing: null }
 }
 
-function selection(taskClass: string | undefined, effort: string | undefined): string {
-  const parts = [...(taskClass === undefined ? [] : [`class ${taskClass}`]), ...(effort === undefined ? [] : [`effort ${effort}`])]
-  return parts.length === 0 ? 'every effort' : parts.join(', ')
-}
-
-function sources(input: LadderSampleInput): string[] {
-  return [`ledger ${input.ledgers.map(ledger => ledger.source).join(', ')}`, ...(input.taskClass === undefined ? [] : [`journal ${input.taskClass.journal.source}`])]
-}
-
-function oneDecimal(value: number): string {
-  return String(Math.round(value * 10) / 10)
-}
-
-export function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000)
-    return `${oneDecimal(tokens / 1_000_000)}M`
-  if (tokens >= 1_000)
-    return `${Math.round(tokens / 1_000)}k`
-  return String(Math.round(tokens))
-}
-
-function formatBand(band: { p25: number, p75: number }): string {
-  return `${BAND} ${formatTokens(band.p25)}–${formatTokens(band.p75)}`
-}
-
-function headOf(rows: SampleRow[], label: string, effort: string | undefined, missing: string | null): string {
-  if (missing !== null && rows.length === 0)
-    return `none ${DASH} ${missing}`
-  const tokens = recentBand(rows.map(row => row.tokens))
-  if (tokens.kind === 'none')
-    return `none ${DASH} n=${tokens.n} for ${label}`
-  const efforts = [...new Set(rows.map(row => row.effort))]
-  const basis = effort ?? (efforts.length === 1 ? efforts[0] : undefined)
-  if (basis === undefined)
-    return `none ${DASH} the sample for ${label} mixes efforts ${efforts.sort().join(', ')}; pass --effort`
-  const minutes = recentBand(rows.map(row => row.minutes))
-  const medianMinutes = minutes.kind === 'band' ? minutes.median : 0
-  return `tokens ${APPROX} ${formatTokens(tokens.median)}, minutes ${APPROX} ${oneDecimal(medianMinutes)} ${DASH} effort ${basis}, n=${tokens.n}, median, ${formatBand(tokens)}`
-}
-
-export interface ImplementSubsample {
-  subsample: Subsample
-  runs: Set<string>
-}
-
-const SUBSAMPLED_STEP: Step = 'implement'
-
-export function stepExpects(entries: LedgerEntry[], runSteps: Map<string, RunStep[]>, effort: string, implement: ImplementSubsample | null = null): StepExpect[] {
-  const counted = new Set<string>()
-  const perStep = new Map<Step, { tokens: number, seconds: number }[]>(STEPS.map(step => [step, []]))
-  for (const entry of oldestFirst(entries)) {
-    if (entry.run === null || counted.has(entry.run) || entry.status !== COUNTED_STATUS || entry.effort !== effort)
-      continue
-    const steps = runSteps.get(entry.run)
-    if (steps === undefined)
-      continue
-    counted.add(entry.run)
-    for (const step of STEPS) {
-      if (step === SUBSAMPLED_STEP && implement !== null && !implement.runs.has(entry.run))
-        continue
-      const records = steps.filter(record => record.step === step)
-      if (records.length > 0)
-        perStep.get(step)!.push({ tokens: records.reduce((sum, record) => sum + record.tokens, 0), seconds: records.reduce((sum, record) => sum + record.seconds, 0) })
-    }
-  }
-  return STEPS.map((step) => {
-    const samples = perStep.get(step)!
-    const subsample = step === SUBSAMPLED_STEP && implement !== null ? { subsample: implement.subsample } : {}
-    const tokens = recentBand(samples.map(sample => sample.tokens))
-    const seconds = recentBand(samples.map(sample => sample.seconds))
-    if (tokens.kind === 'none' || seconds.kind === 'none')
-      return { kind: 'none', step, effort, n: tokens.n, ...subsample }
-    return { kind: 'forecast', step, effort, tokens: tokens.median, p25: tokens.p25, p75: tokens.p75, minutes: Math.round(seconds.median / 6) / 10, n: tokens.n, ...subsample }
-  })
-}
-
-function stepNoneReason(expected: StepExpect): string {
-  return `n=${expected.n} for ${expected.effort}/${expected.step}${expected.subsample === undefined ? '' : `, ${expected.subsample}`}`
-}
-
-export function formatStepExpect(expected: StepExpect): string {
-  if (expected.kind === 'none')
-    return `${expected.step} none ${DASH} ${stepNoneReason(expected)}`
-  const subsample = expected.subsample === undefined ? '' : ` (${expected.subsample})`
-  return `${expected.step}${subsample} tokens ${APPROX} ${formatTokens(expected.tokens)}, minutes ${APPROX} ${expected.minutes}, ${formatBand(expected)} ${DASH} n=${expected.n}`
-}
-
-function roleNoneReason(expected: RoleExpect): string {
-  return expected.missing ?? `n=${expected.band.n} for role ${expected.role}`
-}
-
-export function formatRoleExpect(expected: RoleExpect): string {
-  if (expected.band.kind === 'none')
-    return `${expected.role} none ${DASH} ${roleNoneReason(expected)}`
-  return `${expected.role} tokens ${APPROX} ${formatTokens(expected.band.median)}, minutes not recorded, ${formatBand(expected.band)} ${DASH} n=${expected.band.n}`
-}
-
-interface ContourPart {
-  name: string
-  band: Band
-  reason: string
-}
-
-function contourParts(steps: StepExpect[], roles: RoleExpect[]): ContourPart[] {
-  return [
-    ...steps.map(step => ({ name: step.step, band: step.kind === 'forecast' ? { kind: 'band' as const, median: step.tokens, p25: step.p25, p75: step.p75, n: step.n } : { kind: 'none' as const, n: step.n }, reason: stepNoneReason(step) })),
-    ...roles.map(role => ({ name: role.role, band: role.band, reason: roleNoneReason(role) })),
-  ]
-}
-
-export function formatContour(steps: StepExpect[], roles: RoleExpect[]): string {
-  const parts = contourParts(steps, roles)
-  const covered = parts.flatMap(part => part.band.kind === 'band' ? [{ name: part.name, band: part.band }] : [])
-  const uncovered = parts.filter(part => part.band.kind === 'none').map(part => `${part.name} (${part.reason})`)
-  const notCovered = uncovered.length === 0 ? '' : `; not covered: ${uncovered.join(', ')}`
-  if (covered.length === 0)
-    return `contour none ${DASH} no step has a sample${notCovered}`
-  const sum = (pick: (band: { median: number, p25: number, p75: number }) => number): number => covered.reduce((total, part) => total + pick(part.band), 0)
-  return `contour tokens ${APPROX} ${formatTokens(sum(band => band.median))}, ${formatBand({ p25: sum(band => band.p25), p75: sum(band => band.p75) })} (${CONTOUR_LABEL}) ${DASH} covers ${covered.map(part => part.name).join(', ')}${notCovered}`
-}
-
-function missingReason(input: LadderSampleInput, entries: LedgerEntry[], classMissing: string | null): string | null {
-  if (classMissing !== null)
-    return classMissing
-  const unrecorded = input.ledgers.filter(ledger => ledger.lines === null || ledger.lines.length === 0).map(ledger => ledger.source)
-  return entries.length === 0 && unrecorded.length > 0 ? `runs not recorded in ${unrecorded.join(', ')}` : null
-}
-
-function implementSubsample(input: LadderSampleInput, entries: LedgerEntry[], notes: string[], warnings: string[]): ImplementSubsample | null {
-  if (input.sketch === undefined)
-    return null
-  const { wanted, journal } = input.sketch
+function implementSubsample(input: LadderSampleInput, entries: LedgerEntry[], warnings: string[]): { sample: ImplementSubsample, notes: string[] } {
+  const notes: string[] = []
+  const sketch = input.sketch!
+  const { wanted, journal } = sketch
   const known = new Map<string, boolean>()
   for (const task of readJournalTasks(journal.lines ?? [], warnings)) {
     if (task.sketch !== null)
       known.set(task.run, task.sketch)
   }
-  const unknown = new Set(entries.filter(entry => entry.run !== null && entry.status === COUNTED_STATUS && entry.effort === input.effort && !known.has(entry.run)).map(entry => entry.run))
+  const unknown = new Set(entries.filter(entry => entry.run !== null && entry.status === COUNTED_RUN_STATUS && entry.effort === input.effort && !known.has(entry.run)).map(entry => entry.run))
   if (unknown.size > 0)
     notes.push(`${unknown.size} run${unknown.size === 1 ? '' : 's'} without a sketch record in ${journal.source} not counted for implement`)
-  return { subsample: wanted ? 'sketch' : 'no sketch', runs: new Set([...known].filter(([, sketch]) => sketch === wanted).map(([run]) => run)) }
+  return { sample: { subsample: wanted ? 'sketch' : 'no sketch', runs: new Set([...known].filter(([, recorded]) => recorded === wanted).map(([run]) => run)) }, notes }
 }
 
 export function ladderSample(input: LadderSampleInput, warnings: string[]): ExpectSample {
-  const notes: string[] = []
-  const entries = input.ledgers.flatMap(ledger => readLedgerEntries(ledger, notes))
-  const { runs, missing } = runsOfClass(input.taskClass, notes, warnings)
-  const all = countedRows(oldestFirst(entries), input.effort, runs)
-  const head = headOf(all, selection(input.taskClass?.name, input.effort), input.effort, missingReason(input, entries, missing))
-  const subsample = input.effort === undefined ? null : implementSubsample(input, entries, notes, warnings)
-  const line = [`expect: ${head}`, ...sources(input), ...notes].join('; ')
-  const steps = input.effort === undefined ? [] : stepExpects(entries, input.runSteps ?? new Map(), input.effort, subsample)
-  const roles = input.turns === undefined ? [] : roleExpects(input.turns)
-  const contour = input.effort === undefined || input.turns === undefined ? null : formatContour(steps, roles)
-  const shown = recentBand(all.map(row => row.tokens)).n
-  return { line, rows: all.slice(all.length - shown), steps, roles, contour }
+  const classNotes: string[] = []
+  const { runs, missing } = runsOfClass(input.taskClass, classNotes, warnings)
+  const roles = input.turns === undefined ? undefined : roleExpects(input.turns)
+  const expected: ExpectInput = {
+    ledgers: input.ledgers,
+    effort: input.effort,
+    taskClass: input.taskClass?.name,
+    runsOfClass: runs,
+    missing,
+    extraSources: input.taskClass === undefined ? [] : [`journal ${input.taskClass.journal.source}`],
+    classNotes,
+    runSteps: input.runSteps,
+    implement: input.sketch === undefined ? undefined : entries => implementSubsample(input, entries, warnings),
+    roles,
+  }
+  const result = expectFor(expected, PLAIN_LORE)
+  return { line: result.line, rows: result.rows, steps: result.steps, roles: roles ?? [], contour: result.contour }
 }
 
 function ledgerRuns(ledgers: SampleSource[]): string[] {
   return ledgers.flatMap(ledger => (ledger.lines ?? []).map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
 }
 
-function unreadWarnings(unread: UnreadAgent[]): string[] {
-  const byRun = new Map<string, UnreadAgent[]>()
-  for (const agent of unread)
-    byRun.set(agent.run, [...byRun.get(agent.run) ?? [], agent])
-  return [...byRun].map(([run, agents]) => `run ${run} is left out of the step forecast: ${agents.map(agent => `agent ${agent.agent} (${agent.reason})`).join('; ')}`)
-}
-
 export function stepsOfRepository(root: string, runs: string[], warnings: string[], source: CostSource = new ClaudeCodeCostSource()): Map<string, RunStep[]> {
-  const cache = knownSteps(root, runs, source)
-  for (const line of cache.malformed)
-    warnings.push(`step cache line ${line} is malformed; skipped`)
-  warnings.push(...unreadWarnings(cache.unread))
-  return cache.runs
+  return stepsOfRepositoryIn(root, runs, warnings, PLAIN_LORE, source)
 }
 
 export function launchStepExpects(repo: string, effort: string | null): StepExpect[] {
@@ -340,9 +157,9 @@ export function renderSample(sample: ExpectSample): string[] {
   return [
     sample.line,
     ...sample.steps.map(step => `step ${formatStepExpect(step)}`),
-    ...sample.roles.map(role => `role ${formatRoleExpect(role)}`),
+    ...sample.roles.map(role => `role ${formatRoleExpect(role, PLAIN_LORE)}`),
     ...(sample.contour === null ? [] : [sample.contour]),
-    ...sample.rows.map(row => `${row.run}  tokens ${row.tokens}  minutes ${oneDecimal(row.minutes)}`),
+    ...sample.rows.map(row => `${row.run}  tokens ${row.tokens}  minutes ${Math.round(row.minutes * 10) / 10}`),
   ]
 }
 
