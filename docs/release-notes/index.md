@@ -4,6 +4,36 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.41.0
+
+### Minor Changes
+
+- [#570](https://github.com/E1i/mikoshi-construct/pull/570) [`4b53772`](https://github.com/E1i/mikoshi-construct/commit/4b537721e1ea2b99c4a824261d69b7266fd3eeee) Thanks [@E1i](https://github.com/E1i)! - templates: the `browser-lab` skill and `scripts/construct/browser-lab.mjs` are carried by init, sync --apply and attach; the script observes an extension or a page and exits 0 observed, 1 no content script ran, 127 could not observe.
+
+- [#558](https://github.com/E1i/mikoshi-construct/pull/558) [`1106b00`](https://github.com/E1i/mikoshi-construct/commit/1106b002da0528ecff4cbe21516ac561dfca548e) Thanks [@E1i](https://github.com/E1i)! - cli: `construct cost --expect [--effort low|medium|high] [--json]` prints the forecast of the next run from `.construct/runs.jsonl`, the same calculation the ghost launcher uses.
+
+- [#541](https://github.com/E1i/mikoshi-construct/pull/541) [`33d1900`](https://github.com/E1i/mikoshi-construct/commit/33d19008a9a0ba2dc71ca33458113f3d5d9c5ef4) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake --admit <parking>/<id>.md` admits a card parked before intake confirmed cards: it checks the card by facts under its own number, holds a correction until a person confirms it, and writes the card's `intake` line, so `task:start` and the shift take it.
+
+- [#552](https://github.com/E1i/mikoshi-construct/pull/552) [`9dc5192`](https://github.com/E1i/mikoshi-construct/commit/9dc5192627305fb58a49a0c31d02f3c8eccb1ce1) Thanks [@E1i](https://github.com/E1i)! - templates: the intake skill says `construct intake` corrects a `depends` or `blocks` on a task already in main — an implement task whose merge line is in the journal, or a probe closed by its report — instead of on a closed card.
+
+- [#545](https://github.com/E1i/mikoshi-construct/pull/545) [`bc9f30c`](https://github.com/E1i/mikoshi-construct/commit/bc9f30c2f9401fefbe56162e61f4d5ac2d7e3f9f) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` counts complexity signals in each card — too many touches or areas, the mechanism the task runs on, a generated file with its sources, too many unclear fields — and, when two or more fire, writes the slicing principle, the signals and proposed disjoint slices into the card and holds it for the window.
+
+- [#565](https://github.com/E1i/mikoshi-construct/pull/565) [`b34481a`](https://github.com/E1i/mikoshi-construct/commit/b34481a10df71e73e04550b39240d241e09183f2) Thanks [@E1i](https://github.com/E1i)! - templates: the `/plan` brief skeleton carries an `expect:` line on line 3, the first line `construct cost --expect --effort <class> --plain` prints, so a repository's entry card and `parseExpect` read the forecast from it.
+
+- [#554](https://github.com/E1i/mikoshi-construct/pull/554) [`40a41d3`](https://github.com/E1i/mikoshi-construct/commit/40a41d345d857ae9f1ed23543e9bc4805a37e40a) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` writes a `risk: R<n>` line into every card, read from its `touches`: R1 for the ladder mechanism, for anything `init`, `attach`, `sync` or `detach` write into another repository and for the security invariants; R4 for documentation, tests, logs and scripts outside the gate. When a card mixes R1 with R3–R4 work and the split signal proposed no slices, intake proposes a risk seam — `seam: risk` and one `slice:` line per side with its level, a generated file kept with its sources and a template with its twin, named capability / delivery when that is the cut — and holds the card for the window. It only proposes; the card line is unchanged.
+
+- [#564](https://github.com/E1i/mikoshi-construct/pull/564) [`642a924`](https://github.com/E1i/mikoshi-construct/commit/642a924356999ddcb9274bd959ed795fe9a3afca) Thanks [@E1i](https://github.com/E1i)! - intake: the complexity seam keeps a generated file with its sources and a template with its twin in one slice; when its slices would still hold R1 together with R3–R4 work it proposes none and the risk seam is offered; a proposed risk seam waits for the same `--confirm` token as corrections. `scripts/ghosts/**` and `scripts/shift/**` read as R2, except the approval and launch gate (`approval.ts`, `hash.ts`, `launch.ts`), which is R1.
+
+### Patch Changes
+
+- [#547](https://github.com/E1i/mikoshi-construct/pull/547) [`2f5f849`](https://github.com/E1i/mikoshi-construct/commit/2f5f849feb0eafd87b60dc97d952fd22fac9900b) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` keeps a `depends` or `blocks` on a task that is done but not merged and removes it only when a merge line names the task.
+
+- [#567](https://github.com/E1i/mikoshi-construct/pull/567) [`f09f4b6`](https://github.com/E1i/mikoshi-construct/commit/f09f4b638443514a55fe0f37f8ba094aa95f642f) Thanks [@E1i](https://github.com/E1i)! - `construct cost --expect` names what raises a `none` reading: below five counted runs the line adds how many more done runs at that selection it takes, as in `expect: none — n=4 for effort medium; 1 more done run at effort medium raises it`.
+
+- [#543](https://github.com/E1i/mikoshi-construct/pull/543) [`a49775c`](https://github.com/E1i/mikoshi-construct/commit/a49775c80669acd99b3a2c28300eac2202c86346) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` counts a witness command named by an absolute path to an existing file, such as `/usr/bin/env`, as resolved instead of marking it unclear.
+
+- [#548](https://github.com/E1i/mikoshi-construct/pull/548) [`b06e7cc`](https://github.com/E1i/mikoshi-construct/commit/b06e7cca0c48bb22959d2806623c6fb60bd11dfa) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` checks every backticked command of a witness, not only the first, and counts an absolute command path as resolved only when it names an executable file.
+
 ## 0.40.0
 
 ### Minor Changes
