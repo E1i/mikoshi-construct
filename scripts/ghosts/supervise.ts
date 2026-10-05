@@ -3,7 +3,7 @@ import type { Expect } from './expect.js'
 import type { JournalEntry, RangeDiffOutcome } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
 import type { Sketch } from './sketch.js'
-import type { Task } from './tasks.js'
+import type { StartedTree, Task } from './tasks.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -21,7 +21,7 @@ import { readResultFields } from './result.js'
 import { spawnSession } from './session.js'
 import { freeRow, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
 
-export interface PreparedTask extends Task {
+export interface PreparedTask extends Task, StartedTree {
   approvedText: string
   approvedSha256: string
   approvedSketch: string
@@ -84,12 +84,8 @@ function approvalFields(task: PreparedTask): Pick<JournalEntry, 'agreedSha256' |
   }
 }
 
-function addWorktree(ctx: TaskContext, task: PreparedTask): void {
-  if (task.sketch.kind === 'none') {
-    execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, ctx.baseSha], { stdio: 'pipe' })
-    return
-  }
-  execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, task.sketch.sha], { stdio: 'pipe' })
+function prepareTree(ctx: TaskContext, task: PreparedTask): void {
+  execFileSync('git', ['-C', task.worktree, 'reset', '--hard', task.sketch.kind === 'branch' ? task.sketch.sha : ctx.baseSha], { stdio: 'pipe' })
   if (task.rangeDiff !== 'regenerated')
     stageSketch(ctx, task)
 }
@@ -133,7 +129,7 @@ async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, out
 async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
   const start = timestamp()
 
-  addWorktree(ctx, task)
+  prepareTree(ctx, task)
   writeAgreedText(task.worktree, task.approvedText)
 
   await writeGhostRow(ctx.statusPath, task.id, writingRow({
@@ -219,7 +215,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     actual: ladder.actual,
   })
 
-  if (task.card !== undefined && ladder.status !== 'done')
+  if (ladder.status !== 'done')
     await appendJournalEvent(ctx.journalPath, fallEvent(task.card.id, 'ladder-not-done'))
 
   const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`

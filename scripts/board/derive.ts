@@ -313,7 +313,7 @@ function prFact(attempt: Attempt, pr: PrLookup): StageBody {
 
 function statusFact(attempt: Attempt): StageBody {
   if (attempt.row === undefined)
-    return unknown(`status.md row ghost-${attempt.id}`)
+    return unknown(`status.md row ghost-${attempt.ghost ?? attempt.id}`)
   return fact(`${attempt.row.state}, start ${attempt.row.start}, updated ${attempt.row.updated}`)
 }
 
@@ -357,7 +357,7 @@ function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): Att
     return viewReportAttempt(attempt, { ...cheapPath, report })
   if (cheapPath !== undefined)
     return viewCheapAttempt(attempt, cheapPath, prs, checksOf)
-  const pr = attempt.branch === undefined ? lookupGhostPr(prs, attempt.id) : lookupPr(prs, attempt.branch)
+  const pr = attempt.branch === undefined ? lookupGhostPr(prs, attempt.ghost ?? attempt.id) : lookupPr(prs, attempt.branch)
   const mergedAt = mergedAtOf(attempt, pr)
   const merged = mergedAt !== undefined
   return {

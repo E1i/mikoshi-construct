@@ -161,7 +161,7 @@ decision and opens nothing.
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
 recorded as a row of the `policy` table in `status.md` before the session opens.
 A brief that produced a working sketch names it on the line after its `/implement` line,
-`Sketch: <branch> @ <sha>`, and the ladder starts from it: the launcher creates the worktree at that
+`Sketch: <branch> @ <sha>`, and the ladder starts from it: the launcher resets the card's tree to that
 sha and moves HEAD back to `origin/main`, so the sketch is staged and the base the witnesses must be
 red on is still `origin/main`. The exception is a brief that wants an independent implementation as
 its witness, which says so, `Sketch: none — independent implementation is the witness`; a brief with
@@ -176,6 +176,12 @@ A rebased sketch that differs from the approved one only in a generated file `RE
 file's check on the sketch after the install, frees the row with no session when it fails, and journals
 `event:approval-carry` when it passes
 ([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md)).
+
+A Ghost runs in the tree and on the branch that its card's `task:start` line names; a task in the tasks
+file is `{ id, brief, card }` and names no tree of its own. The launcher refuses a card with no
+`task:start` line, a tree that is gone, on another branch, with uncommitted changes, or with commits
+that neither `origin/main` nor the sketch holds. A relaunch on the same card runs in the same tree
+under a new tasks id, and a ladder that ends blocked leaves the tree for the next attempt.
 
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
@@ -209,9 +215,9 @@ went to a handoff without a pull request (`handoff-without-pr`); the brief's has
 approval more than once (`hash-recounted`).
 
 The journal counts falls by card number. `ghosts:launch` writes `ladder-not-done` itself when a Ghost
-whose tasks file names a card ends other than `done`; the window records every other fall as it sees
-it, with `pnpm ghosts:launch --tasks <file> --fall <kind> --card <N>`. A launch whose card already has
-two falls is refused with "cut the task". Only the owner overrides it: the window then relaunches with
+ends other than `done`; the window records every other fall as it sees it, with
+`pnpm ghosts:launch --tasks <file> --fall <kind> --card <N>`. A launch whose card already has two falls
+is refused with "cut the task". Only the owner overrides it: the window then relaunches with
 `--owner-allows <N>`, which writes an `owner-allows` line into the journal before the entries.
 
 After the second fall the window stops, opens the sub-cards through `construct intake`, and shows them

@@ -1,4 +1,6 @@
+{"event":"path","task":"204","path":"ladder","started":"2026-09-28T05:59:00.000Z","worktree":"worktrees/s-stopped","branch":"ghost/s-stopped","ts":"2026-09-28T05:59:00.000Z"}
 {"event":"task","ts":"2026-09-28T06:00:00.000Z","task":"s-stopped","baseSha":"base","session":null,"install":0,"run":null,"iterations":1,"class":null,"contour":null,"resultLine":"present","total_cost_usd":null,"num_turns":null,"duration_ms":null,"usage":null,"review":null,"exit":0,"ladder":"base red"}
+{"event":"path","task":"205","path":"ladder","started":"2026-09-28T05:59:00.000Z","worktree":"worktrees/s-nopr","branch":"ghost/s-nopr","ts":"2026-09-28T05:59:00.000Z"}
 {"event":"task","ts":"2026-09-28T06:00:00.000Z","task":"s-nopr","baseSha":"base","session":null,"install":0,"run":null,"iterations":1,"class":null,"contour":null,"resultLine":"present","total_cost_usd":null,"num_turns":null,"duration_ms":null,"usage":null,"review":null,"exit":0,"ladder":"done"}
 {"event":"review","task":"s-nopr","verdict":"pass","ts":"2026-09-28T06:10:00.000Z"}
 {"event":"path","task":"n-red","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":30,"ts":"2026-09-28T07:10:00.000Z"}
@@ -10,3 +12,6 @@
 {"event":"path","task":"n-release","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":36,"ts":"2026-09-28T07:10:00.000Z"}
 {"event":"path","task":"n-lost","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":99,"ts":"2026-09-28T07:10:00.000Z"}
 {"event":"path","task":"n-pushed","path":"cheap","started":"2026-09-28T07:00:00Z","ready":"2026-09-28T07:10:00Z","pr":37,"sha":"a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0","ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"201","path":"ladder","started":"2026-09-28T04:59:00.000Z","worktree":"worktrees/s-brief","branch":"ghost/s-brief","ts":"2026-09-28T04:59:00.000Z"}
+{"event":"path","task":"202","path":"ladder","started":"2026-09-28T04:59:00.000Z","worktree":"worktrees/s-approval","branch":"ghost/s-approval","ts":"2026-09-28T04:59:00.000Z"}
+{"event":"path","task":"203","path":"ladder","started":"2026-09-28T04:59:00.000Z","worktree":"worktrees/s-launch","branch":"ghost/s-launch","ts":"2026-09-28T04:59:00.000Z"}

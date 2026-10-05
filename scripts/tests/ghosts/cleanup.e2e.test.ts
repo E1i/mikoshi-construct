@@ -12,6 +12,8 @@ const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const TASK_LOGS = ['mc-g1.quality.log', 'mc-g1-quality-2.log']
 const FOREIGN_LOG = 'mc-g10.quality.log'
 const ALL_LOGS = [...TASK_LOGS, FOREIGN_LOG].sort()
+const CARD = '#41 world-g1 [implement/ghosts/S/ladder/owner] · depends — · blocks —'
+const BRANCH = 'feat/g1'
 
 interface World {
   root: string
@@ -51,12 +53,12 @@ function newWorld(prState: string, statusExtra = '', ghMode: GhMode = 'answers')
   writeFileSync(path.join(repo, '.gitignore'), '.construct/\n')
   git(repo, ['add', '.'])
   git(repo, ['commit', '-q', '-m', 'world'])
-  git(repo, ['worktree', 'add', '-q', '-b', 'ghost/g1', worktree])
+  git(repo, ['worktree', 'add', '-q', '-b', BRANCH, worktree])
 
   for (const name of [...TASK_LOGS, FOREIGN_LOG])
     writeFileSync(path.join(logs, name), 'quality\n')
 
-  const prs = [{ number: 7, title: 'g1', headRefName: 'ghost/g1', headRefOid: 'a'.repeat(40), state: prState, mergedAt: prState === 'MERGED' ? '2026-10-01T10:00:00Z' : null, mergeCommit: null }]
+  const prs = [{ number: 7, title: 'g1', headRefName: BRANCH, headRefOid: 'a'.repeat(40), state: prState, mergedAt: prState === 'MERGED' ? '2026-10-01T10:00:00Z' : null, mergeCommit: null }]
   writeFileSync(path.join(root, 'prs.json'), JSON.stringify(prs))
   writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env bash\n${GH_STUBS[ghMode](path.join(root, 'prs.json'))}\n`)
   chmodSync(path.join(bin, 'gh'), 0o755)
@@ -66,9 +68,15 @@ function newWorld(prState: string, statusExtra = '', ghMode: GhMode = 'answers')
     repo,
     status: path.join(handoff, 'status.md'),
     out: handoff,
-    tasks: [{ id: 'g1', brief: path.join(handoff, 'brief-g1.md'), worktree, branch: 'ghost/g1' }],
+    tasks: [{ id: 'g1', brief: path.join(handoff, 'brief-g1.md'), card: CARD }],
   }))
-  return { root, repo, worktree, logs, handoff }
+  const w = { root, repo, worktree, logs, handoff }
+  journal(w, [])
+  return w
+}
+
+function startLine(w: World): object {
+  return { event: 'path', task: '41', path: 'ladder', started: '2026-10-02T07:00:00Z', worktree: w.worktree, branch: BRANCH, ts: '2026-10-02T07:00:00Z' }
 }
 
 function runRaw(w: World, script: string, args: string[]): ReturnType<typeof spawnSync> {
@@ -89,12 +97,11 @@ function run(w: World, script: string, args: string[]): string {
 }
 
 function startLines(w: World, extra: object[] = []): void {
-  const lines = [
-    { event: 'path', task: 'g1', path: 'cheap', started: '2026-10-02T07:00:00Z', session: 's1', worktree: w.worktree, branch: 'ghost/g1', ts: '2026-10-02T07:00:00Z' },
-    { event: 'path', task: 'g1', path: 'cheap', pr: 7, verification: 'run', ts: '2026-10-02T07:30:00Z' },
+  writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), [
+    { event: 'path', task: '41', path: 'cheap', started: '2026-10-02T07:00:00Z', session: 's1', worktree: w.worktree, branch: BRANCH, ts: '2026-10-02T07:00:00Z' },
+    { event: 'path', task: '41', path: 'cheap', pr: 7, verification: 'run', ts: '2026-10-02T07:30:00Z' },
     ...extra,
-  ]
-  writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+  ].map(line => `${JSON.stringify(line)}\n`).join(''))
 }
 
 function cleanupFromHandoff(w: World): string {
@@ -115,7 +122,7 @@ function disposition(pr: number): object {
 }
 
 function journal(w: World, lines: object[]): void {
-  writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+  writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), [startLine(w), ...lines].map(line => `${JSON.stringify(line)}\n`).join(''))
 }
 
 function cleanup(w: World): string {
@@ -188,7 +195,7 @@ describe('ghosts:cleanup removes a merged task\'s worktree and quality logs', ()
 
   it('w5: keeps the worktree when the last review verdict is changes, even with its PR merged', () => {
     const w = newWorld('MERGED')
-    writeFileSync(path.join(w.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'review', task: 'g1', verdict: 'changes', ts: '2026-10-01T09:00:00Z' })}\n`)
+    journal(w, [CHANGES])
     expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: the last review verdict is changes\n')
     expect(existsSync(w.worktree)).toBe(true)
     expect(logsLeft(w)).toEqual(ALL_LOGS)
@@ -218,7 +225,7 @@ describe('ghosts:cleanup removes a merged task\'s worktree and quality logs', ()
   it('w9: names the PR the disposition waits for when it is not merged', () => {
     const w = newWorld('OPEN')
     journal(w, [CHANGES, disposition(7)])
-    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: the last review verdict is changes, and its disposition merge + follow-up #519 lifts it only once PR #7 of ghost/g1 is merged\n')
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: the last review verdict is changes, and its disposition merge + follow-up #519 lifts it only once PR #7 of feat/g1 is merged\n')
   })
 
   it('w10: removes a merged task whose last review verdict is pass, as before (control)', () => {
@@ -249,7 +256,24 @@ describe('w4: ghosts:cleanup without --tasks reads the attempts from the journal
     startLines(w)
     const out = cleanupFromHandoff(w)
     expect(existsSync(w.worktree)).toBe(false)
-    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+    expect(out).toBe(`[ghosts:cleanup] ghost-41 removed: PR #7 merged; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+  })
+
+  it('w11: folds a Ghost\'s tasks id into its card, so a merge + follow-up disposition on the Ghost lifts the changes verdict and the tree is removed, not reported unregistered', () => {
+    const w = newWorld('MERGED')
+    writeFileSync(path.join(w.handoff, 'tasks-g1.json'), readFileSync(path.join(w.root, 'tasks.json')))
+    journal(w, [CHANGES, disposition(7)])
+    const out = cleanupFromHandoff(w)
+    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: PR #7 merged over a changes verdict, follow-up #519; 0 ledger lines carried into ${mainLedger(w)}; worktree ${w.worktree} and 2 quality logs\n`)
+    expect(existsSync(w.worktree)).toBe(false)
+  })
+
+  it('w11: keeps the tree of a Ghost whose changes verdict no disposition lifts, reading the verdict through its card', () => {
+    const w = newWorld('MERGED')
+    writeFileSync(path.join(w.handoff, 'tasks-g1.json'), readFileSync(path.join(w.root, 'tasks.json')))
+    journal(w, [CHANGES])
+    expect(cleanupFromHandoff(w)).toBe('[ghosts:cleanup] ghost-g1 kept: the last review verdict is changes\n')
+    expect(existsSync(w.worktree)).toBe(true)
   })
 })
 
@@ -259,7 +283,7 @@ describe('w5: ghosts:cleanup never removes a tree no task names', () => {
     const stray = path.join(w.root, 'mc-stray')
     git(path.join(w.root, 'repo'), ['worktree', 'add', '-q', '-b', 'ghost/stray', stray])
     const prs = [
-      { number: 7, title: 'g1', headRefName: 'ghost/g1', headRefOid: 'a'.repeat(40), state: 'OPEN', mergedAt: null, mergeCommit: null },
+      { number: 7, title: 'g1', headRefName: BRANCH, headRefOid: 'a'.repeat(40), state: 'OPEN', mergedAt: null, mergeCommit: null },
       { number: 8, title: 'stray', headRefName: 'ghost/stray', headRefOid: 'b'.repeat(40), state: 'MERGED', mergedAt: '2026-10-01T10:00:00Z', mergeCommit: null },
     ]
     writeFileSync(path.join(w.root, 'prs.json'), JSON.stringify(prs))
@@ -356,52 +380,19 @@ function blockedWorld(prs: object[], outcome = (report: string) => `exit 0; ladd
   return { w, report }
 }
 
-function savedPatch(w: World): string {
-  return path.join(w.handoff, 'ghost-g1.removed.patch')
-}
-
 function hasBranch(w: World, branch: string): boolean {
   return git(w.repo, ['branch', '--list', branch]).trim() !== ''
 }
 
-describe('b: ghosts:cleanup removes a run that ended blocked with no pull request', () => {
-  it('b1: removes the tree and the ghost branch, carries the ledger lines, and renames the report instead of deleting it', () => {
-    const { w, report } = blockedWorld([])
-    writeLedger(path.join(w.worktree, '.construct', 'runs.jsonl'), [RUN_A])
-    writeFileSync(path.join(w.worktree, 'README.md'), 'world\nblocked edit\n')
-    writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'blocked work\n')
-    const out = cleanup(w)
-    const renamed = path.join(w.handoff, 'ghost-g1.removed.jsonl')
-    const patch = readFileSync(savedPatch(w), 'utf8')
-    expect(patch).toContain('untracked: unsaved.txt\n')
-    expect(patch).toContain('diff --git a/README.md b/README.md')
-    expect(patch).toContain('+blocked edit\n')
-    expect(existsSync(w.worktree)).toBe(false)
-    expect(hasBranch(w, 'ghost/g1')).toBe(false)
-    expect(existsSync(report)).toBe(false)
-    expect(readFileSync(renamed, 'utf8')).toBe('{"type":"result"}\n')
-    expect(ledgerRuns(mainLedger(w))).toEqual(['wf_a'])
-    expect(logsLeft(w)).toEqual([FOREIGN_LOG])
-    expect(out).toBe(`[ghosts:cleanup] ghost-g1 removed: ladder blocked and no pull request for ghost/g1; 1 ledger lines carried into ${mainLedger(w)}; uncommitted work saved to ${savedPatch(w)}; worktree ${w.worktree} and branch ghost/g1 and 2 quality logs and report renamed to ${renamed}\n`)
-  })
-
-  it('b4: writes no patch when the blocked tree is clean', () => {
-    const { w } = blockedWorld([])
-    const out = cleanup(w)
-    expect(existsSync(w.worktree)).toBe(false)
-    expect(existsSync(savedPatch(w))).toBe(false)
-    expect(out).not.toContain('uncommitted work')
-  })
-
-  it('b5: keeps the tree and removes nothing when its uncommitted work cannot be saved', () => {
+describe('b: ghosts:cleanup keeps the tree of a run that ended blocked with no pull request', () => {
+  it('b1: keeps the tree, the branch, the uncommitted work and the report, for the next attempt on the card', () => {
     const { w, report } = blockedWorld([])
     writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'blocked work\n')
-    mkdirSync(savedPatch(w))
-    const out = cleanup(w)
-    expect(out).toMatch(new RegExp(`^\\[ghosts:cleanup\\] ghost-g1 kept: ladder blocked and no pull request for ghost/g1, but its uncommitted work could not be saved to ${savedPatch(w)}: E`))
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: ladder blocked; the task\'s tree stays for the next attempt\n')
     expect(existsSync(path.join(w.worktree, 'unsaved.txt'))).toBe(true)
-    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(hasBranch(w, BRANCH)).toBe(true)
     expect(existsSync(report)).toBe(true)
+    expect(existsSync(path.join(w.handoff, 'ghost-g1.removed.patch'))).toBe(false)
     expect(logsLeft(w)).toEqual(ALL_LOGS)
   })
 
@@ -412,19 +403,18 @@ describe('b: ghosts:cleanup removes a run that ended blocked with no pull reques
     const { w, report } = blockedWorld([], path => template.replace('{report}', path))
     writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'work\n')
     const outcome = template.replace('{report}', report)
-    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 kept: no pull request for ghost/g1, and status.md says "${outcome}", not ladder blocked\n`)
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 kept: no pull request for feat/g1, and status.md says "${outcome}", not ladder blocked\n`)
     expect(existsSync(path.join(w.worktree, 'unsaved.txt'))).toBe(true)
-    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(hasBranch(w, BRANCH)).toBe(true)
     expect(existsSync(report)).toBe(true)
-    expect(existsSync(savedPatch(w))).toBe(false)
     expect(logsLeft(w)).toEqual(ALL_LOGS)
   })
 
   it('b2: keeps a blocked run whose branch has an open pull request', () => {
-    const { w, report } = blockedWorld([{ number: 7, title: 'g1', headRefName: 'ghost/g1', headRefOid: 'a'.repeat(40), state: 'OPEN', mergedAt: null, mergeCommit: null }])
+    const { w, report } = blockedWorld([{ number: 7, title: 'g1', headRefName: BRANCH, headRefOid: 'a'.repeat(40), state: 'OPEN', mergedAt: null, mergeCommit: null }])
     expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: PR #7 is OPEN, not merged\n')
     expect(existsSync(w.worktree)).toBe(true)
-    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(hasBranch(w, BRANCH)).toBe(true)
     expect(existsSync(report)).toBe(true)
   })
 
@@ -432,8 +422,8 @@ describe('b: ghosts:cleanup removes a run that ended blocked with no pull reques
     const w = newWorld('OPEN')
     writeFileSync(path.join(w.root, 'prs.json'), '[]')
     ghostRow(w, 'writing', '/implement brief-g1.md, session s1')
-    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: no pull request for ghost/g1\n')
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: no pull request for feat/g1\n')
     expect(existsSync(w.worktree)).toBe(true)
-    expect(hasBranch(w, 'ghost/g1')).toBe(true)
+    expect(hasBranch(w, BRANCH)).toBe(true)
   })
 })

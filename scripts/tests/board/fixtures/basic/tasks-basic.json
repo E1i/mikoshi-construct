@@ -6,68 +6,57 @@
     {
       "id": "alpha-1",
       "brief": "brief-alpha.md",
-      "worktree": "worktrees/alpha-1",
-      "branch": "ghost/alpha-1"
+      "card": "#101 alpha-1 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "alpha-2",
       "brief": "brief-alpha.md",
-      "worktree": "worktrees/alpha-2",
-      "branch": "ghost/alpha-2"
+      "card": "#102 alpha-2 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "beta-1",
       "brief": "brief-beta.md",
-      "worktree": "worktrees/beta-1",
-      "branch": "ghost/beta-1"
+      "card": "#103 beta-1 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "gamma-1",
       "brief": "brief-gamma.md",
-      "worktree": "worktrees/gamma-1",
-      "branch": "ghost/gamma-1"
+      "card": "#104 gamma-1 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "delta-1",
       "brief": "brief-delta.md",
-      "worktree": "worktrees/delta-1",
-      "branch": "ghost/delta-1"
+      "card": "#105 delta-1 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "m1",
       "brief": "brief-m1.md",
-      "worktree": "worktrees/m1",
-      "branch": "ghost/m1"
+      "card": "#111 m1 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "m2",
       "brief": "brief-m2.md",
-      "worktree": "worktrees/m2",
-      "branch": "ghost/m2"
+      "card": "#112 m2 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "m3",
       "brief": "brief-m3.md",
-      "worktree": "worktrees/m3",
-      "branch": "ghost/m3"
+      "card": "#113 m3 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "m4",
       "brief": "brief-m4.md",
-      "worktree": "worktrees/m4",
-      "branch": "ghost/m4"
+      "card": "#114 m4 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "m5",
       "brief": "brief-m5.md",
-      "worktree": "worktrees/m5",
-      "branch": "ghost/m5"
+      "card": "#115 m5 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "m6",
       "brief": "brief-m6.md",
-      "worktree": "worktrees/m6",
-      "branch": "ghost/m6"
+      "card": "#116 m6 [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     }
   ]
 }

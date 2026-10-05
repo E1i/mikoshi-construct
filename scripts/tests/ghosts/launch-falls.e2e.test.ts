@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
 const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
-const CARD = 549
+const CARD = 902
 
 const created: string[] = []
 
@@ -26,13 +26,7 @@ afterEach(() => {
 })
 
 function cardedWorld(kind: string): string {
-  const w = world('new', kind)
-  const tasksFile = path.join(w, 'tasks.json')
-  const tasks = JSON.parse(readFileSync(tasksFile, 'utf8')) as { tasks: { id: string, card?: string }[] }
-  for (const task of tasks.tasks)
-    task.card = task.id === 'g2' ? `#${CARD} two-falls [implement/ghosts/S/ladder/owner] · depends — · blocks —` : `#9${task.id.replace(/\D/g, '')} other-${task.id} [implement/ghosts/S/ladder/owner] · depends — · blocks —`
-  writeFileSync(tasksFile, JSON.stringify(tasks))
-  return w
+  return world('new', kind)
 }
 
 function launch(w: string, args: string[] = []): { status: number | null, output: string } {
@@ -48,7 +42,7 @@ function journalOf(w: string): Record<string, unknown>[] {
   const journalPath = path.join(w, 'handoff', 'ghosts.jsonl')
   if (!existsSync(journalPath))
     return []
-  return readFileSync(journalPath, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+  return readFileSync(journalPath, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event !== 'path')
 }
 
 function recordTwoFalls(w: string): void {
@@ -73,7 +67,7 @@ describe('ghosts:launch refuses a third Ghost on a card that fell twice', () => 
     expect(status).toBe(1)
     expect(output).toContain(`task g2: card #${CARD} fell 2 times (review-hole, hash-recounted); cut the task into sub-cards with construct intake`)
     expect(output).not.toContain('task g1:')
-    expect(existsSync(path.join(w, 'wt-g2'))).toBe(false)
+    world('check-untouched', w)
     expect(journalOf(w).filter(line => line.event !== 'fall')).toEqual([])
   })
 
