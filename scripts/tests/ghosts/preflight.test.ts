@@ -88,9 +88,10 @@ function briefText(parts: Brief): string {
   ].join('\n')
 }
 
-function briefFile(text: string): string {
+function briefFile(text: string, witnesses: Record<string, string> = {}): string {
   const file = path.join(scratch(), 'brief-t.md')
   writeFileSync(file, `# head\n\n---\n\n${text}`)
+  writeFiles(`${file.replace(/\.md$/, '')}.witnesses`, witnesses)
   return file
 }
 
@@ -103,7 +104,7 @@ function buildWithoutSketchCheck(implementTextPath: string): BuildResult {
 
 interface Run { line: string | null, error: string | null, log: string[], pnpmCalls: string[] }
 
-function hashIn(repo: string, text: string, pnpmStatus: Record<string, number> = {}): Run {
+function hashIn(repo: string, text: string, pnpmStatus: Record<string, number> = {}, witnesses: Record<string, string> = {}): Run {
   const log: string[] = []
   const pnpmCalls: string[] = []
   const shell: Shell = (command, cwd) => {
@@ -116,7 +117,7 @@ function hashIn(repo: string, text: string, pnpmStatus: Record<string, number> =
   let tick = 0
   const env: PreflightEnv = { repo, shell, log: line => log.push(line), clock: () => (tick += 100) }
   try {
-    const line = approvalLine(briefFile(text), NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, env))
+    const line = approvalLine(briefFile(text, witnesses), NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, env))
     return { line, error: null, log, pnpmCalls }
   }
   catch (error) {
@@ -191,6 +192,14 @@ describe('the preflight before ghosts:hash prints a hash', () => {
     const run = hashIn(repo, briefText({ invariants: 'git diff --quiet origin/main' }))
 
     expect(refusal(run)).toMatch(/preflight P2: witness "the readme is kept" names origin\/main/)
+  })
+
+  it('refuses an invariant whose witness it cannot read instead of skipping it', () => {
+    const { repo } = world()
+    const text = briefText({}).replace('Acceptance:', 'Invariants: the readme is kept.\n\nAcceptance:')
+    const run = hashIn(repo, text)
+
+    expect(refusal(run)).toContain('preflight P1: invariant "the readme is kept" carries no witness the preflight can read')
   })
 
   it('refuses a Design that names a generated path without the sentence that lets the implementer run its generator', () => {
@@ -293,6 +302,32 @@ describe('the preflight runs every witness verbatim on a clean tree of the pinne
     expect(hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` })).line).not.toBeNull()
   })
 
+  it('lays the ready witness files only after the witnesses ran on the base', () => {
+    const { repo } = world()
+    const ready = 'scripts/tests/ghosts/w.test.ts'
+    const run = hashIn(repo, briefText({ acceptance: `test -e ${ready}` }), {}, { [ready]: 'export {}\n' })
+
+    expect(run.line).not.toBeNull()
+    expect(run.pnpmCalls).toContain(`pnpm exec eslint ${ready}`)
+  })
+
+  it('installs from the lockfile before the witnesses and refuses when the install fails', () => {
+    const { repo, base } = world({ ...BASE_FILES, 'pnpm-lock.yaml': 'lockfileVersion: 9.0\n' })
+    const green = hashIn(repo, briefText({}))
+    const red = hashIn(repo, briefText({}), { 'pnpm install': 1 })
+
+    expect(green.pnpmCalls[0]).toBe('pnpm install --frozen-lockfile')
+    expect(refusal(red)).toContain(`preflight P7: pnpm install --frozen-lockfile failed on the base ${base.slice(0, 7)}`)
+  })
+
+  it('runs an invariant that is the harness command on the base when there is no sketch, since no harness runs', () => {
+    const { repo } = world()
+    const run = hashIn(repo, briefText({ invariants: 'pnpm run quality' }), { 'pnpm run quality': 1 })
+
+    expect(refusal(run)).toMatch(/preflight P7: invariant "the readme is kept" exits 1 on the clean base/)
+    expect(run.log).not.toContain('I1: covered by harness')
+  })
+
   it('removes the trees it made', () => {
     const { repo } = world()
     hashIn(repo, briefText({ acceptance: 'test -e README.md' }))
@@ -308,6 +343,24 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
     const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` }))
 
     expect(refusal(run)).toMatch(/preflight P8: positive control "the file exists" exits 1 on the sketch [0-9a-f]{7} staged on the base/)
+  })
+
+  it('refuses a sketch on which an invariant green on the base turns red', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'added.txt': 'x\n', 'broken.txt': 'x\n' })
+    const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, invariants: 'test ! -e broken.txt' }))
+
+    expect(refusal(run)).toMatch(/preflight P8: invariant "the readme is kept" exits 1 on the sketch [0-9a-f]{7} staged on the base/)
+  })
+
+  it('runs an invariant that is the harness command once, as the harness, and says it is covered by harness', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'added.txt': 'x\n' })
+    const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, invariants: 'pnpm run quality' }))
+
+    expect(run.line).not.toBeNull()
+    expect(run.log).toContain('I1: covered by harness')
+    expect(run.pnpmCalls.filter(call => call === 'pnpm run quality')).toHaveLength(1)
   })
 
   it('refuses a sketch whose harness command is red, which the ladder would stop on as a red base', () => {

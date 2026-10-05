@@ -24,6 +24,11 @@ export function invariantWitnesses(invariants: string[]): Witness[] {
   })
 }
 
+export function unreadInvariantRefusal(invariants: string[]): string | null {
+  const unread = invariants.find(item => !INVARIANT_WITNESS.test(item))
+  return unread === undefined ? null : `invariant "${unread}" carries no witness the preflight can read, so it cannot be run on the base: end it with — witness: and the command in backticks`
+}
+
 export function movingRefRefusal(witnesses: Witness[]): string | null {
   const named = witnesses.find(witness => MOVING_REF.test(witness.command))
   return named === undefined ? null : `witness "${named.criterion}" names origin/main, which moves while the run goes; compare with HEAD, which the launcher pins at the base`

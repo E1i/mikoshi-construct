@@ -2,7 +2,7 @@ import type { Shell } from './preflight-trees.js'
 import type { Timer } from './preflight-witnesses.js'
 import type { Sketch } from './sketch.js'
 import process from 'node:process'
-import { generatorRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, ownerMergesRefusal } from './preflight-static.js'
+import { generatorRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, ownerMergesRefusal, unreadInvariantRefusal } from './preflight-static.js'
 import { gitIn, lastLine, realShell, withWorktree } from './preflight-trees.js'
 import { runOnTree } from './preflight-witnesses.js'
 
@@ -99,6 +99,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
   try {
     const built = builtArgsOf(input.buildStdout)
     const design = built.design ?? ''
+    refuseOn('P1', unreadInvariantRefusal(built.invariants))
     const invariants = invariantWitnesses(built.invariants)
     base = time('P0 base', () => pinnedBase(env.repo))
     const changed = time('P0 sketch', () => sketchChangedFiles(env.repo, base, input.sketch))

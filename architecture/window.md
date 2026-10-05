@@ -190,7 +190,8 @@ under `scripts/ghosts/**` the brief names or the sketch adds is classified in
 [owner-merges.md](owner-merges.md) and a `scripts/shift/` file that names a merge is `own-instructions`;
 the sketch changes no Immutable path; then, in a clean worktree of the pinned base with nothing laid over
 it, every Acceptance witness runs verbatim and exits nonzero for a reason other than a missing command,
-and every Invariant exits 0; with a sketch, staged on that base as the launcher stages it, every witness
+and every Invariant exits 0, except that an Invariant with no witness the preflight can read is refused, and with a
+sketch one whose command is the harness command is left to the harness run and printed as `I<n>: covered by harness`; with a sketch, staged on that base as the launcher stages it, every witness
 and the harness command exit 0, the sketch's test files pass `eslint` without `--fix`, and a sketch that
 touches an attach carrier passes `earlier-carriers --check`. A brief with ready witness files beside it
 (`<brief>.witnesses/`) has them linted the same way. The first failure is named on stderr and no hash is

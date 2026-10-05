@@ -68,6 +68,14 @@ function lintTargets(tree: string, sketchChanged: string[] | null, witnessesDir:
     .filter(file => /\.[cm]?[jt]sx?$/.test(file))
 }
 
+function invariantsBesideHarness(run: TreeRun, task: TreeTask): Witness[] {
+  task.invariants.forEach((witness, index) => {
+    if (witness.command === task.harnessCommand)
+      run.log(`I${index + 1}: covered by harness`)
+  })
+  return task.invariants.filter(witness => witness.command !== task.harnessCommand)
+}
+
 function lint(run: TreeRun, files: string[], label: string, where: string): void {
   if (files.length > 0)
     run.refuse('P6', greenRefusal(label, { criterion: files.join(' '), command: '' }, run.shell(`pnpm exec eslint ${files.join(' ')}`, run.tree), where))
@@ -76,11 +84,13 @@ function lint(run: TreeRun, files: string[], label: string, where: string): void
 export function runOnTree(run: TreeRun, task: TreeTask): void {
   const { tree, base, shell, refuse, time } = run
   const baseShort = base.slice(0, 7)
+  const harnessRuns = task.sketchSha !== null && task.changed !== null
+  const invariants = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
   if (existsSync(path.join(tree, LOCKFILE)))
     time('install', () => refuse('P7', shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`))
   time('P7 base', () => {
     refuse('P7', firstProblem(task.acceptance, witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
-    refuse('P7', firstProblem(task.invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
+    refuse('P7', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
   })
   if (task.sketchSha === null || task.changed === null) {
     time('P6 lint', () => lint(run, lintTargets(tree, null, task.witnessesDir), 'lint of the ready witness files, no --fix,', 'a throwaway tree of the base'))
@@ -92,7 +102,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   time('P8 sketch', () => {
     stageSketch(tree, base, sketchSha)
     refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
-    refuse('P8', firstProblem(task.invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))
+    refuse('P8', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))
   })
   time('P8 harness', () => refuse('P8', greenRefusal('harness', { criterion: task.harnessCommand, command: task.harnessCommand }, shell(task.harnessCommand, tree), where)))
   time('P6 lint', () => lint(run, lintTargets(tree, changed, ''), 'lint of the sketch test files, no --fix,', where))
