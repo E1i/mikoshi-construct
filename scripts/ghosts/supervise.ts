@@ -16,6 +16,7 @@ import { runInstall } from './install.js'
 import { appendJournalEvent, appendJournalLine } from './journal.js'
 import { carryLedgerLines, countLedgerLines, readLadderOutcome } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
+import { approvalCarryEvent, regeneratedCheckFailedOutcome, regeneratedCheckFailures } from './regenerated.js'
 import { readResultFields } from './result.js'
 import { spawnSession } from './session.js'
 import { freeRow, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
@@ -26,6 +27,7 @@ export interface PreparedTask extends Task {
   approvedSketch: string
   agreedSha256: string
   rangeDiff: RangeDiffOutcome | null
+  regenerated: string[]
   sketch: Sketch
   expected: Expect | null
   stepsExpected: StepExpect[]
@@ -88,6 +90,11 @@ function addWorktree(ctx: TaskContext, task: PreparedTask): void {
     return
   }
   execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, task.sketch.sha], { stdio: 'pipe' })
+  if (task.rangeDiff !== 'regenerated')
+    stageSketch(ctx, task)
+}
+
+function stageSketch(ctx: TaskContext, task: PreparedTask): void {
   execFileSync('git', ['-C', task.worktree, 'reset', '--soft', ctx.baseSha], { stdio: 'pipe' })
 }
 
@@ -157,6 +164,16 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   if (installCode !== 0) {
     await closeOut(ctx, task, start, installFailedOutcome(installCode, installLogPath), noSessionJournalEntry(task, ctx.baseSha, matrixRow, installCode))
     return { id: task.id, line: `install failed: exit ${installCode}`, ok: false }
+  }
+
+  if (task.rangeDiff === 'regenerated') {
+    const failures = regeneratedCheckFailures(task.worktree, task.regenerated)
+    if (failures.length > 0) {
+      await closeOut(ctx, task, start, regeneratedCheckFailedOutcome(failures), noSessionJournalEntry(task, ctx.baseSha, matrixRow, installCode))
+      return { id: task.id, line: 'regenerated check failed', ok: false }
+    }
+    stageSketch(ctx, task)
+    await appendJournalEvent(ctx.journalPath, approvalCarryEvent(task.id, task.approvedSketch, sketchSha(task), task.regenerated, new Date()))
   }
 
   let code: number

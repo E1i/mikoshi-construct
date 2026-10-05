@@ -2,7 +2,7 @@ import type { Expect } from './expect.js'
 import type { LadderOutcome } from './ledger.js'
 import { appendFile } from 'node:fs/promises'
 
-export type RangeDiffOutcome = 'identical' | 'equal'
+export type RangeDiffOutcome = 'identical' | 'equal' | 'regenerated'
 
 export interface JournalEntry {
   task: string

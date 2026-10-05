@@ -18,6 +18,7 @@ import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
 import { appendJournalEvent } from './journal.js'
 import { lookupMatrixRow } from './matrix.js'
+import { REGENERATED_PATHS } from './regenerated.js'
 import { describeSketch, parseSketch, rangeDiffVerdict } from './sketch.js'
 import { ghostRowState } from './status.js'
 import { errorMessage, FALL_KINDS, fallEvent, git, resultPathOf, spawnSupervisor } from './supervise.js'
@@ -33,11 +34,13 @@ function branchExists(repo: string, branch: string): boolean {
   }
 }
 
-function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: Sketch, approvedSketch: string): { refusals: string[], rangeDiff: RangeDiffOutcome | null } {
-  const refused = (reason: string): { refusals: string[], rangeDiff: null } => ({ refusals: [`task ${taskId}: ${reason}`], rangeDiff: null })
+interface SketchCheck { refusals: string[], rangeDiff: RangeDiffOutcome | null, regenerated: string[] }
+
+function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: Sketch, approvedSketch: string): SketchCheck {
+  const refused = (reason: string): SketchCheck => ({ refusals: [`task ${taskId}: ${reason}`], rangeDiff: null, regenerated: [] })
   if (sketch.kind === 'none') {
     return approvedSketch === 'none'
-      ? { refusals: [], rangeDiff: null }
+      ? { refusals: [], rangeDiff: null, regenerated: [] }
       : refused(`the approval names sketch ${approvedSketch.slice(0, 7)} and the brief says Sketch: none; re-approve the brief`)
   }
   if (approvedSketch === 'none')
@@ -54,9 +57,12 @@ function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: S
     return refused(`sketch ${sketch.sha.slice(0, 7)} does not contain origin/main ${baseSha.slice(0, 7)}; rebase ${sketch.branch} onto origin/main and re-approve the brief`)
   }
   if (approvedSketch === sketch.sha)
-    return { refusals: [], rangeDiff: 'identical' }
-  const verdict = rangeDiffVerdict(args => git(repo, args), approvedSketch, sketch.sha, baseSha)
-  return verdict.ok ? { refusals: [], rangeDiff: 'equal' } : refused(verdict.reason)
+    return { refusals: [], rangeDiff: 'identical', regenerated: [] }
+  const verdict = rangeDiffVerdict(args => git(repo, args), approvedSketch, sketch.sha, baseSha, REGENERATED_PATHS)
+  if (!verdict.ok)
+    return refused(verdict.reason)
+  const regenerated = verdict.regenerated ?? []
+  return { refusals: [], rangeDiff: regenerated.length === 0 ? 'equal' : 'regenerated', regenerated }
 }
 
 const USAGE = 'usage: launch.ts --tasks <file> [--owner-allows <card>]... | launch.ts --tasks <file> --fall <kind> --card <card>'
@@ -226,6 +232,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       approvedSketch: approval.approvedSketch,
       agreedSha256: sha256Hex(approval.text),
       rangeDiff: sketchCheck.rangeDiff,
+      regenerated: sketchCheck.regenerated,
       sketch,
       expected,
       stepsExpected: launchStepExpects(repo, briefEffort(approval.text)),
@@ -242,6 +249,8 @@ const ACCEPTANCE_LINE = /^Acceptance:/m
 
 function describeSketchOf(task: PreparedTask): string {
   const described = describeSketch(task.sketch)
+  if (task.rangeDiff === 'regenerated')
+    return `${described}, approved ${task.approvedSketch.slice(0, 7)} with range-diff all = outside ${task.regenerated.join(', ')}, whose check runs in the worktree after install`
   return task.rangeDiff === 'equal' ? `${described}, approved ${task.approvedSketch.slice(0, 7)} with range-diff all =` : described
 }
 

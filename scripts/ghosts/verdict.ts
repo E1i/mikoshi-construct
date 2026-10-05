@@ -11,6 +11,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
 import { appendJournalEvent } from './journal.js'
+import { reviewCarry } from './review-carry.js'
 
 const JOURNAL_FILE = 'ghosts.jsonl'
 const VERDICT_SCHEMA = 'review-verdict'
@@ -38,7 +39,11 @@ interface Verdict {
 export interface ReviewTarget {
   commit: string
   repo: string
+  main?: string
 }
+
+const DEFAULT_MAIN = 'origin/main'
+export const REVIEW_CARRY_EVENT = 'review-carry'
 
 interface ResolvedCommit {
   commit: string
@@ -118,6 +123,37 @@ function treeReasons(tree: string, target: ReviewTarget, resolved: ResolvedCommi
   return resolved.tree === tree ? [] : [`verdict tree ${tree} is not the tree of ${target.commit} (${resolved.tree})`]
 }
 
+function reviewedCommit(dir: string, task: string, tree: string, file: Digest): string | undefined {
+  const journal = path.join(dir, JOURNAL_FILE)
+  if (!existsSync(journal))
+    return undefined
+  const commits = readFileSync(journal, 'utf8').split('\n').flatMap((text) => {
+    try {
+      const line = JSON.parse(text) as { event?: unknown, task?: unknown, tree?: unknown, commit?: unknown, file?: { sha256?: unknown } }
+      return line.event === 'review' && line.task === task && line.tree === tree && line.file?.sha256 === file.sha256 && typeof line.commit === 'string' ? [line.commit] : []
+    }
+    catch {
+      return []
+    }
+  })
+  return commits.at(-1)
+}
+
+function gitIn(repo: string): (args: string[]) => string {
+  return args => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+function carriedLine(verdict: Verdict, tree: string, verdictPath: string, dir: string, target: ReviewTarget, resolved: ResolvedCommit, now: Date): VerdictCheck | undefined {
+  const file = { path: path.relative(dir, verdictPath), sha256: sha256OfBytes(readFileSync(verdictPath)) }
+  const from = reviewedCommit(dir, verdict.task, tree, file)
+  if (from === undefined)
+    return undefined
+  const carry = reviewCarry(gitIn(target.repo), from, resolved.commit, target.main ?? DEFAULT_MAIN)
+  if (!carry.ok)
+    return { ok: false, reasons: [...treeReasons(tree, target, resolved), carry.reason] }
+  return { ok: true, line: { event: REVIEW_CARRY_EVENT, ts: now.toISOString(), task: verdict.task, verdict: verdict.verdict, from, to: resolved.commit, tree, ownCommits: carry.ownCommits, merges: carry.merges, file } }
+}
+
 export function checkVerdict(verdictPath: string, dir: string, target: ReviewTarget, now: Date = new Date()): VerdictCheck {
   const verdict = readVerdict(verdictPath)
   if (typeof verdict === 'string')
@@ -129,7 +165,14 @@ export function checkVerdict(verdictPath: string, dir: string, target: ReviewTar
   if (faults.length > 0)
     return { ok: false, reasons: faults }
   const resolved = resolveCommit(target)
-  const reasons = [...treeReasons(verdict.tree, target, resolved), ...reportReasons(verdict.report, dir), ...taskReasons(verdict, dir), ...briefReasons(verdict.brief, dir)]
+  const fileReasons = [...reportReasons(verdict.report, dir), ...taskReasons(verdict, dir), ...briefReasons(verdict.brief, dir)]
+  const trees = treeReasons(verdict.tree, target, resolved)
+  if (trees.length > 0 && resolved !== undefined && fileReasons.length === 0) {
+    const carried = carriedLine(verdict, verdict.tree, verdictPath, dir, target, resolved, now)
+    if (carried !== undefined)
+      return carried
+  }
+  const reasons = [...trees, ...fileReasons]
   if (reasons.length > 0 || resolved === undefined)
     return { ok: false, reasons }
   const line = {
