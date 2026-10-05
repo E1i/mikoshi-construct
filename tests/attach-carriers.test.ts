@@ -16,6 +16,7 @@ const SCRIPTS = [
   'scripts/construct/check-acceptance.mjs',
   'scripts/construct/browser-witness.mjs',
   'scripts/construct/check-baseline.mjs',
+  'scripts/construct/browser-lab.mjs',
 ]
 
 const RE_KEYED_TEMPLATES = [
@@ -26,6 +27,7 @@ const RE_KEYED_TEMPLATES = [
 
 const CARRIED_SKILLS = [
   'templates/ai/claude/_claude/skills/intake/SKILL.md',
+  'templates/ai/claude/_claude/skills/browser-lab/SKILL.md',
 ]
 
 function read(file: string): string {
@@ -56,8 +58,8 @@ describe('the carried commands read the attach record when there is no construct
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names ten targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(10)
+  it('names twelve targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(12)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })

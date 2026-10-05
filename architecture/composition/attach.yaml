@@ -3,7 +3,7 @@ title: construct attach composition
 description: >-
   `runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the
   refusals run first and every one of them exits before a byte is written; then the harness command
-  comes from a flag or a prompt; then the carriers are planned, the exclude block, the ten carriers, the
+  comes from a flag or a prompt; then the carriers are planned, the exclude block, the twelve carriers, the
   guard entry and the record are written in that order. `--entry` is routed in `src/program.ts` before
   `runAttach`, prints the entry protocol and writes nothing. Dotted edges are wiring, solid edges are the flow.
 doc: architecture/attach.md
@@ -93,7 +93,7 @@ edges:
   - {from: prompts, to: carriers, kind: sequence, label: harness command}
   - {from: carriers, to: plan, kind: wires}
   - {from: carriers, to: carrierset, kind: wires}
-  - {from: carriers, to: exclude, kind: sequence, label: 'ten targets and the settings file, after confirm'}
+  - {from: carriers, to: exclude, kind: sequence, label: 'twelve targets and the settings file, after confirm'}
   - {from: exclude, to: strategies, kind: wires}
   - {from: exclude, to: apply, kind: sequence, label: block written}
   - {from: apply, to: settings, kind: sequence, label: carriers and guard written}
