@@ -1,4 +1,4 @@
-import type { SignalStyle } from '../../src/ui/signal.js'
+import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BudgetLine } from '../board/eddies.js'
 import type { GhRunner, PrList } from '../board/gh.js'
 import type { TaskLine } from './places.js'
@@ -8,11 +8,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { closedTasks } from '../../src/card/closed.js'
-import { cardHead, cardTerms } from '../../src/card/grammar.js'
+import { cardHead } from '../../src/card/grammar.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { entryOf } from '../ghosts/entry.js'
 import { EXIT_REASON_TEXT, MAX_RESTARTS } from './continuation.js'
 import { exitedWithoutReport, GHOST_JOURNAL, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 
@@ -127,11 +128,14 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   }
   const lines = taskLines(journal)
   const prs = listPrs(deps.gh, REPO)
-  const closed = closedTasks(deps.read(path.join(deps.handoffDir, GHOST_JOURNAL)))
+  const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  const ghostText = deps.read(ghostJournal)
+  const closed = closedTasks(ghostText)
+  const entry = (line: TaskLine): Signal | undefined => entryOf(ghostText ?? '', line.task)
   for (const line of lines) {
     const block = renderSignal(taskCell(line), {
-      CONTRACT: line.card === undefined ? 'card not recorded in shift.jsonl · law not recorded in shift.jsonl' : `${cardTerms(line.card)} · touches not recorded in shift.jsonl · law not recorded in shift.jsonl`,
-      EXPECT: 'expect not recorded in shift.jsonl',
+      CONTRACT: entry(line)?.CONTRACT ?? `contract not recorded in ${ghostJournal}: no entry line for #${line.task}`,
+      EXPECT: entry(line)?.EXPECT ?? `expect not recorded in ${ghostJournal}: no entry line for #${line.task}`,
       ACTION: `claude session ${sessionsOf(line).join(', then ')} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
       RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · ${closedCell(closed, line)} · ${restartsCell(line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
     }, deps.style ?? PLAIN_STYLE, succeeded(line) ? undefined : 'red')
