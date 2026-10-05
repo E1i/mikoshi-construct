@@ -7,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { countsTowardSteps } from '../../src/commands/cost/expect.js'
 import { ClaudeCodeCostSource, expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, readLedgerEntries as readLedgerEntriesIn, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/index.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
@@ -39,8 +40,6 @@ interface JournalTask {
   class: string | null
   sketch: boolean | null
 }
-
-const COUNTED_RUN_STATUS = 'done'
 
 function textLines(file: string): string[] | null {
   if (!existsSync(file))
@@ -111,7 +110,7 @@ function implementSubsample(input: LadderSampleInput, entries: LedgerEntry[], wa
     if (task.sketch !== null)
       known.set(task.run, task.sketch)
   }
-  const unknown = new Set(entries.filter(entry => entry.run !== null && entry.status === COUNTED_RUN_STATUS && entry.effort === input.effort && !known.has(entry.run)).map(entry => entry.run))
+  const unknown = new Set(entries.filter(entry => entry.run !== null && countsTowardSteps(entry, input.effort) && !known.has(entry.run)).map(entry => entry.run))
   if (unknown.size > 0)
     notes.push(`${unknown.size} run${unknown.size === 1 ? '' : 's'} without a sketch record in ${journal.source} not counted for implement`)
   return { sample: { subsample: wanted ? 'sketch' : 'no sketch', runs: new Set([...known].filter(([, recorded]) => recorded === wanted).map(([run]) => run)) }, notes }

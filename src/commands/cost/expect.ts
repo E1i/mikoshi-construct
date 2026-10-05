@@ -151,11 +151,15 @@ function formatHead(head: ExpectHead, lore: Lore): string {
   return lore.expectNoneHead(head.reason)
 }
 
+export function countsTowardSteps(entry: LedgerEntry, effort: string | undefined): boolean {
+  return entry.status === COUNTED_STATUS && entry.effort === effort
+}
+
 export function stepExpects(entries: LedgerEntry[], runSteps: Map<string, RunStep[]>, effort: string, implement: ImplementSubsample | null = null): StepExpect[] {
   const counted = new Set<string>()
   const perStep = new Map<Step, { tokens: number, seconds: number }[]>(STEPS.map(step => [step, []]))
   for (const entry of oldestFirst(entries)) {
-    if (entry.run === null || counted.has(entry.run) || entry.status !== COUNTED_STATUS || entry.effort !== effort)
+    if (entry.run === null || counted.has(entry.run) || !countsTowardSteps(entry, effort))
       continue
     const steps = runSteps.get(entry.run)
     if (steps === undefined)
