@@ -1,6 +1,6 @@
 import type { TaskStartDeps } from '../scripts/ghosts/task-start.js'
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -98,21 +98,22 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE)
     const before = readFileSync(file, 'utf8')
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }])
+    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
 
     const held = admit(w, file)
     expect(held.status).toBe('awaiting')
     const { lines, exit } = printed(held)
     expect(exit).toBe(INTAKE_EXIT.awaiting)
-    expect(lines.join('\n')).toContain('corrected: depends — #70 → (removed) — already closed')
+    expect(lines.join('\n')).toContain('corrected: depends — #70 → (removed) — already merged')
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toHaveLength(1)
+    expect(journalLines(w)).toHaveLength(2)
 
     const token = held.status === 'awaiting' ? held.token : ''
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
     const after = readFileSync(file, 'utf8')
-    expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('Do the thing.\n', 'Do the thing.\n\ncorrected: depends — #70 → (removed) — already closed\n'))
+    expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('Do the thing.\n', 'Do the thing.\n\ncorrected: depends — #70 → (removed) — already merged\n'))
     expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'person', source: 'admit' })
+    appendFileSync(w.journal, `${JSON.stringify({ event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}\n`)
     expect(taskStart(w, STALE_ADMITTED)).toBe(0)
     expect(taskStart(w, STALE)).toBe(1)
   })
@@ -120,10 +121,10 @@ describe('construct intake --admit takes a card parked before the intake door', 
   it('a stale --confirm admits nothing', () => {
     const w = world()
     const file = park(w, 81, STALE)
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }])
+    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
     const held = admit(w, file, { confirm: 'not-the-token' })
     expect(held).toMatchObject({ status: 'awaiting', stale: true })
-    expect(journalLines(w)).toHaveLength(1)
+    expect(journalLines(w)).toHaveLength(2)
   })
 
   it('a second --admit of an admitted card writes no second intake line', () => {

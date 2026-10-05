@@ -7,7 +7,7 @@ import type { SlicedCard } from './slice.js'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { closedTasks } from '../../card/closed.js'
+import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText } from './check.js'
@@ -148,7 +148,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const [checked] = checkDraft([draftOf(parsed.parked)], [card.id], {
     taken: new Set(),
     parked: new Set(parkedNumbers(siblings(options.file))),
-    closed: new Set(closedTasks(journal).keys()),
+    done: new Set(closedTasks(journal).keys()),
+    merged: mergedTasks(journal),
     repository: options.dir === undefined ? null : new DirectoryFacts(options.dir, process.env.PATH ?? ''),
   }) as [CheckedCard]
   const line = admittedLine(card, checked)

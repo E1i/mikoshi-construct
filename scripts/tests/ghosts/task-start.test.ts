@@ -67,7 +67,7 @@ function depsOf(world: World, session: string | null = SESSION, installs: [strin
     now: () => NOW,
     session: session ?? undefined,
     handoffDir: world.handoff,
-    readJournal: () => intakeJournal(ADMITTED),
+    readJournal: () => `${intakeJournal(ADMITTED)}${JSON.stringify({ event: 'merge', task: '86', by: 'E1i', commit: 'c0ffee', ts: INTAKE_TS })}\n`,
   }
 }
 

@@ -19,20 +19,20 @@ function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
   return Number(b.priority !== null) - Number(a.priority !== null) || Number(a.task.id) - Number(b.task.id)
 }
 
-function leftReason(parked: ParkedTask, closed: ReadonlySet<string>): string | null {
-  if (closed.has(parked.task.id))
+function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: ReadonlySet<string>): string | null {
+  if (done.has(parked.task.id))
     return CLOSED
   if (parked.who !== SHIFT_WHO)
     return `who ${parked.who}`
-  const open = parked.task.card.depends.filter(id => !closed.has(String(id)))
-  return open.length === 0 ? null : `depends ${open.map(id => `#${id}`).join(', ')} not closed`
+  const open = parked.task.card.depends.filter(id => !merged.has(String(id)))
+  return open.length === 0 ? null : `depends ${open.map(id => `#${id}`).join(', ')} not merged`
 }
 
-export function choose(parked: readonly ParkedTask[], closed: ReadonlySet<string>): Choice {
+export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>): Choice {
   const chosen: ShiftTask[] = []
   const left: LeftCard[] = []
   for (const card of [...parked].sort(byPriorityThenId)) {
-    const reason = leftReason(card, closed)
+    const reason = leftReason(card, done, merged)
     const overlapping = reason === null ? chosen.find(task => taskConflicts([task, card.task]).length > 0) : undefined
     if (reason !== null)
       left.push({ id: card.task.id, reason })

@@ -21,28 +21,28 @@ describe('choose', () => {
       parked(180, 'who: shift', '#179'),
       parked(178, 'who: shift'),
     ]
-    const choice = choose(cards, new Set(['178']))
+    const choice = choose(cards, new Set(['178']), new Set(['178']))
     expect(choice.chosen.map(task => task.id)).toEqual(['187', '189', '19', '99'])
     expect(choice.left).toEqual([
       { id: '171', reason: 'who window' },
       { id: '178', reason: 'closed' },
-      { id: '180', reason: 'depends #179 not closed' },
+      { id: '180', reason: 'depends #179 not merged' },
     ])
   })
 
   it('names a closed card closed, whoever it was parked for', () => {
-    expect(choose([parked(542, 'who: window')], new Set(['542'])).left).toEqual([{ id: '542', reason: 'closed' }])
+    expect(choose([parked(542, 'who: window')], new Set(['542']), new Set(['542'])).left).toEqual([{ id: '542', reason: 'closed' }])
   })
 
   it('takes a card whose depends are all closed', () => {
-    expect(choose([parked(180, 'who: shift', '#179')], new Set(['179'])).chosen.map(task => task.id)).toEqual(['180'])
+    expect(choose([parked(180, 'who: shift', '#179')], new Set(['179']), new Set(['179'])).chosen.map(task => task.id)).toEqual(['180'])
   })
 
   it('leaves a card that conflicts with one already taken, and keeps the one taken first', () => {
     const first = parked(1, 'who: shift')
     const second = parked(2, 'who: shift')
     const overlapping = { ...second, task: { ...second.task, touches: ['scripts/1/x.ts'] } }
-    expect(choose([overlapping, first], new Set())).toEqual({ chosen: [first.task], left: [{ id: '2', reason: 'conflicts with #1' }] })
+    expect(choose([overlapping, first], new Set(), new Set())).toEqual({ chosen: [first.task], left: [{ id: '2', reason: 'conflicts with #1' }] })
   })
 })
 
@@ -52,10 +52,10 @@ describe('leftSummary', () => {
       { id: '1', reason: 'who window' },
       { id: '2', reason: 'closed' },
       { id: '3', reason: 'closed' },
-      { id: '4', reason: 'depends #9 not closed' },
+      { id: '4', reason: 'depends #9 not merged' },
       { id: '5', reason: 'conflicts with #7' },
       { id: '6', reason: 'who owner' },
-      { id: '8', reason: 'depends #10, #11 not closed' },
+      { id: '8', reason: 'depends #10, #11 not merged' },
     ]
     expect(leftSummary(left)).toBe('left: 2 closed · 2 depends · 1 who window · 1 conflicts · 1 who owner')
   })

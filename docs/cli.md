@@ -1677,7 +1677,7 @@ It runs no model and no `gh`.
 | `--taken <file\|->` | — | The pull request and issue numbers already taken, separated by whitespace, from a file or stdin. Required. |
 | `--parking <dir>` | `~/.construct/parking` | Where the cards are written, outside the repository. |
 | `--dir <dir>` | `.` | The repository the `touches`, `creates` and witness checks read. Never written. |
-| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read closed from. |
+| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read merged from: a `depends` or `blocks` is removed when a merge line names the task, kept when it is only done; `construct` reads merge lines and runs no `gh`. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
 | `--confirm <token>` | — | Park cards whose corrections a person has seen: the token the run that held them printed. |
 | `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in `--journal`. |
@@ -1703,9 +1703,9 @@ refuses: a card that reuses a pull request's number is worse than no card.
 journal, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
-card grammar becomes the grammar's default, a `depends` or `blocks` on a card closed in the journal is
-removed, and a `creates` entry that already exists is noted as not new. A path with no single
-candidate, a `#<id>` that is neither parked nor closed, and a witness with no backticked command or a
+card grammar becomes the grammar's default, a `depends` or `blocks` on a card a merge line names in the journal is
+removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path with no single
+candidate, a `#<id>` that is neither parked, done nor merged, and a witness with no backticked command or a
 command that is not on `PATH` are marked `unclear:` and kept. A kind outside the grammar is still
 refused.
 

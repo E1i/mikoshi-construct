@@ -9,9 +9,9 @@ description: >-
   inventing it, and `parseTaken` refuses anything that is not a number. The numbers are the next free
   after every number taken in the parking directory and in `--taken`, because card numbers are shared
   with pull requests and issues. `checkDraft` corrects or marks unclear, by facts, each wrong path,
-  named number, contour, decision, closed depends/blocks and command-less witness. It reads the
-  repository under --dir only through `facts.ts` and closed tasks from --journal through
-  `closedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the
+  named number, contour, decision, merged depends/blocks and command-less witness. It reads the
+  repository under --dir only through `facts.ts` and merged tasks from --journal through
+  `mergedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the
   matching `blocks`, defaults only `contour` and `decision` and marks each default as an `unclear:`
   line, keeps every card with an unclear line at `who: window`, renders the card line and the file with
   the renderers that sit beside the card grammar in `src/card/`, and parses every file back with

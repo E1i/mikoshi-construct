@@ -75,7 +75,7 @@ function draftCard(fields: Partial<DraftCard> = {}): DraftCard {
 }
 
 function facts(overrides: Partial<CheckFacts> = {}): CheckFacts {
-  return { taken: new Set(), parked: new Set(), closed: new Set(), repository: null, ...overrides }
+  return { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository: null, ...overrides }
 }
 
 function repositoryFacts(overrides: Partial<RepositoryFacts> = {}): RepositoryFacts {
@@ -117,20 +117,20 @@ describe('intake fact check', () => {
     expect(third).not.toContain('corrected:')
   })
 
-  it('removes a closed depends, keeps a parked one and marks an unknown one unclear', () => {
+  it('removes a merged depends, keeps a parked one and marks an unknown one unclear', () => {
     const root = scratch()
     const journal = path.join(root, 'ghosts.jsonl')
-    writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}\n${JSON.stringify({ event: 'start', task: '78' })}\n`)
+    writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}\n${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}\n${JSON.stringify({ event: 'start', task: '78' })}\n`)
     put(root, 'parking/13.md', '')
     const dir = repository(['src/a.ts'])
     const { result, parking } = intake([card({ depends: ['#77', '#13', '#78', '#900'], blocks: ['#77'] })], { root, dir, journal, taken: '12' })
     const text = written(result, parking, 14)
     const output = printed(result)
-    expect(output).toContain('corrected: depends — #77 → (removed) — already closed')
-    expect(output).toContain('corrected: blocks — #77 → (removed) — already closed')
+    expect(output).toContain('corrected: depends — #77 → (removed) — already merged')
+    expect(output).toContain('corrected: blocks — #77 → (removed) — already merged')
     expect(output).not.toMatch(/corrected: depends — #(13|78|900)/)
-    expect(text).toContain('unclear: depends — \'#900\' is neither a parked card nor closed in the journal')
-    expect(text).toContain('unclear: depends — \'#78\' is neither a parked card nor closed in the journal')
+    expect(text).toContain('unclear: depends — \'#900\' is neither a parked card, done nor merged in the journal')
+    expect(text).toContain('unclear: depends — \'#78\' is neither a parked card, done nor merged in the journal')
     expect(text).not.toContain('unclear: depends — \'#13\'')
     expect(text).toMatch(/^card: #14 \S+ \[.*\] · depends #13, #78, #900 · blocks —$/m)
   })
@@ -209,7 +209,9 @@ describe('intake fact check', () => {
   it('keeps every original value in the card and never edits the draft file', () => {
     const dir = repository(['src/commands/intake/index.ts'])
     const journal = path.join(scratch(), 'ghosts.jsonl')
-    writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}\n`)
+    writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}
+${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}
+`)
     const draftBefore = JSON.stringify({ cards: [card({ number: 12, touches: ['src/command/intake/**'], contour: 'fast', depends: ['#77'] })] })
     const { result, parking, draftFile } = intake(JSON.parse(draftBefore).cards, { dir, journal, taken: '12' })
     const text = written(result, parking, 13)
