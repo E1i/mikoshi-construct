@@ -27,6 +27,17 @@ export function relation(a: string, b: string): string | null {
   return null
 }
 
+const ADDITIVE_ROOTS = ['tests', '.changeset']
+
+function isAdditiveMask(entry: string): boolean {
+  const scope = scopeOf(entry)
+  return scope.prefix && ADDITIVE_ROOTS.some(root => scope.path === root || scope.path.startsWith(`${root}/`))
+}
+
+function taskRelation(a: string, b: string): string | null {
+  return isAdditiveMask(a) && isAdditiveMask(b) ? null : relation(a, b)
+}
+
 function pairs<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map(second => [first, second] as [T, T]))
 }
@@ -39,7 +50,7 @@ export function taskConflicts(tasks: readonly ShiftTask[]): string[] {
       ...(a.branch === b.branch ? [`${head}branch ${a.branch} twice`] : []),
     ]
     const touched = a.touches.flatMap(left => b.touches.flatMap((right) => {
-      const sign = relation(left, right)
+      const sign = taskRelation(left, right)
       return sign === null ? [] : [`${head}${left} ${sign} ${right}`]
     }))
     return [...same, ...touched]
