@@ -30,4 +30,5 @@ case "$prompt" in *STUB-FAIL*) exit 1 ;; *STUB-SILENT*) exit 0 ;; esac
 report=$(printf '%s\n' "$prompt" | sed -n 's/.*write the shift report to `\([^`]*\)`.*/\1/p' | head -n 1)
 case "$prompt" in *STUB-NO-PR*) pr='no PR' ;; *) pr='PR #1' ;; esac
 printf 'result: did %s\n%s\n' "$task" "$pr" > "$report"
+case "$prompt" in *STUB-VERIFIED-*) printf 'verification: %s\n' "$(printf '%s\n' "$prompt" | sed -n 's/.*STUB-VERIFIED-\([a-z-]*\).*/\1/p' | head -n 1)" >> "$report" ;; esac
 case "$prompt" in *STUB-QUESTION*) printf 'question: which way, owner?\n' >> "$report" ;; esac

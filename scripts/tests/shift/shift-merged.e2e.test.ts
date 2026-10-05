@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { VERIFICATION_WORDS } from '../../board/verification.js'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
 
@@ -27,7 +28,7 @@ function cardLine(id: number, depends = '—'): string {
   return `#${id} task-${id} [implement/runner/S/cheap/auto] · depends ${depends} · blocks —`
 }
 
-function newWorld(journalLines: object[], cards: { id: number, depends?: string }[]): World {
+function newWorld(journalLines: object[], cards: { id: number, depends?: string, body?: string }[]): World {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'shift-merged-')))
   roots.push(root)
   const origin = path.join(root, 'origin.git')
@@ -46,8 +47,8 @@ function newWorld(journalLines: object[], cards: { id: number, depends?: string 
   const handoff = path.join(root, 'handoff')
   for (const dir of [shift, stubOut, parking, handoff])
     mkdirSync(dir)
-  for (const { id, depends } of cards)
-    writeFileSync(path.join(parking, `${id}.md`), `card: ${cardLine(id, depends)}\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\ndo ${id}\n`)
+  for (const { id, depends, body } of cards)
+    writeFileSync(path.join(parking, `${id}.md`), `card: ${cardLine(id, depends)}\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\n${body ?? `do ${id}`}\n`)
   const journal = path.join(handoff, 'ghosts.jsonl')
   const intake = cards.map(({ id, depends }) => ({ event: 'intake', task: String(id), card: cardLine(id, depends), confirmation: 'none', corrections: [], ts: '2026-10-05T00:00:00.000Z' }))
   writeFileSync(journal, [...journalLines, ...intake].map(line => `${JSON.stringify(line)}\n`).join(''))
@@ -164,5 +165,49 @@ describe('the shift records merged pull requests', () => {
     expect(calls.filter(args => args[1] === 'view')).toEqual([])
     expect(out).toContain('[shift] hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests')
     expect(code).toBe(0)
+  })
+})
+
+function closingLines(world: World): Record<string, unknown>[] {
+  return readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'pr' in line)
+}
+
+describe('the shift closes a task from its report', () => {
+  it('a report with PR #N and verification: run leaves a task:close line, and the next parking choice does not take the card', async () => {
+    const world = newWorld([], [{ id: 2, body: 'do 2 STUB-VERIFIED-run' }])
+    const { gh } = ghMerged({})
+    const out: string[] = []
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, out, []))
+    expect(closingLines(world)).toMatchObject([{ task: '2', path: 'cheap', pr: 1, verification: 'run' }])
+    expect(out.some(line => line.includes('closed run · PR #1'))).toBe(true)
+    const next: string[] = []
+    const rerun = path.join(world.root, 'shift-2')
+    mkdirSync(rerun)
+    await runShift([rerun, '--parking', world.parking, '--check'], depsOf(world, gh, next, []))
+    expect(next[0]).toBe('[shift] parking: takes none')
+  })
+
+  it('a report with PR #N and no verification line writes no closing line and prints the red line naming the missing word', async () => {
+    const world = newWorld([], [{ id: 2 }])
+    const { gh } = ghMerged({})
+    const out: string[] = []
+    const paint = (tone: string | undefined, text: string): string => tone === 'red' ? `<red>${text}</red>` : text
+    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), style: { ascii: true, paint } })
+    expect(closingLines(world)).toEqual([])
+    expect(out).toContain('<red>[shift] #2 not closed: the report has no verification: <word> line, one of measurement, code-reading, run, review, mutation, browser, human-gate; no closing line written</red>')
+  })
+
+  it('a verification word outside the list writes no closing line and the red line names the word', async () => {
+    const world = newWorld([], [{ id: 2, body: 'do 2 STUB-VERIFIED-hunch' }])
+    const { gh } = ghMerged({})
+    const out: string[] = []
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, out, []))
+    expect(closingLines(world)).toEqual([])
+    expect(out).toContain('[shift] #2 not closed: verification \'hunch\' is not one of measurement, code-reading, run, review, mutation, browser, human-gate; nothing written')
+  })
+
+  it('the header names every verification word the shift accepts', () => {
+    for (const word of VERIFICATION_WORDS)
+      expect(HEADER).toContain(`\`${word}\``)
   })
 })
