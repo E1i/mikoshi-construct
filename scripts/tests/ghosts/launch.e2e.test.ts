@@ -306,6 +306,28 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-journal', w)
   })
 
+  it('launches a sketch rebased with only the generated file changed without a new approval, after its check passes at the sketch, and journals the carry (sketch-regenerated)', () => {
+    const w = world('new', 'sketch-regenerated')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+    world('check-sketch', w)
+    world('check-args', w)
+    world('check-journal', w)
+  })
+
+  it('starts no session and frees the row with the check\'s error when the generated file\'s check fails (sketch-regenerated-check-fails)', () => {
+    const w = world('new', 'sketch-regenerated-check-fails')
+    const { status } = launch(w, 'yes')
+    expect(status).not.toBe(0)
+    world('check-decision', w)
+    world('check-install', w)
+    world('check-ladder', w)
+    world('check-journal', w)
+    world('check-summary', w)
+  })
+
   it('launches a sketch the approval names, journalling identical and no range-diff (sketch)', () => {
     const w = world('new', 'sketch')
     const { status } = launch(w, 'yes')

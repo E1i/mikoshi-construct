@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow sketch-regenerated sketch-regenerated-check-fails'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -18,6 +18,8 @@ CLEAN_SKETCH_REASON='world fixture'
 UNKNOWN_SKETCH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 FAILING_EXIT=3
 SLOW_SECONDS=3
+GENERATED_PATH=templates/attach/earlier-carriers.json
+REGENERATED_CHECK_ERROR='stub check: templates/attach/earlier-carriers.json is not what the generator writes'
 
 fail() {
   echo "world.sh $CHECK: $*" >&2
@@ -48,11 +50,15 @@ approved_sketch_of_brief() {
 }
 
 rebased_kind() {
-  case $1 in sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale) return 0 ;; *) return 1 ;; esac
+  case $1 in sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-regenerated | sketch-regenerated-check-fails) return 0 ;; *) return 1 ;; esac
+}
+
+regenerated_kind() {
+  case $1 in sketch-regenerated | sketch-regenerated-check-fails) return 0 ;; *) return 1 ;; esac
 }
 
 sketch_world_kind() {
-  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
+  case $1 in sketch | sketch-no-branch | sketch-moved | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-regenerated | sketch-regenerated-check-fails | sketch-approved-unknown | design-edited) return 0 ;; *) return 1 ;; esac
 }
 
 approved_sha() {
@@ -93,7 +99,7 @@ sketch_line_for() {
   kind=$(cat "$W/.world/kind")
   if [ "$id" != g2 ]; then echo "$CLEAN_SKETCH_LINE"; return; fi
   case $kind in
-    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
+    sketch | sketch-no-branch | sketch-stale | sketch-rebased | sketch-rebased-changed | sketch-rebased-reworded | sketch-rebased-stale | sketch-regenerated | sketch-regenerated-check-fails | sketch-approved-unknown | design-edited) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-tip")" ;;
     sketch-moved) echo "Sketch: sketch/g2 @ $(cat "$W/.world/sketch-parent")" ;;
     sketch-no-line) echo '' ;;
     *) echo "$CLEAN_SKETCH_LINE" ;;
@@ -285,6 +291,20 @@ if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --frozen-lockfile ]; then
   touch "$PWD/.ghost-installed"
   exit 0
 fi
+if [ "$*" = 'exec tsx scripts/attach/earlier-carriers.ts --check' ]; then
+  ghost=$(basename "$PWD")
+  dir="$W/stub/$ghost"
+  mkdir -p "$dir"
+  printf '%s\0' "$@" >"$dir/check-argv"
+  pwd -P >"$dir/check-cwd"
+  git rev-parse HEAD >"$dir/check-head"
+  if [ -f "$PWD/.ghost-installed" ]; then echo yes; else echo no; fi >"$dir/installed-at-check"
+  if [ "$(cat "$W/.world/kind")" = sketch-regenerated-check-fails ]; then
+    echo 'stub check: templates/attach/earlier-carriers.json is not what the generator writes' >&2
+    exit 1
+  fi
+  exit 0
+fi
 exec "$REAL_PNPM" "$@"
 EOF
   chmod +x "$W/bin/pnpm"
@@ -346,10 +366,15 @@ EOF
 }
 
 commit_sketch_in_seed() {
-  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2} message=${4:-sketch g2} date=${5:-}
+  local W=$1 seed="$1/.world/seed" parent=$2 content=${3:-sketch g2} message=${4:-sketch g2} date=${5:-} generated=${6:-}
   git_quiet -C "$seed" checkout -q --detach "$parent"
   echo "$content" >"$seed/sketch.txt"
   git_quiet -C "$seed" add sketch.txt
+  if [ -n "$generated" ]; then
+    mkdir -p "$seed/$(dirname "$GENERATED_PATH")"
+    echo "$generated" >"$seed/$GENERATED_PATH"
+    git_quiet -C "$seed" add "$GENERATED_PATH"
+  fi
   if [ -n "$date" ]; then
     GIT_COMMITTER_DATE=$date GIT_AUTHOR_DATE=$date git_quiet -C "$seed" commit -m "$message"
   else
@@ -364,7 +389,12 @@ make_sketch() {
   local W=$1 kind=$2 seed="$1/.world/seed" parent=main
   sketch_world_kind "$kind" || return 0
   [ "$kind" = sketch-stale ] && parent='main~1'
-  if rebased_kind "$kind"; then
+  if regenerated_kind "$kind"; then
+    commit_sketch_in_seed "$W" 'main~1' 'sketch g2' 'sketch g2' '' '["approved"]'
+    cp "$W/.world/sketch-tip" "$W/.world/sketch-approved"
+    git_quiet -C "$seed" push "$W/main" "$(cat "$W/.world/sketch-approved"):refs/world/approved"
+    commit_sketch_in_seed "$W" main 'sketch g2' 'sketch g2' '' '["approved","regenerated on main"]'
+  elif rebased_kind "$kind"; then
     commit_sketch_in_seed "$W" 'main~1'
     cp "$W/.world/sketch-tip" "$W/.world/sketch-approved"
     git_quiet -C "$seed" push "$W/main" "$(cat "$W/.world/sketch-approved"):refs/world/approved"
@@ -455,11 +485,13 @@ output_has() {
 }
 
 sketch_task_in() {
-  case $(cat "$1/.world/kind") in sketch | sketch-rebased) [ "$2" = g2 ] ;; *) false ;; esac
+  case $(cat "$1/.world/kind") in sketch | sketch-rebased | sketch-regenerated | sketch-regenerated-check-fails) [ "$2" = g2 ] ;; *) false ;; esac
 }
 
 expected_sketch_description() {
-  if sketch_task_in "$1" "$2" && [ "$(cat "$1/.world/kind")" = sketch-rebased ]; then
+  if sketch_task_in "$1" "$2" && regenerated_kind "$(cat "$1/.world/kind")"; then
+    echo "from sketch sketch/g2 @ $(cut -c1-7 "$1/.world/sketch-tip"), approved $(cut -c1-7 "$1/.world/sketch-approved") with range-diff all = outside $GENERATED_PATH, whose check runs in the worktree after install"
+  elif sketch_task_in "$1" "$2" && [ "$(cat "$1/.world/kind")" = sketch-rebased ]; then
     echo "from sketch sketch/g2 @ $(cut -c1-7 "$1/.world/sketch-tip"), approved $(cut -c1-7 "$1/.world/sketch-approved") with range-diff all ="
   elif sketch_task_in "$1" "$2"; then
     echo "from sketch sketch/g2 @ $(cut -c1-7 "$1/.world/sketch-tip")"
@@ -607,7 +639,7 @@ check_refused_two_implement() {
 
 check_sketch() {
   local W=$1 sha id wt unstaged
-  case $(kind_of "$W") in sketch | sketch-rebased) ;; *) fail "check-sketch applies to a launched sketch world only" ;; esac
+  case $(kind_of "$W") in sketch | sketch-rebased | sketch-regenerated) ;; *) fail "check-sketch applies to a launched sketch world only" ;; esac
   sha=$(origin_sha "$W")
   for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
@@ -616,7 +648,9 @@ check_sketch() {
     unstaged=$(git -C "$wt" diff --name-only | grep -v '^\.construct/' || true)
     [ -z "$unstaged" ] || fail "$id: unstaged changes outside .construct/: $unstaged"
     if sketch_task_in "$W" "$id"; then
-      [ "$(git -C "$wt" diff --cached --name-only)" = sketch.txt ] || fail "$id: the staged paths are '$(git -C "$wt" diff --cached --name-only | tr '\n' ' ')', not sketch.txt"
+      [ "$(git -C "$wt" diff --cached --name-only | tr '\n' ' ')" = "$(staged_sketch_paths "$W")" ] || fail "$id: the staged paths are '$(git -C "$wt" diff --cached --name-only | tr '\n' ' ')', not '$(staged_sketch_paths "$W")'"
+      ! regenerated_kind "$(kind_of "$W")" || [ "$(cat "$W/stub/wt-$id/check-head" 2>/dev/null)" = "$(cat "$W/.world/sketch-tip")" ] || fail "$id: the regenerated check did not run with HEAD at the sketch $(cat "$W/.world/sketch-tip")"
+      ! regenerated_kind "$(kind_of "$W")" || [ "$(cat "$W/stub/wt-$id/installed-at-check")" = yes ] || fail "$id: the regenerated check ran before the install"
       [ "$(cat "$wt/sketch.txt")" = 'sketch g2' ] || fail "$id: sketch.txt in the worktree does not read 'sketch g2'"
       [ "$(git -C "$wt" write-tree)" = "$(git -C "$W/main" rev-parse 'sketch/g2^{tree}')" ] || fail "$id: the index is not the tree of sketch/g2"
       [ "$(git -C "$W/main" rev-parse sketch/g2)" = "$(cat "$W/.world/sketch-tip")" ] || fail "sketch/g2 moved"
@@ -625,6 +659,10 @@ check_sketch() {
       [ ! -e "$wt/sketch.txt" ] || fail "$id: a clean-tree task has sketch.txt"
     fi
   done
+}
+
+staged_sketch_paths() {
+  if regenerated_kind "$(kind_of "$1")"; then echo "sketch.txt $GENERATED_PATH "; else echo 'sketch.txt '; fi
 }
 
 check_launched() {
@@ -712,11 +750,20 @@ session_unspawnable_for() {
 INSTALL_SPAWN_ERROR='spawn pnpm ENOENT'
 SESSION_SPAWN_ERROR='spawn claude ENOENT'
 
+regenerated_check_fails_for() {
+  [ "$(kind_of "$1")" = sketch-regenerated-check-fails ] && [ "$2" = g2 ]
+}
+
+regenerated_check_outcome() {
+  echo "regenerated check failed, no session: $GENERATED_PATH: pnpm exec tsx scripts/attach/earlier-carriers.ts --check exited 1: $REGENERATED_CHECK_ERROR; regenerate on the sketch or re-approve the brief"
+}
+
 expected_outcome() {
   local W=$1 id=$2
   if install_fails_for "$W" "$id"; then echo 'install failed: exit 1'
   elif install_unspawnable_for "$W" "$id"; then echo "install failed: $INSTALL_SPAWN_ERROR"
   elif session_unspawnable_for "$W" "$id"; then echo "session failed: $SESSION_SPAWN_ERROR"
+  elif regenerated_check_fails_for "$W" "$id"; then echo 'regenerated check failed'
   else expected_ladder "$W" "$id"
   fi
 }
@@ -743,6 +790,11 @@ check_ladder() {
     fi
     if session_unspawnable_for "$W" "$id"; then
       part="| session failed: $SESSION_SPAWN_ERROR | "
+      echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
+      continue
+    fi
+    if regenerated_check_fails_for "$W" "$id"; then
+      part="| $(regenerated_check_outcome) | "
       echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
       continue
     fi
@@ -782,6 +834,14 @@ check_install() {
     elif session_unspawnable_for "$W" "$id"; then
       [ ! -e "$W/bin/claude" ] || fail "the world is broken: $W/bin/claude still exists after the install of $id"
       [ ! -e "$dir/argv" ] || fail "$id: a session ran although claude could not be spawned"
+    elif regenerated_check_fails_for "$W" "$id"; then
+      [ ! -e "$dir/argv" ] || fail "$id: a session started although the regenerated check failed"
+      [ ! -e "$W/handoff/ghost-$id.jsonl" ] || fail "$id: a report exists although no session started"
+      read_argv "$dir/check-argv"
+      [ "${ARGV[*]}" = 'exec tsx scripts/attach/earlier-carriers.ts --check' ] || fail "$id: the check argv is '${ARGV[*]}'"
+      [ "$(cat "$dir/check-cwd")" = "$wt" ] || fail "$id: the check ran in $(cat "$dir/check-cwd"), not $wt"
+      [ "$(cat "$dir/check-head")" = "$(cat "$W/.world/sketch-tip")" ] || fail "$id: the check ran with HEAD $(cat "$dir/check-head"), not the sketch $(cat "$W/.world/sketch-tip")"
+      [ "$(cat "$dir/installed-at-check")" = yes ] || fail "$id: the check ran before the install"
     else
       [ -f "$dir/installed-at-start" ] || fail "$id: the session did not start"
       [ "$(cat "$dir/installed-at-start")" = yes ] || fail "$id: the session started before the install finished"
@@ -814,7 +874,18 @@ const seedLines = seed.split('\n').filter(line => line !== '').length
 const lines = text.split('\n').filter(line => line !== '').slice(seedLines)
 const parsed = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
 const entries = parsed.filter(row => row.event === 'entry')
-const rows = parsed.filter(row => row.event !== 'entry')
+const carries = parsed.filter(row => row.event === 'approval-carry')
+const rows = parsed.filter(row => row.event !== 'entry' && row.event !== 'approval-carry')
+const regenerated = ['sketch-regenerated', 'sketch-regenerated-check-fails'].includes(kind)
+const sketchKind = ['sketch', 'sketch-rebased'].includes(kind) || regenerated
+const approvedTipOfWorld = fs.existsSync(`${W}/.world/sketch-approved`) ? fs.readFileSync(`${W}/.world/sketch-approved`, 'utf8').trim() : null
+const wantCarries = kind === 'sketch-regenerated' ? [{ event: 'approval-carry', task: 'g2', kind: 'regenerated', approvedSketch: approvedTipOfWorld, sketch: sketchTip, regenerated: ['templates/attach/earlier-carriers.json'] }] : []
+const carriesSeen = carries.map(({ ts, ...rest }) => rest)
+if (JSON.stringify(carriesSeen) !== JSON.stringify(wantCarries)) failWith(`the approval-carry lines are ${JSON.stringify(carriesSeen)}, not ${JSON.stringify(wantCarries)}`)
+for (const carry of carries) {
+  if (typeof carry.ts !== 'string') failWith('an approval-carry line has no ts')
+  if (parsed.indexOf(carry) > parsed.findIndex(row => row.event === 'task' && row.task === carry.task)) failWith(`${carry.task}: the approval-carry line is after its task line`)
+}
 if (rows.length !== tasks.length) failWith(`${rows.length} lines appended to ${journal}, not ${tasks.length}`)
 if (entries.length !== tasks.length) failWith(`${entries.length} entry lines appended to ${journal}, not ${tasks.length}`)
 const ENTRY_KEYS = 'ACTION,CONTRACT,EXPECT,RESULT,event,task,ts'
@@ -839,7 +910,8 @@ for (const [id, session, approved, agreed, link] of tasks) {
   const installFailed = kind === 'install-fails' && id === 'g2'
   const installUnspawnable = kind === 'install-unspawnable'
   const sessionUnspawnable = kind === 'session-unspawnable' && id === 'g2'
-  const noSession = installFailed || installUnspawnable || sessionUnspawnable
+  const checkFailed = kind === 'sketch-regenerated-check-fails' && id === 'g2'
+  const noSession = installFailed || installUnspawnable || sessionUnspawnable || checkFailed
   const noLadder = noSession || (kind === 'no-ladder' && id === 'g2')
   const noResult = noSession || (kind === 'no-result' && id === 'g2')
   const matrixKey = /^[0-9]+$/.test(id) ? `#${id}` : id
@@ -852,7 +924,7 @@ for (const [id, session, approved, agreed, link] of tasks) {
     task: id,
     session: noSession ? null : session,
     baseSha: sha,
-    sketch: ['sketch', 'sketch-rebased'].includes(kind) && id === 'g2' ? sketchTip : null,
+    sketch: sketchKind && id === 'g2' ? sketchTip : null,
     install: installFailed ? 1 : (installUnspawnable ? null : 0),
     exit: noSession ? null : (kind === 'failing' && id === 'g2' ? 3 : 0),
     ladder: noLadder ? 'no ladder run' : (kind === 'failing' && id === 'g2' ? 'failed' : 'done'),
@@ -868,8 +940,8 @@ for (const [id, session, approved, agreed, link] of tasks) {
     review: null,
     agreedSha256: agreed,
     approvedSha256: approved,
-    approvedSketch: ['sketch', 'sketch-rebased'].includes(kind) && id === 'g2' ? approvedTip : null,
-    rangeDiff: id !== 'g2' ? null : kind === 'sketch' ? 'identical' : kind === 'sketch-rebased' ? 'equal' : null,
+    approvedSketch: sketchKind && id === 'g2' ? approvedTip : null,
+    rangeDiff: id !== 'g2' ? null : kind === 'sketch' ? 'identical' : kind === 'sketch-rebased' ? 'equal' : regenerated ? 'regenerated' : null,
     expected: id !== 'g2' ? null : kind === 'expect' ? { kind: 'forecast', tokens: 166000, minutes: 12, basis: { effort: 'medium', n: 61 } } : kind === 'expect-none' ? { kind: 'none', reason: 'n=3 for effort low' } : null,
     actual: noLadder ? null : { tokens: 100, minutes: 10 / 60 },
     argsSha256: noLadder || link === 'broken' ? null : crypto.createHash('sha256').update(fs.readFileSync(`${W}/wt-${id}/${argsPath}`)).digest('hex'),

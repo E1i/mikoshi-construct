@@ -34,7 +34,10 @@ not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for o
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
-with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`;
+with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
+then, for a pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
+review when main merged in cleanly and refuses with `review again` otherwise
+([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md));
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
 A pull request that changes `src/` or `templates/` ends its description with the code matrix over the alphabet of
@@ -168,6 +171,11 @@ rebased one launches without a new approval only when `git range-diff` shows eve
 otherwise it is refused with `re-approve`
 ([0043](decisions/0043-the-ladder-starts-from-the-sketch.md),
 [0048](decisions/0048-an-approval-names-its-sketch-and-a-rebase-that-changes-no-commit-keeps-it.md)).
+A rebased sketch that differs from the approved one only in a generated file `REGENERATED` in
+`scripts/ghosts/regenerated.ts` registers also launches without a new approval: the launcher runs that
+file's check on the sketch after the install, frees the row with no session when it fails, and journals
+`event:approval-carry` when it passes
+([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md)).
 
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
