@@ -498,5 +498,15 @@
     "target": ".claude/commands/plan.md",
     "sha256": "4db59a45d6b23384986d4619d02ba06104dff26f3d411727c17fe480f55fe427",
     "date": "2026-10-05"
+  },
+  {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "afe6f04cccbcbba6e635d66c9806a989e936c7ea64c8d28f63f8ac2f4cd3d752",
+    "date": "2026-10-05"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "16f8984a6a90eca687779538f7696f866a1b7d5e5a82a065482b6fbefdc5cd72",
+    "date": "2026-10-05"
   }
 ]

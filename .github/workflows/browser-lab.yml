@@ -1,0 +1,28 @@
+name: browser-lab
+
+on:
+  pull_request:
+    paths:
+      - scripts/construct/browser-lab.mjs
+      - tests/browser-lab.test.ts
+      - .github/workflows/browser-lab.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx --yes --package playwright-core@1.62.1 -c 'playwright-core install --with-deps chromium'
+      - run: pnpm vitest run tests/browser-lab.test.ts
+        env:
+          BROWSER_LAB: '1'

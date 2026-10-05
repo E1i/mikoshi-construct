@@ -5,7 +5,7 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:attach -->
-`runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the refusals run first and every one of them exits before a byte is written; then the harness command comes from a flag or a prompt; then the carriers are planned, the exclude block, the ten carriers, the guard entry and the record are written in that order. `--entry` is routed in `src/program.ts` before `runAttach`, prints the entry protocol and writes nothing. Dotted edges are wiring, solid edges are the flow.
+`runAttach(ui, options, prompter)` in `src/commands/attach/index.ts` is the composition root: the refusals run first and every one of them exits before a byte is written; then the harness command comes from a flag or a prompt; then the carriers are planned, the exclude block, the twelve carriers, the guard entry and the record are written in that order. `--entry` is routed in `src/program.ts` before `runAttach`, prints the entry protocol and writes nothing. Dotted edges are wiring, solid edges are the flow.
 
 ```mermaid
 flowchart LR
@@ -45,7 +45,7 @@ flowchart LR
   prompts -->|"harness command"| carriers
   carriers -.-> plan
   carriers -.-> carrierset
-  carriers -->|"ten targets and the settings file, after confirm"| exclude
+  carriers -->|"twelve targets and the settings file, after confirm"| exclude
   exclude -.-> strategies
   exclude -->|"block written"| apply
   apply -->|"carriers and guard written"| settings

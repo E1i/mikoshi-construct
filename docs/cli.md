@@ -1037,7 +1037,7 @@ The full sequence a repository runs when a release lands — report, `--apply`, 
 
 Brings the reasoning-budget discipline — the `/plan` command, the `/implement` skill, the three
 agents and the ladder script — into a repository the construct did not write, without touching a
-tracked file. It writes ten carriers, a commit guard and the shell parser the guard reads the command
+tracked file. It writes twelve carriers, a commit guard and the shell parser the guard reads the command
 line through, hides them and the ledger directory through
 `.git/info/exclude`, adds one entry to the untracked `.claude/settings.local.json`, and records what it
 did in `.construct/attach.json`. No `construct.json`, no
@@ -1131,11 +1131,12 @@ yourself, then run it again. A collision found during the write keeps the output
 1. The exclude block: `.git/info/exclude` gains a `# construct:begin` … `# construct:end` block
    listing `.construct/`, every path attach writes and `.claude/settings.local.json`, one per line.
    When the file does not exist, it is created with only that block and the record says so.
-2. The ten carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
+2. The twelve carriers: `.claude/commands/plan.md`, `.claude/skills/implement/SKILL.md`,
    `.claude/skills/intake/SKILL.md`,
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
-   `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`.
+   `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`,
+   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`.
 3. The guard entry in `.claude/settings.local.json` (below). The file is read again at this moment: if
    it no longer parses, or already carries a guard entry, the files of this run are rolled back and
    attach refuses.
@@ -1313,8 +1314,8 @@ followed by any command that rewrites the index.
 One `- path` line per removed path, files then directories; then every adopted, already-absent and
 left-behind path with its label; then one line naming what is not counted — the record, `.construct/`
 once empty if attach created it, and the exclude block; then `Detached. Removed N paths.` where N is the number of files
-and directories actually removed. On the ten carriers, the guard and its parser into a repository with none of
-their directories, N is 21: twelve files, eight directories and the settings file attach created.
+and directories actually removed. On the twelve carriers, the guard and its parser into a repository with none of
+their directories, N is 24: fourteen files, nine directories and the settings file attach created.
 
 Exits `0` when it removed what it could or when nothing is attached, `1` on any refusal.
 
