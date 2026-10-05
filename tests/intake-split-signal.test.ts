@@ -7,8 +7,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { relation } from '../scripts/shift/overlap.js'
 import { runShift } from '../scripts/shift/shift.js'
-import { SEAM_PREFIX, SLICE_PREFIX, splitSignal } from '../src/card/complexity.js'
+import { splitSignal } from '../src/card/complexity.js'
 import { WINDOW_WHO } from '../src/card/parking.js'
+import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -201,7 +202,7 @@ describe('intake writes the slicing principle into a card the signal splits', ()
     expect(card!.text).not.toContain(SEAM_PREFIX)
   })
 
-  for (const name of ['#55 red-base-gate', '#543 intake-fact-check']) {
+  for (const name of ['#55 red-base-gate']) {
     it(`${name}: the proposed slices take disjoint touches and pass shift --check as cards`, async () => {
       const verdict = splitSignal({ touches: WITNESS_CARDS[name]!.touches, unclear: 0 })
       expect(verdict.slices.length).toBeGreaterThan(1)
@@ -222,9 +223,24 @@ describe('intake writes the slicing principle into a card the signal splits', ()
     })
   }
 
-  it('lists the proposed slices in the card, generated files last', () => {
+  it('keeps a generated file with its sources and a template with its twin in one slice', () => {
+    const touches = ['contract/surface.json', 'src/program.ts', 'scripts/contract/surface.ts', 'templates/ai/claude/_claude/skills/intake/SKILL.md', '.claude/skills/intake/SKILL.md', 'templates/attach/earlier-carriers.json', 'docs/cli.md', 'tests/intake.test.ts']
+    const [card] = sliced(intake(scratch(), [draftCard('generated-with-sources', touches)]))
+    expect(card!.text.split('\n').filter(line => line.startsWith(SLICE_PREFIX))).toEqual([
+      'slice: 1 mechanism — contract/surface.json, src/program.ts, scripts/contract/surface.ts, tests/intake.test.ts',
+      'slice: 2 prompts — templates/ai/claude/_claude/skills/intake/SKILL.md, .claude/skills/intake/SKILL.md, templates/attach/earlier-carriers.json',
+      'slice: 3 documents — docs/cli.md',
+    ])
+  })
+
+  it('#543 intake-fact-check: proposes no complexity slices when they would still mix R1 with R3–R4, and names why', () => {
+    const verdict = splitSignal({ touches: WITNESS_CARDS['#543 intake-fact-check']!.touches, unclear: 0 })
+    expect(verdict.split).toBe(true)
+    expect(verdict.slices).toEqual([])
+    expect(verdict.mixed).toBe(true)
     const [card] = sliced(intake(scratch(), [draftCard('intake-fact-check', WITNESS_CARDS['#543 intake-fact-check']!.touches)]))
-    const slices = card!.text.split('\n').filter(line => line.startsWith(SLICE_PREFIX))
-    expect(slices.map(line => line.split(' — ')[0])).toEqual(['slice: 1 mechanism', 'slice: 2 documents', 'slice: 3 generated'])
+    const seams = card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))
+    expect(seams.map(line => line.split(' — ')[0])).toEqual(['seam: complexity', 'seam: risk'])
+    expect(seams[0]).toContain('would still hold R1 together with R3–R4 work')
   })
 })

@@ -1,5 +1,6 @@
 import type { SlicedCard } from './slice.js'
 import { createHash } from 'node:crypto'
+import { SEAM_PREFIX } from '../../card/risk.js'
 import { correctionText } from './check.js'
 
 export type Confirmation = 'auto' | 'person' | 'none'
@@ -11,14 +12,22 @@ export function confirmationToken(cards: readonly SlicedCard[]): string {
   return createHash('sha256').update(cards.map(card => card.text).join('\n')).digest('hex').slice(0, TOKEN_LENGTH)
 }
 
+function proposesRiskSlices(card: SlicedCard): boolean {
+  return card.risk.some(line => line.startsWith(SEAM_PREFIX))
+}
+
+function needsPerson(card: SlicedCard): boolean {
+  return card.corrections.length > 0 || proposesRiskSlices(card)
+}
+
 export function awaitsConfirmation(cards: readonly SlicedCard[]): boolean {
-  return cards.some(card => card.corrections.length > 0)
+  return cards.some(needsPerson)
 }
 
 export function confirmationOf(card: SlicedCard, autoConfirm: boolean): Confirmation {
   if (autoConfirm)
     return 'auto'
-  return card.corrections.length > 0 ? 'person' : 'none'
+  return needsPerson(card) ? 'person' : 'none'
 }
 
 export function intakeJournalLine(card: SlicedCard, confirmation: Confirmation, at: Date, source?: string): string {
