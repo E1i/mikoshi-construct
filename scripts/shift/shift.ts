@@ -1,7 +1,7 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
-import type { TaskStartDeps } from '../ghosts/task-start.js'
+import type { TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { MergeResult } from './merge.js'
@@ -24,7 +24,7 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cheapExpect } from '../ghosts/cheap-expect.js'
-import { pnpmInstall, runTaskStart } from '../ghosts/task-start.js'
+import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
@@ -63,6 +63,7 @@ export interface ShiftDeps {
   claude: string | undefined
   header: string
   handoffDir: string
+  readJournal?: TaskStartJournalReader
   projectsDir: string
   git: TaskStartDeps['git']
   install: TaskStartDeps['install']
@@ -178,7 +179,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   const session = deps.uuid()
   const started = deps.now().toISOString()
   const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
-  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir })
+  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal })
   if (start.exitCode !== 0 || start.worktree === undefined)
     return { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }
   const worktree = start.worktree
@@ -285,6 +286,7 @@ function realDeps(): ShiftDeps {
     claude: process.env[CLAUDE_VARIABLE],
     header: readFileSync(path.join(import.meta.dirname, 'header.md'), 'utf8'),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    readJournal: readJournalFile,
     projectsDir: claudeProjectsDir(),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     install: pnpmInstall,
