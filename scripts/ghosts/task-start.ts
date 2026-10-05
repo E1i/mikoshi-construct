@@ -1,5 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
-import type { SignalStyle } from '../../src/ui/signal.js'
+import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -8,6 +8,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { mergedTasks } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
+import { parseParkingFile } from '../../src/card/parking.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
@@ -16,6 +17,7 @@ import { ENTRY_RESULT, entryLine } from './entry.js'
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
 const CARD_FLAG = '--card'
+const PARKING_FLAG = '--parking'
 const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
@@ -32,6 +34,7 @@ export interface TaskStartDeps {
   handoffDir: string
   readJournal: TaskStartJournalReader
   style?: SignalStyle
+  parking?: { dir: string, read: (file: string) => string | null }
 }
 
 export type TaskStartJournalReader = (file: string) => string | null
@@ -130,17 +133,41 @@ function flagValue(argv: string[], flag: string): { at: number, value: string | 
   return { at, value: at === -1 ? undefined : argv[at + 1] }
 }
 
-function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined } | null {
+function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined, parking: string | undefined } | null {
   const card = flagValue(argv, CARD_FLAG)
   const waiver = flagValue(argv, WITHOUT_INTAKE_FLAG)
+  const parking = flagValue(argv, PARKING_FLAG)
   if (card.value === undefined || (waiver.at !== -1 && (waiver.value === undefined || waiver.value.trim() === '')))
     return null
-  const taken = new Set([card.at, card.at + 1, ...(waiver.at === -1 ? [] : [waiver.at, waiver.at + 1])])
+  if (parking.at !== -1 && (parking.value === undefined || parking.value.startsWith('-')))
+    return null
+  const taken = new Set([card.at, card.at + 1, ...(waiver.at === -1 ? [] : [waiver.at, waiver.at + 1]), ...(parking.at === -1 ? [] : [parking.at, parking.at + 1])])
   const positional = argv.filter((_, index) => !taken.has(index))
-  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim() } : null
+  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim(), parking: parking.value } : null
 }
 
-export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResult {
+type Contract = Pick<Signal, 'CONTRACT' | 'EXPECT'>
+
+function manualContract(deps: TaskStartDeps, card: Card, parkingDir: string | undefined): Contract | string {
+  const id = String(card.id)
+  const expect = `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`
+  const contractOf = (touches: string) => ({ CONTRACT: `${cardTerms(card)} · touches ${touches} · law not recorded on the card`, EXPECT: expect })
+  const missing = contractOf(`not recorded on the card: no parking file for #${id}`)
+  if (deps.parking === undefined)
+    return missing
+  const file = path.join(parkingDir === undefined ? deps.parking.dir : path.resolve(deps.cwd, parkingDir), `${id}.md`)
+  const text = deps.parking.read(file)
+  if (text === null)
+    return missing
+  const parsed = parseParkingFile(path.basename(file), text)
+  if (parsed.kind === 'refused')
+    return contractOf(`not recorded on the card: ${parsed.reason}`)
+  if (cardLine(parsed.parked.task.card) !== cardLine(card))
+    return `${file} carries card ${cardLine(parsed.parked.task.card)}, not the card given; nothing written`
+  return contractOf(parsed.parked.task.touches.join(', '))
+}
+
+export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contract): TaskStartResult {
   if (!argv.includes(CARD_FLAG))
     return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
   const args = cardArgs(argv)
@@ -163,6 +190,9 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   const admitted = admission(card, journalText, args.waiver)
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
+  const contract = handed ?? manualContract(deps, card, args.parking)
+  if (typeof contract === 'string')
+    return refuse(contract)
   let repo: string
   try {
     repo = deps.git(deps.cwd, ['rev-parse', '--show-toplevel']).trim()
@@ -192,8 +222,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, admission: admissionRecord(admitted), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
-    CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,
-    EXPECT: `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`,
+    ...contract,
     ACTION: `task:start ${branch} #${id}: cut ${worktree} from origin/main; ${written}${deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''}`,
     RESULT: ENTRY_RESULT,
   }
@@ -225,6 +254,7 @@ function realDeps(): TaskStartDeps {
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
     readJournal: readJournalFile,
+    parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readJournalFile },
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
   }
 }

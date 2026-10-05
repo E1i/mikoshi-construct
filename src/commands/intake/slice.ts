@@ -4,6 +4,7 @@ import type { DraftCard, UnclearField } from './draft.js'
 import { seamLines, splitSignal } from '../../card/complexity.js'
 import { cardLine } from '../../card/grammar.js'
 import { parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
+import { riskLines, riskReading } from '../../card/risk.js'
 import { CARD_REFERENCE, correctionText, DEFAULT_CONTOUR } from './check.js'
 
 export interface SlicedCard {
@@ -14,6 +15,7 @@ export interface SlicedCard {
   unclear: UnclearField[]
   corrections: Correction[]
   seam: string[]
+  risk: string[]
   text: string
 }
 
@@ -51,11 +53,12 @@ function resolve(references: readonly string[], ids: ReadonlyMap<string, number>
   })
 }
 
-function bodyOf(card: CheckedCard, unclear: readonly UnclearField[], seam: readonly string[]): string {
+function bodyOf(card: CheckedCard, unclear: readonly UnclearField[], seam: readonly string[], risk: readonly string[]): string {
   const notes = [
     ...unclear.map(entry => `${UNCLEAR_PREFIX}${entry.field} — ${entry.reason}`),
     ...card.corrections.map(correction => `${CORRECTED_PREFIX}${correctionText(correction)}`),
     ...seam,
+    ...risk,
   ]
   return [
     card.task.trim(),
@@ -92,7 +95,9 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     })
     const split = splitSignal({ touches: card.touches, unclear: unclear.length })
     const seam = seamLines(split)
-    const who = unclear.length > 0 || split.split ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
+    const reading = riskReading(card.touches, split.slices.length > 0)
+    const risk = riskLines(reading)
+    const who = unclear.length > 0 || split.split || reading.slices.length > 0 ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
     const file = `${id}.md`
     const text = parkingFileText({
       card: line,
@@ -100,12 +105,12 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       touches: card.touches.map(entry => entry.trim()),
       continue: card.continue ?? DEFAULT_CONTINUE,
       who,
-      body: bodyOf(card, unclear, seam),
+      body: bodyOf(card, unclear, seam, risk),
     })
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, corrections: card.corrections, seam, text }
+    return { id, file, line, who, unclear, corrections: card.corrections, seam, risk, text }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
 }

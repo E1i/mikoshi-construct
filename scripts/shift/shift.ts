@@ -1,5 +1,5 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
-import type { SignalStyle } from '../../src/ui/signal.js'
+import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
@@ -225,11 +225,11 @@ function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
   return lines
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string): Promise<ShiftTaskLine> {
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>): Promise<ShiftTaskLine> {
   const session = deps.uuid()
   const started = deps.now().toISOString()
   const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
-  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal })
+  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
   if (start.exitCode !== 0 || start.worktree === undefined)
     return { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }
   const worktree = start.worktree
@@ -256,10 +256,16 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge }) }
 }
 
-function startBlock(task: ShiftTask, expected: string, style: SignalStyle): string[] {
-  return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
+function startContract(task: ShiftTask, expected: string): Pick<Signal, 'CONTRACT' | 'EXPECT'> {
+  return {
     CONTRACT: `${cardTerms(task.card)} · touches ${task.touches.join(', ')} · law not recorded in the task file`,
     EXPECT: expected,
+  }
+}
+
+function startBlock(task: ShiftTask, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, style: SignalStyle): string[] {
+  return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
+    ...handed,
     ACTION: `task:start ${task.branch} #${task.id}, then a headless claude session in its tree`,
     RESULT: `— running; the outcome line ${PREFIX}${task.file} ${task.id}: … follows`,
   }, style)
@@ -327,9 +333,10 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
   let clean = true
   for (const task of tasks) {
-    for (const line of startBlock(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir), deps.style ?? PLAIN_STYLE))
+    const handed = startContract(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir))
+    for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
       deps.out(line)
-    const line = await runTask(deps, dir, task, claude)
+    const line = await runTask(deps, dir, task, claude, handed)
     deps.append(journal, `${JSON.stringify(line)}\n`)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(line)}`)
     clean &&= succeeded(line)

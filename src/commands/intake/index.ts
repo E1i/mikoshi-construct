@@ -201,7 +201,7 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
     if (card.unclear.length > 0)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeUnclear(card.unclear.length, card.who)}`))
     if (result.status !== 'dryRun') {
-      for (const line of card.seam)
+      for (const line of [...card.seam, ...card.risk])
         ui.line(ui.theme.dim(`  ${line}`))
     }
   }

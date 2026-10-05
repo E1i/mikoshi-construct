@@ -111,7 +111,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toEqual([
       expect.stringMatching(/^-{4} task:start #8 task-8 -+$/),
-      'CONTRACT | implement · cheap · owner · touches not recorded on the card · law not recorded on the card',
+      'CONTRACT | implement · cheap · owner · touches not recorded on the card: no parking file for #8 · law not recorded on the card',
       'EXPECT   | expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
       `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main; start line written to ${world.journal}`,
       'RESULT   | accepted · not started',
@@ -132,8 +132,9 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(lines(world).map(entry => entry.event)).toEqual(['path', 'entry'])
     expect(lines(world)[1]).toEqual({
       event: 'entry',
+      schema: 2,
       task: '9',
-      CONTRACT: 'implement · cheap · owner · touches not recorded on the card · law not recorded on the card',
+      CONTRACT: 'implement · cheap · owner · touches not recorded on the card: no parking file for #9 · law not recorded on the card',
       EXPECT: 'expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
       ACTION: `task:start feat/t9 #9: cut ${worktree} from origin/main; start line written to ${world.journal}`,
       RESULT: 'accepted · not started',
