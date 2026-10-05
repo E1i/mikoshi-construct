@@ -57,7 +57,7 @@ function build(brief: string): { status: number | null, stdout: string, stderr: 
 }
 
 describe('the brief skeleton /plan outputs for a ladder-path task', () => {
-  it.each(COPIES)('in %s, once filled in, is parsed by the implement build into every section', (copy) => {
+  it.each(COPIES)('in %s, once filled in with its expect: line, is parsed by the implement build into every section', (copy) => {
     const result = build(fillPlaceholders(skeletonIn(copy)))
     const p = (n: number): string => `p${PLACEHOLDERS_BEFORE_EFFORT[copy] + n}`
 
