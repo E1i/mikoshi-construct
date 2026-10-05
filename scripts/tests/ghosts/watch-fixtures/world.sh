@@ -153,19 +153,26 @@ EOF
   } >"$W/handoff/status.md"
 }
 
+card_line_of() {
+  printf '#%s world-%s [implement/ghosts/S/ladder/owner] · depends — · blocks —' "90${1#g}" "$1"
+}
+
 write_tasks() {
-  local W=$1
+  local W=$1 id
   cat >"$W/tasks.json" <<EOF
 { "repo": "$W/repo", "status": "$W/handoff/status.md", "out": "$W/handoff", "tasks": [
-  { "id": "g1", "brief": "$W/handoff/brief-g1.md", "worktree": "$W/wt-g1", "branch": "ghost/g1" },
-  { "id": "g2", "brief": "$W/handoff/brief-g2.md", "worktree": "$W/wt-g2", "branch": "ghost/g2" }
+  { "id": "g1", "brief": "$W/handoff/brief-g1.md", "card": "$(card_line_of g1)" },
+  { "id": "g2", "brief": "$W/handoff/brief-g2.md", "card": "$(card_line_of g2)" }
 ] }
 EOF
   cat >"$W/tasks-bogus.json" <<EOF
 { "repo": "$W/repo", "status": "$W/handoff/status.md", "out": "$W/handoff", "bogus": true, "tasks": [
-  { "id": "g1", "brief": "$W/handoff/brief-g1.md", "worktree": "$W/wt-g1", "branch": "ghost/g1" }
+  { "id": "g1", "brief": "$W/handoff/brief-g1.md", "card": "$(card_line_of g1)" }
 ] }
 EOF
+  for id in g1 g2; do
+    printf '{"event":"path","task":"%s","path":"ladder","started":"2026-09-28T09:00:00.000Z","worktree":"%s","branch":"task/%s","ts":"2026-09-28T09:00:00.000Z"}\n' "90${id#g}" "$W/wt-$id" "$id" >>"$W/handoff/ghosts.jsonl"
+  done
 }
 
 start_stub() {

@@ -36,10 +36,10 @@ describe('the browser verification class is derived from the witnesses of a ladd
   })
 
   it('shows verification browser on a ladder attempt whose brief witness calls the carrier', () => {
-    expect(boardText({ 'brief-alpha.md': CALLED }, 'alpha-1')).toContain('    verification browser (a brief witness calls browser-witness.mjs)')
+    expect(boardText({ 'brief-alpha.md': CALLED }, '101')).toContain('    verification browser (a brief witness calls browser-witness.mjs)')
   })
 
   it('shows no verification on a ladder attempt that mentions the carrier outside a witness', () => {
-    expect(boardText({ 'brief-alpha.md': DESIGN_ONLY }, 'alpha-1').filter(line => line.includes('verification'))).toEqual([])
+    expect(boardText({ 'brief-alpha.md': DESIGN_ONLY }, '101').filter(line => line.includes('verification'))).toEqual([])
   })
 })

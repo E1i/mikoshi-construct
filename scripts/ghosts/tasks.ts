@@ -5,9 +5,12 @@ import { parseCard } from '../../src/card/grammar.js'
 export interface Task {
   id: string
   brief: string
+  card: Card
+}
+
+export interface StartedTree {
   worktree: string
   branch: string
-  card?: Card
 }
 
 export interface TasksFile {
@@ -21,8 +24,7 @@ export interface TasksFile {
 const REQUIRED_TOP_LEVEL_KEYS = ['repo', 'status', 'out', 'tasks'] as const
 const OPTIONAL_TOP_LEVEL_KEYS = ['matrix'] as const
 const TOP_LEVEL_KEYS = [...REQUIRED_TOP_LEVEL_KEYS, ...OPTIONAL_TOP_LEVEL_KEYS] as const
-const REQUIRED_TASK_KEYS = ['id', 'brief', 'worktree', 'branch'] as const
-const TASK_KEYS = [...REQUIRED_TASK_KEYS, 'card'] as const
+const TASK_KEYS = ['id', 'brief', 'card'] as const
 
 function assertPlainObject(value: unknown, where: string): asserts value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
@@ -49,14 +51,12 @@ function assertString(value: unknown, where: string): string {
 function parseTask(raw: unknown, index: number): Task {
   const where = `tasks[${index}]`
   assertPlainObject(raw, where)
-  assertKeys(raw, TASK_KEYS, REQUIRED_TASK_KEYS, where)
-  const task: Task = {
+  assertKeys(raw, TASK_KEYS, TASK_KEYS, where)
+  return {
     id: assertString(raw.id, `${where} field id`),
     brief: assertString(raw.brief, `${where} field brief`),
-    worktree: assertString(raw.worktree, `${where} field worktree`),
-    branch: assertString(raw.branch, `${where} field branch`),
+    card: parseTaskCard(raw.card, `${where} field card`),
   }
-  return raw.card === undefined ? task : { ...task, card: parseTaskCard(raw.card, `${where} field card`) }
 }
 
 function parseTaskCard(value: unknown, where: string): Card {
@@ -93,4 +93,20 @@ export function parseTasksFile(raw: string): TasksFile {
 
 export function readTasksFile(filePath: string): TasksFile {
   return parseTasksFile(readFileSync(filePath, 'utf8'))
+}
+
+function startedTreeOf(line: string, task: string): StartedTree | undefined {
+  try {
+    const parsed = JSON.parse(line) as { event?: unknown, task?: unknown, worktree?: unknown, branch?: unknown }
+    return parsed.event === 'path' && parsed.task === task && typeof parsed.worktree === 'string' && typeof parsed.branch === 'string'
+      ? { worktree: parsed.worktree, branch: parsed.branch }
+      : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+export function startedTree(journalText: string, card: Card): StartedTree | undefined {
+  return journalText.split('\n').map(line => startedTreeOf(line, String(card.id))).filter(tree => tree !== undefined).at(-1)
 }

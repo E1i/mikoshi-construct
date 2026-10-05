@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseEverySeconds, sleep } from './every.js'
 import { ghostRowSessionId } from './status.js'
-import { readTasksFile } from './tasks.js'
+import { readTasksFile, startedTree } from './tasks.js'
 import { readLedgerStage } from './watch-ledger.js'
 import { listProcesses, processField } from './watch-process.js'
 import { lastToolName, reportAgeField } from './watch-report.js'
@@ -56,13 +56,18 @@ function stageField(runsPath: string): string {
   return stage.kind === 'writing' ? 'ledger: writing' : `stage ${stage.status} ${stage.run}`
 }
 
-function taskLine(task: Task, out: string, statusText: string | undefined, processes: ProcessListing): string {
+function treeStageField(task: Task, journalText: string): string {
+  const tree = startedTree(journalText, task.card)
+  return tree === undefined ? `stage no task:start line for card #${task.card.id}` : stageField(path.join(tree.worktree, '.construct', 'runs.jsonl'))
+}
+
+function taskLine(task: Task, out: string, journalText: string, statusText: string | undefined, processes: ProcessListing): string {
   const reportPath = path.join(out, `ghost-${task.id}.jsonl`)
   const reportField = reportAgeField(reportPath)
   const tool = lastToolName(reportPath)
   const toolField = `tool ${tool ?? 'none'}`
 
-  const ledgerField = stageField(path.join(task.worktree, '.construct', 'runs.jsonl'))
+  const ledgerField = treeStageField(task, journalText)
   const sessionId = statusText === undefined ? undefined : ghostRowSessionId(statusText, task.id)
 
   return `ghost-${task.id} | ${reportField} | ${toolField} | ${ledgerField} | ${processField(sessionId, processes)}`
@@ -71,8 +76,10 @@ function taskLine(task: Task, out: string, statusText: string | undefined, proce
 function drawFrame(tasksData: TasksFile): void {
   const at = new Date().toISOString()
   const statusText = existsSync(tasksData.status) ? readFileSync(tasksData.status, 'utf8') : undefined
+  const journalPath = path.join(tasksData.out, 'ghosts.jsonl')
+  const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
   const processes = listProcesses()
-  const lines = tasksData.tasks.map(task => taskLine(task, tasksData.out, statusText, processes))
+  const lines = tasksData.tasks.map(task => taskLine(task, tasksData.out, journalText, statusText, processes))
   print(`frame ${at}`)
   for (const line of lines)
     print(line)

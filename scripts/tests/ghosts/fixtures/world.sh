@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow sketch-regenerated sketch-regenerated-check-fails'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow sketch-regenerated sketch-regenerated-check-fails no-start-line tree-gone tree-elsewhere ahead'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -75,6 +75,38 @@ ids_for_kind() {
 
 ids_of() {
   cat "$1/.world/ids"
+}
+
+card_of() {
+  case $1 in g*) echo "90${1#g}" ;; *) echo "$1" ;; esac
+}
+
+card_line_of() {
+  printf '#%s world-%s [implement/ghosts/S/ladder/owner] · depends — · blocks —' "$(card_of "$1")" "$1"
+}
+
+task_branch_of() {
+  echo "task/$1"
+}
+
+started_in_world() {
+  [ "$2" != g2 ] || [ "$(cat "$1/.world/kind")" != no-start-line ]
+}
+
+write_start_lines() {
+  local W=$1 kind=$2 id
+  for id in $(ids_of "$W"); do
+    started_in_world "$W" "$id" || continue
+    git_quiet -C "$W/main" worktree add -b "$(task_branch_of "$id")" "$W/wt-$id" origin/main
+    printf '{"event":"path","task":"%s","path":"ladder","started":"2026-10-06T08:00:00.000Z","worktree":"%s","branch":"%s","ts":"2026-10-06T08:00:00.000Z"}\n' "$(card_of "$id")" "$W/wt-$id" "$(task_branch_of "$id")" >>"$W/handoff/ghosts.jsonl"
+  done
+  case $kind in
+    occupied) echo occupied >"$W/wt-g2/keep.txt" ;;
+    tree-gone) git_quiet -C "$W/main" worktree remove --force "$W/wt-g2" ;;
+    tree-elsewhere) git_quiet -C "$W/wt-g2" checkout -b elsewhere ;;
+    ahead) echo ahead >"$W/wt-g2/ahead.txt" && git_quiet -C "$W/wt-g2" add ahead.txt && git_quiet -C "$W/wt-g2" commit -m ahead ;;
+  esac
+  cp "$W/handoff/ghosts.jsonl" "$W/.world/ghosts.jsonl"
 }
 
 approved_sketch_for() {
@@ -355,7 +387,7 @@ write_tasks() {
   local W=$1 kind=$2 matrix='' id sep='' entries=''
   case $kind in with-matrix | numeric-id) matrix="\"matrix\": \"$W/matrix.json\", " ;; esac
   for id in $(ids_of "$W"); do
-    entries="$entries$sep  { \"id\": \"$id\", \"brief\": \"$W/handoff/brief-$id.md\", \"worktree\": \"$W/wt-$id\", \"branch\": \"ghost/$id\" }"
+    entries="$entries$sep  { \"id\": \"$id\", \"brief\": \"$W/handoff/brief-$id.md\", \"card\": \"$(card_line_of "$id")\" }"
     sep=$',\n'
   done
   cat >"$W/tasks.json" <<EOF
@@ -443,13 +475,12 @@ new_world() {
     design-edited) sed -i.bak 's/^- A line with a backslash/- A line, edited after approval, with a backslash/' "$W/handoff/brief-g2.md" && rm "$W/handoff/brief-g2.md.bak" ;;
     tampered) sed -i.bak 's/^\/implement Ghost g2:/\/implement Ghost g3:/' "$W/handoff/brief-g2.md" && rm "$W/handoff/brief-g2.md.bak" ;;
     unapproved) rm "$W/handoff/brief-g2.approved-sha256" ;;
-    occupied) mkdir -p "$W/wt-g2" && echo occupied >"$W/wt-g2/keep.txt" ;;
     trailing-newline) printf '\n\n\n' >>"$W/handoff/brief-g2.md" ;;
     two-implement) insert_header_implement_line "$W" g2 ;;
     expect-steps) printf '\n\nEffort: medium — the world samples five medium runs' >>"$W/handoff/brief-g2.md" && write_approval "$W" g2 && write_step_sample "$W" ;;
     steps-no-expect) printf '\n\nEffort: medium — the world samples five medium runs' >>"$W/handoff/brief-g2.md" && write_approval "$W" g2 && write_step_sample "$W" ;;
     expect-uncached) printf '\n\nEffort: medium — the world samples five medium runs' >>"$W/handoff/brief-g2.md" && write_approval "$W" g2 && write_transcript_sample "$W" ;;
-    journal-exists) printf '%s\n' '{"event":"review","task":"g0","verdict":"changes","ts":"2026-09-27T20:00:00.000Z"}' >"$W/handoff/ghosts.jsonl" && cp "$W/handoff/ghosts.jsonl" "$W/.world/ghosts.jsonl" ;;
+    journal-exists) printf '%s\n' '{"event":"review","task":"g0","verdict":"changes","ts":"2026-09-27T20:00:00.000Z"}' >"$W/handoff/ghosts.jsonl" ;;
   esac
   echo "$kind" >"$W/.world/kind"
   write_status "$W" "$kind"
@@ -458,9 +489,12 @@ new_world() {
   case $kind in install-unspawnable | session-unspawnable) seal_path "$W" "$kind" ;; esac
   if [ "$kind" = numeric-id ]; then write_numeric_matrix "$W"; else write_matrix "$W"; fi
   write_tasks "$W" "$kind"
+  write_start_lines "$W" "$kind"
 
   cp "$W/handoff/status.md" "$W/.world/status.md"
   (cd "$W" && ls -d wt-* 2>/dev/null || true) >"$W/.world/wt-before"
+  git -C "$W/main" worktree list --porcelain >"$W/.world/worktrees-before"
+  git -C "$W/main" for-each-ref --format='%(refname) %(objectname)' refs/heads >"$W/.world/branches-before"
   trap - EXIT
   echo "$W"
 }
@@ -537,7 +571,7 @@ check_decision() {
   for id in $(ids_of "$W"); do
     output_has "$W" "$W/handoff/brief-$id.md"
     output_has "$W" "$W/wt-$id"
-    output_has "$W" "ghost/$id"
+    output_has "$W" "$(task_branch_of "$id")"
     output_has "$W" "${sha:0:7}"
     output_has "$W" "$(approved_sha "$W/handoff/brief-$id.approved-sha256" | cut -c1-7)"
     output_has "$W" "$W/handoff/ghost-$id.jsonl"
@@ -551,6 +585,8 @@ check_untouched() {
   now=$(cd "$W" && ls -d wt-* 2>/dev/null || true)
   [ "$now" = "$(cat "$W/.world/wt-before")" ] || fail "worktree paths changed: before '$(tr '\n' ' ' <"$W/.world/wt-before")', now '$(echo "$now" | tr '\n' ' ')'"
   [ -z "$(git -C "$W/main" branch --list 'ghost/*')" ] || fail "ghost/* branches exist: $(git -C "$W/main" branch --list 'ghost/*' | tr '\n' ' ')"
+  git -C "$W/main" worktree list --porcelain | cmp -s - "$W/.world/worktrees-before" || fail "the worktrees changed: $(git -C "$W/main" worktree list | tr '\n' ';')"
+  git -C "$W/main" for-each-ref --format='%(refname) %(objectname)' refs/heads | cmp -s - "$W/.world/branches-before" || fail "a branch was cut or moved: $(git -C "$W/main" for-each-ref --format='%(refname) %(objectname)' refs/heads | tr '\n' ';')"
   cmp -s "$W/.world/status.md" "$W/handoff/status.md" || fail "status.md differs from the original"
   [ -z "$(ls -A "$W/stub")" ] || fail "the stub ran: $(ls -A "$W/stub" | tr '\n' ' ')"
   [ -z "$(cd "$W/handoff" && ls ghost-*.jsonl 2>/dev/null || true)" ] || fail "a ghost-*.jsonl exists in $W/handoff"
@@ -563,6 +599,7 @@ check_refused() {
   [ -f "$W/launch.out" ] || fail "no $W/launch.out"
   ! grep -q 'DECISION:' "$W/launch.out" || fail "launch.out has a DECISION: line"
   kind=$(cat "$W/.world/kind")
+  [ "$kind" = ahead ] || ! grep -qF 'carries commits that neither' "$W/launch.out" || fail "launch.out refuses a tree as ahead in kind $kind, whose tree carries no commit of its own"
   case $kind in
     tampered)
       output_has "$W" "brief-g2.md"
@@ -588,9 +625,22 @@ check_refused() {
       grep -qiF 'no approval' "$W/launch.out" || fail "launch.out does not say 'no approval'"
       ;;
     occupied)
-      output_has "$W" "$W/wt-g2"
+      output_has "$W" "task g2: the tree $W/wt-g2 that task:start cut for card #902 has 1 changed paths; commit or reset them before a Ghost runs there"
       output_has "$W" "ghost-g1"
       output_has "$W" "writing"
+      ;;
+    no-start-line)
+      output_has "$W" "task g2: card #902 has no task:start line in $W/handoff/ghosts.jsonl; start it with pnpm task:start <branch> --card \"$(card_line_of g2)\" before a Ghost runs on it"
+      ! grep -qF 'task g1:' "$W/launch.out" || fail "launch.out refuses g1, whose card has a task:start line"
+      ;;
+    tree-gone)
+      output_has "$W" "task g2: the tree $W/wt-g2 that task:start cut for card #902 does not exist"
+      ;;
+    tree-elsewhere)
+      output_has "$W" "task g2: the tree $W/wt-g2 that task:start cut for card #902 is on elsewhere, not on task/g2"
+      ;;
+    ahead)
+      output_has "$W" "task g2: task/g2 in $W/wt-g2 carries commits that neither origin/main $(origin_sha "$W" | cut -c1-7) nor the sketch holds, and the Ghost would drop them"
       ;;
     two-implement)
       check_refused_two_implement "$W"
@@ -644,7 +694,7 @@ check_sketch() {
   for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
     [ "$(git -C "$wt" rev-parse HEAD)" = "$sha" ] || fail "$id: HEAD is $(git -C "$wt" rev-parse HEAD), not origin/main $sha"
-    [ "$(git -C "$wt" rev-parse "ghost/$id")" = "$sha" ] || fail "$id: the branch ghost/$id is not at origin/main $sha"
+    [ "$(git -C "$wt" rev-parse "$(task_branch_of "$id")")" = "$sha" ] || fail "$id: the branch $(task_branch_of "$id") is not at origin/main $sha"
     unstaged=$(git -C "$wt" diff --name-only | grep -v '^\.construct/' || true)
     [ -z "$unstaged" ] || fail "$id: unstaged changes outside .construct/: $unstaged"
     if sketch_task_in "$W" "$id"; then
@@ -671,7 +721,7 @@ check_launched() {
   for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
     [ -d "$wt" ] || fail "$id: no worktree $wt"
-    [ "$(git -C "$wt" rev-parse --abbrev-ref HEAD)" = "ghost/$id" ] || fail "$id: worktree is not on branch ghost/$id"
+    [ "$(git -C "$wt" rev-parse --abbrev-ref HEAD)" = "$(task_branch_of "$id")" ] || fail "$id: worktree is not on the branch task:start recorded, $(task_branch_of "$id")"
     [ "$(git -C "$wt" rev-parse HEAD)" = "$sha" ] || fail "$id: worktree is at $(git -C "$wt" rev-parse HEAD), not origin/main $sha"
     [ -f "$W/stub/wt-$id/cwd" ] || fail "$id: the stub did not run in $wt"
     [ "$(cat "$W/stub/wt-$id/cwd")" = "$wt" ] || fail "$id: stub cwd is $(cat "$W/stub/wt-$id/cwd"), not $wt"
@@ -690,6 +740,8 @@ check_launched() {
     sessions="$sessions $session"
   done
   [ "$(echo $sessions | tr ' ' '\n' | sort -u | wc -l | tr -d ' ')" = 2 ] || fail "the two sessions share an id:$sessions"
+  [ -z "$(git -C "$W/main" branch --list 'ghost/*')" ] || fail "ghost/* branches exist: $(git -C "$W/main" branch --list 'ghost/*' | tr '\n' ' ')"
+  [ "$(git -C "$W/main" worktree list --porcelain | grep -c '^worktree ')" = "$(git -C "$W/main" worktree list --porcelain | grep -c '^worktree ' <"$W/.world/worktrees-before")" ] || fail "a worktree was added: $(git -C "$W/main" worktree list | tr '\n' ';')"
 }
 
 window_table_lines() {
@@ -888,7 +940,7 @@ for (const carry of carries) {
 }
 if (rows.length !== tasks.length) failWith(`${rows.length} lines appended to ${journal}, not ${tasks.length}`)
 if (entries.length !== tasks.length) failWith(`${entries.length} entry lines appended to ${journal}, not ${tasks.length}`)
-const ENTRY_KEYS = 'ACTION,CONTRACT,EXPECT,RESULT,event,task,ts'
+const ENTRY_KEYS = 'ACTION,CONTRACT,EXPECT,RESULT,card,event,task,ts'
 for (const [id] of tasks) {
   const found = entries.filter(entry => entry.task === id)
   if (found.length !== 1) failWith(`${found.length} entry lines for task ${id}, not 1`)

@@ -7,14 +7,12 @@
     {
       "id": "a",
       "brief": "brief-a.md",
-      "worktree": "worktrees/a",
-      "branch": "ghost/a"
+      "card": "#301 a [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     },
     {
       "id": "b",
       "brief": "brief-b.md",
-      "worktree": "worktrees/b",
-      "branch": "ghost/b"
+      "card": "#302 b [implement/ghosts/S/ladder/owner] · depends — · blocks —"
     }
   ]
 }

@@ -3,7 +3,7 @@ import type { Expect } from './expect.js'
 import type { RangeDiffOutcome } from './journal.js'
 import type { Sketch } from './sketch.js'
 import type { FallKind, PreparedTask, SupervisorPayload, TaskContext, TaskOutcome } from './supervise.js'
-import type { Task } from './tasks.js'
+import type { StartedTree, Task } from './tasks.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -22,7 +22,7 @@ import { REGENERATED_PATHS } from './regenerated.js'
 import { describeSketch, parseSketch, rangeDiffVerdict } from './sketch.js'
 import { ghostRowState } from './status.js'
 import { errorMessage, FALL_KINDS, fallEvent, git, resultPathOf, spawnSupervisor } from './supervise.js'
-import { readTasksFile } from './tasks.js'
+import { readTasksFile, startedTree } from './tasks.js'
 
 function branchExists(repo: string, branch: string): boolean {
   try {
@@ -63,6 +63,38 @@ function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: S
     return refused(verdict.reason)
   const regenerated = verdict.regenerated ?? []
   return { refusals: [], rangeDiff: regenerated.length === 0 ? 'equal' : 'regenerated', regenerated }
+}
+
+function isAncestor(repo: string, ancestor: string, descendant: string): boolean {
+  try {
+    execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', ancestor, descendant], { stdio: 'pipe' })
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function changedPathCount(worktree: string): number {
+  return git(worktree, ['status', '--porcelain']).split('\n').filter(line => line !== '').length
+}
+
+function treeRefusal(task: Task, tree: StartedTree | undefined, journalPath: string, startSha: string | undefined, baseSha: string): string | undefined {
+  const card = `card #${task.card.id}`
+  if (tree === undefined)
+    return `${card} has no task:start line in ${journalPath}; start it with pnpm task:start <branch> --card "${task.card.line}" before a Ghost runs on it`
+  const cut = `the tree ${tree.worktree} that task:start cut for ${card}`
+  if (!existsSync(tree.worktree))
+    return `${cut} does not exist`
+  const branch = git(tree.worktree, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (branch !== tree.branch)
+    return `${cut} is on ${branch}, not on ${tree.branch}`
+  const changed = changedPathCount(tree.worktree)
+  if (changed > 0)
+    return `${cut} has ${changed} changed paths; commit or reset them before a Ghost runs there`
+  if (startSha !== undefined && !isAncestor(tree.worktree, 'HEAD', startSha))
+    return `${tree.branch} in ${tree.worktree} carries commits that neither origin/main ${baseSha.slice(0, 7)} nor the sketch holds, and the Ghost would drop them`
+  return undefined
 }
 
 const USAGE = 'usage: launch.ts --tasks <file> [--owner-allows <card>]... | launch.ts --tasks <file> --fall <kind> --card <card>'
@@ -132,7 +164,7 @@ function fallsOf(events: Record<string, unknown>[], card: number): string[] {
 function twoFallsRefusals(journalPath: string, tasks: Task[], ownerAllows: number[]): string[] {
   const events = journalEvents(journalPath)
   return tasks.flatMap((task) => {
-    if (task.card === undefined || ownerAllows.includes(task.card.id))
+    if (ownerAllows.includes(task.card.id))
       return []
     const falls = fallsOf(events, task.card.id)
     return falls.length < FALLS_BEFORE_CUT
@@ -180,6 +212,8 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
   const baseSha = git(repo, ['rev-parse', 'origin/main'])
 
   const statusText = existsSync(statusPath) ? await readFile(statusPath, 'utf8') : undefined
+  const journalPath = journalPathOf(out)
+  const journalText = existsSync(journalPath) ? await readFile(journalPath, 'utf8') : ''
   const prepared: PreparedTask[] = []
 
   for (const task of tasks) {
@@ -209,11 +243,11 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       continue
     }
 
-    if (existsSync(task.worktree))
-      refusals.push(`task ${task.id}: worktree already exists at ${task.worktree}`)
-
-    if (branchExists(repo, task.branch))
-      refusals.push(`task ${task.id}: branch ${task.branch} already exists`)
+    const tree = startedTree(journalText, task.card)
+    const startSha = sketchCheck.refusals.length > 0 ? undefined : sketch.kind === 'branch' ? sketch.sha : baseSha
+    const refusal = treeRefusal(task, tree, journalPath, startSha, baseSha)
+    if (refusal !== undefined)
+      refusals.push(`task ${task.id}: ${refusal}`)
 
     if (statusText !== undefined) {
       const state = ghostRowState(statusText, task.id)
@@ -225,8 +259,12 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
     if (existsSync(reportPath))
       refusals.push(`task ${task.id}: report file ${reportPath} already exists`)
 
+    if (tree === undefined)
+      continue
+
     prepared.push({
       ...task,
+      ...tree,
       approvedText: approval.text,
       approvedSha256: approval.sha256,
       approvedSketch: approval.approvedSketch,
@@ -266,8 +304,7 @@ function signalOf(task: PreparedTask, baseSha: string): Signal {
 }
 
 function launchEntryEvent(task: PreparedTask, baseSha: string): object {
-  const entry = entryEvent(task.id, signalOf(task, baseSha), new Date().toISOString())
-  return task.card === undefined ? entry : { ...entry, card: task.card }
+  return { ...entryEvent(task.id, signalOf(task, baseSha), new Date().toISOString()), card: task.card }
 }
 
 function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
@@ -280,7 +317,7 @@ function journalPathOf(out: string): string {
 
 function ownerAllowsEvents(prepared: PreparedTask[], ownerAllows: number[]): object[] {
   const ts = new Date().toISOString()
-  return ownerAllows.map(card => ({ event: 'owner-allows', card, tasks: prepared.filter(task => task.card?.id === card).map(task => task.id), ts }))
+  return ownerAllows.map(card => ({ event: 'owner-allows', card, tasks: prepared.filter(task => task.card.id === card).map(task => task.id), ts }))
 }
 
 async function superviseBatch(payload: SupervisorPayload): Promise<TaskOutcome[] | null> {

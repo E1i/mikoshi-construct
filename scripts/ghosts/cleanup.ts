@@ -1,6 +1,7 @@
 import type { PrList, PullRequest } from '../board/gh.js'
+import type { TasksFile } from './tasks.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,17 +17,17 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
 import { ghostRowState } from './status.js'
-import { readTasksFile } from './tasks.js'
+import { readTasksFile, startedTree } from './tasks.js'
 import { DISPOSITION_EVENT, MERGE_FOLLOW_UP } from './verdict.js'
 
 const PREFIX = '[ghosts:cleanup] '
 const DEFAULT_LOGS_DIR = '/tmp'
-const BLOCKED_OUTCOME = /; ladder blocked; report (\S+);/
-const REMOVED_REPORT_MARK = '.removed'
+const BLOCKED_OUTCOME = /; ladder blocked; report \S+;/
 const OUTCOME_COLUMN = 6
 
 export interface Target {
   id: string
+  ghost?: string
   worktree: string
   branch: string
   pr?: number
@@ -64,14 +65,22 @@ function isNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0
 }
 
-function reviewStanding(journalPath: string, id: string): ReviewStanding {
+function label(task: Target): string {
+  return `ghost-${task.ghost ?? task.id}`
+}
+
+function namesTask(task: Target, value: unknown): boolean {
+  return value === task.id || (task.ghost !== undefined && value === task.ghost)
+}
+
+function reviewStanding(journalPath: string, task: Target): ReviewStanding {
   const standing: ReviewStanding = {}
   if (!existsSync(journalPath))
     return standing
   for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
     try {
       const parsed = JSON.parse(line) as { event?: unknown, task?: unknown, verdict?: unknown, decision?: unknown, pr?: unknown, followUp?: unknown }
-      if (parsed.task !== id)
+      if (!namesTask(task, parsed.task))
         continue
       if (parsed.event === 'review' && typeof parsed.verdict === 'string') {
         standing.verdict = parsed.verdict
@@ -106,7 +115,7 @@ export function qualityLogs(logsDir: string, worktree: string): string[] {
 }
 
 function kept(task: Target, reason: string): string {
-  return `ghost-${task.id} kept: ${reason}`
+  return `${label(task)} kept: ${reason}`
 }
 
 function treeLedger(task: Target): string {
@@ -125,19 +134,19 @@ function carriedSteps(task: Target, stepCache: string): string {
 
 export function carryLedgerOnly(task: Target, ledger: string, stepCache: string): string {
   if (!existsSync(task.worktree))
-    return `ghost-${task.id} ledger: no worktree at ${task.worktree}`
+    return `${label(task)} ledger: no worktree at ${task.worktree}`
   let carried: string
   try {
     carried = `${carryLedgerLines(treeLedger(task), ledger)} lines carried into ${ledger}`
   }
   catch (error) {
-    return `ghost-${task.id} ledger: lines could not be carried into ${ledger}: ${firstLine(error)}; worktree kept`
+    return `${label(task)} ledger: lines could not be carried into ${ledger}: ${firstLine(error)}; worktree kept`
   }
   try {
-    return `ghost-${task.id} ledger: ${carried}${carriedSteps(task, stepCache)}; worktree kept`
+    return `${label(task)} ledger: ${carried}${carriedSteps(task, stepCache)}; worktree kept`
   }
   catch (error) {
-    return `ghost-${task.id} ledger: ${carried}; step cache lines could not be carried into ${stepCache}: ${firstLine(error)}; worktree kept`
+    return `${label(task)} ledger: ${carried}; step cache lines could not be carried into ${stepCache}: ${firstLine(error)}; worktree kept`
   }
 }
 
@@ -169,86 +178,11 @@ function unblockedRun(task: Target, outcome: string | undefined): string {
   return kept(task, outcome === undefined ? noPr : `${noPr}, and status.md says "${outcome}", not ladder blocked`)
 }
 
-export function removedReportPath(report: string): string {
-  const extension = path.extname(report)
-  return `${report.slice(0, report.length - extension.length)}${REMOVED_REPORT_MARK}${extension}`
-}
-
-function hasLocalBranch(repo: string, branch: string): boolean {
-  try {
-    execFileSync('git', ['-C', repo, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], { stdio: 'pipe' })
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function git(worktree: string, args: string[]): string {
-  return execFileSync('git', ['-C', worktree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-}
-
-function uncommittedWork(worktree: string): string {
-  const untracked = git(worktree, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(line => line !== '')
-  const diff = git(worktree, ['diff', '--binary', 'HEAD'])
-  return `${untracked.map(file => `untracked: ${file}\n`).join('')}${diff}`
-}
-
-function savedPatchPath(task: Target, report: string): string {
-  return path.join(path.dirname(report), `ghost-${task.id}${REMOVED_REPORT_MARK}.patch`)
-}
-
-function saveUncommittedWork(task: Target, report: string): { saved: string } | { failure: string } {
-  const patch = savedPatchPath(task, report)
-  try {
-    const work = uncommittedWork(task.worktree)
-    if (work === '')
-      return { saved: '' }
-    writeFileSync(patch, work, { flag: 'wx' })
-    return { saved: `; uncommitted work saved to ${patch}` }
-  }
-  catch (error) {
-    return { failure: `its uncommitted work could not be saved to ${patch}: ${firstLine(error)}` }
-  }
-}
-
-function cleanupBlocked(task: Target, report: string, ctx: CleanupContext): string {
-  const reason = `ladder blocked and no pull request for ${task.branch}`
-  const renamed = removedReportPath(report)
-  if (existsSync(report) && existsSync(renamed))
-    return kept(task, `${reason}, but ${renamed} already exists`)
-  const removed: string[] = []
-  let carried = ''
-  if (existsSync(task.worktree)) {
-    const lines = carryTreeLines(task, ctx)
-    if ('failure' in lines)
-      return kept(task, `${reason}, but ${lines.failure}`)
-    const work = saveUncommittedWork(task, report)
-    if ('failure' in work)
-      return kept(task, `${reason}, but ${work.failure}`)
-    carried = lines.carried + work.saved
-    execFileSync('git', ['-C', ctx.repo, 'worktree', 'remove', '--force', task.worktree], { stdio: 'pipe' })
-    removed.push(`worktree ${task.worktree}`)
-  }
-  if (task.branch.startsWith('ghost/') && hasLocalBranch(ctx.repo, task.branch)) {
-    execFileSync('git', ['-C', ctx.repo, 'branch', '-D', task.branch], { stdio: 'pipe' })
-    removed.push(`branch ${task.branch}`)
-  }
-  const logs = qualityLogs(ctx.logsDir, task.worktree)
-  for (const log of logs)
-    rmSync(log)
-  removed.push(`${logs.length} quality logs`)
-  if (existsSync(report)) {
-    renameSync(report, renamed)
-    removed.push(`report renamed to ${renamed}`)
-  }
-  return `ghost-${task.id} removed: ${reason}${carried}; ${removed.join(' and ')}`
-}
-
 export function cleanupMerged(task: Target, ctx: CleanupContext): string {
-  if (handLadderRows(ctx.statusText).has(task.id))
-    return kept(task, `status.md policy ${handLadderPolicy(task.id)}; a hand-ladder worktree is never removed`)
-  const standing = reviewStanding(ctx.journalPath, task.id)
+  const handLadder = [task.ghost, task.id].find(id => id !== undefined && handLadderRows(ctx.statusText).has(id))
+  if (handLadder !== undefined)
+    return kept(task, `status.md policy ${handLadderPolicy(handLadder)}; a hand-ladder worktree is never removed`)
+  const standing = reviewStanding(ctx.journalPath, task)
   const overruled = standing.verdict === 'changes' ? standing.disposition : undefined
   if (standing.verdict === 'changes' && overruled === undefined)
     return kept(task, 'the last review verdict is changes')
@@ -259,9 +193,8 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
   if (refusal !== undefined)
     return kept(task, refusal)
   if (pr === undefined) {
-    const outcome = freeOutcome(ctx.statusText, task.id)
-    const report = BLOCKED_OUTCOME.exec(outcome ?? '')?.[1]
-    return report === undefined ? unblockedRun(task, outcome) : cleanupBlocked(task, report, ctx)
+    const outcome = freeOutcome(ctx.statusText, task.ghost ?? task.id)
+    return BLOCKED_OUTCOME.test(outcome ?? '') ? kept(task, 'ladder blocked; the task\'s tree stays for the next attempt') : unblockedRun(task, outcome)
   }
   if (pr.state !== 'MERGED')
     return kept(task, `PR #${pr.number} is ${pr.state}, not merged`)
@@ -291,7 +224,7 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
     rmSync(log)
   removed.push(`${logs.length} quality logs`)
   const overrule = overruled === undefined ? '' : ` over a changes verdict, follow-up #${overruled.followUp}`
-  return `ghost-${task.id} removed: PR #${pr.number} merged${overrule}${carried}; ${removed.join(' and ')}`
+  return `${label(task)} removed: PR #${pr.number} merged${overrule}${carried}; ${removed.join(' and ')}`
 }
 
 function defaultRepo(cwd: string): string | undefined {
@@ -313,13 +246,28 @@ function mainCheckout(repoRoot: string): string {
   return path.dirname(commonDir)
 }
 
-function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target[], unregistered: string[] } {
+function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target[], untracked: string[] } {
   const { attempts } = readHandoff(handoffDir)
   const targets = attempts.flatMap(attempt => attempt.worktree === undefined || attempt.branch === undefined
     ? []
-    : [{ id: attempt.id, worktree: attempt.worktree, branch: attempt.branch, pr: attempt.pathEvent?.pr }])
-  const unregistered = readUnregistered(repoRoot, attempts, execGit).map(tree => `unregistered ${tree.worktree} kept: named by no task`)
-  return { targets, unregistered }
+    : [{ id: attempt.id, ghost: attempt.ghost, worktree: attempt.worktree, branch: attempt.branch, pr: attempt.pathEvent?.pr }])
+  const untracked = readUnregistered(repoRoot, attempts, execGit).map(tree => `unregistered ${tree.worktree} kept: named by no task`)
+  return { targets, untracked }
+}
+
+function tasksTargets(tasksData: TasksFile): { targets: Target[], untracked: string[] } {
+  const journalPath = path.join(tasksData.out, 'ghosts.jsonl')
+  const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
+  const targets: Target[] = []
+  const untracked: string[] = []
+  for (const task of tasksData.tasks) {
+    const tree = startedTree(journalText, task.card)
+    if (tree === undefined)
+      untracked.push(`ghost-${task.id} kept: card #${task.card.id} has no task:start line in ${journalPath}`)
+    else
+      targets.push({ id: String(task.card.id), ghost: task.id, ...tree })
+  }
+  return { targets, untracked }
 }
 
 function main(): void {
@@ -330,7 +278,7 @@ function main(): void {
   const checkout = mainCheckout(repoRoot)
   const ledger = path.join(checkout, LEDGER_FILE)
   const stepCache = path.join(checkout, STEP_CACHE_FILE)
-  const { targets, unregistered } = tasksData === undefined ? handoffTargets(handoffDir, repoRoot) : { targets: tasksData.tasks, unregistered: [] }
+  const { targets, untracked } = tasksData === undefined ? handoffTargets(handoffDir, repoRoot) : tasksTargets(tasksData)
   if (values['ledger-only'] === true) {
     for (const task of targets)
       console.log(`${PREFIX}${carryLedgerOnly(task, ledger, stepCache)}`)
@@ -349,7 +297,7 @@ function main(): void {
   }
   for (const task of targets)
     console.log(`${PREFIX}${cleanupMerged(task, ctx)}`)
-  for (const line of unregistered)
+  for (const line of untracked)
     console.log(`${PREFIX}${line}`)
 }
 

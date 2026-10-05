@@ -3,10 +3,30 @@
   "status": "status.md",
   "out": ".",
   "tasks": [
-    { "id": "s-brief", "brief": "brief-absent.md", "worktree": "worktrees/s-brief", "branch": "ghost/s-brief" },
-    { "id": "s-approval", "brief": "brief-approval.md", "worktree": "worktrees/s-approval", "branch": "ghost/s-approval" },
-    { "id": "s-launch", "brief": "brief-launch.md", "worktree": "worktrees/s-launch", "branch": "ghost/s-launch" },
-    { "id": "s-stopped", "brief": "brief-stopped.md", "worktree": "worktrees/s-stopped", "branch": "ghost/s-stopped" },
-    { "id": "s-nopr", "brief": "brief-nopr.md", "worktree": "worktrees/s-nopr", "branch": "ghost/s-nopr" }
+    {
+      "id": "s-brief",
+      "brief": "brief-absent.md",
+      "card": "#201 s-brief [implement/ghosts/S/ladder/owner] · depends — · blocks —"
+    },
+    {
+      "id": "s-approval",
+      "brief": "brief-approval.md",
+      "card": "#202 s-approval [implement/ghosts/S/ladder/owner] · depends — · blocks —"
+    },
+    {
+      "id": "s-launch",
+      "brief": "brief-launch.md",
+      "card": "#203 s-launch [implement/ghosts/S/ladder/owner] · depends — · blocks —"
+    },
+    {
+      "id": "s-stopped",
+      "brief": "brief-stopped.md",
+      "card": "#204 s-stopped [implement/ghosts/S/ladder/owner] · depends — · blocks —"
+    },
+    {
+      "id": "s-nopr",
+      "brief": "brief-nopr.md",
+      "card": "#205 s-nopr [implement/ghosts/S/ladder/owner] · depends — · blocks —"
+    }
   ]
 }

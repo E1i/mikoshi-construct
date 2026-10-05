@@ -151,16 +151,16 @@ function snapshot(dir: string): string[] {
 
 describe('board: tasks are attempts grouped by brief', () => {
   it('groups attempts that name one brief into one derived task whose latest attempt is live', () => {
-    const { stdout } = board(['--dir', BASIC, 'alpha-1'])
-    expect(stdout).toContain('task brief-alpha.md (derived) live alpha-2 waiting, history alpha-1')
-    expect(stdout).toContain('  alpha-1 history blocked')
-    expect(stdout).toContain('  alpha-2 live waiting')
+    const { stdout } = board(['--dir', BASIC, '101'])
+    expect(stdout).toContain('task brief-alpha.md (derived) live 102 waiting, history 101')
+    expect(stdout).toContain('  101 history blocked')
+    expect(stdout).toContain('  102 live waiting')
     expect(HELP.some(line => line.startsWith('# task (derived) = '))).toBe(true)
   })
 
   it.each([
-    { name: 'default', argv: [] as string[], shown: ['alpha-2', 'beta-1', 'gamma-1', 'delta-1'], hidden: ['alpha-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'] },
-    { name: '--all', argv: ['--all'], shown: ['alpha-2', 'beta-1', 'gamma-1', 'delta-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'], hidden: ['alpha-1'] },
+    { name: 'default', argv: [] as string[], shown: ['102', '103', '104', '105'], hidden: ['101', '111', '112', '113', '114', '115', '116'] },
+    { name: '--all', argv: ['--all'], shown: ['102', '103', '104', '105', '111', '112', '113', '114', '115', '116'], hidden: ['101'] },
   ])('$name prints one line per shown task, its live attempt, and --all every task', ({ argv, shown, hidden }) => {
     const { stdout } = board(['--dir', BASIC, ...argv])
     const attempts = listedIds(stdout)
@@ -172,22 +172,22 @@ describe('board: tasks are attempts grouped by brief', () => {
 
 describe('board: — for what did not happen, UNKNOWN naming the missing record', () => {
   it.each([
-    { id: 'beta-1', stage: 'merged', expected: '— (not merged; last review verdict changes)' },
-    { id: 'beta-1', stage: 'ready', expected: '— (last review verdict changes)' },
-    { id: 'delta-1', stage: 'merged', expected: '— (no PR for ghost/delta-1)' },
-    { id: 'delta-1', stage: 'pr', expected: '— (no PR for ghost/delta-1)' },
-    { id: 'delta-1', stage: 'review', expected: 'UNKNOWN (missing: review.started)' },
-    { id: 'alpha-2', stage: 'ready', expected: '— (no checks recorded on a2a2a2a)' },
-    { id: 'alpha-2', stage: 'merged', expected: '— (PR #2 OPEN)' },
-    { id: 'gamma-1', stage: 'ghost', expected: '— (not finished; status.md writing)' },
-    { id: 'm6', stage: 'merged', expected: `done 2026-09-27T06:30:00.000Z (journal, by owner, ${'6'.repeat(7)})` },
+    { id: '103', stage: 'merged', expected: '— (not merged; last review verdict changes)' },
+    { id: '103', stage: 'ready', expected: '— (last review verdict changes)' },
+    { id: '105', stage: 'merged', expected: '— (no PR for ghost/delta-1)' },
+    { id: '105', stage: 'pr', expected: '— (no PR for ghost/delta-1)' },
+    { id: '105', stage: 'review', expected: 'UNKNOWN (missing: review.started)' },
+    { id: '102', stage: 'ready', expected: '— (no checks recorded on a2a2a2a)' },
+    { id: '102', stage: 'merged', expected: '— (PR #2 OPEN)' },
+    { id: '104', stage: 'ghost', expected: '— (not finished; status.md writing)' },
+    { id: '116', stage: 'merged', expected: `done 2026-09-27T06:30:00.000Z (journal, by owner, ${'6'.repeat(7)})` },
   ])('$id $stage reads $expected', ({ id, stage, expected }) => {
     expect(stageOf(BASIC, id, stage)).toBe(expected)
   })
 
   it('names the failed gh query instead of claiming there is no PR', () => {
     const { stderr } = board(['--dir', BASIC], failingGh)
-    expect(stageOf(BASIC, 'delta-1', 'merged', failingGh)).toBe('UNKNOWN (missing: merge; pr; the gh query failed)')
+    expect(stageOf(BASIC, '105', 'merged', failingGh)).toBe('UNKNOWN (missing: merge; pr; the gh query failed)')
     expect(stderr).toEqual(['[board] gh pr list failed; every PR fact is UNKNOWN'])
   })
 
@@ -236,7 +236,7 @@ describe('board: the ledger stage reads the last line of the worktree ledger', (
   ])('$name reads $expected', ({ text, expected }) => {
     const dir = withLedgers({ 'alpha-2': text })
     try {
-      expect(stageOf(dir, 'alpha-2', 'ledger')).toBe(expected)
+      expect(stageOf(dir, '102', 'ledger')).toBe(expected)
     }
     finally {
       rmSync(dir, { recursive: true, force: true })
@@ -270,7 +270,7 @@ describe('board: a model-mismatch line of .construct/roles.jsonl shows on its ta
       roles(path.join(dir, 'worktrees', 'alpha-2'), [MISMATCH, { ...MISMATCH, kind: 'no-snapshot' }])
       roles(root, [MISMATCH, MISMATCH])
 
-      expect(attemptBlock(boardWith(root, ['--dir', dir, 'alpha-2']), 'alpha-2')).toContain('    model-mismatch brief expected sonnet, ran on claude-fable-5-1 (2026-09-28T11:00:00.000Z, session s-1)')
+      expect(attemptBlock(boardWith(root, ['--dir', dir, '102']), '102')).toContain('    model-mismatch brief expected sonnet, ran on claude-fable-5-1 (2026-09-28T11:00:00.000Z, session s-1)')
       expect(boardWith(root, ['--dir', dir])[1]).toBe('model-mismatch 3: window 2, tasks 1 (a role ran on a model its definition does not name; .construct/roles.jsonl)')
     }
     finally {
@@ -284,7 +284,7 @@ describe('board: a model-mismatch line of .construct/roles.jsonl shows on its ta
       roles(root, [{ ...MISMATCH, kind: 'no-snapshot' }])
 
       expect(boardWith(root, ['--dir', dir])).toEqual(board(['--dir', dir]).stdout)
-      expect(boardWith(root, ['--dir', dir, 'alpha-2'])).toEqual(board(['--dir', dir, 'alpha-2']).stdout)
+      expect(boardWith(root, ['--dir', dir, '102'])).toEqual(board(['--dir', dir, '102']).stdout)
     }
     finally {
       rmSync(dir, { recursive: true, force: true })
@@ -319,10 +319,10 @@ describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s c
       eddies(path.join(dir, 'worktrees', 'alpha-2'), [STOP, WARN, { ...STOP, event: 'unread', reason: 'config-missing' }])
       eddies(root, [STOP])
 
-      const block = attemptBlock(boardWith(root, ['--dir', dir, 'alpha-2']), 'alpha-2')
+      const block = attemptBlock(boardWith(root, ['--dir', dir, '102']), '102')
       expect(block).toContain('    budget-stop session-context 150001 / 150000 on Agent (2026-10-01T11:00:00.000Z, session s-1)')
       expect(block).toContain('    budget-warn agent 1200000 / 1500000 (2026-10-01T11:00:00.000Z, session s-1)')
-      expect(rowOf(boardWith(root, ['--dir', dir]), 'alpha-2')[7]).toBe('stop 1 · warn 1')
+      expect(rowOf(boardWith(root, ['--dir', dir]), '102')[7]).toBe('stop 1 · warn 1')
     }
     finally {
       rmSync(dir, { recursive: true, force: true })
@@ -333,10 +333,10 @@ describe('board: a budget line of .construct/eddies.jsonl shows on its task\'s c
     const { dir, root } = scratch()
     try {
       eddies(root, [{ ...STOP, event: 'unread', reason: 'config-missing' }])
-      const views = [boardWith(root, ['--dir', dir]), boardWith(root, ['--dir', dir, 'alpha-2'])]
+      const views = [boardWith(root, ['--dir', dir]), boardWith(root, ['--dir', dir, '102'])]
 
       expect(views[0].join('\n')).toBe(board(['--dir', dir]).stdout.join('\n'))
-      expect(views[1].join('\n')).toBe(board(['--dir', dir, 'alpha-2']).stdout.join('\n'))
+      expect(views[1].join('\n')).toBe(board(['--dir', dir, '102']).stdout.join('\n'))
       expect(views.flat().filter(line => /^eddies:|budget-(?:stop|warn) /.test(line.trim()))).toEqual([])
     }
     finally {
@@ -611,8 +611,8 @@ describe('board: summary, edges and prefixes', () => {
   })
 
   it.each([
-    { name: 'without a matrix', dir: BASIC, id: 'alpha-2', edges: ['edge: UNKNOWN'] },
-    { name: 'with a Shredder matrix', dir: MATRIX, id: 'b', edges: ['edge: a -> b'] },
+    { name: 'without a matrix', dir: BASIC, id: '102', edges: ['edge: UNKNOWN'] },
+    { name: 'with a Shredder matrix', dir: MATRIX, id: '302', edges: ['edge: 301 -> 302'] },
   ])('prints the card\'s edges $name', ({ dir, id, edges }) => {
     const { stdout } = board(['--dir', dir, id])
     expect(stdout.filter(line => line.startsWith('edge:'))).toEqual(edges)
@@ -620,8 +620,8 @@ describe('board: summary, edges and prefixes', () => {
 
   it.each([
     { name: 'the default', argv: [] as string[], first: 'open 4: running 1, waiting 2, blocked 1, stale 1 · windows live 0 · merged 12h: 0', second: '┌', last: 'merged: —   (older: --all)' },
-    { name: '--all', argv: ['--all'], first: 'open 4: running 1, waiting 2, blocked 1, stale 1 · windows live 0 · merged 12h: 0', second: '┌', last: 'merged: m1 · m2 · m3 · m4 · m5 · m6' },
-    { name: 'a card', argv: ['alpha-2'], first: '┌', second: '│ TASK', last: undefined },
+    { name: '--all', argv: ['--all'], first: 'open 4: running 1, waiting 2, blocked 1, stale 1 · windows live 0 · merged 12h: 0', second: '┌', last: 'merged: 111 · 112 · 113 · 114 · 115 · 116' },
+    { name: 'a card', argv: ['102'], first: '┌', second: '│ TASK', last: undefined },
   ])('prints $name bare, with no # line, no UNKNOWN tally and no legend; they are in --help and --json', ({ argv, first, second, last }) => {
     const { stdout, stderr, exitCode } = board(['--dir', BASIC, ...argv])
     expect(exitCode).toBe(0)
@@ -643,7 +643,7 @@ describe('board: summary, edges and prefixes', () => {
     { name: 'an unknown argument', argv: ['--dir', BASIC, '--bogus'], names: '\'--bogus\'' },
     { name: 'a missing directory', argv: ['--dir', path.join(FIXTURES, 'absent')], names: 'no such directory' },
     { name: 'an unknown task id', argv: ['--dir', BASIC, 'zeta-1'], names: 'no task or attempt \'zeta-1\'' },
-    { name: '--json with a task id', argv: ['--dir', BASIC, '--json', 'alpha-2'], names: '--json prints every task' },
+    { name: '--json with a task id', argv: ['--dir', BASIC, '--json', '102'], names: '--json prints every task' },
   ])('refuses $name with a [board] message and no graph', ({ argv, names }) => {
     const { stdout, stderr, exitCode } = board(argv)
     expect(exitCode).toBe(1)
@@ -675,7 +675,7 @@ describe('board: read only', () => {
     board(['--dir', BASIC, '--all'], stubGh(calls))
     board(['--dir', MATRIX], stubGh(calls))
     board(['--dir', CHEAP, '--all'], stubGh(calls))
-    board(['--dir', BASIC, 'alpha-1'], stubGh(calls))
+    board(['--dir', BASIC, '101'], stubGh(calls))
     board(['--dir', BASIC, '--json'], stubGh(calls))
     board(['--dir', NEXT, '--json'], stubGh(calls))
     board(['--dir', SUPERSEDED, '--json'], stubGh(calls))
@@ -686,16 +686,16 @@ describe('board: read only', () => {
 
 describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', () => {
   it.each([
-    { dir: BASIC, id: 'alpha-2', path: 'ladder', stage: 'review', situation: 'ci', stale: '4h50m' },
-    { dir: BASIC, id: 'beta-1', path: 'ladder', stage: 'review', situation: 'new-attempt' },
-    { dir: BASIC, id: 'gamma-1', path: 'ladder', stage: '—', situation: 'ghost-running' },
-    { dir: BASIC, id: 'delta-1', path: 'ladder', stage: 'ghost', situation: 'verdict' },
-    { dir: BASIC, id: 'm6', path: 'ladder', stage: 'merged', situation: 'merged' },
-    { dir: NEXT, id: 's-brief', path: 'ladder', stage: '—', situation: 'brief' },
-    { dir: NEXT, id: 's-approval', path: 'ladder', stage: 'brief', situation: 'approval' },
-    { dir: NEXT, id: 's-launch', path: 'ladder', stage: 'approved', situation: 'launch' },
-    { dir: NEXT, id: 's-stopped', path: 'ladder', stage: 'ghost', situation: 'new-attempt', stale: '6h00m' },
-    { dir: NEXT, id: 's-nopr', path: 'ladder', stage: 'review', situation: 'pr', stale: '5h50m' },
+    { dir: BASIC, id: '102', path: 'ladder', stage: 'review', situation: 'ci', stale: '4h50m' },
+    { dir: BASIC, id: '103', path: 'ladder', stage: 'review', situation: 'new-attempt' },
+    { dir: BASIC, id: '104', path: 'ladder', stage: '—', situation: 'ghost-running' },
+    { dir: BASIC, id: '105', path: 'ladder', stage: 'ghost', situation: 'verdict' },
+    { dir: BASIC, id: '116', path: 'ladder', stage: 'merged', situation: 'merged' },
+    { dir: NEXT, id: '201', path: 'ladder', stage: '—', situation: 'brief' },
+    { dir: NEXT, id: '202', path: 'ladder', stage: 'brief', situation: 'approval' },
+    { dir: NEXT, id: '203', path: 'ladder', stage: 'approved', situation: 'launch' },
+    { dir: NEXT, id: '204', path: 'ladder', stage: 'ghost', situation: 'new-attempt', stale: '6h00m' },
+    { dir: NEXT, id: '205', path: 'ladder', stage: 'review', situation: 'pr', stale: '5h50m' },
     { dir: CHEAP, id: 'c-noready', path: 'cheap', stage: 'started', situation: 'pr' },
     { dir: CHEAP, id: 'c-open', path: 'cheap', stage: 'started', situation: 'ci' },
     { dir: CHEAP, id: 'c-journal', path: 'cheap', stage: 'merged', situation: 'merged' },
@@ -796,15 +796,15 @@ describe('board --json: the UNKNOWN tally, and only there', () => {
 
 describe('board <task-id>: the expanded card of one task', () => {
   it.each([
-    { name: 'the live attempt', id: 'alpha-2' },
-    { name: 'a history attempt', id: 'alpha-1' },
+    { name: 'the live attempt', id: '102' },
+    { name: 'a history attempt', id: '101' },
     { name: 'the task name', id: 'brief-alpha.md' },
   ])('finds the task by $name and prints every attempt, stage and fact', ({ id }) => {
     const { stdout, exitCode } = board(['--dir', BASIC, id])
     expect(exitCode).toBe(0)
     expect(rows(stdout)).toHaveLength(1)
-    expect([...rowOf(stdout, 'alpha-2').slice(0, 3), rowOf(stdout, 'alpha-2')[4]]).toEqual(['alpha-2', 'ladder', 'review', 'stale 4h50m · CI'])
-    for (const attempt of ['alpha-1', 'alpha-2']) {
+    expect([...rowOf(stdout, '102').slice(0, 3), rowOf(stdout, '102')[4]]).toEqual(['102', 'ladder', 'review', 'stale 4h50m · CI'])
+    for (const attempt of ['101', '102']) {
       expect(attemptBlock(stdout, attempt).slice(1).map(line => line.trim().split(' ')[0])).toEqual(['brief', 'approved', 'ghost', 'review', 'ready', 'merged', 'pr', 'status.md', 'ledger'])
     }
     expect(stdout).toContain('next CI (derived; — (no checks recorded on a2a2a2a))')
@@ -893,8 +893,8 @@ describe('board --json: the full output for agents', () => {
     const json = parsed(BASIC)
     expect(json.format).toBe('board/4')
     const attempts = json.tasks.flatMap((task: any) => task.attempts.map((attempt: any) => attempt.id))
-    expect(attempts.sort()).toEqual(['alpha-1', 'alpha-2', 'beta-1', 'delta-1', 'gamma-1', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'])
-    expect(json.tasks.find((task: any) => task.derived.live === 'm1').derived.shownByDefault).toBe(false)
+    expect(attempts.sort()).toEqual(['101', '102', '103', '104', '105', '111', '112', '113', '114', '115', '116'])
+    expect(json.tasks.find((task: any) => task.derived.live === '111').derived.shownByDefault).toBe(false)
   })
 
   it('keeps every derived field under derived', () => {
@@ -911,7 +911,7 @@ describe('board --json: the full output for agents', () => {
 
   it('gives each stage its state with the source or the UNKNOWN reason', () => {
     const json = parsed(BASIC)
-    const alpha2 = json.tasks.flatMap((task: any) => task.attempts).find((attempt: any) => attempt.id === 'alpha-2')
+    const alpha2 = json.tasks.flatMap((task: any) => task.attempts).find((attempt: any) => attempt.id === '102')
     const byName = Object.fromEntries(alpha2.stages.map((stage: any) => [stage.name, stage]))
     expect(byName.review).toMatchObject({ state: 'done', at: '2026-09-28T07:10:00.000Z', source: 'verdict pass' })
     expect(byName.ready).toMatchObject({ state: 'not', reason: 'no checks recorded on a2a2a2a' })
@@ -975,17 +975,17 @@ describe('board: colour on the STAGE and NEXT cells only', () => {
   }
 
   it.each([
-    { dir: NEXT, id: 's-brief', tone: 'purple' },
+    { dir: NEXT, id: '201', tone: 'purple' },
     { dir: CHEAP, id: 'c-noready', tone: 'purple' },
-    { dir: NEXT, id: 's-approval', tone: 'red' },
-    { dir: NEXT, id: 's-launch', tone: 'red' },
-    { dir: NEXT, id: 's-nopr', tone: 'red' },
+    { dir: NEXT, id: '202', tone: 'red' },
+    { dir: NEXT, id: '203', tone: 'red' },
+    { dir: NEXT, id: '205', tone: 'red' },
     { dir: NEXT, id: 'n-red', tone: 'red' },
     { dir: NEXT, id: 'n-owner', tone: 'red' },
     { dir: NEXT, id: 'n-auto', tone: 'red' },
-    { dir: BASIC, id: 'delta-1', tone: 'red' },
-    { dir: BASIC, id: 'gamma-1', tone: 'yellow' },
-    { dir: BASIC, id: 'm6', tone: 'grey' },
+    { dir: BASIC, id: '105', tone: 'red' },
+    { dir: BASIC, id: '104', tone: 'yellow' },
+    { dir: BASIC, id: '116', tone: 'grey' },
     { dir: CHEAP, id: 'c-journal', tone: 'grey' },
     { dir: NEXT, id: 'n-pending', tone: undefined },
     { dir: CHEAP, id: 'c-report', tone: undefined },
@@ -1090,15 +1090,15 @@ describe('w9: EXPECT stands next to ACTUAL, and a card ends with the four fields
     const stdout = board(['--dir', dir]).stdout
     const header = stdout.map(line => stripVTControlCharacters(line)).find(line => line.startsWith('│ TASK'))!
     expect(cellsOf(header).slice(-2)).toEqual(['EXPECT', 'ACTUAL'])
-    expect(rowOf(stdout, 'delta-1').slice(-2)).toEqual(['expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median', 'tokens 950k, minutes 32.5'])
-    expect(rowOf(stdout, 'beta-1').slice(-2)).toEqual(['expect not recorded in the journal', 'actual not recorded in the journal'])
+    expect(rowOf(stdout, '105').slice(-2)).toEqual(['expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median', 'tokens 950k, minutes 32.5'])
+    expect(rowOf(stdout, '103').slice(-2)).toEqual(['expect not recorded in the journal', 'actual not recorded in the journal'])
   })
 
   it('w9: the card ends with CONTRACT, EXPECT, ACTION and RESULT read from the journal', () => {
     const dir = withForecast()
-    const card = board(['--dir', dir, 'delta-1']).stdout
+    const card = board(['--dir', dir, '105']).stdout
     expect(card.slice(-5)).toEqual([
-      expect.stringMatching(/^-{4} board delta-1 -+$/),
+      expect.stringMatching(/^-{4} board 105 -+$/),
       `CONTRACT | ladder · brief ${path.join(dir, 'brief-delta.md')} · law not recorded in the journal`,
       'EXPECT   | expect tokens ≈ 1.2M, minutes ≈ 40 — effort medium, n=7, median',
       `ACTION   | ghosts:launch delta-1: /implement ${path.join(dir, 'brief-delta.md')}, session session-delta`,

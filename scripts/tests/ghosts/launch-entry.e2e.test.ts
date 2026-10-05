@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -27,17 +27,8 @@ afterEach(() => {
     world('clean', created.pop()!)
 })
 
-function withCards(tasksFile: string, cardOf: (id: string) => string): void {
-  const tasks = JSON.parse(readFileSync(tasksFile, 'utf8')) as { tasks: { id: string, card?: string }[] }
-  for (const task of tasks.tasks)
-    task.card = cardOf(task.id)
-  writeFileSync(tasksFile, JSON.stringify(tasks))
-}
-
-function launchOk(cardOf?: (id: string) => string): { printed: string[], journal: Record<string, string>[] } {
+function launchOk(): { printed: string[], journal: Record<string, string>[] } {
   const w = world('new', 'ok')
-  if (cardOf !== undefined)
-    withCards(path.join(w, 'tasks.json'), cardOf)
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(w, 'tasks.json')], {
     input: 'yes\n',
     encoding: 'utf8',
@@ -57,7 +48,7 @@ describe('ghosts:launch writes the entry card it prints', () => {
     expect(entries.length).toBeGreaterThan(0)
     for (const entry of entries) {
       expect(journal.indexOf(entry)).toBeLessThan(journal.findIndex(line => line.event === 'task' && line.task === entry.task))
-      expect(Object.keys(entry).sort()).toEqual(['event', 'task', 'ts', ...SIGNAL_FIELDS].sort())
+      expect(Object.keys(entry).sort()).toEqual(['card', 'event', 'task', 'ts', ...SIGNAL_FIELDS].sort())
     }
   })
 
@@ -72,12 +63,12 @@ describe('ghosts:launch writes the entry card it prints', () => {
     }
   })
 
-  it('carries the tasks file card on the entry line, so task:close can close the run without task:start', () => {
-    const cardOf = (id: string): string => `#${id.replace(/\D/g, '')}0 launched-${id} [implement/ghosts/S/ladder/owner] · depends — · blocks —`
-    const { journal } = launchOk(cardOf)
+  it('carries the tasks file card on the entry line', () => {
+    const cardOf = (id: string): string => `#90${id.replace(/\D/g, '')} world-${id} [implement/ghosts/S/ladder/owner] · depends — · blocks —`
+    const { journal } = launchOk()
     const entries = journal.filter(line => line.event === 'entry') as unknown as { task: string, card: unknown }[]
     expect(entries.length).toBeGreaterThan(0)
     for (const entry of entries)
-      expect(entry.card).toMatchObject({ name: `launched-${entry.task}`, kind: 'implement', contour: 'ladder', line: cardOf(entry.task) })
+      expect(entry.card).toMatchObject({ name: `world-${entry.task}`, kind: 'implement', contour: 'ladder', line: cardOf(entry.task) })
   })
 })

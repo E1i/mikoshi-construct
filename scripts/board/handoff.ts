@@ -84,6 +84,7 @@ export interface Approval {
 
 export interface Attempt {
   id: string
+  ghost: string | undefined
   brief: string | undefined
   briefWrittenAt: Date | undefined
   approval: Approval | undefined
@@ -116,9 +117,8 @@ export interface Handoff {
 type JournalLine = TaskEvent | ReviewEvent | MergeEvent | PathEvent | SupersededEvent
 
 interface Named {
+  ghost: string | undefined
   brief: string | undefined
-  worktree: string | undefined
-  branch: string | undefined
   tasksFileMtime: Date | undefined
 }
 
@@ -202,7 +202,7 @@ function ledgerOf(worktree: string | undefined): Attempt['ledger'] {
   }
 }
 
-function edgesFrom(dir: string, files: { file: string, data: TasksFile }[], warnings: string[]): string[] | undefined {
+function edgesFrom(dir: string, files: { file: string, data: TasksFile }[], attemptOf: (task: string) => string, warnings: string[]): string[] | undefined {
   const withMatrix = files.filter(entry => entry.data.matrix !== undefined)
   if (withMatrix.length === 0)
     return undefined
@@ -214,7 +214,7 @@ function edgesFrom(dir: string, files: { file: string, data: TasksFile }[], warn
         const contour = lookupMatrixRow(matrixPath, task.id)?.contour as { after?: unknown } | undefined
         const after = Array.isArray(contour?.after) ? contour.after : []
         for (const predecessor of after)
-          edges.push(`${String(predecessor)} -> ${task.id}`)
+          edges.push(`${attemptOf(String(predecessor))} -> ${task.card.id}`)
       }
     }
     catch (error) {
@@ -225,8 +225,8 @@ function edgesFrom(dir: string, files: { file: string, data: TasksFile }[], warn
   return edges
 }
 
-function foldPath(journal: JournalLine[], id: string): PathEvent | undefined {
-  const lines = journal.filter((line): line is PathEvent => line.event === 'path' && line.task === id)
+function foldPath(journal: JournalLine[], names: (task: string) => boolean): PathEvent | undefined {
+  const lines = journal.filter((line): line is PathEvent => line.event === 'path' && names(line.task))
   if (lines.length === 0)
     return undefined
   const folded: Record<string, unknown> = {}
@@ -256,15 +256,17 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
   const statusPath = path.join(dir, 'status.md')
   const statusText = existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined
 
+  const cardOf = new Map(tasksFiles.flatMap(({ data }) => data.tasks.map(task => [task.id, String(task.card.id)] as const)))
+  const attemptOf = (task: string): string => cardOf.get(task) ?? task
   const named = new Map<string, Named>()
   const name = (id: string): Named => {
-    if (!named.has(id))
-      named.set(id, { brief: undefined, worktree: undefined, branch: undefined, tasksFileMtime: undefined })
-    return named.get(id)!
+    if (!named.has(attemptOf(id)))
+      named.set(attemptOf(id), { ghost: undefined, brief: undefined, tasksFileMtime: undefined })
+    return named.get(attemptOf(id))!
   }
   for (const { mtime, data } of tasksFiles) {
     for (const task of data.tasks)
-      Object.assign(name(task.id), { brief: path.resolve(dir, task.brief), worktree: path.resolve(dir, task.worktree), branch: task.branch, tasksFileMtime: mtime })
+      Object.assign(name(task.id), { ghost: task.id, brief: path.resolve(dir, task.brief), tasksFileMtime: mtime })
   }
   for (const line of journal) {
     if (typeof line.task === 'string')
@@ -277,23 +279,25 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
     name(id)
 
   const lastOf = <K extends JournalLine['event']>(id: string, event: K): Extract<JournalLine, { event: K }> | undefined =>
-    journal.filter((line): line is Extract<JournalLine, { event: K }> => line.event === event && line.task === id).at(-1)
+    journal.filter((line): line is Extract<JournalLine, { event: K }> => line.event === event && attemptOf(line.task) === id).at(-1)
 
   const windowBudgetLines = readBudgetLines(repoRoot)
   const attempts = [...named].map(([id, facts]): Attempt => {
-    const pathEvent = foldPath(journal, id)
-    const worktree = facts.worktree ?? pathEvent?.worktree
+    const pathEvent = foldPath(journal, task => attemptOf(task) === id)
+    const worktree = pathEvent?.worktree === undefined ? undefined : path.resolve(dir, pathEvent.worktree)
     const session = pathEvent?.session
+    const ghost = facts.ghost ?? id
     return {
       id,
+      ghost: facts.ghost,
       brief: facts.brief,
       briefWrittenAt: facts.brief !== undefined && existsSync(facts.brief) ? statSync(facts.brief).mtime : undefined,
       approval: facts.brief === undefined ? undefined : approvalOf(facts.brief),
-      branch: facts.branch ?? pathEvent?.branch,
+      branch: pathEvent?.branch,
       worktree,
       tasksFileMtime: facts.tasksFileMtime,
-      row: ghostRow(statusText, id),
-      handLadderUpdated: handLadders.get(id),
+      row: ghostRow(statusText, ghost),
+      handLadderUpdated: handLadders.get(ghost) ?? handLadders.get(id),
       ledger: ledgerOf(worktree),
       browserWitness: browserWitnessOf(facts.brief),
       modelMismatches: readModelMismatches(worktree),
@@ -303,12 +307,12 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       mergeEvent: lastOf(id, 'merge'),
       pathEvent,
       window: readWindow([repoRoot, worktree], session),
-      handoffFile: handoffFileOf(dir, id),
+      handoffFile: handoffFileOf(dir, ghost) ?? handoffFileOf(dir, id),
       supersededEvent: lastOf(id, 'superseded'),
-      entryLine: entryOf(journalText, id),
+      entryLine: entryOf(journalText, ghost) ?? entryOf(journalText, id),
       journalPath,
     }
   })
 
-  return { attempts, edges: edgesFrom(dir, tasksFiles, warnings), warnings }
+  return { attempts, edges: edgesFrom(dir, tasksFiles, attemptOf, warnings), warnings }
 }

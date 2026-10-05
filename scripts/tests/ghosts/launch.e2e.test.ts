@@ -91,6 +91,27 @@ describe('ghosts launch, end to end through the stub', () => {
     world('check-untouched', w)
   })
 
+  it('runs each Ghost in the tree and on the branch its card\'s task:start line records, cutting no tree or branch of its own', () => {
+    const w = world('new', 'ok')
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(0)
+    world('check-decision', w)
+    world('check-launched', w)
+  })
+
+  it.each([
+    { title: 'refuses a task whose card has no task:start line, naming the command that starts it', kind: 'no-start-line' },
+    { title: 'refuses a task whose task:start tree no longer exists', kind: 'tree-gone' },
+    { title: 'refuses a task whose task:start tree is on another branch', kind: 'tree-elsewhere' },
+    { title: 'refuses a task whose branch carries commits the Ghost would drop', kind: 'ahead' },
+  ])('$title', ({ kind }) => {
+    const w = world('new', kind)
+    const { status } = launch(w, 'yes')
+    expect(status).toBe(1)
+    world('check-refused', w)
+    world('check-untouched', w)
+  })
+
   it('refuses a brief with two /implement lines before any listing, naming both line numbers', () => {
     const w = world('new', 'two-implement')
     const { status } = launch(w, 'yes')

@@ -289,8 +289,8 @@ function actionText(live: AttemptView): string {
   if (live.path === 'cheap')
     return `task:start ${attempt.branch ?? '—'} #${attempt.id}: ${attempt.worktree ?? '—'}`
   if (attempt.taskEvent === undefined)
-    return `ghosts:launch ${attempt.id}: no journal event:task yet`
-  return `ghosts:launch ${attempt.id}: /implement ${attempt.brief ?? '—'}, session ${attempt.taskEvent.session ?? '—'}`
+    return `ghosts:launch ${attempt.ghost ?? attempt.id}: no journal event:task yet`
+  return `ghosts:launch ${attempt.ghost ?? attempt.id}: /implement ${attempt.brief ?? '—'}, session ${attempt.taskEvent.session ?? '—'}`
 }
 
 function resultText(live: AttemptView): string {
