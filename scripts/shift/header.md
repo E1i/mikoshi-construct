@@ -21,8 +21,11 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the
   law the task answers to, or what is not recorded>`, `expect: <the forecast, or expect not
   recorded in <where>>`, `action: <what was run>`, `result: <one line: what was done, or where and why it
-  stopped>`; then the pull request on a line of its own (`PR #N`, or `no PR` — the norm for a probe), what was verified and how, and what
-  waits for the owner.
+  stopped>`; then the pull request on a line of its own (`PR #N`, or `no PR` — the norm for a probe), then
+  `verification: <word>` on a line of its own, the word one of `measurement`, `code-reading`, `run`,
+  `review`, `mutation`, `browser`, `human-gate`, then what was verified and how, and what waits for the
+  owner. The shift closes the task from the `PR #N` and `verification:` lines; do not run `pnpm task:close`
+  yourself.
 
 The task follows.
 
