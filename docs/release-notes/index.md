@@ -4,6 +4,34 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.40.0
+
+### Minor Changes
+
+- [#518](https://github.com/E1i/mikoshi-construct/pull/518) [`8c20c37`](https://github.com/E1i/mikoshi-construct/commit/8c20c37fdbbfe949b9895a169faccc051c6e6cbf) Thanks [@E1i](https://github.com/E1i)! - templates: the `/implement` skill says `agreedSha256` is the sha256 of the whole agreed text, `Sketch:` line included, and no longer calls it the approved hash. ghosts: the approval hash of a brief leaves out its `Sketch:` line and the approval line stores the approved sketch's full sha, so `pnpm ghosts:launch` starts a sketch rebased onto a newer `origin/main` without a new approval when `git range-diff` shows every commit as `=`, and refuses it with `re-approve` otherwise; an approval written under the earlier rule is refused once with `re-approve`, and the `event:task` journal line gains `approvedSha256`, `approvedSketch` and `rangeDiff`.
+
+- [#520](https://github.com/E1i/mikoshi-construct/pull/520) [`dcbc016`](https://github.com/E1i/mikoshi-construct/commit/dcbc01600e299c22a5b50695fc9a351b8af6767b) Thanks [@E1i](https://github.com/E1i)! - templates: discovery writes an attached repository's high-effort areas to `.construct/high-effort-areas.md` and `/implement` reads them there, instead of from a CLAUDE.md section nobody fills.
+
+- [#524](https://github.com/E1i/mikoshi-construct/pull/524) [`11c6900`](https://github.com/E1i/mikoshi-construct/commit/11c69004c308ab7ee4d284083766511c44d0c4b6) Thanks [@E1i](https://github.com/E1i)! - templates: `construct attach` now writes a second file beside the commit guard, `.construct/shell-parser.mjs`, which holds the guard's reader of the command line, and `construct detach` removes it; the guard imports it inside the checked call, so a missing parser refuses with exit 2, and the refusals are unchanged.
+
+- [#532](https://github.com/E1i/mikoshi-construct/pull/532) [`5a836c7`](https://github.com/E1i/mikoshi-construct/commit/5a836c76cd748357dac2002491ffd44cc9560859) Thanks [@E1i](https://github.com/E1i)! - cli: `construct.model.json` goes to `modelVersion` 4 with stages, nodes and links, versions 1 to 3 still read with the lists empty, and an older build reads version 4 as ahead of it.
+
+- [#514](https://github.com/E1i/mikoshi-construct/pull/514) [`95bf0d2`](https://github.com/E1i/mikoshi-construct/commit/95bf0d21c4f22b946e99eb4af3a74300cd05d1cf) Thanks [@E1i](https://github.com/E1i)! - cli: `init` refuses a repository that `attach` holds — with `.construct/attach.json` present, readable or not, it writes nothing and says to run `construct detach` first.
+
+- [#536](https://github.com/E1i/mikoshi-construct/pull/536) [`b1d96b2`](https://github.com/E1i/mikoshi-construct/commit/b1d96b24b215459aecb6c2170225b108b6a7cfee) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` parks no card whose corrections a person has not confirmed: it prints them with a token and exits `2`, `--confirm <token>` parks the cards as shown, `--auto-confirm` (off by default) parks them at once, and every parked card gets an `intake` line in `--journal` with its confirmation and corrections.
+
+- [#534](https://github.com/E1i/mikoshi-construct/pull/534) [`433fea5`](https://github.com/E1i/mikoshi-construct/commit/433fea5b0122e6d63936d212fa6213f2ea8f44ff) Thanks [@E1i](https://github.com/E1i)! - `construct intake` checks each card against the repository and the journal and writes every correction into the card as `corrected: <field> — <was> → <now> — <reason>`.
+
+- [#531](https://github.com/E1i/mikoshi-construct/pull/531) [`1cc512b`](https://github.com/E1i/mikoshi-construct/commit/1cc512b4615efce9eeca75e76e6919507d364337) Thanks [@E1i](https://github.com/E1i)! - `construct intake` turns a draft of sliced cards into parking cards: it assigns the next numbers free in the parking and among the pull requests and issues `--taken` lists, writes each card in the parking format, marks every field the retelling left unclear as an `unclear:` line and keeps such a card with `who: window`, and parses every card back with the card grammar before writing. The `intake` skill slices a person's retelling into that draft, and `attach` now carries it as a tenth carrier.
+
+- [#533](https://github.com/E1i/mikoshi-construct/pull/533) [`6dad0a2`](https://github.com/E1i/mikoshi-construct/commit/6dad0a2b3924e0c7a7a7efefbc3ef7d2f4c7defc) Thanks [@E1i](https://github.com/E1i)! - templates: the `/implement` ladder runs on a red base whose failures are identified and pinned, and passes a rung that adds no failure; a base red in a way that cannot be identified still runs nothing.
+
+### Patch Changes
+
+- [#539](https://github.com/E1i/mikoshi-construct/pull/539) [`740f828`](https://github.com/E1i/mikoshi-construct/commit/740f828d88054148b2ee1126d487fd77d7886a03) Thanks [@E1i](https://github.com/E1i)! - skill: the intake skill writes the taken numbers to a file beside the draft and passes `--taken <file>` instead of piping them, names `pnpm --silent dev intake` for the repository that builds construct, and describes the confirmation gate: exit `2` with a token, `--confirm <token>`, `--auto-confirm` off by default, the `intake` journal line, and a confirmed card keeping the draft's `who`.
+
+- [#538](https://github.com/E1i/mikoshi-construct/pull/538) [`e7d9cb9`](https://github.com/E1i/mikoshi-construct/commit/e7d9cb9784ab2ce76c842bef505e38cf22f02db2) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake --taken -` and `construct board --prs -` wait for a slow producer on stdin instead of refusing with EAGAIN.
+
 ## 0.39.0
 
 ### Minor Changes
