@@ -427,3 +427,106 @@ describe('b: ghosts:cleanup keeps the tree of a run that ended blocked with no p
     expect(hasBranch(w, BRANCH)).toBe(true)
   })
 })
+
+const OLD_SKETCH = 'a'.repeat(40)
+const NEW_SKETCH = 'b'.repeat(40)
+
+function approve(w: World, sketch: string): void {
+  writeFileSync(path.join(w.handoff, 'brief-g1.approved-sha256'), `sha256: ${'d'.repeat(64)}\nsketch: ${sketch}\n`)
+}
+
+function dirtyOnOldSketch(w: World, approved: string): void {
+  journal(w, [{ event: 'task', task: 'g1', sketch: OLD_SKETCH, ts: '2026-10-02T08:00:00Z' }])
+  approve(w, approved)
+  writeFileSync(path.join(w.worktree, 'README.md'), 'changed\n')
+  writeFileSync(path.join(w.worktree, 'unsaved.txt'), 'new work\n')
+}
+
+function supersedeWorld(approved: string, outcome?: (report: string) => string): { w: World, report: string } {
+  const world = blockedWorld([], outcome ?? (report => `exit 0; ladder done; report ${report}; session s1`))
+  dirtyOnOldSketch(world.w, approved)
+  return world
+}
+
+const BLOCKED_OUTCOME_LINE = (report: string): string => `exit 0; ladder blocked; report ${report}; session s1`
+
+describe.each([
+  ['done', undefined],
+  ['blocked', BLOCKED_OUTCOME_LINE],
+])('%s run and the approval', (kind, outcome) => {
+  it(`${kind}-superseded: releases the run, saves the work as a patch and keeps the tree and branch`, () => {
+    const { w, report } = supersedeWorld(NEW_SKETCH, outcome)
+    const patch = path.join(w.handoff, `ghost-g1.done-${'a'.repeat(7)}.patch`)
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 released: superseded by sketch ${'b'.repeat(7)}; work saved to ${patch}; tree ${w.worktree} clean for the next attempt\n`)
+    expect(existsSync(patch)).toBe(true)
+    const fresh = path.join(w.root, 'fresh')
+    git(w.repo, ['worktree', 'add', '-q', '--detach', fresh, 'HEAD'])
+    expect(() => git(fresh, ['apply', '--check', patch])).not.toThrow()
+    git(fresh, ['apply', patch])
+    expect(readFileSync(path.join(fresh, 'unsaved.txt'), 'utf8')).toBe('new work\n')
+    expect(git(w.worktree, ['status', '--porcelain'])).toBe('')
+    expect(existsSync(w.worktree)).toBe(true)
+    expect(hasBranch(w, BRANCH)).toBe(true)
+    expect(existsSync(report)).toBe(true)
+    const superseded = readFileSync(path.join(w.handoff, 'ghosts.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as { event: string, task?: string, by?: string }).find(line => line.event === 'superseded')
+    expect(superseded).toMatchObject({ event: 'superseded', task: 'g1', by: NEW_SKETCH })
+  })
+
+  it(`${kind}-own-sketch: keeps the run with today's line while the approval names the run's own sketch`, () => {
+    const { w, report } = supersedeWorld(OLD_SKETCH, outcome)
+    const today = outcome === undefined
+      ? `no pull request for feat/g1, and status.md says "exit 0; ladder done; report ${report}; session s1", not ladder blocked`
+      : 'ladder blocked; the task\'s tree stays for the next attempt'
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 kept: ${today}\n`)
+    expect(git(w.worktree, ['status', '--porcelain'])).not.toBe('')
+    expect(existsSync(path.join(w.handoff, `ghost-g1.done-${'a'.repeat(7)}.patch`))).toBe(false)
+  })
+})
+
+describe('superseded, but not released', () => {
+  it('superseded-writing: keeps a run that is still writing, its tree dirty, under an approval that names another sketch', () => {
+    const w = newWorld('OPEN')
+    writeFileSync(path.join(w.root, 'prs.json'), '[]')
+    ghostRow(w, 'writing', '/implement brief-g1.md, session s1')
+    dirtyOnOldSketch(w, NEW_SKETCH)
+    expect(cleanup(w)).toBe('[ghosts:cleanup] ghost-g1 kept: no pull request for feat/g1\n')
+    expect(readFileSync(path.join(w.worktree, 'unsaved.txt'), 'utf8')).toBe('new work\n')
+  })
+
+  it.each([
+    'exit 1; ladder done; report {report}; session s1',
+    'exit 0; no ladder run; report {report}; session s1',
+  ])('superseded-unfinished: keeps a run whose outcome is "%s", its tree dirty, under an approval that names another sketch', (template) => {
+    const { w, report } = supersedeWorld(NEW_SKETCH, path => template.replace('{report}', path))
+    const outcome = template.replace('{report}', report)
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 kept: no pull request for feat/g1, and status.md says "${outcome}", not ladder blocked\n`)
+    expect(readFileSync(path.join(w.worktree, 'unsaved.txt'), 'utf8')).toBe('new work\n')
+  })
+
+  it('superseded-unapproved: keeps a done run whose brief has no approval file, its tree dirty', () => {
+    const { w, report } = supersedeWorld(NEW_SKETCH)
+    rmSync(path.join(w.handoff, 'brief-g1.approved-sha256'))
+    expect(cleanup(w)).toBe(`[ghosts:cleanup] ghost-g1 kept: no pull request for feat/g1, and status.md says "exit 0; ladder done; report ${report}; session s1", not ladder blocked\n`)
+    expect(git(w.worktree, ['status', '--porcelain'])).not.toBe('')
+  })
+
+  it('superseded-patch-exists: keeps the tree dirty when the patch path is already taken, and leaves that file as it was', () => {
+    const { w } = supersedeWorld(NEW_SKETCH)
+    const patch = path.join(w.handoff, `ghost-g1.done-${'a'.repeat(7)}.patch`)
+    writeFileSync(patch, 'earlier\n')
+    expect(cleanup(w)).toContain(`[ghosts:cleanup] ghost-g1 kept: its uncommitted work could not be saved to ${patch}: EEXIST`)
+    expect(readFileSync(patch, 'utf8')).toBe('earlier\n')
+    expect(readFileSync(path.join(w.worktree, 'unsaved.txt'), 'utf8')).toBe('new work\n')
+    expect(git(w.worktree, ['status', '--porcelain'])).toContain('README.md')
+  })
+})
+
+describe('superseded without --tasks', () => {
+  it('handoff-superseded: releases a done run read from the journal and the tasks files in the handoff directory', () => {
+    const { w } = supersedeWorld(NEW_SKETCH)
+    writeFileSync(path.join(w.handoff, 'tasks-g1.json'), readFileSync(path.join(w.root, 'tasks.json')))
+    const patch = path.join(w.handoff, `ghost-g1.done-${'a'.repeat(7)}.patch`)
+    expect(cleanupFromHandoff(w)).toBe(`[ghosts:cleanup] ghost-g1 released: superseded by sketch ${'b'.repeat(7)}; work saved to ${patch}; tree ${w.worktree} clean for the next attempt\n`)
+    expect(git(w.worktree, ['status', '--porcelain'])).toBe('')
+  })
+})

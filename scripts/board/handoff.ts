@@ -308,7 +308,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       pathEvent,
       window: readWindow([repoRoot, worktree], session),
       handoffFile: handoffFileOf(dir, ghost) ?? handoffFileOf(dir, id),
-      supersededEvent: lastOf(id, 'superseded'),
+      supersededEvent: journal.filter((line): line is SupersededEvent => line.event === 'superseded' && line.task === ghost).at(-1),
       entryLine: entryOf(journalText, ghost) ?? entryOf(journalText, id),
       journalPath,
     }

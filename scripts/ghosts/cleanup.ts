@@ -15,14 +15,17 @@ import { readHandoff } from '../board/handoff.js'
 import { handLadderPolicy, handLadderRows } from '../board/policy.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
+import { appendJournalEvent } from './journal.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
 import { ghostRowState } from './status.js'
+import { approvedSketchOf, lastRunSketch, patchPath, releaseTree, shortSketch, sketchSuperseded } from './supersede.js'
 import { readTasksFile, startedTree } from './tasks.js'
 import { DISPOSITION_EVENT, MERGE_FOLLOW_UP } from './verdict.js'
 
 const PREFIX = '[ghosts:cleanup] '
 const DEFAULT_LOGS_DIR = '/tmp'
 const BLOCKED_OUTCOME = /; ladder blocked; report \S+;/
+const DONE_OUTCOME = /^exit 0; ladder done; report \S+;/
 const OUTCOME_COLUMN = 6
 
 export interface Target {
@@ -31,6 +34,7 @@ export interface Target {
   worktree: string
   branch: string
   pr?: number
+  brief?: string
 }
 
 export interface CleanupContext {
@@ -178,7 +182,30 @@ function unblockedRun(task: Target, outcome: string | undefined): string {
   return kept(task, outcome === undefined ? noPr : `${noPr}, and status.md says "${outcome}", not ladder blocked`)
 }
 
-export function cleanupMerged(task: Target, ctx: CleanupContext): string {
+function keptNoPr(task: Target, outcome: string | undefined): string {
+  return BLOCKED_OUTCOME.test(outcome ?? '') ? kept(task, 'ladder blocked; the task\'s tree stays for the next attempt') : unblockedRun(task, outcome)
+}
+
+function ladderEnded(outcome: string | undefined): boolean {
+  return DONE_OUTCOME.test(outcome ?? '') || BLOCKED_OUTCOME.test(outcome ?? '')
+}
+
+async function releaseSuperseded(task: Target, ctx: CleanupContext): Promise<string | undefined> {
+  const approved = approvedSketchOf(task.brief)
+  const run = approved === undefined || !existsSync(ctx.journalPath) ? undefined : lastRunSketch(readFileSync(ctx.journalPath, 'utf8'), value => namesTask(task, value))
+  if (approved === undefined || run === undefined || !sketchSuperseded(run.sketch, approved) || !existsSync(task.worktree))
+    return undefined
+  const patch = patchPath(path.dirname(ctx.journalPath), task.ghost ?? task.id, run.sketch)
+  const result = releaseTree(task.worktree, patch)
+  if ('clean' in result)
+    return undefined
+  if ('failure' in result)
+    return kept(task, result.failure)
+  await appendJournalEvent(ctx.journalPath, { event: 'superseded', task: run.task, by: approved, ts: new Date().toISOString() })
+  return `${label(task)} released: superseded by sketch ${shortSketch(approved)}; work saved to ${patch}; tree ${task.worktree} clean for the next attempt`
+}
+
+export async function cleanupMerged(task: Target, ctx: CleanupContext): Promise<string> {
   const handLadder = [task.ghost, task.id].find(id => id !== undefined && handLadderRows(ctx.statusText).has(id))
   if (handLadder !== undefined)
     return kept(task, `status.md policy ${handLadderPolicy(handLadder)}; a hand-ladder worktree is never removed`)
@@ -194,7 +221,8 @@ export function cleanupMerged(task: Target, ctx: CleanupContext): string {
     return kept(task, refusal)
   if (pr === undefined) {
     const outcome = freeOutcome(ctx.statusText, task.ghost ?? task.id)
-    return BLOCKED_OUTCOME.test(outcome ?? '') ? kept(task, 'ladder blocked; the task\'s tree stays for the next attempt') : unblockedRun(task, outcome)
+    const released = ladderEnded(outcome) ? await releaseSuperseded(task, ctx) : undefined
+    return released ?? keptNoPr(task, outcome)
   }
   if (pr.state !== 'MERGED')
     return kept(task, `PR #${pr.number} is ${pr.state}, not merged`)
@@ -250,7 +278,7 @@ function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target
   const { attempts } = readHandoff(handoffDir)
   const targets = attempts.flatMap(attempt => attempt.worktree === undefined || attempt.branch === undefined
     ? []
-    : [{ id: attempt.id, ghost: attempt.ghost, worktree: attempt.worktree, branch: attempt.branch, pr: attempt.pathEvent?.pr }])
+    : [{ id: attempt.id, ghost: attempt.ghost, worktree: attempt.worktree, branch: attempt.branch, pr: attempt.pathEvent?.pr, brief: attempt.brief }])
   const untracked = readUnregistered(repoRoot, attempts, execGit).map(tree => `unregistered ${tree.worktree} kept: named by no task`)
   return { targets, untracked }
 }
@@ -265,12 +293,12 @@ function tasksTargets(tasksData: TasksFile): { targets: Target[], untracked: str
     if (tree === undefined)
       untracked.push(`ghost-${task.id} kept: card #${task.card.id} has no task:start line in ${journalPath}`)
     else
-      targets.push({ id: String(task.card.id), ghost: task.id, ...tree })
+      targets.push({ id: String(task.card.id), ghost: task.id, brief: task.brief, ...tree })
   }
   return { targets, untracked }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { values } = parseArgs({ args: process.argv.slice(2), options: { 'tasks': { type: 'string' }, 'repo': { type: 'string' }, 'logs': { type: 'string' }, 'ledger-only': { type: 'boolean' } } })
   const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   const tasksData = values.tasks === undefined ? undefined : readTasksFile(values.tasks)
@@ -296,14 +324,14 @@ function main(): void {
     stepCache,
   }
   for (const task of targets)
-    console.log(`${PREFIX}${cleanupMerged(task, ctx)}`)
+    console.log(`${PREFIX}${await cleanupMerged(task, ctx)}`)
   for (const line of untracked)
     console.log(`${PREFIX}${line}`)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    main()
+    await main()
   }
   catch (error) {
     console.error(`${PREFIX}${firstLine(error)}`)
