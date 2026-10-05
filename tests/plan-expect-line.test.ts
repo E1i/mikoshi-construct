@@ -67,7 +67,9 @@ async function costLine(runs: number): Promise<string> {
 
 function withExpectLine(copy: string, line: string): string {
   const lines = filled(copy)
-  lines[LINE_THREE] = line
+  const at = lines.findIndex(candidate => candidate.startsWith(EXPECT_PREFIX))
+  expect(at, copy).toBe(LINE_THREE)
+  lines[at] = line
   return lines.join('\n')
 }
 
