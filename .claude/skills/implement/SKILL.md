@@ -201,6 +201,9 @@ and `.construct/high-effort-areas.md`.
      copied unchanged whatever the status, `stopped` included. Never take them from the result,
      which carries them only on `done` and `degraded`, and never compute them again: they name the
      agreed `/implement` text and the args file this run read.
+   - `sketch` — the `sha` of the `sketch` in the handle the build printed in step 2, or `null` when the
+     handle's `sketch` is `null`: a run from a clean tree. Copied unchanged whatever the status, `stopped`
+     included; never take it from the result and never compute it again.
    The ledger carries counts and reasons only — never a prompt, a response or any other message
    content. This log is what tunes the ladder later; workflow scripts have no filesystem access, so
    it is written here, not by the script. Nothing enforces this step: the ledger is L0, and

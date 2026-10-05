@@ -1430,6 +1430,7 @@ Each line carries exactly these fields:
 | `cause` | Why a `stopped` or `failed` run ended without passing: `environment` or `human` for `stopped`, `environment` or `task` for `failed`. Required on `stopped`, optional on `failed`, forbidden on any other status. |
 | `tokensSource` | Optional. `runtime` when the token figure came from the runtime's stored record instead of the Workflow tool's accounting. |
 | `agreedSha256`, `argsSha256` | Optional, each 64 lowercase hex characters. The two hashes in the handle `check-acceptance.mjs build` printed: the agreed `/implement` text and the bytes of the args file the run read. Copied from the handle whatever the status; rows written before ledger-row 1.1 carry neither. |
+| `sketch` | Optional, 40 lowercase hex characters or `null`. The `sha` of the `sketch` in the handle `check-acceptance.mjs build` printed, or `null` when the handle's `sketch` is `null`, a run from a clean tree. Copied from the handle whatever the status; rows written before ledger-row 1.2 carry none, and a row without the field says nothing about it. |
 | `agents`, `tokens`, `toolUses`, `seconds` | The Workflow tool's accounting for the whole run. `tokens` may be the string `unknown`; it is never rewritten as `0`. |
 
 The Workflow tool reports accounting per run, not per agent, so the ledger declares no per-agent
@@ -1559,8 +1560,9 @@ is the reason itself — `runs not recorded in <ledger>`, `task lines not record
 `<run>  tokens <n>  minutes <m>`; a journal line that is not JSON is named on stderr.
 
 With `--effort`, a `step <step> …` line follows per ladder step, from the last 20 runs that have it, and
-`--sketch yes` or `--sketch no` takes the `implement` step only from runs whose Ghost-journal `task` line
-carries a sketch or `sketch: null`; runs the journal does not name are counted on neither side and named
+`--sketch yes` or `--sketch no` takes the `implement` step only from runs whose ledger row carries a `sketch`
+field (a sha is a sketch, `null` is none) and, for a row without the field, whose Ghost-journal `task` line
+carries a sketch or `sketch: null`; the ledger row's field wins when the two disagree. Runs neither names are counted on neither side and named
 as `<N> runs without a sketch record in <journal> not counted for implement`. A `role <brief|scan|review> …`
 line per role reads the `subagent` lines of `.construct/turns.jsonl`, one run per `agent`, in the same unit
 (input, cache writes and output), with `minutes not recorded`. Then

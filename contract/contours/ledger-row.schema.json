@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "mikoshi-construct/contours/ledger-row/1.1",
+  "$id": "mikoshi-construct/contours/ledger-row/1.2",
   "title": "Ledger row",
-  "description": "One line of .construct/runs.jsonl, appended by step 4 of the implement skill after an /implement run and read by construct cost, ghosts:launch, ghosts:watch and pnpm board through parseLedgerLine. It sets no additionalProperties, because a newer skill writes fields an older reader must pass over.",
+  "description": "One line of .construct/runs.jsonl, appended by step 4 of the implement skill after an /implement run and read by construct cost, ghosts:launch, ghosts:watch and pnpm board through parseLedgerLine. It sets no additionalProperties, because a newer skill writes fields an older reader must pass over. The optional sketch is the sha of the sketch the run started from, or null for a run from a clean tree; a row without it says nothing about it.",
   "type": "object",
   "required": ["at", "task", "effort", "status", "rung", "attempts", "agents", "toolUses", "seconds", "tokens"],
   "properties": {
@@ -29,6 +29,7 @@
     "tokensSource": { "enum": ["runtime"] },
     "agreedSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "argsSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sketch": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }] },
     "agents": { "type": "number" },
     "tokens": { "anyOf": [{ "type": "number" }, { "const": "unknown" }] },
     "toolUses": { "type": "number" },

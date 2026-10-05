@@ -508,5 +508,10 @@
     "target": "scripts/construct/browser-lab.mjs",
     "sha256": "16f8984a6a90eca687779538f7696f866a1b7d5e5a82a065482b6fbefdc5cd72",
     "date": "2026-10-05"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "f536aa099d54c4cf4e7b628e1720d42038c33e8ac656661dffaa851381525633",
+    "date": "2026-10-05"
   }
 ]
