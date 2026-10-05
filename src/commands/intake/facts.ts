@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { accessSync, constants, existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { unresolvedCommandWord } from '../attach/harness.js'
+import { unresolvedCommandWord } from './command-word.js'
 
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules'])
 const CURRENT_DIRECTORY_PREFIX = './'

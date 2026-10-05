@@ -1375,8 +1375,9 @@ effort in the line and `ledger .construct/runs.jsonl` named as the source. Fewer
 print `expect: none` with the n and the effort, and exit 0. Without `--effort` the one effort the done
 rows have is the class, and a sample of several efforts is `none` and says `pass --effort`. The line is
 the same in every theme, and its `--plain` form is the line `/implement` carries on its third line and
-`parseExpect` reads. With an effort, one `step` line per step follows, read from the step cache; the
-step cache is the one thing written, and a run already cached is never rewritten. `--json` prints one
+`parseExpect` reads. With an effort, one `step` line per step follows, read from the step cache; a run
+the cache does not hold yet is split from the session files without being recorded, and `--expect`
+writes nothing. `--json` prints one
 object, `{ line, head, sources, notes, steps }`, on stdout and nothing else. `--effort` without
 `--expect`, and an `--effort` that is not `low`, `medium` or `high`, are refused with a reason, exit 1,
 and nothing is read or written.

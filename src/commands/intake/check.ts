@@ -3,7 +3,7 @@ import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
-import { commandWord } from '../attach/harness.js'
+import { commandWord } from './command-word.js'
 
 export const DEFAULT_CONTOUR = 'ladder'
 export const CARD_REFERENCE = /^#(\d+)$/
