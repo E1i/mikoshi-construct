@@ -1,11 +1,13 @@
+import type { Card } from '../../src/card/grammar.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { cardTerms, parseCard } from '../../src/card/grammar.js'
+import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
+import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { ENTRY_RESULT, entryLine } from './entry.js'
@@ -13,6 +15,7 @@ import { ENTRY_RESULT, entryLine } from './entry.js'
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
 const CARD_FLAG = '--card'
+const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
@@ -26,7 +29,14 @@ export interface TaskStartDeps {
   now: () => Date
   session: string | undefined
   handoffDir: string
+  readJournal?: TaskStartJournalReader
   style?: SignalStyle
+}
+
+export type TaskStartJournalReader = (file: string) => string | null
+
+export function readJournalFile(file: string): string | null {
+  return existsSync(file) ? readFileSync(file, 'utf8') : null
 }
 
 export interface TaskStartResult {
@@ -34,6 +44,55 @@ export interface TaskStartResult {
   stderr: string[]
   exitCode: number
   worktree?: string
+}
+
+type Admission
+  = | { kind: 'admitted', by: 'intake', confirmation: string, ts: string }
+    | { kind: 'admitted', by: 'waiver', reason: string }
+    | { kind: 'refused', reason: string }
+
+interface IntakeLine {
+  card: string
+  confirmation: string
+  ts: string
+}
+
+function intakeLines(journal: string | null, task: string): IntakeLine[] {
+  return (journal ?? '').split('\n').flatMap((text) => {
+    try {
+      const entry = JSON.parse(text) as Record<string, unknown> | null
+      return entry?.event === INTAKE_EVENT && entry.task === task && typeof entry.card === 'string'
+        ? [{ card: entry.card, confirmation: String(entry.confirmation), ts: String(entry.ts) }]
+        : []
+    }
+    catch {
+      return []
+    }
+  })
+}
+
+function sameCard(recorded: string, card: Card): boolean {
+  const parsed = parseCard(recorded)
+  return parsed.kind === 'card' && cardLine(parsed.card) === cardLine(card)
+}
+
+function admission(card: Card, journal: string | null, waiver: string | undefined): Admission {
+  if (waiver !== undefined)
+    return { kind: 'admitted', by: 'waiver', reason: waiver }
+  const recorded = intakeLines(journal, String(card.id))
+  const confirmed = recorded.filter(line => sameCard(line.card, card)).at(-1)
+  if (confirmed !== undefined)
+    return { kind: 'admitted', by: 'intake', confirmation: confirmed.confirmation, ts: confirmed.ts }
+  const how = `slice and confirm it with construct intake, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception`
+  return recorded.length === 0
+    ? { kind: 'refused', reason: `card #${card.id} has no intake line in the journal: it was not sliced and confirmed; ${how}` }
+    : { kind: 'refused', reason: `card #${card.id} differs from the card its intake line confirmed (${recorded.at(-1)!.card}); ${how}` }
+}
+
+function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Record<string, string> {
+  return admitted.by === 'intake'
+    ? { by: 'intake', confirmation: admitted.confirmation, intake: admitted.ts }
+    : { by: 'waiver', flag: WITHOUT_INTAKE_FLAG, reason: admitted.reason }
 }
 
 function refuse(message: string): TaskStartResult {
@@ -65,13 +124,19 @@ function removeTree(deps: TaskStartDeps, repo: string, worktree: string, branch:
   }
 }
 
-function cardArgs(argv: string[]): { branch: string, card: string } | null {
-  const at = argv.indexOf(CARD_FLAG)
-  const card = argv[at + 1]
-  if (at === -1 || card === undefined)
+function flagValue(argv: string[], flag: string): { at: number, value: string | undefined } {
+  const at = argv.indexOf(flag)
+  return { at, value: at === -1 ? undefined : argv[at + 1] }
+}
+
+function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined } | null {
+  const card = flagValue(argv, CARD_FLAG)
+  const waiver = flagValue(argv, WITHOUT_INTAKE_FLAG)
+  if (card.value === undefined || (waiver.at !== -1 && (waiver.value === undefined || waiver.value.trim() === '')))
     return null
-  const positional = argv.filter((_, index) => index !== at && index !== at + 1)
-  return positional.length === 1 ? { branch: positional[0]!, card } : null
+  const taken = new Set([card.at, card.at + 1, ...(waiver.at === -1 ? [] : [waiver.at, waiver.at + 1])])
+  const positional = argv.filter((_, index) => !taken.has(index))
+  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim() } : null
 }
 
 export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResult {
@@ -88,6 +153,10 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   const id = String(card.id)
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
+  const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
+  const admitted = deps.readJournal === undefined && args.waiver === undefined ? undefined : admission(card, deps.readJournal?.(journal) ?? null, args.waiver)
+  if (admitted?.kind === 'refused')
+    return refuse(`${admitted.reason}; nothing written`)
   let repo: string
   try {
     repo = deps.git(deps.cwd, ['rev-parse', '--show-toplevel']).trim()
@@ -114,8 +183,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
   const at = deps.now().toISOString()
-  const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, ...(admitted === undefined ? {} : { admission: admissionRecord(admitted) }), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
     CONTRACT: `${cardTerms(card)} · touches not recorded on the card · law not recorded on the card`,
@@ -150,6 +218,7 @@ function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    readJournal: readJournalFile,
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
   }
 }
