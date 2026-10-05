@@ -40,6 +40,33 @@ describe('taskConflicts', () => {
     ])
   })
 
+  it('tests glob does not conflict with tests glob', () => {
+    expect(taskConflicts([
+      task('01.md', 'a', ['tests/**', '.changeset/**']),
+      task('02.md', 'b', ['tests/shift/**', '.changeset/**']),
+    ])).toEqual([])
+  })
+
+  it('named file shared by two cards conflicts', () => {
+    expect(taskConflicts([
+      task('01.md', 'a', ['tests/shift.test.ts', '.changeset/**']),
+      task('02.md', 'b', ['tests/shift.test.ts', '.changeset/x.md']),
+    ])).toEqual([
+      '01.md × 02.md: tests/shift.test.ts = tests/shift.test.ts',
+      '01.md × 02.md: .changeset/** ⊃ .changeset/x.md',
+    ])
+  })
+
+  it('keeps a mask against a mask a conflict outside tests and .changeset', () => {
+    expect(taskConflicts([
+      task('01.md', 'a', ['src/**', 'scripts/a/**', 'tests/**']),
+      task('02.md', 'b', ['src/card/**', 'scripts/**', 'scripts/tests/**']),
+    ])).toEqual([
+      '01.md × 02.md: src/** ⊃ src/card/**',
+      '01.md × 02.md: scripts/a/** ⊂ scripts/**',
+    ])
+  })
+
   it('is empty for disjoint tasks', () => {
     expect(taskConflicts([task('01.md', 'a', ['scripts/a/**']), task('02.md', 'b', ['scripts/ab/**'])])).toEqual([])
   })
