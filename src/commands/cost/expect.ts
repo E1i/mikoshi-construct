@@ -3,7 +3,7 @@ import type { LedgerEntry } from './ledger.js'
 import type { Band } from './sample.js'
 import type { RunStep, Step } from './steps.js'
 import { parseLedgerLine } from './ledger.js'
-import { recentBand } from './sample.js'
+import { MINIMUM_SAMPLE, recentBand } from './sample.js'
 import { STEPS } from './steps.js'
 
 export const EFFORTS = ['low', 'medium', 'high']
@@ -136,7 +136,7 @@ function headOf(rows: SampleRow[], label: string, effort: string | undefined, mi
     return { kind: 'none', reason: missing }
   const tokens = recentBand(rows.map(row => row.tokens))
   if (tokens.kind === 'none')
-    return { kind: 'none', reason: lore.expectNoneCount(tokens.n, label) }
+    return { kind: 'none', reason: `${lore.expectNoneCount(tokens.n, label)}${lore.expectNoneRaisedBy(MINIMUM_SAMPLE - tokens.n, label)}` }
   const efforts = [...new Set(rows.map(row => row.effort))]
   const basis = effort ?? (efforts.length === 1 ? efforts[0] : undefined)
   if (basis === undefined)

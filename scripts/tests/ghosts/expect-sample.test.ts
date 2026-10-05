@@ -81,7 +81,7 @@ describe('expectSample', () => {
 
   it('writes none with the class and n when fewer than five runs of the class joined', () => {
     const result = sample([...R2_JOURNAL.slice(0, 4), ...R1_JOURNAL], [...FIVE_R2, ...SIX_R1], 'R2')
-    expect(result.line).toBe(`expect: none ${DASH} n=4 for class R2; ledger runs.jsonl; journal ghosts.jsonl`)
+    expect(result.line).toBe(`expect: none ${DASH} n=4 for class R2; 1 more done run at class R2 raises it; ledger runs.jsonl; journal ghosts.jsonl`)
     expect(result.rows).toHaveLength(4)
   })
 
@@ -116,7 +116,7 @@ describe('expectSample', () => {
   })
 
   it('renders the line and then one row per run with its tokens and minutes', () => {
-    expect(renderSample(sample(R2_JOURNAL.slice(0, 1), FIVE_R2, 'R2'))).toEqual([`expect: none ${DASH} n=1 for class R2; ledger runs.jsonl; journal ghosts.jsonl`, 'wf_r2-1  tokens 100000  minutes 10'])
+    expect(renderSample(sample(R2_JOURNAL.slice(0, 1), FIVE_R2, 'R2'))).toEqual([`expect: none ${DASH} n=1 for class R2; 4 more done runs at class R2 raise it; ledger runs.jsonl; journal ghosts.jsonl`, 'wf_r2-1  tokens 100000  minutes 10'])
   })
 })
 
