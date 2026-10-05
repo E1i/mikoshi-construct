@@ -1361,10 +1361,25 @@ spent, per agent. It is the evidence behind the reasoning budget: cheap tasks sh
 |---|---|---|
 | `--last` | `false` | Only the most recent run. |
 | `--json` | `false` | The report as a JSON object. |
+| `--expect` | `false` | Print the forecast of the next run from `.construct/runs.jsonl` instead of the report. |
+| `--effort <low\|medium\|high>` | the one effort the done rows have | The effort the forecast is for; only with `--expect`. |
 
 ```bash
 npx mikoshi-construct cost --last
+npx mikoshi-construct cost --expect --effort medium
 ```
+
+`--expect` prints one `expect:` line: the median and the p25–p75 band of the last up to 20 done runs
+of the effort in `.construct/runs.jsonl` (a run counts once, with its tokens known), with n and the
+effort in the line and `ledger .construct/runs.jsonl` named as the source. Fewer than five counted runs
+print `expect: none` with the n and the effort, and exit 0. Without `--effort` the one effort the done
+rows have is the class, and a sample of several efforts is `none` and says `pass --effort`. The line is
+the same in every theme, and its `--plain` form is the line `/implement` carries on its third line and
+`parseExpect` reads. With an effort, one `step` line per step follows, read from the step cache; the
+step cache is the one thing written, and a run already cached is never rewritten. `--json` prints one
+object, `{ line, head, sources, notes, steps }`, on stdout and nothing else. `--effort` without
+`--expect`, and an `--effort` that is not `low`, `medium` or `high`, are refused with a reason, exit 1,
+and nothing is read or written.
 
 Each agent line carries its call count and its input, cache-write, cache-read and output tokens. The
 run total is printed twice: tokens without cache reads (input, cache writes and output — the unit of the

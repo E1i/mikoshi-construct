@@ -67,6 +67,12 @@
         "dir": {
           "type": "string"
         },
+        "effort": {
+          "type": "string"
+        },
+        "expect": {
+          "type": "boolean"
+        },
         "johnny": {
           "type": "boolean"
         },
