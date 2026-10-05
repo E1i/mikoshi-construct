@@ -11,15 +11,18 @@ description: >-
   with pull requests and issues. `checkDraft` corrects or marks unclear, by facts, each wrong path,
   named number, contour, decision, closed depends/blocks and command-less witness. It reads the
   repository under --dir only through `facts.ts` and closed tasks from --journal through
-  `closedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line, and any corrected card
-  stays at `who: window`. `sliceCards` resolves `depends` by name inside the draft, adds the
+  `closedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the
   matching `blocks`, defaults only `contour` and `decision` and marks each default as an `unclear:`
   line, keeps every card with an unclear line at `who: window`, renders the card line and the file with
   the renderers that sit beside the card grammar in `src/card/`, and parses every file back with
   `parseParkingFile` — the one parser `task:start` and the shift read. One refused card refuses the
-  whole draft, and nothing is written. `--dry-run` prints the cards; otherwise each is written once,
-  exclusively, into the parking directory, which is outside the repository, so an attached repository
-  gets no file.
+  whole draft, and nothing is written. `--dry-run` prints the cards; otherwise, when any card carries a correction
+  and neither `--auto-confirm` nor a `--confirm` naming the hash of exactly these cards was given,
+  `confirm.ts` holds them: nothing is written, the corrections and the token are printed, and the exit
+  is 2. A confirmed or correction-free draft is written card by card, once, exclusively, into the
+  parking directory, which is outside the repository, so an attached repository gets no file; then
+  each card gets an `intake` line in --journal naming its confirmation (`person`, `auto` or `none`) and
+  its corrections.
 doc: architecture/intake.md
 boundaries:
   - id: entry
@@ -29,7 +32,7 @@ boundaries:
   - id: slice
     label: Number, render, check
   - id: write
-    label: Write · the parking only
+    label: Write · the parking and the journal
 nodes:
   - id: cli
     label: construct intake (citty)
@@ -63,8 +66,16 @@ nodes:
     label: cardLine / parkingFileText / parseParkingFile · the one card grammar
     path: src/card/parking.ts
     boundary: slice
+  - id: confirm
+    label: confirmationToken / awaitsConfirmation · corrections held until --confirm <token> or --auto-confirm
+    path: src/commands/intake/confirm.ts
+    boundary: slice
   - id: write
     label: <parking>/<id>.md · exclusive, or printed on --dry-run
+    path: src/commands/intake/index.ts
+    boundary: write
+  - id: journal
+    label: --journal · one intake line per parked card, its confirmation and corrections
     path: src/commands/intake/index.ts
     boundary: write
   - id: print
@@ -80,5 +91,8 @@ edges:
   - {from: check, to: facts, kind: wires}
   - {from: check, to: grammar, kind: wires}
   - {from: slice, to: grammar, kind: wires}
-  - {from: slice, to: write, kind: sequence}
-  - {from: write, to: print, kind: sequence}
+  - {from: slice, to: confirm, kind: sequence}
+  - {from: confirm, to: write, kind: sequence}
+  - {from: confirm, to: print, kind: sequence}
+  - {from: write, to: journal, kind: sequence}
+  - {from: journal, to: print, kind: sequence}

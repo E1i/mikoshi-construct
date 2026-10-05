@@ -54,7 +54,7 @@ function intake(cards: Record<string, unknown>[], options: Partial<IntakeOptions
   const parking = path.join(root, 'parking')
   const draftFile = path.join(root, 'draft.json')
   writeFileSync(draftFile, JSON.stringify({ cards }))
-  const result = runIntake({ draft: draftFile, parking, dryRun: false, readStdin: () => options.taken ?? '1', ...options, taken: '-' })
+  const result = runIntake({ draft: draftFile, parking, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, readStdin: () => options.taken ?? '1', ...options, taken: '-' })
   return { result, parking, draftFile }
 }
 
@@ -111,7 +111,7 @@ describe('intake fact check', () => {
     expect(first).toContain(TASK)
     const second = written(result, parking, 14)
     expect(second).toContain('corrected: number — #40 → #14 — numbers are assigned by construct intake, the next free after every number taken; a named number is never used')
-    expect(printed(result)).toContain('1 field corrected against the repository and the grammar; it stays with who: window until a person confirms them.')
+    expect(printed(result)).toContain('1 field corrected against the repository and the grammar; accepted in advance by --auto-confirm, and recorded in the journal.')
     const third = written(result, parking, 15)
     expect(third).not.toContain('corrected: number')
     expect(third).not.toContain('corrected:')

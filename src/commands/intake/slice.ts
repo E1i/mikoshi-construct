@@ -87,7 +87,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       depends: sorted(depends[index]!),
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
-    const who = unclear.length > 0 || card.corrections.length > 0 ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
+    const who = unclear.length > 0 ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
     const file = `${id}.md`
     const text = parkingFileText({
       card: line,

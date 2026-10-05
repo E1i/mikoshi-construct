@@ -4,13 +4,15 @@ USAGE construct intake [OPTIONS]
 
 OPTIONS
 
-              --plain    No colors, no lore (CI-friendly) (Default: false)                                                        
-             --johnny    Wake up, Netrunner. (Default: false)                                                                     
-      --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                                       
-      --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin           
-  --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                           
-          --dir=<dir>    Target directory (Default: .)                                                                            
-  --journal=<journal>    The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)
-             --dryRun    Print the cards, write nothing (Default: false)                                                          
+              --plain    No colors, no lore (CI-friendly) (Default: false)                                                                   
+             --johnny    Wake up, Netrunner. (Default: false)                                                                                
+      --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                                                  
+      --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin                      
+  --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                                      
+          --dir=<dir>    Target directory (Default: .)                                                                                       
+  --journal=<journal>    The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)           
+             --dryRun    Print the cards, write nothing (Default: false)                                                                     
+  --confirm=<confirm>    Park cards whose corrections a person has seen: the token the run that held them printed                            
+        --autoConfirm    Accept corrections in advance: park at once and record each card and its corrections in the journal (Default: false)
 
 

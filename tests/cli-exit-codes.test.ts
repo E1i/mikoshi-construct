@@ -164,17 +164,20 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(w, 'soulkill', '--json')).toBe(0)
   })
 
-  it('intake: written 0, dry run 0, refused 1', async () => {
+  it('intake: written 0, dry run 0, refused 1, awaiting confirmation 2', async () => {
     const w = world()
     const draft = path.join(w.home, 'draft.json')
     const taken = path.join(w.home, 'taken.txt')
     const parking = path.join(w.home, 'parking')
     writeFileSync(draft, JSON.stringify({ cards: [{ name: 'one-card', kind: 'implement', milestone: 'runner', size: 'S', who: 'shift', touches: ['src/**'], task: 'Do one thing.', witnesses: ['it is done'] }] }))
     writeFileSync(taken, '1 2\n')
-    const intake = async (...args: string[]): Promise<number | null> => (await runCli(['intake', '--draft', draft, '--parking', parking, ...args], w.home)).status
-    expect(await intake('--taken', taken, '--dryRun')).toBe(0)
-    expect(await intake('--taken', taken)).toBe(0)
-    expect(await intake()).toBe(1)
+    const intake = async (...args: string[]): Promise<number | null> => (await runCli(['intake', '--parking', parking, ...args], w.home)).status
+    expect(await intake('--draft', draft, '--taken', taken, '--dryRun')).toBe(0)
+    expect(await intake('--draft', draft, '--taken', taken)).toBe(0)
+    expect(await intake('--draft', draft)).toBe(1)
+    const corrected = path.join(w.home, 'corrected.json')
+    writeFileSync(corrected, JSON.stringify({ cards: [{ name: 'two-card', number: 1, kind: 'implement', milestone: 'runner', size: 'S', who: 'shift', touches: ['src/**'], task: 'Do another thing.', witnesses: ['it is done'] }] }))
+    expect(await intake('--draft', corrected, '--taken', taken)).toBe(2)
   })
 
   it('mutate apply: applied 0, refused 1', async () => {
