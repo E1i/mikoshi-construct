@@ -28,8 +28,9 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   stopped>`; then the pull request on a line of its own (`PR #N`, or `no PR` — the norm for a probe), then
   `verification: <word>` on a line of its own, the word one of `measurement`, `code-reading`, `run`,
   `review`, `mutation`, `browser`, `human-gate`, then what was verified and how, and what waits for the
-  owner. The shift closes the task from the `PR #N` and `verification:` lines; do not run `pnpm task:close`
-  yourself.
+  owner. A probe also writes `Report: <path>` on a line of its own, the path of the report it produced.
+  The shift closes the task from the `PR #N` (a probe: `Report:`) and `verification:` lines; do not run
+  `pnpm task:close` yourself.
 
 The task follows.
 

@@ -39,6 +39,7 @@ import { continuationBody, renderPrompt } from './prompt.js'
 export const PREFIX = '[shift] '
 const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
+const REPORT_FILE_LINE = /(?:^Report:|report written to)\s+`?([^`\s]+?)`?[.,;]?\s*$/im
 export const USAGE = [
   'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]',
   '',
@@ -191,11 +192,11 @@ function notClosed(deps: ShiftDeps, task: ShiftTask, reason: string): string {
   return (deps.style ?? PLAIN_STYLE).paint('red', `${PREFIX}#${task.id} not closed: ${reason}`)
 }
 
-function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, text: string, pr: string): string[] {
+function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, text: string, outcome: ['--pr' | '--report', string]): string[] {
   const word = REPORT_VERIFICATION_LINE.exec(text)?.[1]
   if (word === undefined)
     return [notClosed(deps, task, `the report has no verification: <word> line, one of ${VERIFICATION_WORDS.join(', ')}; no closing line written`)]
-  const closed = runTaskClose([task.id, '--pr', pr, '--verification', word], {
+  const closed = runTaskClose([task.id, ...outcome, '--verification', word], {
     cwd: session.worktree,
     read: file => deps.exists(file) ? deps.read(file) : null,
     append: deps.append,
@@ -209,14 +210,25 @@ function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
   return closed.exitCode === 0 ? closed.stdout : closed.stderr.map(line => notClosed(deps, task, line.slice(CLOSE_PREFIX.length)))
 }
 
+function closeProbeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, text: string): void {
+  const written = REPORT_FILE_LINE.exec(text)?.[1]
+  const lines = written === undefined
+    ? [notClosed(deps, task, 'the probe report has no Report: <path> line; no closing line written')]
+    : closeFromReport(deps, task, session, text, ['--report', written])
+  for (const line of lines)
+    deps.out(line)
+}
+
 function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string): string[] | undefined {
-  if (task.card.kind === 'probe')
-    return undefined
   const text = deps.read(report)
+  if (task.card.kind === 'probe') {
+    closeProbeFromReport(deps, task, session, text)
+    return undefined
+  }
   const pr = REPORT_PR_LINE.exec(text)
   if (pr === null)
     return undefined
-  for (const line of closeFromReport(deps, task, session, text, pr[1]!))
+  for (const line of closeFromReport(deps, task, session, text, ['--pr', pr[1]!]))
     deps.out(line)
   const lines = mergeAfterSession(deps, pr[1]!)
   deps.append(report, `\n${lines.join('\n')}\n`)
