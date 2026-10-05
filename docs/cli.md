@@ -1717,7 +1717,20 @@ says the confirmation was for another list. `--auto-confirm`, off by default, is
 corrections in advance: the cards are parked at once. Every parked card gets an `intake` line in
 `--journal` — `{"event":"intake","task","card","confirmation","corrections","ts"}`, with
 `confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
-recorded with the corrections it accepted. A confirmed card keeps the `who` of the draft.
+recorded with the corrections it accepted. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+
+**Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
+`touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
+agent prompts, templates and attach carriers, documents, generated files; `tests/**` and
+`.changeset/**` belong to none); a path of the mechanism the task itself runs on (`scripts/ghosts`,
+`scripts/shift`, `implement.workflow`, `check-acceptance.mjs`, the `harness` agent); a generated file
+(`contract/surface.json`, `templates/attach/earlier-carriers.json`) together with one of its sources;
+more than 2 `unclear:` lines. Two signals or more split the card: it gets a
+`seam: complexity — <every signal that fired> — <the slicing principle>` line, one
+`slice: <n> <area> — <touches>` line per proposed sub-card (disjoint `touches`, generated files last),
+and `who: window`, so the shift does not take it until a person slices it or keeps it whole with the
+reason written. The signal only proposes; it changes no field of the card line. `--admit` does not
+count it.
 
 **A card parked before the door.** `construct intake --admit <parking>/<id>.md` admits a card parked
 before intake confirmed cards: no `--draft`, no `--taken` (with either it refuses), and no new number.
