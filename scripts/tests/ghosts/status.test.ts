@@ -20,7 +20,7 @@ Machine-readable.
 
 describe('upsertGhostRow', () => {
   it('inserts a new row at the end of the window table, leaving everything else byte-identical', () => {
-    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'abc1234', start: '2026-09-27 20:00', briefFileName: 'brief-g1.md', sessionId: 'sess-1' })
+    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'abc1234', start: '2026-09-27 20:00', briefFileName: 'brief-g1.md', supervisorPid: 4242, sessionId: 'sess-1' })
     const updated = upsertGhostRow(STATUS, 'g1', row)
     const originalLastRow = '|  C  |   —   | free |  9513121 | —  |   (by A)  window closed;  uneven   spaces | 2026-09-27 19:08 |'
     const insertedAt = updated.indexOf(originalLastRow) + originalLastRow.length + 1
@@ -29,7 +29,7 @@ describe('upsertGhostRow', () => {
   })
 
   it('replaces the task\'s own existing row as one line, in place', () => {
-    const writing = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'abc1234', start: '2026-09-27 20:00', briefFileName: 'brief-g1.md', sessionId: 'sess-1' })
+    const writing = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'abc1234', start: '2026-09-27 20:00', briefFileName: 'brief-g1.md', supervisorPid: 4242, sessionId: 'sess-1' })
     const withRow = upsertGhostRow(STATUS, 'g1', writing)
 
     const free = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'def5678', start: '2026-09-27 20:00', end: '2026-09-27 20:05', outcome: sessionOutcome(0, 'done', '/w/handoff/ghost-g1.jsonl', 'sess-1') })
@@ -40,8 +40,8 @@ describe('upsertGhostRow', () => {
   })
 
   it('does not confuse ghost-g1 with ghost-g12', () => {
-    const row1 = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 's' })
-    const row12 = writingRow({ id: 'g12', worktree: '/w/wt-g12', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 's' })
+    const row1 = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
+    const row12 = writingRow({ id: 'g12', worktree: '/w/wt-g12', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
     const withBoth = upsertGhostRow(upsertGhostRow(STATUS, 'g1', row1), 'g12', row12)
     const replaced = upsertGhostRow(withBoth, 'g1', 'REPLACED')
     expect(replaced).toContain('REPLACED')
@@ -51,7 +51,7 @@ describe('upsertGhostRow', () => {
 
 describe('ghostRowState', () => {
   it('reads the state cell of an existing row', () => {
-    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 's' })
+    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
     const withRow = upsertGhostRow(STATUS, 'g1', row)
     expect(ghostRowState(withRow, 'g1')).toBe('writing')
   })
@@ -63,7 +63,7 @@ describe('ghostRowState', () => {
 
 describe('ghostRowSessionId', () => {
   it('reads the session id out of a writing row', () => {
-    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 'sess-1' })
+    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 'sess-1' })
     const withRow = upsertGhostRow(STATUS, 'g1', row)
     expect(ghostRowSessionId(withRow, 'g1')).toBe('sess-1')
   })
@@ -75,7 +75,7 @@ describe('ghostRowSessionId', () => {
   })
 
   it('reads the id only from the field the launcher writes it in, whatever session words a path or a brief name carries', () => {
-    const writing = writingRow({ id: 'g1', worktree: '/w/session wt/g1', baseSha: 'a', start: 't', briefFileName: 'brief session notes.md', sessionId: 'sess-1' })
+    const writing = writingRow({ id: 'g1', worktree: '/w/session wt/g1', baseSha: 'a', start: 't', briefFileName: 'brief session notes.md', supervisorPid: 4242, sessionId: 'sess-1' })
     expect(ghostRowSessionId(upsertGhostRow(STATUS, 'g1', writing), 'g1')).toBe('sess-1')
 
     const free = freeRow({ id: 'g1', worktree: '/w/session wt/g1', headSha: 'a', start: 't', end: 't2', outcome: sessionOutcome(0, 'done', '/w/session x/ghost-g1.jsonl', 'sess-1') })
@@ -86,7 +86,7 @@ describe('ghostRowSessionId', () => {
   })
 
   it('is undefined when there is no row for the id, even though a longer id has one', () => {
-    const row12 = writingRow({ id: 'g12', worktree: '/w/wt-g12', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 'sess-12' })
+    const row12 = writingRow({ id: 'g12', worktree: '/w/wt-g12', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 'sess-12' })
     const withRow = upsertGhostRow(STATUS, 'g12', row12)
     expect(ghostRowSessionId(withRow, 'g1')).toBeUndefined()
     expect(ghostRowSessionId(withRow, 'g12')).toBe('sess-12')
@@ -99,7 +99,7 @@ describe('writeGhostRow', () => {
     const statusPath = path.join(dir, 'status.md')
     writeFileSync(statusPath, STATUS)
 
-    const writing = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 's' })
+    const writing = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
     await writeGhostRow(statusPath, 'g1', writing)
     expect(readFileSync(statusPath, 'utf8')).toBe(upsertGhostRow(STATUS, 'g1', writing))
 
@@ -113,8 +113,8 @@ describe('writeGhostRow', () => {
     const statusPath = path.join(dir, 'status.md')
     writeFileSync(statusPath, STATUS)
 
-    const rowG1 = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 's' })
-    const rowG2 = writingRow({ id: 'g2', worktree: '/w/wt-g2', baseSha: 'a', start: 't', briefFileName: 'b', sessionId: 's' })
+    const rowG1 = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
+    const rowG2 = writingRow({ id: 'g2', worktree: '/w/wt-g2', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
 
     await Promise.all([writeGhostRow(statusPath, 'g1', rowG1), writeGhostRow(statusPath, 'g2', rowG2)])
 
