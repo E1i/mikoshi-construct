@@ -7,6 +7,7 @@ export interface WritingRowParams {
   baseSha: string
   start: string
   briefFileName: string
+  supervisorPid: number
   sessionId: string
 }
 
@@ -20,7 +21,7 @@ export interface FreeRowParams {
 }
 
 export function writingRow(params: WritingRowParams): string {
-  return `| ghost-${params.id} | ${params.worktree} | writing | ${params.baseSha} | ${params.start} | /implement ${params.briefFileName}, session ${params.sessionId} | ${params.start} |`
+  return `| ghost-${params.id} | ${params.worktree} | writing | ${params.baseSha} | ${params.start} | /implement ${params.briefFileName}, supervisor ${params.supervisorPid}, session ${params.sessionId} | ${params.start} |`
 }
 
 export function freeRow(params: FreeRowParams): string {

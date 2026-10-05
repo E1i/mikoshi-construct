@@ -1,72 +1,27 @@
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
-import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
-import type { JournalEntry, RangeDiffOutcome } from './journal.js'
-import type { MatrixLookup } from './matrix.js'
+import type { RangeDiffOutcome } from './journal.js'
 import type { Sketch } from './sketch.js'
+import type { FallKind, PreparedTask, SupervisorPayload, TaskContext, TaskOutcome } from './supervise.js'
 import type { Task } from './tasks.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
-import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
-import { writeAgreedText } from './agreed.js'
 import { checkApproval, sha256Hex } from './approval.js'
-import { tiedArgsSha256 } from './args-chain.js'
 import { ENTRY_RESULT, entryEvent } from './entry.js'
 import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
-import { runInstall } from './install.js'
-import { appendJournalEvent, appendJournalLine } from './journal.js'
-import { carryLedgerLines, countLedgerLines, readLadderOutcome } from './ledger.js'
+import { appendJournalEvent } from './journal.js'
 import { lookupMatrixRow } from './matrix.js'
-import { readResultFields } from './result.js'
-import { spawnSession } from './session.js'
 import { describeSketch, parseSketch, rangeDiffVerdict } from './sketch.js'
-import { freeRow, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
+import { ghostRowState } from './status.js'
+import { errorMessage, FALL_KINDS, fallEvent, git, resultPathOf, spawnSupervisor } from './supervise.js'
 import { readTasksFile } from './tasks.js'
-
-interface PreparedTask extends Task {
-  approvedText: string
-  approvedSha256: string
-  approvedSketch: string
-  agreedSha256: string
-  rangeDiff: RangeDiffOutcome | null
-  sketch: Sketch
-  expected: Expect | null
-  stepsExpected: StepExpect[]
-  sessionId: string
-  reportPath: string
-  stderrPath: string
-}
-
-interface TaskContext {
-  repo: string
-  statusPath: string
-  journalPath: string
-  baseSha: string
-  out: string
-  matrixPath: string | undefined
-}
-
-interface TaskOutcome {
-  id: string
-  line: string
-  ok: boolean
-}
-
-function timestamp(date: Date = new Date()): string {
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim()
-}
 
 function branchExists(repo: string, branch: string): boolean {
   try {
@@ -105,9 +60,6 @@ function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: S
 }
 
 const USAGE = 'usage: launch.ts --tasks <file> [--owner-allows <card>]... | launch.ts --tasks <file> --fall <kind> --card <card>'
-
-const FALL_KINDS = ['base-red', 'ladder-not-done', 'review-hole', 'handoff-without-pr', 'hash-recounted'] as const
-type FallKind = typeof FALL_KINDS[number]
 
 const FALLS_BEFORE_CUT = 2
 
@@ -169,10 +121,6 @@ function journalEvents(journalPath: string): Record<string, unknown>[] {
 
 function fallsOf(events: Record<string, unknown>[], card: number): string[] {
   return events.flatMap(event => event.event === 'fall' && event.card === card && typeof event.kind === 'string' ? [event.kind] : [])
-}
-
-function fallEvent(card: number, kind: FallKind): object {
-  return { event: 'fall', card, kind, ts: new Date().toISOString() }
 }
 
 function twoFallsRefusals(journalPath: string, tasks: Task[], ownerAllows: number[]): string[] {
@@ -317,161 +265,6 @@ function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): 
   return renderSignal(`ghosts:launch ${task.id}`, signalOf(task, baseSha), style)
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function sketchSha(task: PreparedTask): string | null {
-  return task.sketch.kind === 'branch' ? task.sketch.sha : null
-}
-
-function approvalFields(task: PreparedTask): Pick<JournalEntry, 'agreedSha256' | 'approvedSha256' | 'approvedSketch' | 'rangeDiff'> {
-  return {
-    agreedSha256: task.agreedSha256,
-    approvedSha256: task.approvedSha256,
-    approvedSketch: task.approvedSketch === 'none' ? null : task.approvedSketch,
-    rangeDiff: task.rangeDiff,
-  }
-}
-
-function addWorktree(ctx: TaskContext, task: PreparedTask): void {
-  if (task.sketch.kind === 'none') {
-    execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, ctx.baseSha], { stdio: 'pipe' })
-    return
-  }
-  execFileSync('git', ['-C', ctx.repo, 'worktree', 'add', '-b', task.branch, task.worktree, task.sketch.sha], { stdio: 'pipe' })
-  execFileSync('git', ['-C', task.worktree, 'reset', '--soft', ctx.baseSha], { stdio: 'pipe' })
-}
-
-function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: MatrixLookup | null, install: number | null): JournalEntry {
-  return {
-    task: task.id,
-    baseSha,
-    sketch: sketchSha(task),
-    session: null,
-    install,
-    exit: null,
-    ladder: 'no ladder run',
-    run: null,
-    iterations: null,
-    class: matrixRow?.class ?? null,
-    contour: matrixRow?.contour ?? null,
-    resultLine: 'missing',
-    total_cost_usd: null,
-    num_turns: null,
-    duration_ms: null,
-    usage: null,
-    ...approvalFields(task),
-    argsSha256: null,
-    expected: task.expected,
-    actual: null,
-  }
-}
-
-async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, outcome: string, journalEntry: JournalEntry): Promise<void> {
-  const headSha = git(task.worktree, ['rev-parse', 'HEAD'])
-  const end = timestamp()
-  await writeGhostRow(ctx.statusPath, task.id, freeRow({ id: task.id, worktree: task.worktree, headSha, start, end, outcome }))
-  await appendJournalLine(ctx.journalPath, journalEntry)
-}
-
-async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
-  const start = timestamp()
-
-  addWorktree(ctx, task)
-  writeAgreedText(task.worktree, task.approvedText)
-
-  await writeGhostRow(ctx.statusPath, task.id, writingRow({
-    id: task.id,
-    worktree: task.worktree,
-    baseSha: ctx.baseSha,
-    start,
-    briefFileName: path.basename(task.brief),
-    sessionId: task.sessionId,
-  }))
-
-  const runsPath = path.join(task.worktree, '.construct', 'runs.jsonl')
-  const linesBefore = countLedgerLines(runsPath)
-  const installLogPath = path.join(ctx.out, `ghost-${task.id}.install.log`)
-  const matrixRow = lookupMatrixRow(ctx.matrixPath, task.id)
-
-  let installCode: number
-  try {
-    installCode = await runInstall(task.worktree, installLogPath)
-  }
-  catch (error) {
-    const message = errorMessage(error)
-    await closeOut(ctx, task, start, installUnspawnableOutcome(message, installLogPath), noSessionJournalEntry(task, ctx.baseSha, matrixRow, null))
-    return { id: task.id, line: `install failed: ${message}`, ok: false }
-  }
-
-  if (installCode !== 0) {
-    await closeOut(ctx, task, start, installFailedOutcome(installCode, installLogPath), noSessionJournalEntry(task, ctx.baseSha, matrixRow, installCode))
-    return { id: task.id, line: `install failed: exit ${installCode}`, ok: false }
-  }
-
-  let code: number
-  try {
-    code = await spawnSession({
-      cwd: task.worktree,
-      sessionId: task.sessionId,
-      prompt: task.approvedText,
-      stdoutPath: task.reportPath,
-      stderrPath: task.stderrPath,
-    })
-  }
-  catch (error) {
-    const message = errorMessage(error)
-    await closeOut(ctx, task, start, sessionUnspawnableOutcome(message), noSessionJournalEntry(task, ctx.baseSha, matrixRow, installCode))
-    return { id: task.id, line: `session failed: ${message}`, ok: false }
-  }
-
-  const ladder = readLadderOutcome(runsPath, linesBefore)
-  const carryFailure = carryIntoMainLedger(runsPath, ctx.repo)
-  const resultFields = readResultFields(task.reportPath)
-  const outcome = sessionOutcome(code, ladder.status, task.reportPath, task.sessionId)
-  await closeOut(ctx, task, start, outcome, {
-    task: task.id,
-    baseSha: ctx.baseSha,
-    sketch: sketchSha(task),
-    session: task.sessionId,
-    install: installCode,
-    exit: code,
-    ladder: ladder.status,
-    run: ladder.run,
-    iterations: ladder.iterations,
-    class: matrixRow?.class ?? null,
-    contour: matrixRow?.contour ?? null,
-    resultLine: resultFields.resultLine,
-    total_cost_usd: resultFields.total_cost_usd,
-    num_turns: resultFields.num_turns,
-    duration_ms: resultFields.duration_ms,
-    usage: resultFields.usage,
-    ...approvalFields(task),
-    argsSha256: tiedArgsSha256(task.worktree, task.agreedSha256, ladder.argsSha256),
-    expected: task.expected,
-    actual: ladder.actual,
-  })
-
-  if (task.card !== undefined && ladder.status !== 'done')
-    await appendJournalEvent(ctx.journalPath, fallEvent(task.card.id, 'ladder-not-done'))
-
-  const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
-  const ok = code === 0 && ladder.status === 'done'
-  return { id: task.id, line, ok }
-}
-
-function carryIntoMainLedger(runsPath: string, repo: string): string {
-  const mainLedger = path.join(repo, LEDGER_FILE)
-  try {
-    carryLedgerLines(runsPath, mainLedger)
-    return ''
-  }
-  catch (error) {
-    return `; ledger lines not carried into ${mainLedger}: ${errorMessage(error)}`
-  }
-}
-
 function journalPathOf(out: string): string {
   return path.join(out, 'ghosts.jsonl')
 }
@@ -479,6 +272,20 @@ function journalPathOf(out: string): string {
 function ownerAllowsEvents(prepared: PreparedTask[], ownerAllows: number[]): object[] {
   const ts = new Date().toISOString()
   return ownerAllows.map(card => ({ event: 'owner-allows', card, tasks: prepared.filter(task => task.card?.id === card).map(task => task.id), ts }))
+}
+
+async function superviseBatch(payload: SupervisorPayload): Promise<TaskOutcome[] | null> {
+  const payloadPath = path.join(payload.ctx.out, `ghost-launch-${randomUUID()}.json`)
+  const logPath = `${payloadPath.replace(/\.json$/, '')}.supervisor.log`
+  writeFileSync(payloadPath, `${JSON.stringify(payload)}\n`)
+  const code = await spawnSupervisor(payloadPath, logPath)
+  const resultPath = resultPathOf(payloadPath)
+  if (!existsSync(resultPath)) {
+    console.error(`supervisor exit ${code}, no result; log ${logPath}`)
+    process.exitCode = 1
+    return null
+  }
+  return JSON.parse(readFileSync(resultPath, 'utf8')) as TaskOutcome[]
 }
 
 async function main(): Promise<void> {
@@ -519,7 +326,9 @@ async function main(): Promise<void> {
     await appendJournalEvent(journalPath, event)
   for (const task of prepared)
     await appendJournalEvent(journalPath, launchEntryEvent(task, baseSha))
-  const results = await Promise.all(prepared.map(task => launchTask(ctx, task)))
+  const results = await superviseBatch({ ctx, tasks: prepared })
+  if (results === null)
+    return
 
   let allOk = true
   for (const result of results) {

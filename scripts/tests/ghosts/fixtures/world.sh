@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -17,6 +17,7 @@ EXPECT_UNCACHED_DESCRIPTION='by step (effort medium, median): preflight tokens â
 CLEAN_SKETCH_REASON='world fixture'
 UNKNOWN_SKETCH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 FAILING_EXIT=3
+SLOW_SECONDS=3
 
 fail() {
   echo "world.sh $CHECK: $*" >&2
@@ -208,13 +209,14 @@ write_results() {
 
 write_stub() {
   local W=$1
-  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\nCHECK_ACCEPTANCE=%q\nARGS_PATH=%q\n' "$W" "$FAILING_EXIT" "$REPO_ROOT/scripts/construct/check-acceptance.mjs" "$ARGS_PATH" >"$W/bin/claude"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\nSLOW_SECONDS=%q\nCHECK_ACCEPTANCE=%q\nARGS_PATH=%q\n' "$W" "$FAILING_EXIT" "$SLOW_SECONDS" "$REPO_ROOT/scripts/construct/check-acceptance.mjs" "$ARGS_PATH" >"$W/bin/claude"
   cat >>"$W/bin/claude" <<'EOF'
 ghost=$(basename "$PWD")
 id=${ghost#wt-}
 kind=$(cat "$W/.world/kind")
 dir="$W/stub/$ghost"
 mkdir -p "$dir"
+[ "$kind" = slow ] && sleep "$SLOW_SECONDS"
 printf '%s\0' "$@" >"$dir/argv"
 pwd -P >"$dir/cwd"
 printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" >"$dir/ceiling"
