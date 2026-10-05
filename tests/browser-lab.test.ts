@@ -5,12 +5,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts/construct/browser-lab.mjs')
 const BROWSER_RUN_MS = 90_000
-const BROWSER_MISSING = /is not installed for playwright-core/
+const BROWSER_LAB_RUNS = process.env.BROWSER_LAB === '1'
 
 interface Manifest {
   [key: string]: unknown
@@ -115,7 +116,7 @@ interface LabRun {
   stderr: string
 }
 
-describe.concurrent('the browser lab against an unpacked extension', () => {
+describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension', { concurrent: true }, () => {
   let workspace: string
   let extension: string
   let server: Server
@@ -140,7 +141,7 @@ describe.concurrent('the browser lab against an unpacked extension', () => {
     rmSync(workspace, { recursive: true, force: true })
   })
 
-  async function lab(skip: (note: string) => void, ...argv: string[]): Promise<LabRun> {
+  async function lab(...argv: string[]): Promise<LabRun> {
     const child = spawn(process.execPath, [SCRIPT, ...argv, '--extension', extension], { timeout: BROWSER_RUN_MS - 5000 })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
@@ -153,38 +154,36 @@ describe.concurrent('the browser lab against an unpacked extension', () => {
       stderr += chunk
     })
     const status = await new Promise<number | null>(resolve => child.once('close', resolve))
-    if (status === 127 && BROWSER_MISSING.test(stderr))
-      skip(stderr.trim())
     return { status, json: stdout.trim() === '' ? {} : JSON.parse(stdout) as Record<string, unknown>, stderr }
   }
 
-  it('loads an unpacked extension headless', async ({ skip }) => {
-    const run = await lab(skip, 'info')
+  it('loads an unpacked extension headless', async () => {
+    const run = await lab('info')
     expect(run.stderr).toBe('')
     expect(run.status).toBe(0)
     expect(run.json).toMatchObject({ name: 'Lab Fixture', version: '1.2.3', manifestVersion: 3, granted: ['topSites'] })
     expect(run.json.serviceWorker).toBe(`chrome-extension://${run.json.id as string}/sw.js`)
   }, BROWSER_RUN_MS)
 
-  it('evaluates in the service worker', async ({ skip }) => {
-    const run = await lab(skip, 'sw-eval', 'chrome.runtime.getManifest().name + " " + chrome.runtime.id')
+  it('evaluates in the service worker', async () => {
+    const run = await lab('sw-eval', 'chrome.runtime.getManifest().name + " " + chrome.runtime.id')
     expect(run.status).toBe(0)
     expect(run.json.result).toBe(`Lab Fixture ${run.json.id as string}`)
   }, BROWSER_RUN_MS)
 
-  it('optional permissions need no prompt', async ({ skip }) => {
-    const run = await lab(skip, 'sw-eval', 'chrome.permissions.contains({ permissions: [\'topSites\'] }).then(async held => ({ held, sites: Array.isArray(await chrome.topSites.get()) }))')
+  it('optional permissions need no prompt', async () => {
+    const run = await lab('sw-eval', 'chrome.permissions.contains({ permissions: [\'topSites\'] }).then(async held => ({ held, sites: Array.isArray(await chrome.topSites.get()) }))')
     expect(run.status).toBe(0)
     expect(run.json.result).toEqual({ held: true, sites: true })
   }, BROWSER_RUN_MS)
 
-  it('reads extension storage', async ({ skip }) => {
-    const run = await lab(skip, 'storage', 'local')
+  it('reads extension storage', async () => {
+    const run = await lab('storage', 'local')
     expect(run.json).toMatchObject({ area: 'local', items: { seeded: 'yes' } })
   }, BROWSER_RUN_MS)
 
-  it('collects the service worker console and uncaught errors', async ({ skip }) => {
-    const run = await lab(skip, 'logs', '--for', '3000', '--eval', 'console.log(\'lab says\', 2); setTimeout(() => { throw new Error(\'lab boom\') })')
+  it('collects the service worker console and uncaught errors', async () => {
+    const run = await lab('logs', '--for', '3000', '--eval', 'console.log(\'lab says\', 2); setTimeout(() => { throw new Error(\'lab boom\') })')
     expect(run.status).toBe(0)
     expect(run.json.console).toContainEqual({ level: 'log', text: 'lab says 2' })
     expect(run.json.errors).toContainEqual('Error: lab boom')
@@ -193,19 +192,19 @@ describe.concurrent('the browser lab against an unpacked extension', () => {
   it.for<[string, string, string]>([
     ['popup', 'Lab Popup', 'popup body'],
     ['options', 'Lab Options', 'options body'],
-  ])('opens the %s page the manifest declares', { timeout: BROWSER_RUN_MS }, async ([command, title, text], { skip }) => {
-    const run = await lab(skip, command)
+  ])('opens the %s page the manifest declares', { timeout: BROWSER_RUN_MS }, async ([command, title, text]) => {
+    const run = await lab(command)
     expect(run.json).toMatchObject({ status: 200, title, text, errors: [] })
   })
 
-  it('sees the content script on a page it matches', async ({ skip }) => {
-    const run = await lab(skip, 'page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]')
+  it('sees the content script on a page it matches', async () => {
+    const run = await lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]')
     expect(run.status).toBe(0)
     expect(run.json).toMatchObject({ title: 'Served', contentScripts: ['Lab Fixture'], injected: true })
   }, BROWSER_RUN_MS)
 
-  it('exits 1 on a page no content script matches', async ({ skip }) => {
-    const run = await lab(skip, 'page', `${origin}/elsewhere/`)
+  it('exits 1 on a page no content script matches', async () => {
+    const run = await lab('page', `${origin}/elsewhere/`)
     expect(run.status).toBe(1)
     expect(run.json).toMatchObject({ title: 'Served', contentScripts: [], injected: false })
   }, BROWSER_RUN_MS)
