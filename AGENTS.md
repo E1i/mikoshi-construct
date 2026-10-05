@@ -215,7 +215,8 @@ Treat as real defects:
 <!-- construct:discover:defects-vs-variance -->
 - A change under `templates/` or `src/materialize` reported done without the acceptance run
   (empty directory → `init` → `pnpm install` → `pnpm run quality`).
-- A user-facing string outside `src/ui/lore.ts`, or a lore string without its `PLAIN_LORE` twin.
+- A user-facing string outside `src/ui/lore.ts` or `src/ui/expect-lore.ts`, or a lore string without
+  its `PLAIN_LORE` twin.
 - A template version range that only matches a release published this week.
 - A hand edit to a generated artifact: a rendered composition block in `architecture/*.md`, the model
   picture in `architecture/model.md`, `src/contracts/openapi.ts`, a rendered release note under
