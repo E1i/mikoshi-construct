@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { EXPECT_LORE } from '../src/ui/expect-lore.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { IN_UNIVERSE, SHARED_BY_BOTH_REGISTERS } from './lore-vocabulary.js'
 
@@ -17,6 +18,14 @@ describe('the plain register carries none of the in-universe vocabulary', () => 
 
   it('names its exemption rather than filtering it away', () => {
     for (const key of SHARED_BY_BOTH_REGISTERS) {
+      const lore = (LORE as unknown as Record<string, unknown>)[key]
+      const plain = (PLAIN_LORE as unknown as Record<string, unknown>)[key]
+      expect(plain, key).toBe(lore)
+    }
+  })
+
+  it('holds every expect line the same in both registers', () => {
+    for (const key of Object.keys(EXPECT_LORE)) {
       const lore = (LORE as unknown as Record<string, unknown>)[key]
       const plain = (PLAIN_LORE as unknown as Record<string, unknown>)[key]
       expect(plain, key).toBe(lore)
