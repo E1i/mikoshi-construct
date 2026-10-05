@@ -18,6 +18,7 @@ export interface Notice {
 }
 
 export interface Lore extends ExpectLore {
+  expectNoneRaisedBy: (short: number, label: string) => string
   subtitle: (version: string) => string
   johnnyWakeUp: string
   soulkiller: string
@@ -290,12 +291,17 @@ function policyEntries(added: { dir: string, allowed: string[] }[]): string {
   return added.map(entry => `${entry.dir} (may import ${entry.allowed.length === 0 ? 'nothing' : entry.allowed.join(', ')})`).join(', ')
 }
 
+function expectNoneRaisedBy(short: number, label: string): string {
+  return `; ${short} more done run${short === 1 ? '' : 's'} at ${label} raise${short === 1 ? 's' : ''} it`
+}
+
 function andMore(rest: readonly string[]): string {
   return rest.length === 0 ? '' : `, and ${rest.length} more ${rest.length === 1 ? 'fact' : 'facts'}`
 }
 
 export const LORE: Lore = {
   ...EXPECT_LORE,
+  expectNoneRaisedBy,
   subtitle: (version: string) => `--- CONSTRUCT ENGINE v${version} // ARASAKA SUB-NET ---`,
   johnnyWakeUp: 'Wake up, Netrunner. We have a repository to build.',
   soulkiller: 'RUNNING SOULKILLER PROTOCOL...',
@@ -620,6 +626,7 @@ export const LORE: Lore = {
 
 export const PLAIN_LORE: Lore = {
   ...EXPECT_LORE,
+  expectNoneRaisedBy,
   subtitle: (version: string) => `mikoshi-construct v${version}`,
   johnnyWakeUp: 'Wake up, Netrunner. We have a repository to build.',
   soulkiller: 'Inspecting repository...',

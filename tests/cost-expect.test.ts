@@ -78,7 +78,7 @@ function snapshot(w: World): Record<string, string> {
 }
 
 const FORECAST_LINE = `expect: tokens ${APPROX} 300k, minutes ${APPROX} 30 ${DASH} effort medium, n=5, median, p25–p75 200k–400k; ledger ${SOURCE}`
-const NONE_FOUR_LINE = `expect: none ${DASH} n=4 for effort medium; ledger ${SOURCE}`
+const NONE_FOUR_LINE = `expect: none ${DASH} n=4 for effort medium; 1 more done run at effort medium raises it; ledger ${SOURCE}`
 
 describe('construct cost --expect', () => {
   it('prints the forecast line for the effort from five done runs, naming the ledger it read', async () => {
@@ -87,7 +87,7 @@ describe('construct cost --expect', () => {
     expect(lines(run.stdout)[0]).toBe(FORECAST_LINE)
   })
 
-  it('prints none with n and the effort when four runs are counted, and exits 0', async () => {
+  it('prints none with n, the effort and the one more done run that raises it when four runs are counted, and exits 0', async () => {
     const run = await cost(world(five().slice(0, 4)), '--expect', '--effort', 'medium', '--plain')
     expect(run.status).toBe(0)
     expect(lines(run.stdout)[0]).toBe(NONE_FOUR_LINE)
@@ -113,7 +113,7 @@ describe('construct cost --expect', () => {
     expect(forecast.status).toBe(0)
     expect(parseExpect(`${IMPLEMENT_HEAD}\n${lines(forecast.stdout)[0]}`)).toEqual({ kind: 'forecast', tokens: 300_000, minutes: 30, basis: { effort: 'medium', n: 5 }, band: { p25: 200_000, p75: 400_000 } })
     const none = await cost(world(five().slice(0, 4)), '--expect', '--effort', 'medium', '--plain')
-    expect(parseExpect(`${IMPLEMENT_HEAD}\n${lines(none.stdout)[0]}`)).toEqual({ kind: 'none', reason: `n=4 for effort medium; ledger ${SOURCE}` })
+    expect(parseExpect(`${IMPLEMENT_HEAD}\n${lines(none.stdout)[0]}`)).toEqual({ kind: 'none', reason: `n=4 for effort medium; 1 more done run at effort medium raises it; ledger ${SOURCE}` })
   })
 
   it('prints the same expect line in the plain, the default and the johnny theme', async () => {
@@ -174,7 +174,7 @@ describe('construct cost --expect', () => {
     expect([report.sources, report.notes]).toEqual([[`ledger ${SOURCE}`], []])
     expect(report.steps.map(step => step.step)).toEqual(['preflight', 'design', 'implement', 'verify'])
     const none = JSON.parse((await cost(world(five().slice(0, 4)), '--expect', '--effort', 'medium', '--json')).stdout) as { head: unknown }
-    expect(none.head).toEqual({ kind: 'none', reason: 'n=4 for effort medium' })
+    expect(none.head).toEqual({ kind: 'none', reason: 'n=4 for effort medium; 1 more done run at effort medium raises it' })
   })
 })
 

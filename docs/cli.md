@@ -1546,7 +1546,8 @@ too, and only rows whose `run` a journal line with `event: task` and that `class
 
 Every figure comes from the last 20 counted rows by `at`, not the whole history. The line is
 `expect: tokens ≈ <median>, minutes ≈ <median> — effort <e>, n=<n>, median, p25–p75 <p25>–<p75>` from five or
-more counted rows, `expect: none — n=<n> for <selection>` from fewer, and
+more counted rows, `expect: none — n=<n> for <selection>; <5 − n> more done run(s) at <selection> raise(s) it`
+from fewer, and
 `expect: none — the sample for <selection> mixes efforts …; pass --effort` without `--effort` when the
 rows span more than one. After it, separated by `; `, come the sources read (`ledger <path>`, and
 `journal <path>` with a class) and every reason a row was left out:
