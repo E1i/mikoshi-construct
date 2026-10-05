@@ -1,4 +1,4 @@
-import type { Signal, SignalStyle } from '../../src/ui/signal.js'
+import type { SignalStyle } from '../../src/ui/signal.js'
 import type { BudgetLine } from '../board/eddies.js'
 import type { GhRunner, PrList } from '../board/gh.js'
 import type { TaskLine } from './places.js'
@@ -131,11 +131,11 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const ghostText = deps.read(ghostJournal)
   const closed = closedTasks(ghostText)
-  const entry = (line: TaskLine): Signal | undefined => entryOf(ghostText ?? '', line.task)
   for (const line of lines) {
+    const entry = entryOf(ghostText ?? '', line.task)
     const block = renderSignal(taskCell(line), {
-      CONTRACT: entry(line)?.CONTRACT ?? `contract not recorded in ${ghostJournal}: no entry line for #${line.task}`,
-      EXPECT: entry(line)?.EXPECT ?? `expect not recorded in ${ghostJournal}: no entry line for #${line.task}`,
+      CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${ghostJournal}: no entry line for #${line.task}`,
+      EXPECT: entry?.EXPECT ?? `expect not recorded in ${ghostJournal}: no entry line for #${line.task}`,
       ACTION: `claude session ${sessionsOf(line).join(', then ')} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
       RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · ${closedCell(closed, line)} · ${restartsCell(line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
     }, deps.style ?? PLAIN_STYLE, succeeded(line) ? undefined : 'red')

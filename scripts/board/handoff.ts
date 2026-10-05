@@ -103,8 +103,8 @@ export interface Attempt {
   window: Window
   handoffFile: string | undefined
   supersededEvent: SupersededEvent | undefined
-  readonly entryLine: Signal | undefined
-  readonly journalPath: string
+  entryLine: Signal | undefined
+  journalPath: string
 }
 
 export interface Handoff {
@@ -130,11 +130,11 @@ function reviewLineFaults(line: unknown): string[] {
   return violations(line, { $ref: '#/$defs/journalLine' }, '', readContourSchema('review-verdict'))
 }
 
-function readJournal(dir: string, warnings: string[]): JournalLine[] {
-  const journalPath = path.join(dir, 'ghosts.jsonl')
+function readJournal(journalPath: string, warnings: string[]): { lines: JournalLine[], text: string } {
   if (!existsSync(journalPath))
-    return []
-  return readFileSync(journalPath, 'utf8').split('\n').filter(line => line !== '').flatMap((line, index) => {
+    return { lines: [], text: '' }
+  const text = readFileSync(journalPath, 'utf8')
+  const lines = text.split('\n').filter(line => line !== '').flatMap((line, index): JournalLine[] => {
     let parsed: JournalLine
     try {
       parsed = JSON.parse(line) as JournalLine
@@ -150,6 +150,7 @@ function readJournal(dir: string, warnings: string[]): JournalLine[] {
     }
     return [parsed]
   })
+  return { lines, text }
 }
 
 function readTasksFiles(dir: string, warnings: string[]): { file: string, mtime: Date, data: TasksFile }[] {
@@ -249,9 +250,8 @@ function handoffFileOf(dir: string, id: string): string | undefined {
 
 export function readHandoff(dir: string, repoRoot?: string): Handoff {
   const warnings: string[] = []
-  const journal = readJournal(dir, warnings)
   const journalPath = path.join(dir, 'ghosts.jsonl')
-  const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
+  const { lines: journal, text: journalText } = readJournal(journalPath, warnings)
   const tasksFiles = readTasksFiles(dir, warnings)
   const statusPath = path.join(dir, 'status.md')
   const statusText = existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined
@@ -284,7 +284,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
     const pathEvent = foldPath(journal, id)
     const worktree = facts.worktree ?? pathEvent?.worktree
     const session = pathEvent?.session
-    const attempt: Attempt = {
+    return {
       id,
       brief: facts.brief,
       briefWrittenAt: facts.brief !== undefined && existsSync(facts.brief) ? statSync(facts.brief).mtime : undefined,
@@ -305,11 +305,9 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       window: readWindow([repoRoot, worktree], session),
       handoffFile: handoffFileOf(dir, id),
       supersededEvent: lastOf(id, 'superseded'),
-    } as Attempt
-    return Object.defineProperties(attempt, {
-      entryLine: { value: entryOf(journalText, id) },
-      journalPath: { value: journalPath },
-    })
+      entryLine: entryOf(journalText, id),
+      journalPath,
+    }
   })
 
   return { attempts, edges: edgesFrom(dir, tasksFiles, warnings), warnings }
