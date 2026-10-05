@@ -7,7 +7,7 @@ import { commandWord } from '../attach/harness.js'
 
 export const DEFAULT_CONTOUR = 'ladder'
 export const CARD_REFERENCE = /^#(\d+)$/
-const BACKTICKED = /`([^`]+)`/
+const BACKTICKED = /`([^`]+)`/g
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
 export interface Correction {
@@ -131,12 +131,12 @@ function referencesChecked(field: 'depends' | 'blocks', references: readonly str
 
 function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   return card.witnesses.flatMap((witness) => {
-    const word = commandWord(BACKTICKED.exec(witness)?.[1] ?? '')
-    if (!word)
+    const words = [...witness.matchAll(BACKTICKED)].flatMap(match => commandWord(match[1]!) || [])
+    if (words.length === 0)
       return [{ field: 'witnesses', reason: `'${witness.trim()}' names no command; a witness is run by a command` }]
-    if (!repository.commandResolves(word))
-      return [{ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` }]
-    return []
+    return [...new Set(words)]
+      .filter(word => !repository.commandResolves(word))
+      .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` }))
   })
 }
 

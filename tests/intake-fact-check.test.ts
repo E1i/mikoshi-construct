@@ -4,7 +4,7 @@ import type { RepositoryFacts } from '../src/commands/intake/facts.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -160,6 +160,18 @@ describe('intake fact check', () => {
     expect(checked!.witnesses).toEqual(['it works', '`nosuchtool --flag` fails', '`pnpm run quality` passes', '`   ` nothing'])
   })
 
+  it('checks every backticked command of a witness and names the second one when it does not resolve', () => {
+    const repo = repositoryFacts({ commandResolves: word => word === 'pnpm' })
+    const [checked] = checkDraft([draftCard({ witnesses: ['`pnpm run quality` passes, then `nosuchtool --flag` fails'] })], [2], facts({ repository: repo }))
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual(['\'nosuchtool\' is not on PATH and is no file of the repository'])
+  })
+
+  it('gives a witness running `/usr/bin/env true` no unclear line', () => {
+    const dir = repository(['src/a.ts'])
+    const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env true` exits 0'] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
+    expect(checked!.unclear).toEqual([])
+  })
+
   it('corrects a decision the kind does not take through decisionsOf, and a contour outside the grammar', () => {
     for (const kind of KINDS) {
       const [default_] = decisionsOf(kind)
@@ -240,13 +252,15 @@ describe('directoryFacts walk', () => {
     expect(found).toEqual(['src/real/target.ts'])
   })
 
-  it('resolves a relative path only to a file inside the repository, and an absolute path to any existing file', () => {
-    const dir = repository(['scripts/run.sh'])
+  it('resolves a relative path only to a file inside the repository, and an absolute path to any existing executable file', () => {
+    const dir = repository(['scripts/run.sh', 'scripts/notes.txt'])
+    chmodSync(path.join(dir, 'scripts/run.sh'), 0o755)
     const facts = new DirectoryFacts(dir, '')
     expect(facts.commandResolves('./scripts/run.sh')).toBe(true)
     expect(facts.commandResolves('scripts/missing.sh')).toBe(false)
     expect(facts.commandResolves('../scripts/run.sh')).toBe(false)
     expect(facts.commandResolves(path.join(dir, 'scripts/run.sh'))).toBe(true)
+    expect(facts.commandResolves(path.join(dir, 'scripts/notes.txt'))).toBe(false)
     expect(facts.commandResolves(path.join(dir, 'scripts/missing.sh'))).toBe(false)
     expect(facts.commandResolves(path.join(dir, 'scripts'))).toBe(false)
   })
