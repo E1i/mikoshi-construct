@@ -281,10 +281,7 @@ function contractText(live: AttemptView): string {
   const { attempt } = live
   if (live.path === 'ladder')
     return `ladder · brief ${attempt.brief ?? '—'} · law ${NOT_RECORDED_IN_JOURNAL}`
-  const card = attempt.pathEvent?.card
-  if (card === undefined)
-    return `cheap · card not recorded on the start line · touches ${NOT_RECORDED_IN_JOURNAL} · law ${NOT_RECORDED_IN_JOURNAL}`
-  return `${card.kind} · ${card.contour} · ${card.decision} · touches ${NOT_RECORDED_IN_JOURNAL} · law ${NOT_RECORDED_IN_JOURNAL}`
+  return attempt.entryLine?.CONTRACT ?? `contract not recorded in ${attempt.journalPath}: no entry line for #${attempt.id}`
 }
 
 function actionText(live: AttemptView): string {
@@ -301,8 +298,14 @@ function resultText(live: AttemptView): string {
   return stage === undefined ? '—' : `${stage.name} ${stageText(stage)}`
 }
 
+function expectText(entry: Entry, live: AttemptView): string {
+  if (live.path === 'ladder')
+    return entry.expect
+  return live.attempt.entryLine?.EXPECT ?? `expect not recorded in ${live.attempt.journalPath}: no entry line for #${live.attempt.id}`
+}
+
 function signalOf(entry: Entry, live: AttemptView): Signal {
-  return { CONTRACT: contractText(live), EXPECT: entry.expect, ACTION: actionText(live), RESULT: resultText(live) }
+  return { CONTRACT: contractText(live), EXPECT: expectText(entry, live), ACTION: actionText(live), RESULT: resultText(live) }
 }
 
 export function renderCard(task: TaskView, view: BoardView): string[] {
