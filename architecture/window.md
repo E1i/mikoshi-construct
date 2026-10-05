@@ -37,6 +37,10 @@ A pull request of no owner-merged kind: run `pnpm run quality` as its own comman
 with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`;
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
+A pull request that changes `src/` or `templates/` ends its description with the code matrix over the alphabet of
+[architecture/code-matrix.md](code-matrix.md), the common rules and those its brief declares, and its count line
+`■ n □ n · n`; the window does not arm auto-merge on one without that line. A pull request that changes only `scripts/`
+needs none.
 
 Independent branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit prefix
 over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, never into branch names, and the
@@ -121,7 +125,7 @@ taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `park
 `shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
 is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `auto` with no
 owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
-nothing. `pnpm shift:report <dir>` reads it back. The flags and refusals are in
+nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The flags and refusals are in
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
