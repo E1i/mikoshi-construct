@@ -18,10 +18,10 @@ function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
 }
 
 function leftReason(parked: ParkedTask, closed: ReadonlySet<string>): string | null {
-  if (parked.who !== SHIFT_WHO)
-    return `who ${parked.who}`
   if (closed.has(parked.task.id))
     return 'closed'
+  if (parked.who !== SHIFT_WHO)
+    return `who ${parked.who}`
   const open = parked.task.card.depends.filter(id => !closed.has(String(id)))
   return open.length === 0 ? null : `depends ${open.map(id => `#${id}`).join(', ')} not closed`
 }

@@ -30,6 +30,10 @@ describe('choose', () => {
     ])
   })
 
+  it('names a closed card closed, whoever it was parked for', () => {
+    expect(choose([parked(542, 'who: window')], new Set(['542'])).left).toEqual([{ id: '542', reason: 'closed' }])
+  })
+
   it('takes a card whose depends are all closed', () => {
     expect(choose([parked(180, 'who: shift', '#179')], new Set(['179'])).chosen.map(task => task.id)).toEqual(['180'])
   })
