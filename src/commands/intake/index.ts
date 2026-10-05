@@ -68,7 +68,7 @@ export interface IntakeOptions {
   draft: string | undefined
   taken: string | undefined
   parking: string
-  dir?: string
+  dir: string
   journal: string
   dryRun: boolean
   confirm?: string
@@ -130,7 +130,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   let draftText: string
   let takenText: string
   let journalText: string | null
-  if (options.dir !== undefined && !isDirectory(options.dir))
+  if (!isDirectory(options.dir))
     return refused('unreadable', [`${options.dir} is not a directory`])
   try {
     draftText = readInput(options.draft, options.readStdin)
@@ -153,7 +153,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     parked: new Set(parked),
     done: new Set(closedTasks(journalText).keys()),
     merged: mergedTasks(journalText),
-    repository: options.dir === undefined ? null : new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
   })
   const slice = sliceCards(checked, numbers)
   if (slice.kind === 'refused')

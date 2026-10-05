@@ -1,5 +1,5 @@
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -14,14 +14,27 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { root: string, parking: string, journal: string, draft: string }
+interface World { root: string, repo: string, parking: string, journal: string, draft: string }
 
 function world(cards: Record<string, unknown>[]): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-confirm-'))
   roots.push(root)
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards }))
-  return { root, parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft }
+  return { root, repo: repositoryOf(root, cards), parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft }
+}
+
+function repositoryOf(root: string, cards: unknown): string {
+  const repo = path.join(root, 'repo')
+  mkdirSync(repo, { recursive: true })
+  const touches = Array.isArray(cards) ? cards.flatMap(card => (card as { touches?: string[] }).touches ?? []) : []
+  for (const entry of touches) {
+    const target = path.join(repo, entry.replace(/\/\*\*$/, ''))
+    mkdirSync(entry.endsWith('/**') ? target : path.dirname(target), { recursive: true })
+    if (!entry.endsWith('/**'))
+      writeFileSync(target, '')
+  }
+  return repo
 }
 
 function card(fields: Record<string, unknown> = {}): Record<string, unknown> {
@@ -29,7 +42,7 @@ function card(fields: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 function intake(w: World, options: Partial<IntakeOptions> = {}): IntakeResult {
-  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', ...options })
+  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', ...options })
 }
 
 function journalLines(w: World): Record<string, unknown>[] {

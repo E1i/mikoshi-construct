@@ -165,7 +165,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const file = path.join(w.parking, '80.md')
     writeFileSync(file, 'not a card\n')
     expect(printed(admit(w, file)).exit).toBe(INTAKE_EXIT.refused)
-    expect(runIntake({ admit: file, draft: 'd.json', taken: '-', parking: w.parking, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '' })).toMatchObject({ status: 'refused', refusal: 'admitWithDraft' })
+    expect(runIntake({ admit: file, draft: 'd.json', taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '' })).toMatchObject({ status: 'refused', refusal: 'admitWithDraft' })
     expect(existsSync(w.journal)).toBe(false)
   })
 })
