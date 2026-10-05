@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { recordMerges } from '../../ghosts/task-merged.js'
+import { mergedDetails, mergedSummary, recordMerges } from '../../ghosts/task-merged.js'
 
 const NOW = new Date('2026-10-05T09:00:00.000Z')
 const BODY = (id: number): string => `#${id} some-task [implement/runner/S/cheap/auto] · depends — · blocks —\n\nbody`
@@ -41,20 +41,43 @@ describe('recordMerges', () => {
     expect(second.calls.map(args => args[2])).toEqual(['701'])
   })
 
-  it('notes a pull request whose body is no card or whose lookup throws, and goes on', () => {
+  it('records a pull request without a card or closed without merge as a merge-skip line, asked of gh once', () => {
+    let journal = CLOSING
+    const calls: string[] = []
+    const gh = (args: string[]): string => {
+      calls.push(args[2]!)
+      return JSON.stringify(args[2] === '700'
+        ? { state: 'MERGED', mergedAt: '2026-10-05T08:30:00Z', mergedBy: { login: 'E1i' }, mergeCommit: { oid: 'c0ffee' }, body: 'not a card' }
+        : { state: 'CLOSED', mergedAt: null, mergedBy: null, mergeCommit: null, body: null })
+    }
+    const deps = { gh, journal: '/j', readJournal: () => journal, append: (_file: string, text: string) => {
+      journal += text
+    }, now: () => NOW }
+    const result = recordMerges(deps)
+    expect(result.notes).toEqual([])
+    expect(mergedSummary(result)).toBe('merged: 0 new · 1 PR without a card skipped · 1 PR closed without merge skipped')
+    expect(mergedDetails(result)[1]).toBe('PR #701 closed without merge')
+    expect(journal.split('\n').filter(line => line.includes('merge-skip')).map(line => JSON.parse(line) as unknown)).toEqual([
+      { event: 'merge-skip', pr: 700, skip: 'no-card', ts: NOW.toISOString() },
+      { event: 'merge-skip', pr: 701, skip: 'closed', ts: NOW.toISOString() },
+    ])
+    const again = recordMerges(deps)
+    expect(calls).toEqual(['700', '701'])
+    expect(mergedSummary(again)).toBeNull()
+  })
+
+  it('notes a pull request whose lookup throws, and goes on', () => {
     let journal = CLOSING
     const gh = (args: string[]): string => {
       if (args[2] === '700')
         throw new Error('gh down')
-      return JSON.stringify({ state: 'MERGED', mergedAt: '2026-10-05T08:30:00Z', mergedBy: { login: 'E1i' }, mergeCommit: { oid: 'c0ffee' }, body: 'not a card' })
+      return view('MERGED', 574)
     }
-    const { written, notes } = recordMerges({ gh, journal: '/j', readJournal: () => journal, append: (_file, text) => {
+    const result = recordMerges({ gh, journal: '/j', readJournal: () => journal, append: (_file, text) => {
       journal += text
     }, now: () => NOW })
-    expect(written).toEqual([])
-    expect(notes).toHaveLength(2)
-    expect(notes[0]).toContain('700')
-    expect(notes[1]).toContain('701')
-    expect(mergeLines(journal)).toEqual([])
+    expect(result.notes).toEqual(['PR #700 not read: gh down'])
+    expect(mergeLines(journal).map(line => line.pr)).toEqual([701])
+    expect(mergedSummary(result)).toBe('merged: 1 new · 1 PR not read')
   })
 })

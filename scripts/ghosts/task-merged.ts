@@ -11,6 +11,8 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { GHOST_JOURNAL, REPO } from '../shift/places.js'
 
 export const PREFIX = '[task:merged] '
+export const MERGED_FILE = 'merged.txt'
+export const DETAILS_FLAG = '--details'
 
 export interface MergedDeps {
   gh: GhRunner
@@ -20,17 +22,30 @@ export interface MergedDeps {
   now: () => Date
 }
 
+type SkipReason = 'no-card' | 'closed'
+
+export interface MergeSkip {
+  event: 'merge-skip'
+  pr: number
+  skip: SkipReason
+  ts: string
+}
+
 export interface MergedResult {
   written: MergeEvent[]
+  skipped: (MergeSkip & { detail: string })[]
+  open: number[]
   notes: string[]
 }
+
+type Outcome = { kind: 'merge', line: MergeEvent } | { kind: 'skip', skip: SkipReason, detail: string } | { kind: 'open' }
 
 interface PrView {
   state: string
   mergedAt: string
   mergedBy: { login: string }
   mergeCommit: { oid: string }
-  body: string
+  body: string | null
 }
 
 function journalEntries(text: string | null): Record<string, unknown>[] {
@@ -47,36 +62,73 @@ function journalEntries(text: string | null): Record<string, unknown>[] {
 
 function pullRequestsToLookUp(text: string | null): number[] {
   const entries = journalEntries(text)
-  const recorded = new Set(entries.filter(entry => entry.event === 'merge').map(entry => entry.pr))
+  const recorded = new Set(entries.filter(entry => entry.event === 'merge' || entry.event === 'merge-skip').map(entry => entry.pr))
   const closing = entries.filter(entry => entry.event === 'path' && typeof entry.verification === 'string').map(entry => entry.pr)
   return [...new Set(closing)].filter((pr): pr is number => typeof pr === 'number' && !recorded.has(pr))
 }
 
-function lookUp(deps: MergedDeps, pr: number): MergeEvent | null {
+function lookUp(deps: MergedDeps, pr: number): Outcome {
   const view = JSON.parse(deps.gh(['pr', 'view', String(pr), '-R', REPO, '--json', 'state,mergedAt,mergedBy,mergeCommit,body'])) as PrView
+  if (view.state === 'CLOSED')
+    return { kind: 'skip', skip: 'closed', detail: 'closed without merge' }
   if (view.state !== 'MERGED')
-    return null
-  const card = parseCard(view.body.split('\n')[0]!)
+    return { kind: 'open' }
+  const card = parseCard((view.body ?? '').split('\n')[0]!)
   if (card.kind === 'refused')
-    throw new Error(`the body does not start with a card: ${card.reason}`)
-  return { event: 'merge', task: String(card.card.id), pr, by: view.mergedBy.login, commit: view.mergeCommit.oid, merged: view.mergedAt, ts: deps.now().toISOString() }
+    return { kind: 'skip', skip: 'no-card', detail: `without a card: ${card.reason}` }
+  return { kind: 'merge', line: { event: 'merge', task: String(card.card.id), pr, by: view.mergedBy.login, commit: view.mergeCommit.oid, merged: view.mergedAt, ts: deps.now().toISOString() } }
 }
 
 export function recordMerges(deps: MergedDeps): MergedResult {
-  const result: MergedResult = { written: [], notes: [] }
+  const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
   for (const pr of pullRequestsToLookUp(deps.readJournal(deps.journal))) {
     try {
-      const line = lookUp(deps, pr)
-      if (line === null)
-        continue
-      deps.append(deps.journal, `${JSON.stringify(line)}\n`)
-      result.written.push(line)
+      const outcome = lookUp(deps, pr)
+      if (outcome.kind === 'open') {
+        result.open.push(pr)
+      }
+      else if (outcome.kind === 'skip') {
+        const skip: MergeSkip = { event: 'merge-skip', pr, skip: outcome.skip, ts: deps.now().toISOString() }
+        deps.append(deps.journal, `${JSON.stringify(skip)}\n`)
+        result.skipped.push({ ...skip, detail: outcome.detail })
+      }
+      else {
+        deps.append(deps.journal, `${JSON.stringify(outcome.line)}\n`)
+        result.written.push(outcome.line)
+      }
     }
     catch (error) {
-      result.notes.push(`PR #${pr}: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
+      result.notes.push(`PR #${pr} not read: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
     }
   }
   return result
+}
+
+function lookedUp(result: MergedResult): number {
+  return result.written.length + result.skipped.length + result.open.length + result.notes.length
+}
+
+export function mergedSummary(result: MergedResult): string | null {
+  if (lookedUp(result) === 0)
+    return null
+  const count = (skip: SkipReason): number => result.skipped.filter(line => line.skip === skip).length
+  const parts = [
+    `${result.written.length} new`,
+    [count('no-card'), 'without a card skipped'],
+    [count('closed'), 'closed without merge skipped'],
+    [result.open.length, 'open'],
+    [result.notes.length, 'not read'],
+  ].flatMap(part => typeof part === 'string' ? [part] : part[0] === 0 ? [] : [`${part[0]} ${part[0] === 1 ? 'PR' : 'PRs'} ${part[1]}`])
+  return `merged: ${parts.join(' · ')}`
+}
+
+export function mergedDetails(result: MergedResult): string[] {
+  return [
+    ...result.written.map(line => `#${line.task} merged in PR #${line.pr}`),
+    ...result.skipped.map(line => `PR #${line.pr} ${line.detail}`),
+    ...result.open.map(pr => `PR #${pr} open`),
+    ...result.notes,
+  ]
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -86,7 +138,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     process.exitCode = 1
   }
   else {
-    const { written, notes } = recordMerges({
+    const result = recordMerges({
       gh: execGh,
       journal,
       readJournal: file => readFileSync(file, 'utf8'),
@@ -96,9 +148,10 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
       },
       now: () => new Date(),
     })
-    for (const line of written)
-      console.log(`${PREFIX}#${line.task} merged in PR #${line.pr}`)
-    for (const note of notes)
-      console.error(`${PREFIX}${note}`)
+    console.log(`${PREFIX}${mergedSummary(result) ?? 'merged: nothing to look up'}`)
+    if (process.argv.includes(DETAILS_FLAG)) {
+      for (const line of mergedDetails(result))
+        console.log(`${PREFIX}${line}`)
+    }
   }
 }

@@ -116,6 +116,32 @@ describe('the shift records merged pull requests', () => {
     expect(mergeLines(world).map(line => [line.task, line.pr])).toEqual([['1', 600], ['9', 609]])
   })
 
+  it('prints one merged line for 3 carded and 30 card-less pull requests, writes the details to merged.txt, and a rerun asks gh about none of the 30', async () => {
+    const carded = [700, 701, 702]
+    const cardless = Array.from({ length: 30 }, (_, index) => 800 + index)
+    const closing = [...carded, ...cardless].map(pr => ({ event: 'path', task: `ghost-${pr}`, path: 'ladder', pr, verification: 'run' }))
+    const world = newWorld(closing, [{ id: 2 }])
+    const calls: string[] = []
+    const gh = (args: string[]): string => {
+      if (args[0] !== 'pr' || args[1] !== 'view')
+        return '[]'
+      calls.push(args[2]!)
+      const pr = Number(args[2])
+      const body = carded.includes(pr) ? `${cardLine(pr - 600)}\n\nbody` : 'an old pull request'
+      return JSON.stringify({ state: 'MERGED', mergedAt: '2026-10-05T00:30:00Z', mergedBy: { login: 'E1i' }, mergeCommit: { oid: 'c0ffee' }, body })
+    }
+    const err: string[] = []
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, [], err))
+    expect(err.filter(line => line.startsWith('[shift] merged'))).toEqual([`[shift] merged: 3 new · 30 PRs without a card skipped; details in ${path.join(world.shift, 'merged.txt')}`])
+    expect(readFileSync(path.join(world.shift, 'merged.txt'), 'utf8').split('\n').filter(line => line !== '')).toHaveLength(33)
+    expect(mergeLines(world).map(line => [line.task, line.pr])).toEqual([['100', 700], ['101', 701], ['102', 702]])
+    calls.length = 0
+    const rerun = path.join(world.root, 'shift-2')
+    mkdirSync(rerun)
+    await runShift([rerun, '--parking', world.parking], depsOf(world, gh, [], []))
+    expect(calls).toEqual([])
+  })
+
   it('does not fail the shift when gh throws', async () => {
     const world = newWorld([DONE_1], [{ id: 2 }])
     const err: string[] = []
