@@ -1,11 +1,11 @@
 import type { IntakeResult } from '../src/commands/intake/index.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/complexity.js'
+import { splitSignal } from '../src/card/complexity.js'
 import { WINDOW_WHO } from '../src/card/parking.js'
-import { RISK_LEVELS, RISK_MEANING, RISK_PREFIX, riskOf, riskReading } from '../src/card/risk.js'
+import { RISK_LEVELS, RISK_MEANING, RISK_PREFIX, riskOf, riskReading, SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -29,6 +29,18 @@ const LEVEL_OF_PATH: Record<string, string> = {
   'architecture/intake.md': 'R4',
   'tests/**': 'R4',
   'scripts/shredder/classify.ts': 'R4',
+  'scripts/ghosts': 'R2',
+  'scripts/ghosts/verdict.ts': 'R2',
+  'scripts/ghosts/task-close.ts': 'R2',
+  'scripts/shift': 'R2',
+  'scripts/shift/merge.ts': 'R2',
+  'scripts/ghosts/approval.ts': 'R1',
+  'scripts/ghosts/hash.ts': 'R1',
+  'scripts/ghosts/launch.ts': 'R1',
+  'scripts/ghosts/**': 'R1',
+  'src/presets/index.ts': 'R1',
+  'scripts/attach/earlier-carriers.ts': 'R1',
+  'src/model/schema.ts': 'R2',
   'README.md': 'R4',
 }
 
@@ -55,8 +67,7 @@ function draftCard(name: string, touches: readonly string[], unclear: number) {
   }
 }
 
-function intake(touches: readonly string[], unclear: number = 0): IntakeResult {
-  const root = mkdtempSync(path.join(tmpdir(), 'intake-risk-'))
+function intake(touches: readonly string[], unclear: number = 0, confirm?: string, root: string = mkdtempSync(path.join(tmpdir(), 'intake-risk-'))): IntakeResult {
   roots.push(root)
   const repo = path.join(root, 'repo')
   for (const entry of touches) {
@@ -67,7 +78,7 @@ function intake(touches: readonly string[], unclear: number = 0): IntakeResult {
   }
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [draftCard('risk-card', touches, unclear)] }))
-  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => '600' })
+  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, confirm, readStdin: () => '600' })
 }
 
 function only(result: IntakeResult) {
@@ -154,12 +165,45 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
     expect(riskReading(['templates/base/architecture/principles.md', 'tests/presets.test.ts', '.changeset/x.md'], false).slices).toEqual([])
   })
 
+  it('offers the risk seam when complexity slices still mix R1 and R4', () => {
+    const touches = ['scripts/construct/implement.workflow', 'scripts/shredder/classify.ts', 'docs/shredder.md']
+    expect(splitSignal({ touches, unclear: 3 })).toMatchObject({ split: true, slices: [], mixed: true })
+    const card = only(intake(touches, 3))
+    expect(linesOf(card.text, SEAM_PREFIX).map(line => line.split(' — ')[0])).toEqual(['seam: complexity', 'seam: risk'])
+    expect(linesOf(card.text, SLICE_PREFIX)).toEqual([
+      'slice: 1 R1 — scripts/construct/implement.workflow',
+      'slice: 2 R4 — scripts/shredder/classify.ts, docs/shredder.md',
+    ])
+  })
+
   it('leaves slicing to the complexity seam when it proposed slices', () => {
     const touches = [...Array.from({ length: 4 }, (_, index) => `templates/base/part-${index}.md`), 'docs/a.md', 'docs/b.md', 'docs/c.md']
     const card = only(intake(touches, 3))
     expect(linesOf(card.text, SEAM_PREFIX).map(line => line.split(' — ')[0])).toEqual(['seam: complexity'])
     expect(riskReading(touches, true).slices).toEqual([])
     expect(riskReading(touches, false).slices).toHaveLength(2)
+  })
+})
+
+describe('a proposed risk seam waits for the confirmation token corrections wait for', () => {
+  const touches = ['architecture/security-invariants.md', 'src/commands/intake/slice.ts', 'docs/cli.md']
+
+  it('parks nothing until a person confirms the token, then journals the confirmation as a person\'s', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'intake-risk-'))
+    const held = intake(touches, 0, undefined, root)
+    expect(existsSync(path.join(root, 'parking'))).toBe(false)
+    expect(existsSync(path.join(root, 'ghosts.jsonl'))).toBe(false)
+    expect(held.status).toBe('awaiting')
+    const token = held.status === 'awaiting' ? held.token : ''
+    const out: string[] = []
+    printIntake(createUi(resolveTheme({ plain: true }), text => out.push(text)), held)
+    expect(out.at(-1)).toContain(`--confirm ${token}`)
+    expect(intake(touches, 0, token, root).status).toBe('written')
+    expect(JSON.parse(readFileSync(path.join(root, 'ghosts.jsonl'), 'utf8'))).toMatchObject({ event: 'intake', confirmation: 'person', corrections: [] })
+  })
+
+  it('a card with no risk seam is written without a token', () => {
+    expect(intake(['templates/attach/earlier-carriers.json', 'tests/attach-carriers.test.ts']).status).toBe('written')
   })
 })
 
