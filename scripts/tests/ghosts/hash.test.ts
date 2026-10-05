@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { approvedHashPath, checkApproval } from '../../ghosts/approval.js'
-import { approvalLine, hashBrief, resolveApprover } from '../../ghosts/hash.js'
+import { approvalLine, checkAcceptanceBuild, hashBrief, resolveApprover } from '../../ghosts/hash.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
@@ -15,7 +15,9 @@ const NOW = new Date(2026, 9, 4, 12)
 const APPROVER = 'Approver One'
 const HEAD_SHA = execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 
+function GREEN_PREFLIGHT(): void {}
 const SOUND_TEXT = '/implement Print the name.\nSketch: none — independent implementation is the witness\n\nAcceptance: the name is printed — witness: `echo name`'
+const RED_ON_BASE_TEXT = '/implement Print the name.\nSketch: none — independent implementation is the witness\n\nAcceptance: the file is there — witness: `test -e added.txt`'
 const BACKTICK_TEXT = '/implement Print the name.\nSketch: none — independent implementation is the witness\n\nAcceptance: the name is printed — witness: `echo `name``'
 
 function worldDir(): string {
@@ -35,8 +37,25 @@ function gitHome(userName: string | undefined): NodeJS.ProcessEnv {
   return { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
 }
 
-function runHash(args: string[], gitUserName?: string): { status: number | null, stdout: string, stderr: string } {
-  const result = spawnSync(process.execPath, [TSX_CLI, ...args], { encoding: 'utf8', cwd: worldDir(), env: gitHome(gitUserName) })
+function cliRepository(): string {
+  const root = worldDir()
+  const origin = path.join(root, 'origin.git')
+  const repo = path.join(root, 'repo')
+  const git = (cwd: string, ...args: string[]): void => {
+    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', '-C', cwd, ...args], { stdio: 'ignore' })
+  }
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin])
+  execFileSync('git', ['init', '-q', '-b', 'main', repo])
+  writeFileSync(path.join(repo, 'README.md'), 'base\n')
+  git(repo, 'add', '-A')
+  git(repo, 'commit', '-q', '-m', 'base')
+  git(repo, 'remote', 'add', 'origin', origin)
+  git(repo, 'push', '-q', 'origin', 'main')
+  return repo
+}
+
+function runHash(args: string[], gitUserName?: string, cwd: string = worldDir()): { status: number | null, stdout: string, stderr: string } {
+  const result = spawnSync(process.execPath, [TSX_CLI, ...args], { encoding: 'utf8', cwd, env: gitHome(gitUserName) })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
@@ -49,7 +68,7 @@ describe('approvalLine', () => {
 
   it('prints the whole approval line for a sound brief, which checkApproval accepts', () => {
     const brief = briefWith(SOUND_TEXT)
-    const line = approvalLine(brief, NOW, APPROVER)
+    const line = approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, GREEN_PREFLIGHT)
 
     expect(line).toBe(`approved /implement text sha256: ${hashBrief(brief)} sketch: none (2026-10-04, ${APPROVER})`)
     writeFileSync(approvedHashPath(brief), `${line}\n`)
@@ -66,7 +85,7 @@ describe('approvalLine', () => {
   it('names the whole sketch sha when the brief starts from one', () => {
     const brief = briefWith(SOUND_TEXT.replace(/^Sketch: .*$/m, `Sketch: sketch/t @ ${HEAD_SHA}`))
 
-    expect(approvalLine(brief, NOW, APPROVER)).toBe(`approved /implement text sha256: ${hashBrief(brief)} sketch: ${HEAD_SHA} (2026-10-04, ${APPROVER})`)
+    expect(approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, GREEN_PREFLIGHT)).toBe(`approved /implement text sha256: ${hashBrief(brief)} sketch: ${HEAD_SHA} (2026-10-04, ${APPROVER})`)
   })
 })
 
@@ -115,16 +134,42 @@ describe('ghosts:hash from the command line', () => {
     const link = path.join(dir, 'hash.ts')
     symlinkSync(HASH, link)
 
-    const result = runHash([link, brief, '--by', APPROVER], 'Git Name')
+    writeFileSync(brief, `${RED_ON_BASE_TEXT}\n`)
+    const result = runHash([link, brief, '--by', APPROVER], 'Git Name', cliRepository())
     expect(result.status).toBe(0)
     expect(result.stdout.trim()).toMatch(new RegExp(`^approved /implement text sha256: ${hashBrief(brief)} sketch: none \\(\\d{4}-\\d{2}-\\d{2}, ${APPROVER}\\)$`))
   })
 
   it('signs with git config user.name when --by is not given', () => {
-    const result = runHash([HASH, briefWith(SOUND_TEXT)], 'Git Name')
+    const result = runHash([HASH, briefWith(RED_ON_BASE_TEXT)], 'Git Name', cliRepository())
 
     expect(result.status).toBe(0)
     expect(result.stdout.trim()).toMatch(/ sketch: none \(\d{4}-\d{2}-\d{2}, Git Name\)$/)
+  })
+
+  it('prints the preflight time and the pinned base on stderr beside the line on stdout', () => {
+    const result = runHash([HASH, briefWith(RED_ON_BASE_TEXT), '--by', APPROVER], undefined, cliRepository())
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toMatch(/^approved \/implement text sha256: /)
+    expect(result.stderr).toMatch(/preflight: base [0-9a-f]{7}; .*total \d+\.\ds/)
+    expect(result.stderr).toContain('positive control: none (Sketch: none)')
+  })
+
+  it('prints no hash and exits 1 for a witness already green on the base, naming it', () => {
+    const result = runHash([HASH, briefWith(SOUND_TEXT), '--by', APPROVER], undefined, cliRepository())
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toMatch(/preflight P7: witness "the name is printed" exits 0 on the clean base [0-9a-f]{7}/)
+  })
+
+  it('refuses, printing no hash, when the current directory is in no git repository', () => {
+    const result = runHash([HASH, briefWith(RED_ON_BASE_TEXT), '--by', APPROVER])
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('preflight P0: run ghosts:hash inside the repository')
   })
 
   it('refuses, printing no hash, when neither --by nor git config user.name names the approver', () => {
