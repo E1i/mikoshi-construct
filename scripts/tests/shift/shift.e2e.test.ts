@@ -382,7 +382,7 @@ describe('w9: with --parking the shift takes the cards whose who is shift', () =
     expect(io.out.slice(0, 2)).toEqual(['[shift] parking: takes #1', summary])
     expect(io.out.findIndex(line => line.includes('CONTRACT'))).toBeLessThanOrEqual(10)
     expect(io.out.some(line => line.includes('(closed)'))).toBe(false)
-    expect(checked.out).toEqual(['[shift] parking: takes #1', summary, '[shift] check passed: 1.md'])
+    expect(checked.out).toEqual(['[shift] parking: takes #1', summary, '[shift] hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests', '[shift] check passed: 1.md'])
 
     const queue = readFileSync(path.join(world.shift, 'queue.txt'), 'utf8').trimEnd().split('\n')
     expect(queue).toHaveLength(29)

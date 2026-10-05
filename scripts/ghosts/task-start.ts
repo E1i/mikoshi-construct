@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { mergedTasks } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
@@ -154,7 +155,12 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps): TaskStartResu
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const admitted = admission(card, deps.readJournal(journal), args.waiver)
+  const journalText = deps.readJournal(journal)
+  const merged = mergedTasks(journalText)
+  const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
+  if (unmerged.length > 0)
+    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
+  const admitted = admission(card, journalText, args.waiver)
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
   let repo: string

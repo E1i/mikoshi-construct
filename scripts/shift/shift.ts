@@ -15,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { closedTasks } from '../../src/card/closed.js'
+import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
@@ -24,6 +24,7 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { cheapExpect } from '../ghosts/cheap-expect.js'
+import { recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
@@ -40,7 +41,7 @@ export const USAGE = [
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
   `With --parking, the tasks come from <parking>/<id>.md instead: the same header plus who: and an optional priority: p0.`,
-  `The shift takes every card with who: ${SHIFT_WHO} whose depends are closed in the journal and which is not closed itself,`,
+  `The shift takes every card with who: ${SHIFT_WHO} whose depends are merged in the journal and which is not closed itself,`,
   'p0 first, then by id, and leaves a card whose touches overlap one already taken; <dir> keeps the journal and the reports.',
   `It prints the cards it takes and one line counting the cards it leaves by reason; the full list goes to <dir>/${QUEUE_FILE}, and --queue prints it without the closed cards.`,
   'A task file starts with a header and a blank line, then the prompt:',
@@ -55,7 +56,8 @@ export const USAGE = [
   `  ${CLAUDE_VARIABLE}='GH_TOKEN=$(gh auth token --user E1i) claude --permission-mode auto'`,
   'Keep the Mac awake for the whole runner, not only for each claude session, or it sleeps between tasks:',
   '  caffeinate -dis pnpm shift <dir>',
-  '--check parses the tasks and checks touches against each other and the open pull requests, and starts nothing.',
+  'A real shift records merged pull requests as merge lines before it chooses and once after its last task.',
+  '--check parses the tasks and checks touches against each other and the open pull requests, records no merge line, and starts nothing.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
 
@@ -102,10 +104,26 @@ function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: 
 function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
   const parsed = taskFiles(deps, parking).map(file => parseParkingFile(file, deps.read(path.join(parking, file))))
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
-  const closed = new Set(closedTasks(deps.exists(journal) ? deps.read(journal) : null).keys())
+  const text = deps.exists(journal) ? deps.read(journal) : null
+  const done = new Set(closedTasks(text).keys())
   return {
-    choice: choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), closed),
+    choice: choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), done, mergedTasks(text)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
+  }
+}
+
+const MERGE_HINT = `${PREFIX}hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests`
+
+function sweepMerges(deps: ShiftDeps, journal: string): void {
+  try {
+    const { written, notes } = recordMerges({ gh: deps.gh, journal, readJournal: deps.readJournal, append: deps.append, now: deps.now })
+    for (const line of written)
+      deps.err(`${PREFIX}merged: #${line.task} PR #${line.pr}`)
+    for (const note of notes)
+      deps.err(`${PREFIX}merged: ${note}`)
+  }
+  catch (error) {
+    deps.err(`${PREFIX}merged: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
   }
 }
 
@@ -246,6 +264,9 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (deps.exists(journal))
     return refuse(deps, [`${journal} exists: this shift already ran; start a new one in a new directory`])
   const parking = parkingArg === undefined ? undefined : path.resolve(deps.cwd, parkingArg)
+  const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  if (parking !== undefined && !check)
+    sweepMerges(deps, ghostJournal)
   const read = parking === undefined ? { ...readTasks(deps, dir), choice: undefined } : readParking(deps, parking)
   const { errors } = read
   if (errors.length > 0)
@@ -253,6 +274,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (read.choice !== undefined) {
     for (const line of choiceLines(read.choice, queue))
       deps.out(line)
+    if (check && read.choice.left.some(card => card.reason.startsWith('depends ')))
+      deps.out(MERGE_HINT)
   }
   const tasks = read.choice?.chosen ?? ('tasks' in read ? read.tasks : [])
   if (tasks.length === 0)
@@ -281,6 +304,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(line)}`)
     clean &&= succeeded(line)
   }
+  if (parking !== undefined)
+    sweepMerges(deps, ghostJournal)
   deps.out(`${PREFIX}shift over; pnpm shift:report ${dir}`)
   return clean ? 0 : 1
 }

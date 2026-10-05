@@ -15,7 +15,9 @@ instruction (task #167), the coordinating window added `scripts/ghosts/role-samp
 the shift's merge rule (`header.md`) and the script that applies it (`merge.ts`), both under `scripts/shift/`, to `own-instructions`. The same day, at Eli's instruction (task #178), it added
 `scripts/shredder/reader.ts`, `scripts/shredder/authority.ts` and `scripts/shredder/glob.ts` to `own-instructions`: the merge
 decision is taken on their output. On 2026-10-04, at Eli's instruction (task #190), the coordinating window added `scripts/shift/shift.ts`
-to `own-instructions`: the shift runner now runs that merge decision itself after a session exits.
+to `own-instructions`: the shift runner now runs that merge decision itself after a session exits. On 2026-10-05, at Eli's instruction (task #574), the coordinating window added `scripts/ghosts/task-merged.ts` to `ghosts`:
+`task-start.ts` starts or refuses a card on the merge lines it writes; and `scripts/shift/parking.ts` to `own-instructions`: the shift's
+choice of a card now reads those merge lines.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -24,11 +26,11 @@ is matched by its title.)
 | kind | paths (globs) | what it covers | example |
 |---|---|---|---|
 | release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 |
-| own-instructions | `.claude/**`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md`, `scripts/shift/header.md`, `scripts/shift/merge.ts`, `scripts/shift/shift.ts`, `scripts/shredder/reader.ts`, `scripts/shredder/authority.ts`, `scripts/shredder/glob.ts` | the agent's own working instructions: the implement skill, the agent files (`implementer.md`, `harness.md`, `architect.md`), the ladder script, `check-acceptance` — in the repository or in `templates/ai/` — and what `attach` hands the agent from `templates/attach/` | PR #244, PR #282; issues #257, #269, #271 |
+| own-instructions | `.claude/**`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md`, `scripts/shift/header.md`, `scripts/shift/merge.ts`, `scripts/shift/parking.ts`, `scripts/shift/shift.ts`, `scripts/shredder/reader.ts`, `scripts/shredder/authority.ts`, `scripts/shredder/glob.ts` | the agent's own working instructions: the implement skill, the agent files (`implementer.md`, `harness.md`, `architect.md`), the ladder script, `check-acceptance` — in the repository or in `templates/ai/` — and what `attach` hands the agent from `templates/attach/` | PR #244, PR #282; issues #257, #269, #271 |
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init` or `attach` writes: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
-| ghosts | `scripts/ghosts/agreed.ts`, `scripts/ghosts/approval.ts`, `scripts/ghosts/args-chain.ts`, `scripts/ghosts/cleanup.ts`, `scripts/ghosts/hash.ts`, `scripts/ghosts/install.ts`, `scripts/ghosts/journal.ts`, `scripts/ghosts/launch.ts`, `scripts/ghosts/session.ts`, `scripts/ghosts/sketch.ts`, `scripts/ghosts/task-start.ts`, `scripts/ghosts/tasks.ts`, `scripts/ghosts/verdict.ts` | the Ghost launcher and what changes the ladder, approval, merge or security: launch, approval, hash, verdict, cleanup, and every file whose output one of them trusts with a decision | — |
+| ghosts | `scripts/ghosts/agreed.ts`, `scripts/ghosts/approval.ts`, `scripts/ghosts/args-chain.ts`, `scripts/ghosts/cleanup.ts`, `scripts/ghosts/hash.ts`, `scripts/ghosts/install.ts`, `scripts/ghosts/journal.ts`, `scripts/ghosts/launch.ts`, `scripts/ghosts/session.ts`, `scripts/ghosts/sketch.ts`, `scripts/ghosts/task-start.ts`, `scripts/ghosts/task-merged.ts`, `scripts/ghosts/tasks.ts`, `scripts/ghosts/verdict.ts` | the Ghost launcher and what changes the ladder, approval, merge or security: launch, approval, hash, verdict, cleanup, and every file whose output one of them trusts with a decision | — |
 | agents-md | `AGENTS.md` | this repository's `AGENTS.md`, the rules every agent working here reads | PR #366 |
 
 Everything else is merged through auto-merge by the window that gated it, including `quality`/CI gates and `formats.*`

@@ -24,7 +24,8 @@ export interface CheckedCard extends DraftCard {
 export interface CheckFacts {
   taken: ReadonlySet<number>
   parked: ReadonlySet<number>
-  closed: ReadonlySet<string>
+  done: ReadonlySet<string>
+  merged: ReadonlySet<string>
   repository: RepositoryFacts | null
 }
 
@@ -116,13 +117,13 @@ function referencesChecked(field: 'depends' | 'blocks', references: readonly str
     if (id === undefined) {
       linked.kept.push(reference)
     }
-    else if (facts.closed.has(id)) {
-      linked.corrections.push({ field, was: reference, now: '(removed)', reason: 'already closed' })
+    else if (facts.merged.has(id)) {
+      linked.corrections.push({ field, was: reference, now: '(removed)', reason: 'already merged' })
     }
     else {
       linked.kept.push(reference)
-      if (!facts.parked.has(Number(id)))
-        linked.unclear.push({ field, reason: `'${reference}' is neither a parked card nor closed in the journal` })
+      if (!facts.parked.has(Number(id)) && !facts.done.has(id))
+        linked.unclear.push({ field, reason: `'${reference}' is neither a parked card, done nor merged in the journal` })
     }
   }
   return linked

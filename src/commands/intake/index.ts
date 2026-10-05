@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readS
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { closedTasks } from '../../card/closed.js'
+import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { checkDraft, correctionText } from './check.js'
 import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
@@ -151,7 +151,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),
-    closed: new Set(closedTasks(journalText).keys()),
+    done: new Set(closedTasks(journalText).keys()),
+    merged: mergedTasks(journalText),
     repository: options.dir === undefined ? null : new DirectoryFacts(options.dir, process.env.PATH ?? ''),
   })
   const slice = sliceCards(checked, numbers)
