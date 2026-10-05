@@ -1,3 +1,4 @@
+import type { Attempt } from '../../board/handoff.js'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -22,7 +23,10 @@ describe('the readers of ghosts.jsonl read a journal that holds an entry line as
     const without = readHandoff(journalDir([START, CLOSE]))
     const withEntry = readHandoff(journalDir([START, ENTRY, CLOSE]))
     expect(without.attempts).toHaveLength(1)
-    expect(withEntry.attempts).toEqual(without.attempts)
+    const withoutEntryFields = ({ entryLine: _entryLine, journalPath: _journalPath, ...rest }: Attempt): Omit<Attempt, 'entryLine' | 'journalPath'> => rest
+    expect(withEntry.attempts.map(withoutEntryFields)).toEqual(without.attempts.map(withoutEntryFields))
+    expect(withEntry.attempts[0]!.entryLine).toMatchObject({ CONTRACT: 'c', EXPECT: 'e', ACTION: 'a', RESULT: ENTRY_RESULT })
+    expect(without.attempts[0]!.entryLine).toBeUndefined()
     expect(withEntry.warnings).toEqual(without.warnings)
   })
 
