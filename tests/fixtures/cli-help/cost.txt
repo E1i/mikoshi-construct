@@ -4,10 +4,12 @@ USAGE construct cost [OPTIONS]
 
 OPTIONS
 
-  --dir=<dir>    Target directory (Default: .)                    
-      --plain    No colors, no lore (CI-friendly) (Default: false)
-     --johnny    Wake up, Netrunner. (Default: false)             
-       --last    Only the most recent run (Default: false)        
-       --json    Machine-readable report (Default: false)         
+        --dir=<dir>    Target directory (Default: .)                                                     
+            --plain    No colors, no lore (CI-friendly) (Default: false)                                 
+           --johnny    Wake up, Netrunner. (Default: false)                                              
+             --last    Only the most recent run (Default: false)                                         
+             --json    Machine-readable report (Default: false)                                          
+           --expect    Forecast the next run from the done runs in .construct/runs.jsonl (Default: false)
+  --effort=<effort>    Effort the forecast is for: low, medium or high (needs --expect)                  
 
 
