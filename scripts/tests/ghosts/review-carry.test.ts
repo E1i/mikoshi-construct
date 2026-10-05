@@ -175,6 +175,21 @@ describe('ghosts:verdict on the head an update-branch left', () => {
     expect(result.ok ? [] : result.reasons).toEqual([`verdict tree ${git(world.repo, 'rev-parse', `${world.reviewed}^{tree}`)} is not the tree of ${merged} (${git(world.repo, 'rev-parse', `${merged}^{tree}`)})`])
   })
 
+  it('carries nothing when another check of the verdict fails, and names that fault beside the tree', async () => {
+    const world = reviewedPullRequest()
+    const { dir, verdict, journal } = handoff(world)
+    await recordVerdict(verdict, dir, { commit: world.reviewed, repo: world.repo, main: 'main' })
+    writeFileSync(path.join(dir, 'review-t.md'), `${REPORT}Edited after the verdict.\n`)
+    mainMoves(world, { 'other.txt': 'main moved\n' })
+    const merged = updateBranch(world)
+    const result = await recordVerdict(verdict, dir, { commit: merged, repo: world.repo, main: 'main' })
+    const reasons = result.ok ? [] : result.reasons
+    expect(reasons).toHaveLength(2)
+    expect(reasons[0]).toMatch(/^verdict tree [0-9a-f]{40} is not the tree of /)
+    expect(reasons[1]).toContain('review-t.md')
+    expect(journalLines(journal).map(line => line.event)).toEqual(['review'])
+  })
+
   it('keeps the plain tree refusal when the review line stands for another verdict file of the same task and tree', async () => {
     const world = reviewedPullRequest()
     const { dir, verdict } = handoff(world)
