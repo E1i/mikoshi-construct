@@ -42,6 +42,30 @@ describe('runMerge', () => {
     expect(result.stdout).toEqual(['[shift:merge] owner path scripts/shift/header.md — merge is Eli\'s'])
   })
 
+  it('arms nothing for a pull request that changes src/ with no matrix count line, and names the path', () => {
+    const { calls, result } = run(cardLine('auto'), ['src/program.ts', 'scripts/board/derive.ts'])
+    expect(armed(calls)).toBe(false)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[shift:merge] PR #42 changes src/program.ts and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md); auto-merge not armed'])
+  })
+
+  it('arms nothing for a pull request that changes templates/ with no matrix count line', () => {
+    const { calls, result } = run(cardLine('auto'), ['templates/base/architecture/principles.md'])
+    expect(armed(calls)).toBe(false)
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('arms auto-merge for a pull request that changes src/ and ends with the matrix count line', () => {
+    const { calls, result } = run(`${cardLine('auto')}\n\n|    | BD | E9 | FF |\n| 7A | ■ | · | · |\n\n■ 1 □ 0 · 5`, ['src/program.ts'])
+    expect(armed(calls)).toBe(true)
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('arms auto-merge for a pull request that changes only scripts/ with no matrix', () => {
+    const { calls } = run(cardLine('auto'), ['scripts/board/derive.ts'])
+    expect(armed(calls)).toBe(true)
+  })
+
   it('refuses a pull request whose first line is not a card', () => {
     const { calls, result } = run('Some description', ['scripts/board/derive.ts'])
     expect(armed(calls)).toBe(false)

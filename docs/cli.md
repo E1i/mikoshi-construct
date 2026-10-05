@@ -1747,6 +1747,19 @@ and `who: window`, so the shift does not take it until a person slices it or kee
 reason written. The signal only proposes; it changes no field of the card line. `--admit` does not
 count it.
 
+**Risk.** Every card also gets a `risk: R<n> — <meaning> — <why>` line, read from its `touches`: `R1`
+critical (the ladder mechanism, anything `init`, `attach`, `sync` or `detach` write into another
+repository including the attach carriers, the security invariants), `R2` high (a contract or a recorded
+shape others read), `R3` moderate (everything else), `R4` low (documentation, logs, tests, the
+changeset, scripts outside the gate). The highest level a touch reaches decides. When a card mixes
+`R1` with `R3`–`R4` work and the split signal proposed no slices, the card gets a
+`seam: risk — … — <principle>` line, two `slice: <n> R<k> — <touches>` lines (the R1 side and the
+rest; a generated file stays with its sources and a template with its twin; `tests/**` and
+`.changeset/**` go with the rest), and `who: window`. When the R1 side is only carrier delivery and
+the rest is code, the seam reads `seam: risk (capability / delivery)` and the slices are named
+`delivery` and `capability`. Like the split signal, it only proposes and changes no field of the card
+line.
+
 **A card parked before the door.** `construct intake --admit <parking>/<id>.md` admits a card parked
 before intake confirmed cards: no `--draft`, no `--taken` (with either it refuses), and no new number.
 The card is checked like a sliced one under its own number; with a correction it is held behind a

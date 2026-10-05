@@ -11,6 +11,10 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Never approve a workflow run and never run `gh pr merge` yourself. The first line of the pull request's
   description is the task's card:
   `{{card}}`
+- A pull request that changes `src/` or `templates/` ends its description with the code matrix over the
+  alphabet of `architecture/code-matrix.md` (the common rules and those the brief declares): the upper
+  triangle and the count line `■ n □ n · n`. Without that line `pnpm shift:merge` arms nothing. A pull
+  request that changes only `scripts/` needs no matrix.
 - Run no background command, no monitor and no wait for a notification: nobody wakes a headless
   session, and a session that waits ends there. Run everything in the foreground and read its result
   in the same call.

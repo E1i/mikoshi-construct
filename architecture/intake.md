@@ -98,6 +98,40 @@ decision stay as the draft states them, and the person slices the card or keeps 
 reason written. Complexity and risk are two axes; the signal reads complexity only. The MORSE forecast
 is not one of the signals yet: intake has no reader of it.
 
+## Risk is the second axis, and its seam is offered only where complexity found none
+
+`riskReading` in `src/card/risk.ts` reads the same `touches` for risk, and every sliced card gets one
+`risk: R<n> — <meaning> — <why>` line in its body, naming each touch at the level that decides. The
+levels follow the owner's Forge principle, in this repository's own words:
+
+- `R1` — critical: a person decides it and a review reads it before it merges
+- `R2` — high: a contract or a recorded shape that others read changes; a review reads it
+- `R3` — moderate: a capability grows beside what already works; the harness and a review
+- `R4` — low: tests close it
+
+The highest level any touch reaches decides, and a glob reaches every path under it. R1 by path is the
+core: the ladder mechanism a task runs on (the implement skill, the agents, `scripts/construct`,
+`implement.workflow`, `check-acceptance`, and their template twins), what `init`, `attach`, `sync` or
+`detach` write into another repository (`templates/**` with the attach carriers, `src/materialize`,
+`src/sync`, `src/manifest.ts`, `src/presets`, those commands, `scripts/attach`), and
+`architecture/security-invariants.md`. R2 is a contract or a recorded shape others read
+(`contract/`, `src/detect`, `src/model/schema.ts`). R4 is documentation, a log, a test, a changeset or
+a script outside the gate. Everything else is R3. The level is a reading of paths, not of meaning, and
+is revised as the work shows what it really touches; the card line gets no field for it.
+
+When a card holds R1 together with R3–R4 work and the complexity seam proposed no slices, intake
+offers the risk seam: a `seam: risk — … — <principle>` line and two `slice: <n> R<k> — <touches>`
+lines, the R1 side and the rest, each with the highest level inside it, and the card is held at
+`who: window`. Tests and the changeset go with the lower side and never make a card mixed on their
+own. A slice never parts what must change together: a generated file stays with its sources
+(`contract/surface.json`, `templates/attach/earlier-carriers.json`) and a template with its twin
+(`.claude/**` and `templates/ai/*/_claude/**`, `scripts/construct/**` and its template copy), so a
+coupled group lands on the R1 side when any member is R1. When the R1 side is only carrier delivery
+(`templates/ai`, `templates/attach`, `src/presets`, `scripts/attach`, and their twins) and the rest
+carries code, the seam is named `capability / delivery` and the slices `delivery` and `capability`.
+The seam only proposes: kind, contour and decision stay as the draft states them, and a person slices
+the card or keeps it whole with the reason written.
+
 ## A card parked before the door is admitted, not re-sliced
 
 `task:start` and the shift take only a card with an `intake` line, and a card parked before that door

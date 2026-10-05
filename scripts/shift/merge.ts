@@ -14,6 +14,8 @@ import { REPO } from './places.js'
 export const PREFIX = '[shift:merge] '
 export const USAGE = 'usage: pnpm shift:merge <pull request number>'
 export const OWNER_MERGES_ON_MAIN = 'origin/main:architecture/owner-merges.md'
+export const MATRIX_COUNT_LINE = /■ \d+ □ \d+ · \d+/
+const MATRIX_REQUIRED_UNDER = ['src/', 'templates/']
 
 export type MergeVerdict
   = | { kind: 'arm' }
@@ -48,6 +50,10 @@ export function mergeVerdict(decision: Decision, files: string[], kinds: OwnerMe
   return paths.length === 0 ? { kind: 'arm' } : { kind: 'owner-paths', paths }
 }
 
+export function pathWithoutMatrix(body: string, files: string[]): string | undefined {
+  return MATRIX_COUNT_LINE.test(body) ? undefined : files.find(file => MATRIX_REQUIRED_UNDER.some(root => file.startsWith(root)))
+}
+
 function refuse(message: string): MergeResult {
   return { stdout: [], stderr: [`${PREFIX}${message}; auto-merge not armed`], exitCode: 1 }
 }
@@ -70,6 +76,10 @@ export function runMerge(argv: string[], deps: MergeDeps): MergeResult {
   const card = parseCard(view.body.split('\n')[0]!.trim())
   if (card.kind === 'refused')
     return refuse(`the first line of PR #${number} is not the task's card (${card.reason})`)
+  const files = (view.files ?? []).map(file => file.path)
+  const unmatrixed = pathWithoutMatrix(view.body, files)
+  if (unmatrixed !== undefined)
+    return refuse(`PR #${number} changes ${unmatrixed} and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md)`)
   let kinds: OwnerMergeKind[]
   try {
     kinds = readOwnerMergeKinds(deps.ownerMergesText())
@@ -77,7 +87,7 @@ export function runMerge(argv: string[], deps: MergeDeps): MergeResult {
   catch (error) {
     return refuse(`${OWNER_MERGES_ON_MAIN} not read: ${firstLine(error)}`)
   }
-  const verdict = mergeVerdict(card.card.decision, (view.files ?? []).map(file => file.path), kinds)
+  const verdict = mergeVerdict(card.card.decision, files, kinds)
   if (verdict.kind === 'owner-decision')
     return { stdout: [`${PREFIX}decision ${card.card.decision} — PR #${number} and the report, merge is Eli's`], stderr: [], exitCode: 0 }
   if (verdict.kind === 'owner-paths')
