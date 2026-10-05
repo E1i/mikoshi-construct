@@ -1,8 +1,9 @@
-import { SEAM_PREFIX, SLICE_PREFIX } from './complexity.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
 export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
 export const RISK_PREFIX = 'risk: '
+export const SEAM_PREFIX = 'seam: '
+export const SLICE_PREFIX = 'slice: '
 
 export type RiskLevel = typeof RISK_LEVELS[number]
 
@@ -15,8 +16,10 @@ export const RISK_MEANING: Record<RiskLevel, string> = {
 
 const LADDER = 'the ladder mechanism a task runs on'
 const FOREIGN_WRITE = 'what init, attach, sync or detach write into another repository'
+const CARRIERS = 'the registration of the carriers attach delivers'
 const SECURITY = 'a security invariant'
 const CONTRACT = 'a contract or a recorded shape that others read'
+const FACTORY = 'the factory mechanism that decides on closing, merging and admitting a task'
 const LOW = 'documentation, a log, a test or a script outside the gate'
 const ELSEWHERE = 'no path of the core, of a contract, or of the low list'
 
@@ -24,6 +27,9 @@ const CORE: readonly (readonly [string, string])[] = [
   ['.claude/skills/implement', LADDER],
   ['.claude/agents', LADDER],
   ['scripts/construct', LADDER],
+  ['scripts/ghosts/approval.ts', LADDER],
+  ['scripts/ghosts/hash.ts', LADDER],
+  ['scripts/ghosts/launch.ts', LADDER],
   ['templates/ai/claude/_claude/skills/implement', LADDER],
   ['templates/ai/claude/_claude/agents', LADDER],
   ['templates/ai/claude/scripts/construct', LADDER],
@@ -31,19 +37,25 @@ const CORE: readonly (readonly [string, string])[] = [
   ['src/materialize', FOREIGN_WRITE],
   ['src/sync', FOREIGN_WRITE],
   ['src/manifest.ts', FOREIGN_WRITE],
-  ['src/presets', FOREIGN_WRITE],
+  ['src/presets', CARRIERS],
   ['src/commands/init.ts', FOREIGN_WRITE],
   ['src/commands/attach', FOREIGN_WRITE],
   ['src/commands/sync', FOREIGN_WRITE],
   ['src/commands/detach', FOREIGN_WRITE],
-  ['scripts/attach', FOREIGN_WRITE],
+  ['scripts/attach', CARRIERS],
   ['architecture/security-invariants.md', SECURITY],
 ]
-const CONTRACTS = ['contract', 'src/detect', 'src/model/schema.ts']
+const HIGH: readonly (readonly [string, string])[] = [
+  ['contract', CONTRACT],
+  ['src/detect', CONTRACT],
+  ['src/model/schema.ts', CONTRACT],
+  ['scripts/ghosts', FACTORY],
+  ['scripts/shift', FACTORY],
+]
 const LOW_ROOTS = ['docs', 'architecture', 'tests', '.changeset', '.construct', 'scripts']
 const GATE_SCRIPTS = ['scripts/composition', 'scripts/model', 'scripts/privacy', 'scripts/docs']
 
-const GENERATED_WITH: Record<string, readonly string[]> = {
+export const GENERATED_WITH: Record<string, readonly string[]> = {
   'contract/surface.json': ['src/program.ts', 'scripts/contract'],
   'templates/attach/earlier-carriers.json': ['templates/ai', 'scripts/attach/earlier-carriers.ts'],
 }
@@ -55,7 +67,7 @@ const TWINS: readonly (readonly [string, string])[] = [
 const ACCOMPANYING = ['tests', '.changeset']
 const DELIVERY = ['templates/attach', 'templates/ai', 'src/presets', 'scripts/attach']
 const CAPABILITY = ['src', 'scripts']
-const NO_COMPLEXITY_SLICES = 'R1 and R3–R4 in one card, and the complexity seam proposed no slices'
+const NO_COMPLEXITY_SLICES = 'R1 and R3–R4 in one card, and the complexity seam proposed no slices that keep them apart'
 const PRINCIPLE = 'the highest level a touch reaches decides; a generated file stays with its sources and a template with its twin; this only proposes, a person confirms the slices or keeps the card whole, and the level is revised as the work shows what it touches'
 
 interface RiskOfTouch {
@@ -111,8 +123,9 @@ export function riskOf(touch: string): RiskOfTouch {
   const core = CORE.find(([root]) => reaches(touch, root))
   if (core !== undefined)
     return { touch, level: 'R1', why: core[1] }
-  if (CONTRACTS.some(root => reaches(touch, root)))
-    return { touch, level: 'R2', why: CONTRACT }
+  const high = HIGH.find(([root]) => reaches(touch, root))
+  if (high !== undefined)
+    return { touch, level: 'R2', why: high[1] }
   return isLow(touch) ? { touch, level: 'R4', why: LOW } : { touch, level: 'R3', why: ELSEWHERE }
 }
 
@@ -138,7 +151,7 @@ function keptTogether(a: string, b: string): boolean {
   return twins(a, b) || generatedTogether(a, b)
 }
 
-function groupsOf(touches: readonly string[]): number[] {
+export function groupsOf(touches: readonly string[]): number[] {
   const group = touches.map((_, index) => index)
   const find = (index: number): number => (group[index] === index ? index : find(group[index]!))
   touches.forEach((a, i) => touches.forEach((b, j) => {
