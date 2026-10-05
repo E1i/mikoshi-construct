@@ -33,6 +33,4 @@ case "$prompt" in *STUB-NO-PR*) pr='no PR' ;; *) pr='PR #1' ;; esac
 printf 'result: did %s\n%s\n' "$task" "$pr" > "$report"
 case "$prompt" in *STUB-VERIFIED-*) printf 'verification: %s\n' "$(printf '%s\n' "$prompt" | sed -n 's/.*STUB-VERIFIED-\([a-z-]*\).*/\1/p' | head -n 1)" >> "$report" ;; esac
 case "$prompt" in *STUB-QUESTION*) printf 'question: which way, owner?\n' >> "$report" ;; esac
-case "$prompt" in *STUB-BOUNDARY*) : > "$STUB_OUT/$task.boundary-once" ;; esac
-if [ -e "$STUB_OUT/$task.boundary-once" ] || [ -e "$STUB_OUT/$task.boundary-always" ]; then printf 'boundary: contextLimit 250000\n' >> "$report"; fi
-rm -f "$STUB_OUT/$task.boundary-once"
+case "$prompt" in *STUB-BOUNDARY*) printf 'boundary: contextLimit 250000\n' >> "$report" ;; *) if [ -e "$STUB_OUT/$task.boundary-always" ]; then printf 'boundary: contextLimit 250000\n' >> "$report"; fi ;; esac

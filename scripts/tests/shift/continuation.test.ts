@@ -1,6 +1,6 @@
 import type { SessionEvidence } from '../../shift/continuation.js'
 import { describe, expect, it } from 'vitest'
-import { continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../shift/continuation.js'
+import { BOUNDARY_LINE, continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../shift/continuation.js'
 
 const QUIET: SessionEvidence = { exit: 0, closed: false, stopped: false, refused: false, question: false, boundary: false, warned: false }
 
@@ -20,6 +20,16 @@ describe('exitReason', () => {
     ['nothing', {}, 'ended'],
   ] as const)('reads %s', (_, evidence, reason) => {
     expect(exitReason({ ...QUIET, ...evidence })).toBe(reason)
+  })
+})
+
+describe('the boundary line of a report', () => {
+  it.each([
+    ['a boundary line that names its boundary', 'result: stopped\nboundary: contextLimit 250000\n', true],
+    ['a boundary line that names nothing', 'result: stopped\nboundary:\n', false],
+    ['a boundary mentioned in the middle of a line', 'result: stopped at boundary: x\n', false],
+  ] as const)('reads %s', (_, report, matched) => {
+    expect(BOUNDARY_LINE.test(report)).toBe(matched)
   })
 })
 
