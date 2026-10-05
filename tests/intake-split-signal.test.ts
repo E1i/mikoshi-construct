@@ -1,7 +1,7 @@
 import type { ShiftDeps } from '../scripts/shift/shift.js'
 import type { SignalName } from '../src/card/complexity.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -98,10 +98,23 @@ function draftCard(name: string, touches: readonly string[], unclear: number = 0
   }
 }
 
+function repositoryOf(root: string, cards: unknown): string {
+  const repo = path.join(root, 'repo')
+  mkdirSync(repo, { recursive: true })
+  const touches = Array.isArray(cards) ? cards.flatMap(card => (card as { touches?: string[] }).touches ?? []) : []
+  for (const entry of touches) {
+    const target = path.join(repo, entry.replace(/\/\*\*$/, ''))
+    mkdirSync(entry.endsWith('/**') ? target : path.dirname(target), { recursive: true })
+    if (!entry.endsWith('/**'))
+      writeFileSync(target, '')
+  }
+  return repo
+}
+
 function intake(root: string, cards: unknown[], options: Partial<IntakeOptions> = {}): IntakeResult {
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards }))
-  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => '600', ...options })
+  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repositoryOf(root, cards), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => '600', ...options })
 }
 
 function sliced(result: IntakeResult) {

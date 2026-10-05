@@ -1,4 +1,4 @@
-import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
+import type { IntakeResult } from '../src/commands/intake/index.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -37,7 +37,7 @@ function parkedCardText(journal: string, fields: Record<string, unknown>): { tex
   const draft = path.join(root, 'draft.json')
   const card = { name: 'merge-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: TASK, witnesses: ['`pnpm run quality` is green'], ...fields }
   writeFileSync(draft, JSON.stringify({ cards: [card] }))
-  const result: IntakeResult = runIntake({ draft, parking, journal, dryRun: false, autoConfirm: true, readStdin: () => '12', taken: '-' } as IntakeOptions)
+  const result: IntakeResult = runIntake({ draft, parking, dir: root, journal, dryRun: false, autoConfirm: true, readStdin: () => '12', taken: '-' })
   if (result.status === 'refused')
     throw new Error(`refused: ${result.refusal} ${result.detail.join('; ')}`)
   const lines: string[] = []

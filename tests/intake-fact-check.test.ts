@@ -54,7 +54,7 @@ function intake(cards: Record<string, unknown>[], options: Partial<IntakeOptions
   const parking = path.join(root, 'parking')
   const draftFile = path.join(root, 'draft.json')
   writeFileSync(draftFile, JSON.stringify({ cards }))
-  const result = runIntake({ draft: draftFile, parking, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, readStdin: () => options.taken ?? '1', ...options, taken: '-' })
+  const result = runIntake({ draft: draftFile, parking, dir: root, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, readStdin: () => options.taken ?? '1', ...options, taken: '-' })
   return { result, parking, draftFile }
 }
 
@@ -75,7 +75,7 @@ function draftCard(fields: Partial<DraftCard> = {}): DraftCard {
 }
 
 function facts(overrides: Partial<CheckFacts> = {}): CheckFacts {
-  return { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository: null, ...overrides }
+  return { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository: repositoryFacts(), ...overrides }
 }
 
 function repositoryFacts(overrides: Partial<RepositoryFacts> = {}): RepositoryFacts {

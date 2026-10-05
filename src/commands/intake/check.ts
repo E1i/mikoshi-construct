@@ -26,7 +26,7 @@ export interface CheckFacts {
   parked: ReadonlySet<number>
   done: ReadonlySet<string>
   merged: ReadonlySet<string>
-  repository: RepositoryFacts | null
+  repository: RepositoryFacts
 }
 
 export function correctionText(correction: Correction): string {
@@ -145,7 +145,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = facts.repository === null ? { touches: card.touches, corrections: [], unclear: [] } : touchesChecked(card, facts.repository)
+  const touched = touchesChecked(card, facts.repository)
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)
@@ -162,7 +162,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
       ...touched.unclear,
       ...depends.unclear,
       ...blocks.unclear,
-      ...(facts.repository === null ? [] : witnessesUnclear(card, facts.repository)),
+      ...witnessesUnclear(card, facts.repository),
     ],
     corrections: byFieldOrder([
       ...numberCorrection(card, assigned, facts),
