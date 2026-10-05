@@ -16,8 +16,9 @@ description: >-
   file written. `COST_EXIT` maps the status to the exit code, so a run that could not be read is a
   non-zero exit rather than a zero total.
   `construct cost --expect` is a branch of the entry: `costExpect` reads the ledger and the step cache
-  only, writes only the step cache, and calls neither `reconcile` nor the runtime resolution, so
-  the forecast does not depend on the runtime. `expect.ts` is the one calculation `scripts/ghosts`
+  only, writes nothing, and calls neither `reconcile` nor the runtime resolution, so the forecast
+  does not depend on the runtime: a run the step cache does not hold yet is split from the session
+  files in memory and never appended. `expect.ts` is the one calculation `scripts/ghosts`
   also calls.
 doc: architecture/cost.md
 boundaries:
