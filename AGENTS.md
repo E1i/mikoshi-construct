@@ -189,6 +189,8 @@ implemented (see `/implement`):
   cannot be unpublished.
 <!-- /construct:discover:high-effort-areas -->
 
+A task that fell twice gets no third brief and is cut into sub-cards; `ghosts:launch` refuses a third Ghost on its card without the owner's `--owner-allows` ([architecture/window.md § Two falls cut the task](architecture/window.md#two-falls-cut-the-task)).
+
 Always high, whatever discovery finds: `architecture/composition/`, `eslint.config.mjs`, and every
 row of [architecture/security-invariants.md](architecture/security-invariants.md).
 

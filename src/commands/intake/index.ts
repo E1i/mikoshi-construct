@@ -199,6 +199,10 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrections(card.corrections.length)}`))
     if (card.unclear.length > 0)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeUnclear(card.unclear.length, card.who)}`))
+    if (result.status !== 'dryRun') {
+      for (const line of card.seam)
+        ui.line(ui.theme.dim(`  ${line}`))
+    }
   }
   if (result.status === 'dryRun')
     ui.line(ui.lore.intakeDryRun(result.parking))

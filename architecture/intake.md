@@ -82,7 +82,21 @@ covers exactly the list the person saw. `--auto-confirm`, off by default, is the
 corrections in advance; those cards are parked at once. Every parked card leaves an `intake` line in
 the journal with its confirmation (`person`, `auto` or `none`) and its corrections, so the corrections
 an auto-confirmed run accepted are not lost and the flag's use is on record. A confirmed card keeps the
-`who` of its draft; only an `unclear:` line still holds it at `who: window`.
+`who` of its draft; only an `unclear:` line or the split signal still holds it at `who: window`.
+
+## Too big to take whole is seen before the work, not after two falls
+
+The two-falls rule cuts a task after it failed twice; the split signal reads a card before it is
+parked. `splitSignal` in `src/card/complexity.ts` counts four signals from the card alone: more
+`touches` or areas than a ladder run holds, a path of the mechanism the task itself runs on, a
+generated file next to one of its sources, and more `unclear:` lines than a brief can settle. One
+signal is common and splits nothing; two or more write a `seam: complexity` line naming every signal
+that fired and the principle — slice by complexity first, by the risk matrix R1–R4 when those slices
+do not hold — plus a `slice:` line per proposed sub-card, grouped by area with generated files last,
+and hold the card at `who: window`. The signal proposes and never reclassifies: kind, contour and
+decision stay as the draft states them, and the person slices the card or keeps it whole with the
+reason written. Complexity and risk are two axes; the signal reads complexity only. The MORSE forecast
+is not one of the signals yet: intake has no reader of it.
 
 ## A card parked before the door is admitted, not re-sliced
 
