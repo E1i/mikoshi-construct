@@ -64,6 +64,7 @@ function shiftDeps(root: string, out: string[], err: string[]): ShiftDeps {
     claude: undefined,
     header: '',
     handoffDir: path.join(root, 'handoff'),
+    readJournal: unused,
     projectsDir: path.join(root, 'projects'),
     git: unused,
     install: unused,

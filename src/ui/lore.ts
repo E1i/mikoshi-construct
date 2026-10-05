@@ -142,6 +142,7 @@ export interface Lore {
   recordAhead: (record: string, field: string, found: number, understood: number) => string
   modelIsWrittenByInit: string
   graphPageWritten: (target: string) => string
+  intakeRefusedAdmitWithDraft: string
   intakeRefusedNoDraft: string
   intakeRefusedNoTaken: string
   intakeRefusedBothFromStdin: string
@@ -156,6 +157,11 @@ export interface Lore {
   intakeAwaiting: (parking: string, token: string) => string
   intakeConfirmStale: string
   intakeDryRun: (parking: string) => string
+  intakeAdmitted: (file: string, card: string) => string
+  intakeAlreadyAdmitted: (file: string, card: string) => string
+  intakeAdmitUnclear: (count: number) => string
+  intakeAdmitAwaiting: (file: string, token: string) => string
+  intakeAdmitDryRun: (file: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
   notCarriedUnevaluable: (claimId: string, target: string) => string
@@ -431,6 +437,7 @@ export const LORE: Lore = {
   recordAhead: (record: string, field: string, found: number, understood: number) => `RELIC FROM A LATER BUILD: ${record} declares ${field} ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
+  intakeRefusedAdmitWithDraft: 'INTAKE REFUSED // ONE DOOR: --admit takes a card already parked; --draft and --taken slice new ones, never in the same run',
   intakeRefusedNoDraft: 'INTAKE REFUSED // NO DRAFT: --draft names the sliced cards as JSON, a file or - for stdin',
   intakeRefusedNoTaken: 'INTAKE REFUSED // NO TAKEN NUMBERS: --taken names the pull request and issue numbers, a file or - for stdin; a card number shared with one of them is worse than no card',
   intakeRefusedBothFromStdin: 'INTAKE REFUSED // ONE STDIN: --draft and --taken cannot both read -',
@@ -445,6 +452,11 @@ export const LORE: Lore = {
   intakeAwaiting: (parking: string, token: string) => `AWAITING CONFIRMATION // nothing parked in ${parking}; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeConfirmStale: 'CONFIRMATION STALE // --confirm names a different list of corrections than this run holds; nothing parked',
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
+  intakeAdmitted: (file: string, card: string) => `CARD ADMITTED // ${file}: ${card}; its intake line is in the journal`,
+  intakeAlreadyAdmitted: (file: string, card: string) => `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line, nothing written`,
+  intakeAdmitUnclear: (count: number) => `${count} UNCLEAR // marked in the card; who is left as the card states it`,
+  intakeAdmitAwaiting: (file: string, token: string) => `AWAITING CONFIRMATION // ${file} unchanged, no intake line; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
+  intakeAdmitDryRun: (file: string) => `DRY RUN // ${file} unchanged, no intake line`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
@@ -748,6 +760,7 @@ export const PLAIN_LORE: Lore = {
   recordAhead: (record: string, field: string, found: number, understood: number) => `${record} declares ${field} ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   graphPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
+  intakeRefusedAdmitWithDraft: 'Refused: --admit takes a card already parked, and --draft with --taken slices new ones; run them separately. Nothing was written.',
   intakeRefusedNoDraft: 'Refused: --draft names the sliced cards as JSON, a file or - for stdin. Nothing was written.',
   intakeRefusedNoTaken: 'Refused: --taken names the pull request and issue numbers, a file or - for stdin, because card numbers are shared with them. Nothing was written.',
   intakeRefusedBothFromStdin: 'Refused: --draft and --taken cannot both read stdin. Nothing was written.',
@@ -762,6 +775,11 @@ export const PLAIN_LORE: Lore = {
   intakeAwaiting: (parking: string, token: string) => `Nothing was written to ${parking}: the corrections above wait for a person. Run again with --confirm ${token} to park the cards as shown, or with --auto-confirm to accept corrections in advance.`,
   intakeConfirmStale: 'Not confirmed: --confirm names a different list of corrections than this run holds. Nothing was written; confirm the list below.',
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
+  intakeAdmitted: (file: string, card: string) => `Admitted ${file}: ${card}. Its intake line is in the journal, so task:start and the shift take it.`,
+  intakeAlreadyAdmitted: (file: string, card: string) => `Already admitted ${file}: ${card}. The journal holds its intake line; nothing was written.`,
+  intakeAdmitUnclear: (count: number) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; who is left as the card states it.`,
+  intakeAdmitAwaiting: (file: string, token: string) => `${file} is unchanged and has no intake line: the corrections above wait for a person. Run again with --confirm ${token} to admit the card as shown, or with --auto-confirm to accept corrections in advance.`,
+  intakeAdmitDryRun: (file: string) => `Dry run: ${file} is unchanged and no intake line was written.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,

@@ -59,9 +59,12 @@ export const INTAKE_EXIT = {
   dryRun: 0,
   refused: 1,
   awaiting: 2,
+  admitted: 0,
+  alreadyAdmitted: 0,
 } as const
 
 export interface IntakeOptions {
+  admit?: string
   draft: string | undefined
   taken: string | undefined
   parking: string
@@ -73,7 +76,7 @@ export interface IntakeOptions {
   readStdin: () => string
 }
 
-type Refusal = 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid'
+type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid'
 
 export type IntakeResult
   = | { status: 'refused', refusal: Refusal, detail: string[] }
@@ -82,6 +85,7 @@ export type IntakeResult
     | { status: 'awaiting', parking: string, cards: SlicedCard[], token: string, stale: boolean }
 
 const REFUSAL_LINE: Record<Refusal, (lore: Lore, detail: string[]) => string> = {
+  admitWithDraft: lore => lore.intakeRefusedAdmitWithDraft,
   noDraft: lore => lore.intakeRefusedNoDraft,
   noTaken: lore => lore.intakeRefusedNoTaken,
   bothFromStdin: lore => lore.intakeRefusedBothFromStdin,
@@ -115,6 +119,8 @@ function parkedFiles(parking: string): string[] {
 }
 
 export function runIntake(options: IntakeOptions): IntakeResult {
+  if (options.admit !== undefined)
+    return refused('admitWithDraft')
   if (options.draft === undefined)
     return refused('noDraft')
   if (options.taken === undefined)

@@ -78,6 +78,17 @@ function ghOf(openPrs: OpenPrFixture[], allPrs: unknown[] = []): (args: string[]
   return args => JSON.stringify(args.includes('open') ? openPrs : allPrs)
 }
 
+function parkedCardLines(dir: string): string[] {
+  return existsSync(dir) ? readdirSync(dir).filter(file => file.endsWith('.md')).flatMap(file => /^card: (.+)$/m.exec(readFileSync(path.join(dir, file), 'utf8'))?.[1] ?? []) : []
+}
+
+function everyCardOfTheWorldTakenThroughIntake(world: World): (file: string) => string | null {
+  return (file) => {
+    const intake = [world.shift, path.join(world.root, 'parking')].flatMap(parkedCardLines).map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: '2026-10-03T00:00:00.000Z' })}\n`)
+    return (existsSync(file) ? readFileSync(file, 'utf8') : '') + intake.join('')
+  }
+}
+
 function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = []): ShiftDeps {
   let ticks = 0
   let uuids = 0
@@ -86,6 +97,7 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
     claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
+    readJournal: everyCardOfTheWorldTakenThroughIntake(world),
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},

@@ -8,6 +8,7 @@ OPTIONS
              --johnny    Wake up, Netrunner. (Default: false)                                                                                
       --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                                                  
       --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin                      
+      --admit=<admit>    A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number               
   --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                                      
           --dir=<dir>    Target directory (Default: .)                                                                                       
   --journal=<journal>    The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)           

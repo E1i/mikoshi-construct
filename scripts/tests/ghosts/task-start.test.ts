@@ -14,6 +14,14 @@ function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
   return `#${id} task-${id} [${bracket}] · depends — · blocks —`
 }
 
+const W1_CARD = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 · blocks #124 the board card'
+const INTAKE_TS = '2026-10-01T08:00:00.000Z'
+const ADMITTED = [W1_CARD, card(2), card(3), card(4), card(5), card(8, 'implement/ghosts/M/cheap/owner'), card(9, 'implement/ghosts/M/cheap/owner'), card(21, 'implement/ghosts/L/ladder/owner'), card(31), card(32)]
+
+function intakeJournal(cards: readonly string[]): string {
+  return cards.map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: INTAKE_TS })}\n`).join('')
+}
+
 interface World {
   root: string
   repo: string
@@ -59,6 +67,7 @@ function depsOf(world: World, session: string | null = SESSION, installs: [strin
     now: () => NOW,
     session: session ?? undefined,
     handoffDir: world.handoff,
+    readJournal: () => intakeJournal(ADMITTED),
   }
 }
 
@@ -74,7 +83,7 @@ afterEach(() => {
 describe('w1: task:start cuts the tree and writes the start line', () => {
   it('w1: cuts ../mc-<id> on the branch from origin/main and writes one start line with worktree, branch, session and the card', () => {
     const world = newWorld()
-    const line = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 · blocks #124 the board card'
+    const line = W1_CARD
     const result = runTaskStart(['feat/t1', '--card', line], depsOf(world))
     const worktree = path.join(world.root, 'mc-101')
     expect(result.exitCode).toBe(0)
@@ -90,6 +99,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
       worktree,
       branch: 'feat/t1',
       card: { id: 101, name: 'task-card', kind: 'implement', milestone: 'ghosts', size: 'M', contour: 'cheap', decision: 'owner', depends: [86], blocks: [124], line },
+      admission: { by: 'intake', confirmation: 'none', intake: INTAKE_TS },
       ts: NOW.toISOString(),
     }])
   })

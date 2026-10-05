@@ -64,7 +64,7 @@ export interface ShiftDeps {
   claude: string | undefined
   header: string
   handoffDir: string
-  readJournal?: TaskStartJournalReader
+  readJournal: TaskStartJournalReader
   projectsDir: string
   git: TaskStartDeps['git']
   install: TaskStartDeps['install']

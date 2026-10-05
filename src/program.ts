@@ -11,6 +11,7 @@ import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
+import { printAdmit, runAdmit } from './commands/intake/admit.js'
 import { defaultParking, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
@@ -329,6 +330,7 @@ const intake = withKnownFlags(defineCommand({
     johnny: commonArgs.johnny,
     draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
     taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
+    admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number' },
     parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
     dir: commonArgs.dir,
     journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
@@ -339,12 +341,19 @@ const intake = withKnownFlags(defineCommand({
   run({ args }) {
     const console = ui(args)
     const failed = reported(console, () => {
+      const dir = path.resolve(args.dir)
+      const journal = path.resolve(args.journal ?? defaultWindowJournal())
+      if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
+        process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm }))
+        return
+      }
       const result = runIntake({
+        admit: args.admit,
         draft: args.draft,
         taken: args.taken,
         parking: path.resolve(args.parking ?? defaultParking()),
-        dir: path.resolve(args.dir),
-        journal: path.resolve(args.journal ?? defaultWindowJournal()),
+        dir,
+        journal,
         dryRun: args.dryRun,
         confirm: args.confirm,
         autoConfirm: args.autoConfirm,
