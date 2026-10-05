@@ -7,7 +7,7 @@ import type { Sketch } from './sketch.js'
 import type { Task } from './tasks.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
@@ -104,11 +104,87 @@ function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: S
   return verdict.ok ? { refusals: [], rangeDiff: 'equal' } : refused(verdict.reason)
 }
 
-function parseArgs(argv: string[]): { tasksFile: string } {
-  const index = argv.indexOf('--tasks')
-  if (index === -1 || index === argv.length - 1)
-    throw new Error('usage: launch.ts --tasks <file>')
-  return { tasksFile: argv[index + 1] }
+const USAGE = 'usage: launch.ts --tasks <file> [--owner-allows <card>]... | launch.ts --tasks <file> --fall <kind> --card <card>'
+
+const FALL_KINDS = ['base-red', 'ladder-not-done', 'review-hole', 'handoff-without-pr', 'hash-recounted'] as const
+type FallKind = typeof FALL_KINDS[number]
+
+const FALLS_BEFORE_CUT = 2
+
+interface LaunchArgs {
+  tasksFile: string
+  ownerAllows: number[]
+  fall: { kind: FallKind, card: number } | null
+}
+
+function flagValues(argv: string[], flag: string): string[] {
+  return argv.flatMap((arg, index) => {
+    if (arg !== flag)
+      return []
+    if (index === argv.length - 1)
+      throw new Error(USAGE)
+    return [argv[index + 1]]
+  })
+}
+
+function cardNumber(value: string): number {
+  const match = /^#?(\d+)$/.exec(value)
+  if (match === null)
+    throw new Error(`${USAGE}\ncard: expected a card number, got '${value}'`)
+  return Number(match[1])
+}
+
+function fallKind(value: string): FallKind {
+  const kind = FALL_KINDS.find(known => known === value)
+  if (kind === undefined)
+    throw new Error(`${USAGE}\nfall: expected one of ${FALL_KINDS.join(', ')}, got '${value}'`)
+  return kind
+}
+
+function parseArgs(argv: string[]): LaunchArgs {
+  const [tasksFile] = flagValues(argv, '--tasks')
+  if (tasksFile === undefined)
+    throw new Error(USAGE)
+  const ownerAllows = flagValues(argv, '--owner-allows').map(cardNumber)
+  const [kind] = flagValues(argv, '--fall')
+  const [card] = flagValues(argv, '--card')
+  if ((kind === undefined) !== (card === undefined) || (kind !== undefined && ownerAllows.length > 0))
+    throw new Error(USAGE)
+  return { tasksFile, ownerAllows, fall: kind === undefined ? null : { kind: fallKind(kind), card: cardNumber(card) } }
+}
+
+function journalEvents(journalPath: string): Record<string, unknown>[] {
+  if (!existsSync(journalPath))
+    return []
+  return readFileSync(journalPath, 'utf8').split('\n').flatMap((text) => {
+    try {
+      const event = JSON.parse(text) as unknown
+      return event !== null && typeof event === 'object' && !Array.isArray(event) ? [event as Record<string, unknown>] : []
+    }
+    catch {
+      return []
+    }
+  })
+}
+
+function fallsOf(events: Record<string, unknown>[], card: number): string[] {
+  return events.flatMap(event => event.event === 'fall' && event.card === card && typeof event.kind === 'string' ? [event.kind] : [])
+}
+
+function fallEvent(card: number, kind: FallKind): object {
+  return { event: 'fall', card, kind, ts: new Date().toISOString() }
+}
+
+function twoFallsRefusals(journalPath: string, tasks: Task[], ownerAllows: number[]): string[] {
+  const events = journalEvents(journalPath)
+  return tasks.flatMap((task) => {
+    if (task.card === undefined || ownerAllows.includes(task.card.id))
+      return []
+    const falls = fallsOf(events, task.card.id)
+    return falls.length < FALLS_BEFORE_CUT
+      ? []
+      : [`task ${task.id}: card #${task.card.id} fell ${falls.length} times (${falls.join(', ')}); cut the task into sub-cards with construct intake instead of a third Ghost, or relaunch with --owner-allows ${task.card.id} on the owner's explicit decision`]
+  })
 }
 
 function readLine(): Promise<string | undefined> {
@@ -143,8 +219,8 @@ function tasksFileRefusals(out: string, matrixPath: string | undefined, tasks: T
   return refusals
 }
 
-async function prepareAndPreflight(repo: string, statusPath: string, out: string, matrixPath: string | undefined, tasks: Task[]): Promise<{ baseSha: string, prepared: PreparedTask[], refusals: string[] }> {
-  const refusals = tasksFileRefusals(out, matrixPath, tasks)
+async function prepareAndPreflight(repo: string, statusPath: string, out: string, matrixPath: string | undefined, tasks: Task[], ownerAllows: number[]): Promise<{ baseSha: string, prepared: PreparedTask[], refusals: string[] }> {
+  const refusals = [...tasksFileRefusals(out, matrixPath, tasks), ...twoFallsRefusals(journalPathOf(out), tasks, ownerAllows)]
 
   git(repo, ['fetch', 'origin', 'main'])
   const baseSha = git(repo, ['rev-parse', 'origin/main'])
@@ -377,6 +453,9 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     actual: ladder.actual,
   })
 
+  if (task.card !== undefined && ladder.status !== 'done')
+    await appendJournalEvent(ctx.journalPath, fallEvent(task.card.id, 'ladder-not-done'))
+
   const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
   const ok = code === 0 && ladder.status === 'done'
   return { id: task.id, line, ok }
@@ -393,11 +472,26 @@ function carryIntoMainLedger(runsPath: string, repo: string): string {
   }
 }
 
+function journalPathOf(out: string): string {
+  return path.join(out, 'ghosts.jsonl')
+}
+
+function ownerAllowsEvents(prepared: PreparedTask[], ownerAllows: number[]): object[] {
+  const ts = new Date().toISOString()
+  return ownerAllows.map(card => ({ event: 'owner-allows', card, tasks: prepared.filter(task => task.card?.id === card).map(task => task.id), ts }))
+}
+
 async function main(): Promise<void> {
-  const { tasksFile } = parseArgs(process.argv.slice(2))
+  const { tasksFile, ownerAllows, fall } = parseArgs(process.argv.slice(2))
   const { repo, status, out, tasks, matrix } = readTasksFile(tasksFile)
 
-  const { baseSha, prepared, refusals } = await prepareAndPreflight(repo, status, out, matrix, tasks)
+  if (fall !== null) {
+    await appendJournalEvent(journalPathOf(out), fallEvent(fall.card, fall.kind))
+    console.log(`card #${fall.card}: fall ${fall.kind} recorded, ${fallsOf(journalEvents(journalPathOf(out)), fall.card).length} in ${journalPathOf(out)}`)
+    return
+  }
+
+  const { baseSha, prepared, refusals } = await prepareAndPreflight(repo, status, out, matrix, tasks, ownerAllows)
 
   if (refusals.length > 0) {
     for (const refusal of refusals)
@@ -419,8 +513,10 @@ async function main(): Promise<void> {
     return
   }
 
-  const journalPath = path.join(out, 'ghosts.jsonl')
+  const journalPath = journalPathOf(out)
   const ctx: TaskContext = { repo, statusPath: status, journalPath, baseSha, out, matrixPath: matrix }
+  for (const event of ownerAllowsEvents(prepared, ownerAllows))
+    await appendJournalEvent(journalPath, event)
   for (const task of prepared)
     await appendJournalEvent(journalPath, launchEntryEvent(task, baseSha))
   const results = await Promise.all(prepared.map(task => launchTask(ctx, task)))
