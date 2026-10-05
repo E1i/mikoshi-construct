@@ -47,10 +47,12 @@ export class DirectoryFacts implements RepositoryFacts {
   commandResolves(word: string): boolean {
     if (!word.includes('/'))
       return unresolvedCommandWord(word, this.searchPath) === null
+    if (path.isAbsolute(word))
+      return isFile(word)
     const relative = word.startsWith(CURRENT_DIRECTORY_PREFIX) ? word.slice(CURRENT_DIRECTORY_PREFIX.length) : word
     const file = path.resolve(this.root, relative)
     const inside = path.relative(this.root, file)
-    return !path.isAbsolute(relative) && inside !== '' && !inside.startsWith('..') && isFile(file)
+    return inside !== '' && !inside.startsWith('..') && isFile(file)
   }
 
   private walk(relative: string): string[] {
