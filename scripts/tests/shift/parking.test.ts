@@ -1,7 +1,7 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose } from '../../shift/parking.js'
+import { choose, leftSummary, queueText } from '../../shift/parking.js'
 
 function parked(id: number, header: string, extra = ''): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [implement/ghosts/S/cheap/owner] · depends ${extra || '—'} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n${header}\n\ndo ${id}\n`)
@@ -43,5 +43,28 @@ describe('choose', () => {
     const second = parked(2, 'who: shift')
     const overlapping = { ...second, task: { ...second.task, touches: ['scripts/1/x.ts'] } }
     expect(choose([overlapping, first], new Set())).toEqual({ chosen: [first.task], left: [{ id: '2', reason: 'conflicts with #1' }] })
+  })
+})
+
+describe('leftSummary', () => {
+  it('counts the cards left by reason, the largest first, keeping who apart and folding the ids of depends and conflicts', () => {
+    const left = [
+      { id: '1', reason: 'who window' },
+      { id: '2', reason: 'closed' },
+      { id: '3', reason: 'closed' },
+      { id: '4', reason: 'depends #9 not closed' },
+      { id: '5', reason: 'conflicts with #7' },
+      { id: '6', reason: 'who owner' },
+      { id: '8', reason: 'depends #10, #11 not closed' },
+    ]
+    expect(leftSummary(left)).toBe('left: 2 closed · 2 depends · 1 who window · 1 conflicts · 1 who owner')
+  })
+
+  it('says none when nothing is left', () => {
+    expect(leftSummary([])).toBe('left: none')
+  })
+
+  it('writes the queue as one leaves line per card, closed ones included', () => {
+    expect(queueText([{ id: '1', reason: 'closed' }, { id: '2', reason: 'who window' }])).toBe('leaves #1 (closed)\nleaves #2 (who window)\n')
   })
 })

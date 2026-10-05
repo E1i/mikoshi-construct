@@ -48,21 +48,40 @@ Write the draft outside the repository, for example `~/.construct/intake/<date>-
   "depends": [], "who": "shift", "task": "…", "witnesses": ["…"], "unclear": [] } ] }
 ```
 
-Card numbers are shared with pull requests and issues, so hand over every number already taken:
+Card numbers are shared with pull requests and issues, so write every number already taken to a file beside the
+draft and hand that file over:
 
 ```bash
 { gh pr list --state all --limit 1000 --json number -q '.[].number'
-  gh issue list --state all --limit 1000 --json number -q '.[].number'; } \
-  | construct intake --draft <draft.json> --taken - [--parking <dir>] [--dry-run]
+  gh issue list --state all --limit 1000 --json number -q '.[].number'; } > <draft>.taken
+construct intake --draft <draft.json> --taken <draft>.taken [--parking <dir>] [--dry-run]
 ```
 
-`construct` is the installed CLI; `npx mikoshi-construct intake …` is the same command. The parking defaults to
-`~/.construct/parking`, outside the repository, so an attached repository gets no file from this step.
+`construct` is the installed CLI; `npx mikoshi-construct intake …` is the same command. In the repository that
+builds construct, run it from the sources instead, `pnpm --silent dev intake --draft … --taken …`, so a global
+older than the sources is not the only way in. The parking defaults to `~/.construct/parking`, outside the
+repository, so an attached repository gets no file from this step.
+
+`construct intake` checks each card against the repository `--dir` names (default: the current directory) and
+against the journal (`--journal`, default `~/.construct/handoff/ghosts.jsonl`), and corrects what they settle: a
+`touches` path that does not exist, a `depends` or `blocks` on a closed card. A card with a correction is not
+parked until a person has seen it:
+
+- Without corrections, the cards are parked at once, exit `0`.
+- With corrections, nothing is parked: every card is printed with its `corrected:` lines and a token, exit `2`.
+  Show the person the held cards and their corrections. Once they confirm, run the same command again with
+  `--confirm <token>`; a token for a different list of corrections is refused as stale and parks nothing.
+- `--auto-confirm` accepts corrections in advance and parks at once. It is off by default; use it only when the
+  person asked for it.
+
+Every parked card gets an `intake` line in the journal, with its confirmation (`none`, `person` or `auto`) and its
+corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is what holds a
+corrected card back. Only an unclear field sets `who: window`.
 
 ## 4. Report
 
-Report each card line `construct intake` printed and every `unclear:` line under it. If it refused, report its
-reasons and fix the draft; never edit a written card to get past the grammar.
+Report each card line `construct intake` printed and every `corrected:` and `unclear:` line under it. On exit `2`,
+report the held cards, their corrections and the token, and wait for the person before running `--confirm`. If it
+refused, report its reasons and fix the draft; never edit a written card to get past the grammar.
 
-This skill only slices. It does not check the draft against the repository, ask for the person's confirmation,
-or start a task.
+This skill slices and hands over; `construct intake` checks and holds. It does not start a task.

@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer'
 import type { ShiftDeps } from '../scripts/shift/shift.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runShift } from '../scripts/shift/shift.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
-import { INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
+import { INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
@@ -205,5 +206,34 @@ describe('printIntake', () => {
     expect(lines.join('\n')).toContain('#2 board-parking [implement/runner/S/ladder/auto]')
     expect(lines.join('\n')).toContain('1 unclear field marked in the card; it stays with who: window until a person settles them.')
     expect(printIntake(createUi(resolveTheme({ plain: true }), silentWriter), { status: 'refused', refusal: 'noDraft', detail: [] })).toBe(INTAKE_EXIT.refused)
+  })
+})
+
+function scriptedSource(steps: Array<string | NodeJS.ErrnoException>): (buffer: Buffer) => number {
+  return (buffer) => {
+    const step = steps.shift()
+    if (step === undefined)
+      return 0
+    if (typeof step !== 'string')
+      throw step
+    return buffer.write(step)
+  }
+}
+
+function errno(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(code), { code })
+}
+
+describe('readStdinToEnd', () => {
+  it('waits out an EAGAIN from a producer slower than startup and returns what it then writes', () => {
+    expect(readStdinToEnd(scriptedSource([errno('EAGAIN'), '1 2']))).toBe('1 2')
+  })
+
+  it('joins every chunk up to the end of the stream', () => {
+    expect(readStdinToEnd(scriptedSource(['1 ', errno('EAGAIN'), '2 ', '3']))).toBe('1 2 3')
+  })
+
+  it('throws any other read error instead of retrying it', () => {
+    expect(() => readStdinToEnd(scriptedSource([errno('EBADF')]))).toThrow('EBADF')
   })
 })

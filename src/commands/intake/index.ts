@@ -1,7 +1,8 @@
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { SlicedCard } from './slice.js'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { Buffer } from 'node:buffer'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,6 +15,40 @@ import { nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { sliceCards } from './slice.js'
 
 export const FROM_STDIN = '-'
+
+const STDIN_FD = 0
+const STDIN_CHUNK_BYTES = 65536
+const NOTHING_YET_RETRY_MS = 10
+
+export type ChunkSource = (buffer: Buffer) => number
+
+function nothingYet(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'EAGAIN'
+}
+
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+export function readStdinToEnd(source: ChunkSource = buffer => readSync(STDIN_FD, buffer)): string {
+  const chunks: Buffer[] = []
+  const buffer = Buffer.alloc(STDIN_CHUNK_BYTES)
+  for (;;) {
+    let size: number
+    try {
+      size = source(buffer)
+    }
+    catch (error) {
+      if (!nothingYet(error))
+        throw error
+      pause(NOTHING_YET_RETRY_MS)
+      continue
+    }
+    if (size === 0)
+      return Buffer.concat(chunks).toString('utf8')
+    chunks.push(Buffer.from(buffer.subarray(0, size)))
+  }
+}
 
 export function defaultParking(): string {
   return path.join(os.homedir(), '.construct', 'parking')

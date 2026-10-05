@@ -29,19 +29,20 @@ import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { continues, eddiesEvidence, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { choose } from './parking.js'
+import { choose, isClosed, leftLine, leftSummary, QUEUE_FILE, queueText } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 
 export const PREFIX = '[shift] '
 const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
 export const USAGE = [
-  'usage: pnpm shift <dir> [--parking <parking>] [--check]',
+  'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]',
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
   `With --parking, the tasks come from <parking>/<id>.md instead: the same header plus who: and an optional priority: p0.`,
   `The shift takes every card with who: ${SHIFT_WHO} whose depends are closed in the journal and which is not closed itself,`,
   'p0 first, then by id, and leaves a card whose touches overlap one already taken; <dir> keeps the journal and the reports.',
+  `It prints the cards it takes and one line counting the cards it leaves by reason; the full list goes to <dir>/${QUEUE_FILE}, and --queue prints it without the closed cards.`,
   'A task file starts with a header and a blank line, then the prompt:',
   '  card: #<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>',
   '  branch: <branch>',
@@ -108,9 +109,10 @@ function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors
   }
 }
 
-function choiceLines(choice: Choice): string[] {
+function choiceLines(choice: Choice, queue: boolean): string[] {
   const taken = choice.chosen.length === 0 ? 'none' : choice.chosen.map(task => `#${task.id}`).join(', ')
-  return [`${PREFIX}parking: takes ${taken}`, ...choice.left.map(card => `${PREFIX}parking: leaves #${card.id} (${card.reason})`)]
+  const listed = queue ? choice.left.filter(card => !isClosed(card)).map(card => `${PREFIX}parking: ${leftLine(card)}`) : []
+  return [`${PREFIX}parking: takes ${taken}`, `${PREFIX}parking: ${leftSummary(choice.left)}`, ...listed]
 }
 
 function openPrs(gh: GhRunner): OpenPr[] | string {
@@ -233,9 +235,10 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     return 0
   }
   const check = argv.includes('--check')
+  const queue = argv.includes('--queue')
   const parkingAt = argv.indexOf('--parking')
   const parkingArg = parkingAt === -1 ? undefined : argv[parkingAt + 1]
-  const rest = argv.filter((arg, index) => arg !== '--check' && (parkingAt === -1 || (index !== parkingAt && index !== parkingAt + 1)))
+  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && (parkingAt === -1 || (index !== parkingAt && index !== parkingAt + 1)))
   if (rest.length !== 1 || rest[0]!.startsWith('-') || (parkingAt !== -1 && (parkingArg === undefined || parkingArg.startsWith('-'))))
     return refuse(deps, [USAGE.split('\n')[0]!])
   const dir = path.resolve(deps.cwd, rest[0]!)
@@ -248,7 +251,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (errors.length > 0)
     return refuse(deps, errors)
   if (read.choice !== undefined) {
-    for (const line of choiceLines(read.choice))
+    for (const line of choiceLines(read.choice, queue))
       deps.out(line)
   }
   const tasks = read.choice?.chosen ?? ('tasks' in read ? read.tasks : [])
@@ -266,6 +269,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (claude === '')
     return refuse(deps, [`${CLAUDE_VARIABLE} is not set; it names the claude command (see --help)`])
   const parked = read.choice === undefined ? {} : { parking, left: read.choice.left }
+  if (read.choice !== undefined)
+    deps.append(path.join(dir, QUEUE_FILE), queueText(read.choice.left))
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
   let clean = true
   for (const task of tasks) {
