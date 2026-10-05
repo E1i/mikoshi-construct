@@ -37,6 +37,18 @@ const HASH_FAULTS: { name: string, field: string, row: Record<string, unknown> }
   { name: 'an args hash that is a number', field: 'argsSha256', row: row({ argsSha256: 7 }) },
 ]
 
+const SKETCH_SHA = '0123456789abcdef0123456789abcdef01234567'
+
+const SKETCH_FAULTS: { name: string, row: Record<string, unknown> }[] = [
+  { name: 'a sketch of three letters', row: row({ sketch: 'abc' }) },
+  { name: 'a sketch that is a number', row: row({ sketch: 7 }) },
+  { name: 'a sketch of 39 hex', row: row({ sketch: SKETCH_SHA.slice(1) }) },
+  { name: 'a sketch in capitals', row: row({ sketch: SKETCH_SHA.toUpperCase() }) },
+  { name: 'a sketch of 64 hex', row: row({ sketch: 'a'.repeat(64) }) },
+  { name: 'an empty sketch', row: row({ sketch: '' }) },
+  { name: 'a sketch of 40 characters that are not hex', row: row({ sketch: 'g'.repeat(40) }) },
+]
+
 const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
   { name: 'done', row: row({}), holds: true },
   { name: 'an absent run', row: row({ run: undefined }), holds: true },
@@ -49,6 +61,9 @@ const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
   { name: 'both hashes', row: row({ agreedSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', argsSha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }), holds: true },
   { name: 'only the agreed hash', row: row({ agreedSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }), holds: true },
   { name: 'only the args hash', row: row({ argsSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }), holds: true },
+  { name: 'a sketch sha', row: row({ sketch: SKETCH_SHA }), holds: true },
+  { name: 'a sketch of null', row: row({ sketch: null }), holds: true },
+  { name: 'a sketch sha on a stopped run', row: row({ status: 'stopped', cause: 'human', sketch: SKETCH_SHA }), holds: true },
   { name: 'an unknown status', row: row({ status: 'ascended' }), holds: true },
   { name: 'an unknown top-level field', row: row({ ghost: true }), holds: true },
   { name: 'a run that is a number', row: row({ run: 7 }), holds: false },
@@ -59,6 +74,7 @@ const ROWS: { name: string, row: Record<string, unknown>, holds: boolean }[] = [
   { name: 'failed with a human cause', row: row({ status: 'failed', cause: 'human' }), holds: false },
   { name: 'tokens as a string', row: row({ tokens: '5' }), holds: false },
   { name: 'a token source nobody declared', row: row({ tokensSource: 'guess' }), holds: false },
+  ...SKETCH_FAULTS.map(({ name, row: value }) => ({ name, row: value, holds: false })),
   ...HASH_FAULTS.map(({ name, row: value }) => ({ name, row: value, holds: false })),
   { name: 'no at', row: row({ at: undefined }), holds: false },
   { name: 'no attempts', row: row({ attempts: undefined }), holds: false },
@@ -77,9 +93,13 @@ describe('the ledger row schema and parseLedgerLine give one verdict', () => {
     expect(parseLedgerLine(JSON.stringify(value))).toContain(field)
   })
 
-  it('declares exactly the fields the reader knows', () => {
+  it.each(SKETCH_FAULTS)('names sketch when it refuses $name', ({ row: value }) => {
+    expect(parseLedgerLine(JSON.stringify(value))).toContain('sketch')
+  })
+
+  it('declares exactly the fields the reader knows, at ledger-row 1.2', () => {
     expect(Object.keys(schema.properties ?? {}).sort()).toEqual([...LEDGER_FIELDS].sort())
-    expect(schemaId(schema)).toBe('mikoshi-construct/contours/ledger-row/1.1')
+    expect(schemaId(schema)).toBe('mikoshi-construct/contours/ledger-row/1.2')
   })
 })
 

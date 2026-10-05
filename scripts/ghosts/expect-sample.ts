@@ -110,6 +110,10 @@ function implementSubsample(input: LadderSampleInput, entries: LedgerEntry[], wa
     if (task.sketch !== null)
       known.set(task.run, task.sketch)
   }
+  for (const entry of entries) {
+    if (entry.run !== null && entry.sketch !== undefined)
+      known.set(entry.run, entry.sketch !== null)
+  }
   const unknown = new Set(entries.filter(entry => entry.run !== null && countsTowardSteps(entry, input.effort) && !known.has(entry.run)).map(entry => entry.run))
   if (unknown.size > 0)
     notes.push(`${unknown.size} run${unknown.size === 1 ? '' : 's'} without a sketch record in ${journal.source} not counted for implement`)

@@ -29,6 +29,7 @@ export interface LedgerEntry {
   tokensSource?: TokenSource
   agreedSha256?: string
   argsSha256?: string
+  sketch?: string | null
 }
 
 export interface MalformedLedgerLine {
@@ -65,12 +66,13 @@ const CAUSE_REQUIRED_SINCE_THE_STATUS_EXISTS = ['stopped']
 export const TOKEN_SOURCES = ['runtime'] as const
 export type TokenSource = typeof TOKEN_SOURCES[number]
 
-export const LEDGER_FIELDS = ['run', 'at', 'task', 'effort', 'status', 'rung', 'attempts', 'agents', 'toolUses', 'seconds', 'tokens', 'cause', 'tokensSource', 'agreedSha256', 'argsSha256'] as const
+export const LEDGER_FIELDS = ['run', 'at', 'task', 'effort', 'status', 'rung', 'attempts', 'agents', 'toolUses', 'seconds', 'tokens', 'cause', 'tokensSource', 'agreedSha256', 'argsSha256', 'sketch'] as const
 
 const TEXT_FIELDS = ['at', 'task', 'effort', 'status', 'rung'] as const
 const COUNT_FIELDS = ['agents', 'toolUses', 'seconds'] as const
 const HASH_FIELDS = ['agreedSha256', 'argsSha256'] as const
 const SHA256_HEX = /^[0-9a-f]{64}$/
+const COMMIT_SHA = /^[0-9a-f]{40}$/
 
 function isText(value: unknown): boolean {
   return typeof value === 'string' && value !== ''
@@ -82,6 +84,10 @@ function isCount(value: unknown): boolean {
 
 function isSha256Hex(value: unknown): boolean {
   return typeof value === 'string' && SHA256_HEX.test(value)
+}
+
+function isSketch(value: unknown): boolean {
+  return value === null || (typeof value === 'string' && COMMIT_SHA.test(value))
 }
 
 function isTokenCount(value: unknown): boolean {
@@ -121,6 +127,8 @@ function undeclaredFields(record: Record<string, unknown>): string[] {
   if ('tokensSource' in record && !(TOKEN_SOURCES as readonly unknown[]).includes(record.tokensSource))
     missing.push('tokensSource')
   missing.push(...HASH_FIELDS.filter(field => field in record && !isSha256Hex(record[field])))
+  if ('sketch' in record && !isSketch(record.sketch))
+    missing.push('sketch')
   return missing
 }
 
@@ -165,6 +173,7 @@ function toEntry(raw: unknown): LedgerEntry | string {
     ...('tokensSource' in record ? { tokensSource: record.tokensSource as TokenSource } : {}),
     ...('agreedSha256' in record ? { agreedSha256: record.agreedSha256 as string } : {}),
     ...('argsSha256' in record ? { argsSha256: record.argsSha256 as string } : {}),
+    ...('sketch' in record ? { sketch: record.sketch as string | null } : {}),
   }
 }
 
