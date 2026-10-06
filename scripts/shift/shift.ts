@@ -267,6 +267,18 @@ async function confirmed(deps: ShiftDeps, question: string): Promise<boolean> {
   }
 }
 
+async function takeAllowed(deps: ShiftDeps, task: ShiftTask, manual: boolean): Promise<boolean> {
+  return !manual || await confirmed(deps, `take #${task.id} ${task.card.name} (${task.card.contour}/${task.card.decision})?`)
+}
+
+async function continueAllowed(deps: ShiftDeps, task: ShiftTask, reason: ExitReason, manual: boolean): Promise<boolean> {
+  return !manual || await confirmed(deps, `continue #${task.id} in a new session (${EXIT_REASON_TEXT[reason]})?`)
+}
+
+function autopilotLine(deps: ShiftDeps, dir: string, manual: boolean): string {
+  return `${JSON.stringify({ event: 'autopilot', state: manual ? 'off' : 'on', shift: dir, ts: deps.now().toISOString() })}\n`
+}
+
 function recordStop(deps: ShiftDeps, dir: string, task: string, stop: StopRecord): void {
   const line = { event: 'stop', task, at: stop.at, why: stop.why, worktree: stop.worktree, shift: dir, session: stop.session, ts: deps.now().toISOString(), ...(stop.pr === undefined ? {} : { pr: stop.pr }) }
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify(line)}\n`)
@@ -327,7 +339,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
     halted = boundaryWhy(task, lastExit, continuations.length)
     if (!continues(task.continue, lastExit, continuations.length))
       break
-    if (manual && !(await confirmed(deps, `continue #${task.id} in a new session (${EXIT_REASON_TEXT[lastExit]})?`))) {
+    if (!(await continueAllowed(deps, task, lastExit, manual))) {
       halted = `${EXIT_REASON_TEXT[lastExit]}; continuing was not confirmed (--manual)`
       break
     }
@@ -428,11 +440,11 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (read.choice !== undefined)
     deps.append(path.join(dir, QUEUE_FILE), queueText(read.choice.left))
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
-  deps.append(journal, `${JSON.stringify({ event: 'autopilot', state: manual ? 'off' : 'on', shift: dir, ts: deps.now().toISOString() })}\n`)
+  deps.append(journal, autopilotLine(deps, dir, manual))
   let clean = true
   for (const task of tasks) {
     const handed = startContract(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir))
-    if (manual && !(await confirmed(deps, `take #${task.id} ${task.card.name} (${task.card.contour}/${task.card.decision})?`))) {
+    if (!(await takeAllowed(deps, task, manual))) {
       deps.out(`${PREFIX}${task.file} ${task.id}: not taken, not confirmed (--manual)`)
       continue
     }
