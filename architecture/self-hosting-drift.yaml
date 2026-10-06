@@ -71,6 +71,12 @@ differences:
     reason: >-
       Merged, not created: the published package keeps its own name, version, metadata, bin, scripts
       and dependencies, and init only added the keys that were missing.
+  - path: pnpm-workspace.yaml
+    kind: skipped-at-init
+    reason: >-
+      This repository builds its documentation with vitepress, whose vue and postcss chain resolves
+      source-map-js below the patched 1.2.2 (GHSA-68fv-2mgg-jv7q), so it overrides that package; a
+      generated repository has no vitepress, so the template keeps only the overrides every project needs.
   - path: eslint.config.mjs
     kind: skipped-at-init
     reason: >-
