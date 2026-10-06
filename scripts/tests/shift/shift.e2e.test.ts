@@ -191,6 +191,15 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     expect(stubSaw(world, '1', 'session')).not.toBe(stubSaw(world, '2', 'session'))
   })
 
+  it('the shift session sees its card in CONSTRUCT_CARD', async () => {
+    const world = newWorld()
+    taskFile(world, '01.md', '7', 'scripts/a/**', 'do a')
+    const deps = shiftDeps(world, captured())
+    const seen = path.join(world.stubOut, 'card')
+    expect(await runShift([world.shift], { ...deps, claude: `printf '%s' "$CONSTRUCT_CARD" >${seen}; ${deps.claude}` })).toBe(0)
+    expect(readFileSync(seen, 'utf8')).toBe('7')
+  })
+
   it('a card the shift starts has the shift directory on its start line', async () => {
     const world = newWorld()
     taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')

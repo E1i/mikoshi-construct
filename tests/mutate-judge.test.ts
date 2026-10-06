@@ -244,6 +244,26 @@ describe('mutate judge --card', () => {
     expect(existsSync(w.journal)).toBe(false)
   })
 
+  it('refuses --id without --card inside a shift, naming the card, before touching the file', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', shiftCard: '629' })
+
+    expect(result).toMatchObject({ status: 'refused', refusal: 'card-required', detail: '629' })
+    expect(judgeExit(result)).toBe(MUTATE_JUDGE_EXIT.refused)
+    expect(printed(result)).toContain('--card 629')
+    expect(readMutationRecord(w.root, 'M1')).not.toBeNull()
+    expect(w.bytes(SOURCE).toString()).not.toBe(ORIGINAL)
+  })
+
+  it('inside a shift, --baseline and --id with --card run as outside one', () => {
+    const { w, appliedAt } = applied()
+    const green = w.report('green2.json', appliedAt + 1, [passing(TEST_FILE, 'within', 'is strict')])
+    expect(runJudge({ dir: w.root, report: green, baseline: true, shiftCard: '629' }).status).toBe('baseline-recorded')
+    const report = w.report('m1.json', appliedAt + 2, [failing(TEST_FILE, 'within', 'is strict')])
+    expect(runJudge({ dir: w.root, report, id: 'M1', card: '629', journal: w.journal, shiftCard: '629' })).toMatchObject({ status: 'judged', matched: true, journaled: w.journal })
+  })
+
   it('refuses a card with no journal to append to', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])

@@ -373,7 +373,7 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
   const { worktree } = places
   const continuations: string[] = []
   let current = session
-  let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, places.number) })
+  let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, card: task.card.id, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, places.number) })
   let lastExit: ExitReason = 'ended'
   let halted: string | null = null
   while (exit.kind === 'exited') {
@@ -389,7 +389,7 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
     continuations.push(current)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${EXIT_REASON_TEXT[lastExit]}, restart ${continuations.length}/${MAX_RESTARTS} in ${worktree}`)
     const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
-    exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, prompt, log: logPath(dir, places.number, continuations.length) })
+    exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, card: task.card.id, prompt, log: logPath(dir, places.number, continuations.length) })
   }
   return { exit, lastExit, halted, current, continuations }
 }

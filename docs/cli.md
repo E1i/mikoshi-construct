@@ -988,6 +988,10 @@ unmatched outcome, never a refusal, no witness or a hard failure — `judge` app
 before the file is touched. Without `--card`, `judge` writes no journal line; the line is what lets a
 task close as verified by `mutation` stand on a mutation that ran.
 
+Inside a shift, whose session carries its card in `CONSTRUCT_CARD`, an `--id` run without `--card` is
+refused before the file is touched, and the refusal names the card to pass. `--baseline` and an `--id`
+run with `--card` are unchanged; outside a shift, with `CONSTRUCT_CARD` unset, nothing changes.
+
 `--json` prints one object with `schemaVersion` and `state` (`matched`, `baselineRecorded`,
 `refused`, `unmatched`, `noWitness` or `hardFailure`). The records under `.construct/mutations/` are
 local working state, not part of the recorded surface.

@@ -30,6 +30,10 @@ describe('sessionEnv', () => {
   it('sets no idle ceiling on top of the given environment', () => {
     expect(sessionEnv({ PATH: '/bin', OTHER: '1' })).toEqual({ PATH: '/bin', OTHER: '1', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' })
   })
+
+  it('names the card in the session environment', () => {
+    expect(sessionEnv({ PATH: '/bin' }, 629)).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', CONSTRUCT_CARD: '629' })
+  })
 })
 
 describe('spawnSession', () => {

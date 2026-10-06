@@ -16,6 +16,7 @@ export interface JudgeOptions {
   format?: ReportFormat
   card?: string
   journal?: string
+  shiftCard?: string
 }
 
 export type JudgeRefusal
@@ -29,6 +30,7 @@ export type JudgeRefusal
     | 'named-test-ambiguous'
     | 'bad-card'
     | 'no-journal'
+    | 'card-required'
 
 export type HardFailureCause = 'file-changed' | 'copy-unreadable' | 'restore-failed'
 
@@ -154,6 +156,8 @@ export function runJudge(options: JudgeOptions): JudgeResult {
     return recordBaseline(root, reportPath, format)
   if (options.baseline === true || options.id == null)
     return refused('no-mode')
+  if (options.card == null && options.shiftCard != null && options.shiftCard !== '')
+    return refused('card-required', options.shiftCard)
   if (options.card == null)
     return judgeMutation(root, options.id, reportPath, format)
   const card = cardId(options.card)
