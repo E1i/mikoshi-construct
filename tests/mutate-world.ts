@@ -70,6 +70,14 @@ export class MutateWorld {
     return file
   }
 
+  get journal(): string {
+    return path.join(this.scratch, 'handoff', 'ghosts.jsonl')
+  }
+
+  journalLines(): Record<string, unknown>[] {
+    return existsSync(this.journal) ? readFileSync(this.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
+  }
+
   mutations(): string[] {
     const dir = path.join(this.root, '.construct/mutations')
     return existsSync(dir) ? readdirSync(dir).sort() : []

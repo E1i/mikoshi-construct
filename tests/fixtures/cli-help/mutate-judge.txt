@@ -4,13 +4,15 @@ USAGE mutate judge [OPTIONS]
 
 OPTIONS
 
-                       --dir=<dir>    Target directory (Default: .)                                                                  
-                           --plain    No colors, no lore (CI-friendly) (Default: false)                                              
-                          --johnny    Wake up, Netrunner. (Default: false)                                                           
-                         --id=<id>    The id of the applied mutation to restore and judge                                            
-                        --baseline    Record a green report as the baseline apply requires (Default: false)                          
-                 --report=<report>    The test report the runner wrote, in the format named by --format                              
-  --format=<vitest-json|junit-xml>    The report format: vitest-json (the runner's json reporter) or junit-xml (Default: vitest-json)
-                            --json    Machine-readable report (Default: false)                                                       
+                       --dir=<dir>    Target directory (Default: .)                                                                                     
+                           --plain    No colors, no lore (CI-friendly) (Default: false)                                                                 
+                          --johnny    Wake up, Netrunner. (Default: false)                                                                              
+                         --id=<id>    The id of the applied mutation to restore and judge                                                               
+                        --baseline    Record a green report as the baseline apply requires (Default: false)                                             
+                 --report=<report>    The test report the runner wrote, in the format named by --format                                                 
+  --format=<vitest-json|junit-xml>    The report format: vitest-json (the runner's json reporter) or junit-xml (Default: vitest-json)                   
+                     --card=<card>    The card the mutation verifies (#<n> or <n>): after the verdict, append a mutation-judged line for it to --journal
+               --journal=<journal>    The journal --card appends to (default: ~/.construct/handoff/ghosts.jsonl)                                        
+                            --json    Machine-readable report (Default: false)                                                                          
 
 

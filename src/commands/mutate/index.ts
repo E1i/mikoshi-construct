@@ -55,6 +55,8 @@ const JUDGE_REFUSAL_LINE: Record<JudgeRefusal, (lore: Lore, detail: string) => s
   'no-record': (lore, detail) => lore.mutateRefusedNoRecord(detail),
   'named-test-missing': lore => lore.mutateRefusedNamedTestMissing,
   'named-test-ambiguous': (lore, detail) => lore.mutateRefusedNamedTestAmbiguous(detail),
+  'bad-card': (lore, detail) => lore.mutateRefusedBadCard(detail),
+  'no-journal': lore => lore.mutateRefusedNoJournal,
 }
 
 const HARD_FAILURE_LINE: Record<HardFailureCause, (lore: Lore, file: string) => string> = {
@@ -132,7 +134,7 @@ export function judgeJson(result: JudgeResult): Record<string, unknown> {
     case 'no-witness':
       return { ...envelope, id: result.id, file: result.file, restored: true, reason: result.reason }
     case 'judged':
-      return { ...envelope, id: result.id, file: result.file, restored: true, prediction: result.prediction, outcome: result.outcome, failures: result.failures.map(failureJson), report: result.report }
+      return { ...envelope, id: result.id, file: result.file, restored: true, prediction: result.prediction, outcome: result.outcome, failures: result.failures.map(failureJson), report: result.report, journaled: result.journaled ?? null }
   }
 }
 
@@ -172,6 +174,8 @@ export function printJudge(ui: Ui, result: JudgeResult): number {
         ui.ok(ui.lore.mutateMatched)
       else
         ui.glitch(ui.lore.mutateUnmatched)
+      if (result.journaled != null)
+        ui.line(ui.theme.dim(ui.lore.mutateJournaled(result.journaled)))
       break
   }
   return judgeExit(result)

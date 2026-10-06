@@ -415,12 +415,15 @@ const mutateJudge = withKnownFlags(defineCommand({
     baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
     report: { type: 'string', description: 'The test report the runner wrote, in the format named by --format' },
     format: { type: 'enum', options: [...REPORT_FORMATS], description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
+    card: { type: 'string', description: 'The card the mutation verifies (#<n> or <n>): after the verdict, append a mutation-judged line for it to --journal' },
+    journal: { type: 'string', description: 'The journal --card appends to (default: ~/.construct/handoff/ghosts.jsonl)' },
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
   },
   run({ args }) {
     const console = ui(args, args.json ? stderrWriter : stdoutWriter)
     const failed = reported(console, () => {
-      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format })
+      const journal = args.card === undefined ? undefined : path.resolve(args.journal ?? defaultWindowJournal())
+      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format, card: args.card, journal })
       if (args.json) {
         process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
         process.exitCode = judgeExit(result)
