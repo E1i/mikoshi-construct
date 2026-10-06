@@ -6,16 +6,19 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
+import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { ENTRY_EVENT, entryOf } from './entry.js'
 
 export const PREFIX = '[task:close] '
-export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word>'
-const FLAGS = ['--pr', '--report', '--verification'] as const
+export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>]'
+const FLAGS = ['--pr', '--report', '--verification', '--override-report'] as const
 const PR_NUMBER = /^[1-9]\d*$/
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
+const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
+const SURVIVED = 'nothing-red'
 const OUTCOME_OF_KIND: Record<Card['kind'], typeof FLAGS[number]> = { implement: '--pr', probe: '--report' }
 
 type Flag = typeof FLAGS[number]
@@ -105,6 +108,29 @@ function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine 
   return { event: 'path', task: id, path: entry.card.contour, session, card: entry.card }
 }
 
+function mutationRefusal(lines: Record<string, unknown>[], id: string, journal: string): string | null {
+  const judged = lines.filter(line => line.event === MUTATION_JUDGED_EVENT && line.card === id)
+  if (judged.length === 0)
+    return `--verification mutation needs a ${MUTATION_JUDGED_EVENT} line for #${id} in ${journal}, and there is none; nothing written`
+  const survived = judged.filter(line => line.outcome === SURVIVED).map(line => String(line.id))
+  if (survived.length > 0)
+    return `--verification mutation refused: ${survived.join(', ')} of #${id} survived (outcome ${SURVIVED}) in ${journal}; nothing written`
+  return null
+}
+
+function shiftReportOf(lines: Record<string, unknown>[], id: string): string | undefined {
+  const shift = lines.filter(line => (line.event === 'stop' || line.event === 'path') && line.task === id && typeof line.shift === 'string').at(-1)?.shift
+  return typeof shift === 'string' ? path.join(shift, `report-${id}.md`) : undefined
+}
+
+function reportRefusal(deps: TaskCloseDeps, lines: Record<string, unknown>[], id: string, verification: string): string | null {
+  const report = shiftReportOf(lines, id)
+  const word = report === undefined ? undefined : REPORT_VERIFICATION_LINE.exec(deps.read(report) ?? '')?.[1]
+  if (word === undefined || word === verification)
+    return null
+  return `the shift report ${report} says verification: ${word}, the flag says ${verification}; close with --verification ${word}, or pass --override-report <reason> to keep ${verification}; nothing written`
+}
+
 function sessionDirs(deps: TaskCloseDeps, start: StartLine): string[] {
   return [...new Set([deps.cwd, ...(typeof start.worktree === 'string' ? [start.worktree] : [])])]
 }
@@ -143,6 +169,13 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id)
   if (start === undefined)
     return refuse(`${journal} has no task:start line with a card for #${id} and no ghosts:launch entry line with one; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
+  const unproven = verification === 'mutation' ? mutationRefusal(lines, id, journal) : null
+  if (unproven !== null)
+    return refuse(unproven)
+  const override = flags.get('--override-report')
+  const contradicted = override === undefined ? reportRefusal(deps, lines, id, verification) : null
+  if (contradicted !== null)
+    return refuse(contradicted)
   const outcome = OUTCOME_OF_KIND[start.card.kind]
   const other = outcome === '--pr' ? '--report' : '--pr'
   if (flags.has(other) || !flags.has(outcome))
@@ -154,7 +187,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const closing = outcome === '--pr' ? { pr: Number(value) } : { report }
   const at = deps.now().toISOString()
   const sessions = taskSessions(deps, start)
-  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ended: at, sessions, ts: at }
+  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, ts: at }
   try {
     deps.append(journal, `${JSON.stringify(line)}\n`)
   }
@@ -166,7 +199,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {
     CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${journal}: no entry line for #${id}`,
     EXPECT: entry?.EXPECT ?? `expect not recorded in ${journal}: no entry line for #${id}`,
-    ACTION: `task:close #${id} ${outcome} ${value} --verification ${verification}`,
+    ACTION: `task:close #${id} ${outcome} ${value} --verification ${verification}${override === undefined ? '' : ` --override-report ${override}`}`,
     RESULT: closed,
   }, deps.style ?? PLAIN_STYLE)
   return { stdout: [...card, ...unplacedLine(deps, start, sessions)], stderr: [], exitCode: 0 }
