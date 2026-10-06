@@ -29,22 +29,34 @@ interface Options {
   evaluate: string | undefined
   listenMs: number
   wait: string | undefined
+  page: string | undefined
 }
 
 interface BrowserLab {
   parseArguments: (argv: string[]) => Options
   grantOptional: (manifest: Manifest) => { manifest: Manifest, granted: string[] }
   extensionId: (manifest: Manifest, directory: string) => string
+  workerRequests: (events: { method: string, params: Record<string, unknown> }[]) => WorkerRequest[]
   UsageError: new () => Error
 }
 
-const { parseArguments, grantOptional, extensionId, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+interface WorkerRequest {
+  url: string
+  method: string
+  status: number | null
+  failed: string | null
+}
+
+const { parseArguments, grantOptional, extensionId, workerRequests, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+
+const UNRESOLVABLE = 'http://lab-nowhere.invalid/'
 
 const FIXTURE_MANIFEST = {
   manifest_version: 3,
   name: 'Lab Fixture',
   version: '1.2.3',
   permissions: ['storage'],
+  host_permissions: ['http://127.0.0.1/*'],
   optional_permissions: ['topSites'],
   background: { service_worker: 'sw.js' },
   action: { default_popup: 'popup.html' },
@@ -54,10 +66,13 @@ const FIXTURE_MANIFEST = {
 
 const FIXTURE_FILES = {
   'manifest.json': JSON.stringify(FIXTURE_MANIFEST),
-  'sw.js': 'chrome.runtime.onInstalled.addListener(() => { chrome.storage.local.set({ seeded: \'yes\' }); console.log(\'lab installed\') })',
+  'sw.js': [
+    'chrome.runtime.onInstalled.addListener(() => { chrome.storage.local.set({ seeded: \'yes\' }); console.log(\'lab installed\') })',
+    `chrome.runtime.onMessage.addListener((message, sender) => { if (message === 'lab-fetch') { fetch(new URL('/api/ok', sender.url)).catch(() => {}); fetch('${UNRESOLVABLE}').catch(() => {}) } })`,
+  ].join('\n'),
   'popup.html': '<title>Lab Popup</title><p>popup body</p>',
   'options.html': '<title>Lab Options</title><p>options body</p>',
-  'content.js': 'document.documentElement.dataset.lab = \'on\'',
+  'content.js': 'document.documentElement.dataset.lab = \'on\'; chrome.runtime.sendMessage(\'lab-fetch\').catch(() => {})',
 }
 
 describe('arguments', () => {
@@ -77,9 +92,15 @@ describe('arguments', () => {
     [['storage', 'disk', '--extension', 'ext']],
     [['logs', '--for', '0', '--extension', 'ext']],
     [['page', 'http://x', '--wait']],
+    [['network', '--page', '--extension', 'ext']],
+    [['network', 'http://x', '--extension', 'ext']],
     [['info', '--extension', 'ext', '--verbose']],
   ])('refuses %j', (argv) => {
     expect(() => parseArguments(argv)).toThrow(UsageError)
+  })
+
+  it('takes the page network opens', () => {
+    expect(parseArguments(['network', '--page', 'http://x', '--for', '3000', '--extension', 'ext'])).toMatchObject({ command: 'network', page: 'http://x', listenMs: 3000 })
   })
 
   it('lets page run without an extension', () => {
@@ -96,6 +117,23 @@ describe('the lab copy of the manifest', () => {
 
   it('leaves a manifest without optional permissions as it is', () => {
     expect(grantOptional({ name: 'x', permissions: ['storage'] })).toEqual({ manifest: { name: 'x', permissions: ['storage'] }, granted: [] })
+  })
+})
+
+describe('the service worker requests', () => {
+  it('joins a request with its response or its failure by request id', () => {
+    expect(workerRequests([
+      { method: 'Network.requestWillBeSent', params: { requestId: '1', request: { url: 'http://a/', method: 'GET' } } },
+      { method: 'Network.requestWillBeSent', params: { requestId: '2', request: { url: 'http://b/', method: 'POST' } } },
+      { method: 'Network.requestWillBeSent', params: { requestId: '3', request: { url: 'http://c/', method: 'GET' } } },
+      { method: 'Network.responseReceived', params: { requestId: '1', response: { status: 204 } } },
+      { method: 'Network.loadingFailed', params: { requestId: '2', errorText: 'net::ERR_NAME_NOT_RESOLVED' } },
+      { method: 'Network.responseReceived', params: { requestId: '9', response: { status: 200 } } },
+    ])).toEqual([
+      { url: 'http://a/', method: 'GET', status: 204, failed: null },
+      { url: 'http://b/', method: 'POST', status: null, failed: 'net::ERR_NAME_NOT_RESOLVED' },
+      { url: 'http://c/', method: 'GET', status: null, failed: null },
+    ])
   })
 })
 
@@ -187,6 +225,26 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
     expect(run.status).toBe(0)
     expect(run.json.console).toContainEqual({ level: 'log', text: 'lab says 2' })
     expect(run.json.errors).toContainEqual('Error: lab boom')
+  }, BROWSER_RUN_MS)
+
+  it('network sees the service worker request a page visit triggers', async () => {
+    const run = await lab('network', '--page', `${origin}/covered/`, '--for', '3000')
+    expect(run.status).toBe(0)
+    expect(run.json.page).toMatchObject({ url: `${origin}/covered/`, status: 200, title: 'Served' })
+    expect(run.json.requests).toContainEqual({ url: `${origin}/api/ok`, method: 'GET', status: 200, failed: null })
+  }, BROWSER_RUN_MS)
+
+  it('network names a failed service worker request', async () => {
+    const run = await lab('network', '--page', `${origin}/covered/`, '--for', '3000')
+    expect(run.status).toBe(0)
+    expect(run.json.requests).toContainEqual({ url: UNRESOLVABLE, method: 'GET', status: null, failed: expect.stringMatching(/^net::ERR_/) as string })
+  }, BROWSER_RUN_MS)
+
+  it('network without a page lists what the evaluated expression fetched', async () => {
+    const run = await lab('network', '--eval', `fetch('${UNRESOLVABLE}').catch(() => {})`, '--for', '2000')
+    expect(run.status).toBe(0)
+    expect(run.json).not.toHaveProperty('page')
+    expect((run.json.requests as WorkerRequest[]).map(request => request.url)).toContain(UNRESOLVABLE)
   }, BROWSER_RUN_MS)
 
   it.for<[string, string, string]>([

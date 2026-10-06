@@ -19,6 +19,7 @@ node scripts/construct/browser-lab.mjs info --extension <dir>
 node scripts/construct/browser-lab.mjs sw-eval <expression> --extension <dir>
 node scripts/construct/browser-lab.mjs storage [area] --extension <dir>
 node scripts/construct/browser-lab.mjs logs --extension <dir> --eval <expr> --for <ms>
+node scripts/construct/browser-lab.mjs network --extension <dir> --page <url> --for <ms>
 node scripts/construct/browser-lab.mjs popup --extension <dir>
 node scripts/construct/browser-lab.mjs options --extension <dir>
 node scripts/construct/browser-lab.mjs page <url> --extension <dir> --wait <selector>
@@ -26,6 +27,10 @@ node scripts/construct/browser-lab.mjs page <url> --extension <dir> --wait <sele
 
 Add `--headed` to any of them to watch the browser. `page` also runs without `--extension`; with it, the output says
 whether a content script of the extension ran in the page.
+
+`network` lists the requests the extension's service worker sent, with the status each one got or the error it
+failed with, while the lab opens `--page` (and runs `--eval` in the worker) in the same browser and listens for
+`--for` milliseconds. Use it to see what the worker fetches when a page triggers it.
 
 ## Exit codes
 

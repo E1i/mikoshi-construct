@@ -18,10 +18,10 @@ const DEVTOOLS_PORT_POLL_MS = 50
 const DEVTOOLS_PORT_TIMEOUT_MS = 5000
 const PAGE_TEXT_LIMIT = 2000
 const STORAGE_AREAS = ['local', 'sync', 'session', 'managed']
-const COMMANDS = ['info', 'sw-eval', 'storage', 'logs', 'popup', 'options', 'page']
-const POSITIONALS_OF = { 'info': [0, 0], 'sw-eval': [1, 1], 'storage': [0, 1], 'logs': [0, 0], 'popup': [0, 0], 'options': [0, 0], 'page': [1, 1] }
+const COMMANDS = ['info', 'sw-eval', 'storage', 'logs', 'network', 'popup', 'options', 'page']
+const POSITIONALS_OF = { 'info': [0, 0], 'sw-eval': [1, 1], 'storage': [0, 1], 'logs': [0, 0], 'network': [0, 0], 'popup': [0, 0], 'options': [0, 0], 'page': [1, 1] }
 const WITHOUT_EXTENSION = new Set(['page'])
-const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1 }
+const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1 }
 
 const USAGE = [
   'usage: browser-lab.mjs <command> [--extension <dir>] [--headed]',
@@ -29,6 +29,7 @@ const USAGE = [
   '  sw-eval <expression>      evaluate in the extension service worker and print the result',
   '  storage [area]            chrome.storage.<area> (local, sync, session, managed; default local)',
   '  logs [--eval <expr>] [--for <ms>]   service worker console and uncaught errors while listening',
+  '  network [--page <url>] [--eval <expr>] [--for <ms>]   requests of the service worker (sent, answered, failed) while it opens the page in the same browser and listens',
   '  popup | options           open the page the manifest declares and print its title, text and errors',
   '  page <url> [--wait <sel>] open a page; with --extension, whether a content script of the extension ran in it',
   '  every command prints one JSON object; optional permissions are granted in a lab copy, so no prompt appears',
@@ -53,7 +54,7 @@ export function parseArguments(argv) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
@@ -80,6 +81,9 @@ export function parseArguments(argv) {
         break
       case '--for':
         options.listenMs = positive(value, argument)
+        break
+      case '--page':
+        options.page = value
         break
       default:
         options.wait = value
@@ -253,7 +257,20 @@ function errorLine(event) {
   return details.exception?.description?.split('\n')[0] ?? details.text
 }
 
-async function listenToWorker(profile, extension, options) {
+export function workerRequests(events) {
+  const requests = new Map()
+  for (const { method, params } of events) {
+    if (method === 'Network.requestWillBeSent')
+      requests.set(params.requestId, { url: params.request.url, method: params.request.method, status: null, failed: null })
+    else if (method === 'Network.responseReceived' && requests.has(params.requestId))
+      requests.get(params.requestId).status = params.response.status
+    else if (method === 'Network.loadingFailed' && requests.has(params.requestId))
+      requests.get(params.requestId).failed = params.errorText
+  }
+  return [...requests.values()]
+}
+
+async function listenToWorker(profile, extension, domain, during) {
   const devtools = await openDevtools(await devtoolsEndpoint(profile))
   try {
     const { result } = await devtools.send('Target.getTargets')
@@ -262,19 +279,19 @@ async function listenToWorker(profile, extension, options) {
       throw new Unobserved(`no service worker target for ${extension.id}`)
     const attached = await devtools.send('Target.attachToTarget', { targetId: target.targetId, flatten: true })
     const { sessionId } = attached.result
-    await devtools.send('Runtime.enable', {}, sessionId)
-    if (options.evaluate !== undefined)
-      await devtools.send('Runtime.evaluate', { expression: options.evaluate, awaitPromise: true }, sessionId)
-    await sleep(options.listenMs)
-    const ofWorker = devtools.events.filter(event => event.sessionId === sessionId)
-    return {
-      console: ofWorker.filter(event => event.method === 'Runtime.consoleAPICalled').map(consoleLine),
-      errors: ofWorker.filter(event => event.method === 'Runtime.exceptionThrown').map(errorLine),
-    }
+    await devtools.send(`${domain}.enable`, {}, sessionId)
+    await during(expression => devtools.send('Runtime.evaluate', { expression, awaitPromise: true }, sessionId))
+    return devtools.events.filter(event => event.sessionId === sessionId)
   }
   finally {
     devtools.close()
   }
+}
+
+async function listening(options, evaluate) {
+  if (options.evaluate !== undefined)
+    await evaluate(options.evaluate)
+  await sleep(options.listenMs)
 }
 
 async function visit(context, url, wait) {
@@ -336,7 +353,24 @@ const RUNS = {
   },
   'logs': async function ({ context, extension, options, profile }) {
     await serviceWorker(context, extension)
-    return { id: extension.id, ...await listenToWorker(profile, extension, options) }
+    const events = await listenToWorker(profile, extension, 'Runtime', evaluate => listening(options, evaluate))
+    return {
+      id: extension.id,
+      console: events.filter(event => event.method === 'Runtime.consoleAPICalled').map(consoleLine),
+      errors: events.filter(event => event.method === 'Runtime.exceptionThrown').map(errorLine),
+    }
+  },
+  'network': async function ({ context, extension, options, profile }) {
+    await serviceWorker(context, extension)
+    let page
+    const events = await listenToWorker(profile, extension, 'Network', async (evaluate) => {
+      if (options.page !== undefined) {
+        const { status, title } = await visit(context, options.page, options.wait)
+        page = { url: options.page, status, title }
+      }
+      await listening(options, evaluate)
+    })
+    return { id: extension.id, ...(page === undefined ? {} : { page }), requests: workerRequests(events) }
   },
   'popup': async function ({ context, extension, options }) {
     const url = declaredPage(extension, options.command)
