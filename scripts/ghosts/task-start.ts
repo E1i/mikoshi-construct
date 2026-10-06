@@ -1,5 +1,6 @@
 import type { Card } from '../../src/card/grammar.js'
 import type { ParkedTask } from '../../src/card/parking.js'
+import type { CheapForecast } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
@@ -151,6 +152,20 @@ function cardArgs(argv: string[]): { branch: string, card: string, waiver: strin
 
 type Contract = Pick<Signal, 'CONTRACT' | 'EXPECT'>
 
+export interface HandedContract extends Contract {
+  forecast?: CheapForecast
+}
+
+type RecordedForecast
+  = | { tokens: number, minutes: number, class: string, n: number }
+    | { kind: 'none', class: string, n: number }
+
+function recordedForecast(forecast: CheapForecast): RecordedForecast {
+  return forecast.kind === 'none'
+    ? { kind: 'none', class: forecast.taskClass, n: forecast.n }
+    : { tokens: forecast.tokens, minutes: forecast.minutes, class: forecast.taskClass, n: forecast.n }
+}
+
 type CardFile
   = | { kind: 'missing' }
     | { kind: 'refused', reason: string }
@@ -208,7 +223,7 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
-export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contract): TaskStartResult {
+export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
   if (!argv.includes(CARD_FLAG))
     return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
   const args = cardArgs(argv)
@@ -232,7 +247,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contr
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
   const cardFile = readCardFile(deps, card, args.parking)
-  const contract = handed ?? manualContract(card, cardFile)
+  const contract = handed === undefined ? manualContract(card, cardFile) : { CONTRACT: handed.CONTRACT, EXPECT: handed.EXPECT }
   if (typeof contract === 'string')
     return refuse(contract)
   let repo: string
@@ -261,7 +276,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contr
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
   const at = deps.now().toISOString()
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, branch, card, ...whoAndRisk(cardFile), admission: admissionRecord(admitted), ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
     ...contract,
