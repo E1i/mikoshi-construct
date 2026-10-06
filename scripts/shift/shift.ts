@@ -6,7 +6,7 @@ import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { MergeResult } from './merge.js'
 import type { OpenPr } from './overlap.js'
-import type { Choice } from './parking.js'
+import type { Choice, Stop } from './parking.js'
 import type { TaskLine } from './places.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -14,6 +14,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realp
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
@@ -32,7 +33,7 @@ import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { choose, isClosed, leftLine, leftSummary, QUEUE_FILE, queueText } from './parking.js'
+import { choose, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 
@@ -42,6 +43,7 @@ const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const REPORT_FILE_LINE = /(?:^Report:|report written to)\s+`?([^`\s]+?)`?[.,;]?\s*$/im
 export const USAGE = [
   'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]',
+  '  [--manual]  (optional: no automation; every take and every continuation asks first)',
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
   `With --parking, the tasks come from <parking>/<id>.md instead: the same header plus who: and an optional priority: p0.`,
@@ -63,6 +65,11 @@ export const USAGE = [
   `A real shift records merged pull requests as merge lines before it chooses and once after its last task, prints one merged line each time and the details to <dir>/${MERGED_FILE};`,
   'a pull request without a card, or closed without merge, is recorded as a merge-skip line and not looked up again.',
   '--check parses the tasks and checks touches against each other and the open pull requests, records no merge line, and starts nothing.',
+  'The shift is an autopilot by default: it takes the next ready card, follows a session into a new one at a boundary the card allows, arms auto-merge where the merge rules allow it,',
+  'and stops only at a gate the owner holds, writing one event:stop line to ghosts.jsonl (at: hash, merge, question, boundary or fault, and why).',
+  'A ladder card is never taken: it is left, with a stop at hash. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
+  '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
+  'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
 
@@ -82,6 +89,7 @@ export interface ShiftDeps {
   append: (file: string, text: string) => void
   now: () => Date
   uuid: () => string
+  confirm?: (question: string) => Promise<boolean>
   run: (run: ClaudeRun) => Promise<ClaudeExit>
   out: (line: string) => void
   err: (line: string) => void
@@ -112,7 +120,7 @@ function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors
   const text = deps.exists(journal) ? deps.read(journal) : null
   const done = new Set(closedTasks(text).keys())
   return {
-    choice: choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), done, mergedTasks(text)),
+    choice: choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), done, mergedTasks(text), standingStops(latestStops(text), deps.exists)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }
@@ -221,7 +229,7 @@ function closeProbeFromReport(deps: ShiftDeps, task: ShiftTask, session: { workt
     deps.out(line)
 }
 
-function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string): string[] | undefined {
+function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string): { pr: string, lines: string[] } | undefined {
   const text = deps.read(report)
   if (task.card.kind === 'probe') {
     closeProbeFromReport(deps, task, session, text)
@@ -236,26 +244,105 @@ function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
   deps.append(report, `\n${lines.join('\n')}\n`)
   for (const line of lines)
     deps.out(line)
-  return lines
+  return { pr: pr[1]!, lines }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>): Promise<ShiftTaskLine> {
+interface StopRecord {
+  at: Stop['at']
+  why: string
+  worktree: string | null
+  session: string | null
+  pr?: number
+}
+
+const MERGE_ARMED = /auto-merge armed on PR #\d+/
+const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/m
+
+async function confirmed(deps: ShiftDeps, question: string): Promise<boolean> {
+  try {
+    return deps.confirm === undefined ? false : await deps.confirm(question)
+  }
+  catch {
+    return false
+  }
+}
+
+async function takeAllowed(deps: ShiftDeps, task: ShiftTask, manual: boolean): Promise<boolean> {
+  return !manual || await confirmed(deps, `take #${task.id} ${task.card.name} (${task.card.contour}/${task.card.decision})?`)
+}
+
+async function continueAllowed(deps: ShiftDeps, task: ShiftTask, reason: ExitReason, manual: boolean): Promise<boolean> {
+  return !manual || await confirmed(deps, `continue #${task.id} in a new session (${EXIT_REASON_TEXT[reason]})?`)
+}
+
+function autopilotLine(deps: ShiftDeps, dir: string, manual: boolean): string {
+  return `${JSON.stringify({ event: 'autopilot', state: manual ? 'off' : 'on', shift: dir, ts: deps.now().toISOString() })}\n`
+}
+
+function recordStop(deps: ShiftDeps, dir: string, task: string, stop: StopRecord): void {
+  const line = { event: 'stop', task, at: stop.at, why: stop.why, worktree: stop.worktree, shift: dir, session: stop.session, ts: deps.now().toISOString(), ...(stop.pr === undefined ? {} : { pr: stop.pr }) }
+  deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify(line)}\n`)
+}
+
+function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number): string | null {
+  if (reason !== 'boundary' && reason !== 'eddies-warn')
+    return null
+  return task.continue === 'stop' ? `${EXIT_REASON_TEXT[reason]}; the card says continue: stop` : `${EXIT_REASON_TEXT[reason]}; ${restarts} of ${MAX_RESTARTS} restarts used`
+}
+
+interface Finish {
+  reason: ExitReason
+  halted: string | null
+  exit: Extract<ClaudeExit, { kind: 'exited' }>
+  report: string | null
+  merge: { pr: string, lines: string[] } | undefined
+  closed: boolean
+}
+
+function stopAfter(task: ShiftTask, where: { worktree: string, session: string }, finish: Finish): StopRecord | null {
+  const at = (kind: Stop['at'], why: string, pr?: number): StopRecord => ({ at: kind, why, ...where, ...(pr === undefined ? {} : { pr }) })
+  const { reason, halted, exit, report, merge } = finish
+  if (reason === 'owner-question')
+    return at('question', QUESTION_TEXT.exec(report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[reason])
+  if (merge?.lines.some(line => MERGE_ARMED.test(line)))
+    return null
+  if (halted !== null)
+    return at('boundary', halted)
+  if (reason === 'eddies-stop' || reason === 'guard-refusal')
+    return at('fault', EXIT_REASON_TEXT[reason])
+  if (exit.signal !== null || exit.code !== 0)
+    return at('fault', exit.signal === null ? `exit ${exit.code}` : `signal ${exit.signal}`)
+  if (merge !== undefined)
+    return at('merge', merge.lines.map(line => line.replace(MERGE_PREFIX, '')).join('; '), Number(merge.pr))
+  if (finish.closed)
+    return null
+  return at('fault', report === null ? 'exited 0 without a report' : task.card.kind === 'probe' ? 'the probe report closed no task' : 'the report names no pull request')
+}
+
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const started = deps.now().toISOString()
   const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
   const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
-  if (start.exitCode !== 0 || start.worktree === undefined)
-    return { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }
+  if (start.exitCode !== 0 || start.worktree === undefined) {
+    return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
+  }
   const worktree = start.worktree
   const places = { worktree, report: reportPath(dir, task.number) }
   const continuations: string[] = []
   let current = session
   let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, task.number) })
   let lastExit: ExitReason = 'ended'
+  let halted: string | null = null
   while (exit.kind === 'exited') {
     lastExit = exitReason(sessionEvidence(deps, dir, task, worktree, current, exit.signal === null ? exit.code : null))
+    halted = boundaryWhy(task, lastExit, continuations.length)
     if (!continues(task.continue, lastExit, continuations.length))
       break
+    if (!(await continueAllowed(deps, task, lastExit, manual))) {
+      halted = `${EXIT_REASON_TEXT[lastExit]}; continuing was not confirmed (--manual)`
+      break
+    }
     current = deps.uuid()
     continuations.push(current)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${EXIT_REASON_TEXT[lastExit]}, restart ${continuations.length}/${MAX_RESTARTS} in ${worktree}`)
@@ -264,10 +351,13 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   }
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
-    return { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }
+    return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
   const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report) : undefined
-  return { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge }) }
+  const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
+  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines }) }
+  return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: report ? deps.read(places.report) : null, merge, closed }) }
 }
 
 function startContract(task: ShiftTask, expected: string): Pick<Signal, 'CONTRACT' | 'EXPECT'> {
@@ -304,9 +394,10 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   }
   const check = argv.includes('--check')
   const queue = argv.includes('--queue')
+  const manual = argv.includes('--manual')
   const parkingAt = argv.indexOf('--parking')
   const parkingArg = parkingAt === -1 ? undefined : argv[parkingAt + 1]
-  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && (parkingAt === -1 || (index !== parkingAt && index !== parkingAt + 1)))
+  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && arg !== '--manual' && (parkingAt === -1 || (index !== parkingAt && index !== parkingAt + 1)))
   if (rest.length !== 1 || rest[0]!.startsWith('-') || (parkingAt !== -1 && (parkingArg === undefined || parkingArg.startsWith('-'))))
     return refuse(deps, [USAGE.split('\n')[0]!])
   const dir = path.resolve(deps.cwd, rest[0]!)
@@ -321,6 +412,10 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const { errors } = read
   if (errors.length > 0)
     return refuse(deps, errors)
+  if (read.choice !== undefined && !check) {
+    for (const card of read.choice.left.filter(left => left.reason === LADDER_REASON))
+      recordStop(deps, dir, card.id, { at: 'hash', why: `a ladder card: the shift has no ladder route and the brief's hash is the owner's`, worktree: null, session: null })
+  }
   if (read.choice !== undefined) {
     for (const line of choiceLines(read.choice, queue))
       deps.out(line)
@@ -345,13 +440,20 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (read.choice !== undefined)
     deps.append(path.join(dir, QUEUE_FILE), queueText(read.choice.left))
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
+  deps.append(journal, autopilotLine(deps, dir, manual))
   let clean = true
   for (const task of tasks) {
     const handed = startContract(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir))
+    if (!(await takeAllowed(deps, task, manual))) {
+      deps.out(`${PREFIX}${task.file} ${task.id}: not taken, not confirmed (--manual)`)
+      continue
+    }
     for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
       deps.out(line)
-    const line = await runTask(deps, dir, task, claude, handed)
+    const { line, stop } = await runTask(deps, dir, task, claude, handed, manual)
     deps.append(journal, `${JSON.stringify(line)}\n`)
+    if (stop !== null)
+      recordStop(deps, dir, task.id, stop)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(line)}`)
     clean &&= succeeded(line)
   }
@@ -359,6 +461,16 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     sweepMerges(deps, ghostJournal, dir)
   deps.out(`${PREFIX}shift over; pnpm shift:report ${dir}`)
   return clean ? 0 : 1
+}
+
+async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(?:es)?$/i.test((await terminal.question(`${PREFIX}${question} [y/N] `)).trim())
+  }
+  finally {
+    terminal.close()
+  }
 }
 
 function realDeps(): ShiftDeps {
@@ -381,6 +493,7 @@ function realDeps(): ShiftDeps {
     },
     now: () => new Date(),
     uuid: randomUUID,
+    confirm: process.stdin.isTTY ? askOnTerminal : undefined,
     run: runClaude,
     out: line => console.log(line),
     err: line => console.error(line),
