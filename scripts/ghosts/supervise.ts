@@ -2,6 +2,7 @@ import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
 import type { JournalEntry, RangeDiffOutcome } from './journal.js'
 import type { MatrixLookup } from './matrix.js'
+import type { SpawnSessionParams } from './session.js'
 import type { Sketch } from './sketch.js'
 import type { StartedTree, Task } from './tasks.js'
 import { execFileSync, spawn } from 'node:child_process'
@@ -18,7 +19,7 @@ import { carryLedgerLines, countLedgerLines, readLadderOutcome } from './ledger.
 import { lookupMatrixRow } from './matrix.js'
 import { approvalCarryEvent, regeneratedCheckFailedOutcome, regeneratedCheckFailures } from './regenerated.js'
 import { readResultFields } from './result.js'
-import { spawnSession } from './session.js'
+import { sessionEnv, spawnSession } from './session.js'
 import { freeRow, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
 
 export interface PreparedTask extends Task, StartedTree {
@@ -62,6 +63,17 @@ export function git(repo: string, args: string[]): string {
 
 export const FALL_KINDS = ['base-red', 'ladder-not-done', 'review-hole', 'handoff-without-pr', 'hash-recounted'] as const
 export type FallKind = typeof FALL_KINDS[number]
+
+export function sessionParams(task: PreparedTask): SpawnSessionParams {
+  return {
+    cwd: task.worktree,
+    sessionId: task.sessionId,
+    prompt: task.approvedText,
+    stdoutPath: task.reportPath,
+    stderrPath: task.stderrPath,
+    env: sessionEnv(process.env, task.card.id),
+  }
+}
 
 export function fallEvent(card: number, kind: FallKind): object {
   return { event: 'fall', card, kind, ts: new Date().toISOString() }
@@ -174,13 +186,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
 
   let code: number
   try {
-    code = await spawnSession({
-      cwd: task.worktree,
-      sessionId: task.sessionId,
-      prompt: task.approvedText,
-      stdoutPath: task.reportPath,
-      stderrPath: task.stderrPath,
-    })
+    code = await spawnSession(sessionParams(task))
   }
   catch (error) {
     const message = errorMessage(error)

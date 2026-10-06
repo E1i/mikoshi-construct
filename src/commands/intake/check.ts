@@ -8,6 +8,7 @@ import { commandWord } from './command-word.js'
 export const DEFAULT_CONTOUR = 'ladder'
 export const CARD_REFERENCE = /^#(\d+)$/
 const BACKTICKED = /`([^`]+)`/g
+const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+))/g
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
 export interface Correction {
@@ -138,6 +139,21 @@ function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): Unclear
       .filter(word => !repository.commandResolves(word))
       .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` }))
   })
+}
+
+function testNamePatterns(witness: string): string[] {
+  return [...witness.matchAll(BACKTICKED)].flatMap(command => [...command[1]!.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2]?.replace(/\\([\\"$`])/g, '$1') ?? match[3]!))
+}
+
+export function invalidTestPatterns(cards: readonly DraftCard[]): string[] {
+  return cards.flatMap(card => card.witnesses.flatMap(witness => testNamePatterns(witness).flatMap((pattern) => {
+    try {
+      return new RegExp(pattern, '') && []
+    }
+    catch (error) {
+      return [`${witness.trim()} — ${error instanceof Error ? error.message : String(error)}`]
+    }
+  })))
 }
 
 function byFieldOrder(corrections: Correction[]): Correction[] {

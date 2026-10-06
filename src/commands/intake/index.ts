@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
-import { checkDraft, correctionText } from './check.js'
+import { checkDraft, correctionText, invalidTestPatterns } from './check.js'
 import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
@@ -77,7 +77,7 @@ export interface IntakeOptions {
   readStdin: () => string
 }
 
-type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid'
+type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid' | 'invalidTestPattern'
 
 export type IntakeResult
   = | { status: 'refused', refusal: Refusal, detail: string[] }
@@ -92,6 +92,7 @@ const REFUSAL_LINE: Record<Refusal, (lore: Lore, detail: string[]) => string> = 
   bothFromStdin: lore => lore.intakeRefusedBothFromStdin,
   unreadable: (lore, detail) => lore.intakeRefusedUnreadable(detail.join('; ')),
   invalid: lore => lore.intakeRefusedInvalid,
+  invalidTestPattern: lore => lore.intakeRefusedInvalidTestPattern,
 }
 
 function refused(refusal: Refusal, detail: string[] = []): IntakeResult {
@@ -160,6 +161,9 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const draft = parseDraft(draftText)
   if (draft.kind === 'refused')
     return refused('invalid', draft.reasons)
+  const invalidPatterns = invalidTestPatterns(draft.cards)
+  if (invalidPatterns.length > 0)
+    return refused('invalidTestPattern', invalidPatterns)
   const taken = parseTaken(takenText)
   if (taken.kind === 'refused')
     return refused('invalid', [taken.reason])
@@ -192,7 +196,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
 export function printIntake(ui: Ui, result: IntakeResult): number {
   if (result.status === 'refused') {
     ui.flatline(REFUSAL_LINE[result.refusal](ui.lore, result.detail))
-    if (result.refusal === 'invalid') {
+    if (result.refusal === 'invalid' || result.refusal === 'invalidTestPattern') {
       for (const reason of result.detail)
         ui.line(`  - ${reason}`)
     }
