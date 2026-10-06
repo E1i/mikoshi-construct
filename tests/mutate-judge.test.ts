@@ -172,3 +172,64 @@ describe('mutate judge --id', () => {
     expect(applyMutation({ dir: w.root, from: brief, id: 'M1' }).status).toBe('applied')
   })
 })
+
+describe('mutate judge --card', () => {
+  it('journals the card, the id, the outcome and whether it matched after the file is restored', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '#616', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'judged', outcome: 'named-red', matched: true, journaled: w.journal })
+    expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
+    const lines = w.journalLines()
+    expect(lines).toEqual([{ event: 'mutation-judged', card: '616', id: 'M1', outcome: 'named-red', matched: true, ts: expect.any(String) }])
+    expect(new Date(lines[0].ts as string).toISOString()).toBe(lines[0].ts)
+    expect(printed(result)).toContain(`The verdict is journaled to ${w.journal}.`)
+  })
+
+  it('journals an unmatched verdict as unmatched', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [passing(TEST_FILE, 'within', 'is strict')])
+    runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(w.journalLines()).toMatchObject([{ card: '616', id: 'M1', outcome: 'nothing-red', matched: false }])
+  })
+
+  it('without --card writes no journal line', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'judged', matched: true })
+    expect(result).not.toHaveProperty('journaled')
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
+  it('journals nothing when there is no witness', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt - 1, [failing(TEST_FILE, 'within', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(result.status).toBe('no-witness')
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
+  it('refuses a card that is not a number before touching the file', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: 'mutate-judge', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'refused', refusal: 'bad-card', detail: 'mutate-judge' })
+    expect(judgeExit(result)).toBe(MUTATE_JUDGE_EXIT.refused)
+    expect(readMutationRecord(w.root, 'M1')).not.toBeNull()
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
+  it('refuses a card with no journal to append to', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
+
+    expect(runJudge({ dir: w.root, report, id: 'M1', card: '616' })).toMatchObject({ status: 'refused', refusal: 'no-journal' })
+    expect(readMutationRecord(w.root, 'M1')).not.toBeNull()
+  })
+})

@@ -258,6 +258,9 @@
         "baseline": {
           "type": "boolean"
         },
+        "card": {
+          "type": "string"
+        },
         "dir": {
           "type": "string"
         },
@@ -273,6 +276,9 @@
         },
         "johnny": {
           "type": "boolean"
+        },
+        "journal": {
+          "type": "string"
         },
         "json": {
           "type": "boolean"
@@ -709,6 +715,7 @@
           "failures[].name",
           "file",
           "id",
+          "journaled",
           "outcome",
           "prediction",
           "prediction.file",
@@ -749,6 +756,7 @@
           "failures",
           "file",
           "id",
+          "journaled",
           "outcome",
           "prediction",
           "prediction.file",

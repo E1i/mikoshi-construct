@@ -5,6 +5,7 @@ import type { MutationRecord } from './record.js'
 import { readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { failuresOf, readTestReport, testCount, testsNamed } from '../../model/test-report.js'
+import { cardId, journalJudged } from './journal.js'
 import { copyPath, forgetMutation, isSafeId, readCopy, readMutationRecord, sha256, writeBaseline } from './record.js'
 
 export interface JudgeOptions {
@@ -13,6 +14,8 @@ export interface JudgeOptions {
   id?: string
   baseline?: boolean
   format?: ReportFormat
+  card?: string
+  journal?: string
 }
 
 export type JudgeRefusal
@@ -24,6 +27,8 @@ export type JudgeRefusal
     | 'no-record'
     | 'named-test-missing'
     | 'named-test-ambiguous'
+    | 'bad-card'
+    | 'no-journal'
 
 export type HardFailureCause = 'file-changed' | 'copy-unreadable' | 'restore-failed'
 
@@ -39,7 +44,7 @@ export type JudgeResult
     | { status: 'refused', refusal: JudgeRefusal, detail: string, failures: Failure[] }
     | { status: 'hard-failure', id: string, file: string, cause: HardFailureCause, copy: string }
     | { status: 'no-witness', id: string, file: string, reason: string }
-    | { status: 'judged', id: string, file: string, prediction: Prediction, outcome: Outcome, matched: boolean, failures: Failure[], report: ReportSeen }
+    | { status: 'judged', id: string, file: string, prediction: Prediction, outcome: Outcome, matched: boolean, failures: Failure[], report: ReportSeen, journaled?: string }
 
 function refused(refusal: JudgeRefusal, detail = '', failures: Failure[] = []): JudgeResult {
   return { status: 'refused', refusal, detail, failures }
@@ -147,7 +152,18 @@ export function runJudge(options: JudgeOptions): JudgeResult {
   const format = options.format ?? 'vitest-json'
   if (options.baseline === true && options.id == null)
     return recordBaseline(root, reportPath, format)
-  if (options.baseline !== true && options.id != null)
+  if (options.baseline === true || options.id == null)
+    return refused('no-mode')
+  if (options.card == null)
     return judgeMutation(root, options.id, reportPath, format)
-  return refused('no-mode')
+  const card = cardId(options.card)
+  if (card == null)
+    return refused('bad-card', options.card)
+  if (options.journal == null || options.journal === '')
+    return refused('no-journal')
+  const result = judgeMutation(root, options.id, reportPath, format)
+  if (result.status !== 'judged')
+    return result
+  journalJudged(options.journal, { card, id: result.id, outcome: result.outcome, matched: result.matched }, new Date())
+  return { ...result, journaled: options.journal }
 }
