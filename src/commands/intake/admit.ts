@@ -11,7 +11,7 @@ import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText } from './check.js'
-import { confirmationOf, confirmationToken, INTAKE_EVENT, intakeJournalLine } from './confirm.js'
+import { bodySha, confirmationOf, confirmationToken, INTAKE_EVENT, intakeJournalLine } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { INTAKE_EXIT } from './index.js'
 import { parkedNumbers } from './numbers.js'
@@ -23,6 +23,9 @@ const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 const CARD_HEADER = 'card: '
 const TOUCHES_HEADER = 'touches: '
 export const ADMIT_SOURCE = 'admit'
+export const AMEND_SOURCE = 'amend'
+
+type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE
 
 export interface AdmitOptions {
   file: string
@@ -35,7 +38,7 @@ export interface AdmitOptions {
 
 export type AdmitResult
   = | { status: 'refused', why: string }
-    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean }
+    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
 
 function witnessesOf(body: string): string[] {
@@ -108,21 +111,26 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-function admittedBefore(journal: string | null, card: Card, line: string): boolean {
-  const parsed = parseCard(line)
-  const wanted = parsed.kind === 'card' ? cardLine(parsed.card) : line
-  return (journal ?? '').split('\n').some((text) => {
+interface RecordedIntake { card: string, bodySha: unknown }
+
+function latestIntake(journal: string | null, card: Card): RecordedIntake | null {
+  let latest: RecordedIntake | null = null
+  for (const text of (journal ?? '').split('\n')) {
     try {
       const entry = JSON.parse(text) as Record<string, unknown> | null
-      if (entry?.event !== INTAKE_EVENT || entry.task !== String(card.id) || typeof entry.card !== 'string')
-        return false
-      const recorded = parseCard(entry.card)
-      return recorded.kind === 'card' && cardLine(recorded.card) === wanted
+      if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string')
+        latest = { card: entry.card, bodySha: entry.bodySha }
     }
-    catch {
-      return false
-    }
-  })
+    catch {}
+  }
+  return latest
+}
+
+function sameCardLine(recorded: string, line: string): boolean {
+  const parsed = parseCard(line)
+  const wanted = parsed.kind === 'card' ? cardLine(parsed.card) : line
+  const recordedCard = parseCard(recorded)
+  return recordedCard.kind === 'card' && cardLine(recordedCard.card) === wanted
 }
 
 function siblings(file: string): string[] {
@@ -164,8 +172,10 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     corrections: checked.corrections,
     text: admittedText(text, line, checked),
   }
-  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm }
-  if (admittedBefore(journal, card, line))
+  const recorded = latestIntake(journal, card)
+  const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
+  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source }
+  if (recorded !== null && sameCardLine(recorded.card, line) && recorded.bodySha === bodySha(admitted.text))
     return { ...base, status: 'alreadyAdmitted' }
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
@@ -178,7 +188,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   mkdirSync(path.dirname(options.journal), { recursive: true })
-  appendFileSync(options.journal, `${intakeJournalLine(admitted, confirmationOf(admitted, options.autoConfirm), now(), ADMIT_SOURCE)}\n`)
+  appendFileSync(options.journal, `${intakeJournalLine(admitted, confirmationOf(admitted, options.autoConfirm), now(), source)}\n`)
   return { ...base, status: 'admitted' }
 }
 
@@ -198,6 +208,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
     ui.line(card.text)
   else if (result.status === 'awaiting')
     ui.line(ui.lore.intakeAwaitingCard(card.line))
+  else if (result.source === AMEND_SOURCE)
+    ui.ok(ui.lore.intakeAmended(result.file, card.line))
   else
     ui.ok(ui.lore.intakeAdmitted(result.file, card.line))
   if (result.status !== 'dryRun') {

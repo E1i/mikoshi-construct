@@ -8,6 +8,13 @@ export type Confirmation = 'auto' | 'person' | 'none'
 const TOKEN_LENGTH = 12
 export const INTAKE_EVENT = 'intake'
 
+export function bodySha(text: string): string {
+  const lines = text.split('\n')
+  const headerEnd = lines.findIndex(line => line.trim() === '')
+  const body = headerEnd === -1 ? '' : lines.slice(headerEnd).join('\n').trim()
+  return createHash('sha256').update(body).digest('hex').slice(0, TOKEN_LENGTH)
+}
+
 export function confirmationToken(cards: readonly SlicedCard[]): string {
   return createHash('sha256').update(cards.map(card => card.text).join('\n')).digest('hex').slice(0, TOKEN_LENGTH)
 }
@@ -37,6 +44,7 @@ export function intakeJournalLine(card: SlicedCard, confirmation: Confirmation, 
     card: card.line,
     confirmation,
     corrections: card.corrections.map(correctionText),
+    bodySha: bodySha(card.text),
     ...(source === undefined ? {} : { source }),
     ts: at.toISOString(),
   })
