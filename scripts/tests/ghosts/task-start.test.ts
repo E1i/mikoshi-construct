@@ -259,3 +259,51 @@ describe('the journal path follows the card contour', () => {
     expect(lines(world)[0]).toMatchObject({ task: '21', path: 'ladder' })
   })
 })
+
+describe('the path line carries the card who and risk read from the card file at start', () => {
+  const RISK = 'R2 — high: a contract or a recorded shape that others read changes; a review reads it — the factory mechanism: scripts/ghosts/task-start.ts'
+
+  function parked(world: World, line: string, body: string, who = 'shift'): TaskStartDeps {
+    const dir = path.join(world.root, 'parking')
+    mkdirSync(dir, { recursive: true })
+    const id = /^#(\d+)/.exec(line)![1]
+    writeFileSync(path.join(dir, `${id}.md`), `card: ${line}\nbranch: feat/p\ntouches: a.ts\ncontinue: stop\nwho: ${who}\n\n${body}\n`)
+    return { ...depsOf(world), parking: { dir, read: file => existsSync(file) ? readFileSync(file, 'utf8') : null } }
+  }
+
+  it('the path line carries the card who and risk as written', () => {
+    const world = newWorld()
+    const deps = parked(world, card(41), `do it\n\nrisk: ${RISK}`, 'window')
+    expect(runTaskStart(['feat/p1', '--card', card(41)], deps, { CONTRACT: 'C', EXPECT: 'E' }).exitCode).toBe(0)
+    const line = lines(world).find(entry => entry.event === 'path')!
+    expect(line.who).toBe('window')
+    expect(line.risk).toEqual({ level: 'R2', text: RISK })
+  })
+
+  it('a card without a risk line gets no risk field', () => {
+    const world = newWorld()
+    const deps = parked(world, card(42), 'do it, size M and contour cheap')
+    expect(runTaskStart(['feat/p2', '--card', card(42)], deps).exitCode).toBe(0)
+    const line = lines(world).find(entry => entry.event === 'path')!
+    expect(line.who).toBe('shift')
+    expect(line).not.toHaveProperty('risk')
+  })
+
+  it('a risk line with no known level keeps its text and gets no level', () => {
+    const world = newWorld()
+    const deps = parked(world, card(31), 'do it\nrisk: unclear')
+    expect(runTaskStart(['feat/p3', '--card', card(31)], deps).exitCode).toBe(0)
+    expect(lines(world).find(entry => entry.event === 'path')!.risk).toEqual({ text: 'unclear' })
+  })
+
+  it('a start with no card file, or a card file for another card, gets neither field', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/p4', '--card', card(2)], depsOf(world)).exitCode).toBe(0)
+    const other = parked(world, card(3, 'implement/ghosts/M/cheap/owner'), `do it\nrisk: ${RISK}`)
+    expect(runTaskStart(['feat/p5', '--card', card(3)], other, { CONTRACT: 'C', EXPECT: 'E' }).exitCode).toBe(0)
+    for (const line of lines(world).filter(entry => entry.event === 'path')) {
+      expect(line).not.toHaveProperty('who')
+      expect(line).not.toHaveProperty('risk')
+    }
+  })
+})

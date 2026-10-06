@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { ParkedTask } from '../../src/card/parking.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
@@ -9,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { mergedTasks } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
@@ -149,23 +151,61 @@ function cardArgs(argv: string[]): { branch: string, card: string, waiver: strin
 
 type Contract = Pick<Signal, 'CONTRACT' | 'EXPECT'>
 
-function manualContract(deps: TaskStartDeps, card: Card, parkingDir: string | undefined): Contract | string {
-  const id = String(card.id)
-  const expect = `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`
-  const contractOf = (touches: string) => ({ CONTRACT: `${cardTerms(card)} · touches ${touches} · law not recorded on the card`, EXPECT: expect })
-  const missing = contractOf(`not recorded on the card: no parking file for #${id}`)
+type CardFile
+  = | { kind: 'missing' }
+    | { kind: 'refused', reason: string }
+    | { kind: 'other', message: string }
+    | { kind: 'parked', parked: ParkedTask }
+
+function readCardFile(deps: TaskStartDeps, card: Card, parkingDir: string | undefined): CardFile {
   if (deps.parking === undefined)
-    return missing
-  const file = path.join(parkingDir === undefined ? deps.parking.dir : path.resolve(deps.cwd, parkingDir), `${id}.md`)
+    return { kind: 'missing' }
+  const file = path.join(parkingDir === undefined ? deps.parking.dir : path.resolve(deps.cwd, parkingDir), `${card.id}.md`)
   const text = deps.parking.read(file)
   if (text === null)
-    return missing
+    return { kind: 'missing' }
   const parsed = parseParkingFile(path.basename(file), text)
   if (parsed.kind === 'refused')
-    return contractOf(`not recorded on the card: ${parsed.reason}`)
+    return parsed
   if (cardLine(parsed.parked.task.card) !== cardLine(card))
-    return `${file} carries card ${cardLine(parsed.parked.task.card)}, not the card given; nothing written`
-  return contractOf(parsed.parked.task.touches.join(', '))
+    return { kind: 'other', message: `${file} carries card ${cardLine(parsed.parked.task.card)}, not the card given; nothing written` }
+  return parsed
+}
+
+function manualContract(card: Card, cardFile: CardFile): Contract | string {
+  const expect = `expect not recorded on the start line: its session is the window's ${SESSION_VARIABLE}, shared by every task the window runs, so no session is this task's alone`
+  const contractOf = (touches: string) => ({ CONTRACT: `${cardTerms(card)} · touches ${touches} · law not recorded on the card`, EXPECT: expect })
+  switch (cardFile.kind) {
+    case 'missing':
+      return contractOf(`not recorded on the card: no parking file for #${card.id}`)
+    case 'refused':
+      return contractOf(`not recorded on the card: ${cardFile.reason}`)
+    case 'other':
+      return cardFile.message
+    case 'parked':
+      return contractOf(cardFile.parked.task.touches.join(', '))
+  }
+}
+
+interface WrittenRisk {
+  level?: string
+  text: string
+}
+
+function riskAsWritten(body: string): WrittenRisk | undefined {
+  const line = body.split('\n').find(row => row.startsWith(RISK_PREFIX))
+  if (line === undefined)
+    return undefined
+  const text = line.slice(RISK_PREFIX.length)
+  const level = RISK_LEVELS.find(candidate => text.startsWith(`${candidate} `))
+  return level === undefined ? { text } : { level, text }
+}
+
+function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
+  if (cardFile.kind !== 'parked')
+    return {}
+  const risk = riskAsWritten(cardFile.parked.task.body)
+  return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contract): TaskStartResult {
@@ -191,7 +231,8 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contr
   const admitted = admission(card, journalText, args.waiver)
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
-  const contract = handed ?? manualContract(deps, card, args.parking)
+  const cardFile = readCardFile(deps, card, args.parking)
+  const contract = handed ?? manualContract(card, cardFile)
   if (typeof contract === 'string')
     return refuse(contract)
   let repo: string
@@ -220,7 +261,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contr
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
   const at = deps.now().toISOString()
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, branch, card, admission: admissionRecord(admitted), ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, branch, card, ...whoAndRisk(cardFile), admission: admissionRecord(admitted), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
     ...contract,
