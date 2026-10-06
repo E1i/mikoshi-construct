@@ -163,8 +163,12 @@ export function approvalEvent(fields: ApprovalFields): JournalEvent {
   }
 }
 
+export function approvalOf(events: JournalEvent[], sha256: string, card: number): JournalEvent | undefined {
+  return events.find(event => event.event === 'approval' && event.sha256 === sha256 && event.card === card)
+}
+
 export function morseApprovalOf(events: JournalEvent[], sha256: string, card: number): JournalEvent | undefined {
-  return events.find(event => event.event === 'approval' && event.by === MORSE && event.sha256 === sha256 && event.card === card)
+  return events.find(event => event.by === MORSE && approvalOf([event], sha256, card) !== undefined)
 }
 
 export function revokeEvent(sha256: string, card: number, ts: string): JournalEvent {
