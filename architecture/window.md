@@ -118,7 +118,7 @@ and the words are in
 [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 A probe is run by `/probe` ([.claude/skills/probe/SKILL.md](../.claude/skills/probe/SKILL.md)).
 
-Cheap-path tasks can also run unattended as a shift: `pnpm shift <dir> [--parking <parking>] [--check]`
+The shift is the autopilot, and it is on by default. Cheap-path tasks run unattended as a shift: `pnpm shift <dir> [--parking <parking>] [--check] [--manual]`
 starts each task through the same `task:start`, as a fresh headless session in its tree. Without
 `--parking` the tasks are the `NN.md` files in `<dir>`; with it they are the cards in
 `<parking>/<id>.md` marked `who: shift` whose `depends` are closed in `ghosts.jsonl` and which are
@@ -130,6 +130,22 @@ is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `au
 owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
 nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The flags and refusals are in
 [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
+auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one
+`{"event":"stop","task","at","why","worktree","shift","session","ts"}` line to `ghosts.jsonl` (`pr` too when `at` is `merge`):
+`at` is `hash` (a ladder card, which the shift never takes: it is left, with a stop whose `worktree` is `null`, and the
+brief's hash is the owner's), `merge` (a pull request the merge rules left to the owner), `question` (a `question:` line in the
+report), `boundary` (a `boundary:` line the card does not follow: `continue: stop`, the restart limit, or a no under
+`--manual`) or `fault` (a session that did not spawn, exited non-zero, was stopped by Eddies or wrote no report or no
+pull request; a card `task:start` refuses leaves no stop, because the door writes nothing). A card that ends in an armed auto-merge or a probe closed by its report leaves no
+stop. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
+with no worktree, the card is left as `waits <at>` (a closed card stays `closed`), and a second `hash` stop is never
+written for it. `--manual` turns the automation off for that run only, never sticky: nothing is taken, and nothing is
+continued into a new session, without a yes from the runner's prompt; with no terminal every answer is no, and a run
+without `--manual` never prompts. It confirms only the take and the continuation, and the merge rules are the same.
+Every real run (not `--check`) writes one `{"event":"autopilot","state":"on"|"off","shift","ts"}` line to
+`<dir>/shift.jsonl`, after its `start` line and before it takes its first card.
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
