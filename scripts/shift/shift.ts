@@ -249,6 +249,12 @@ function closeProbeFromReport(deps: ShiftDeps, task: ShiftTask, session: { workt
     deps.out(line)
 }
 
+const WAITING_FOR_THE_OWNER = /^[\s*_>-]*Waiting for the owner\b/m
+
+function asksTheOwner(report: string): boolean {
+  return QUESTION_LINE.test(report) || WAITING_FOR_THE_OWNER.test(report)
+}
+
 function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string): { pr: string, lines: string[] } | undefined {
   const text = deps.read(report)
   if (task.card.kind === 'probe') {
@@ -260,7 +266,7 @@ function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
     return undefined
   for (const line of closeFromReport(deps, task, session, text, ['--pr', pr[1]!]))
     deps.out(line)
-  const lines = mergeAfterSession(deps, pr[1]!)
+  const lines = asksTheOwner(text) ? [`${MERGE_PREFIX}PR #${pr[1]!} not armed: the report asks the owner; the merge waits for the owner's answer`] : mergeAfterSession(deps, pr[1]!)
   deps.append(report, `\n${lines.join('\n')}\n`)
   for (const line of lines)
     deps.out(line)
