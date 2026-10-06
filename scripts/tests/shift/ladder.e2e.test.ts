@@ -20,7 +20,7 @@ interface Run {
   calls: string[][]
 }
 
-async function shiftOver(world: World, behaviour: { morse?: Morse, launch?: Launch } = {}, dir = world.shift): Promise<Run> {
+async function shiftOver(world: World, behaviour: { morse?: Morse, launch?: Launch, ghostWrites?: boolean } = {}, dir = world.shift): Promise<Run> {
   const ladder = ladderPnpm(world, 1, behaviour)
   const { gh, calls } = fakeGh(PR_CARDS)
   const io = captured()
@@ -166,7 +166,7 @@ describe('an R1 brief waits in the owner queue', () => {
 })
 
 describe('an approved brief is launched by the next step', () => {
-  async function approvedWorld(behaviour: { launch?: Launch } = {}): Promise<Run> {
+  async function approvedWorld(behaviour: { launch?: Launch, ghostWrites?: boolean } = {}): Promise<Run> {
     const world = newLadderWorld()
     await shiftOver(world, { morse: 'refuses' })
     approve(world, 1)
@@ -209,6 +209,12 @@ describe('an approved brief is launched by the next step', () => {
     expect(startLines(world)).toHaveLength(1)
     expect(stubRuns(world, 1)).toBe(2)
     expect(readFileSync(path.join(world.stubOut, 'mc-1.cwd'), 'utf8').trim()).toBe(path.join(world.root, 'mc-1'))
+    expect(eventsOf(world, 'stop').at(-1)).toMatchObject({ at: 'merge', pr: 101 })
+  })
+
+  it('an approved brief is launched by the next step: the tree the Ghost left dirty is reviewed, not refused', async () => {
+    const { world } = await approvedWorld({ launch: 'done', ghostWrites: true })
+    expect(stubRuns(world, 1)).toBe(2)
     expect(eventsOf(world, 'stop').at(-1)).toMatchObject({ at: 'merge', pr: 101 })
   })
 

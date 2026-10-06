@@ -46,7 +46,7 @@ function launchLines(world: World, id: number, launch: Launch): string[] {
   return launch === 'running' || launch === 'exit' ? [JSON.stringify(entry)] : [JSON.stringify(entry), JSON.stringify(ended)]
 }
 
-export function ladderPnpm(world: World, id: number, behaviour: { morse?: Morse, launch?: Launch } = {}): Ladder {
+export function ladderPnpm(world: World, id: number, behaviour: { morse?: Morse, launch?: Launch, ghostWrites?: boolean } = {}): Ladder {
   const calls: PnpmCall[] = []
   const pnpm = (_cwd: string, args: string[], input?: string): PnpmResult => {
     calls.push({ args, input })
@@ -57,6 +57,8 @@ export function ladderPnpm(world: World, id: number, behaviour: { morse?: Morse,
       return { code: 0, stdout: 'approved\n', stderr: '' }
     }
     const launch = behaviour.launch ?? 'done'
+    if (behaviour.ghostWrites === true)
+      writeFileSync(path.join(world.root, `mc-${id}`, 'ghost-output.txt'), 'the Ghost wrote this\n')
     appendFileSync(world.journal, launchLines(world, id, launch).map(line => `${line}\n`).join(''))
     return launch === 'exit' ? { code: 1, stdout: '', stderr: `task ${cardNameOf(id)}: refused by the launcher\nsecond line\n` } : { code: typeof launch === 'object' ? 1 : 0, stdout: '', stderr: '' }
   }
