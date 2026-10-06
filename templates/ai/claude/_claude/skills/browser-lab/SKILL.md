@@ -23,6 +23,7 @@ node scripts/construct/browser-lab.mjs network --extension <dir> --page <url> --
 node scripts/construct/browser-lab.mjs popup --extension <dir>
 node scripts/construct/browser-lab.mjs options --extension <dir>
 node scripts/construct/browser-lab.mjs page <url> --extension <dir> --wait <selector>
+node scripts/construct/browser-lab.mjs info --extension <dir> --profile <dir>
 ```
 
 Add `--headed` to any of them to watch the browser. `page` also runs without `--extension`; with it, the output says
@@ -32,13 +33,20 @@ whether a content script of the extension ran in the page.
 failed with, while the lab opens `--page` (and runs `--eval` in the worker) in the same browser and listens for
 `--for` milliseconds. Use it to see what the worker fetches when a page triggers it.
 
+`--profile <dir>` runs the browser with that directory as its profile and keeps it after the run, so a login done by
+hand once (`--headed --profile <dir>`) and the extension's storage survive into later runs; the extension copy stays at
+one path inside the profile, so its id does not change. The login is done by hand once and is never scripted. Without
+`--profile` the profile is temporary and deleted at the end.
+
 ## Exit codes
 
 - 0 — observed.
 - 1 — the page saw no content script of the extension.
 - 127 — could not observe, with the reason on stderr.
 
-On 127 for a missing browser, stop and tell the person the command that failed. Never install a browser.
+At start the lab checks that the Chromium build its pinned `playwright-core` needs is in the playwright cache and,
+when it is missing, installs it itself with `npx playwright-core@<pinned version> install chromium`, saying so in one
+line on stderr. On any other 127, stop and tell the person the command that failed.
 
 ## What stays with a person
 

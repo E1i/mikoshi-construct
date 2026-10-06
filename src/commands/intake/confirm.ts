@@ -1,3 +1,4 @@
+import type { Correction } from './check.js'
 import type { SlicedCard } from './slice.js'
 import { createHash } from 'node:crypto'
 import { SEAM_PREFIX } from '../../card/risk.js'
@@ -23,8 +24,16 @@ function proposesRiskSlices(card: SlicedCard): boolean {
   return card.risk.some(line => line.startsWith(SEAM_PREFIX))
 }
 
+function dropsMergedDepends(correction: Correction): boolean {
+  return correction.field === 'depends' && correction.now === '(removed)' && correction.reason === 'already merged'
+}
+
+export function correctionsNeedPerson(card: Pick<SlicedCard, 'corrections'>): boolean {
+  return !card.corrections.every(dropsMergedDepends)
+}
+
 function needsPerson(card: SlicedCard): boolean {
-  return card.corrections.length > 0 || proposesRiskSlices(card)
+  return correctionsNeedPerson(card) || proposesRiskSlices(card)
 }
 
 export function awaitsConfirmation(cards: readonly SlicedCard[]): boolean {
