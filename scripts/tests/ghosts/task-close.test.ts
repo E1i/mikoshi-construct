@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 
+const LAUNCH_SESSION = 'ghost-session'
+
 const HANDOFF = '/handoff'
 const JOURNAL = path.join(HANDOFF, 'ghosts.jsonl')
 const NOW = new Date('2026-10-03T09:00:00.000Z')
@@ -31,6 +33,7 @@ function world(journal: string[], sessionFiles: string[] = [], files: Record<str
       exists: file => sessionFiles.includes(file),
       session: undefined,
       projectsDir: PROJECTS,
+      tokens: () => null,
     },
   }
 }
@@ -44,7 +47,7 @@ describe('w3: task:close writes the closing line the board reads', () => {
     const { deps, written } = world([startLine('123', 'implement')])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps)
     expect(result.exitCode).toBe(0)
-    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '123', path: 'cheap', pr: 460, verification: 'run', ended: NOW.toISOString(), sessions: [], ts: NOW.toISOString() }])
+    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '123', path: 'cheap', pr: 460, verification: 'run', ended: NOW.toISOString(), sessions: [], actual: { tokens: null, minutes: null }, ts: NOW.toISOString() }])
   })
 
   it('w3: a probe closes with its report, resolved against the working directory', () => {
@@ -124,7 +127,50 @@ describe('task:close records when the task ended and the sessions it used, each 
   })
 })
 
-const LAUNCH_SESSION = 'ghost-session'
+const STARTED = '2026-10-03T08:54:30.000Z'
+const TOKENS: Record<string, number | null> = { 'opened': 1000, 'closing': 2500, 'ghost-session': 4000, 'gone': null }
+
+function startedLine(id: string, contour: 'cheap' | 'ladder', session: string): string {
+  const line = JSON.parse(startLine(id, 'implement', session)) as { card: object }
+  return JSON.stringify({ ...line, path: contour, started: STARTED, card: { ...line.card, contour } })
+}
+
+function countedTokens(session: { id: string }): number | null {
+  return TOKENS[session.id] ?? null
+}
+
+describe('task:close records the actual tokens and minutes on the end line, so the reader restores nothing', () => {
+  it('the end line records the actual tokens and minutes', () => {
+    const { deps, written } = world([startedLine('5', 'cheap', 'opened')], [sessionFile('-mc-5', 'opened'), sessionFile('-work', 'closing')])
+    expect(runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, session: 'closing', tokens: countedTokens }).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ actual: { tokens: 3500, minutes: 5.5 } })
+  })
+
+  it('a ladder card counts the session of its Ghost run from the task line, once', () => {
+    const files = [sessionFile('-mc-5', 'opened'), sessionFile('-mc-5', LAUNCH_SESSION)]
+    const { deps, written } = world([startedLine('5', 'ladder', 'opened'), launchTaskLine('5')], files)
+    runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: countedTokens })
+    expect(JSON.parse(written[0]!)).toMatchObject({ sessions: [{ id: 'opened', project: '-mc-5' }], actual: { tokens: 5000, minutes: 5.5 } })
+    const cheap = world([startedLine('5', 'cheap', 'opened'), launchTaskLine('5')], files)
+    runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...cheap.deps, tokens: countedTokens })
+    expect(JSON.parse(cheap.written[0]!)).toMatchObject({ actual: { tokens: 1000 } })
+  })
+
+  it('an unreadable session makes the actual tokens unknown', () => {
+    const unreadable = world([startedLine('5', 'cheap', 'opened')], [sessionFile('-mc-5', 'opened'), sessionFile('-work', 'gone')])
+    runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...unreadable.deps, session: 'gone', tokens: countedTokens })
+    expect(JSON.parse(unreadable.written[0]!)).toMatchObject({ actual: { tokens: null, minutes: 5.5 } })
+    const unplaced = world([startedLine('5', 'cheap', 'opened')], [sessionFile('-mc-5', 'opened')])
+    runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...unplaced.deps, session: 'closing', tokens: countedTokens })
+    expect(JSON.parse(unplaced.written[0]!)).toMatchObject({ actual: { tokens: null } })
+  })
+
+  it('records the actual as unknown, never 0, when no session or no start time is recorded', () => {
+    const { deps, written } = world([startLine('5', 'implement')])
+    runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: () => 0 })
+    expect(JSON.parse(written[0]!)).toMatchObject({ actual: { tokens: null, minutes: null } })
+  })
+})
 
 function launchEntryLine(id: string, kind: 'implement' | 'probe' = 'implement'): string {
   const decision = kind === 'probe' ? 'none' : 'owner'
@@ -138,9 +184,9 @@ function launchTaskLine(id: string): string {
 describe('task:close closes a ghosts:launch run by the lines the launcher wrote, with no task:start line', () => {
   it('closes by --pr, taking the card from the entry line and the session from the task line', () => {
     const { deps, written } = world([launchEntryLine('160'), launchTaskLine('160')], [sessionFile('-work', LAUNCH_SESSION)])
-    const result = runTaskClose(['160', '--pr', '518', '--verification', 'review'], deps)
+    const result = runTaskClose(['160', '--pr', '518', '--verification', 'review'], { ...deps, tokens: () => 700 })
     expect(result.exitCode).toBe(0)
-    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '160', path: 'ladder', pr: 518, verification: 'review', ended: NOW.toISOString(), sessions: [{ id: LAUNCH_SESSION, project: '-work' }], ts: NOW.toISOString() }])
+    expect(written.map(text => JSON.parse(text) as unknown)).toEqual([{ event: 'path', task: '160', path: 'ladder', pr: 518, verification: 'review', ended: NOW.toISOString(), sessions: [{ id: LAUNCH_SESSION, project: '-work' }], actual: { tokens: 700, minutes: null }, ts: NOW.toISOString() }])
     expect(result.stdout[0]).toMatch(/^-{4} task:close #160 launched -+$/)
   })
 
