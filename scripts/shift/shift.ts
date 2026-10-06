@@ -4,11 +4,13 @@ import type { GhRunner } from '../board/gh.js'
 import type { TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
+import type { LadderFacts, LadderStep } from './ladder.js'
 import type { MergeResult } from './merge.js'
 import type { OpenPr } from './overlap.js'
 import type { Choice, Stop } from './parking.js'
 import type { TaskLine } from './places.js'
-import { execFileSync } from 'node:child_process'
+import type { PromptPlaces } from './prompt.js'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -25,12 +27,15 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { approvedHashPath } from '../ghosts/approval.js'
 import { cheapExpect } from '../ghosts/cheap-expect.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
+import { startedTree } from '../ghosts/tasks.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
+import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
 import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
 import { choose, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
@@ -67,11 +72,18 @@ export const USAGE = [
   '--check parses the tasks and checks touches against each other and the open pull requests, records no merge line, and starts nothing.',
   'The shift is an autopilot by default: it takes the next ready card, follows a session into a new one at a boundary the card allows, arms auto-merge where the merge rules allow it,',
   'and stops only at a gate the owner holds, writing one event:stop line to ghosts.jsonl (at: hash, merge, question, boundary or fault, and why).',
-  'A ladder card is never taken: it is left, with a stop at hash. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
+  'A ladder card (implement, contour ladder) with who: shift is taken like a cheap card and walked step by step: the brief in a session, the approval by MORSE (ghosts:hash --by morse; an R1 brief or a refusal stops at hash and waits for the owner),',
+  'ghosts:launch with a yes on stdin and no session, then the review and the pull request in a session in the same tree. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
+
+export interface PnpmResult {
+  code: number
+  stdout: string
+  stderr: string
+}
 
 export interface ShiftDeps {
   cwd: string
@@ -90,6 +102,7 @@ export interface ShiftDeps {
   now: () => Date
   uuid: () => string
   confirm?: (question: string) => Promise<boolean>
+  pnpm?: (cwd: string, args: string[], input?: string) => PnpmResult
   run: (run: ClaudeRun) => Promise<ClaudeExit>
   out: (line: string) => void
   err: (line: string) => void
@@ -114,13 +127,21 @@ function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: 
   }
 }
 
+function approvedBrief(deps: ShiftDeps, task: ShiftTask): boolean {
+  const { brief, approval } = briefFacts(deps, task)
+  return approvedSha256Of(brief, approval) !== null
+}
+
 function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
   const parsed = taskFiles(deps, parking).map(file => parseParkingFile(file, deps.read(path.join(parking, file))))
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const text = deps.exists(journal) ? deps.read(journal) : null
   const done = new Set(closedTasks(text).keys())
+  const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
+  const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
+  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && (stop.worktree === null || approvedBrief(deps, ladder.get(stop.task)!))
   return {
-    choice: choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), done, mergedTasks(text), standingStops(latestStops(text), deps.exists)),
+    choice: choose(cards, done, mergedTasks(text), standingStops(latestStops(text), deps.exists, released)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }
@@ -167,9 +188,10 @@ function warnOpenPrs(deps: ShiftDeps, tasks: ShiftTask[]): void {
     deps.err(`${PREFIX}warning: ${line}`)
 }
 
-function sessionEvidence(deps: ShiftDeps, dir: string, task: ShiftTask, worktree: string, session: string, exit: number | null): SessionEvidence {
+function sessionEvidence(deps: ShiftDeps, task: ShiftTask, places: Places, session: string, exit: number | null): SessionEvidence {
+  const { worktree } = places
   const readIfThere = (file: string): string => deps.exists(file) ? deps.read(file) : ''
-  const report = readIfThere(reportPath(dir, task.number))
+  const report = readIfThere(places.report)
   return {
     exit,
     closed: closedTasks(readIfThere(path.join(deps.handoffDir, GHOST_JOURNAL))).has(task.id),
@@ -179,7 +201,7 @@ function sessionEvidence(deps: ShiftDeps, dir: string, task: ShiftTask, worktree
   }
 }
 
-type ShiftTaskLine = TaskLine & { merge?: string[] }
+type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[] }
 
 function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
   let result: MergeResult
@@ -299,43 +321,65 @@ interface Finish {
   closed: boolean
 }
 
-function stopAfter(task: ShiftTask, where: { worktree: string, session: string }, finish: Finish): StopRecord | null {
-  const at = (kind: Stop['at'], why: string, pr?: number): StopRecord => ({ at: kind, why, ...where, ...(pr === undefined ? {} : { pr }) })
-  const { reason, halted, exit, report, merge } = finish
-  if (reason === 'owner-question')
-    return at('question', QUESTION_TEXT.exec(report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[reason])
-  if (merge?.lines.some(line => MERGE_ARMED.test(line)))
-    return null
-  if (halted !== null)
-    return at('boundary', halted)
-  if (reason === 'eddies-stop' || reason === 'guard-refusal')
-    return at('fault', EXIT_REASON_TEXT[reason])
-  if (exit.signal !== null || exit.code !== 0)
-    return at('fault', exit.signal === null ? `exit ${exit.code}` : `signal ${exit.signal}`)
-  if (merge !== undefined)
-    return at('merge', merge.lines.map(line => line.replace(MERGE_PREFIX, '')).join('; '), Number(merge.pr))
-  if (finish.closed)
-    return null
-  return at('fault', report === null ? 'exited 0 without a report' : task.card.kind === 'probe' ? 'the probe report closed no task' : 'the report names no pull request')
+type Where = Pick<StopRecord, 'worktree' | 'session'>
+
+function stopAt(where: Where, kind: Stop['at'], why: string, pr?: number): StopRecord {
+  return { at: kind, why, ...where, ...(pr === undefined ? {} : { pr }) }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
-  const session = deps.uuid()
-  const started = deps.now().toISOString()
-  const base = { event: 'task' as const, file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started }
-  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
-  if (start.exitCode !== 0 || start.worktree === undefined) {
-    return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
-  }
-  const worktree = start.worktree
-  const places = { worktree, report: reportPath(dir, task.number) }
+function askedStop(where: Where, finish: Pick<Finish, 'reason' | 'report'>): StopRecord | null {
+  return finish.reason === 'owner-question' ? stopAt(where, 'question', QUESTION_TEXT.exec(finish.report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[finish.reason]) : null
+}
+
+function interruptedStop(where: Where, finish: Pick<Finish, 'reason' | 'halted' | 'exit'>): StopRecord | null {
+  const { reason, halted, exit } = finish
+  if (halted !== null)
+    return stopAt(where, 'boundary', halted)
+  if (reason === 'eddies-stop' || reason === 'guard-refusal')
+    return stopAt(where, 'fault', EXIT_REASON_TEXT[reason])
+  if (exit.signal !== null || exit.code !== 0)
+    return stopAt(where, 'fault', exit.signal === null ? `exit ${exit.code}` : `signal ${exit.signal}`)
+  return null
+}
+
+function stopAfter(task: ShiftTask, where: Where, finish: Finish): StopRecord | null {
+  const { report, merge } = finish
+  const asked = askedStop(where, finish)
+  if (asked !== null)
+    return asked
+  if (merge?.lines.some(line => MERGE_ARMED.test(line)))
+    return null
+  const interrupted = interruptedStop(where, finish)
+  if (interrupted !== null)
+    return interrupted
+  if (merge !== undefined)
+    return stopAt(where, 'merge', merge.lines.map(line => line.replace(MERGE_PREFIX, '')).join('; '), Number(merge.pr))
+  if (finish.closed)
+    return null
+  return stopAt(where, 'fault', report === null ? 'exited 0 without a report' : task.card.kind === 'probe' ? 'the probe report closed no task' : 'the report names no pull request')
+}
+
+interface Places extends PromptPlaces {
+  number: string
+}
+
+interface Sessions {
+  exit: ClaudeExit
+  lastExit: ExitReason
+  halted: string | null
+  current: string
+  continuations: string[]
+}
+
+async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, places: Places, session: string, manual: boolean): Promise<Sessions> {
+  const { worktree } = places
   const continuations: string[] = []
   let current = session
-  let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, task.number) })
+  let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, places.number) })
   let lastExit: ExitReason = 'ended'
   let halted: string | null = null
   while (exit.kind === 'exited') {
-    lastExit = exitReason(sessionEvidence(deps, dir, task, worktree, current, exit.signal === null ? exit.code : null))
+    lastExit = exitReason(sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null))
     halted = boundaryWhy(task, lastExit, continuations.length)
     if (!continues(task.continue, lastExit, continuations.length))
       break
@@ -347,8 +391,16 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
     continuations.push(current)
     deps.out(`${PREFIX}${task.file} ${task.id}: ${EXIT_REASON_TEXT[lastExit]}, restart ${continuations.length}/${MAX_RESTARTS} in ${worktree}`)
     const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
-    exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, prompt, log: logPath(dir, task.number, continuations.length) })
+    exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, prompt, log: logPath(dir, places.number, continuations.length) })
   }
+  return { exit, lastExit, halted, current, continuations }
+}
+
+type TaskBase = Pick<TaskLine, 'event' | 'file' | 'number' | 'task' | 'card' | 'branch' | 'session' | 'started'>
+
+function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions): { line: ShiftTaskLine, stop: StopRecord | null } {
+  const { worktree } = places
+  const { exit, lastExit, halted, current, continuations } = ran
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
@@ -358,6 +410,150 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
   const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines }) }
   return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: report ? deps.read(places.report) : null, merge, closed }) }
+}
+
+function startedTask(deps: ShiftDeps, task: ShiftTask, session: string): TaskBase {
+  return { event: 'task', file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started: deps.now().toISOString() }
+}
+
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+  const session = deps.uuid()
+  const base = startedTask(deps, task, session)
+  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
+  if (start.exitCode !== 0 || start.worktree === undefined) {
+    return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
+  }
+  const places = { worktree: start.worktree, report: reportPath(dir, task.number), number: task.number }
+  return finishTask(deps, task, base, places, await runSessions(deps, dir, task, claude, places, session, manual))
+}
+
+const LADDER_TURNS = 4
+const PNPM_OUTPUT_LIMIT = 64 * 1024 * 1024
+
+function firstLine(text: string): string {
+  return text.split('\n').find(line => line.trim() !== '')?.trim() ?? ''
+}
+
+function readIfThere(deps: ShiftDeps, file: string): string | null {
+  return deps.exists(file) ? deps.read(file) : null
+}
+
+function briefFacts(deps: ShiftDeps, task: ShiftTask): LadderFacts {
+  const brief = briefPathOf(deps.handoffDir, task.card)
+  return { journal: readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)), brief: readIfThere(deps, brief), approval: readIfThere(deps, approvedHashPath(brief)) }
+}
+
+function treeProblem(deps: ShiftDeps, tree: string, step: LadderStep['kind']): string | null {
+  if (!deps.exists(tree))
+    return `the tree ${tree} does not exist`
+  if (step === 'review')
+    return null
+  try {
+    const changed = deps.git(tree, ['status', '--porcelain']).split('\n').filter(line => line !== '').length
+    return changed === 0 ? null : `the tree ${tree} has ${changed} changed paths`
+  }
+  catch (error) {
+    return `the tree ${tree} cannot be read: ${firstLine(error instanceof Error ? error.message : String(error))}`
+  }
+}
+
+function runPnpm(deps: ShiftDeps, args: string[], input?: string): PnpmResult {
+  if (deps.pnpm === undefined)
+    return { code: 1, stdout: '', stderr: 'no pnpm runner is wired into this shift' }
+  try {
+    return deps.pnpm(deps.cwd, args, input)
+  }
+  catch (error) {
+    return { code: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { file: string } | { problem: string } {
+  const file = tasksFilePathOf(deps.handoffDir, task.card)
+  let repo: string
+  try {
+    repo = deps.git(deps.cwd, ['rev-parse', '--show-toplevel']).trim()
+  }
+  catch (error) {
+    return { problem: `not inside a git repository: ${firstLine(error instanceof Error ? error.message : String(error))}` }
+  }
+  const text = tasksFileText(task.card, { repo, handoffDir: deps.handoffDir, brief })
+  if (deps.exists(file) && deps.read(file) !== text)
+    return { problem: `${file} exists and holds another tasks file; nothing launched` }
+  if (!deps.exists(file))
+    deps.append(file, text)
+  return { file }
+}
+
+async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, parking: string, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+  const { card } = task
+  const brief = briefPathOf(deps.handoffDir, card)
+  const base = startedTask(deps, task, deps.uuid())
+  const steps: string[] = []
+  let worktree: string | undefined
+  const result = (stop: StopRecord | null, extra: Partial<ShiftTaskLine> = {}): { line: ShiftTaskLine, stop: StopRecord | null } => ({
+    line: { ...base, worktree: worktree ?? null, ended: deps.now().toISOString(), exit: stop?.at === 'fault' ? 1 : 0, signal: null, steps, ...extra },
+    stop,
+  })
+  const stopped = (kind: Stop['at'], why: string, session: string | null = null): { line: ShiftTaskLine, stop: StopRecord | null } => result(stopAt({ worktree: worktree ?? null, session }, kind, why))
+  for (let turn = 0; turn < LADDER_TURNS; turn += 1) {
+    const facts = briefFacts(deps, task)
+    const step = ladderStep(facts, card)
+    worktree = startedTree(facts.journal ?? '', card)?.worktree
+    if (step.kind === steps.at(-1))
+      return stopped('fault', `the ${step.kind} step did not advance the card`)
+    steps.push(step.kind)
+    if (step.kind === 'running') {
+      deps.out(`${PREFIX}${task.file} ${task.id}: ghost running`)
+      return result(null)
+    }
+    if (step.kind === 'fault')
+      return stopped('fault', step.why)
+    if (worktree === undefined) {
+      if (step.kind !== 'brief')
+        return stopped('fault', `card #${card.id} has no task:start line in ${path.join(deps.handoffDir, GHOST_JOURNAL)}, so the ${step.kind} step has no tree`)
+      const start = runTaskStart([task.branch, '--card', card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session: base.session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
+      if (start.exitCode !== 0 || start.worktree === undefined)
+        return result(null, { refused: start.stderr.join(' '), exit: null })
+      worktree = start.worktree
+    }
+    else {
+      const problem = treeProblem(deps, worktree, step.kind)
+      if (problem !== null)
+        return stopped('fault', problem)
+    }
+    if (step.kind === 'launch') {
+      const written = launchTasksFile(deps, task, brief)
+      if ('problem' in written)
+        return stopped('fault', written.problem)
+      const launched = runPnpm(deps, ['ghosts:launch', '--tasks', written.file], 'yes\n')
+      if (launched.code === 0)
+        continue
+      const after = ladderStep(briefFacts(deps, task), card)
+      return stopped('fault', after.kind === 'fault' ? after.why : firstLine(launched.stderr) || `ghosts:launch exit ${launched.code}`)
+    }
+    const session = deps.uuid()
+    const label = step.kind === 'brief' ? `${task.number}-brief` : task.number
+    const places = { worktree, report: reportPath(dir, label), number: label }
+    const body = step.kind === 'brief' ? briefBody(card, brief) : reviewBody(card, brief)
+    const ran = await runSessions(deps, dir, { ...task, body: `${body}\n\n${task.body}` }, claude, places, session, manual)
+    if (step.kind === 'review') {
+      const finished = finishTask(deps, task, { ...base, session }, places, ran)
+      return { line: { ...finished.line, steps }, stop: finished.stop }
+    }
+    if (ran.exit.kind === 'unspawnable')
+      return stopped('fault', `claude not spawned: ${ran.exit.error}`, ran.current)
+    const where = { worktree, session: ran.current }
+    const interrupted = askedStop(where, { reason: ran.lastExit, report: deps.exists(places.report) ? deps.read(places.report) : null }) ?? interruptedStop(where, { reason: ran.lastExit, halted: ran.halted, exit: ran.exit })
+    if (interrupted !== null)
+      return result(interrupted)
+    if (!deps.exists(brief))
+      return stopped('fault', `the brief session wrote no brief at ${brief}`, ran.current)
+    const approved = runPnpm(deps, ['ghosts:hash', brief, '--by', 'morse', '--card', String(card.id), '--parking', parking])
+    if (approved.code !== 0)
+      return stopped('hash', `${LADDER_REASON}: ${firstLine(approved.stderr) || `ghosts:hash exit ${approved.code}`}`, ran.current)
+  }
+  return stopped('fault', `the ladder of card #${card.id} did not settle in ${LADDER_TURNS} steps`)
 }
 
 function startContract(task: ShiftTask, expected: string): Pick<Signal, 'CONTRACT' | 'EXPECT'> {
@@ -375,13 +571,15 @@ function startBlock(task: ShiftTask, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>
   }, style)
 }
 
-function outcome(line: TaskLine): string {
+function outcome(line: ShiftTaskLine): string {
   if (line.refused !== undefined)
     return `not started: ${line.refused}`
   if (line.error !== undefined)
     return `not spawned: ${line.error}`
   if (line.signal !== null)
     return `signal ${line.signal}`
+  if (line.steps !== undefined)
+    return `ladder ${line.steps.join(' → ')}${line.exit === 0 ? '' : `, exit ${line.exit}`}`
   const exit = exitedWithoutReport(line) ? `exit ${line.exit}, no report` : `exit ${line.exit}`
   const restarts = line.continuations?.length ?? 0
   return restarts === 0 ? exit : `${exit}, ${restarts} ${restarts === 1 ? 'restart' : 'restarts'}`
@@ -412,10 +610,6 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const { errors } = read
   if (errors.length > 0)
     return refuse(deps, errors)
-  if (read.choice !== undefined && !check) {
-    for (const card of read.choice.left.filter(left => left.reason === LADDER_REASON))
-      recordStop(deps, dir, card.id, { at: 'hash', why: `a ladder card: the shift has no ladder route and the brief's hash is the owner's`, worktree: null, session: null })
-  }
   if (read.choice !== undefined) {
     for (const line of choiceLines(read.choice, queue))
       deps.out(line)
@@ -450,7 +644,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     }
     for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
       deps.out(line)
-    const { line, stop } = await runTask(deps, dir, task, claude, handed, manual)
+    const { line, stop } = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual) : await runTask(deps, dir, task, claude, handed, manual)
     deps.append(journal, `${JSON.stringify(line)}\n`)
     if (stop !== null)
       recordStop(deps, dir, task.id, stop)
@@ -471,6 +665,11 @@ async function askOnTerminal(question: string): Promise<boolean> {
   finally {
     terminal.close()
   }
+}
+
+function runPnpmCommand(cwd: string, args: string[], input?: string): PnpmResult {
+  const result = spawnSync('pnpm', args, { cwd, input, encoding: 'utf8', maxBuffer: PNPM_OUTPUT_LIMIT })
+  return { code: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.error === undefined ? result.stderr ?? '' : result.error.message }
 }
 
 function realDeps(): ShiftDeps {
@@ -494,6 +693,7 @@ function realDeps(): ShiftDeps {
     now: () => new Date(),
     uuid: randomUUID,
     confirm: process.stdin.isTTY ? askOnTerminal : undefined,
+    pnpm: runPnpmCommand,
     run: runClaude,
     out: line => console.log(line),
     err: line => console.error(line),

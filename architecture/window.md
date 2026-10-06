@@ -134,18 +134,32 @@ nothing; a pull request that changes `src/` or `templates/` with no matrix count
 The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
 auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one
 `{"event":"stop","task","at","why","worktree","shift","session","ts"}` line to `ghosts.jsonl` (`pr` too when `at` is `merge`):
-`at` is `hash` (a ladder card, which the shift never takes: it is left, with a stop whose `worktree` is `null`, and the
-brief's hash is the owner's), `merge` (a pull request the merge rules left to the owner), `question` (a `question:` line in the
+`at` is `hash` (the brief of a ladder card that MORSE refused to approve, an R1 brief among them: the stop names the tree, the
+last session and the first refusal line, and the hash is the owner's), `merge` (a pull request the merge rules left to the owner), `question` (a `question:` line in the
 report), `boundary` (a `boundary:` line the card does not follow: `continue: stop`, the restart limit, or a no under
 `--manual`) or `fault` (a session that did not spawn, exited non-zero, was stopped by Eddies or wrote no report or no
 pull request; a card `task:start` refuses leaves no stop, because the door writes nothing). A card that ends in an armed auto-merge or a probe closed by its report leaves no
 stop. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
 with no worktree, the card is left as `waits <at>` (a closed card stays `closed`), and a second `hash` stop is never
-written for it. `--manual` turns the automation off for that run only, never sticky: nothing is taken, and nothing is
+written for it; the `hash` stop of a ladder card stops standing once its brief is approved. `--manual` turns the automation off for that run only, never sticky: nothing is taken, and nothing is
 continued into a new session, without a yes from the runner's prompt; with no terminal every answer is no, and a run
 without `--manual` never prompts. It confirms only the take and the continuation, and the merge rules are the same.
 Every real run (not `--check`) writes one `{"event":"autopilot","state":"on"|"off","shift","ts"}` line to
 `<dir>/shift.jsonl`, after its `start` line and before it takes its first card.
+
+A ladder card (`implement`, contour `ladder`) with `who: shift` is taken like a cheap card and walked one step after another, each
+step derived from `ghosts.jsonl` and the brief at `<handoff>/brief-<id>-<name>.md`, never remembered: `brief` (no brief, or no
+approval file matching its current hash) is a headless session in a tree `task:start` cuts, which designs, writes the brief and
+runs `pnpm ghosts:hash <brief>` without `--by`, and after it exits the shift runs `pnpm ghosts:hash <brief> --by morse --card <id>
+--parking <parking>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)): approved,
+it goes on; refused (an R1 brief, a forecast above its band, a fall), it stops at `hash` and the card waits for the owner;
+`launch` (approved, no launch entry under that hash) writes `<handoff>/tasks-<id>-<name>.json` and runs `pnpm ghosts:launch --tasks
+<file>` with `yes` on stdin and no session, and a non-zero exit is a `fault` stop with its first stderr line; `running` (an entry
+and no Ghost `task` line after it) leaves the card with no stop; `review` (the Ghost's `task` line says `ladder: done`) is a
+headless session in the same tree that scans, reviews, gives the verdict and opens the pull request, and from its report on the
+ordinary close, merge and stop path applies. A Ghost `task` line with any other ladder status is a `fault` stop naming it, and the
+falls stay with `ghosts:launch`. Only the first step cuts a tree; the later steps use the tree on the card's `task:start` line, and
+a missing tree, or a dirty one before the launch, is a `fault` stop. A ladder card with `who: window` is left as `who window`.
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
