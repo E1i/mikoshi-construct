@@ -1,5 +1,25 @@
 # mikoshi-construct
 
+## 0.42.0
+
+### Minor Changes
+
+- [#591](https://github.com/E1i/mikoshi-construct/pull/591) [`f93df2c`](https://github.com/E1i/mikoshi-construct/commit/f93df2c9c1c14f9a1525ef031bf29d13f3f1c152) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake --admit` amends a card the journal already admitted when its card line, task text or witnesses changed: the card is checked with the parking grammar and gets a new `intake` line with `"source":"amend"`, instead of a report that it is already admitted. Every `intake` line now records `bodySha`, the digest of the card's text below its header; an unchanged admitted card still writes nothing.
+
+- [#579](https://github.com/E1i/mikoshi-construct/pull/579) [`f29f0c7`](https://github.com/E1i/mikoshi-construct/commit/f29f0c7cb4334a747272967d3bbd974c2f6d6b13) Thanks [@E1i](https://github.com/E1i)! - templates: the `/implement` ladder stops with `base moved`, naming both shas, when the HEAD its harness observed after a rung is not the base pinned at preflight, and the implementer is told the base and not to move HEAD, so a run no longer carries on over a base that changed under it.
+
+- [#571](https://github.com/E1i/mikoshi-construct/pull/571) [`d00e91c`](https://github.com/E1i/mikoshi-construct/commit/d00e91cbb966ea6bc24523a839cffdebd0942119) Thanks [@E1i](https://github.com/E1i)! - ledger: a run ledger row may carry `sketch`, the sha of the sketch its run started from or null (`ledger-row/1.2`), copied from the build's handle by step 4 of the implement skill, and `ghosts:expect-sample --sketch` reads it before the Ghost journal.
+
+- [#585](https://github.com/E1i/mikoshi-construct/pull/585) [`5193511`](https://github.com/E1i/mikoshi-construct/commit/519351192a3aa4d32a2b3954881f8477ad6a1985) Thanks [@E1i](https://github.com/E1i)! - cli: `construct mutate judge --card <n>` appends a `mutation-judged` line — card, mutation id, outcome, whether it matched — to `--journal` (default `~/.construct/handoff/ghosts.jsonl`) after a verdict, so a task closed as verified by mutation can be checked against a mutation that ran; without `--card` nothing is written, as before.
+
+- [#598](https://github.com/E1i/mikoshi-construct/pull/598) [`a89b489`](https://github.com/E1i/mikoshi-construct/commit/a89b48948dfe11327370833a3878e47b6cb1cadd) Thanks [@E1i](https://github.com/E1i)! - cli: inside a shift, whose session carries its card in `CONSTRUCT_CARD`, `construct mutate judge --id` without `--card` is refused before the mutated file is touched, and the refusal names the card to pass; `--baseline`, an `--id` run with `--card`, and every run outside a shift are unchanged.
+
+### Patch Changes
+
+- [#595](https://github.com/E1i/mikoshi-construct/pull/595) [`1c039c7`](https://github.com/E1i/mikoshi-construct/commit/1c039c7e36f79dd5ea9d41ea139be3febc37289d) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` with `--parking` set to a subdirectory of the parking assigns a number no card already holds: the cards parked in the parking root and in every subdirectory of it count as taken, and so does every number an `intake` line in the journal names, not only the files of the `--parking` directory.
+
+- [#589](https://github.com/E1i/mikoshi-construct/pull/589) [`4da69fd`](https://github.com/E1i/mikoshi-construct/commit/4da69fdfd9e1da22f4a95f7c12da8e1bf10be83b) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` takes an optional `whole: "<reason>"` on a draft card; a card a person kept whole despite its seam keeps the `who` its draft proposed instead of `window`, and the parked card carries `whole: <reason>` under its seam lines. A card with an unclear field still goes to the window.
+
 ## 0.41.0
 
 ### Minor Changes
