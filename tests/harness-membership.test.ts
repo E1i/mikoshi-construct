@@ -30,6 +30,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'prepublishOnly': 'a packaging hook',
   'release': 'publishes',
   'release-notes:render': 'a writer; the release index tests are its gate',
+  'release:evidence': 'a read-only report on merged cards from the journal, not a verdict on a change',
   'release:verify': 'a gate, deliberately outside: it inspects what was published, which does not exist when the harness runs',
   'task:merged': 'appends merge lines to the journal from gh pr view; its own tests are its gate',
   'test:watch': 'a local loop over the same tests',
