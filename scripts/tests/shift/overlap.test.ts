@@ -40,21 +40,40 @@ describe('taskConflicts', () => {
     ])
   })
 
-  it('tests glob does not conflict with tests glob', () => {
+  it('a mask against a mask is no conflict under tests, scripts/tests and .changeset', () => {
     expect(taskConflicts([
-      task('01.md', 'a', ['tests/**', '.changeset/**']),
-      task('02.md', 'b', ['tests/shift/**', '.changeset/**']),
+      task('01.md', 'a', ['tests/**', 'scripts/tests/**', '.changeset/**']),
+      task('02.md', 'b', ['tests/shift/**', 'scripts/tests/shift/**', '.changeset/**']),
     ])).toEqual([])
   })
 
-  it('named file shared by two cards conflicts', () => {
+  it('a named file against tests/** is no conflict, nor under scripts/tests/** or .changeset/**', () => {
     expect(taskConflicts([
-      task('01.md', 'a', ['tests/shift.test.ts', '.changeset/**']),
-      task('02.md', 'b', ['tests/shift.test.ts', '.changeset/x.md']),
+      task('01.md', 'a', ['tests/**', 'scripts/tests/shift/**', '.changeset/**']),
+      task('02.md', 'b', ['tests/shift.test.ts', 'scripts/tests/shift/overlap.test.ts', '.changeset/intake-subparking-sees-root-numbers.md']),
+    ])).toEqual([])
+    expect(taskConflicts([
+      task('01.md', 'a', ['.changeset/intake-subparking-sees-root-numbers.md']),
+      task('02.md', 'b', ['.changeset/**']),
+    ])).toEqual([])
+  })
+
+  it('two identical named files conflict under the additive roots', () => {
+    expect(taskConflicts([
+      task('01.md', 'a', ['tests/shift.test.ts', 'scripts/tests/shift/overlap.test.ts', '.changeset/x.md']),
+      task('02.md', 'b', ['tests/shift.test.ts', 'scripts/tests/shift/overlap.test.ts', '.changeset/x.md']),
     ])).toEqual([
       '01.md × 02.md: tests/shift.test.ts = tests/shift.test.ts',
-      '01.md × 02.md: .changeset/** ⊃ .changeset/x.md',
+      '01.md × 02.md: scripts/tests/shift/overlap.test.ts = scripts/tests/shift/overlap.test.ts',
+      '01.md × 02.md: .changeset/x.md = .changeset/x.md',
     ])
+  })
+
+  it('a named file under an additive root still conflicts with a mask outside them', () => {
+    expect(taskConflicts([
+      task('01.md', 'a', ['scripts/**']),
+      task('02.md', 'b', ['scripts/tests/shift/overlap.test.ts']),
+    ])).toEqual(['01.md × 02.md: scripts/** ⊃ scripts/tests/shift/overlap.test.ts'])
   })
 
   it('keeps a mask against a mask a conflict outside tests and .changeset', () => {

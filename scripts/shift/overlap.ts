@@ -27,15 +27,19 @@ export function relation(a: string, b: string): string | null {
   return null
 }
 
-const ADDITIVE_ROOTS = ['tests', '.changeset']
+const ADDITIVE_ROOTS = ['tests', 'scripts/tests', '.changeset']
 
-function isAdditiveMask(entry: string): boolean {
-  const scope = scopeOf(entry)
-  return scope.prefix && ADDITIVE_ROOTS.some(root => scope.path === root || scope.path.startsWith(`${root}/`))
+function isAdditive(entry: string): boolean {
+  const { path } = scopeOf(entry)
+  return ADDITIVE_ROOTS.some(root => path === root || path.startsWith(`${root}/`))
+}
+
+function isMask(entry: string): boolean {
+  return scopeOf(entry).prefix
 }
 
 function taskRelation(a: string, b: string): string | null {
-  return isAdditiveMask(a) && isAdditiveMask(b) ? null : relation(a, b)
+  return isAdditive(a) && isAdditive(b) && (isMask(a) || isMask(b)) ? null : relation(a, b)
 }
 
 function pairs<T>(items: readonly T[]): [T, T][] {
