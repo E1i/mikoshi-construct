@@ -1,10 +1,12 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { CheapSession } from '../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
 import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
@@ -19,6 +21,8 @@ const PR_NUMBER = /^[1-9]\d*$/
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
+const LADDER_CONTOUR = 'ladder'
+const MS_PER_MINUTE = 60_000
 const OUTCOME_OF_KIND: Record<Card['kind'], typeof FLAGS[number]> = { implement: '--pr', probe: '--report' }
 
 type Flag = typeof FLAGS[number]
@@ -27,9 +31,15 @@ interface StartLine {
   event: 'path'
   task: string
   path: string
+  started?: unknown
   worktree?: unknown
   session?: unknown
   card: Card
+}
+
+export interface Actual {
+  tokens: number | null
+  minutes: number | null
 }
 
 export interface TaskSession {
@@ -46,6 +56,7 @@ export interface TaskCloseDeps {
   exists: (file: string) => boolean
   session: string | undefined
   projectsDir: string
+  tokens?: (session: CheapSession) => number | null
   style?: SignalStyle
 }
 
@@ -100,11 +111,15 @@ function startLineOf(lines: Record<string, unknown>[], id: string): StartLine | 
   return lines.filter((line): line is Record<string, unknown> & StartLine => line.event === 'path' && line.task === id && hasCard(line)).at(-1)
 }
 
+function ghostSessionOf(lines: Record<string, unknown>[], id: string): unknown {
+  return lines.filter(line => line.event === 'task' && line.task === id).at(-1)?.session
+}
+
 function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine | undefined {
   const entry = lines.filter(line => line.event === ENTRY_EVENT && line.task === id).filter(hasCard).at(-1)
   if (entry === undefined)
     return undefined
-  const session = lines.filter(line => line.event === 'task' && line.task === id).at(-1)?.session
+  const session = ghostSessionOf(lines, id)
   return { event: 'path', task: id, path: entry.card.contour, session, card: entry.card }
 }
 
@@ -135,13 +150,36 @@ function sessionDirs(deps: TaskCloseDeps, start: StartLine): string[] {
   return [...new Set([deps.cwd, ...(typeof start.worktree === 'string' ? [start.worktree] : [])])]
 }
 
-function taskSessions(deps: TaskCloseDeps, start: StartLine): TaskSession[] {
-  const ids = [...new Set([start.session, deps.session].filter((id): id is string => typeof id === 'string' && id !== ''))]
+function placedSessions(deps: TaskCloseDeps, start: StartLine, candidates: unknown[]): TaskSession[] {
+  const ids = [...new Set(candidates.filter((id): id is string => typeof id === 'string' && id !== ''))]
   const keys = sessionDirs(deps, start).map(projectKey)
   return ids.map((id) => {
     const project = keys.find(key => deps.exists(path.join(deps.projectsDir, key, `${id}.jsonl`)))
     return project === undefined ? { id } : { id, project }
   })
+}
+
+function taskSessions(deps: TaskCloseDeps, start: StartLine): TaskSession[] {
+  return placedSessions(deps, start, [start.session, deps.session])
+}
+
+function actualTokens(deps: TaskCloseDeps, sessions: TaskSession[]): number | null {
+  if (sessions.length === 0)
+    return null
+  const tokens = deps.tokens ?? (session => sessionTokens(deps.projectsDir, session))
+  const counts = sessions.map(({ id, project }) => project === undefined ? null : tokens({ id, project }))
+  return counts.includes(null) ? null : counts.reduce<number>((sum, count) => sum + (count ?? 0), 0)
+}
+
+function actualMinutes(start: StartLine, ended: string): number | null {
+  const minutes = typeof start.started === 'string' ? (Date.parse(ended) - Date.parse(start.started)) / MS_PER_MINUTE : Number.NaN
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : null
+}
+
+function actualOf(deps: TaskCloseDeps, lines: Record<string, unknown>[], start: StartLine, sessions: TaskSession[], ended: string): Actual {
+  const ghost = start.card.contour === LADDER_CONTOUR ? [ghostSessionOf(lines, start.task)] : []
+  const counted = placedSessions(deps, start, [...sessions.map(session => session.id), ...ghost])
+  return { tokens: actualTokens(deps, counted), minutes: actualMinutes(start, ended) }
 }
 
 function unplacedLine(deps: TaskCloseDeps, start: StartLine, sessions: TaskSession[]): string[] {
@@ -187,7 +225,8 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const closing = outcome === '--pr' ? { pr: Number(value) } : { report }
   const at = deps.now().toISOString()
   const sessions = taskSessions(deps, start)
-  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, ts: at }
+  const actual = actualOf(deps, lines, start, sessions, at)
+  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, actual, ts: at }
   try {
     deps.append(journal, `${JSON.stringify(line)}\n`)
   }
