@@ -1747,9 +1747,10 @@ the list and runs the same command again with `--confirm <token>`; the token is 
 as printed, so a run whose cards differ — a new number taken, a path changed — holds them again and
 says the confirmation was for another list. `--auto-confirm`, off by default, is a person accepting
 corrections in advance: the cards are parked at once. Every parked card gets an `intake` line in
-`--journal` — `{"event":"intake","task","card","confirmation","corrections","ts"}`, with
+`--journal` — `{"event":"intake","task","card","confirmation","corrections","bodySha","ts"}`, with
 `confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
-recorded with the corrections it accepted. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+recorded with the corrections it accepted; `bodySha` is the digest of the card's text below its header,
+the task and its witnesses. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1783,8 +1784,11 @@ The card is checked like a sliced one under its own number; with a correction it
 token (exit `2`) until `--confirm <token>` or `--auto-confirm`. Admitting rewrites only the card line
 and the `touches` line a correction changed, appends the `corrected:` and `unclear:` lines, leaves
 `who` as it is, and writes the card's `intake` line with `"source":"admit"`, which `task:start` and
-the shift read. A card the journal already admitted is reported and nothing is written; `--dry-run`
-prints the card it would admit.
+the shift read. A card the journal already admitted is amended when its card line, task text or
+witnesses differ from the latest `intake` line for its number — or that line recorded no `bodySha`, so
+the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
+exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
+did not change is reported and nothing is written; `--dry-run` prints the card it would admit.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under

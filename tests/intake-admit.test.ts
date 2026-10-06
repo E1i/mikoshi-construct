@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readJournalFile, runTaskStart } from '../scripts/ghosts/task-start.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
+import { bodySha } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -88,7 +89,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(result.status).toBe('admitted')
     expect(printed(result).exit).toBe(INTAKE_EXIT.admitted)
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toEqual([{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], source: 'admit', ts: NOW.toISOString() }])
+    expect(journalLines(w)).toEqual([{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodySha(before), source: 'admit', ts: NOW.toISOString() }])
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
@@ -135,6 +136,58 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(again.status).toBe('alreadyAdmitted')
     expect(printed(again).exit).toBe(INTAKE_EXIT.alreadyAdmitted)
     expect(journalLines(w)).toHaveLength(1)
+  })
+
+  it('an unchanged admitted card writes nothing', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/**', 'Do the thing.\n\nWitnesses:\n- `pnpm vitest run` exit 0')
+    expect(admit(w, file).status).toBe('admitted')
+    const before = readFileSync(file, 'utf8')
+    const again = admit(w, file)
+    expect(again).toMatchObject({ status: 'alreadyAdmitted', source: 'amend' })
+    expect(printed(again).lines.join('\n')).toContain('nothing was written')
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(journalLines(w)).toHaveLength(1)
+  })
+
+  it('amends an admitted card whose task text or witnesses changed, and the unchanged amendment is then already admitted', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/**', 'Do the thing.\n\nWitnesses:\n- `pnpm vitest run` exit 0')
+    admit(w, file)
+    park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.\n\nWitnesses:\n- `pnpm vitest run` exit 0')
+    const amended = admit(w, file)
+    expect(amended).toMatchObject({ status: 'admitted', source: 'amend' })
+    const { lines, exit } = printed(amended)
+    expect(exit).toBe(INTAKE_EXIT.admitted)
+    expect(lines.join('\n')).toContain('80.md: #80 clean-card')
+    expect(lines.join('\n')).toContain('source amend')
+    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '80', card: CLEAN, source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
+
+    park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.\n\nWitnesses:\n- `pnpm vitest run` exit 1')
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(journalLines(w)).toHaveLength(3)
+    expect(admit(w, file).status).toBe('alreadyAdmitted')
+    expect(journalLines(w)).toHaveLength(3)
+    expect(taskStart(w, CLEAN)).toBe(0)
+  })
+
+  it('amends an admitted card through the parking grammar: a refused file writes nothing, and a correction waits for its token', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    admit(w, file)
+    writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/**\ncontinue: stop\n\nDo the thing.\n`)
+    expect(admit(w, file).status).toBe('refused')
+    park(w, 80, CLEAN, 'scripts/board/run.ts', 'Do the other thing.')
+    expect(admit(w, file).status).toBe('awaiting')
+    expect(journalLines(w)).toHaveLength(1)
+  })
+
+  it('amends a card whose intake line recorded no body digest, since the text it admitted is unknown', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    journal(w, [{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], source: 'admit', ts: NOW.toISOString() }])
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(journalLines(w).at(-1)).toMatchObject({ source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
   })
 
   it('corrects a touches entry to the only path of that name, and marks one that names no path unclear without changing who', () => {
