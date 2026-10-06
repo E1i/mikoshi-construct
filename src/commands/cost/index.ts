@@ -20,7 +20,7 @@ export type { CheapClassReading, CheapForecast, CheapNote, CheapReading, CheapRo
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey, readAgentRecord } from './claude-code.js'
 export type { AgentRecord } from './claude-code.js'
 export { EFFORTS, expectFor, expectLines, expectRefusal, formatContour, formatRoleExpect, formatStepExpect, formatTokens, readLedgerEntries, stepExpects } from './expect.js'
-export type { ExpectHead, ExpectInput, ExpectResult, ImplementSubsample, RoleBand, SampleRow, SampleSource, StepExpect, Subsample } from './expect.js'
+export type { ExpectHead, ExpectInput, ExpectResult, ImplementSubsample, RoleBand, RoleMinutes, SampleRow, SampleSource, StepExpect, Subsample } from './expect.js'
 export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
 export type { Cause, LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconciliation, TokenCount, TokenSource } from './ledger.js'
 export { COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, printCost } from './report.js'

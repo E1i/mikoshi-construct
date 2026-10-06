@@ -17,8 +17,11 @@ export interface Notice {
   next: string
 }
 
-export interface Lore extends ExpectLore {
+export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   expectNoneRaisedBy: (short: number, label: string) => string
+  expectRoleForecast: (role: string, tokens: string, minutes: string, band: string, n: number) => string
+  expectRoleMinutes: (minutes: string) => string
+  expectRoleMinutesNotRecorded: (undated: number, runs: number, source: string) => string
   subtitle: (version: string) => string
   johnnyWakeUp: string
   soulkiller: string
@@ -298,6 +301,18 @@ function expectNoneRaisedBy(short: number, label: string): string {
   return `; ${short} more done run${short === 1 ? '' : 's'} at ${label} raise${short === 1 ? 's' : ''} it`
 }
 
+function expectRoleForecast(role: string, tokens: string, minutes: string, band: string, n: number): string {
+  return `${role} tokens \u2248 ${tokens}, ${minutes}, ${band} \u2014 n=${n}`
+}
+
+function expectRoleMinutes(minutes: string): string {
+  return `minutes \u2248 ${minutes}`
+}
+
+function expectRoleMinutesNotRecorded(undated: number, runs: number, source: string): string {
+  return `minutes not recorded (no startedAt on ${undated} of ${runs} run${runs === 1 ? '' : 's'} in ${source})`
+}
+
 function andMore(rest: readonly string[]): string {
   return rest.length === 0 ? '' : `, and ${rest.length} more ${rest.length === 1 ? 'fact' : 'facts'}`
 }
@@ -305,6 +320,9 @@ function andMore(rest: readonly string[]): string {
 export const LORE: Lore = {
   ...EXPECT_LORE,
   expectNoneRaisedBy,
+  expectRoleForecast,
+  expectRoleMinutes,
+  expectRoleMinutesNotRecorded,
   subtitle: (version: string) => `--- CONSTRUCT ENGINE v${version} // ARASAKA SUB-NET ---`,
   johnnyWakeUp: 'Wake up, Netrunner. We have a repository to build.',
   soulkiller: 'RUNNING SOULKILLER PROTOCOL...',
@@ -633,6 +651,9 @@ export const LORE: Lore = {
 export const PLAIN_LORE: Lore = {
   ...EXPECT_LORE,
   expectNoneRaisedBy,
+  expectRoleForecast,
+  expectRoleMinutes,
+  expectRoleMinutesNotRecorded,
   subtitle: (version: string) => `mikoshi-construct v${version}`,
   johnnyWakeUp: 'Wake up, Netrunner. We have a repository to build.',
   soulkiller: 'Inspecting repository...',

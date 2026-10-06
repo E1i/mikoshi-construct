@@ -72,6 +72,14 @@ const SIX_R1 = [1, 2, 3, 4, 5, 6].map(index => ({ task: `r1-${index}`, run: `wf_
 const R2_JOURNAL = FIVE_R2.map(row => journalTask(row.task, row.run, 'R2'))
 const R1_JOURNAL = SIX_R1.map(row => journalTask(row.task, row.run, 'R1'))
 
+describe('the role forecast', () => {
+  it('a role forecast prints tokens and minutes', () => {
+    const turns = [2, 4, 6, 8, 10].map((minutes, index) => ({ agent: `brief-${index}`, agentType: 'brief', at: `2026-10-01T11:${String(10 + index).padStart(2, '0')}:00.000Z`, startedAt: `2026-10-01T11:${String(10 + index - minutes).padStart(2, '0')}:00.000Z`, usage: { calls: 1, input: (index + 1) * 100_000, cacheWrite: 0, cacheRead: 7_000_000, output: 0, models: [] } }))
+    const lines = renderSample(ladderSample({ ledgers: [{ source: 'runs.jsonl', lines: [] }], effort: 'medium', turns }, []))
+    expect(lines).toContain(`role brief tokens ${APPROX} 300k, minutes ${APPROX} 6, p25–p75 200k–400k ${DASH} n=5`)
+  })
+})
+
 describe('expectSample', () => {
   it('joins a journal task line to its ledger row by the run id, not by order or task text', () => {
     const journal = [journalTask('a', 'wf_b', 'R2'), journalTask('b', 'wf_a', 'R1')]
