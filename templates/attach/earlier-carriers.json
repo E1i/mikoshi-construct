@@ -513,5 +513,20 @@
     "target": ".claude/skills/implement/SKILL.md",
     "sha256": "f536aa099d54c4cf4e7b628e1720d42038c33e8ac656661dffaa851381525633",
     "date": "2026-10-05"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "cecf0f5bf3e6c253d9af0a000907ea16112fa0933e295a3d1b1695583693405d",
+    "date": "2026-10-06"
+  },
+  {
+    "target": ".claude/agents/harness.md",
+    "sha256": "298fa216335692554475a1af3cbdc2e57a9a02ff4d01dd8842476262e3388d6f",
+    "date": "2026-10-06"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "4b8ad8c82cf23ac9e662a972cfe394e2200a756ad44095f17a5fda8ca25aa82d",
+    "date": "2026-10-06"
   }
 ]
