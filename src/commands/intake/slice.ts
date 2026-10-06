@@ -24,6 +24,7 @@ export type Slice = { kind: 'sliced', cards: SlicedCard[] } | { kind: 'refused',
 export const UNCLEAR_PREFIX = 'unclear: '
 export const CORRECTED_PREFIX = 'corrected: '
 export const WITNESSES_HEADING = 'Witnesses:'
+export const WHOLE_PREFIX = 'whole: '
 const DEFAULT_IMPLEMENT_DECISION = 'owner'
 const PROBE_DECISION = 'none'
 const DEFAULT_CONTINUE = 'stop'
@@ -58,6 +59,7 @@ function bodyOf(card: CheckedCard, unclear: readonly UnclearField[], seam: reado
     ...unclear.map(entry => `${UNCLEAR_PREFIX}${entry.field} — ${entry.reason}`),
     ...card.corrections.map(correction => `${CORRECTED_PREFIX}${correctionText(correction)}`),
     ...seam,
+    ...(card.whole === undefined ? [] : [`${WHOLE_PREFIX}${card.whole.trim()}`]),
     ...risk,
   ]
   return [
@@ -97,7 +99,8 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const seam = seamLines(split)
     const reading = riskReading(card.touches, split.slices.length > 0)
     const risk = riskLines(reading)
-    const who = unclear.length > 0 || split.split || reading.slices.length > 0 ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
+    const heldForSlicing = card.whole === undefined && (split.split || reading.slices.length > 0)
+    const who = unclear.length > 0 || heldForSlicing ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
     const file = `${id}.md`
     const text = parkingFileText({
       card: line,
