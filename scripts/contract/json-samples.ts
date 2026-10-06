@@ -16,6 +16,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const FROZEN_010 = path.join(REPO_ROOT, 'tests/fixtures/sync/materialized-by-0.1.0')
 const EXISTING_MONOREPO = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
 const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT', 'CURSOR_TRACE_ID']
+const SHIFT_MARKERS = ['CONSTRUCT_CARD']
 const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), '.cache', 'node', 'corepack')
 const SAMPLE_PRESET = 'node-library'
 
@@ -57,7 +58,7 @@ interface Sample {
 
 export function cliEnv(home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', HOME: home, COREPACK_HOME: MACHINE_COREPACK_HOME }
-  for (const name of RUNTIME_MARKERS)
+  for (const name of [...RUNTIME_MARKERS, ...SHIFT_MARKERS])
     delete env[name]
   return env
 }

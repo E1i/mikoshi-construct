@@ -8,6 +8,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const CLI = path.join(REPO_ROOT, 'src/cli.ts')
 const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT', 'CURSOR_TRACE_ID']
+const SHIFT_MARKERS = ['CONSTRUCT_CARD']
 
 export const VERSION_PLACEHOLDER = 'v<version>'
 
@@ -21,7 +22,7 @@ const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), 
 
 export function cliEnv(home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', HOME: home, COREPACK_HOME: MACHINE_COREPACK_HOME }
-  for (const name of RUNTIME_MARKERS)
+  for (const name of [...RUNTIME_MARKERS, ...SHIFT_MARKERS])
     delete env[name]
   return env
 }
