@@ -214,6 +214,25 @@ describe('mutate judge --card', () => {
     expect(existsSync(w.journal)).toBe(false)
   })
 
+  it('journals nothing when the named test is missing', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [passing(TEST_FILE, 'bounds', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'refused', refusal: 'named-test-missing' })
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
+  it('journals nothing on a hard failure', () => {
+    const { w, appliedAt } = applied()
+    w.write(SOURCE, `${ORIGINAL}// someone else's line\n`)
+    const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'hard-failure', cause: 'file-changed' })
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
   it('refuses a card that is not a number before touching the file', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
