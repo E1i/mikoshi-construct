@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { onTheHarnessRoute, packageScripts, reachedByHarness } from './package-scripts.js'
 
 const OUTSIDE_THE_HARNESS: Record<string, string> = {
+  'approve': 'lists the owner\'s approval queue and writes or revokes an approval when run by hand; its own tests are its gate',
   'bench:architect': 'a benchmark run on demand, not a verdict on a change',
   'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',

@@ -37,6 +37,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "approve": "tsx scripts/ghosts/approve.ts",
     "bench:architect": "tsx scripts/bench/run.ts",
     "board": "tsx scripts/board/board.ts",
     "build": "tsup",

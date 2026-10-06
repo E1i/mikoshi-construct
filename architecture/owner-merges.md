@@ -26,7 +26,8 @@ an approval, and `ghosts:verdict` carries a review to a new head, on their outpu
 day, at Eli's instruction (task #552), it added `scripts/ghosts/supersede.ts` to `ghosts`: cleanup releases a run a re-approved brief
 superseded, on its output. On 2026-10-06, at Eli's instruction (task #602), it recorded that MORSE approves an R2–R4 brief
 ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)): that changes who approves a
-brief, not who merges, and a pull request that changes `scripts/ghosts/approval.ts`, `hash.ts` or `launch.ts` is still of the kind `ghosts`.
+brief, not who merges, and a pull request that changes `scripts/ghosts/approval.ts`, `hash.ts` or `launch.ts` is still of the kind `ghosts`. The same day, at Eli's instruction (task #604), it added `scripts/ghosts/approve.ts` to `ghosts`:
+`pnpm approve` writes the approval line the launcher trusts.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -39,7 +40,7 @@ is matched by its title.)
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init` or `attach` writes: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
-| ghosts | `scripts/ghosts/agreed.ts`, `scripts/ghosts/approval.ts`, `scripts/ghosts/args-chain.ts`, `scripts/ghosts/cleanup.ts`, `scripts/ghosts/hash.ts`, `scripts/ghosts/install.ts`, `scripts/ghosts/journal.ts`, `scripts/ghosts/launch.ts`, `scripts/ghosts/preflight-static.ts`, `scripts/ghosts/preflight-trees.ts`, `scripts/ghosts/preflight-witnesses.ts`, `scripts/ghosts/preflight.ts`, `scripts/ghosts/regenerated.ts`, `scripts/ghosts/review-carry.ts`, `scripts/ghosts/session.ts`, `scripts/ghosts/sketch.ts`, `scripts/ghosts/supersede.ts`, `scripts/ghosts/supervise.ts`, `scripts/ghosts/task-start.ts`, `scripts/ghosts/task-merged.ts`, `scripts/ghosts/tasks.ts`, `scripts/ghosts/verdict.ts` | the Ghost launcher and what changes the ladder, approval, merge or security: launch, approval, hash, verdict, cleanup, and every file whose output one of them trusts with a decision | — |
+| ghosts | `scripts/ghosts/agreed.ts`, `scripts/ghosts/approval.ts`, `scripts/ghosts/approve.ts`, `scripts/ghosts/args-chain.ts`, `scripts/ghosts/cleanup.ts`, `scripts/ghosts/hash.ts`, `scripts/ghosts/install.ts`, `scripts/ghosts/journal.ts`, `scripts/ghosts/launch.ts`, `scripts/ghosts/preflight-static.ts`, `scripts/ghosts/preflight-trees.ts`, `scripts/ghosts/preflight-witnesses.ts`, `scripts/ghosts/preflight.ts`, `scripts/ghosts/regenerated.ts`, `scripts/ghosts/review-carry.ts`, `scripts/ghosts/session.ts`, `scripts/ghosts/sketch.ts`, `scripts/ghosts/supersede.ts`, `scripts/ghosts/supervise.ts`, `scripts/ghosts/task-start.ts`, `scripts/ghosts/task-merged.ts`, `scripts/ghosts/tasks.ts`, `scripts/ghosts/verdict.ts` | the Ghost launcher and what changes the ladder, approval, merge or security: launch, approval, hash, verdict, cleanup, and every file whose output one of them trusts with a decision | — |
 | agents-md | `AGENTS.md` | this repository's `AGENTS.md`, the rules every agent working here reads | PR #366 |
 
 Everything else is merged through auto-merge by the window that gated it, including `quality`/CI gates and `formats.*`
