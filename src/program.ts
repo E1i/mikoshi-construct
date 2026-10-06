@@ -423,7 +423,7 @@ const mutateJudge = withKnownFlags(defineCommand({
     const console = ui(args, args.json ? stderrWriter : stdoutWriter)
     const failed = reported(console, () => {
       const journal = args.card === undefined ? undefined : path.resolve(args.journal ?? defaultWindowJournal())
-      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format, card: args.card, journal })
+      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format, card: args.card, journal, shiftCard: process.env.CONSTRUCT_CARD })
       if (args.json) {
         process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
         process.exitCode = judgeExit(result)
