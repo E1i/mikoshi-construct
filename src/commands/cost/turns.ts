@@ -32,6 +32,7 @@ export interface SubagentRecord {
   agent: string
   agentType: string
   at: string
+  startedAt: string | null
   usage: Usage
 }
 
@@ -41,6 +42,7 @@ interface JournalLine {
   agent?: unknown
   agentType?: unknown
   at?: unknown
+  startedAt?: unknown
   reason?: unknown
   session?: unknown
   usage?: unknown
@@ -140,6 +142,6 @@ export function readSubagentRecords(root: string): SubagentRecord[] | null {
       return []
     if (typeof line.agent !== 'string' || typeof line.agentType !== 'string' || typeof line.at !== 'string')
       return []
-    return [{ agent: line.agent, agentType: line.agentType, at: line.at, usage: line.usage as Usage }]
+    return [{ agent: line.agent, agentType: line.agentType, at: line.at, startedAt: typeof line.startedAt === 'string' ? line.startedAt : null, usage: line.usage as Usage }]
   })
 }

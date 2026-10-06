@@ -5,6 +5,7 @@ import type { RunStep, Step } from './steps.js'
 import { parseLedgerLine } from './ledger.js'
 import { MINIMUM_SAMPLE, recentBand } from './sample.js'
 import { STEPS } from './steps.js'
+import { TURN_JOURNAL_FILE } from './turns.js'
 
 export const EFFORTS = ['low', 'medium', 'high']
 
@@ -29,9 +30,14 @@ export interface ImplementSubsample {
   runs: Set<string>
 }
 
+export type RoleMinutes
+  = | { kind: 'median', minutes: number }
+    | { kind: 'not recorded', undated: number, runs: number }
+
 export interface RoleBand {
   role: string
   band: Band
+  minutes: RoleMinutes
   missing: string | null
 }
 
@@ -198,10 +204,16 @@ function roleNoneReason(expected: RoleBand, lore: Lore): string {
   return expected.missing ?? lore.expectRoleNoneReason(expected.band.n, expected.role)
 }
 
+function formatRoleMinutes(minutes: RoleMinutes, lore: Lore): string {
+  if (minutes.kind === 'median')
+    return lore.expectRoleMinutes(String(minutes.minutes))
+  return lore.expectRoleMinutesNotRecorded(minutes.undated, minutes.runs, TURN_JOURNAL_FILE)
+}
+
 export function formatRoleExpect(expected: RoleBand, lore: Lore): string {
   if (expected.band.kind === 'none')
     return lore.expectRoleNone(expected.role, roleNoneReason(expected, lore))
-  return lore.expectRoleForecast(expected.role, formatTokens(expected.band.median), formatBand(expected.band, lore), expected.band.n)
+  return lore.expectRoleForecast(expected.role, formatTokens(expected.band.median), formatRoleMinutes(expected.minutes, lore), formatBand(expected.band, lore), expected.band.n)
 }
 
 interface ContourPart {

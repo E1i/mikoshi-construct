@@ -23,7 +23,7 @@ function step(name: string, tokens: number): RunStep {
 }
 
 function subagent(agent: string, agentType: string, index: number, input: number): SubagentRecord {
-  return { agent, agentType, at: at(index), usage: { calls: 1, input, cacheWrite: 0, cacheRead: 9_000_000, output: 0, models: [] } }
+  return { agent, agentType, at: at(index), startedAt: null, usage: { calls: 1, input, cacheWrite: 0, cacheRead: 9_000_000, output: 0, models: [] } }
 }
 
 const SHA = '0123456789abcdef0123456789abcdef01234567'
