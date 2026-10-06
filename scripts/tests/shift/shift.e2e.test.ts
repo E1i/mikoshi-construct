@@ -155,7 +155,7 @@ function stubSaw(world: World, id: string, what: 'cwd' | 'session' | 'flags' | '
 
 afterEach(() => {
   for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
 describe('w1: a task that fails does not stop the shift', () => {

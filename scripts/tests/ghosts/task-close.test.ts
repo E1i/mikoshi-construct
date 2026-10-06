@@ -15,13 +15,13 @@ function startLine(id: string, kind: 'implement' | 'probe', session?: string): s
   return JSON.stringify({ event: 'path', task: id, path: 'cheap', started: 'x', ...(session === undefined ? {} : { session }), worktree: `/mc-${id}`, branch: `feat/${id}`, card: { id: Number(id), name: 'n', kind, milestone: 'ghosts', size: 'S', contour: 'cheap', decision, depends: [], blocks: [], line: 'l' }, ts: 'x' })
 }
 
-function world(journal: string[], sessionFiles: string[] = []): { deps: TaskCloseDeps, written: string[] } {
+function world(journal: string[], sessionFiles: string[] = [], files: Record<string, string> = {}): { deps: TaskCloseDeps, written: string[] } {
   const written: string[] = []
   return {
     written,
     deps: {
       cwd: '/work',
-      read: file => file === JOURNAL ? `${journal.join('\n')}\n` : null,
+      read: file => file === JOURNAL ? `${journal.join('\n')}\n` : files[file] ?? null,
       append: (file, text) => {
         expect(file).toBe(JOURNAL)
         written.push(text)
@@ -172,6 +172,91 @@ describe('task:close closes a ghosts:launch run by the lines the launcher wrote,
   })
 })
 
+function judgedLine(card: string, id: string, outcome: string, matched: boolean): string {
+  return JSON.stringify({ event: 'mutation-judged', card, id, outcome, matched, ts: 'x' })
+}
+
+describe('task:close confirms mutation only on judged lines where no mutant survived', () => {
+  it('refuses mutation without a mutation-judged line for the card', () => {
+    const { deps, written } = world([startLine('123', 'implement'), judgedLine('9', 'M1', 'named-red', true)])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'mutation'], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:close] --verification mutation needs a mutation-judged line for #123 in ${JOURNAL}, and there is none; nothing written`])
+    expect(written).toEqual([])
+  })
+
+  it('refuses mutation on a nothing-red line, even when its prediction matched', () => {
+    const { deps, written } = world([startLine('123', 'implement'), judgedLine('123', 'M1', 'named-red', true), judgedLine('123', 'M2', 'nothing-red', true), judgedLine('123', 'M3', 'other-red', false)])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'mutation'], deps)
+    expect(result.stderr).toEqual([`[task:close] --verification mutation refused: M2 of #123 survived (outcome nothing-red) in ${JOURNAL}; nothing written`])
+    expect(written).toEqual([])
+  })
+
+  it('closes with mutation when every judged line of the card was red, whether or not it matched', () => {
+    const { deps, written } = world([startLine('123', 'implement'), judgedLine('123', 'M1', 'named-red', true), judgedLine('123', 'M2', 'other-red', false), judgedLine('9', 'M1', 'nothing-red', true)])
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'mutation'], deps).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ task: '123', verification: 'mutation' })
+  })
+
+  it('leaves the other words to the report, without asking for judged lines', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'review'], deps).exitCode).toBe(0)
+  })
+})
+
+const SHIFT = '/shift/2026-10-06-1747'
+const REPORT = path.join(SHIFT, 'report-123.md')
+
+function stopLine(id: string, shift: string): string {
+  return JSON.stringify({ event: 'stop', task: id, at: 'question', why: 'w', worktree: `/mc-${id}`, shift, session: 's', ts: 'x' })
+}
+
+function shiftReport(word: string): string {
+  return `#123 n [implement/ghosts/S/cheap/owner]\nresult: done\nPR #460\nverification: ${word}\nchecked by a run\n`
+}
+
+describe('task:close holds the flag to the verification word of the card\'s shift report', () => {
+  it('refuses a verification the report contradicts and names both words', () => {
+    const { deps, written } = world([startLine('123', 'implement'), stopLine('123', SHIFT), judgedLine('123', 'M1', 'named-red', true)], [], { [REPORT]: shiftReport('run') })
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'mutation'], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:close] the shift report ${REPORT} says verification: run, the flag says mutation; close with --verification run, or pass --override-report <reason> to keep mutation; nothing written`])
+    expect(written).toEqual([])
+  })
+
+  it('closes when the report and the flag agree', () => {
+    const { deps, written } = world([startLine('123', 'implement'), stopLine('123', SHIFT)], [], { [REPORT]: shiftReport('run') })
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).not.toHaveProperty('override')
+  })
+
+  it('reads the shift directory a start line names when no stop line does', () => {
+    const start = JSON.stringify({ ...JSON.parse(startLine('123', 'implement')) as object, shift: SHIFT })
+    const { deps } = world([start], [], { [REPORT]: shiftReport('review') })
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps).stderr[0]).toContain('says verification: review, the flag says run')
+  })
+
+  it('closes against the report with an override and records its reason', () => {
+    const { deps, written } = world([startLine('123', 'implement'), stopLine('123', SHIFT)], [], { [REPORT]: shiftReport('run') })
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'review', '--override-report', 'reviewed after the shift'], deps)
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ verification: 'review', override: 'reviewed after the shift' })
+    expect(result.stdout[3]).toBe('ACTION   | task:close #123 --pr 460 --verification review --override-report reviewed after the shift')
+  })
+
+  it('does not lift the mutation refusal with an override', () => {
+    const { deps, written } = world([startLine('123', 'implement'), stopLine('123', SHIFT)], [], { [REPORT]: shiftReport('mutation') })
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'mutation', '--override-report', 'r'], deps).stderr[0]).toContain('needs a mutation-judged line')
+    expect(written).toEqual([])
+  })
+
+  it('closes when no line names a shift, or the named report is missing or has no verification line', () => {
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], world([startLine('123', 'implement')], [], { [REPORT]: shiftReport('review') }).deps).exitCode).toBe(0)
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], world([startLine('123', 'implement'), stopLine('123', SHIFT)]).deps).exitCode).toBe(0)
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], world([startLine('123', 'implement'), stopLine('123', SHIFT)], [], { [REPORT]: 'result: stopped\n' }).deps).exitCode).toBe(0)
+  })
+})
+
 describe('w3: task:close refuses and writes nothing', () => {
   it.each([
     ['no verification', ['123', '--pr', '460'], `--verification is required: one of ${VERIFICATION_WORDS.join(', ')}`],
@@ -181,6 +266,7 @@ describe('w3: task:close refuses and writes nothing', () => {
     ['a PR that is not a number', ['123', '--pr', 'PR#460', '--verification', 'run'], `--pr 'PR#460' is not a pull request number`],
     ['no start line with a card', ['55', '--pr', '460', '--verification', 'run'], 'has no task:start line with a card for #55'],
     ['an unknown flag', ['123', '--sha', 'abc', '--verification', 'run'], 'unknown flag --sha'],
+    ['an override without a reason', ['123', '--pr', '460', '--verification', 'run', '--override-report'], '--override-report needs a value'],
   ])('refuses %s', (_, argv, reason) => {
     const { deps, written } = world([startLine('123', 'implement'), JSON.stringify({ event: 'path', task: '55', path: 'cheap', ts: 'x' })])
     const result = runTaskClose(argv, deps)
