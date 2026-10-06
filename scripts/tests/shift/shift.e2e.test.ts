@@ -191,6 +191,13 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     expect(stubSaw(world, '1', 'session')).not.toBe(stubSaw(world, '2', 'session'))
   })
 
+  it('a card the shift starts has the shift directory on its start line', async () => {
+    const world = newWorld()
+    taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(jsonl(path.join(world.handoff, 'ghosts.jsonl')).find(entry => entry.event === 'path' && entry.task === '1')).toMatchObject({ shift: world.shift })
+  })
+
   it('w2: the prompt is the header with the task filled in, then the body', async () => {
     const world = newWorld()
     taskFile(world, '01.md', '1', 'scripts/a/**, docs/a.md', 'do a')

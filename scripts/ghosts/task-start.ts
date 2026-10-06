@@ -31,6 +31,7 @@ export interface TaskStartDeps {
   append: (file: string, text: string) => void
   now: () => Date
   session: string | undefined
+  shift?: string
   handoffDir: string
   readJournal: TaskStartJournalReader
   style?: SignalStyle
@@ -219,7 +220,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Contr
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
   const at = deps.now().toISOString()
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), worktree, branch, card, admission: admissionRecord(admitted), ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, branch, card, admission: admissionRecord(admitted), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
     ...contract,

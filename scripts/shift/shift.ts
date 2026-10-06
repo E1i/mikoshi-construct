@@ -417,7 +417,7 @@ function startedTask(deps: ShiftDeps, task: ShiftTask, session: string): TaskBas
 async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
-  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
+  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
   if (start.exitCode !== 0 || start.worktree === undefined) {
     return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
   }
@@ -511,7 +511,7 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
     if (worktree === undefined) {
       if (step.kind !== 'brief')
         return stopped('fault', `card #${card.id} has no task:start line in ${path.join(deps.handoffDir, GHOST_JOURNAL)}, so the ${step.kind} step has no tree`)
-      const start = runTaskStart([task.branch, '--card', card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session: base.session, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
+      const start = runTaskStart([task.branch, '--card', card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session: base.session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
       if (start.exitCode !== 0 || start.worktree === undefined)
         return result(null, { refused: start.stderr.join(' '), exit: null })
       worktree = start.worktree

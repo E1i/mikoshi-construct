@@ -16,7 +16,7 @@ function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
 
 const W1_CARD = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 · blocks #124 the board card'
 const INTAKE_TS = '2026-10-01T08:00:00.000Z'
-const ADMITTED = [W1_CARD, card(2), card(3), card(4), card(5), card(8, 'implement/ghosts/M/cheap/owner'), card(9, 'implement/ghosts/M/cheap/owner'), card(21, 'implement/ghosts/L/ladder/owner'), card(31), card(32)]
+const ADMITTED = [W1_CARD, card(2), card(3), card(4), card(5), card(8, 'implement/ghosts/M/cheap/owner'), card(9, 'implement/ghosts/M/cheap/owner'), card(21, 'implement/ghosts/L/ladder/owner'), card(31), card(32), card(41), card(42)]
 
 function intakeJournal(cards: readonly string[]): string {
   return cards.map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: INTAKE_TS })}\n`).join('')
@@ -102,6 +102,19 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
       admission: { by: 'intake', confirmation: 'none', intake: INTAKE_TS },
       ts: NOW.toISOString(),
     }])
+  })
+
+  it('the start line names the shift that started the card', () => {
+    const world = newWorld()
+    const shift = path.join(world.root, 'shift')
+    expect(runTaskStart(['feat/s1', '--card', card(41)], { ...depsOf(world), shift }).exitCode).toBe(0)
+    expect(lines(world).find(entry => entry.event === 'path')).toMatchObject({ task: '41', shift })
+  })
+
+  it('a start by hand writes no shift field', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/s2', '--card', card(42)], depsOf(world)).exitCode).toBe(0)
+    expect(lines(world).find(entry => entry.event === 'path')).not.toHaveProperty('shift')
   })
 
   it('w8: prints CONTRACT, EXPECT, ACTION and RESULT from the card and the start line it wrote', () => {
