@@ -8,6 +8,7 @@ trustPolicyExclude:
 shellEmulator: true
 
 overrides:
+  source-map-js: 1.2.2
   why-is-node-running: 3.2.1
 
 allowBuilds:

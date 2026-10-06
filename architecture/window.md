@@ -158,6 +158,11 @@ the owner's approval against the brief's hash (`pnpm ghosts:hash`). There is no 
 Approving a brief's hash is the permission to launch: the coordinating window then launches the Ghost
 itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`, which prints the
 decision and opens nothing.
+The owner approves an R1 brief; MORSE may approve an R2–R4 one with `pnpm ghosts:hash <brief> --by morse --card <N>`,
+which computes the risk from the card's touches, refuses a card with an `unclear:` field, a fall or a revoked hash and a
+forecast above its p75, and journals `event:approval` before it writes the line. The launcher accepts a morse line only
+with that event and prints `by morse`; the owner revokes any approval with `pnpm ghosts:launch --revoke <sha256> --card
+<N>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)).
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
 recorded as a row of the `policy` table in `status.md` before the session opens.
 A brief that produced a working sketch names it on the line after its `/implement` line,
