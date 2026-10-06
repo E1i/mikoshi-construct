@@ -11,7 +11,7 @@ import { checkDraft, correctionText } from './check.js'
 import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
-import { nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
+import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { sliceCards } from './slice.js'
 
 export const FROM_STDIN = '-'
@@ -68,6 +68,7 @@ export interface IntakeOptions {
   draft: string | undefined
   taken: string | undefined
   parking: string
+  parkingRoot?: string
   dir: string
   journal: string
   dryRun: boolean
@@ -118,6 +119,22 @@ function parkedFiles(parking: string): string[] {
   return existsSync(parking) ? readdirSync(parking) : []
 }
 
+function parkingTree(dir: string): string[] {
+  if (!isDirectory(dir))
+    return []
+  const subdirectories = readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory())
+  return [dir, ...subdirectories.flatMap(entry => parkingTree(path.join(dir, entry.name)))]
+}
+
+function isWithin(root: string, dir: string): boolean {
+  const relative = path.relative(root, dir)
+  return !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
+function parkingsSharingNumbers(parking: string, root: string): string[] {
+  return isWithin(root, parking) ? [...new Set([parking, ...parkingTree(root)])] : [parking]
+}
+
 export function runIntake(options: IntakeOptions): IntakeResult {
   if (options.admit !== undefined)
     return refused('admitWithDraft')
@@ -146,8 +163,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const taken = parseTaken(takenText)
   if (taken.kind === 'refused')
     return refused('invalid', [taken.reason])
-  const parked = parkedNumbers(parkedFiles(options.parking))
-  const numbers = nextFreeNumbers([...taken.numbers, ...parked], draft.cards.length)
+  const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
+  const numbers = nextFreeNumbers([...taken.numbers, ...parked, ...admittedNumbers(journalText)], draft.cards.length)
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),

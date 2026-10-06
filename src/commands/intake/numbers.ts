@@ -1,4 +1,5 @@
 import { TASK_FILE } from '../../card/task-file.js'
+import { INTAKE_EVENT } from './confirm.js'
 
 const TAKEN_TOKEN = /^#?(\d+)$/
 
@@ -16,6 +17,18 @@ export function parkedNumbers(files: readonly string[]): number[] {
   return files.flatMap((file) => {
     const id = TASK_FILE.exec(file)?.[1]
     return id === undefined ? [] : [Number(id)]
+  })
+}
+
+export function admittedNumbers(journal: string | null): number[] {
+  return (journal ?? '').split('\n').flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown } | null
+      return entry?.event === INTAKE_EVENT && typeof entry.task === 'string' && TAKEN_TOKEN.test(entry.task) ? [Number(entry.task)] : []
+    }
+    catch {
+      return []
+    }
   })
 }
 
