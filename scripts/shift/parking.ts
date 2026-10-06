@@ -14,7 +14,7 @@ export interface Choice {
 }
 
 const CLOSED = 'closed'
-export const LADDER_REASON = `ladder card: the brief's hash is the owner's`
+export const LADDER_REASON = `ladder card: MORSE approves an R2–R4 brief (ghosts:hash --by morse), the owner approves an R1 brief`
 export const STOP_AT = ['hash', 'merge', 'question', 'boundary', 'fault'] as const
 
 export type StopAt = typeof STOP_AT[number]
@@ -45,7 +45,7 @@ function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: Reado
   const open = parked.task.card.depends.filter(id => !merged.has(String(id)))
   if (open.length > 0)
     return `depends ${open.map(id => `#${id}`).join(', ')} not merged`
-  return parked.task.card.kind === 'implement' && parked.task.card.contour === 'ladder' ? LADDER_REASON : null
+  return null
 }
 
 export function latestStops(journal: string | null): Map<string, Stop> {
@@ -61,10 +61,10 @@ export function latestStops(journal: string | null): Map<string, Stop> {
   return stops
 }
 
-export function standingStops(stops: ReadonlyMap<string, Stop>, exists: (target: string) => boolean): Map<string, StopAt> {
+export function standingStops(stops: ReadonlyMap<string, Stop>, exists: (target: string) => boolean, released: (stop: Stop) => boolean = () => false): Map<string, StopAt> {
   const standing = new Map<string, StopAt>()
   for (const [task, stop] of stops) {
-    if (stop.worktree === null ? stop.at === 'hash' : exists(stop.worktree))
+    if (!released(stop) && (stop.worktree === null ? stop.at === 'hash' : exists(stop.worktree)))
       standing.set(task, stop.at)
   }
   return standing
