@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -21,10 +21,10 @@ const STORAGE_AREAS = ['local', 'sync', 'session', 'managed']
 const COMMANDS = ['info', 'sw-eval', 'storage', 'logs', 'network', 'popup', 'options', 'page']
 const POSITIONALS_OF = { 'info': [0, 0], 'sw-eval': [1, 1], 'storage': [0, 1], 'logs': [0, 0], 'network': [0, 0], 'popup': [0, 0], 'options': [0, 0], 'page': [1, 1] }
 const WITHOUT_EXTENSION = new Set(['page'])
-const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1 }
+const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1 }
 
 const USAGE = [
-  'usage: browser-lab.mjs <command> [--extension <dir>] [--headed]',
+  'usage: browser-lab.mjs <command> [--extension <dir>] [--headed] [--profile <dir>]',
   '  info                      id, name and version of the extension, the browser version, the service worker',
   '  sw-eval <expression>      evaluate in the extension service worker and print the result',
   '  storage [area]            chrome.storage.<area> (local, sync, session, managed; default local)',
@@ -32,6 +32,7 @@ const USAGE = [
   '  network [--page <url>] [--eval <expr>] [--for <ms>]   requests of the service worker (sent, answered, failed) while it opens the page in the same browser and listens',
   '  popup | options           open the page the manifest declares and print its title, text and errors',
   '  page <url> [--wait <sel>] open a page; with --extension, whether a content script of the extension ran in it',
+  '  --profile <dir>           keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
   '  every command prints one JSON object; optional permissions are granted in a lab copy, so no prompt appears',
   '  exit: 0 observed, 1 page saw no content script of the extension, 127 could not observe or a usage error',
 ].join('\n')
@@ -54,7 +55,7 @@ export function parseArguments(argv) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
@@ -84,6 +85,9 @@ export function parseArguments(argv) {
         break
       case '--page':
         options.page = value
+        break
+      case '--profile':
+        options.profile = value
         break
       default:
         options.wait = value
@@ -128,9 +132,9 @@ function readManifest(directory) {
   }
 }
 
-function prepareExtension(source, workspace) {
+function prepareExtension(source, directory) {
   const manifest = readManifest(source)
-  const directory = path.join(workspace, 'extension')
+  rmSync(directory, { recursive: true, force: true })
   cpSync(source, directory, { recursive: true })
   const lab = grantOptional(manifest)
   writeFileSync(path.join(directory, 'manifest.json'), `${JSON.stringify(lab.manifest, null, 2)}\n`)
@@ -146,11 +150,27 @@ async function loadChromium() {
   return library.chromium
 }
 
-async function launch(options, workspace, extension) {
+function installChromium() {
+  spawnSync('npx', ['--yes', PLAYWRIGHT_CORE, 'install', 'chromium'], { stdio: ['ignore', 2, 2] })
+}
+
+function sayOnStderr(line) {
+  process.stderr.write(`${line}\n`)
+}
+
+export function ensureChromium(chromium, { exists = existsSync, install = installChromium, say = sayOnStderr } = {}) {
+  if (exists(chromium.executablePath()))
+    return
+  say(`Chrome for Testing is missing for ${PLAYWRIGHT_CORE}; installing it with: npx ${PLAYWRIGHT_CORE} install chromium`)
+  install()
+}
+
+async function launch(options, profile, extension) {
   const chromium = await loadChromium()
+  ensureChromium(chromium)
   const loading = extension === undefined ? [] : [`--disable-extensions-except=${extension.directory}`, `--load-extension=${extension.directory}`]
   try {
-    return await chromium.launchPersistentContext(path.join(workspace, 'profile'), {
+    return await chromium.launchPersistentContext(profile, {
       channel: 'chromium',
       headless: !options.headed,
       args: [...loading, '--remote-debugging-port=0'],
@@ -390,17 +410,22 @@ const RUNS = {
 RUNS.options = RUNS.popup
 
 export async function run(options) {
-  const workspace = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'browser-lab-')))
+  const kept = options.profile !== undefined
+  if (kept)
+    mkdirSync(options.profile, { recursive: true })
+  const workspace = kept ? undefined : realpathSync(mkdtempSync(path.join(os.tmpdir(), 'browser-lab-')))
+  const profile = kept ? realpathSync(options.profile) : path.join(workspace, 'profile')
   let context
   try {
-    const extension = options.extension === undefined ? undefined : prepareExtension(path.resolve(options.extension), workspace)
-    context = await launch(options, workspace, extension)
-    const result = await RUNS[options.command]({ context, extension, options, profile: path.join(workspace, 'profile') })
+    const extension = options.extension === undefined ? undefined : prepareExtension(path.resolve(options.extension), path.join(kept ? profile : workspace, 'extension'))
+    context = await launch(options, profile, extension)
+    const result = await RUNS[options.command]({ context, extension, options, profile })
     return { code: result.injected === false ? EXIT_FALSE : EXIT_HOLDS, result }
   }
   finally {
     await context?.close().catch(() => {})
-    rmSync(workspace, { recursive: true, force: true })
+    if (!kept)
+      rmSync(workspace, { recursive: true, force: true })
   }
 }
 
