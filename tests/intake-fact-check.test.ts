@@ -10,7 +10,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
-import { checkDraft, DEFAULT_CONTOUR } from '../src/commands/intake/check.js'
+import { checkDraft, DEFAULT_CONTOUR, invalidTestPatterns } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -270,5 +270,20 @@ describe('directoryFacts walk', () => {
     const missing = path.join(dir, 'no/such/tool')
     const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env node -v` passes', `\`${missing} --flag\` fails`] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
     expect(checked!.unclear.map(entry => entry.reason)).toEqual([`'${missing}' is not on PATH and is no file of the repository`])
+  })
+})
+
+describe('witness -t patterns', () => {
+  it('a witness whose -t is not a regex is refused', () => {
+    const bad = draftCard({ witnesses: ['`pnpm exec vitest run tests/a.test.ts -t \'a named file against tests/** is no conflict\'` passes'] })
+    const reasons = invalidTestPatterns([bad])
+    expect(reasons).toHaveLength(1)
+    expect(reasons[0]).toContain('Nothing to repeat')
+    expect(reasons[0]).toContain('vitest run tests/a.test.ts')
+  })
+
+  it('accepts a -t that compiles, escaped or double-quoted', () => {
+    const good = draftCard({ witnesses: ['`vitest -t \'tests/\\*\\*\'` passes', '`vitest -t "a (b)"` passes'] })
+    expect(invalidTestPatterns([good])).toEqual([])
   })
 })
