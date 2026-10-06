@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { approvalSha256, approvedHashPath, canonicalImplementText, checkApproval, extractApprovedHash, extractApprovedSketch, extractImplementText, implementLineNumbers, sha256Hex, withoutSketchLine } from '../../ghosts/approval.js'
+import { approvalOf, approvalSha256, approvedHashPath, canonicalImplementText, checkApproval, extractApprovedHash, extractApprovedSketch, extractImplementText, implementLineNumbers, morseApprovalOf, sha256Hex, withoutSketchLine } from '../../ghosts/approval.js'
 
 function worldDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'ghosts-approval-'))
@@ -207,5 +207,21 @@ describe('checkApproval on an approval written by the earlier rule', () => {
 
     const result = checkApproval(brief)
     expect(result.ok && result.approvedSketch).toBe(SKETCH_SHA)
+  })
+})
+
+describe('approvalOf', () => {
+  const events = [{ event: 'approval', by: 'owner', card: 7, sha256: 'a' }, { event: 'approval', by: 'morse', card: 7, sha256: 'b' }, { event: 'revoke', card: 7, sha256: 'c' }]
+
+  it('finds an approval of the card and the hash by any approver, and no other event', () => {
+    expect(approvalOf(events, 'a', 7)).toBe(events[0])
+    expect(approvalOf(events, 'b', 7)).toBe(events[1])
+    expect(approvalOf(events, 'c', 7)).toBeUndefined()
+    expect(approvalOf(events, 'a', 8)).toBeUndefined()
+  })
+
+  it('is what morseApprovalOf narrows to the approvals by morse', () => {
+    expect(morseApprovalOf(events, 'a', 7)).toBeUndefined()
+    expect(morseApprovalOf(events, 'b', 7)).toBe(events[1])
   })
 })
