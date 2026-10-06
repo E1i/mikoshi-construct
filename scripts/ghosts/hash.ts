@@ -1,3 +1,4 @@
+import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { approvalSha256, canonicalImplementText } from './approval.js'
+import { runPreflight } from './preflight.js'
 import { parseSketch } from './sketch.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -14,12 +16,12 @@ const BY_FLAG = '--by'
 const USAGE = `usage: hash.ts <brief> [${BY_FLAG} <name>]`
 const APPROVER_NOT_RECORDED = `approver not recorded: pass ${BY_FLAG} or set git config user.name`
 
-export interface BuildResult { status: number | null, stderr: string }
+export interface BuildResult { status: number | null, stderr: string, stdout?: string }
 export type BuildRunner = (implementTextPath: string) => BuildResult
 
 export function checkAcceptanceBuild(implementTextPath: string): BuildResult {
   const result = spawnSync(process.execPath, [CHECK_ACCEPTANCE, 'build', '--brief', implementTextPath], { cwd: REPO_ROOT, encoding: 'utf8' })
-  return { status: result.status, stderr: result.error?.message ?? result.stderr }
+  return { status: result.status, stderr: result.error?.message ?? result.stderr, stdout: result.stdout }
 }
 
 function implementTextOf(briefPath: string): string {
@@ -37,7 +39,7 @@ function firstBuildError(stderr: string): string {
   return stderr.split('\n').find(line => line.trim() !== '')?.trim() ?? 'no error printed'
 }
 
-function refuseUnlessBuilt(briefPath: string, text: string, runBuild: BuildRunner): void {
+function refuseUnlessBuilt(briefPath: string, text: string, runBuild: BuildRunner): BuildResult {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-hash-build-'))
   try {
     const implementTextPath = path.join(dir, 'implement.md')
@@ -45,6 +47,7 @@ function refuseUnlessBuilt(briefPath: string, text: string, runBuild: BuildRunne
     const result = runBuild(implementTextPath)
     if (result.status !== 0)
       throw new Error(`${briefPath}: check-acceptance build exited ${result.status ?? 'without a status'} on the /implement text, so no hash is printed: ${firstBuildError(result.stderr)}`)
+    return result
   }
   finally {
     rmSync(dir, { recursive: true, force: true })
@@ -75,9 +78,10 @@ export function resolveApprover(by: string | undefined, readGitName: () => strin
   return approver
 }
 
-export function approvalLine(briefPath: string, now: Date, approver: string, runBuild: BuildRunner = checkAcceptanceBuild): string {
+export function approvalLine(briefPath: string, now: Date, approver: string, runBuild: BuildRunner = checkAcceptanceBuild, preflight: Preflight = runPreflight): string {
   const text = implementTextOf(briefPath)
-  refuseUnlessBuilt(briefPath, text, runBuild)
+  const built = refuseUnlessBuilt(briefPath, text, runBuild)
+  preflight({ briefPath, text, sketch: parseSketch(text), buildStdout: built.stdout ?? '' })
   return `approved /implement text sha256: ${approvalSha256(text)} sketch: ${approvedSketchOf(parseSketch(text))} (${localDate(now)}, ${approver})`
 }
 

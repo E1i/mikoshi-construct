@@ -185,6 +185,20 @@ under a new tasks id, and a ladder that ends blocked leaves the tree for the nex
 without a pull request whose brief's approval now names another sketch: it saves the work as a patch beside the
 report, cleans the tree, and journals `event:superseded`; the tree and branch stay.
 
+`pnpm ghosts:hash` prints the approval line only after a preflight, run in the repository it is started in
+against `origin/main` fetched once and pinned: the build accepts the text; no witness names `origin/main`;
+a Design that names a generated path says the implementer runs its generator without asking; every file
+under `scripts/ghosts/**` the brief names or the sketch adds is classified in
+[owner-merges.md](owner-merges.md) and a `scripts/shift/` file that names a merge is `own-instructions`;
+the sketch changes no Immutable path; then, in a clean worktree of the pinned base with nothing laid over
+it, every Acceptance witness runs verbatim and exits nonzero for a reason other than a missing command,
+and every Invariant exits 0, except that an Invariant with no witness the preflight can read is refused, and with a
+sketch one whose command is the harness command is left to the harness run and printed as `I<n>: covered by harness`; with a sketch, staged on that base as the launcher stages it, every witness
+and the harness command exit 0, the sketch's test files pass `eslint` without `--fix`, and a sketch that
+touches an attach carrier passes `earlier-carriers --check`. A brief with ready witness files beside it
+(`<brief>.witnesses/`) has them linted the same way. The first failure is named on stderr and no hash is
+printed; the base sha and the time of each phase are printed on stderr either way.
+
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
 line `done` means the ladder finished, not that the tree was released, and until then others only read
