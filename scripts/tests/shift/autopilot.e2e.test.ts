@@ -9,7 +9,7 @@ const CHEAP_OWNER = 'implement/runner/S/cheap/owner'
 const THREE = [
   { id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' },
   { id: 2, kind: CHEAP_OWNER, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' },
-  { id: 3, kind: LADDER, body: 'do 3 STUB-VERIFIED-run STUB-PR-103' },
+  { id: 3, kind: LADDER, who: 'window', body: 'do 3 STUB-VERIFIED-run STUB-PR-103' },
 ]
 const PR_CARDS = { 101: cardLine(1), 102: cardLine(2, CHEAP_OWNER), 103: cardLine(3, LADDER) }
 
@@ -37,25 +37,24 @@ describe('the autopilot on a parking of three cards', () => {
     expect(eventsOf(world, 'merge').map(line => line.task)).not.toContain('2')
   })
 
-  it('the ladder owner card is not taken and stops at hash', async () => {
+  it('a ladder owner card with who window is not taken and writes no stop', async () => {
     const { world, calls } = await threeCardShift()
     expect(eventsOf(world, 'path').filter(line => line.task === '3')).toEqual([])
     expect(existsSync(path.join(world.root, 'mc-3'))).toBe(false)
     expect(stubRuns(world, 3)).toBe(0)
     expect(calls.filter(args => args.some(arg => /\b(?:3|103)\b/.test(arg) || arg.includes('feat/3')))).toEqual([])
-    expect(eventsOf(world, 'stop').find(line => line.task === '3')).toMatchObject({ at: 'hash', worktree: null, session: null, shift: world.shift })
+    expect(eventsOf(world, 'stop').find(line => line.task === '3')).toBeUndefined()
   })
 
-  it('the stop journal holds exactly two stop lines, each with its reason', async () => {
+  it('the stop journal holds exactly one stop line, with its reason', async () => {
     const { world } = await threeCardShift()
     const stops = eventsOf(world, 'stop')
-    expect(stops.map(line => [line.task, line.at])).toEqual([['3', 'hash'], ['2', 'merge']])
+    expect(stops.map(line => [line.task, line.at])).toEqual([['2', 'merge']])
     expect(stops.every(line => typeof line.why === 'string' && line.why.length > 10 && !line.why.includes('\n'))).toBe(true)
-    expect(stops.find(line => line.at === 'merge')?.why).toContain('merge is Eli\'s')
-    expect(stops.find(line => line.at === 'hash')?.why).toContain('hash')
+    expect(stops[0]!.why).toContain('merge is Eli\'s')
   })
 
-  it('a rerun leaves the ladder card as waits hash and writes no second stop line', async () => {
+  it('a rerun leaves the window ladder card as who window and writes no second stop line', async () => {
     const { world } = await threeCardShift()
     const io = captured()
     const rerun = path.join(world.root, 'shift-2')
@@ -63,8 +62,8 @@ describe('the autopilot on a parking of three cards', () => {
     const { gh } = fakeGh(PR_CARDS)
     const code = await runShift([rerun, '--parking', world.parking, '--queue'], depsOf(world, gh, io))
     expect(code).toBe(1)
-    expect(io.out).toContain('[shift] parking: leaves #3 (waits hash)')
-    expect(eventsOf(world, 'stop')).toHaveLength(2)
+    expect(io.out).toContain('[shift] parking: leaves #3 (who window)')
+    expect(eventsOf(world, 'stop')).toHaveLength(1)
   })
 
   it('the autopilot line says on, once, between the start line and the first task line', async () => {

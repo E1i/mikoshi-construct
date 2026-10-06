@@ -1,7 +1,7 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, LADDER_REASON, latestStops, standingStops } from '../../shift/parking.js'
+import { choose, latestStops, standingStops } from '../../shift/parking.js'
 
 function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift', depends = '—'): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [${kind}] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who}\n\ndo ${id}\n`)
@@ -14,8 +14,14 @@ const stop = (task: string, at: string, worktree: string | null, extra: object =
 const journal = (...entries: object[]): string => `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`
 
 describe('choose with a standing stop and a ladder card', () => {
-  it('leaves a ladder implement card shift would otherwise take, naming the hash gate', () => {
-    expect(choose([parked(1, 'implement/runner/M/ladder/owner')], new Set(), new Set()).left).toEqual([{ id: '1', reason: LADDER_REASON }])
+  it('shift takes a ladder card with who shift: the parking choice chooses it like a cheap card', () => {
+    const choice = choose([parked(1, 'implement/runner/M/ladder/owner'), parked(2, 'implement/runner/M/ladder/owner', 'window')], new Set(), new Set())
+    expect(choice.chosen.map(task => task.id)).toEqual(['1'])
+    expect(choice.left).toEqual([{ id: '2', reason: 'who window' }])
+  })
+
+  it('a ladder card whose depends are not merged waits for them like any card', () => {
+    expect(choose([parked(1, 'implement/runner/M/ladder/owner', 'shift', '#9')], new Set(), new Set()).left).toEqual([{ id: '1', reason: 'depends #9 not merged' }])
   })
 
   it('takes a ladder card that is a probe and a cheap card', () => {
@@ -43,6 +49,11 @@ describe('the stop journal readers', () => {
   it('a stop stands while its tree exists; a stop with no tree stands only at hash', () => {
     const stops = latestStops(journal(stop('1', 'question', '/there'), stop('2', 'question', '/gone'), stop('3', 'hash', null), stop('4', 'fault', null)))
     expect([...standingStops(stops, target => target === '/there')]).toEqual([['1', 'question'], ['3', 'hash']])
+  })
+
+  it('a released stop does not stand, whatever its tree', () => {
+    const stops = latestStops(journal(stop('1', 'hash', '/there'), stop('2', 'hash', null), stop('3', 'question', '/there')))
+    expect([...standingStops(stops, () => true, entry => entry.task !== '3')]).toEqual([['3', 'question']])
   })
 
   it('an empty journal holds no stop', () => {

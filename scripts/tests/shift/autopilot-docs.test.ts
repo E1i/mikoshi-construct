@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { STOP_AT } from '../../shift/parking.js'
+import { LADDER_REASON, STOP_AT } from '../../shift/parking.js'
 import { USAGE } from '../../shift/shift.js'
 
 const root = path.resolve(import.meta.dirname, '../../..')
@@ -27,5 +27,26 @@ describe('the documents say what the autopilot does', () => {
     expect(windowDoc).toContain('`waits <at>`')
     for (const at of STOP_AT)
       expect(windowDoc).toContain(`\`${at}\``)
+  })
+})
+
+describe('the documents say the shift runs a ladder card', () => {
+  it('the usage, CONTRIBUTING.md and window.md name the steps and the approvers of the ladder route', () => {
+    expect(USAGE.split('\n')[0]).toBe('usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]')
+    expect(USAGE).toContain('ghosts:hash --by morse')
+    expect(USAGE).toContain('ghosts:launch')
+    expect(shiftRow).toContain('a ladder card with `who: shift` is taken')
+    expect(shiftRow).not.toContain('never taken')
+    expect(windowDoc).toContain('`pnpm ghosts:launch --tasks')
+    expect(windowDoc).toContain('--by morse --card <id>')
+    expect(windowDoc).not.toContain('which the shift never takes')
+    expect(windowDoc).toContain('an `.approved-sha256` file alone never counts')
+  })
+
+  it('the LADDER_REASON on a hash stop names both approvers', () => {
+    expect(LADDER_REASON).toContain('MORSE')
+    expect(LADDER_REASON).toContain('R2–R4')
+    expect(LADDER_REASON).toContain('owner')
+    expect(LADDER_REASON).toContain('R1')
   })
 })
