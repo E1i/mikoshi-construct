@@ -93,11 +93,30 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
-  it('holds a card with a correction behind the confirmation token, and admits it once a person confirms', () => {
+  it('an amend that only drops merged depends needs no person', () => {
     const w = world()
     park(w, 80, CLEAN)
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE)
+    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    expect(admit(w, file).status).toBe('admitted')
+    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'none' })
+  })
+
+  it('any other correction still needs a person', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+    const file = park(w, 81, STALE, 'scripts/board/run.ts')
+    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    expect(admit(w, file).status).toBe('awaiting')
+  })
+
+  it('holds a card with a correction behind the confirmation token, and admits it once a person confirms', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+    const file = park(w, 81, STALE, 'scripts/board/run.ts')
     const before = readFileSync(file, 'utf8')
     journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
 
@@ -112,7 +131,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const token = held.status === 'awaiting' ? held.token : ''
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
     const after = readFileSync(file, 'utf8')
-    expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('Do the thing.\n', 'Do the thing.\n\ncorrected: depends — #70 → (removed) — already merged\n'))
+    expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('touches: scripts/', 'touches: src/').replace('Do the thing.\n', `Do the thing.\n\ncorrected: touches — scripts/board/run.ts → src/board/run.ts — 'scripts/board/run.ts' does not exist; 'src/board/run.ts' is the only path named 'run.ts'\ncorrected: depends — #70 → (removed) — already merged\n`))
     expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'person', source: 'admit' })
     appendFileSync(w.journal, `${JSON.stringify({ event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}\n`)
     expect(taskStart(w, STALE_ADMITTED)).toBe(0)
@@ -121,7 +140,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
 
   it('a stale --confirm admits nothing', () => {
     const w = world()
-    const file = park(w, 81, STALE)
+    const file = park(w, 81, STALE, 'scripts/board/run.ts')
     journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
     const held = admit(w, file, { confirm: 'not-the-token' })
     expect(held).toMatchObject({ status: 'awaiting', stale: true })

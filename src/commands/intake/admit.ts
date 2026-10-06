@@ -11,7 +11,7 @@ import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText } from './check.js'
-import { bodySha, confirmationOf, confirmationToken, INTAKE_EVENT, intakeJournalLine } from './confirm.js'
+import { bodySha, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { INTAKE_EXIT } from './index.js'
 import { parkedNumbers } from './numbers.js'
@@ -183,7 +183,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
-  if (!options.autoConfirm && admitted.corrections.length > 0 && options.confirm !== token)
+  if (!options.autoConfirm && correctionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
