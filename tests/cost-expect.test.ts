@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseExpect } from '../scripts/ghosts/expect.js'
-import { countsTowardSteps } from '../src/commands/cost/expect.js'
+import { countsTowardSteps, formatRoleExpect } from '../src/commands/cost/expect.js'
 import { parseLedgerLine } from '../src/commands/cost/ledger.js'
+import { PLAIN_LORE } from '../src/ui/lore.js'
 import { runCli } from './cli-process.js'
 
 const DASH = String.fromCharCode(8212)
@@ -208,6 +209,20 @@ describe('construct cost without --expect', () => {
     expect(run.status).toBe(0)
     expect(run.stdout).toContain('No /implement runs recorded here yet.')
     expect(run.stdout).not.toContain('expect:')
+  })
+})
+
+describe('the role forecast line', () => {
+  const band = { kind: 'band' as const, median: 169_000, p25: 141_000, p75: 249_000, n: 20 }
+
+  it('a role with no duration names what is missing', () => {
+    const line = formatRoleExpect({ role: 'brief', band, minutes: { kind: 'not recorded', undated: 20, runs: 20 }, missing: null }, PLAIN_LORE)
+    expect(line).toBe(`brief tokens ${APPROX} 169k, minutes not recorded (no startedAt on 20 of 20 runs in .construct/turns.jsonl), p25–p75 141k–249k ${DASH} n=20`)
+  })
+
+  it('prints the median minutes in the form of a step forecast when every run carries a duration', () => {
+    const line = formatRoleExpect({ role: 'brief', band, minutes: { kind: 'median', minutes: 12.5 }, missing: null }, PLAIN_LORE)
+    expect(line).toBe(`brief tokens ${APPROX} 169k, minutes ${APPROX} 12.5, p25–p75 141k–249k ${DASH} n=20`)
   })
 })
 
