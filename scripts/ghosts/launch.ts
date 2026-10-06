@@ -12,7 +12,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
-import { checkApproval, sha256Hex } from './approval.js'
+import { approvedHashPath, approverOf, cardNumberOf, checkApproval, fallsOf, journalEvents, MORSE, morseApprovalOf, revocationOf, revokeEvent, sha256Hex } from './approval.js'
 import { ENTRY_RESULT, entryEvent } from './entry.js'
 import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
@@ -97,7 +97,7 @@ function treeRefusal(task: Task, tree: StartedTree | undefined, journalPath: str
   return undefined
 }
 
-const USAGE = 'usage: launch.ts --tasks <file> [--owner-allows <card>]... | launch.ts --tasks <file> --fall <kind> --card <card>'
+const USAGE = 'usage: launch.ts --tasks <file> [--owner-allows <card>]... | launch.ts --tasks <file> --fall <kind> --card <card> | launch.ts --tasks <file> --revoke <sha256> --card <card>'
 
 const FALLS_BEFORE_CUT = 2
 
@@ -105,6 +105,7 @@ interface LaunchArgs {
   tasksFile: string
   ownerAllows: number[]
   fall: { kind: FallKind, card: number } | null
+  revoke: { sha256: string, card: number } | null
 }
 
 function flagValues(argv: string[], flag: string): string[] {
@@ -118,10 +119,16 @@ function flagValues(argv: string[], flag: string): string[] {
 }
 
 function cardNumber(value: string): number {
-  const match = /^#?(\d+)$/.exec(value)
-  if (match === null)
+  const card = cardNumberOf(value)
+  if (card === undefined)
     throw new Error(`${USAGE}\ncard: expected a card number, got '${value}'`)
-  return Number(match[1])
+  return card
+}
+
+function revokedSha256(value: string): string {
+  if (!/^[0-9a-f]{64}$/.test(value))
+    throw new Error(`${USAGE}\nrevoke: expected a 64-character sha256, got '${value}'`)
+  return value
 }
 
 function fallKind(value: string): FallKind {
@@ -137,28 +144,17 @@ function parseArgs(argv: string[]): LaunchArgs {
     throw new Error(USAGE)
   const ownerAllows = flagValues(argv, '--owner-allows').map(cardNumber)
   const [kind] = flagValues(argv, '--fall')
+  const [revoke] = flagValues(argv, '--revoke')
   const [card] = flagValues(argv, '--card')
-  if ((kind === undefined) !== (card === undefined) || (kind !== undefined && ownerAllows.length > 0))
+  const markers = [kind, revoke].filter(value => value !== undefined).length
+  if (markers > 1 || (markers === 1) !== (card !== undefined) || (markers === 1 && ownerAllows.length > 0))
     throw new Error(USAGE)
-  return { tasksFile, ownerAllows, fall: kind === undefined ? null : { kind: fallKind(kind), card: cardNumber(card) } }
-}
-
-function journalEvents(journalPath: string): Record<string, unknown>[] {
-  if (!existsSync(journalPath))
-    return []
-  return readFileSync(journalPath, 'utf8').split('\n').flatMap((text) => {
-    try {
-      const event = JSON.parse(text) as unknown
-      return event !== null && typeof event === 'object' && !Array.isArray(event) ? [event as Record<string, unknown>] : []
-    }
-    catch {
-      return []
-    }
-  })
-}
-
-function fallsOf(events: Record<string, unknown>[], card: number): string[] {
-  return events.flatMap(event => event.event === 'fall' && event.card === card && typeof event.kind === 'string' ? [event.kind] : [])
+  return {
+    tasksFile,
+    ownerAllows,
+    fall: kind === undefined ? null : { kind: fallKind(kind), card: cardNumber(card) },
+    revoke: revoke === undefined ? null : { sha256: revokedSha256(revoke), card: cardNumber(card) },
+  }
 }
 
 function twoFallsRefusals(journalPath: string, tasks: Task[], ownerAllows: number[]): string[] {
@@ -205,7 +201,7 @@ function tasksFileRefusals(out: string, matrixPath: string | undefined, tasks: T
   return refusals
 }
 
-async function prepareAndPreflight(repo: string, statusPath: string, out: string, matrixPath: string | undefined, tasks: Task[], ownerAllows: number[]): Promise<{ baseSha: string, prepared: PreparedTask[], refusals: string[] }> {
+async function prepareAndPreflight(repo: string, statusPath: string, out: string, matrixPath: string | undefined, tasks: Task[], ownerAllows: number[]): Promise<{ baseSha: string, prepared: PreparedTask[], byMorse: ReadonlySet<string>, refusals: string[] }> {
   const refusals = [...tasksFileRefusals(out, matrixPath, tasks), ...twoFallsRefusals(journalPathOf(out), tasks, ownerAllows)]
 
   git(repo, ['fetch', 'origin', 'main'])
@@ -215,12 +211,27 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
   const journalPath = journalPathOf(out)
   const journalText = existsSync(journalPath) ? await readFile(journalPath, 'utf8') : ''
   const prepared: PreparedTask[] = []
+  const byMorse = new Set<string>()
+  const events = journalEvents(journalPath)
 
   for (const task of tasks) {
     const approval = checkApproval(task.brief)
     if (!approval.ok) {
       refusals.push(`task ${task.id}: ${approval.reason}`)
       continue
+    }
+
+    const revoked = revocationOf(events, approval.sha256, task.card.id)
+    if (revoked !== undefined) {
+      refusals.push(`task ${task.id}: the approval ${approval.sha256} of card #${task.card.id} was revoked${typeof revoked.ts === 'string' ? ` at ${revoked.ts}` : ''}; re-approve the brief by changing its text`)
+      continue
+    }
+    if (approverOf(readFileSync(approvedHashPath(task.brief), 'utf8'))?.toLowerCase() === MORSE) {
+      if (morseApprovalOf(events, approval.sha256, task.card.id) === undefined) {
+        refusals.push(`task ${task.id}: ${path.basename(approvedHashPath(task.brief))} is signed ${MORSE} and ${journalPath} holds no approval event by ${MORSE} for card #${task.card.id} and ${approval.sha256}`)
+        continue
+      }
+      byMorse.add(task.id)
     }
 
     let sketch: Sketch
@@ -280,7 +291,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
     })
   }
 
-  return { baseSha, prepared, refusals }
+  return { baseSha, prepared, byMorse, refusals }
 }
 
 const ACCEPTANCE_LINE = /^Acceptance:/m
@@ -292,23 +303,23 @@ function describeSketchOf(task: PreparedTask): string {
   return task.rangeDiff === 'equal' ? `${described}, approved ${task.approvedSketch.slice(0, 7)} with range-diff all =` : described
 }
 
-function signalOf(task: PreparedTask, baseSha: string): Signal {
+function signalOf(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>): Signal {
   const approved = task.approvedSha256.slice(0, 7)
   const law = ACCEPTANCE_LINE.test(task.approvedText) ? 'law brief Acceptance:' : 'law not recorded in the brief'
   return {
-    CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved} · ${law}`,
+    CONTRACT: `ladder · brief ${path.basename(task.brief)} approved ${approved}${byMorse.has(task.id) ? ` by ${MORSE}` : ''} · ${law}`,
     EXPECT: task.expected === null ? `expect not recorded in the brief${formatStepBreakdown(task.stepsExpected)}` : formatExpect(task.expected, task.stepsExpected),
     ACTION: `${task.id}: /implement ${task.brief} (approved ${approved}) -> ${task.worktree} on ${task.branch} @ ${baseSha.slice(0, 7)} ${describeSketchOf(task)}, report ${task.reportPath}, session ${task.sessionId}`,
     RESULT: ENTRY_RESULT,
   }
 }
 
-function launchEntryEvent(task: PreparedTask, baseSha: string): object {
-  return { ...entryEvent(task.id, signalOf(task, baseSha), new Date().toISOString()), card: task.card }
+function launchEntryEvent(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>): object {
+  return { ...entryEvent(task.id, signalOf(task, baseSha, byMorse), new Date().toISOString()), card: task.card }
 }
 
-function describeTask(task: PreparedTask, baseSha: string, style: SignalStyle): string[] {
-  return renderSignal(`ghosts:launch ${task.id}`, signalOf(task, baseSha), style)
+function describeTask(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>, style: SignalStyle): string[] {
+  return renderSignal(`ghosts:launch ${task.id}`, signalOf(task, baseSha, byMorse), style)
 }
 
 function journalPathOf(out: string): string {
@@ -335,7 +346,7 @@ async function superviseBatch(payload: SupervisorPayload): Promise<TaskOutcome[]
 }
 
 async function main(): Promise<void> {
-  const { tasksFile, ownerAllows, fall } = parseArgs(process.argv.slice(2))
+  const { tasksFile, ownerAllows, fall, revoke } = parseArgs(process.argv.slice(2))
   const { repo, status, out, tasks, matrix } = readTasksFile(tasksFile)
 
   if (fall !== null) {
@@ -344,7 +355,13 @@ async function main(): Promise<void> {
     return
   }
 
-  const { baseSha, prepared, refusals } = await prepareAndPreflight(repo, status, out, matrix, tasks, ownerAllows)
+  if (revoke !== null) {
+    await appendJournalEvent(journalPathOf(out), revokeEvent(revoke.sha256, revoke.card, new Date().toISOString()))
+    console.log(`card #${revoke.card}: approval ${revoke.sha256.slice(0, 7)} revoked in ${journalPathOf(out)}`)
+    return
+  }
+
+  const { baseSha, prepared, byMorse, refusals } = await prepareAndPreflight(repo, status, out, matrix, tasks, ownerAllows)
 
   if (refusals.length > 0) {
     for (const refusal of refusals)
@@ -356,7 +373,7 @@ async function main(): Promise<void> {
   console.log(`DECISION: open ${prepared.length} sessions`)
   const style = terminalStyle(process.stdout.isTTY, process.env.NO_COLOR)
   for (const task of prepared) {
-    for (const line of describeTask(task, baseSha, style))
+    for (const line of describeTask(task, baseSha, byMorse, style))
       console.log(line)
   }
 
@@ -371,7 +388,7 @@ async function main(): Promise<void> {
   for (const event of ownerAllowsEvents(prepared, ownerAllows))
     await appendJournalEvent(journalPath, event)
   for (const task of prepared)
-    await appendJournalEvent(journalPath, launchEntryEvent(task, baseSha))
+    await appendJournalEvent(journalPath, launchEntryEvent(task, baseSha, byMorse))
   const results = await superviseBatch({ ctx, tasks: prepared })
   if (results === null)
     return

@@ -24,7 +24,9 @@ an approval, and `ghosts:verdict` carries a review to a new head, on their outpu
 `scripts/ghosts/preflight.ts`, `scripts/ghosts/preflight-static.ts`, `scripts/ghosts/preflight-trees.ts` and
 `scripts/ghosts/preflight-witnesses.ts` to `ghosts`: `ghosts:hash` prints the approval hash only when their preflight is green. The same
 day, at Eli's instruction (task #552), it added `scripts/ghosts/supersede.ts` to `ghosts`: cleanup releases a run a re-approved brief
-superseded, on its output.
+superseded, on its output. On 2026-10-06, at Eli's instruction (task #602), it recorded that MORSE approves an R2–R4 brief
+([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)): that changes who approves a
+brief, not who merges, and a pull request that changes `scripts/ghosts/approval.ts`, `hash.ts` or `launch.ts` is still of the kind `ghosts`.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
