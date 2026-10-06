@@ -13,6 +13,7 @@ import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
 import { defaultParking, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
+import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
@@ -348,6 +349,8 @@ const intake = withKnownFlags(defineCommand({
     draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
     taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
     admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number' },
+    move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, one journal line' },
+    to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
     parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
     dir: commonArgs.dir,
     journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
@@ -360,6 +363,10 @@ const intake = withKnownFlags(defineCommand({
     const failed = reported(console, () => {
       const dir = path.resolve(args.dir)
       const journal = path.resolve(args.journal ?? defaultWindowJournal())
+      if (args.move !== undefined || args.to !== undefined) {
+        process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), journal }))
+        return
+      }
       if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
         process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm }))
         return
