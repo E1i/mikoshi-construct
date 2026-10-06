@@ -1,7 +1,7 @@
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -30,6 +30,7 @@ interface Options {
   listenMs: number
   wait: string | undefined
   page: string | undefined
+  profile: string | undefined
 }
 
 interface BrowserLab {
@@ -37,6 +38,7 @@ interface BrowserLab {
   grantOptional: (manifest: Manifest) => { manifest: Manifest, granted: string[] }
   extensionId: (manifest: Manifest, directory: string) => string
   workerRequests: (events: { method: string, params: Record<string, unknown> }[]) => WorkerRequest[]
+  ensureChromium: (chromium: { executablePath: () => string }, deps: { exists: (file: string) => boolean, install: () => void, say: (line: string) => void }) => void
   UsageError: new () => Error
 }
 
@@ -47,7 +49,7 @@ interface WorkerRequest {
   failed: string | null
 }
 
-const { parseArguments, grantOptional, extensionId, workerRequests, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+const { parseArguments, grantOptional, extensionId, workerRequests, ensureChromium, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 
 const UNRESOLVABLE = 'http://lab-nowhere.invalid/'
 
@@ -137,6 +139,36 @@ describe('the service worker requests', () => {
   })
 })
 
+describe('the Chromium build the lab needs', () => {
+  it('a missing Chromium build is installed and named in one line', () => {
+    const said: string[] = []
+    let installs = 0
+    ensureChromium({ executablePath: () => '/cache/chromium/chrome' }, { exists: () => false, install: () => installs++, say: line => said.push(line) })
+    expect(installs).toBe(1)
+    expect(said).toHaveLength(1)
+    expect(said[0]).toMatch(/^[^\n]*playwright-core@\d+\.\d+\.\d+ install chromium$/)
+  })
+
+  it('a present Chromium build is left alone', () => {
+    const said: string[] = []
+    let installs = 0
+    ensureChromium({ executablePath: () => '/cache/chromium/chrome' }, { exists: () => true, install: () => installs++, say: line => said.push(line) })
+    expect(installs).toBe(0)
+    expect(said).toEqual([])
+  })
+})
+
+describe('the profile argument', () => {
+  it('takes the directory the profile is kept in', () => {
+    expect(parseArguments(['info', '--extension', 'ext', '--profile', 'dir']).profile).toBe('dir')
+    expect(parseArguments(['info', '--extension', 'ext']).profile).toBeUndefined()
+  })
+
+  it('refuses a profile without a directory', () => {
+    expect(() => parseArguments(['info', '--extension', 'ext', '--profile'])).toThrow(UsageError)
+  })
+})
+
 describe('the unpacked extension id', () => {
   it('is the first 32 hex digits of the path digest written in a to p', () => {
     expect(extensionId({}, '/tmp/ext')).toMatch(/^[a-p]{32}$/)
@@ -168,7 +200,8 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
       writeFileSync(path.join(extension, name), body)
     server = createServer((_request, response) => {
       response.setHeader('content-type', 'text/html')
-      response.end('<title>Served</title><p>served body</p>')
+      response.setHeader('set-cookie', 'lab-login=by-hand; Max-Age=3600; Path=/')
+      response.end(`<title>Served</title><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -180,7 +213,11 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
   })
 
   async function lab(...argv: string[]): Promise<LabRun> {
-    const child = spawn(process.execPath, [SCRIPT, ...argv, '--extension', extension], { timeout: BROWSER_RUN_MS - 5000 })
+    return labIn({}, ...argv)
+  }
+
+  async function labIn(env: Record<string, string>, ...argv: string[]): Promise<LabRun> {
+    const child = spawn(process.execPath, [SCRIPT, ...argv, '--extension', extension], { timeout: BROWSER_RUN_MS - 5000, env: { ...process.env, ...env } })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     let stdout = ''
@@ -265,6 +302,31 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
     const run = await lab('page', `${origin}/elsewhere/`)
     expect(run.status).toBe(1)
     expect(run.json).toMatchObject({ title: 'Served', contentScripts: [], injected: false })
+  }, BROWSER_RUN_MS)
+
+  it('a profile keeps cookies and extension storage across two runs', async () => {
+    const profile = path.join(workspace, 'kept-profile')
+    const first = await lab('info', '--profile', profile)
+    expect(first.status).toBe(0)
+    await lab('sw-eval', 'chrome.storage.local.set({ kept: \'across\' })', '--profile', profile)
+    const visited = await lab('page', `${origin}/covered/`, '--profile', profile)
+    expect(visited.json.text).not.toContain('lab-login=by-hand')
+    const second = await lab('page', `${origin}/covered/`, '--profile', profile)
+    expect(second.json.text).toContain('cookie:lab-login=by-hand')
+    const storage = await lab('storage', 'local', '--profile', profile)
+    expect(storage.json).toMatchObject({ id: first.json.id, items: { seeded: 'yes', kept: 'across' } })
+  }, BROWSER_RUN_MS * 2)
+
+  it('without a profile the run leaves no profile behind', async () => {
+    const temporary = mkdtempSync(path.join(tmpdir(), 'browser-lab-tmp-'))
+    try {
+      const run = await labIn({ TMPDIR: temporary }, 'info')
+      expect(run.status).toBe(0)
+      expect(readdirSync(temporary).filter(name => name.startsWith('browser-lab-'))).toEqual([])
+    }
+    finally {
+      rmSync(temporary, { recursive: true, force: true })
+    }
   }, BROWSER_RUN_MS)
 
   it('leaves the extension directory it was given untouched', () => {
