@@ -51,6 +51,12 @@ describe('the ladder step is derived from the journal and the brief', () => {
   it('is running again when a newer entry follows a finished Ghost', () => {
     expect(step(journal(entry(), ended('done'), entry()))).toBe('running')
   })
+
+  it('a newly approved text is launch even when an older text was launched', () => {
+    const olderSha = approvalSha256(canonicalImplementText(`${BRIEF_TEXT}older\n`)!)
+    const older = `${approvalLine(603, 'morse', olderSha)}${JSON.stringify(entry(olderSha))}\n`
+    expect(ladderStep({ journal: `${older}${APPROVED}`, brief: BRIEF_TEXT }, CARD)).toEqual({ kind: 'launch', sha256: SHA })
+  })
 })
 
 describe('the ladder files of a card', () => {
