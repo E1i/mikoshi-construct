@@ -3,7 +3,6 @@ import type { Captured, FakeGh, World } from './autopilot-world.js'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { approvalSha256, approvedHashPath, canonicalImplementText } from '../../../ghosts/approval.js'
-import { briefPathOf } from '../../../shift/ladder.js'
 import { depsOf } from './autopilot-world.js'
 
 export const LADDER = 'implement/runner/M/ladder/owner'
@@ -28,7 +27,7 @@ export function cardNameOf(id: number): string {
 }
 
 export function briefOf(world: World, id: number): string {
-  return briefPathOf(world.handoff, { id, name: cardNameOf(id) } as Parameters<typeof briefPathOf>[1])
+  return path.join(world.handoff, `brief-${id}-${cardNameOf(id)}.md`)
 }
 
 export function briefSha256(): string {
