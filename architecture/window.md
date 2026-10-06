@@ -181,7 +181,9 @@ A Ghost runs in the tree and on the branch that its card's `task:start` line nam
 file is `{ id, brief, card }` and names no tree of its own. The launcher refuses a card with no
 `task:start` line, a tree that is gone, on another branch, with uncommitted changes, or with commits
 that neither `origin/main` nor the sketch holds. A relaunch on the same card runs in the same tree
-under a new tasks id, and a ladder that ends blocked leaves the tree for the next attempt.
+under a new tasks id, and a ladder that ends blocked leaves the tree for the next attempt. `ghosts:cleanup` releases a done or blocked run
+without a pull request whose brief's approval now names another sketch: it saves the work as a patch beside the
+report, cleans the tree, and journals `event:superseded`; the tree and branch stay.
 
 `pnpm ghosts:hash` prints the approval line only after a preflight, run in the repository it is started in
 against `origin/main` fetched once and pinned: the build accepts the text; no witness names `origin/main`;

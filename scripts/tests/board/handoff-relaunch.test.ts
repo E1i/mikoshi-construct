@@ -29,4 +29,24 @@ describe('board: a relaunch on the same card under a new tasks id', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it.each([
+    { name: 'before the relaunch, the attempt is superseded', relaunched: false, superseded: true },
+    { name: 'after the relaunch, the live attempt is not', relaunched: true, superseded: false },
+  ])('a superseded line names the old tasks id: $name', ({ relaunched, superseded }) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-relaunch-'))
+    try {
+      cpSync(BASIC, dir, { recursive: true })
+      appendFileSync(path.join(dir, 'ghosts.jsonl'), `${JSON.stringify({ event: 'superseded', task: 'alpha-2', by: 'b'.repeat(40), ts: '2026-09-28T09:00:00.000Z' })}\n`)
+      if (relaunched)
+        writeFileSync(path.join(dir, 'tasks-relaunch.json'), JSON.stringify(RELAUNCH))
+
+      const attempt = readHandoff(dir).attempts.find(candidate => candidate.id === '102')
+
+      expect(attempt?.supersededEvent !== undefined).toBe(superseded)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
