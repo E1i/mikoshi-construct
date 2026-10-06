@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runMerge } from '../../shift/merge.js'
+import { isListed, runMerge } from '../../shift/merge.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const HEAD = 'a1b2c3d'
@@ -74,5 +74,13 @@ describe('runMerge', () => {
 
   it('refuses an argument that is not a pull request number', () => {
     expect(runMerge(['#42'], { gh: () => '', ownerMergesText: () => OWNER_MERGES }).exitCode).toBe(1)
+  })
+})
+
+describe('isListed', () => {
+  const text = '| kind | paths |\n|---|---|\n| ghosts | `scripts/ghosts/a.ts` |\n\n| plain | note |\n|---|---|\n| `scripts/ghosts/b.ts` | x |\n'
+
+  it('finds a path in a kind list and in the plain list, and not an unlisted one', () => {
+    expect([isListed('scripts/ghosts/a.ts', text), isListed('scripts/ghosts/b.ts', text), isListed('scripts/ghosts/c.ts', text)]).toEqual([true, true, false])
   })
 })

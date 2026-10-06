@@ -34,7 +34,11 @@ function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
   return Number(b.priority !== null) - Number(a.priority !== null) || Number(a.task.id) - Number(b.task.id)
 }
 
-function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt>): string | null {
+const GHOSTS_DIR = 'scripts/ghosts/'
+
+export type Created = (file: string) => boolean
+
+function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt>, created: Created): string | null {
   if (done.has(parked.task.id))
     return CLOSED
   if (parked.who !== SHIFT_WHO)
@@ -45,6 +49,9 @@ function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: Reado
   const open = parked.task.card.depends.filter(id => !merged.has(String(id)))
   if (open.length > 0)
     return `depends ${open.map(id => `#${id}`).join(', ')} not merged`
+  const unclassified = parked.task.touches.find(file => file.startsWith(GHOSTS_DIR) && !file.includes('*') && created(file))
+  if (unclassified !== undefined)
+    return `classify ${unclassified} in owner-merges.md`
   return null
 }
 
@@ -70,11 +77,11 @@ export function standingStops(stops: ReadonlyMap<string, Stop>, exists: (target:
   return standing
 }
 
-export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt> = new Map()): Choice {
+export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt> = new Map(), created: Created = () => false): Choice {
   const chosen: ShiftTask[] = []
   const left: LeftCard[] = []
   for (const card of [...parked].sort(byPriorityThenId)) {
-    const reason = leftReason(card, done, merged, waiting)
+    const reason = leftReason(card, done, merged, waiting, created)
     const overlapping = reason === null ? chosen.find(task => taskConflicts([task, card.task]).length > 0) : undefined
     if (reason !== null)
       left.push({ id: card.task.id, reason })

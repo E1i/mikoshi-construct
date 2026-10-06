@@ -35,7 +35,7 @@ import { startedTree } from '../ghosts/tasks.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
+import { isListed, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
 import { choose, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
@@ -130,6 +130,18 @@ function approvedBrief(deps: ShiftDeps, task: ShiftTask): boolean {
   return approvedSha256Of(briefFacts(deps, task), task.card) !== null
 }
 
+function createdFile(deps: ShiftDeps): (file: string) => boolean {
+  return (file) => {
+    try {
+      const inTree = deps.git(deps.cwd, ['ls-tree', '--name-only', 'origin/main', '--', file]).trim() !== ''
+      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN]))
+    }
+    catch {
+      return false
+    }
+  }
+}
+
 function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
   const parsed = taskFiles(deps, parking).map(file => parseParkingFile(file, deps.read(path.join(parking, file))))
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
@@ -139,7 +151,7 @@ function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors
   const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
   const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(deps, ladder.get(stop.task)!)
   return {
-    choice: choose(cards, done, mergedTasks(text), standingStops(latestStops(text), deps.exists, released)),
+    choice: choose(cards, done, mergedTasks(text), standingStops(latestStops(text), deps.exists, released), createdFile(deps)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }

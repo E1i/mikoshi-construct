@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { parseCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { matchGlob } from '../shredder/glob.js'
-import { readOwnerMergeKinds } from '../shredder/reader.js'
+import { readOwnerMergeKinds, readPlainPaths } from '../shredder/reader.js'
 import { REPO } from './places.js'
 
 export const PREFIX = '[shift:merge] '
@@ -41,6 +41,10 @@ interface PrView {
 
 export function ownerPaths(files: string[], kinds: OwnerMergeKind[]): string[] {
   return files.filter(file => kinds.some(kind => kind.globs.some(glob => matchGlob(glob, file)))).sort()
+}
+
+export function isListed(file: string, ownerMergesText: string): boolean {
+  return ownerPaths([file], readOwnerMergeKinds(ownerMergesText)).length > 0 || readPlainPaths(ownerMergesText).includes(file)
 }
 
 export function mergeVerdict(decision: Decision, files: string[], kinds: OwnerMergeKind[]): MergeVerdict {
