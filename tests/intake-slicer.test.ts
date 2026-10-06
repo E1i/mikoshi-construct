@@ -170,6 +170,39 @@ describe('intake marks what the retelling left unclear and guesses nothing silen
   })
 })
 
+describe('intake keeps the who of the draft for a seamed card a person kept whole', () => {
+  const seamed = { name: 'kept-whole', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/shift.ts', 'src/model/schema.ts', 'src/detect/index.ts', 'docs/cli.md', 'tests/a.test.ts', 'tests/b.test.ts', '.changeset/**'], task: 'Journal the verdict for the card.', witnesses: ['`pnpm test` prints the journaled verdict'] }
+  const reason = 'the owner kept it whole on 2026-10-06'
+
+  it('a seamed card without whole is held for the window', () => {
+    const [card] = cards(intake({ cards: [seamed] }, '7', path.join(scratch(), 'parking')))
+    expect(card!.seam).not.toEqual([])
+    expect(card!.who).toBe(WINDOW_WHO)
+    expect(card!.text).not.toContain('whole: ')
+  })
+
+  it('a seamed card kept whole keeps the who of the draft', () => {
+    const [card] = cards(intake({ cards: [{ ...seamed, whole: reason }] }, '7', path.join(scratch(), 'parking')))
+    expect(card!.seam).not.toEqual([])
+    expect(card!.who).toBe('shift')
+    const lines = card!.text.split('\n')
+    expect(lines[lines.indexOf(card!.seam.at(-1)!) + 1]).toBe(`whole: ${reason}`)
+    expect(parseParkingFile(card!.file, card!.text)).toMatchObject({ kind: 'parked', parked: { who: 'shift' } })
+  })
+
+  it('kept whole with an unclear field is still window', () => {
+    const unclear = [{ field: 'size', reason: 'the retelling names no size' }]
+    const [card] = cards(intake({ cards: [{ ...seamed, whole: reason, unclear }] }, '7', path.join(scratch(), 'parking')))
+    expect(card!.who).toBe(WINDOW_WHO)
+    expect(card!.text).toContain(`whole: ${reason}`)
+  })
+
+  it('refuses a whole that is not text', () => {
+    const result = intake({ cards: [{ ...seamed, whole: true }] }, '7', path.join(scratch(), 'parking'))
+    expect(detail(result)).toEqual(['card 1: \'whole\' must be text when given'])
+  })
+})
+
 describe('intake refuses what it cannot number or check', () => {
   it('refuses without --taken, since a card number is shared with pull requests and issues', () => {
     const root = scratch()
@@ -201,7 +234,7 @@ describe('intake refuses what it cannot number or check', () => {
   it('refuses an unknown key rather than dropping it', () => {
     const root = scratch()
     const draft = { cards: [{ ...SLICED.cards[0], priority: 600 }] }
-    expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['card 1: unknown key \'priority\'; the keys are name, kind, milestone, size, task, contour, decision, branch, who, continue, touches, witnesses, depends, blocks, creates, number, unclear'])
+    expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['card 1: unknown key \'priority\'; the keys are name, kind, milestone, size, task, contour, decision, branch, who, continue, whole, touches, witnesses, depends, blocks, creates, number, unclear'])
   })
 
   it('refuses a name given to two cards, since depends name cards by it', () => {

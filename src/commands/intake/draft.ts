@@ -16,6 +16,7 @@ export interface DraftCard {
   blocks: string[]
   who?: string
   continue?: string
+  whole?: string
   number?: number
   creates: string[]
   task: string
@@ -26,7 +27,7 @@ export interface DraftCard {
 export type ParsedDraft = { kind: 'draft', cards: DraftCard[] } | { kind: 'refused', reasons: string[] }
 
 const REQUIRED_TEXT = ['name', 'kind', 'milestone', 'size', 'task'] as const
-const OPTIONAL_TEXT = ['contour', 'decision', 'branch', 'who', 'continue'] as const
+const OPTIONAL_TEXT = ['contour', 'decision', 'branch', 'who', 'continue', 'whole'] as const
 const REQUIRED_LISTS = ['touches', 'witnesses'] as const
 const OPTIONAL_LISTS = ['depends', 'blocks', 'creates'] as const
 const KEYS: readonly string[] = [...REQUIRED_TEXT, ...OPTIONAL_TEXT, ...REQUIRED_LISTS, ...OPTIONAL_LISTS, 'number', 'unclear']
