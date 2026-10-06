@@ -528,5 +528,15 @@
     "target": "scripts/construct/implement.workflow",
     "sha256": "4b8ad8c82cf23ac9e662a972cfe394e2200a756ad44095f17a5fda8ca25aa82d",
     "date": "2026-10-06"
+  },
+  {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "e372513dd2298625c3667e25f6d62bac7adc69d13a89616f3e8a9ed10a52b4e4",
+    "date": "2026-10-06"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "aaa8e531666a8cf8bdcb729622cb9c8b74a35a12aa9e6cff97431864d1bb1cf5",
+    "date": "2026-10-06"
   }
 ]
