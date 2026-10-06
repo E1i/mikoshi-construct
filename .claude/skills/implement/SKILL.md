@@ -158,6 +158,13 @@ and `.construct/high-effort-areas.md`.
      on; a rung between that does not fail that way starts the count again. No implementation can turn
      such a witness green, so the run stops at that rung, with no higher rung and no design step, and
      the reason names the witness; `validationError` carries it.
+   - `base moved` — after a rung the HEAD the harness observed (`headSha`, the output of `git rev-parse HEAD`
+     it ran itself in the working tree) is not the base sha pinned at preflight: something moved HEAD under
+     the run, as an implementer's `git reset` did when `origin/main` advanced mid-run. No rung and no
+     design step follows, the attempt is a `base moved` one, and `validationError` reads
+     `HEAD <headSha> is not the base <baseSha>`. The implementer is told the base and that reset, checkout,
+     rebase, stash and pull are forbidden. Relaunch on a stable base: look at what moved HEAD, bring the
+     tree back to the base, and run again.
    - `stopped` — the run was stopped from outside before it returned, so the runtime gave no result.
      It is the one status the script never returns; you write it.
 4. Record the run: append one JSON line to `.construct/runs.jsonl` (create the directory if needed)
@@ -170,7 +177,7 @@ and `.construct/high-effort-areas.md`.
    - `effort` — the class the run performed: the result's `effort` when it carries one, and only
      then the class you chose in step 1. A run whose design step did not complete is never written
      down as `high`; the result has already degraded it.
-   - `status` — the result's status verbatim, one of the nine in step 3.
+   - `status` — the result's status verbatim, one of the nine in step 3, or `base moved`.
    - `rung` — the effort of the rung that finished: `effort` from the result when it carries one,
      otherwise the `effort` of the last entry in `attempts`.
    - `attempts` — the result's `attempts` array verbatim; each entry carries its `rung`, `effort`,

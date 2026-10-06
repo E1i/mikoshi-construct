@@ -1424,7 +1424,7 @@ Each line carries exactly these fields:
 | `at` | ISO timestamp of the run. |
 | `task` | The task text, first 120 characters. |
 | `effort` | The effort class the caller chose before the run. |
-| `status` | One of the nine statuses of step 3 of the skill: `done`, `degraded`, `design incomplete`, `failed`, `blocked`, `base red`, `args unverified`, `base unverified` or `stopped`. |
+| `status` | One of the ten statuses of step 3 of the skill: `done`, `degraded`, `design incomplete`, `failed`, `blocked`, `base red`, `args unverified`, `base unverified`, `base moved` or `stopped`. |
 | `rung` | The effort of the rung that finished. |
 | `attempts` | One object per attempt: `rung`, `effort`, `outcome`, and a `reason` separating an invalid response shape from a red harness from a blocked report. |
 | `cause` | Why a `stopped` or `failed` run ended without passing: `environment` or `human` for `stopped`, `environment` or `task` for `failed`. Required on `stopped`, optional on `failed`, forbidden on any other status. |
