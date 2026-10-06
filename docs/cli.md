@@ -1794,6 +1794,15 @@ the text it admitted is unknown: the card is checked with the parking grammar an
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
 did not change is reported and nothing is written; `--dry-run` prints the card it would admit.
 
+**Moving a parked card.** `construct intake --move <#N> --to <dir>` moves a parked card between the
+parking root and its direct subdirectories (`--parking` names the root; `--to` is a subdirectory of it,
+created when missing, or `.` for the root itself). The card is found by number in the root and its
+subdirectories; a number found in more than one place is refused naming every path, and a target that
+already holds the number is refused with nothing written. The card must pass the parking grammar. The
+file is moved unchanged, so it is the same record with no new number, and one line is appended to
+`--journal`: `{"event":"intake-move","task","from","to","bodySha","ts"}`. With `--draft`, `--taken` or
+`--admit` the move refuses.
+
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
 the witnesses, beside every entry of the draft's own `unclear` list. A card with any `unclear:` line is

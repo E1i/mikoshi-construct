@@ -167,6 +167,12 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string) => string
   intakeAlreadyAdmitted: (file: string, card: string) => string
+  intakeMoved: (from: string, to: string) => string
+  intakeMoveNotFound: (id: number) => string
+  intakeMoveAmbiguous: (id: number, paths: string) => string
+  intakeMoveTargetHasNumber: (id: number, target: string) => string
+  intakeMoveNeedsBoth: string
+  intakeMoveTargetOutside: (to: string) => string
   intakeAmended: (file: string, card: string) => string
   intakeAdmitUnclear: (count: number) => string
   intakeAdmitAwaiting: (file: string, token: string) => string
@@ -489,6 +495,12 @@ export const LORE: Lore = {
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   intakeAdmitted: (file: string, card: string) => `CARD ADMITTED // ${file}: ${card}; its intake line is in the journal`,
   intakeAlreadyAdmitted: (file: string, card: string) => `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line, nothing written`,
+  intakeMoved: (from: string, to: string) => `MOVED // ${from} -> ${to}; the journal holds the move, the card is unchanged`,
+  intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
+  intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
+  intakeMoveTargetHasNumber: (id: number, target: string) => `INTAKE REFUSED // NUMBER TAKEN: ${target} already holds #${id}; nothing moved`,
+  intakeMoveNeedsBoth: 'INTAKE REFUSED // --move and --to go together, with no --draft, --taken or --admit',
+  intakeMoveTargetOutside: (to: string) => `INTAKE REFUSED // OUTSIDE: --to ${to} is not the parking root (.) or one directory directly under it; nothing moved`,
   intakeAmended: (file: string, card: string) => `CARD AMENDED // ${file}: ${card}; its text differs from the admitted one, a new intake line is in the journal`,
   intakeAdmitUnclear: (count: number) => `${count} UNCLEAR // marked in the card; who is left as the card states it`,
   intakeAdmitAwaiting: (file: string, token: string) => `AWAITING CONFIRMATION // ${file} unchanged, no intake line; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
@@ -823,6 +835,12 @@ export const PLAIN_LORE: Lore = {
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   intakeAdmitted: (file: string, card: string) => `Admitted ${file}: ${card}. Its intake line is in the journal, so task:start and the shift take it.`,
   intakeAlreadyAdmitted: (file: string, card: string) => `Already admitted ${file}: ${card}. The journal holds its intake line; nothing was written.`,
+  intakeMoved: (from: string, to: string) => `Moved ${from} to ${to}. The journal holds the move; the card is unchanged.`,
+  intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
+  intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,
+  intakeMoveTargetHasNumber: (id: number, target: string) => `Refused: ${target} already holds #${id}. Nothing was moved.`,
+  intakeMoveNeedsBoth: 'Refused: --move and --to go together, with no --draft, --taken or --admit. Nothing was written.',
+  intakeMoveTargetOutside: (to: string) => `Refused: --to ${to} is not the parking root (.) or one directory directly under it. Nothing was moved.`,
   intakeAmended: (file: string, card: string) => `Amended ${file}: ${card}. Its card, task text or witnesses differ from what the journal admitted, so a new intake line with source amend is in the journal.`,
   intakeAdmitUnclear: (count: number) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; who is left as the card states it.`,
   intakeAdmitAwaiting: (file: string, token: string) => `${file} is unchanged and has no intake line: the corrections above wait for a person. Run again with --confirm ${token} to admit the card as shown, or with --auto-confirm to accept corrections in advance.`,
