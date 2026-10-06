@@ -918,7 +918,7 @@ construct mutate judge --id M2 --report m2.json
 |---|---|---|
 | `mutate judge --baseline` | `--report <file>`, `--format <vitest-json\|junit-xml>`, `--json` | Records a well-formed report in which nothing failed as `.construct/mutations/baseline.json`, with the report's run start time. A red, empty or unreadable report is refused and nothing is written. |
 | `mutate apply` | `--from <file>`, `--id <id>`, `--json` | Applies the line with that id: one `find` → `replace` in one file, after copying the original to `.construct/mutations/<id>.orig` and recording `<id>.json` (the file's sha256 before and after, `appliedAt`, the prediction). |
-| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. |
+| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--card <n>`, `--journal <file>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. With `--card`, it then journals the verdict (below). |
 
 `--format` names how `--report` is written, and defaults to `vitest-json`: Vitest's own `--reporter=json
 --outputFile=<file>`, whose run start time is its top-level `startTime`. `--format junit-xml` reads a
@@ -975,6 +975,18 @@ the mutation; it cannot check which tree it ran on, and the output says so.
 | Refused | `1` |
 | The outcome does not match the prediction; no witness | `2` |
 | Hard failure | `3` |
+
+`--card <n>` (`#616` or `616`) names the card the mutation verifies. After a verdict — a matched or an
+unmatched outcome, never a refusal, no witness or a hard failure — `judge` appends one line to
+`--journal`, by default `~/.construct/handoff/ghosts.jsonl`, the journal `intake` writes to:
+
+```
+{"event":"mutation-judged","card":"616","id":"M2","outcome":"named-red","matched":true,"ts":"2026-10-06T10:00:00.000Z"}
+```
+
+`outcome` is `named-red`, `other-red` or `nothing-red`. A `--card` that is not a number is refused
+before the file is touched. Without `--card`, `judge` writes no journal line; the line is what lets a
+task close as verified by `mutation` stand on a mutation that ran.
 
 `--json` prints one object with `schemaVersion` and `state` (`matched`, `baselineRecorded`,
 `refused`, `unmatched`, `noWitness` or `hardFailure`). The records under `.construct/mutations/` are

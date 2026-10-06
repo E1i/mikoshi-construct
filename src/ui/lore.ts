@@ -260,6 +260,9 @@ export interface Lore extends ExpectLore {
   mutateUnmatched: string
   mutateFileFailedToRun: string
   mutateRestsOn: (report: string, startedAt: string) => string
+  mutateRefusedBadCard: (card: string) => string
+  mutateRefusedNoJournal: string
+  mutateJournaled: (journal: string) => string
   boardColumns: string[]
   boardExpectNotRecorded: string
   boardActual: (tokens: number | 'unknown', seconds: number) => string
@@ -597,6 +600,9 @@ export const LORE: Lore = {
   mutateUnmatched: 'PREDICTION MISSED.',
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
+  mutateRefusedBadCard: (card: string) => `NO SIGNAL: --card ${card} is not a card number (#<n> or <n>); the file was not touched`,
+  mutateRefusedNoJournal: 'NO SIGNAL: --journal names no file; the file was not touched',
+  mutateJournaled: (journal: string) => `Verdict journaled to ${journal}.`,
   boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
   boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
   boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
@@ -922,6 +928,9 @@ export const PLAIN_LORE: Lore = {
   mutateUnmatched: 'The outcome does not match the prediction.',
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
+  mutateRefusedBadCard: (card: string) => `Refused: --card ${card} is not a card number (#<n> or <n>). Nothing was changed.`,
+  mutateRefusedNoJournal: 'Refused: --journal names no file. Nothing was changed.',
+  mutateJournaled: (journal: string) => `The verdict is journaled to ${journal}.`,
   boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
   boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
   boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
