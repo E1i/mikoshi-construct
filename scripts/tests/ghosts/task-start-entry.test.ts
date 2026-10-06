@@ -52,4 +52,17 @@ describe('task:start prints the entry card and writes it beside the start line',
     expect(rows[2]).toContain('expect not recorded on the start line')
     expect(rows[3]).toContain('CLAUDE_CODE_SESSION_ID is not set')
   })
+
+  it('the start records the printed forecast as a value', () => {
+    const handed = { CONTRACT: 'contract', EXPECT: 'expect tokens ≈ 1.2M' }
+    const startOf = (forecast: Parameters<typeof runTaskStart>[2]): Record<string, unknown> => {
+      const { deps, appended } = world('s1')
+      const result = runTaskStart(['feat/entry', '--card', CARD], deps, forecast)
+      expect(result.stdout[2]).toBe(`EXPECT   | ${forecast!.EXPECT}`)
+      return JSON.parse(appended[0]!.split('\n')[0]!) as Record<string, unknown>
+    }
+    expect(startOf({ ...handed, forecast: { kind: 'forecast', taskClass: 'XS', n: 7, tokens: 1_234_567, minutes: 12.34 } }).forecast).toEqual({ tokens: 1_234_567, minutes: 12.34, class: 'XS', n: 7 })
+    expect(startOf({ ...handed, forecast: { kind: 'none', taskClass: 'M', n: 2 } }).forecast).toEqual({ kind: 'none', class: 'M', n: 2 })
+    expect(startOf(handed)).not.toHaveProperty('forecast')
+  })
 })

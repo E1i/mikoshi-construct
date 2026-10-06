@@ -1,7 +1,7 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
-import type { TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
+import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { LadderFacts, LadderStep } from './ladder.js'
@@ -22,12 +22,12 @@ import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
-import { cheapClass, claudeProjectsDir } from '../../src/commands/cost/index.js'
+import { cheapClass, cheapForecastOf, claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
-import { cheapExpect } from '../ghosts/cheap-expect.js'
+import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
@@ -432,10 +432,14 @@ function startedTask(deps: ShiftDeps, task: ShiftTask, session: string): TaskBas
   return { event: 'task', file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started: deps.now().toISOString() }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+function startDeps(deps: ShiftDeps, dir: string, session: string, parking: string | undefined): TaskStartDeps {
+  return { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
+}
+
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
-  const start = runTaskStart([task.branch, '--card', task.card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
+  const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
   if (start.exitCode !== 0 || start.worktree === undefined) {
     return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
   }
@@ -502,7 +506,7 @@ function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { fil
   return { file }
 }
 
-async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, parking: string, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const { card } = task
   const brief = briefPathOf(deps.handoffDir, card)
   const base = startedTask(deps, task, deps.uuid())
@@ -529,7 +533,7 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
     if (worktree === undefined) {
       if (step.kind !== 'brief')
         return stopped('fault', `card #${card.id} has no task:start line in ${path.join(deps.handoffDir, GHOST_JOURNAL)}, so the ${step.kind} step has no tree`)
-      const start = runTaskStart([task.branch, '--card', card.line], { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session: base.session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal }, handed)
+      const start = runTaskStart([task.branch, '--card', card.line], startDeps(deps, dir, base.session, parking), handed)
       if (start.exitCode !== 0 || start.worktree === undefined)
         return result(null, { refused: start.stderr.join(' '), exit: null })
       worktree = start.worktree
@@ -586,7 +590,8 @@ function startContract(task: ShiftTask, expected: string): Pick<Signal, 'CONTRAC
 
 function startBlock(task: ShiftTask, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, style: SignalStyle): string[] {
   return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
-    ...handed,
+    CONTRACT: handed.CONTRACT,
+    EXPECT: handed.EXPECT,
     ACTION: `task:start ${task.branch} #${task.id}, then a headless claude session in its tree`,
     RESULT: `— running; the outcome line ${PREFIX}${task.file} ${task.id}: … follows`,
   }, style)
@@ -658,14 +663,15 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, autopilotLine(deps, dir, manual))
   let clean = true
   for (const task of tasks) {
-    const handed = startContract(task, cheapExpect(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir))
+    const forecast = cheapForecastOf(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir)
+    const handed = { ...startContract(task, formatCheapExpect(forecast)), forecast }
     if (!(await takeAllowed(deps, task, manual))) {
       deps.out(`${PREFIX}${task.file} ${task.id}: not taken, not confirmed (--manual)`)
       continue
     }
     for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
       deps.out(line)
-    const { line, stop } = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual) : await runTask(deps, dir, task, claude, handed, manual)
+    const { line, stop } = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual) : await runTask(deps, dir, task, claude, handed, parking, manual)
     deps.append(journal, `${JSON.stringify(line)}\n`)
     if (stop !== null)
       recordStop(deps, dir, task.id, stop)
