@@ -23,9 +23,9 @@ describe('choose with a standing stop and a ladder card', () => {
   })
 
   it('leaves a card with a waiting stop as waits <at>, before its depends and its ladder contour', () => {
-    const waiting = new Map([['1', 'question' as const], ['2', 'hash' as const]])
-    const choice = choose([parked(1), parked(2, 'implement/runner/M/ladder/owner'), parked(3, 'implement/runner/S/cheap/auto', 'shift', '#9')], new Set(), new Set(), waiting)
-    expect(choice.left).toEqual([{ id: '1', reason: 'waits question' }, { id: '2', reason: 'waits hash' }, { id: '3', reason: 'depends #9 not merged' }])
+    const waiting = new Map([['1', 'question' as const], ['2', 'hash' as const], ['3', 'fault' as const]])
+    const choice = choose([parked(1), parked(2, 'implement/runner/M/ladder/owner'), parked(3, 'implement/runner/S/cheap/auto', 'shift', '#9'), parked(4, 'implement/runner/S/cheap/auto', 'shift', '#9')], new Set(), new Set(), waiting)
+    expect(choice.left).toEqual([{ id: '1', reason: 'waits question' }, { id: '2', reason: 'waits hash' }, { id: '3', reason: 'waits fault' }, { id: '4', reason: 'depends #9 not merged' }])
   })
 
   it('a closed card is closed, not waiting, and a window card is who window', () => {
