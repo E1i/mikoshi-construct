@@ -34,10 +34,23 @@ export function briefSha256(): string {
   return approvalSha256(canonicalImplementText(BRIEF_TEXT)!)
 }
 
-export function approve(world: World, id: number): void {
+export function approvalLine(id: number, by: string, sha256 = briefSha256()): string {
+  return `${JSON.stringify({ event: 'approval', by, card: id, brief: 'b.md', sha256, ts: 't' })}\n`
+}
+
+export function revokeLine(id: number, sha256 = briefSha256()): string {
+  return `${JSON.stringify({ event: 'revoke', card: id, sha256, ts: 't' })}\n`
+}
+
+export function approvedFile(world: World, id: number): void {
   const brief = briefOf(world, id)
   writeFileSync(brief, BRIEF_TEXT)
   writeFileSync(approvedHashPath(brief), `approved /implement text sha256: ${briefSha256()} sketch: none (2026-10-06, owner)\n`)
+}
+
+export function approve(world: World, id: number): void {
+  approvedFile(world, id)
+  appendFileSync(world.journal, approvalLine(id, 'owner'))
 }
 
 function launchLines(world: World, id: number, launch: Launch): string[] {
@@ -54,6 +67,7 @@ export function ladderPnpm(world: World, id: number, behaviour: { morse?: Morse,
       if (behaviour.morse === 'refuses')
         return { code: 1, stdout: '', stderr: `the brief waits for the owner: card #${id} is R1 (it touches the runner)\nsecond line\n` }
       writeFileSync(approvedHashPath(briefOf(world, id)), `approved /implement text sha256: ${briefSha256()} sketch: none (2026-10-06, morse)\n`)
+      appendFileSync(world.journal, approvalLine(id, 'morse'))
       return { code: 0, stdout: 'approved\n', stderr: '' }
     }
     const launch = behaviour.launch ?? 'done'

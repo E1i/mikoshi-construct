@@ -27,7 +27,6 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
-import { approvedHashPath } from '../ghosts/approval.js'
 import { cheapExpect } from '../ghosts/cheap-expect.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
@@ -128,8 +127,7 @@ function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: 
 }
 
 function approvedBrief(deps: ShiftDeps, task: ShiftTask): boolean {
-  const { brief, approval } = briefFacts(deps, task)
-  return approvedSha256Of(brief, approval) !== null
+  return approvedSha256Of(briefFacts(deps, task), task.card) !== null
 }
 
 function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
@@ -139,7 +137,7 @@ function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors
   const done = new Set(closedTasks(text).keys())
   const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
   const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
-  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && (stop.worktree === null || approvedBrief(deps, ladder.get(stop.task)!))
+  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(deps, ladder.get(stop.task)!)
   return {
     choice: choose(cards, done, mergedTasks(text), standingStops(latestStops(text), deps.exists, released)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
@@ -428,6 +426,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
 }
 
 const LADDER_TURNS = 4
+const NO_PNPM_RUNNER = 'no pnpm runner is wired into this shift'
 const PNPM_OUTPUT_LIMIT = 64 * 1024 * 1024
 
 function firstLine(text: string): string {
@@ -440,7 +439,7 @@ function readIfThere(deps: ShiftDeps, file: string): string | null {
 
 function briefFacts(deps: ShiftDeps, task: ShiftTask): LadderFacts {
   const brief = briefPathOf(deps.handoffDir, task.card)
-  return { journal: readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)), brief: readIfThere(deps, brief), approval: readIfThere(deps, approvedHashPath(brief)) }
+  return { journal: readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)), brief: readIfThere(deps, brief) }
 }
 
 function treeProblem(deps: ShiftDeps, tree: string, step: LadderStep['kind']): string | null {
@@ -457,9 +456,9 @@ function treeProblem(deps: ShiftDeps, tree: string, step: LadderStep['kind']): s
   }
 }
 
-function runPnpm(deps: ShiftDeps, args: string[], input?: string): PnpmResult {
+function runPnpm(deps: ShiftDeps, args: string[], input?: string): PnpmResult | null {
   if (deps.pnpm === undefined)
-    return { code: 1, stdout: '', stderr: 'no pnpm runner is wired into this shift' }
+    return null
   try {
     return deps.pnpm(deps.cwd, args, input)
   }
@@ -527,6 +526,8 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
       if ('problem' in written)
         return stopped('fault', written.problem)
       const launched = runPnpm(deps, ['ghosts:launch', '--tasks', written.file], 'yes\n')
+      if (launched === null)
+        return stopped('fault', NO_PNPM_RUNNER)
       if (launched.code === 0)
         continue
       const after = ladderStep(briefFacts(deps, task), card)
@@ -550,6 +551,8 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
     if (!deps.exists(brief))
       return stopped('fault', `the brief session wrote no brief at ${brief}`, ran.current)
     const approved = runPnpm(deps, ['ghosts:hash', brief, '--by', 'morse', '--card', String(card.id), '--parking', parking])
+    if (approved === null)
+      return stopped('fault', NO_PNPM_RUNNER, ran.current)
     if (approved.code !== 0)
       return stopped('hash', `${LADDER_REASON}: ${firstLine(approved.stderr) || `ghosts:hash exit ${approved.code}`}`, ran.current)
   }

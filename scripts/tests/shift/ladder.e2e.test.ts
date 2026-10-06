@@ -1,13 +1,13 @@
 import type { Captured, World } from './fixtures/autopilot-world.js'
 import type { Ladder, Launch, Morse } from './fixtures/ladder-world.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { approvedHashPath } from '../../ghosts/approval.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
-import { approve, briefOf, briefSha256, briefWritten, cardNameOf, LADDER, ladderDeps, ladderPnpm } from './fixtures/ladder-world.js'
+import { approvalLine, approve, approvedFile, briefOf, briefWritten, cardNameOf, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
 
 const BODY = 'do 1 STUB-BRIEF-WRITE STUB-VERIFIED-run STUB-PR-101'
 const PR_CARDS = { 101: cardLine(1, LADDER) }
@@ -82,6 +82,15 @@ describe('a ladder card in a shift', () => {
     expect(prompt).toContain(`pnpm ghosts:hash ${briefOf(world, 1)}\` (no \`--by\`)`)
   })
 
+  it('the brief step with no pnpm runner wired stops at fault and not at hash', async () => {
+    const world = newLadderWorld()
+    const { gh } = fakeGh(PR_CARDS)
+    const ladder = ladderPnpm(world, 1)
+    await runShift([world.shift, '--parking', world.parking], ladderDeps(world, gh, captured(), ladder, { pnpm: undefined }))
+    expect(ladder.calls).toEqual([])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'fault', why: 'no pnpm runner is wired into this shift' }])
+  })
+
   it('a brief session that wrote no brief stops at fault and asks nobody for an approval', async () => {
     const world = newWorld([{ id: 1, kind: LADDER, body: 'do 1 STUB-NO-PR' }])
     const { ladder } = await shiftOver(world)
@@ -149,19 +158,48 @@ describe('an R1 brief waits in the owner queue', () => {
   it('an R1 brief waits in the owner queue until the owner approves it, and then the next run goes on', async () => {
     const world = newLadderWorld()
     await shiftOver(world, { morse: 'refuses' })
-    writeFileSync(approvedHashPath(briefOf(world, 1)), `approved /implement text sha256: ${briefSha256()} sketch: none (2026-10-06, Eli)\n`)
+    approve(world, 1)
     const next = await shiftOver(world, { launch: 'running' }, path.join(world.root, 'shift-2'))
     expect(next.ladder.calls.map(call => call.args[0])).toEqual(['ghosts:launch'])
     expect(stubRuns(world, 1)).toBe(1)
     expect(eventsOf(world, 'stop')).toHaveLength(1)
   })
 
-  it('a stale hash stop with no tree on a ladder card does not hold it', async () => {
-    const world = newLadderWorld()
-    writeFileSync(world.journal, `${readFileSync(world.journal, 'utf8')}${JSON.stringify({ event: 'stop', task: '1', at: 'hash', why: 'w', worktree: null, shift: '/s', session: null, ts: 't' })}\n`)
+  async function heldAfter(world: World, change: () => void): Promise<Run> {
     await shiftOver(world, { morse: 'refuses' })
-    expect(startLines(world)).toHaveLength(1)
+    change()
+    return shiftOver(world, { launch: 'running' }, path.join(world.root, 'shift-2'))
+  }
+
+  it('an R1 brief waits in the owner queue: an .approved-sha256 file for the current hash with no approval event leaves it waits hash', async () => {
+    const world = newLadderWorld()
+    const next = await heldAfter(world, () => approvedFile(world, 1))
+    expect(next.io.out).toContain('[shift] parking: takes none')
+    expect(next.ladder.calls).toEqual([])
     expect(stubRuns(world, 1)).toBe(1)
+    expect(eventsOf(world, 'stop')).toHaveLength(1)
+  })
+
+  it('an R1 brief waits in the owner queue: a revoke after the approval leaves it held', async () => {
+    const world = newLadderWorld()
+    const next = await heldAfter(world, () => {
+      approve(world, 1)
+      appendFileSync(world.journal, revokeLine(1))
+    })
+    expect(next.ladder.calls).toEqual([])
+    expect(next.io.out).toContain('[shift] parking: takes none')
+    expect(eventsOf(world, 'stop')).toHaveLength(1)
+  })
+
+  it('an R1 brief waits in the owner queue: an approval event for an older hash leaves it held', async () => {
+    const world = newLadderWorld()
+    const next = await heldAfter(world, () => {
+      approvedFile(world, 1)
+      appendFileSync(world.journal, approvalLine(1, 'owner', '0'.repeat(64)))
+    })
+    expect(next.ladder.calls).toEqual([])
+    expect(next.io.out).toContain('[shift] parking: takes none')
+    expect(eventsOf(world, 'stop')).toHaveLength(1)
   })
 })
 

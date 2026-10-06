@@ -2,8 +2,8 @@ import type { Card } from '../../../src/card/grammar.js'
 import { describe, expect, it } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
-import { briefPathOf, isLadder, ladderStep, tasksFilePathOf, tasksFileText } from '../../shift/ladder.js'
-import { BRIEF_TEXT } from './fixtures/ladder-world.js'
+import { approvedSha256Of, briefPathOf, isLadder, ladderStep, tasksFilePathOf, tasksFileText } from '../../shift/ladder.js'
+import { approvalLine, BRIEF_TEXT, revokeLine } from './fixtures/ladder-world.js'
 
 function cardOf(line: string): Card {
   const parsed = parseCard(line)
@@ -14,22 +14,23 @@ function cardOf(line: string): Card {
 
 const CARD = cardOf('#603 shift-runs-ladder [implement/runner/M/ladder/owner] · depends #602 · blocks —')
 const SHA = approvalSha256(canonicalImplementText(BRIEF_TEXT)!)
-const APPROVAL = `approved /implement text sha256: ${SHA} sketch: none (2026-10-06, morse)\n`
+const APPROVED = approvalLine(603, 'morse')
 const entry = (sha = SHA, task = 'shift-runs-ladder'): object => ({ event: 'entry', task, CONTRACT: `ladder · brief b.md approved ${sha.slice(0, 7)} · law brief Acceptance:` })
 const ended = (ladder: string, sha = SHA): object => ({ event: 'task', task: 'shift-runs-ladder', approvedSha256: sha, ladder })
-const journal = (...lines: object[]): string => `${lines.map(line => JSON.stringify(line)).join('\n')}\nnot json\n`
-const step = (text: string | null, brief: string | null = BRIEF_TEXT, approval: string | null = APPROVAL): string => ladderStep({ journal: text, brief, approval }, CARD).kind
+const journal = (...lines: object[]): string => `${APPROVED}${lines.map(line => JSON.stringify(line)).join('\n')}\nnot json\n`
+const step = (text: string | null, brief: string | null = BRIEF_TEXT): string => ladderStep({ journal: text, brief }, CARD).kind
 
 describe('the ladder step is derived from the journal and the brief', () => {
-  it('is brief while there is no brief, no approval file, or an approval of another text', () => {
-    expect(step(null, null, null)).toBe('brief')
-    expect(step(null, BRIEF_TEXT, null)).toBe('brief')
-    expect(step(null, `${BRIEF_TEXT}changed\n`, APPROVAL)).toBe('brief')
-    expect(step(null, BRIEF_TEXT, 'approved nothing')).toBe('brief')
+  it('is brief while there is no brief, no approval event, or an approval of another text', () => {
+    expect(step(null, null)).toBe('brief')
+    expect(step(null, BRIEF_TEXT)).toBe('brief')
+    expect(step(APPROVED, `${BRIEF_TEXT}changed\n`)).toBe('brief')
+    expect(step(approvalLine(603, 'morse', '0'.repeat(64)))).toBe('brief')
+    expect(step(approvalLine(604, 'morse'))).toBe('brief')
   })
 
   it('is launch once the current text is approved and no entry names that hash', () => {
-    expect(ladderStep({ journal: null, brief: BRIEF_TEXT, approval: APPROVAL }, CARD)).toEqual({ kind: 'launch', sha256: SHA })
+    expect(ladderStep({ journal: APPROVED, brief: BRIEF_TEXT }, CARD)).toEqual({ kind: 'launch', sha256: SHA })
     expect(step(journal(entry('0'.repeat(64)), entry(SHA, 'another-task')))).toBe('launch')
   })
 
@@ -44,7 +45,7 @@ describe('the ladder step is derived from the journal and the brief', () => {
   })
 
   it('is a fault naming any other ladder status', () => {
-    expect(ladderStep({ journal: journal(entry(), ended('stopped')), brief: BRIEF_TEXT, approval: APPROVAL }, CARD)).toEqual({ kind: 'fault', why: `the Ghost ended with ladder status 'stopped'` })
+    expect(ladderStep({ journal: journal(entry(), ended('stopped')), brief: BRIEF_TEXT }, CARD)).toEqual({ kind: 'fault', why: `the Ghost ended with ladder status 'stopped'` })
   })
 
   it('is running again when a newer entry follows a finished Ghost', () => {
@@ -64,5 +65,18 @@ describe('the ladder files of a card', () => {
 
   it('marks a ladder card by kind and contour, and a probe or a cheap card is not one', () => {
     expect([CARD, cardOf('#1 a [probe/runner/S/ladder/none] · depends — · blocks —'), cardOf('#2 b [implement/runner/S/cheap/auto] · depends — · blocks —')].map(isLadder)).toEqual([true, false, false])
+  })
+})
+
+describe('the approved hash of a card is read from the journal alone', () => {
+  it('is the current hash when an approval event names it and no revoke does', () => {
+    expect(approvedSha256Of({ journal: APPROVED, brief: BRIEF_TEXT }, CARD)).toBe(SHA)
+    expect(approvedSha256Of({ journal: `${APPROVED}${revokeLine(603)}`, brief: BRIEF_TEXT }, CARD)).toBeNull()
+    expect(approvedSha256Of({ journal: null, brief: BRIEF_TEXT }, CARD)).toBeNull()
+  })
+
+  it('is brief after a revoke of that hash, and launch for an approval by the owner as much as by MORSE', () => {
+    expect(step(`${APPROVED}${revokeLine(603)}`)).toBe('brief')
+    expect(step(approvalLine(603, 'owner'))).toBe('launch')
   })
 })

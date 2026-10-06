@@ -40,6 +40,7 @@ describe('the documents say the shift runs a ladder card', () => {
     expect(windowDoc).toContain('`pnpm ghosts:launch --tasks')
     expect(windowDoc).toContain('--by morse --card <id>')
     expect(windowDoc).not.toContain('which the shift never takes')
+    expect(windowDoc).toContain('an `.approved-sha256` file alone never counts')
   })
 
   it('the LADDER_REASON on a hash stop names both approvers', () => {

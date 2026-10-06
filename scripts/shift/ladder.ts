@@ -1,6 +1,6 @@
 import type { Card } from '../../src/card/grammar.js'
 import path from 'node:path'
-import { approvalSha256, canonicalImplementText, extractApprovedHash } from '../ghosts/approval.js'
+import { approvalOf, approvalSha256, canonicalImplementText, revocationOf } from '../ghosts/approval.js'
 
 export type LadderStep
   = | { kind: 'brief' }
@@ -12,7 +12,6 @@ export type LadderStep
 export interface LadderFacts {
   journal: string | null
   brief: string | null
-  approval: string | null
 }
 
 const SHORT_HASH = 7
@@ -29,10 +28,13 @@ export function tasksFilePathOf(handoffDir: string, card: Card): string {
   return path.join(handoffDir, `tasks-${card.id}-${card.name}.json`)
 }
 
-export function approvedSha256Of(brief: string | null, approval: string | null): string | null {
-  const text = brief === null ? undefined : canonicalImplementText(brief)
-  const approved = approval === null ? undefined : extractApprovedHash(approval)
-  return text !== undefined && approved !== undefined && approvalSha256(text) === approved ? approved : null
+export function approvedSha256Of(facts: LadderFacts, card: Card): string | null {
+  const text = facts.brief === null ? undefined : canonicalImplementText(facts.brief)
+  if (text === undefined)
+    return null
+  const sha256 = approvalSha256(text)
+  const events = journalLines(facts.journal)
+  return approvalOf(events, sha256, card.id) !== undefined && revocationOf(events, sha256, card.id) === undefined ? sha256 : null
 }
 
 function journalLines(journal: string | null): Record<string, unknown>[] {
@@ -56,7 +58,7 @@ function ghostEnded(line: Record<string, unknown>, card: Card, sha256: string): 
 }
 
 export function ladderStep(facts: LadderFacts, card: Card): LadderStep {
-  const sha256 = approvedSha256Of(facts.brief, facts.approval)
+  const sha256 = approvedSha256Of(facts, card)
   if (sha256 === null)
     return { kind: 'brief' }
   const lines = journalLines(facts.journal)
