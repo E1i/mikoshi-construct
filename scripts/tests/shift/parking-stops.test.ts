@@ -60,3 +60,22 @@ describe('the stop journal readers', () => {
     expect(latestStops(null).size).toBe(0)
   })
 })
+
+describe('choose with a created scripts/ghosts file', () => {
+  const touching = (file: string): ParkedTask => {
+    const parsed = parseParkingFile('1.md', `card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: ${file}\nwho: shift\n\ndo 1\n`)
+    if (parsed.kind === 'refused')
+      throw new Error(parsed.reason)
+    return parsed.parked
+  }
+
+  it('a card creating an unclassified scripts/ghosts file is left to classify', () => {
+    const choice = choose([touching('scripts/ghosts/new.ts')], new Set(), new Set(), new Map(), () => true)
+    expect(choice.left).toEqual([{ id: '1', reason: 'classify scripts/ghosts/new.ts in owner-merges.md' }])
+  })
+
+  it('a card whose scripts/ghosts file exists, or a file elsewhere, is taken', () => {
+    expect(choose([touching('scripts/ghosts/old.ts')], new Set(), new Set(), new Map(), () => false).chosen).toHaveLength(1)
+    expect(choose([touching('scripts/shift/new.ts')], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
+  })
+})
