@@ -99,3 +99,78 @@ export function checkApproval(briefPath: string): ApprovalCheck {
 
   return { ok: true, text, sha256: expected, approvedSketch }
 }
+
+export type JournalEvent = Record<string, unknown>
+
+export const MORSE = 'morse'
+
+const CARD_NUMBER = /^#?(\d+)$/
+const SHA256_LINE = /sha256:\s*[0-9a-f]{64}/
+const CLOSING_APPROVER = /\(\d{4}-\d{2}-\d{2}, (.*)\)\s*$/
+
+export function cardNumberOf(value: string): number | undefined {
+  const match = CARD_NUMBER.exec(value)
+  return match === null ? undefined : Number(match[1])
+}
+
+export function approverOf(content: string): string | undefined {
+  const line = content.split('\n').find(text => SHA256_LINE.test(text))
+  const approver = line === undefined ? undefined : CLOSING_APPROVER.exec(line)?.[1]?.trim()
+  return approver === undefined || approver === '' ? undefined : approver
+}
+
+export function journalEvents(journalPath: string): JournalEvent[] {
+  if (!existsSync(journalPath))
+    return []
+  return readFileSync(journalPath, 'utf8').split('\n').flatMap((text) => {
+    try {
+      const event = JSON.parse(text) as unknown
+      return event !== null && typeof event === 'object' && !Array.isArray(event) ? [event as Record<string, unknown>] : []
+    }
+    catch {
+      return []
+    }
+  })
+}
+
+export function fallsOf(events: JournalEvent[], card: number): string[] {
+  return events.flatMap(event => event.event === 'fall' && event.card === card && typeof event.kind === 'string' ? [event.kind] : [])
+}
+
+export interface ApprovalFields {
+  card: number
+  brief: string
+  sha256: string
+  sketch: string
+  risk: string
+  reason: string
+  forecast: object
+  ts: string
+}
+
+export function approvalEvent(fields: ApprovalFields): JournalEvent {
+  return {
+    event: 'approval',
+    by: MORSE,
+    card: fields.card,
+    brief: fields.brief,
+    sha256: fields.sha256,
+    sketch: fields.sketch,
+    risk: fields.risk,
+    reason: fields.reason,
+    forecast: fields.forecast,
+    ts: fields.ts,
+  }
+}
+
+export function morseApprovalOf(events: JournalEvent[], sha256: string, card: number): JournalEvent | undefined {
+  return events.find(event => event.event === 'approval' && event.by === MORSE && event.sha256 === sha256 && event.card === card)
+}
+
+export function revokeEvent(sha256: string, card: number, ts: string): JournalEvent {
+  return { event: 'revoke', sha256, card, ts }
+}
+
+export function revocationOf(events: JournalEvent[], sha256: string, card: number): JournalEvent | undefined {
+  return events.find(event => event.event === 'revoke' && event.sha256 === sha256 && event.card === card)
+}
