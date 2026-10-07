@@ -458,3 +458,15 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     expect(journal(root).map(line => line.kind)).toEqual(['subagent'])
   })
 })
+
+describe('turn-journal registration', () => {
+  it('the repository settings run the hook on every event it handles', () => {
+    const source = readFileSync(HOOK, 'utf8')
+    const handled = [...source.slice(source.indexOf('const HANDLERS = {')).split('}')[0]!.matchAll(/^\s+(\w+):/gm)].map(match => match[1])
+    const settings = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../.claude/settings.json'), 'utf8')) as { hooks: Record<string, { hooks: { command: string }[] }[]> }
+    const registered = (event: string): boolean => (settings.hooks[event] ?? []).some(group => group.hooks.some(hook => hook.command.includes('turn-journal.mjs')))
+
+    expect(handled).toContain('SubagentStart')
+    expect(handled.filter(event => !registered(event!))).toEqual([])
+  })
+})
