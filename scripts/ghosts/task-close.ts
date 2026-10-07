@@ -12,6 +12,7 @@ import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf } from './entry.js'
 
 export const PREFIX = '[task:close] '
@@ -123,6 +124,11 @@ function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine 
   return { event: 'path', task: id, path: entry.card.contour, session, card: entry.card }
 }
 
+function cloudStartOf(lines: Record<string, unknown>[], id: string): StartLine | undefined {
+  const start = lines.filter(line => line.event === CLOUD_START_EVENT && line.task === id).filter(hasCard).at(-1)
+  return start === undefined ? undefined : { event: 'path', task: id, path: start.card.contour, session: start.run, card: start.card }
+}
+
 function mutationRefusal(lines: Record<string, unknown>[], id: string, journal: string): string | null {
   const judged = lines.filter(line => line.event === MUTATION_JUDGED_EVENT && line.card === id)
   if (judged.length === 0)
@@ -204,9 +210,9 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const journalText = deps.read(journal) ?? ''
   const lines = journalLines(journalText)
-  const start = startLineOf(lines, id) ?? launchStartOf(lines, id)
+  const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id)
   if (start === undefined)
-    return refuse(`${journal} has no task:start line with a card for #${id} and no ghosts:launch entry line with one; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
+    return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
   const unproven = verification === 'mutation' ? mutationRefusal(lines, id, journal) : null
   if (unproven !== null)
     return refuse(unproven)

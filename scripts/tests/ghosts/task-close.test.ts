@@ -332,3 +332,18 @@ describe('w3: task:close refuses and writes nothing', () => {
     expect(runTaskClose(['1', '--pr', '2', '--verification', 'run'], { ...deps, read: () => null }).exitCode).toBe(1)
   })
 })
+
+describe('a cloud run closes on its cloud-start line', () => {
+  it('task:close closes a task whose only start line is a cloud-start line', () => {
+    const line = '#665 probe-card [probe/ghosts/S/cheap/none] · depends — · blocks —'
+    const card = { id: 665, name: 'probe-card', kind: 'probe', milestone: 'ghosts', size: 'S', contour: 'cheap', decision: 'none', depends: [], blocks: [], line }
+    const journal = [
+      JSON.stringify({ event: 'intake', task: '665', card: line, confirmation: 'none', corrections: [], ts: 'x' }),
+      JSON.stringify({ event: 'cloud-start', task: '665', card, run: 'trig_1', base: null, ts: 'x' }),
+    ]
+    const { deps, written } = world(journal)
+    const result = runTaskClose(['665', '--report', '/r.md', '--verification', 'run'], deps)
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '665', path: 'cheap', report: '/r.md', verification: 'run', sessions: [{ id: 'trig_1' }] })
+  })
+})
