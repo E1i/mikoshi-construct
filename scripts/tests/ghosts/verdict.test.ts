@@ -250,4 +250,45 @@ describe('verdict from a cloud branch', () => {
     const fetched = fetchVerdictFromRef('role/t-review', REPO, 'role/t/missing.json', dir)
     expect(fetched.ok).toBe(false)
   })
+
+  it('refuses a ref that starts with a dash and writes nothing', () => {
+    const { dir } = handoff()
+    const outside = path.join(dir, 'leak')
+    const fetched = fetchVerdictFromRef(`--output=${outside}`, REPO, 'role/t/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: [`--from --output=${outside}: a ref cannot start with "-"; nothing written`] })
+    expect(existsSync(outside)).toBe(false)
+  })
+
+  function roleBranch(name: string, reportPath: string): void {
+    git(REPO, 'checkout', '-q', '-b', name)
+    const roleDir = path.join(REPO, 'role', name)
+    mkdirSync(roleDir, { recursive: true })
+    writeFileSync(path.join(roleDir, 'review-t.md'), REPORT)
+    const { good } = handoff()
+    write(path.join(roleDir, 'review.verdict.json'), { ...good, report: { ...(good.report as object), path: reportPath } })
+    git(REPO, 'add', '-A')
+    git(REPO, 'commit', '-q', '-m', name)
+  }
+
+  it('refuses a report named like the verdict file or outside its directory, and writes nothing', () => {
+    roleBranch('same-name', 'review.verdict.json')
+    const first = handoff()
+    expect(fetchVerdictFromRef('same-name', REPO, 'role/same-name/review.verdict.json', first.dir)).toEqual({ ok: false, reasons: ['--from same-name: the report review.verdict.json has the verdict file\'s name; nothing written'] })
+    expect(existsSync(path.join(first.dir, 'review.verdict.json'))).toBe(false)
+
+    roleBranch('up-a-level', '../review-t.md')
+    const second = handoff()
+    expect(fetchVerdictFromRef('up-a-level', REPO, 'role/up-a-level/review.verdict.json', second.dir)).toEqual({ ok: false, reasons: ['--from up-a-level: the report path ../review-t.md leaves the verdict\'s directory; nothing written'] })
+    expect(existsSync(path.join(second.dir, 'review.verdict.json'))).toBe(false)
+  })
+
+  it('refuses to overwrite a file in the handoff directory that holds other bytes, and writes nothing', () => {
+    roleBranch('occupied', 'review-t.md')
+    const { dir } = handoff()
+    writeFileSync(path.join(dir, 'review-t.md'), 'the window\'s own report\n')
+    const fetched = fetchVerdictFromRef('occupied', REPO, 'role/occupied/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: [`--from occupied: ${path.join(dir, 'review-t.md')} already holds other bytes; nothing written`] })
+    expect(readFileSync(path.join(dir, 'review-t.md'), 'utf8')).toBe('the window\'s own report\n')
+    expect(existsSync(path.join(dir, 'review.verdict.json'))).toBe(false)
+  })
 })

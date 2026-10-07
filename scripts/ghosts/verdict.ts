@@ -147,16 +147,38 @@ function showFromRef(repo: string, ref: string, file: string): Buffer {
   return execFileSync('git', ['-C', repo, 'show', `${ref}:${file}`], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
 }
 
+function reportPathFault(ref: string, verdictInRef: string, reportPath: string): string | undefined {
+  if (reportPath.split(/[\\/]/).includes('..'))
+    return `--from ${ref}: the report path ${reportPath} leaves the verdict's directory; nothing written`
+  if (path.posix.basename(reportPath) === path.posix.basename(verdictInRef))
+    return `--from ${ref}: the report ${reportPath} has the verdict file's name; nothing written`
+  return undefined
+}
+
+function differentFileAt(target: string, bytes: Buffer): boolean {
+  return existsSync(target) && !readFileSync(target).equals(bytes)
+}
+
 export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: string, dir: string): FetchedVerdict {
+  if (ref.startsWith('-'))
+    return { ok: false, reasons: [`--from ${ref}: a ref cannot start with "-"; nothing written`] }
   const refDir = path.posix.dirname(verdictInRef)
   try {
     const verdictBytes = showFromRef(repo, ref, verdictInRef)
     const reportPath = (JSON.parse(verdictBytes.toString('utf8')) as Verdict).report.path
+    const fault = reportPathFault(ref, verdictInRef, reportPath)
+    if (fault !== undefined)
+      return { ok: false, reasons: [fault] }
     const reportBytes = showFromRef(repo, ref, path.posix.join(refDir, reportPath))
-    mkdirSync(dir, { recursive: true })
     const verdictPath = path.join(dir, path.posix.basename(verdictInRef))
-    writeFileSync(verdictPath, verdictBytes)
-    writeFileSync(path.join(dir, path.posix.basename(reportPath)), reportBytes)
+    const reportTarget = path.join(dir, path.posix.basename(reportPath))
+    const taken = [[verdictPath, verdictBytes], [reportTarget, reportBytes]] as const
+    const occupied = taken.filter(([target, bytes]) => differentFileAt(target, bytes)).map(([target]) => target)
+    if (occupied.length > 0)
+      return { ok: false, reasons: [`--from ${ref}: ${occupied.join(', ')} already holds other bytes; nothing written`] }
+    mkdirSync(dir, { recursive: true })
+    for (const [target, bytes] of taken)
+      writeFileSync(target, bytes)
     return { ok: true, verdictPath }
   }
   catch (error) {

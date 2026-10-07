@@ -108,6 +108,7 @@ export interface ShiftDeps {
   out: (line: string) => void
   err: (line: string) => void
   style?: SignalStyle
+  cloud?: boolean
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -626,7 +627,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     deps.out(USAGE)
     return 0
   }
-  if (cloudOn(process.env))
+  if (deps.cloud === true)
     return refuse(deps, [`${CLOUD_VARIABLE}=1 routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
   const check = argv.includes('--check')
   const queue = argv.includes('--queue')
@@ -737,6 +738,7 @@ function realDeps(): ShiftDeps {
     out: line => console.log(line),
     err: line => console.error(line),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
+    cloud: cloudOn(process.env),
   }
 }
 

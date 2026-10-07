@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runShift } from '../../shift/shift.js'
 
@@ -127,17 +126,7 @@ describe('cONSTRUCT_CLOUD', () => {
       spawned++
       return { kind: 'exited' as const, code: 0, signal: null }
     } }
-    const previous = process.env.CONSTRUCT_CLOUD
-    process.env.CONSTRUCT_CLOUD = '1'
-    try {
-      expect(await runShift([world.shift], deps)).toBe(1)
-    }
-    finally {
-      if (previous === undefined)
-        delete process.env.CONSTRUCT_CLOUD
-      else
-        process.env.CONSTRUCT_CLOUD = previous
-    }
+    expect(await runShift([world.shift], { ...deps, cloud: true })).toBe(1)
     expect(spawned).toBe(0)
     expect(err.join('\n')).toContain('CONSTRUCT_CLOUD=1')
     expect(existsSync(path.join(world.shift, 'shift.jsonl'))).toBe(false)

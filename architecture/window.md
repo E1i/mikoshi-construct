@@ -267,6 +267,17 @@ ghosts:role <brief|scan|review> --task <id>` prints which route applies and `pnp
 local session. A cloud review is accepted with `pnpm ghosts:verdict --from <ref> <path in ref> --commit <sha>`: the
 verdict file and the report it names are read with `git show` and journaled as if given locally (Eli, 2026-10-08).
 
+Every cloud prompt, a card body's or a role's, carries these lines besides the task, because a cloud session that
+skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
+
+```text
+Register every file you add in every registry that lists its kind, in the same commit:
+- a new scripts/ghosts/** or scripts/shift/** file: a row in architecture/owner-merges.md (the kind's cell or the
+  plain list, plus the dated history sentence); the window confirms the classification;
+- a new package.json script: its row in CONTRIBUTING.md § Scripts and its entry in tests/harness-membership.test.ts.
+Push to the branch named above. Your final message is at most 1200 characters.
+```
+
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
 keeps, changes or drops it.
