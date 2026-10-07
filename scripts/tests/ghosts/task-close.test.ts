@@ -347,3 +347,31 @@ describe('a cloud run closes on its cloud-start line', () => {
     expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '665', path: 'cheap', report: '/r.md', verification: 'run', sessions: [{ id: 'trig_1' }] })
   })
 })
+
+describe('the card line of the pull request body', () => {
+  const prBodyOf = (body: string | null) => (): string | null => body
+
+  it('warns when the body does not open with the card line, and still closes', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: prBodyOf('not a card\n\nbody') })
+    expect(result.exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+    expect(result.stderr).toEqual([expect.stringContaining('warning: the body of PR #460 does not open with the card line')])
+  })
+
+  it('says nothing when the body opens with the card line', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    const body = '#123 n [implement/ghosts/S/cheap/owner] · depends — · blocks —\n\nbody'
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: prBodyOf(body) }).stderr).toEqual([])
+  })
+
+  it('notes a body that cannot be read and still closes', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => {
+      throw new Error('gh: no network')
+    } })
+    expect(result.exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+    expect(result.stderr).toEqual([expect.stringContaining('body not read, card line not checked: gh: no network')])
+  })
+})

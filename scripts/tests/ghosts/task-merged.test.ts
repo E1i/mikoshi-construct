@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergedDetails, mergedSummary, recordMerges } from '../../ghosts/task-merged.js'
+import { mergedDetails, mergedSummary, recheckMerge, recordMerges } from '../../ghosts/task-merged.js'
 
 const NOW = new Date('2026-10-05T09:00:00.000Z')
 const BODY = (id: number): string => `#${id} some-task [implement/runner/S/cheap/auto] · depends — · blocks —\n\nbody`
@@ -79,5 +79,62 @@ describe('recordMerges', () => {
     expect(result.notes).toEqual(['PR #700 not read: gh down'])
     expect(mergeLines(journal).map(line => line.pr)).toEqual([701])
     expect(mergedSummary(result)).toBe('merged: 1 new · 1 PR not read')
+  })
+})
+
+describe('recheckMerge', () => {
+  const SKIPPED = `${CLOSING}${JSON.stringify({ event: 'merge-skip', pr: 700, skip: 'no-card', ts: 'x' })}\n`
+  const merged = (body: string): string => JSON.stringify({ state: 'MERGED', mergedAt: '2026-10-05T08:30:00Z', mergedBy: { login: 'E1i' }, mergeCommit: { oid: 'c0ffee' }, body })
+
+  function run(journalText: string, body: string, recheck: boolean): { journal: string, calls: number, notes: string[], written: number } {
+    let journal = journalText
+    let calls = 0
+    const deps = { gh: () => {
+      calls++
+      return merged(body)
+    }, journal: '/j', readJournal: () => journal, append: (_file: string, text: string) => {
+      journal += text
+    }, now: () => NOW }
+    const result = recheck ? recheckMerge(deps, 700) : recordMerges(deps)
+    return { journal, calls, notes: result.notes, written: result.written.length }
+  }
+
+  it('writes the merge line of a skipped no-card pull request whose body now opens with the card line', () => {
+    const rechecked = run(SKIPPED, BODY(581), true)
+    expect(mergeLines(rechecked.journal)).toEqual([{ event: 'merge', task: '581', pr: 700, by: 'E1i', commit: 'c0ffee', merged: '2026-10-05T08:30:00Z', ts: NOW.toISOString() }])
+  })
+
+  it('writes no merge line for the skipped pull request without --recheck, and asks gh only about the unrecorded one', () => {
+    const plain = run(SKIPPED, BODY(581), false)
+    expect(plain.calls).toBe(1)
+    expect(mergeLines(plain.journal).filter(line => line.pr === 700)).toEqual([])
+  })
+
+  it('refuses a pull request with no merge-skip no-card line, without asking gh', () => {
+    const result = run(CLOSING, BODY(581), true)
+    expect(result.calls).toBe(0)
+    expect(result.notes).toEqual([expect.stringContaining('has no merge-skip line with skip no-card')])
+    expect(result.journal).toBe(CLOSING)
+  })
+
+  it('refuses a pull request that still has no card line, writing nothing', () => {
+    const result = run(SKIPPED, 'not a card', true)
+    expect(result.notes).toEqual([expect.stringContaining('still without a card')])
+    expect(result.journal).toBe(SKIPPED)
+  })
+
+  it('refuses a second recheck once the merge line is written', () => {
+    const first = run(SKIPPED, BODY(581), true)
+    const second = run(first.journal, BODY(581), true)
+    expect(second.notes).toEqual([expect.stringContaining('already has a merge line')])
+    expect(mergeLines(second.journal)).toHaveLength(1)
+  })
+
+  it('refuses a pull request whose only skip line is closed, writing nothing', () => {
+    const closed = `${CLOSING}${JSON.stringify({ event: 'merge-skip', pr: 700, skip: 'closed', ts: 'x' })}\n`
+    const result = run(closed, BODY(581), true)
+    expect(result.calls).toBe(0)
+    expect(result.notes).toEqual([expect.stringContaining('has no merge-skip line with skip no-card')])
+    expect(result.journal).toBe(closed)
   })
 })
