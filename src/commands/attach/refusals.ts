@@ -1,15 +1,16 @@
 import type { CollisionReading } from './earlier.js'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { isEmptyDir } from '../../detect/layout.js'
 import { readTrackedPaths } from '../detach/index-reader.js'
 import { ATTACH_WRITES } from './carriers.js'
 import { collisionReading } from './earlier.js'
 import { unresolvedCommandWord } from './harness.js'
+import { originalCopyPath } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE } from './record.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'no-harness' | 'cursor' | 'not-a-command'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'no-harness' | 'cursor' | 'not-a-command'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
@@ -48,6 +49,17 @@ function settingsRefusal(root: string): AttachRefusal | null {
   return null
 }
 
+function originalPendingRefusal(root: string): AttachRefusal | null {
+  const copy = originalCopyPath(root)
+  try {
+    lstatSync(copy)
+  }
+  catch {
+    return null
+  }
+  return refusal('original-pending', [copy])
+}
+
 export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | null {
   const git = path.join(root, '.git')
   if (!existsSync(git))
@@ -58,6 +70,9 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
     return refusal('constructed')
   if (existsSync(path.join(root, ATTACH_RECORD_FILE)))
     return refusal('attached')
+  const pending = originalPendingRefusal(root)
+  if (pending != null)
+    return pending
   if (isEmptyDir(root, [ATTACH_LEDGER_DIR]))
     return refusal('nothing-to-attach')
   const colliding = ATTACH_WRITES.filter(target => existsSync(path.join(root, target)))

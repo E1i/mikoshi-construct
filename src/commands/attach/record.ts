@@ -15,6 +15,7 @@ export interface AttachRecord {
   directories: string[]
   excludeCreated: boolean
   ledgerCreated?: boolean
+  ledgerHeld?: string[]
   excludeSeparator: number
   settingsHook?: SettingsHook
 }
