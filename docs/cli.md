@@ -918,7 +918,7 @@ construct mutate judge --id M2 --report m2.json
 |---|---|---|
 | `mutate judge --baseline` | `--report <file>`, `--format <vitest-json\|junit-xml>`, `--json` | Records a well-formed report in which nothing failed as `.construct/mutations/baseline.json`, with the report's run start time. A red, empty or unreadable report is refused and nothing is written. |
 | `mutate apply` | `--from <file>`, `--id <id>`, `--json` | Applies the line with that id: one `find` → `replace` in one file, after copying the original to `.construct/mutations/<id>.orig` and recording `<id>.json` (the file's sha256 before and after, `appliedAt`, the prediction). |
-| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--card <n>`, `--journal <file>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. A report in which no test ran is refused as empty, the file is still restored, and nothing is journaled. With `--card`, it then journals the verdict (below). |
+| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--card <n>`, `--journal <file>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. A report in which no test ran (none listed, or every one skipped) is refused as `report-no-test`: the file is still restored, and nothing is journaled. With `--card`, it then journals the verdict (below). |
 
 `--format` names how `--report` is written, and defaults to `vitest-json`: Vitest's own `--reporter=json
 --outputFile=<file>`, whose run start time is its top-level `startTime`. `--format junit-xml` reads a

@@ -4,7 +4,7 @@ import type { Prediction } from './lines.js'
 import type { MutationRecord } from './record.js'
 import { readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { failuresOf, readTestReport, testCount, testsNamed } from '../../model/test-report.js'
+import { failuresOf, readTestReport, testCount, testsNamed, wasExecuted } from '../../model/test-report.js'
 import { cardId, journalJudged } from './journal.js'
 import { copyPath, forgetMutation, isSafeId, readCopy, readMutationRecord, sha256, writeBaseline } from './record.js'
 
@@ -140,7 +140,7 @@ export function judgeMutation(root: string, id: string, reportPath: string, form
   if (report.startTime < record.appliedAt)
     return { status: 'no-witness', id, file: record.file, reason: `the report started at ${report.startTime}, before the mutation was applied at ${record.appliedAt}` }
 
-  if (testCount(report) === 0)
+  if (!report.files.some(wasExecuted))
     return refused('report-no-test')
 
   const failures = failuresOf(report)
