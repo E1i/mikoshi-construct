@@ -68,7 +68,7 @@ function draftOf(parked: ParkedTask): DraftCard {
     touches,
     depends: card.depends.map(id => `#${id}`),
     blocks: card.blocks.map(id => `#${id}`),
-    creates: [],
+    creates: parked.creates,
     task: body,
     witnesses: witnessesOf(body),
     unclear: [],

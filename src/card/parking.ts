@@ -5,7 +5,7 @@ export const SHIFT_WHO = 'shift'
 export const WINDOW_WHO = 'window'
 export const PRIORITIES = ['p0'] as const
 const PARKING_KEYS = ['who', 'priority'] as const
-const PARKING_LINE = /^(who|priority):(.*)$/
+const PARKING_LINE = /^(who|priority|creates):(.*)$/
 
 export type Priority = typeof PRIORITIES[number]
 
@@ -13,12 +13,14 @@ export interface ParkedTask {
   task: ShiftTask
   who: string
   priority: Priority | null
+  creates: string[]
 }
 
 export interface ParkingFileFields {
   card: string
   branch: string
   touches: readonly string[]
+  creates?: readonly string[]
   continue: string
   who: string
   body: string
@@ -58,7 +60,8 @@ export function parseParkingFile(file: string, text: string): ParsedParkingFile 
     return { kind: 'refused', reason: `${parsed.reason}; a parked card also takes ${PARKING_KEYS.join(', ')}` }
   if (parsed.task.number !== parsed.task.id)
     return refused(file, `a parked card's file is named after its id: ${parsed.task.id}.md`)
-  return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null } }
+  const creates = (parking.get('creates') ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== '')
+  return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null, creates } }
 }
 
 export function parkingFileText(fields: ParkingFileFields): string {
@@ -66,6 +69,7 @@ export function parkingFileText(fields: ParkingFileFields): string {
     `card: ${fields.card}`,
     `branch: ${fields.branch}`,
     `touches: ${fields.touches.join(', ')}`,
+    ...(fields.creates === undefined || fields.creates.length === 0 ? [] : [`creates: ${fields.creates.join(', ')}`]),
     `continue: ${fields.continue}`,
     `who: ${fields.who}`,
     '',
