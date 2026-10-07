@@ -443,8 +443,8 @@ describe('realShell witness environment', () => {
   }
 
   it('witness environment: gives the command NO_COLOR=1 and no FORCE_COLOR', () => {
-    const result = withCallerEnv({ NO_COLOR: undefined, FORCE_COLOR: '1' }, () => realShell('echo "$NO_COLOR/$(env | grep -c ^FORCE_COLOR=)"', process.cwd()))
-    expect(result.output.trim()).toBe('1/0')
+    const result = withCallerEnv({ NO_COLOR: undefined, FORCE_COLOR: '1', CLICOLOR_FORCE: '1' }, () => realShell('echo "$NO_COLOR/$(env | grep -c ^FORCE_COLOR=)/$(env | grep -c ^CLICOLOR_FORCE=)"', process.cwd()))
+    expect(result.output.trim()).toBe('1/0/0')
   })
 
   it('counts a tick right whatever the colour of the caller', () => {

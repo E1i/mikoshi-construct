@@ -22,7 +22,7 @@ export function sessionArgv(sessionId: string, prompt: string): string[] {
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
 
 export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const { FORCE_COLOR: _removed, ...rest } = base
+  const { FORCE_COLOR: _forced, CLICOLOR_FORCE: _clicolorForced, ...rest } = base
   return { ...rest, NO_COLOR: '1' }
 }
 

@@ -38,8 +38,9 @@ describe('sessionEnv', () => {
 
 describe('sessionEnv witness environment', () => {
   it('witness environment: removes FORCE_COLOR and sets NO_COLOR=1', () => {
-    const env = sessionEnv({ PATH: '/bin', FORCE_COLOR: '1', NO_COLOR: '0' })
+    const env = sessionEnv({ PATH: '/bin', FORCE_COLOR: '1', CLICOLOR_FORCE: '1', NO_COLOR: '0' })
     expect(env).not.toHaveProperty('FORCE_COLOR')
+    expect(env).not.toHaveProperty('CLICOLOR_FORCE')
     expect(env.NO_COLOR).toBe('1')
   })
 })
