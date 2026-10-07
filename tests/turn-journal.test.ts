@@ -206,6 +206,37 @@ describe('the turn journal hook', () => {
     expect(existsSync(path.join(path.dirname(root), 'escaped.json'))).toBe(false)
   })
 
+  it('writes startedAt on a subagent line', () => {
+    const { root, transcript } = project()
+    const agent = path.join(root, 'agent-a1.jsonl')
+    writeFileSync(agent, assistant('s1', USAGE))
+    const before = Date.now()
+    fire(root, transcript, 'SubagentStart', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'scan' })
+    const between = Date.now()
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'scan', agent_transcript_path: agent })
+    const [line] = journal(root).filter(entry => entry.kind === 'subagent')
+    expect(line?.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    expect(Date.parse(line?.startedAt)).toBeGreaterThanOrEqual(before)
+    expect(Date.parse(line?.startedAt)).toBeLessThanOrEqual(between + 1000)
+    expect(Date.parse(line?.startedAt)).toBeLessThanOrEqual(Date.parse(line?.at))
+  })
+
+  it('a late subagent line keeps the start, and a subagent with no start has no startedAt', () => {
+    const { root, transcript } = project()
+    const file = path.join(root, 'agent-a1.jsonl')
+    writeFileSync(file, '')
+    fire(root, transcript, 'SubagentStart', { agent_id: 'a1', agent_type: 'scan' })
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'scan', agent_transcript_path: file })
+    appendFileSync(file, assistant('s1', USAGE))
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-2' })
+    const unstarted = path.join(root, 'agent-a2.jsonl')
+    writeFileSync(unstarted, assistant('s2', USAGE))
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-2', agent_id: 'a2', agent_type: 'scan', agent_transcript_path: unstarted })
+    const lines = journal(root).filter(entry => entry.kind === 'subagent')
+    expect(lines.map(entry => [entry.agent, entry.late ?? false, typeof entry.startedAt])).toEqual([['a1', false, 'string'], ['a1', true, 'string'], ['a2', false, 'undefined']])
+    expect(lines[1]?.startedAt).toBe(lines[0]?.startedAt)
+  })
+
   it('a held lock is waited for and given up on, a stale one is broken', () => {
     const { root, transcript } = project()
     const lock = path.join(root, '.construct', 'turns.lock')

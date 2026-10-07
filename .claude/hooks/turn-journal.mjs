@@ -197,10 +197,10 @@ function loadState(file) {
   try {
     const state = JSON.parse(readFileSync(file, 'utf8'))
     if (state != null && typeof state === 'object')
-      return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], agents: {}, ...state }
+      return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], agents: {}, starts: {}, ...state }
   }
   catch {}
-  return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], agents: {} }
+  return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], agents: {}, starts: {} }
 }
 
 function saveState(file, state) {
@@ -297,6 +297,17 @@ function keepAgent(state, agent, value) {
   Object.defineProperty(state.agents, agent, { value, enumerable: true, writable: true, configurable: true })
 }
 
+function startOf(startedAt) {
+  return typeof startedAt === 'string' ? { startedAt } : {}
+}
+
+function onSubagentStart(session, input, state, out, at) {
+  const agent = plainId(input.agent_id)
+  if (agent == null)
+    return
+  Object.defineProperty(state.starts, agent, { value: at, enumerable: true, writable: true, configurable: true })
+}
+
 function tailUnread(file, to, range) {
   return range.usage.models.length === 0 || statSync(file).size > to
 }
@@ -305,7 +316,7 @@ function readLateTails(session, state, out, at) {
   for (const [agent, known] of Object.entries(state.agents)) {
     if (known.tail == null)
       continue
-    const { file, agentType, prompt } = known.tail
+    const { file, agentType, prompt, startedAt } = known.tail
     if (statSync(file, { throwIfNoEntry: false }) == null || statSync(file).size < known.cursor) {
       keepAgent(state, agent, { cursor: known.cursor, counted: known.counted })
       continue
@@ -317,7 +328,7 @@ function readLateTails(session, state, out, at) {
     if (range.usage.calls === 0)
       continue
     keepAgent(state, agent, { cursor: to, counted: range.requestIds.length > 0 ? range.requestIds : known.counted })
-    out.push({ v: JOURNAL_VERSION, kind: 'subagent', late: true, session, prompt, at, agent, agentType, from: known.cursor, to, ...reading(range) })
+    out.push({ v: JOURNAL_VERSION, kind: 'subagent', late: true, session, prompt, ...startOf(startedAt), at, agent, agentType, from: known.cursor, to, ...reading(range) })
   }
 }
 
@@ -333,10 +344,12 @@ function onSubagentStop(session, input, state, out, at) {
   const range = measure(readRange(file, start.cursor, to), start.counted)
   const prompt = plainId(input.prompt_id) ?? state.open?.prompt ?? state.lastPrompt
   const agentType = plainName(input.agent_type)
+  const started = Object.hasOwn(state.starts, agent) ? state.starts[agent] : undefined
+  delete state.starts[agent]
   const counted = range.requestIds.length > 0 ? range.requestIds : start.counted
-  const tail = tailUnread(file, to, range) ? { file, agentType, prompt } : undefined
+  const tail = tailUnread(file, to, range) ? { file, agentType, prompt, startedAt: started } : undefined
   keepAgent(state, agent, tail == null ? { cursor: to, counted } : { cursor: to, counted, tail })
-  out.push({ v: JOURNAL_VERSION, kind: 'subagent', session, prompt, at, agent, agentType, from: start.cursor, to, ...reading(range) })
+  out.push({ v: JOURNAL_VERSION, kind: 'subagent', session, prompt, ...startOf(started), at, agent, agentType, from: start.cursor, to, ...reading(range) })
 }
 
 function onSessionEnd(session, input, state, out, at) {
@@ -353,6 +366,7 @@ function onSessionEnd(session, input, state, out, at) {
 
 const HANDLERS = {
   UserPromptSubmit: onPrompt,
+  SubagentStart: onSubagentStart,
   Stop: onStop,
   SubagentStop: onSubagentStop,
   SessionEnd: onSessionEnd,
