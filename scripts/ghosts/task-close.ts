@@ -6,12 +6,15 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { parseCard } from '../../src/card/grammar.js'
 import { sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
 import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
+import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf } from './entry.js'
 
@@ -59,6 +62,7 @@ export interface TaskCloseDeps {
   projectsDir: string
   tokens?: (session: CheapSession) => number | null
   style?: SignalStyle
+  prBody?: (pr: number) => string | null
 }
 
 export interface TaskCloseResult {
@@ -198,6 +202,20 @@ function actualOf(deps: TaskCloseDeps, lines: Record<string, unknown>[], start: 
   return { tokens: actualTokens(deps, counted), minutes: actualMinutes(start, ended) }
 }
 
+function cardLineNote(deps: TaskCloseDeps, id: string, pr: number): string[] {
+  if (deps.prBody === undefined)
+    return []
+  try {
+    const body = deps.prBody(pr)
+    if (body === null || parseCard(body.split('\n')[0]!).kind !== 'refused')
+      return []
+    return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
+  }
+  catch (error) {
+    return [`${PREFIX}PR #${pr} body not read, card line not checked: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`]
+  }
+}
+
 function unplacedLine(deps: TaskCloseDeps, start: StartLine, sessions: TaskSession[]): string[] {
   const unplaced = sessions.filter(session => session.project === undefined).map(session => session.id)
   if (sessions.length === 0)
@@ -257,7 +275,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     ACTION: `task:close #${id} ${outcome} ${value} --verification ${verification}${override === undefined ? '' : ` --override-report ${override}`}`,
     RESULT: closed,
   }, deps.style ?? PLAIN_STYLE)
-  return { stdout: [...card, ...unplacedLine(deps, start, sessions)], stderr: [], exitCode: 0 }
+  return { stdout: [...card, ...unplacedLine(deps, start, sessions)], stderr: outcome === '--pr' ? cardLineNote(deps, id, Number(value)) : [], exitCode: 0 }
 }
 
 function realDeps(): TaskCloseDeps {
@@ -274,6 +292,7 @@ function realDeps(): TaskCloseDeps {
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
+    prBody: pr => (JSON.parse(execGh(['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])) as { body: string | null }).body,
   }
 }
 
