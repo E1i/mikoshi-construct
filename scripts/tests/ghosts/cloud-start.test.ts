@@ -60,6 +60,14 @@ describe('cloud-start', () => {
     expect(written).toEqual([])
   })
 
+  it('cloud-start refuses a second start of the same card and writes nothing', () => {
+    const { deps, written } = world([intake(CARD), JSON.stringify({ event: 'cloud-start', task: '665', run: 'trig_1' })])
+    const result = runCloudStart(['trig_2', '--card', CARD], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('trig_1')
+    expect(written).toEqual([])
+  })
+
   it('cloud-start refuses a card that does not parse and writes nothing', () => {
     const { deps, written } = world([intake(CARD)])
     expect(runCloudStart(['trig_1', '--card', 'nonsense'], deps).exitCode).toBe(1)
