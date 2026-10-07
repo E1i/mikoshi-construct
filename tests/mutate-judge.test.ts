@@ -205,6 +205,29 @@ describe('mutate judge --card', () => {
     expect(existsSync(w.journal)).toBe(false)
   })
 
+  it('refuses a report that ran no test, restores the file and journals nothing', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'refused', refusal: 'report-no-test' })
+    expect(printed(result)).toContain('no verdict')
+    expect(printed(result)).not.toContain('baseline')
+    expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
+    expect(w.mutations()).toEqual(['baseline.json'])
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
+  it('refuses a report whose every test was skipped, restores the file and journals nothing', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [{ file: TEST_FILE, titles: ['within', 'is strict'], status: 'skipped' }])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'refused', refusal: 'report-no-test' })
+    expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
   it('journals nothing when there is no witness', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt - 1, [failing(TEST_FILE, 'within', 'is strict')])

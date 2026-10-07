@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readTurnJournal } from '../src/commands/cost/index.js'
 
@@ -204,6 +205,37 @@ describe('the turn journal hook', () => {
       fire(root, transcript, 'UserPromptSubmit', { session_id: session, prompt_id: 'p-9' })
     expect(journal(root)).toHaveLength(before)
     expect(existsSync(path.join(path.dirname(root), 'escaped.json'))).toBe(false)
+  })
+
+  it('writes startedAt on a subagent line', () => {
+    const { root, transcript } = project()
+    const agent = path.join(root, 'agent-a1.jsonl')
+    writeFileSync(agent, assistant('s1', USAGE))
+    const before = Date.now()
+    fire(root, transcript, 'SubagentStart', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'scan' })
+    const between = Date.now()
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'scan', agent_transcript_path: agent })
+    const [line] = journal(root).filter(entry => entry.kind === 'subagent')
+    expect(line?.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    expect(Date.parse(line?.startedAt)).toBeGreaterThanOrEqual(before)
+    expect(Date.parse(line?.startedAt)).toBeLessThanOrEqual(between + 1000)
+    expect(Date.parse(line?.startedAt)).toBeLessThanOrEqual(Date.parse(line?.at))
+  })
+
+  it('a late subagent line keeps the start, and a subagent with no start has no startedAt', () => {
+    const { root, transcript } = project()
+    const file = path.join(root, 'agent-a1.jsonl')
+    writeFileSync(file, '')
+    fire(root, transcript, 'SubagentStart', { agent_id: 'a1', agent_type: 'scan' })
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-1', agent_id: 'a1', agent_type: 'scan', agent_transcript_path: file })
+    appendFileSync(file, assistant('s1', USAGE))
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-2' })
+    const unstarted = path.join(root, 'agent-a2.jsonl')
+    writeFileSync(unstarted, assistant('s2', USAGE))
+    fire(root, transcript, 'SubagentStop', { prompt_id: 'p-2', agent_id: 'a2', agent_type: 'scan', agent_transcript_path: unstarted })
+    const lines = journal(root).filter(entry => entry.kind === 'subagent')
+    expect(lines.map(entry => [entry.agent, entry.late ?? false, typeof entry.startedAt])).toEqual([['a1', false, 'string'], ['a1', true, 'string'], ['a2', false, 'undefined']])
+    expect(lines[1]?.startedAt).toBe(lines[0]?.startedAt)
   })
 
   it('a held lock is waited for and given up on, a stale one is broken', () => {
@@ -425,5 +457,17 @@ describe('the turn journal hook checks each subagent\'s model against the role d
     subagent(root, transcript, 'a1', 'brief', FABLE)
 
     expect(journal(root).map(line => line.kind)).toEqual(['subagent'])
+  })
+})
+
+describe('turn-journal registration', () => {
+  it('the repository settings run the hook on every event it handles', async () => {
+    const { HANDLERS } = await import(pathToFileURL(HOOK).href) as { HANDLERS: Record<string, unknown> }
+    const handled = Object.keys(HANDLERS)
+    const settings = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../.claude/settings.json'), 'utf8')) as { hooks: Record<string, { hooks: { command: string }[] }[]> }
+    const registered = (event: string): boolean => (settings.hooks[event] ?? []).some(group => group.hooks.some(hook => hook.command.includes('turn-journal.mjs')))
+
+    expect(handled).toContain('SubagentStart')
+    expect(handled.filter(event => !registered(event))).toEqual([])
   })
 })
