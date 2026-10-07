@@ -258,7 +258,7 @@ Before launching a `brief`, `scan` or `review` agent, the window prints that rol
 `pnpm ghosts:expect-sample` (median and p25–p75 of the last 20 runs of the role in `.construct/turns.jsonl`, or
 `none` with its reason), and states it to the owner with both tokens and minutes, `review ≈ 119k · ≈ 4 min`; when the
 sample holds no minutes it says `minutes not recorded` with the reason the command printed, never the tokens alone (Eli,
-2026-10-07). Until #624 gives subagent lines a `startedAt`, that line reads `минуты: нет данных (#624)`. With `--effort` the same command prints the task's contour, the sum of the step bands.
+2026-10-07). While fewer than five runs of the role carry `startedAt`, that line reads `минуты: копится, n=k из 5`, `k` being the role's runs that carry it. With `--effort` the same command prints the task's contour, the sum of the step bands.
 
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
