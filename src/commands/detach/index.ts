@@ -5,11 +5,14 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { isBlockSeparator } from '../../materialize/strategies.js'
 import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
+import { dropOriginal } from '../attach/original.js'
 import { ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, readAttachRecord } from '../attach/record.js'
-import { classifyEntry, isSettingsHook, removeGuardEntry, SETTINGS_FILE } from '../attach/settings.js'
+import { classifyEntry, isSettingsHook, SETTINGS_FILE } from '../attach/settings.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
-import { removeAttached } from './remove.js'
+import { closeRecord, removeAttached } from './remove.js'
+import { checkOriginal, takeOutGuardEntry } from './restore.js'
+import { classifyRuntime, readRuntimeListing } from './runtime.js'
 
 export type { IndexReading, IndexUnreadable } from './index-reader.js'
 export { readTrackedPaths } from './index-reader.js'
@@ -18,7 +21,7 @@ export interface DetachOptions {
   dir: string
 }
 
-export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | IndexUnreadable
+export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | 'original-copy' | IndexUnreadable
 
 export interface DetachResult {
   status: 'done' | 'nothing-attached' | 'refused'
@@ -38,6 +41,7 @@ const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) =>
   'record-ahead': (lore, found) => lore.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', Number(found[0]), ATTACH_RECORD_VERSION),
   'hook-record': lore => lore.detachRefusedHookRecord,
   'settings-unreadable': lore => lore.detachRefusedSettingsUnreadable,
+  'original-copy': lore => lore.detachRefusedOriginalCopy,
   'separator': lore => lore.detachRefusedSeparator,
   'separator-mismatch': lore => lore.detachRefusedSeparatorMismatch,
   'changed': (lore, paths) => lore.detachRefusedChanged(paths.length),
@@ -101,14 +105,20 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   if (changed.length > 0)
     return refused(ui, 'changed', changed)
 
+  const original = isSettingsHook(hook) && version >= 2 ? hook.original : undefined
+  const kept = original == null ? null : checkOriginal(original)
+  if (original != null && kept?.kind !== 'matched')
+    return refused(ui, 'original-copy', [original.copy])
+  const runtime = classifyRuntime(record, reading.tracked, readRuntimeListing(root))
+
   const entryLabel = ui.lore.detachSettingsEntry
-  let settingsDeleted = false
-  let entryCutOut = false
-  if (entry === 'remove' && isSettingsHook(hook)) {
-    settingsDeleted = removeGuardEntry(root, hook).fileDeleted
-    entryCutOut = !settingsDeleted
-  }
-  const removal = removeAttached(root, record, ofKind(classified, 'remove'), exclude)
+  const { settingsDeleted, entryCutOut } = entry === 'remove' && isSettingsHook(hook)
+    ? takeOutGuardEntry(root, hook, kept)
+    : { settingsDeleted: false, entryCutOut: false }
+  const removal = removeAttached(root, record, ofKind(classified, 'remove'), runtime)
+  if (original != null)
+    dropOriginal(original.copy)
+  closeRecord(root, record, exclude)
   const removed = settingsDeleted ? [SETTINGS_FILE, ...removal.removed] : removal.removed
   const { leftBehind } = removal
   for (const target of removed)

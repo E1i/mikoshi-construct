@@ -1,9 +1,11 @@
+import { Buffer } from 'node:buffer'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
 import { isJsonObject } from '../../materialize/strategies.js'
 import { ATTACH_GUARD } from '../../presets/index.js'
+import { sha256OfBytes } from './original.js'
 
 type JsonObject = Record<string, unknown>
 
@@ -22,16 +24,23 @@ export interface SettingsCreated {
   preToolUse: boolean
 }
 
+export interface SettingsOriginal {
+  copy: string
+  sha256: string
+  afterSha256: string
+}
+
 export interface SettingsHook {
   file: string
   created: SettingsCreated
   entry: JsonObject
+  original?: SettingsOriginal
 }
 
 export type SettingsReading
   = | { kind: 'absent' }
     | { kind: 'unreadable' }
-    | { kind: 'read', settings: JsonObject }
+    | { kind: 'read', settings: JsonObject, bytes: Buffer }
 
 export function settingsExist(root: string): boolean {
   try {
@@ -49,9 +58,10 @@ export function readSettings(root: string): SettingsReading {
     return { kind: 'absent' }
   if (!lstatSync(file).isFile())
     return { kind: 'unreadable' }
+  const bytes = readFileSync(file)
   let parsed: unknown
   try {
-    parsed = JSON.parse(readFileSync(file, 'utf8'))
+    parsed = JSON.parse(bytes.toString('utf8'))
   }
   catch {
     return { kind: 'unreadable' }
@@ -62,7 +72,7 @@ export function readSettings(root: string): SettingsReading {
     return { kind: 'unreadable' }
   if (isJsonObject(parsed.hooks) && 'PreToolUse' in parsed.hooks && !Array.isArray(parsed.hooks.PreToolUse))
     return { kind: 'unreadable' }
-  return { kind: 'read', settings: parsed }
+  return { kind: 'read', settings: parsed, bytes }
 }
 
 export function namesGuard(element: unknown): boolean {
@@ -80,12 +90,12 @@ export function carriesGuardEntry(settings: JsonObject): boolean {
   return preToolUseOf(settings).some(namesGuard)
 }
 
-function writeSettings(root: string, settings: JsonObject): void {
+export function writeSettingsBytes(root: string, bytes: Buffer): void {
   const file = path.join(root, SETTINGS_FILE)
   const temporary = path.join(path.dirname(file), `.settings.local.json.${process.pid}.tmp`)
   mkdirSync(path.dirname(file), { recursive: true })
   try {
-    writeFileSync(temporary, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' })
+    writeFileSync(temporary, bytes, { flag: 'wx' })
     if (existsSync(file))
       chmodSync(temporary, statSync(file).mode & 0o777)
     renameSync(temporary, file)
@@ -96,13 +106,18 @@ function writeSettings(root: string, settings: JsonObject): void {
   }
 }
 
+function writeSettings(root: string, settings: JsonObject): Buffer {
+  const bytes = Buffer.from(`${JSON.stringify(settings, null, 2)}\n`)
+  writeSettingsBytes(root, bytes)
+  return bytes
+}
+
 export type SettingsInstall
-  = | { kind: 'installed', hook: SettingsHook }
+  = | { kind: 'installed', hook: SettingsHook, afterSha256: string }
     | { kind: 'unreadable' }
     | { kind: 'guarded' }
 
-export function installGuardEntry(root: string): SettingsInstall {
-  const reading = readSettings(root)
+export function installGuardEntry(root: string, reading: SettingsReading): SettingsInstall {
   if (reading.kind === 'unreadable')
     return { kind: 'unreadable' }
   const settings: JsonObject = reading.kind === 'read' ? reading.settings : {}
@@ -118,15 +133,26 @@ export function installGuardEntry(root: string): SettingsInstall {
   const entry = structuredClone(GUARD_ENTRY)
   hooks.PreToolUse = [...existing, entry]
   settings.hooks = hooks
-  writeSettings(root, settings)
-  return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry } }
+  const afterSha256 = sha256OfBytes(writeSettings(root, settings))
+  return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry }, afterSha256 }
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
+function isSettingsOriginal(value: unknown): value is SettingsOriginal {
+  if (!isJsonObject(value))
+    return false
+  const { copy, sha256: original, afterSha256 } = value
+  return typeof copy === 'string' && path.isAbsolute(copy) && [original, afterSha256].every(hash => typeof hash === 'string' && SHA256_HEX.test(hash))
 }
 
 export function isSettingsHook(value: unknown): value is SettingsHook {
   if (!isJsonObject(value) || value.file !== SETTINGS_FILE || !isJsonObject(value.created))
     return false
   const { file, hooks, preToolUse } = value.created
-  return [file, hooks, preToolUse].every(flag => typeof flag === 'boolean') && isJsonObject(value.entry) && namesGuard(value.entry)
+  if (![file, hooks, preToolUse].every(flag => typeof flag === 'boolean') || !isJsonObject(value.entry) || !namesGuard(value.entry))
+    return false
+  return value.original === undefined || (file === false && isSettingsOriginal(value.original))
 }
 
 export type EntryClass = 'adopted' | 'absent' | 'unreadable' | 'changed' | 'remove'

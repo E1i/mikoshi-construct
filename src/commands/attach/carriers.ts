@@ -1,6 +1,6 @@
 import type { FileOp } from '../../materialize/plan.js'
 import type { TemplateVars } from '../../presets/index.js'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
 import path from 'node:path'
 import { planMaterialize } from '../../materialize/plan.js'
 import { ATTACH_CARRIERS, ATTACH_GUARD, defaultProjectName } from '../../presets/index.js'
@@ -25,6 +25,31 @@ function carrierVars(root: string, harnessCommand: string): TemplateVars {
 }
 
 export const ATTACH_WRITES: readonly string[] = [...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser]
+
+export const ATTACH_RUNTIME_FILES: readonly string[] = [
+  '.construct/runs.jsonl',
+  '.construct/steps.jsonl',
+  '.construct/implement-agreed.txt',
+  '.construct/implement-args.json',
+]
+
+export const ATTACH_RUNTIME_BROWSER = '.construct/browser'
+export const ATTACH_RUNTIME_RUN_DIRECTORY = /^\d{8}T\d{9}Z-\d+$/
+export const ATTACH_RUNTIME_SHOT_SUFFIX = '.png'
+
+function presentOnDisk(absolute: string): boolean {
+  try {
+    lstatSync(absolute)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+export function runtimeHeldAtAttach(root: string): string[] {
+  return [...ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_BROWSER].filter(target => presentOnDisk(path.join(root, target)))
+}
 
 const ATTACH_GROUPS: string[] = [...ATTACH_CARRIERS.groups, ATTACH_GUARD.group]
 

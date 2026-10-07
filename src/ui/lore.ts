@@ -204,6 +204,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachRefusedSettingsTracked: Notice
   attachRefusedSettingsUnreadable: Notice
   attachRefusedSettingsGuarded: Notice
+  attachRefusedSettingsOriginal: Notice
+  attachRefusedOriginalPending: Notice
   attachSettingsPlan: (created: boolean) => string
   attachRolledBack: (count: number) => string
   attachBlockKept: string
@@ -222,6 +224,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   detachRefusedChanged: (count: number) => string
   detachRefusedHookRecord: string
   detachRefusedSettingsUnreadable: string
+  detachRefusedOriginalCopy: string
   detachSettingsEntry: string
   detachEntryRemoved: (file: string) => string
   detachRefusedIndexV4: string
@@ -568,6 +571,16 @@ export const LORE: Lore = {
     why: 'The net writes one guard entry and removes exactly that one; a second beside it would outlive the detach that removes the first.',
     next: 'Keep the file, it holds your own settings too. If this repository is still attached, jack out first; if not, delete only that entry from hooks.PreToolUse, then jack in again. Nothing was written.',
   },
+  attachRefusedSettingsOriginal: {
+    what: 'BREACH FAILED // NO PRE-IMAGE: the copy of .claude/settings.local.json the net keeps outside the repository could not be written',
+    why: 'Detach puts that file back byte for byte from the copy; without it the file could not be returned to what it was.',
+    next: 'Make the directory the path below names writable, then jack in again. This run was rolled back and the settings file is as it was found.',
+  },
+  attachRefusedOriginalPending: {
+    what: 'BREACH FAILED // EARLIER NETRUN UNFINISHED: a copy of .claude/settings.local.json from an earlier attach is still there',
+    why: 'The earlier detach did not finish, and a second copy would overwrite the only record of what that file held.',
+    next: 'No .construct/attach.json is at this path, so construct detach here cannot finish it. If the repository attached from this path was moved, run construct detach where it is now. Otherwise the file below is .claude/settings.local.json as it was before that attach: compare it with the current file, keep what is needed, delete the copy, then attach again. Nothing was written.',
+  },
   attachSettingsPlan: (created: boolean) => created ? '.claude/settings.local.json is created holding the commit guard entry.' : '.claude/settings.local.json gets the commit guard entry appended; nothing else in it changes.',
   attachRolledBack: (count: number) => `Netrun aborted: ${count} file${count === 1 ? '' : 's'} this run wrote wiped, exclude restored to the byte.`,
   attachBlockKept: 'Block left in .git/info/exclude: the bytes before it are no longer what this run wrote, so it was not cut out. construct detach will name it.',
@@ -586,6 +599,7 @@ export const LORE: Lore = {
   detachRefusedChanged: (count: number) => `BREACH FAILED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record`,
   detachRefusedHookRecord: 'BREACH FAILED // HOOK RECORD UNREADABLE: settingsHook in .construct/attach.json is missing or does not name .claude/settings.local.json, so what attach put there cannot be told; nothing was removed',
   detachRefusedSettingsUnreadable: 'BREACH FAILED // SETTINGS UNREADABLE: .claude/settings.local.json no longer parses as a settings file, so the guard entry cannot be taken out of it; nothing was removed',
+  detachRefusedOriginalCopy: 'BREACH FAILED // PRE-IMAGE LOST: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps it; nothing was changed, the copy stays as the witness',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `guard entry cut out of ${file}; the file stays`,
   detachRefusedIndexV4: 'BREACH FAILED // INDEX V4: .git/index is version 4 (prefix-compressed names) and cannot be read here',
@@ -908,6 +922,16 @@ export const PLAIN_LORE: Lore = {
     why: 'attach writes one guard entry and detach removes exactly that one; a second beside it would outlive the detach that removes the first.',
     next: 'Keep the file, it holds your own settings too. If this repository is still attached, run construct detach first; if not, delete only that entry from hooks.PreToolUse, then attach again. Nothing was written.',
   },
+  attachRefusedSettingsOriginal: {
+    what: 'Refused: the copy of .claude/settings.local.json that attach keeps outside the repository could not be written.',
+    why: 'detach puts that file back byte for byte from the copy; without it the file could not be returned to what it was.',
+    next: 'Make the directory of the path below writable, then attach again. This run was rolled back and the settings file is as it was found.',
+  },
+  attachRefusedOriginalPending: {
+    what: 'Refused: a copy of .claude/settings.local.json from an earlier attach is still there.',
+    why: 'The earlier detach did not finish, and a second copy would overwrite the only record of what that file held.',
+    next: 'No .construct/attach.json is at this path, so construct detach here cannot finish it. If the repository attached from this path was moved, run construct detach where it is now. Otherwise the file below is .claude/settings.local.json as it was before that attach: compare it with the current file, keep what is needed, delete the copy, then attach again. Nothing was written.',
+  },
   attachSettingsPlan: (created: boolean) => created ? '.claude/settings.local.json is created holding the commit guard entry.' : '.claude/settings.local.json gets the commit guard entry appended; nothing else in it changes.',
   attachRolledBack: (count: number) => `Rolled back: removed ${count} file${count === 1 ? '' : 's'} this run wrote and restored .git/info/exclude byte for byte.`,
   attachBlockKept: 'The block this run added to .git/info/exclude was left in place: the bytes before it are no longer what this run wrote, so cutting it out would take yours. construct detach will name it.',
@@ -926,6 +950,7 @@ export const PLAIN_LORE: Lore = {
   detachRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record; nothing was removed:`,
   detachRefusedHookRecord: 'Refused: settingsHook in .construct/attach.json is missing or does not name .claude/settings.local.json, so what attach put there cannot be told; nothing was removed.',
   detachRefusedSettingsUnreadable: 'Refused: .claude/settings.local.json no longer parses as a settings file, so the guard entry cannot be taken out of it; nothing was removed.',
+  detachRefusedOriginalCopy: 'Refused: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps copies, so the original bytes cannot be restored; nothing was changed and the copy stays as it is:',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `removed the commit guard entry from ${file}; the file stays.`,
   detachRefusedIndexV4: 'Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.',

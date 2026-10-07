@@ -2,12 +2,13 @@ import type { Ui, Writer } from '../src/ui/console.js'
 import type { Prompter } from '../src/ui/prompts.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
+import { originalCopyPath } from '../src/commands/attach/original.js'
 import { ATTACH_LEDGER_DIR } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { runDetach } from '../src/commands/detach/index.js'
@@ -20,12 +21,14 @@ import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
+import { useIsolatedHome } from './isolated-home.js'
 import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
 const HARNESS = 'pnpm run quality'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
+const home = useIsolatedHome()
 
 function capturing(): { ui: Ui, output: () => string } {
   let text = ''
@@ -660,5 +663,192 @@ describe('the commit guard: attach installs one entry in the untracked settings 
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)
     expect(readFileSync(path.join(dir, EXCLUDE_FILE)).equals(excludeBefore)).toBe(true)
     expect(output()).toContain(PLAIN_LORE.attachRefusedSettingsUnreadable.what)
+  })
+})
+
+const HOST_SETTINGS = '{"env":{"NOTE":"zebra-lantern-marker"},"permissions":{"allow":["Bash(ls:*)"]}}'
+
+function sha256OfText(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+function recordedCopy(dir: string): string {
+  const copy = readAttachRecord(dir)?.settingsHook?.original?.copy
+  if (copy == null)
+    throw new Error('attach kept no copy')
+  return copy
+}
+
+function filesInHome(): string[] {
+  return listing(home()).filter(entry => !entry.endsWith('/'))
+}
+
+function racingPrompter(beforeConfirm: () => void): Prompter {
+  return {
+    preset: () => Promise.resolve(undefined),
+    aiTarget: () => Promise.resolve(undefined),
+    projectName: () => Promise.resolve(undefined),
+    review: () => Promise.resolve(undefined),
+    harnessCommand: () => Promise.resolve(HARNESS),
+    confirm: () => {
+      beforeConfirm()
+      return Promise.resolve(true)
+    },
+  }
+}
+
+describe('the pre-image of a host settings file: attach keeps a copy outside the repository', () => {
+  it('attach copies the host settings file with mode 0600 and records its sha256, not its text', async () => {
+    const dir = fixture()
+    writeSettings(dir, HOST_SETTINGS)
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    const copy = recordedCopy(dir)
+    expect(copy).toBe(originalCopyPath(dir))
+    expect(copy.startsWith(path.join(home(), '.construct/attach'))).toBe(true)
+    expect(statSync(copy).mode & 0o777).toBe(0o600)
+    expect(statSync(path.dirname(copy)).mode & 0o777).toBe(0o700)
+    expect(readFileSync(copy, 'utf8')).toBe(HOST_SETTINGS)
+    const original = readAttachRecord(dir)?.settingsHook?.original
+    expect(original?.sha256).toBe(sha256OfText(HOST_SETTINGS))
+    expect(original?.afterSha256).toBe(sha256(path.join(dir, SETTINGS_FILE)))
+    expect(readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')).not.toContain('zebra-lantern-marker')
+  })
+
+  it('attach with no host settings file makes no copy', async () => {
+    const dir = fixture()
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    expect(filesInHome()).toEqual([])
+    expect(readAttachRecord(dir)?.settingsHook?.original).toBeUndefined()
+  })
+
+  it('records the runtime files and the browser directory that were there before attach', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct/browser'), { recursive: true })
+    writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    expect(readAttachRecord(dir)?.ledgerHeld).toEqual(['.construct/runs.jsonl', '.construct/browser'])
+  })
+
+  it('attach refuses with original-pending when an earlier copy is still there, and leaves the copy byte-identical', async () => {
+    const withSettings = fixture()
+    const withoutSettings = fixture()
+    writeSettings(withSettings, HOST_SETTINGS)
+    for (const dir of [withSettings, withoutSettings]) {
+      const copy = originalCopyPath(dir)
+      mkdirSync(path.dirname(copy), { recursive: true })
+      writeFileSync(copy, 'earlier bytes')
+      const before = listing(dir)
+      const excludeBefore = readFileSync(path.join(dir, EXCLUDE_FILE))
+      const { ui: plain, output } = capturing()
+
+      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+
+      expect(result.status).toBe('refused')
+      expect(result.refusal).toBe('original-pending')
+      expect(output()).toContain(copy)
+      expect(readFileSync(copy, 'utf8')).toBe('earlier bytes')
+      expect(listing(dir)).toEqual(before)
+      expect(readFileSync(path.join(dir, EXCLUDE_FILE)).equals(excludeBefore)).toBe(true)
+    }
+  })
+
+  it('attach after a finished detach succeeds', async () => {
+    const dir = fixture()
+    writeSettings(dir, HOST_SETTINGS)
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+  })
+
+  it('two repositories with the same basename get different copy directories', async () => {
+    const first = path.join(mkdtempSync(path.join(tmpdir(), 'construct-same-')), 'app')
+    const second = path.join(mkdtempSync(path.join(tmpdir(), 'construct-same-')), 'app')
+    for (const dir of [first, second]) {
+      cpSync(EXISTING_MONOREPO, dir, { recursive: true })
+      git(dir, 'init', '-q')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-qm', 'base')
+      writeSettings(dir, HOST_SETTINGS)
+      expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    }
+
+    const names = [first, second].map(dir => path.basename(path.dirname(recordedCopy(dir))))
+    expect(names[0]).not.toBe(names[1])
+    for (const name of names)
+      expect(name).toMatch(/^[0-9a-f]{12}-app$/)
+  })
+
+  it('a symlink to the repository gets the directory name of its real path and a subdirectory is refused as no-git', async () => {
+    const dir = fixture()
+    writeSettings(dir, HOST_SETTINGS)
+    mkdirSync(path.join(dir, 'sub'))
+    const link = path.join(mkdtempSync(path.join(tmpdir(), 'construct-link-')), 'link')
+    symlinkSync(dir, link)
+
+    const subdirectory = await runAttach(ui, { dir: path.join(dir, 'sub'), harness: HARNESS, yes: true })
+    expect(subdirectory.refusal).toBe('no-git')
+    expect(filesInHome()).toEqual([])
+    expect((await runAttach(ui, { dir: link, harness: HARNESS, yes: true })).status).toBe('done')
+
+    const real = realpathSync(dir)
+    const key = `${sha256OfText(real).slice(0, 12)}-${path.basename(real)}`
+    expect(path.basename(path.dirname(recordedCopy(link)))).toBe(key)
+  })
+
+  it('the copy path in the record, not a recomputed key, is what detach reads after the repository is renamed', async () => {
+    const dir = fixture()
+    writeSettings(dir, HOST_SETTINGS)
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    const moved = `${dir}-moved`
+    renameSync(dir, moved)
+
+    expect(runDetach(ui, { dir: moved }).status).toBe('done')
+
+    expect(readFileSync(path.join(moved, SETTINGS_FILE), 'utf8')).toBe(HOST_SETTINGS)
+    expect(filesInHome()).toEqual([])
+  })
+
+  it('an unwritable home refuses with settings-original, rolls back and leaves the settings file as found', async () => {
+    const dir = fixture()
+    writeSettings(dir, HOST_SETTINGS)
+    writeFileSync(path.join(home(), '.construct'), 'in the way')
+    const before = listing(dir)
+    const excludeBefore = readFileSync(path.join(dir, EXCLUDE_FILE))
+    const { ui: plain, output } = capturing()
+
+    const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('settings-original')
+    expect(output()).toContain(PLAIN_LORE.attachRefusedSettingsOriginal.what)
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(HOST_SETTINGS)
+    expect(listing(dir)).toEqual(before)
+    expect(readFileSync(path.join(dir, EXCLUDE_FILE)).equals(excludeBefore)).toBe(true)
+    expect(existsSync(path.join(dir, ATTACH_RECORD_FILE))).toBe(false)
+  })
+
+  it('a copy created between the check and the write is refused as settings-original and stays byte-identical', async () => {
+    const dir = fixture()
+    writeSettings(dir, HOST_SETTINGS)
+    const copy = originalCopyPath(dir)
+    const before = listing(dir)
+
+    const result = await runAttach(ui, { dir, yes: false }, racingPrompter(() => {
+      mkdirSync(path.dirname(copy), { recursive: true })
+      writeFileSync(copy, 'racing bytes')
+    }))
+
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('settings-original')
+    expect(readFileSync(copy, 'utf8')).toBe('racing bytes')
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(HOST_SETTINGS)
+    expect(listing(dir)).toEqual(before)
   })
 })
