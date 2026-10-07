@@ -212,7 +212,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const lines = journalLines(journalText)
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id)
   if (start === undefined)
-    return refuse(`${journal} has no task:start line with a card for #${id} no ghosts:launch entry line with one and no cloud-start line with one; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
+    return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
   const unproven = verification === 'mutation' ? mutationRefusal(lines, id, journal) : null
   if (unproven !== null)
     return refuse(unproven)

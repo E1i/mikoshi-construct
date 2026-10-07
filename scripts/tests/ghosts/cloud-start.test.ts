@@ -53,6 +53,13 @@ describe('cloud-start', () => {
     expect(written).toEqual([])
   })
 
+  it('cloud-start refuses a card whose intake line confirms a different version of it and writes nothing', () => {
+    const { deps, written } = world([intake('#665 probe-card [probe/ghosts/M/cheap/none] · depends — · blocks —')])
+    const result = runCloudStart(['trig_1', '--card', CARD], deps)
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+  })
+
   it('cloud-start refuses a card that does not parse and writes nothing', () => {
     const { deps, written } = world([intake(CARD)])
     expect(runCloudStart(['trig_1', '--card', 'nonsense'], deps).exitCode).toBe(1)
