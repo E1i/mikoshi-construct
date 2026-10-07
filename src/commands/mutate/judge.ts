@@ -24,6 +24,7 @@ export type JudgeRefusal
     | 'report-unreadable'
     | 'report-red'
     | 'report-empty'
+    | 'report-no-test'
     | 'unsafe-id'
     | 'no-record'
     | 'named-test-missing'
@@ -140,7 +141,7 @@ export function judgeMutation(root: string, id: string, reportPath: string, form
     return { status: 'no-witness', id, file: record.file, reason: `the report started at ${report.startTime}, before the mutation was applied at ${record.appliedAt}` }
 
   if (testCount(report) === 0)
-    return refused('report-empty')
+    return refused('report-no-test')
 
   const failures = failuresOf(report)
   const judged = outcomeOf(record.prediction, report, failures)

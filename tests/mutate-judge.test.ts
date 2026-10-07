@@ -210,7 +210,9 @@ describe('mutate judge --card', () => {
     const report = w.report('m1.json', appliedAt + 1, [])
     const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
 
-    expect(result).toMatchObject({ status: 'refused', refusal: 'report-empty' })
+    expect(result).toMatchObject({ status: 'refused', refusal: 'report-no-test' })
+    expect(printed(result)).toContain('no verdict')
+    expect(printed(result)).not.toContain('baseline')
     expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
     expect(w.mutations()).toEqual(['baseline.json'])
     expect(existsSync(w.journal)).toBe(false)

@@ -257,6 +257,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   mutateRefusedReportUnreadable: (why: string) => string
   mutateRefusedReportRed: (count: string) => string
   mutateRefusedReportEmpty: string
+  mutateRefusedReportNoTest: string
   mutateRefusedNoRecord: (id: string) => string
   mutateRefusedNamedTestMissing: string
   mutateRefusedNamedTestAmbiguous: (count: string) => string
@@ -632,6 +633,7 @@ export const LORE: Lore = {
   mutateRefusedReportUnreadable: (why: string) => `NO SIGNAL: ${why}`,
   mutateRefusedReportRed: (count: string) => `NO BASELINE // ${count} failures in the report: the baseline has to be green`,
   mutateRefusedReportEmpty: 'NO BASELINE // the report holds no test',
+  mutateRefusedReportNoTest: 'NO VERDICT // the report holds no test (the file is restored)',
   mutateRefusedNoRecord: (id: string) => `NO SIGNAL: .construct/mutations/ holds no record of ${id}`,
   mutateRefusedNamedTestMissing: 'NO VERDICT // the named test is not in the report (the file is restored)',
   mutateRefusedNamedTestAmbiguous: (count: string) => `NO VERDICT // ${count} tests in the report carry the named file, describe path and title (the file is restored)`,
@@ -983,6 +985,7 @@ export const PLAIN_LORE: Lore = {
   mutateRefusedReportUnreadable: (why: string) => `Refused: ${why}. No baseline was recorded.`,
   mutateRefusedReportRed: (count: string) => `Refused: the report has ${count} failures; a baseline has to be green. No baseline was recorded.`,
   mutateRefusedReportEmpty: 'Refused: the report holds no test. No baseline was recorded.',
+  mutateRefusedReportNoTest: 'Refused: the report holds no test, so there is no verdict and nothing was journaled. The file is restored.',
   mutateRefusedNoRecord: (id: string) => `Refused: .construct/mutations/ holds no record of ${id}. Nothing was changed.`,
   mutateRefusedNamedTestMissing: 'Refused: the named test is not in the report, so there is no verdict. The file is restored.',
   mutateRefusedNamedTestAmbiguous: (count: string) => `Refused: ${count} tests in the report carry the named file, describe path and title, so there is no verdict. The file is restored.`,
