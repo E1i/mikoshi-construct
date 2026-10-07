@@ -58,31 +58,31 @@ function readArgs(argv: string[]): { runId: string | undefined, card: string, jo
   return { runId: positional[0], card, journal: values.get(JOURNAL_FLAG) }
 }
 
-function intakeAdmits(journal: string | null, card: Card): boolean {
-  return (journal ?? '').split('\n').some((text) => {
+type JournalEntry = Record<string, unknown>
+
+function journalEntries(journal: string | null): JournalEntry[] {
+  return (journal ?? '').split('\n').flatMap((text) => {
     try {
-      const entry = JSON.parse(text) as Record<string, unknown> | null
-      if (entry?.event !== INTAKE_EVENT || entry.task !== String(card.id) || typeof entry.card !== 'string')
-        return false
-      const recorded = parseCard(entry.card)
-      return recorded.kind === 'card' && cardLine(recorded.card) === cardLine(card)
+      const entry = JSON.parse(text) as unknown
+      return entry !== null && typeof entry === 'object' ? [entry as JournalEntry] : []
     }
     catch {
-      return false
+      return []
     }
   })
 }
 
-function earlierStartRun(journal: string | null, card: Card): string | undefined {
-  for (const text of (journal ?? '').split('\n')) {
-    try {
-      const entry = JSON.parse(text) as Record<string, unknown> | null
-      if (entry?.event === CLOUD_START_EVENT && entry.task === String(card.id))
-        return String(entry.run)
-    }
-    catch {}
-  }
-  return undefined
+function intakeAdmits(entries: JournalEntry[], card: Card): boolean {
+  return entries.some((entry) => {
+    if (entry.event !== INTAKE_EVENT || entry.task !== String(card.id) || typeof entry.card !== 'string')
+      return false
+    const recorded = parseCard(entry.card)
+    return recorded.kind === 'card' && cardLine(recorded.card) === cardLine(card)
+  })
+}
+
+function earlierStartOf(entries: JournalEntry[], card: Card): JournalEntry | undefined {
+  return entries.find(entry => entry.event === CLOUD_START_EVENT && entry.task === String(card.id))
 }
 
 export function runCloudStart(argv: string[], deps: CloudStartDeps): CloudStartResult {
@@ -96,12 +96,14 @@ export function runCloudStart(argv: string[], deps: CloudStartDeps): CloudStartR
     return refuse(`card refused: ${parsed.reason}; nothing written`)
   const { card } = parsed
   const journal = args.journal ?? path.join(deps.handoffDir, 'ghosts.jsonl')
-  const recorded = deps.read(journal)
-  if (!intakeAdmits(recorded, card))
+  const entries = journalEntries(deps.read(journal))
+  if (!intakeAdmits(entries, card))
     return refuse(`card #${card.id} has no intake line in ${journal} that confirms this card: slice and confirm it with construct intake; nothing written`)
-  const earlierRun = earlierStartRun(recorded, card)
-  if (earlierRun !== undefined)
-    return refuse(`card #${card.id} already has a cloud-start line in ${journal} (run ${earlierRun}): one card, one start; nothing written`)
+  const earlierStart = earlierStartOf(entries, card)
+  if (earlierStart !== undefined) {
+    const earlierRun = typeof earlierStart.run === 'string' ? ` (run ${earlierStart.run})` : ''
+    return refuse(`card #${card.id} already has a cloud-start line in ${journal}${earlierRun}: one card, one start; nothing written`)
+  }
   const at = deps.now().toISOString()
   const line = { event: CLOUD_START_EVENT, task: String(card.id), card, run: args.runId, base: deps.base(), ts: at }
   try {
