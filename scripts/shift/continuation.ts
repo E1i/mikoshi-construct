@@ -1,4 +1,5 @@
 import type { ContinueMode } from '../../src/card/task-file.js'
+import { missingFields } from '../ghosts/handoff-check.js'
 
 export const MAX_RESTARTS = 3
 export const CONTINUE_PROMPT = 'Прочитай handoff задачи целиком и продолжай с места остановки'
@@ -45,8 +46,8 @@ export function exitReason(evidence: SessionEvidence): ExitReason {
 
 const CONTINUED_REASONS: ReadonlySet<ExitReason> = new Set(['boundary', 'eddies-warn'])
 
-export function continues(mode: ContinueMode, reason: ExitReason, restarts: number): boolean {
-  return mode === 'auto' && CONTINUED_REASONS.has(reason) && restarts < MAX_RESTARTS
+export function continues(mode: ContinueMode, reason: ExitReason, restarts: number, handoff: string): boolean {
+  return mode === 'auto' && CONTINUED_REASONS.has(reason) && restarts < MAX_RESTARTS && missingFields(handoff).length === 0
 }
 
 interface EddiesEntry {

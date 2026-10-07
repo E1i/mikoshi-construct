@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach } from 'vitest'
 import { runClaude } from '../../../shift/claude.js'
+import './stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'claude-stub-pr.sh')
 export const HEADER = readFileSync(path.join(import.meta.dirname, '../../../shift/header.md'), 'utf8')

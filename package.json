@@ -56,6 +56,7 @@
     "ghosts:cleanup": "tsx scripts/ghosts/cleanup.ts",
     "ghosts:expect-sample": "tsx scripts/ghosts/expect-sample.ts",
     "task:close": "tsx scripts/ghosts/task-close.ts",
+    "handoff:check": "tsx scripts/ghosts/handoff-check.ts",
     "task:merged": "tsx scripts/ghosts/task-merged.ts",
     "task:start": "tsx scripts/ghosts/task-start.ts",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",

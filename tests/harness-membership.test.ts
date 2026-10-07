@@ -19,6 +19,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'shift': 'runs a shift of headless sessions when run by hand; its own tests, on a claude stub, are its gate',
   'shift:merge': 'arms auto-merge on a shift task\'s pull request when run by hand; its own tests, on a gh stub, are its gate',
   'shift:report': 'prints the table of a shift that ran; its own tests are its gate',
+  'handoff:check': 'a hand-run check of a handoff file; its own tests are its gate',
   'ghosts:hash': 'a hand-run tool for computing an approval hash; its own tests are its gate',
   'ghosts:launch': 'opens headless sessions after a human confirmation; its own tests are its gate',
   'ghosts:verdict': 'appends one journal line after a review verdict file holds its schema and its digests; its own tests are its gate',

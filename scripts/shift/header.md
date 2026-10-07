@@ -24,6 +24,10 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - At a boundary — the session's context reached `contextLimit`, or an owner-merged pull request just
   merged — finish the step you are in, commit, push, write the handoff and the report with a
   `boundary: <which boundary>` line in it, and exit.
+- At an Eddies warn or a boundary, the shift report also carries the handoff contract: every field
+  `HANDOFF_FIELDS` in `scripts/ghosts/handoff-check.ts` lists, as a `<label>: <value>` line or a
+  `## <label>` heading with a body. Without them no session continues from the report under
+  `continue: auto`.
 - Before you exit, for any reason, write the shift report to `{{report}}`. Its first line is the
   card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the
   law the task answers to, or what is not recorded>`, `expect: <the forecast, or expect not
