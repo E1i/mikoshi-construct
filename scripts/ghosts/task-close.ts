@@ -129,7 +129,7 @@ function cloudStartOf(lines: Record<string, unknown>[], id: string): StartLine |
   return start === undefined ? undefined : { event: 'path', task: id, path: start.card.contour, session: start.run, card: start.card }
 }
 
-const RERUN_SUFFIX = /[a-z]+$/
+const RERUN_SUFFIX = /(?<=\d)[a-z]+$/
 
 function mutationOf(line: Record<string, unknown>): string {
   return String(line.id).replace(RERUN_SUFFIX, '')

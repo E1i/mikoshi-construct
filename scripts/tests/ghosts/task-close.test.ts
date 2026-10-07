@@ -263,6 +263,12 @@ describe('task:close confirms mutation only on judged lines where no mutant surv
     expect(written).toEqual([])
   })
 
+  it('reads a rerun only as a numbered id with a lowercase suffix, so a named-red noop does not replace a survived guard', () => {
+    const { deps, written } = world([startLine('665', 'implement'), judgedLine('665', 'guard', 'nothing-red', true), judgedLine('665', 'noop', 'named-red', true)])
+    expect(runTaskClose(['665', '--pr', '618', '--verification', 'mutation'], deps).exitCode).toBe(1)
+    expect(written).toEqual([])
+  })
+
   it('leaves the other words to the report, without asking for judged lines', () => {
     const { deps } = world([startLine('123', 'implement')])
     expect(runTaskClose(['123', '--pr', '460', '--verification', 'review'], deps).exitCode).toBe(0)
