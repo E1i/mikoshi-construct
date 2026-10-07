@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { witnessEnv } from './session.js'
 
 export interface ShellResult { status: number | null, output: string }
 export type Shell = (command: string, cwd: string) => ShellResult
@@ -9,7 +10,7 @@ export type Shell = (command: string, cwd: string) => ShellResult
 const SHELL_BUFFER = 1 << 28
 
 export function realShell(command: string, cwd: string): ShellResult {
-  const result = spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8', maxBuffer: SHELL_BUFFER })
+  const result = spawnSync('bash', ['-c', command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER })
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
 }
 

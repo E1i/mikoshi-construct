@@ -21,8 +21,13 @@ export function sessionArgv(sessionId: string, prompt: string): string[] {
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
 
+export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const { FORCE_COLOR: _removed, ...rest } = base
+  return { ...rest, NO_COLOR: '1' }
+}
+
 export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
-  const env = { ...base, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
+  const env = { ...witnessEnv(base), CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
   return card === undefined ? env : { ...env, [CARD_VARIABLE]: String(card) }
 }
 
