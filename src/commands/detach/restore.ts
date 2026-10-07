@@ -32,11 +32,11 @@ function untouchedSinceAttach(root: string, original: SettingsOriginal): boolean
   }
 }
 
-export function takeOutGuardEntry(root: string, hook: SettingsHook, check: OriginalCheck | null): { settingsDeleted: boolean, entryCutOut: boolean } {
+export function takeOutGuardEntry(root: string, hook: SettingsHook, check: OriginalCheck | null): { settingsDeleted: boolean, entryCutOut: boolean, bytesRestored: boolean } {
   if (hook.original != null && check?.kind === 'matched' && untouchedSinceAttach(root, hook.original)) {
     writeSettingsBytes(root, check.bytes)
-    return { settingsDeleted: false, entryCutOut: true }
+    return { settingsDeleted: false, entryCutOut: false, bytesRestored: true }
   }
   const settingsDeleted = removeGuardEntry(root, hook).fileDeleted
-  return { settingsDeleted, entryCutOut: !settingsDeleted }
+  return { settingsDeleted, entryCutOut: !settingsDeleted, bytesRestored: false }
 }

@@ -59,6 +59,11 @@ function heldAtAttach(record: AttachRecord): (target: string) => boolean {
   return () => true
 }
 
+function browserEntriesHeldAtAttach(record: AttachRecord): Set<string> | null {
+  const names: unknown = record.browserHeld
+  return Array.isArray(names) && names.every(name => typeof name === 'string') ? new Set(names) : null
+}
+
 function isShot(entry: { name: string, regular: boolean }): boolean {
   return entry.regular && entry.name.endsWith(ATTACH_RUNTIME_SHOT_SUFFIX)
 }
@@ -67,8 +72,10 @@ export function classifyRuntime(record: AttachRecord, tracked: Set<string>, list
   const held = heldAtAttach(record)
   const files = listing.regularFiles.filter(target => !tracked.has(target) && !held(target))
   const browserFree = listing.browser === 'directory' && !held(ATTACH_RUNTIME_BROWSER)
-  const runs = browserFree
-    ? listing.runs.filter(run => ATTACH_RUNTIME_RUN_DIRECTORY.test(run.name) && run.directory && run.entries.every(isShot) && run.entries.every(entry => !tracked.has(`${ATTACH_RUNTIME_BROWSER}/${run.name}/${entry.name}`)))
+  const heldNames = browserEntriesHeldAtAttach(record)
+  const guestRunsOnly = listing.browser === 'directory' && Array.isArray(record.ledgerHeld) && !browserFree && heldNames != null
+  const runs = browserFree || guestRunsOnly
+    ? listing.runs.filter(run => ATTACH_RUNTIME_RUN_DIRECTORY.test(run.name) && run.directory && (browserFree || heldNames?.has(run.name) === false) && run.entries.every(isShot) && run.entries.every(entry => !tracked.has(`${ATTACH_RUNTIME_BROWSER}/${run.name}/${entry.name}`)))
     : []
   return {
     files,

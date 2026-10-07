@@ -1,6 +1,6 @@
 import type { FileOp } from '../../materialize/plan.js'
 import type { TemplateVars } from '../../presets/index.js'
-import { existsSync, lstatSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { planMaterialize } from '../../materialize/plan.js'
 import { ATTACH_CARRIERS, ATTACH_GUARD, defaultProjectName } from '../../presets/index.js'
@@ -49,6 +49,15 @@ function presentOnDisk(absolute: string): boolean {
 
 export function runtimeHeldAtAttach(root: string): string[] {
   return [...ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_BROWSER].filter(target => presentOnDisk(path.join(root, target)))
+}
+
+export function browserEntriesHeldAtAttach(root: string): string[] {
+  try {
+    return readdirSync(path.join(root, ATTACH_RUNTIME_BROWSER)).sort()
+  }
+  catch {
+    return []
+  }
 }
 
 const ATTACH_GROUPS: string[] = [...ATTACH_CARRIERS.groups, ATTACH_GUARD.group]
