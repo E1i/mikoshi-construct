@@ -244,6 +244,25 @@ describe('task:close confirms mutation only on judged lines where no mutant surv
     expect(JSON.parse(written[0]!)).toMatchObject({ task: '123', verification: 'mutation' })
   })
 
+  it('a later named-red verdict of the same mutation replaces its earlier survived', () => {
+    const { deps, written } = world([startLine('665', 'implement'), judgedLine('665', 'M1', 'named-red', true), judgedLine('665', 'M4', 'nothing-red', true), judgedLine('665', 'M4b', 'named-red', true)])
+    expect(runTaskClose(['665', '--pr', '618', '--verification', 'mutation'], deps).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ task: '665', verification: 'mutation' })
+  })
+
+  it('refuses when the latest verdict of a mutation survived, even after an earlier red one', () => {
+    const { deps, written } = world([startLine('665', 'implement'), judgedLine('665', 'M4', 'named-red', true), judgedLine('665', 'M4b', 'nothing-red', true)])
+    const result = runTaskClose(['665', '--pr', '618', '--verification', 'mutation'], deps)
+    expect(result.stderr).toEqual([`[task:close] --verification mutation refused: M4b of #665 survived (outcome nothing-red) in ${JOURNAL}; nothing written`])
+    expect(written).toEqual([])
+  })
+
+  it('does not let a red verdict of one mutation replace a survived one of another', () => {
+    const { deps, written } = world([startLine('665', 'implement'), judgedLine('665', 'M4', 'nothing-red', true), judgedLine('665', 'M14', 'named-red', true)])
+    expect(runTaskClose(['665', '--pr', '618', '--verification', 'mutation'], deps).exitCode).toBe(1)
+    expect(written).toEqual([])
+  })
+
   it('leaves the other words to the report, without asking for judged lines', () => {
     const { deps } = world([startLine('123', 'implement')])
     expect(runTaskClose(['123', '--pr', '460', '--verification', 'review'], deps).exitCode).toBe(0)

@@ -129,11 +129,21 @@ function cloudStartOf(lines: Record<string, unknown>[], id: string): StartLine |
   return start === undefined ? undefined : { event: 'path', task: id, path: start.card.contour, session: start.run, card: start.card }
 }
 
+const RERUN_SUFFIX = /[a-z]+$/
+
+function mutationOf(line: Record<string, unknown>): string {
+  return String(line.id).replace(RERUN_SUFFIX, '')
+}
+
+function latestVerdictPerMutation(judged: Record<string, unknown>[]): Record<string, unknown>[] {
+  return [...new Map(judged.map(line => [mutationOf(line), line])).values()]
+}
+
 function mutationRefusal(lines: Record<string, unknown>[], id: string, journal: string): string | null {
   const judged = lines.filter(line => line.event === MUTATION_JUDGED_EVENT && line.card === id)
   if (judged.length === 0)
     return `--verification mutation needs a ${MUTATION_JUDGED_EVENT} line for #${id} in ${journal}, and there is none; nothing written`
-  const survived = judged.filter(line => line.outcome === SURVIVED).map(line => String(line.id))
+  const survived = latestVerdictPerMutation(judged).filter(line => line.outcome === SURVIVED).map(line => String(line.id))
   if (survived.length > 0)
     return `--verification mutation refused: ${survived.join(', ')} of #${id} survived (outcome ${SURVIVED}) in ${journal}; nothing written`
   return null
