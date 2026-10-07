@@ -117,7 +117,7 @@ describe('the shift writes into the entry line the CONTRACT and the EXPECT it pr
 })
 
 describe('cONSTRUCT_CLOUD', () => {
-  it('shift with CONSTRUCT_CLOUD=on spawns no local session', async () => {
+  it('shift with CONSTRUCT_CLOUD=1 spawns no local session', async () => {
     const world = newWorld()
     writeFileSync(path.join(world.shift, '01.md'), 'card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: a.ts\n\ndo a\n')
     const out: string[] = []
@@ -128,7 +128,7 @@ describe('cONSTRUCT_CLOUD', () => {
       return { kind: 'exited' as const, code: 0, signal: null }
     } }
     const previous = process.env.CONSTRUCT_CLOUD
-    process.env.CONSTRUCT_CLOUD = 'on'
+    process.env.CONSTRUCT_CLOUD = '1'
     try {
       expect(await runShift([world.shift], deps)).toBe(1)
     }
@@ -139,7 +139,7 @@ describe('cONSTRUCT_CLOUD', () => {
         process.env.CONSTRUCT_CLOUD = previous
     }
     expect(spawned).toBe(0)
-    expect(err.join('\n')).toContain('CONSTRUCT_CLOUD=on')
+    expect(err.join('\n')).toContain('CONSTRUCT_CLOUD=1')
     expect(existsSync(path.join(world.shift, 'shift.jsonl'))).toBe(false)
     expect(existsSync(world.handoff)).toBe(false)
   })

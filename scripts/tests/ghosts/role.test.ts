@@ -8,8 +8,8 @@ describe('ghosts:role', () => {
     expect(roleOutcome(['scan', '--task', 't1'], { CONSTRUCT_CLOUD: 'off' }).out).toEqual(['local: launch the scan agent for t1'])
   })
 
-  it('names the branch, the files and the acceptance when CONSTRUCT_CLOUD is on', () => {
-    const outcome = roleOutcome(['review', '--task', 't1'], { CONSTRUCT_CLOUD: 'on' })
+  it('names the branch, the files and the acceptance when CONSTRUCT_CLOUD is 1', () => {
+    const outcome = roleOutcome(['review', '--task', 't1'], { CONSTRUCT_CLOUD: '1' })
     expect(outcome.code).toBe(0)
     expect(outcome.out).toEqual(['cloud: review for t1 runs as a cloud session; it pushes role/t1-review with role/t1/review.md (and, for review, role/t1/review.verdict.json); accept with pnpm ghosts:verdict --from <ref> ...'])
   })
@@ -24,7 +24,7 @@ describe('ghosts:role', () => {
     expect(outcome.err[0]).toContain('usage: role.ts')
   })
 
-  it('reads only the value on as cloud', () => {
-    expect([{ CONSTRUCT_CLOUD: 'on' }, { CONSTRUCT_CLOUD: 'ON' }, { CONSTRUCT_CLOUD: '1' }, {}].map(cloudOn)).toEqual([true, false, false, false])
+  it('reads only the value 1 as cloud; 0, unset and anything else stay local', () => {
+    expect([{ CONSTRUCT_CLOUD: '1' }, { CONSTRUCT_CLOUD: '0' }, { CONSTRUCT_CLOUD: 'on' }, {}].map(cloudOn)).toEqual([true, false, false, false])
   })
 })

@@ -627,7 +627,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     return 0
   }
   if (cloudOn(process.env))
-    return refuse(deps, [`${CLOUD_VARIABLE}=on routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
+    return refuse(deps, [`${CLOUD_VARIABLE}=1 routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
   const check = argv.includes('--check')
   const queue = argv.includes('--queue')
   const manual = argv.includes('--manual')
