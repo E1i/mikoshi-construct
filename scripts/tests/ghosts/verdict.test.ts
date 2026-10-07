@@ -1,7 +1,7 @@
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -272,6 +272,22 @@ describe('verdict from a cloud branch', () => {
     git(REPO, 'add', '-A')
     git(REPO, 'commit', '-q', '-m', name)
   }
+
+  it('refuses a report path with a directory part before any read, and creates nothing in the handoff dir', () => {
+    roleBranch('nested-report', 'sub/review.md')
+    const { dir } = handoff()
+    const before = readdirSync(dir)
+    const fetched = fetchVerdictFromRef('nested-report', REPO, 'role/nested-report/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: ['--from nested-report: the report path sub/review.md has a directory part; the report lies beside the verdict file; nothing written'] })
+    expect(readdirSync(dir)).toEqual(before)
+  })
+
+  it('refuses a verdict whose report.path is not a string, naming it', () => {
+    roleBranch('numeric-report', 7 as unknown as string)
+    const { dir } = handoff()
+    expect(fetchVerdictFromRef('numeric-report', REPO, 'role/numeric-report/review.verdict.json', dir)).toEqual({ ok: false, reasons: ['--from numeric-report: the verdict\'s report.path is not a string; nothing written'] })
+    expect(existsSync(path.join(dir, 'review.verdict.json'))).toBe(false)
+  })
 
   it('refuses a report named like the verdict file or outside its directory, and writes nothing', () => {
     roleBranch('same-name', 'review.verdict.json')

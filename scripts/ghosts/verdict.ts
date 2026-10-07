@@ -150,6 +150,8 @@ function showFromRef(repo: string, ref: string, file: string): Buffer {
 function reportPathFault(ref: string, verdictInRef: string, reportPath: string): string | undefined {
   if (reportPath.split(/[\\/]/).includes('..'))
     return `--from ${ref}: the report path ${reportPath} leaves the verdict's directory; nothing written`
+  if (/[\\/]/.test(reportPath))
+    return `--from ${ref}: the report path ${reportPath} has a directory part; the report lies beside the verdict file; nothing written`
   if (path.posix.basename(reportPath).toLowerCase() === path.posix.basename(verdictInRef).toLowerCase())
     return `--from ${ref}: the report ${reportPath} has the verdict file's name; nothing written`
   return undefined
@@ -170,7 +172,9 @@ export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: str
   const refDir = path.posix.dirname(verdictInRef)
   try {
     const verdictBytes = showFromRef(repo, ref, verdictInRef)
-    const reportPath = (JSON.parse(verdictBytes.toString('utf8')) as Verdict).report.path
+    const reportPath: unknown = (JSON.parse(verdictBytes.toString('utf8')) as { report?: { path?: unknown } } | null)?.report?.path
+    if (typeof reportPath !== 'string')
+      return { ok: false, reasons: [`--from ${ref}: the verdict's report.path is not a string; nothing written`] }
     const fault = reportPathFault(ref, verdictInRef, reportPath)
     if (fault !== undefined)
       return { ok: false, reasons: [fault] }

@@ -132,4 +132,20 @@ describe('cONSTRUCT_CLOUD', () => {
     expect(existsSync(path.join(world.shift, 'shift.jsonl'))).toBe(false)
     expect(existsSync(world.handoff)).toBe(false)
   })
+
+  it('shift --check with CONSTRUCT_CLOUD=1 exits 0 as it does locally and prints no refusal', async () => {
+    const world = newWorld()
+    writeFileSync(path.join(world.shift, '01.md'), 'card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: a.ts\n\ndo a\n')
+    const out: string[] = []
+    const err: string[] = []
+    let spawned = 0
+    const deps = { ...shiftDeps(world, out), err: (line: string) => err.push(line), run: async () => {
+      spawned++
+      return { kind: 'exited' as const, code: 0, signal: null }
+    } }
+    expect(await runShift([world.shift, '--check'], { ...deps, cloud: true })).toBe(0)
+    expect(spawned).toBe(0)
+    expect(err.join('\n')).not.toContain('CONSTRUCT_CLOUD=1')
+    expect(existsSync(path.join(world.shift, 'shift.jsonl'))).toBe(false)
+  })
 })
