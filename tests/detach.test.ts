@@ -1,6 +1,7 @@
 import type { Ui, Writer } from '../src/ui/console.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,6 +12,7 @@ import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { useIsolatedHome } from './isolated-home.js'
 import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
@@ -18,6 +20,7 @@ const HARNESS = 'pnpm run quality'
 const ADOPTED = 'scripts/construct/implement.workflow'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
+const home = useIsolatedHome()
 
 function capturing(): { ui: Ui, output: () => string } {
   let text = ''
@@ -168,6 +171,7 @@ describe('a6: what attach did not write is never removed', () => {
     const before = snapshot(dir)
     await attached(dir)
     writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{"run":"r1"}\n')
+    writeFileSync(path.join(dir, '.construct/notes.txt'), 'mine\n')
     writeFileSync(path.join(dir, '.claude/settings.local.json'), '{}\n')
     const { ui: plain, output } = capturing()
 
@@ -179,11 +183,12 @@ describe('a6: what attach did not write is never removed', () => {
     expect(after.status).toBe(`${before.status}?? .claude/\n?? .construct/\n`)
     expect(before.exclude).not.toBeNull()
     expect(after.exclude?.equals(before.exclude ?? Buffer.alloc(0))).toBe(true)
-    expect(after.listing).toEqual([...before.listing, '.claude/', '.claude/settings.local.json', '.construct/', '.construct/runs.jsonl'].sort())
+    expect(after.listing).toEqual([...before.listing, '.claude/', '.claude/settings.local.json', '.construct/', '.construct/notes.txt'].sort())
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.claude/settings.local.json'))
-    expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/runs.jsonl'))
-    expect(result.removed).toHaveLength(21)
-    expect(output()).toContain(PLAIN_LORE.detached(21))
+    expect(output()).not.toContain(PLAIN_LORE.detachLeftBehind('.construct/runs.jsonl'))
+    expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/notes.txt'))
+    expect(result.removed).toHaveLength(22)
+    expect(output()).toContain(PLAIN_LORE.detached(22))
   })
 })
 
@@ -554,5 +559,313 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     expect(runDetach(ui, { dir }).status).toBe('done')
 
     expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(bytes)).toBe(true)
+  })
+})
+
+const RUNTIME_FILES = ['runs.jsonl', 'steps.jsonl', 'implement-agreed.txt', 'implement-args.json'].map(name => `.construct/${name}`)
+const RUN_DIRECTORY = '.construct/browser/20261007T101010123Z-4242'
+
+function statusWithIgnored(dir: string): string {
+  return git(dir, 'status', '--ignored', '--porcelain', '--untracked-files=all')
+}
+
+function filesInHome(): string[] {
+  return listing(home()).filter(entry => !entry.endsWith('/'))
+}
+
+function writeHostSettings(dir: string, content: string): void {
+  mkdirSync(path.join(dir, '.claude'), { recursive: true })
+  writeFileSync(path.join(dir, SETTINGS_FILE), content)
+}
+
+function writeRuntime(dir: string): void {
+  mkdirSync(path.join(dir, RUN_DIRECTORY), { recursive: true })
+  for (const target of RUNTIME_FILES)
+    writeFileSync(path.join(dir, target), '{}\n')
+  writeFileSync(path.join(dir, RUN_DIRECTORY, '1280.png'), '')
+}
+
+function keptCopy(dir: string): string {
+  const copy = readAttachRecord(dir)?.settingsHook?.original?.copy
+  if (copy == null)
+    throw new Error('attach kept no copy')
+  return copy
+}
+
+function present(dir: string, target: string): boolean {
+  return existsSync(path.join(dir, target))
+}
+
+const HOST_SETTINGS: Record<string, string> = {
+  'compact with no final newline': '{"permissions":{"allow":["Bash(ls:*)"]}}',
+  'two-space with a final newline': '{\n  "permissions": {\n    "allow": [\n      "Bash(ls:*)"\n    ]\n  }\n}\n',
+  'tab-indented with a number and an escape attach cannot reproduce': '{\n\t"a":1e2,\n\t"name":"caf\\u00e9"\n}\n',
+}
+
+describe('detach leaves no trace of the guest in the repository or under the home directory', () => {
+  it('after attach, the ladder\'s runtime writes and detach, git status --ignored equals the status before attach', async () => {
+    const dir = fixture()
+    const before = statusWithIgnored(dir)
+    await attached(dir)
+    writeRuntime(dir)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(statusWithIgnored(dir)).toBe(before)
+    expect(statusWithIgnored(dir)).toBe('')
+    expect(filesInHome()).toEqual([])
+  })
+
+  for (const [name, original] of Object.entries(HOST_SETTINGS)) {
+    it(`a host settings file ${name} is byte-identical and git status equals the status before attach`, async () => {
+      const dir = fixture()
+      writeHostSettings(dir, original)
+      const before = statusWithIgnored(dir)
+      await attached(dir)
+      writeRuntime(dir)
+
+      expect(runDetach(ui, { dir }).status).toBe('done')
+
+      expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(Buffer.from(original))).toBe(true)
+      expect(statusWithIgnored(dir)).toBe(before)
+      expect(filesInHome()).toEqual([])
+    })
+  }
+
+  it('a record without original restores nothing and cuts the entry as before', async () => {
+    const dir = fixture()
+    const host = { permissions: { allow: ['Bash(ls:*)'] } }
+    writeHostSettings(dir, JSON.stringify(host))
+    await attached(dir)
+    const copy = keptCopy(dir)
+    rewriteRecord(dir, (record) => {
+      delete (record.settingsHook as Record<string, unknown>).original
+    })
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(`${JSON.stringify(host, null, 2)}\n`)
+    expect(existsSync(copy)).toBe(true)
+  })
+
+  it('a settings file the host edited during the session is cut, not overwritten, and the copy is removed', async () => {
+    const dir = fixture()
+    writeHostSettings(dir, '{"permissions":{"allow":["Bash(ls:*)"]}}')
+    await attached(dir)
+    const copy = keptCopy(dir)
+    const edited = readSettings(dir) as { permissions: { allow: string[] } }
+    edited.permissions.allow.push('Bash(make:*)')
+    writeSettings(dir, edited)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(readSettings(dir)).toEqual({ permissions: { allow: ['Bash(ls:*)', 'Bash(make:*)'] } })
+    expect(existsSync(copy)).toBe(false)
+    expect(filesInHome()).toEqual([])
+  })
+
+  it('a settings file whose guard entry the host already took out is not written and the copy is removed', async () => {
+    const dir = fixture()
+    writeHostSettings(dir, '{"permissions":{"allow":["Bash(ls:*)"]}}')
+    await attached(dir)
+    const copy = keptCopy(dir)
+    writeHostSettings(dir, '{"mine":true}')
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{"mine":true}')
+    expect(existsSync(copy)).toBe(false)
+  })
+})
+
+describe('the copy attach kept is checked before detach writes anything', () => {
+  const MISMATCHES: Record<string, (copy: string) => void> = {
+    'changed bytes': copy => writeFileSync(copy, 'tampered'),
+    'a deleted copy': copy => rmSync(copy),
+  }
+
+  it('detach refuses and writes nothing when the copy does not match its recorded sha256', async () => {
+    for (const [name, arrange] of Object.entries(MISMATCHES)) {
+      const dir = fixture()
+      writeHostSettings(dir, '{"permissions":{"allow":[]}}')
+      await attached(dir)
+      const copy = keptCopy(dir)
+      arrange(copy)
+      const before = snapshot(dir)
+      const record = readFileSync(path.join(dir, ATTACH_RECORD_FILE))
+      const homeBefore = listing(home())
+      const settingsBefore = readFileSync(path.join(dir, SETTINGS_FILE))
+
+      const result = runDetach(ui, { dir })
+
+      expect(result.status, name).toBe('refused')
+      expect(result.refusal, name).toBe('original-copy')
+      expectSameSnapshot(snapshot(dir), before)
+      expect(readFileSync(path.join(dir, ATTACH_RECORD_FILE)).equals(record), name).toBe(true)
+      expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(settingsBefore), name).toBe(true)
+      expect(listing(home()), name).toEqual(homeBefore)
+    }
+  })
+
+  it('a copy that does not match is kept as the witness', async () => {
+    const dir = fixture()
+    writeHostSettings(dir, '{"permissions":{"allow":[]}}')
+    await attached(dir)
+    const copy = keptCopy(dir)
+    writeFileSync(copy, 'tampered')
+
+    expect(runDetach(ui, { dir }).status).toBe('refused')
+
+    expect(readFileSync(copy, 'utf8')).toBe('tampered')
+  })
+
+  it('a matched copy is removed with its directory and ~/.construct/attach, and ~/.construct stays', async () => {
+    const dir = fixture()
+    writeHostSettings(dir, '{"permissions":{"allow":[]}}')
+    await attached(dir)
+    const copy = keptCopy(dir)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(existsSync(copy)).toBe(false)
+    expect(existsSync(path.dirname(copy))).toBe(false)
+    expect(existsSync(path.join(home(), '.construct/attach'))).toBe(false)
+    expect(existsSync(path.join(home(), '.construct'))).toBe(true)
+  })
+
+  it('a record whose original copy lies outside the attach directory is refused as original-copy and the file it names is untouched', async () => {
+    const dir = fixture()
+    writeHostSettings(dir, '{"permissions":{"allow":[]}}')
+    await attached(dir)
+    const victim = path.join(dir, 'victim.txt')
+    writeFileSync(victim, 'not a copy\n')
+    rewriteRecord(dir, (record) => {
+      const original = (record.settingsHook as { original: Record<string, string> }).original
+      original.copy = victim
+      original.sha256 = createHash('sha256').update('not a copy\n').digest('hex')
+    })
+    const before = snapshot(dir)
+
+    const result = runDetach(ui, { dir })
+
+    expect(result.refusal).toBe('original-copy')
+    expect(readFileSync(victim, 'utf8')).toBe('not a copy\n')
+    expectSameSnapshot(snapshot(dir), before)
+  })
+})
+
+describe('the runtime files the ladder writes come off a closed list', () => {
+  it('a listed file the host tracks in git is never removed', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{"run":"tracked"}\n')
+    git(dir, 'add', '-f', '.construct/runs.jsonl')
+    git(dir, 'commit', '-qm', 'track the ledger')
+    const { ui: plain, output } = capturing()
+
+    expect(runDetach(plain, { dir }).status).toBe('done')
+
+    expect(readFileSync(path.join(dir, '.construct/runs.jsonl'), 'utf8')).toBe('{"run":"tracked"}\n')
+    expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/runs.jsonl'))
+  })
+
+  it('a listed file present at attach stays', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct'))
+    writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{"run":"mine"}\n')
+    await attached(dir)
+    expect(readAttachRecord(dir)?.ledgerHeld).toEqual(['.construct/runs.jsonl'])
+    writeFileSync(path.join(dir, '.construct/steps.jsonl'), '{}\n')
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(readFileSync(path.join(dir, '.construct/runs.jsonl'), 'utf8')).toBe('{"run":"mine"}\n')
+    expect(present(dir, '.construct/steps.jsonl')).toBe(false)
+  })
+
+  it('a host file in .construct/ that is not on the list stays and is named left behind', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeFileSync(path.join(dir, '.construct/notes.txt'), 'mine\n')
+    const { ui: plain, output } = capturing()
+
+    expect(runDetach(plain, { dir }).status).toBe('done')
+
+    expect(readFileSync(path.join(dir, '.construct/notes.txt'), 'utf8')).toBe('mine\n')
+    expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/notes.txt'))
+  })
+
+  it('a run directory with a non-png entry, or a name off the pattern, stays', async () => {
+    const dir = fixture()
+    await attached(dir)
+    const withNote = '.construct/browser/20261007T101010123Z-1'
+    const offPattern = '.construct/browser/latest'
+    mkdirSync(path.join(dir, withNote), { recursive: true })
+    mkdirSync(path.join(dir, offPattern), { recursive: true })
+    writeFileSync(path.join(dir, withNote, '1280.png'), '')
+    writeFileSync(path.join(dir, withNote, 'notes.txt'), 'mine\n')
+    writeFileSync(path.join(dir, offPattern, '1280.png'), '')
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(present(dir, `${withNote}/1280.png`)).toBe(true)
+    expect(present(dir, `${withNote}/notes.txt`)).toBe(true)
+    expect(present(dir, `${offPattern}/1280.png`)).toBe(true)
+  })
+
+  it('a run directory of only png files is removed with .construct/browser when it was not there at attach', async () => {
+    const dir = fixture()
+    await attached(dir)
+    writeRuntime(dir)
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.removed).toEqual(expect.arrayContaining([`${RUN_DIRECTORY}/1280.png`, RUN_DIRECTORY, '.construct/browser', ...RUNTIME_FILES]))
+    expect(removedLines(output())).toEqual(expect.arrayContaining([`${RUN_DIRECTORY}/1280.png`, RUN_DIRECTORY, '.construct/browser']))
+    expect(present(dir, '.construct/browser')).toBe(false)
+  })
+
+  it('a run directory under a .construct/browser present at attach stays', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct/browser'), { recursive: true })
+    await attached(dir)
+    writeRuntime(dir)
+    const { ui: plain, output } = capturing()
+
+    expect(runDetach(plain, { dir }).status).toBe('done')
+
+    expect(present(dir, `${RUN_DIRECTORY}/1280.png`)).toBe(true)
+    expect(present(dir, RUN_DIRECTORY)).toBe(true)
+    expect(present(dir, '.construct/browser')).toBe(true)
+    expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/browser'))
+  })
+
+  it('a record without ledgerHeld removes the list only when ledgerCreated is true', async () => {
+    const dir = fixture()
+    await attached(dir)
+    rewriteRecord(dir, (record) => {
+      delete record.ledgerHeld
+    })
+    writeRuntime(dir)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(present(dir, '.construct')).toBe(false)
+  })
+
+  it('a record without ledgerHeld and with ledgerCreated false removes none', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct'))
+    await attached(dir)
+    rewriteRecord(dir, (record) => {
+      delete record.ledgerHeld
+    })
+    writeRuntime(dir)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    for (const target of [...RUNTIME_FILES, `${RUN_DIRECTORY}/1280.png`])
+      expect(present(dir, target), target).toBe(true)
   })
 })

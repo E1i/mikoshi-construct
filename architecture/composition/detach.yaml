@@ -2,10 +2,12 @@ id: detach
 title: construct detach composition
 description: >-
   `runDetach(ui, options)` in `src/commands/detach/index.ts` is the composition root: every read —
-  the record, the exclude block, the git index, the class of each recorded file — happens before any
-  write, and each refusal leaves the tree as it found it; then the guard entry, the files, their emptied
-  directories, the exclude block and the record are removed in that order. Dotted edges are wiring, solid edges
-  are the flow.
+  the record, the exclude block, the git index, the class of each recorded file, the kept copy of the
+  settings file (path confined, sha256 checked) and the classification of the runtime files — happens
+  before any write, and each refusal leaves the tree as it found it; then the guard entry (restored from
+  the copy or cut), the files, their emptied directories, the runtime files, the run directories,
+  `.construct/browser`, the copy, the exclude block and the record are removed in that order. Dotted edges
+  are wiring, solid edges are the flow.
 doc: architecture/detach.md
 boundaries:
   - id: entry
@@ -45,8 +47,24 @@ nodes:
     label: 'guard entry: adopted → absent → changed → remove'
     path: src/commands/attach/settings.ts
     boundary: classify
+  - id: copy
+    label: 'pre-image: path confined, sha256 checked; mismatch → refused'
+    path: src/commands/detach/restore.ts
+    boundary: read
+  - id: runtime
+    label: 'runtime files: on the list, untracked, not held at attach'
+    path: src/commands/detach/runtime.ts
+    boundary: classify
+  - id: runtimelist
+    label: ATTACH_RUNTIME_FILES
+    path: src/commands/attach/carriers.ts
+    boundary: classify
+  - id: restore
+    label: 'guard entry out: the copy''s bytes when the file is as attach left it, else cut'
+    path: src/commands/detach/restore.ts
+    boundary: remove
   - id: remove
-    label: files by sha, empty directories, exclude block, record
+    label: files by sha, empty directories, runtime files, run directories, .construct/browser, exclude block, record
     path: src/commands/detach/remove.ts
     boundary: remove
   - id: strategies
@@ -57,6 +75,10 @@ nodes:
     label: removeEmptyDirectories
     path: src/commands/attach/rollback.ts
     boundary: remove
+  - id: original
+    label: drop the copy, its key directory, the attach directory when empty
+    path: src/commands/attach/original.ts
+    boundary: remove
 edges:
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: record, kind: sequence}
@@ -64,8 +86,14 @@ edges:
   - {from: run, to: indexreader, kind: sequence, label: record found; unreadable index → refused}
   - {from: indexreader, to: classify, kind: sequence, label: tracked set}
   - {from: classify, to: settings, kind: sequence, label: then the guard entry}
-  - {from: settings, to: remove, kind: sequence, label: nothing changed; entry out first}
+  - {from: settings, to: copy, kind: sequence, label: then the kept copy}
+  - {from: copy, to: runtime, kind: sequence, label: then the runtime files}
+  - {from: runtime, to: restore, kind: sequence, label: nothing changed; entry out first}
+  - {from: restore, to: remove, kind: sequence}
   - {from: indexreader, to: settings, kind: wires, label: tracked set}
+  - {from: indexreader, to: runtime, kind: wires, label: tracked set}
+  - {from: runtime, to: runtimelist, kind: wires}
   - {from: remove, to: directories, kind: wires}
+  - {from: remove, to: original, kind: sequence, label: 'after .construct/browser, before the exclude block'}
   - {from: remove, to: exclude, kind: wires}
   - {from: exclude, to: strategies, kind: wires}

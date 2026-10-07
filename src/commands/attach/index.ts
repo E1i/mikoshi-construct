@@ -9,9 +9,10 @@ import process from 'node:process'
 import { sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
-import { directoriesToCreate, planCarriers } from './carriers.js'
+import { directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
 import { fileEditingMarks, throughPackageRunners } from './harness.js'
+import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
@@ -67,6 +68,8 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'settings-tracked': lore => lore.attachRefusedSettingsTracked,
   'settings-unreadable': lore => lore.attachRefusedSettingsUnreadable,
   'settings-guarded': lore => lore.attachRefusedSettingsGuarded,
+  'settings-original': lore => lore.attachRefusedSettingsOriginal,
+  'original-pending': lore => lore.attachRefusedOriginalPending,
   'no-harness': lore => ({ what: lore.attachRefusedNoHarness, ...lore.attachNoHarnessExplained }),
   'cursor': lore => lore.attachRefusedCursor,
   'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
@@ -142,6 +145,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     return aborted()
 
   const ledgerCreated = !existsSync(path.join(root, ATTACH_LEDGER_DIR))
+  const ledgerHeld = runtimeHeldAtAttach(root)
   const exclude = writeExcludeBlock(root, [...targets, SETTINGS_FILE])
   const directories = directoriesToCreate(root, targets).filter(directory => directory !== ATTACH_LEDGER_DIR)
   const rollbackDirectories = ledgerCreated ? [ATTACH_LEDGER_DIR, ...directories] : directories
@@ -151,9 +155,17 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     return refused(ui, { reason: 'collision', paths: [write.collided], rolledBack: true }, rollback)
   }
   const written = write.written
-  const installed = installGuardEntry(root)
+  const reading = readSettings(root)
+  const kept = reading.kind === 'read' ? keepOriginal(root, reading.bytes) : null
+  if (kept?.kind === 'failed') {
+    const rollback = rollbackAttach(root, { written, directories: rollbackDirectories, separator: exclude.separator })
+    return refused(ui, { reason: 'settings-original', paths: [kept.copy], rolledBack: true }, rollback)
+  }
+  const installed = installGuardEntry(root, reading)
   if (installed.kind !== 'installed') {
     const rollback = rollbackAttach(root, { written, directories: rollbackDirectories, separator: exclude.separator })
+    if (kept != null)
+      dropOriginal(kept.copy)
     const reason = installed.kind === 'guarded' ? 'collision' : 'settings-unreadable'
     return refused(ui, { reason, paths: [SETTINGS_FILE], rolledBack: true }, rollback)
   }
@@ -167,7 +179,8 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     excludeCreated: exclude.created,
     excludeSeparator: exclude.separator,
     ledgerCreated,
-    settingsHook: installed.hook,
+    ledgerHeld,
+    settingsHook: kept == null ? installed.hook : { ...installed.hook, original: { copy: kept.copy, sha256: kept.sha256, afterSha256: installed.afterSha256 } },
   })
 
   ui.ok(ui.lore.attached)
