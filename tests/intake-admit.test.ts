@@ -241,3 +241,23 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(existsSync(w.journal)).toBe(false)
   })
 })
+
+describe('construct intake --admit and the creates line', () => {
+  it('admit keeps the creates line and marks no created path unclear', () => {
+    const w = world()
+    mkdirSync(w.parking, { recursive: true })
+    const file = path.join(w.parking, '80.md')
+    writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/fresh.ts\ncreates: src/board/fresh.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    const result = admit(w, file)
+    expect(result.status).toBe('admitted')
+    expect(readFileSync(file, 'utf8')).not.toContain('unclear: touches')
+    expect(readFileSync(file, 'utf8')).toContain('creates: src/board/fresh.ts')
+  })
+
+  it('a parked card without a creates line parses as before', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/fresh.ts')
+    expect(admit(w, file).status).toBe('admitted')
+    expect(readFileSync(file, 'utf8')).toContain('unclear: touches')
+  })
+})

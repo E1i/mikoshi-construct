@@ -106,6 +106,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       card: line,
       branch: card.branch ?? `${card.kind === 'probe' ? 'probe' : 'feat'}/${card.name}`,
       touches: card.touches.map(entry => entry.trim()),
+      creates: card.creates,
       continue: card.continue ?? DEFAULT_CONTINUE,
       who,
       body: bodyOf(card, unclear, seam, risk),
