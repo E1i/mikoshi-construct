@@ -364,7 +364,7 @@ function onSessionEnd(session, input, state, out, at) {
   out.push({ v: JOURNAL_VERSION, kind: 'session-end', session, at, reason: plainName(input.reason) })
 }
 
-const HANDLERS = {
+export const HANDLERS = {
   UserPromptSubmit: onPrompt,
   SubagentStart: onSubagentStart,
   Stop: onStop,

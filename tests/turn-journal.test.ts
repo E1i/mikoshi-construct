@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readTurnJournal } from '../src/commands/cost/index.js'
 
@@ -460,13 +461,13 @@ describe('the turn journal hook checks each subagent\'s model against the role d
 })
 
 describe('turn-journal registration', () => {
-  it('the repository settings run the hook on every event it handles', () => {
-    const source = readFileSync(HOOK, 'utf8')
-    const handled = [...source.slice(source.indexOf('const HANDLERS = {')).split('}')[0]!.matchAll(/^\s+(\w+):/gm)].map(match => match[1])
+  it('the repository settings run the hook on every event it handles', async () => {
+    const { HANDLERS } = await import(pathToFileURL(HOOK).href) as { HANDLERS: Record<string, unknown> }
+    const handled = Object.keys(HANDLERS)
     const settings = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../.claude/settings.json'), 'utf8')) as { hooks: Record<string, { hooks: { command: string }[] }[]> }
     const registered = (event: string): boolean => (settings.hooks[event] ?? []).some(group => group.hooks.some(hook => hook.command.includes('turn-journal.mjs')))
 
     expect(handled).toContain('SubagentStart')
-    expect(handled.filter(event => !registered(event!))).toEqual([])
+    expect(handled.filter(event => !registered(event))).toEqual([])
   })
 })
