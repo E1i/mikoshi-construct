@@ -31,6 +31,11 @@ records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.cl
 `task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. The merge half is
 not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
+At the Eddies warn the window writes its handoff with the fields `scripts/ghosts/handoff-check.ts` lists, one labelled line
+or heading each, and runs `pnpm handoff:check <file>`. A handoff that fails is not a handoff, and the next window does not
+start from it. A Ghost's continuation under `continue: auto` is held to the same check on its shift report
+(`continues` in `scripts/shift/continuation.ts`).
+
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained

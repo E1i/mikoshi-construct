@@ -28,6 +28,7 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
+import { missingFields } from '../ghosts/handoff-check.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
@@ -322,10 +323,15 @@ function recordStop(deps: ShiftDeps, dir: string, task: string, stop: StopRecord
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify(line)}\n`)
 }
 
-function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number): string | null {
+function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number, handoff: string): string | null {
   if (reason !== 'boundary' && reason !== 'eddies-warn')
     return null
-  return task.continue === 'stop' ? `${EXIT_REASON_TEXT[reason]}; the card says continue: stop` : `${EXIT_REASON_TEXT[reason]}; ${restarts} of ${MAX_RESTARTS} restarts used`
+  if (task.continue === 'stop')
+    return `${EXIT_REASON_TEXT[reason]}; the card says continue: stop`
+  const missing = missingFields(handoff)
+  if (restarts < MAX_RESTARTS && missing.length > 0)
+    return `${EXIT_REASON_TEXT[reason]}; the handoff lacks ${missing.map(field => field.label).join(', ')}, so no session continues from it`
+  return `${EXIT_REASON_TEXT[reason]}; ${restarts} of ${MAX_RESTARTS} restarts used`
 }
 
 interface Finish {
@@ -396,8 +402,9 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
   let halted: string | null = null
   while (exit.kind === 'exited') {
     lastExit = exitReason(sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null))
-    halted = boundaryWhy(task, lastExit, continuations.length)
-    if (!continues(task.continue, lastExit, continuations.length))
+    const handoff = deps.exists(places.report) ? deps.read(places.report) : ''
+    halted = boundaryWhy(task, lastExit, continuations.length, handoff)
+    if (!continues(task.continue, lastExit, continuations.length, handoff))
       break
     if (!(await continueAllowed(deps, task, lastExit, manual))) {
       halted = `${EXIT_REASON_TEXT[lastExit]}; continuing was not confirmed (--manual)`

@@ -1,7 +1,9 @@
 import type { SessionEvidence } from '../../shift/continuation.js'
 import { describe, expect, it } from 'vitest'
+import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { BOUNDARY_LINE, continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../shift/continuation.js'
 
+const HANDOFF = HANDOFF_FIELDS.map(field => `${field.label}: x`).join('\n')
 const QUIET: SessionEvidence = { exit: 0, closed: false, stopped: false, refused: false, question: false, boundary: false, warned: false }
 
 describe('exitReason', () => {
@@ -35,17 +37,24 @@ describe('the boundary line of a report', () => {
 
 describe('continues', () => {
   it('restarts only an eddies-warn exit under continue: auto, below the ceiling', () => {
-    expect(continues('auto', 'eddies-warn', MAX_RESTARTS - 1)).toBe(true)
-    expect(continues('auto', 'eddies-warn', MAX_RESTARTS)).toBe(false)
-    expect(continues('stop', 'eddies-warn', 0)).toBe(false)
-    expect(continues('auto', 'ended', 0)).toBe(false)
+    expect(continues('auto', 'eddies-warn', MAX_RESTARTS - 1, HANDOFF)).toBe(true)
+    expect(continues('auto', 'eddies-warn', MAX_RESTARTS, HANDOFF)).toBe(false)
+    expect(continues('stop', 'eddies-warn', 0, HANDOFF)).toBe(false)
+    expect(continues('auto', 'ended', 0, HANDOFF)).toBe(false)
   })
 
   it('restarts a boundary exit under continue: auto, below the same ceiling', () => {
-    expect(continues('auto', 'boundary', 0)).toBe(true)
-    expect(continues('auto', 'boundary', MAX_RESTARTS - 1)).toBe(true)
-    expect(continues('auto', 'boundary', MAX_RESTARTS)).toBe(false)
-    expect(continues('stop', 'boundary', 0)).toBe(false)
+    expect(continues('auto', 'boundary', 0, HANDOFF)).toBe(true)
+    expect(continues('auto', 'boundary', MAX_RESTARTS - 1, HANDOFF)).toBe(true)
+    expect(continues('auto', 'boundary', MAX_RESTARTS, HANDOFF)).toBe(false)
+    expect(continues('stop', 'boundary', 0, HANDOFF)).toBe(false)
+  })
+
+  it('does not continue from a handoff that lacks a mandatory field, at either exit', () => {
+    const lacking = HANDOFF.split('\n').slice(1).join('\n')
+    expect(continues('auto', 'eddies-warn', 0, lacking)).toBe(false)
+    expect(continues('auto', 'boundary', 0, lacking)).toBe(false)
+    expect(continues('auto', 'boundary', 0, '')).toBe(false)
   })
 })
 

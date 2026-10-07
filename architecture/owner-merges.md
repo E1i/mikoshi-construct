@@ -29,7 +29,7 @@ superseded, on its output. On 2026-10-06, at Eli's instruction (task #602), it r
 brief, not who merges, and a pull request that changes `scripts/ghosts/approval.ts`, `hash.ts` or `launch.ts` is still of the kind `ghosts`. The same day, at Eli's instruction (task #604), it added `scripts/ghosts/approve.ts` to `ghosts`:
 `pnpm approve` writes the approval line the launcher trusts. The same day, at Eli's instruction (task #617), it moved
 `scripts/ghosts/task-close.ts` from the plain list to `ghosts`: it now decides whether a task closes with `mutation` and
-whether a verification word its shift report contradicts is written. On 2026-10-07, at Eli's instruction (task #665), the coordinating window added `scripts/ghosts/cloud-start.ts` to `ghosts`: `task:close` closes a cloud run on the start line it writes.
+whether a verification word its shift report contradicts is written. On 2026-10-07, at Eli's instruction (task #665), the coordinating window added `scripts/ghosts/cloud-start.ts` to `ghosts`: `task:close` closes a cloud run on the start line it writes. The same day, at Eli's instruction (task #676), it added `scripts/ghosts/handoff-check.ts` to the plain list: it checks a handoff for its mandatory fields, and no merge decision is taken on its output.
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -59,6 +59,7 @@ below, which the window merges through auto-merge. A new file is merged only onc
 | `scripts/ghosts/every.ts` | parses the watch interval |
 | `scripts/ghosts/expect-sample.ts` | reads the forecast sample |
 | `scripts/ghosts/expect.ts` | parses and prints the expected cost |
+| `scripts/ghosts/handoff-check.ts` | checks a handoff for its mandatory fields |
 | `scripts/ghosts/ledger.ts` | reads and carries `runs.jsonl` lines; cleanup decides what is removed |
 | `scripts/ghosts/matrix.ts` | looks up a matrix row for printing |
 | `scripts/ghosts/result.ts` | reads the fields of a report |

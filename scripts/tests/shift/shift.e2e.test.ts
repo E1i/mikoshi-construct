@@ -12,6 +12,7 @@ import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { runReport } from '../../shift/report.js'
 import { runShift } from '../../shift/shift.js'
+import './fixtures/stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub.sh')
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -628,6 +629,15 @@ describe('w12: continue: auto restarts a session that stopped at a boundary its 
     const line = jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')
     expect(line).toMatchObject({ continuations: [stubSaw(world, '1', 'session.2')], lastExit: 'ended', exit: 0, report: true })
     expect(io.out).toContain(`[shift] 01.md 1: stopped at a boundary, restart 1/${MAX_RESTARTS} in ${path.join(world.root, 'mc-1')}`)
+  })
+
+  it('w12: a boundary whose report is not a complete handoff is not continued, and the stop names what is missing', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-BOUNDARY STUB-THIN here')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(stubRuns(world, '1')).toBe(1)
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')).toMatchObject({ continuations: [], lastExit: 'boundary' })
+    expect(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8')).toContain('the handoff lacks current card, queue')
   })
 
   it('w12: no restart after a boundary under continue: stop', async () => {
