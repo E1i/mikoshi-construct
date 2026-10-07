@@ -139,6 +139,9 @@ export function judgeMutation(root: string, id: string, reportPath: string, form
   if (report.startTime < record.appliedAt)
     return { status: 'no-witness', id, file: record.file, reason: `the report started at ${report.startTime}, before the mutation was applied at ${record.appliedAt}` }
 
+  if (testCount(report) === 0)
+    return refused('report-empty')
+
   const failures = failuresOf(report)
   const judged = outcomeOf(record.prediction, report, failures)
   if ('status' in judged)
