@@ -323,12 +323,14 @@ function recordStop(deps: ShiftDeps, dir: string, task: string, stop: StopRecord
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify(line)}\n`)
 }
 
-function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number, handoff: string): string | null {
+function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number, handoff: string | null, report: string): string | null {
   if (reason !== 'boundary' && reason !== 'eddies-warn')
     return null
   if (task.continue === 'stop')
     return `${EXIT_REASON_TEXT[reason]}; the card says continue: stop`
-  const missing = missingFields(handoff)
+  if (restarts < MAX_RESTARTS && handoff === null)
+    return `${EXIT_REASON_TEXT[reason]}; the session wrote no shift report at ${report}, so no session continues from it`
+  const missing = missingFields(handoff ?? '')
   if (restarts < MAX_RESTARTS && missing.length > 0)
     return `${EXIT_REASON_TEXT[reason]}; the handoff lacks ${missing.map(field => field.label).join(', ')}, so no session continues from it`
   return `${EXIT_REASON_TEXT[reason]}; ${restarts} of ${MAX_RESTARTS} restarts used`
@@ -402,9 +404,9 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
   let halted: string | null = null
   while (exit.kind === 'exited') {
     lastExit = exitReason(sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null))
-    const handoff = deps.exists(places.report) ? deps.read(places.report) : ''
-    halted = boundaryWhy(task, lastExit, continuations.length, handoff)
-    if (!continues(task.continue, lastExit, continuations.length, handoff))
+    const handoff = deps.exists(places.report) ? deps.read(places.report) : null
+    halted = boundaryWhy(task, lastExit, continuations.length, handoff, places.report)
+    if (!continues(task.continue, lastExit, continuations.length, handoff ?? ''))
       break
     if (!(await continueAllowed(deps, task, lastExit, manual))) {
       halted = `${EXIT_REASON_TEXT[lastExit]}; continuing was not confirmed (--manual)`

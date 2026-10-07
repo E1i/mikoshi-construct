@@ -39,3 +39,4 @@ case "$prompt" in *STUB-BOUNDARY*|*STUB-WARN*) continuing=1 ;; esac
 if [ -e "$STUB_OUT/$task.boundary-always" ] || [ -e "$STUB_OUT/$task.warn-always" ]; then continuing=1; fi
 case "$prompt" in *STUB-THIN*) continuing="" ;; esac
 if [ -n "$continuing" ] && [ -n "$STUB_HANDOFF" ]; then cat "$STUB_HANDOFF" >> "$report"; fi
+case "$prompt" in *STUB-NOREPORT*) rm -f "$report" ;; esac

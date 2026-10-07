@@ -41,6 +41,17 @@ describe('handoff-check', () => {
     expect(missingFields(`${completeHandoff(['stop-reason'])}\n- Stop Reason: eddies warn`)).toEqual([])
   })
 
+  it('reads a numbered label, a heading that ends in a colon and CRLF line endings', () => {
+    expect(missingFields(`${completeHandoff(['stop-reason'])}\n1. stop reason: eddies warn`)).toEqual([])
+    expect(missingFields(`${completeHandoff(['done']).replaceAll('\n', '\r\n')}\r\n## Done:\r\none thing\r\n`)).toEqual([])
+  })
+
+  it('refuses a value that is only a placeholder dash and accepts none as an answer', () => {
+    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: —`).map(missing => missing.id)).toEqual(['cloud-runs'])
+    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: -`).map(missing => missing.id)).toEqual(['cloud-runs'])
+    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: none`)).toEqual([])
+  })
+
   it('names every missing field at once and exits 1 on an absent file', () => {
     expect(check('h.md', '').err.filter(line => line.includes('missing:'))).toHaveLength(HANDOFF_FIELDS.length)
     expect(check('h.md', null).code).toBe(1)

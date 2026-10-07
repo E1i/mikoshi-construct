@@ -31,22 +31,24 @@ export const HANDOFF_FIELDS: readonly HandoffField[] = [
 ]
 
 const HEADING = /^#{1,6} +(\S.*)$/
+const LIST_MARKER = /^(?:[-*+]|\d+[.)])\s+/
+const ONLY_PUNCTUATION = /^[\p{P}\s]*$/u
 
 function normalised(label: string): string {
-  return label.toLowerCase().replace(/[*_`]/g, '').trim()
+  return label.toLowerCase().replace(/[*_`]/g, '').trim().replace(LIST_MARKER, '').replace(/:$/, '').trim()
 }
 
 function labelled(line: string): { label: string, value: string } | null {
   const colon = line.indexOf(':')
   if (colon < 0)
     return null
-  const label = normalised(line.slice(0, colon)).replace(/^-\s*/, '')
+  const label = normalised(line.slice(0, colon))
   return { label, value: line.slice(colon + 1).trim() }
 }
 
 function valuesOf(text: string): Map<string, string> {
   const values = new Map<string, string>()
-  const lines = text.split('\n')
+  const lines = text.split(/\r?\n/)
   let heading: string | null = null
   const add = (label: string, value: string): void => {
     values.set(label, `${values.get(label) ?? ''}${value}`)
@@ -71,7 +73,7 @@ function valuesOf(text: string): Map<string, string> {
 
 export function missingFields(text: string): HandoffField[] {
   const values = valuesOf(text)
-  return HANDOFF_FIELDS.filter(field => (values.get(field.label) ?? '').trim() === '')
+  return HANDOFF_FIELDS.filter(field => ONLY_PUNCTUATION.test(values.get(field.label) ?? ''))
 }
 
 export function refusal(missing: readonly HandoffField[]): string[] {

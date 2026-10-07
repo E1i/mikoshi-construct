@@ -640,6 +640,14 @@ describe('w12: continue: auto restarts a session that stopped at a boundary its 
     expect(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8')).toContain('the handoff lacks current card, queue')
   })
 
+  it('w12: an eddies warn that left no shift report is not continued, and the stop says the report is missing', async () => {
+    const world = newWorld()
+    continuingTask(world, '01.md', '1', 'STUB-WARN STUB-NOREPORT here')
+    await runShift([world.shift], shiftDeps(world, captured()))
+    expect(stubRuns(world, '1')).toBe(1)
+    expect(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8')).toContain('the session wrote no shift report at')
+  })
+
   it('w12: no restart after a boundary under continue: stop', async () => {
     const world = newWorld()
     continuingTask(world, '01.md', '1', 'STUB-BOUNDARY here', 'stop')
