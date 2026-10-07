@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergedDetails, mergedSummary, recheckMerge, recordMerges } from '../../ghosts/task-merged.js'
+import { mergedDetails, mergedSummary, recheckArgument, recheckMerge, recheckSummary, recordMerges } from '../../ghosts/task-merged.js'
 
 const NOW = new Date('2026-10-05T09:00:00.000Z')
 const BODY = (id: number): string => `#${id} some-task [implement/runner/S/cheap/auto] · depends — · blocks —\n\nbody`
@@ -100,8 +100,9 @@ describe('recheckMerge', () => {
   }
 
   it('writes the merge line of a skipped no-card pull request whose body now opens with the card line', () => {
-    const rechecked = run(SKIPPED, BODY(581), true)
-    expect(mergeLines(rechecked.journal)).toEqual([{ event: 'merge', task: '581', pr: 700, by: 'E1i', commit: 'c0ffee', merged: '2026-10-05T08:30:00Z', ts: NOW.toISOString() }])
+    const otherMerged = `${JSON.stringify({ event: 'merge', task: '574', pr: 701, by: 'E1i', commit: 'beef', merged: 'x', ts: 'x' })}\n`
+    const rechecked = run(`${SKIPPED}${otherMerged}`, BODY(581), true)
+    expect(mergeLines(rechecked.journal).filter(line => line.pr === 700)).toEqual([{ event: 'merge', task: '581', pr: 700, by: 'E1i', commit: 'c0ffee', merged: '2026-10-05T08:30:00Z', ts: NOW.toISOString() }])
   })
 
   it('writes no merge line for the skipped pull request without --recheck, and asks gh only about the unrecorded one', () => {
@@ -128,6 +129,30 @@ describe('recheckMerge', () => {
     const second = run(first.journal, BODY(581), true)
     expect(second.notes).toEqual([expect.stringContaining('already has a merge line')])
     expect(mergeLines(second.journal)).toHaveLength(1)
+  })
+
+  it('refuses a pull request that is still open, writing nothing', () => {
+    let journal = SKIPPED
+    const result = recheckMerge({ gh: () => JSON.stringify({ state: 'OPEN', mergedAt: null, mergedBy: null, mergeCommit: null, body: BODY(581) }), journal: '/j', readJournal: () => journal, append: (_file, text) => {
+      journal += text
+    }, now: () => NOW }, 700)
+    expect(result.notes).toEqual(['PR #700 is open; nothing written'])
+    expect(journal).toBe(SKIPPED)
+  })
+
+  it('prints the reason of a refused recheck, not a count of PRs not read', () => {
+    const result = run(SKIPPED, 'not a card', true)
+    expect(recheckSummary({ written: [], skipped: [], open: [], notes: result.notes })).toEqual([expect.stringContaining('still without a card')])
+  })
+
+  it.each([
+    [['--recheck', '700'], 700],
+    [[], null],
+    [['--recheck'], 'invalid'],
+    [['--recheck', 'x'], 'invalid'],
+    [['--recheck', '0'], 'invalid'],
+  ] as const)('reads the --recheck argument %j as %s', (argv, expected) => {
+    expect(recheckArgument(argv)).toBe(expected)
   })
 
   it('refuses a pull request whose only skip line is closed, writing nothing', () => {

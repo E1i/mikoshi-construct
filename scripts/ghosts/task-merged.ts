@@ -135,6 +135,18 @@ export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
   return result
 }
 
+export function recheckArgument(argv: readonly string[]): number | null | 'invalid' {
+  const at = argv.indexOf(RECHECK_FLAG)
+  if (at === -1)
+    return null
+  const value = argv[at + 1] ?? ''
+  return /^[1-9]\d*$/.test(value) ? Number(value) : 'invalid'
+}
+
+export function recheckSummary(result: MergedResult): string[] {
+  return result.written.length > 0 ? [`merged: ${result.written.length} new`] : result.notes
+}
+
 function lookedUp(result: MergedResult): number {
   return result.written.length + result.skipped.length + result.open.length + result.notes.length
 }
@@ -179,16 +191,17 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
       },
       now: () => new Date(),
     }
-    const recheckAt = process.argv.indexOf(RECHECK_FLAG)
-    const recheckValue = recheckAt === -1 ? undefined : process.argv[recheckAt + 1]
-    if (recheckAt !== -1 && !/^[1-9]\d*$/.test(recheckValue ?? '')) {
+    const recheck = recheckArgument(process.argv)
+    if (recheck === 'invalid') {
       console.error(`${PREFIX}${RECHECK_FLAG} needs a pull request number; nothing written`)
       process.exit(1)
     }
-    const result = recheckValue === undefined ? recordMerges(deps) : recheckMerge(deps, Number(recheckValue))
-    if (recheckValue !== undefined && result.written.length === 0)
+    const result = recheck === null ? recordMerges(deps) : recheckMerge(deps, recheck)
+    if (recheck !== null && result.written.length === 0)
       process.exitCode = 1
-    console.log(`${PREFIX}${mergedSummary(result) ?? 'merged: nothing to look up'}`)
+    const summary = recheck === null ? [mergedSummary(result) ?? 'merged: nothing to look up'] : recheckSummary(result)
+    for (const line of summary)
+      console.log(`${PREFIX}${line}`)
     if (process.argv.includes(DETAILS_FLAG)) {
       for (const line of mergedDetails(result))
         console.log(`${PREFIX}${line}`)
