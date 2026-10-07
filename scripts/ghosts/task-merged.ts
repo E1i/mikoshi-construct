@@ -138,7 +138,7 @@ export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
 export function recheckArgument(argv: readonly string[]): number | null | 'invalid' {
   const at = argv.indexOf(RECHECK_FLAG)
   if (at === -1)
-    return null
+    return argv.some(arg => arg.startsWith(`${RECHECK_FLAG}=`)) ? 'invalid' : null
   const value = argv[at + 1] ?? ''
   return /^[1-9]\d*$/.test(value) ? Number(value) : 'invalid'
 }

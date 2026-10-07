@@ -140,9 +140,19 @@ describe('recheckMerge', () => {
     expect(journal).toBe(SKIPPED)
   })
 
+  function rechecked(body: string): ReturnType<typeof recheckMerge> {
+    let journal = SKIPPED
+    return recheckMerge({ gh: () => merged(body), journal: '/j', readJournal: () => journal, append: (_file, text) => {
+      journal += text
+    }, now: () => NOW }, 700)
+  }
+
   it('prints the reason of a refused recheck, not a count of PRs not read', () => {
-    const result = run(SKIPPED, 'not a card', true)
-    expect(recheckSummary({ written: [], skipped: [], open: [], notes: result.notes })).toEqual([expect.stringContaining('still without a card')])
+    expect(recheckSummary(rechecked('not a card'))).toEqual([expect.stringContaining('still without a card')])
+  })
+
+  it('prints one new merge for a recheck that wrote its line', () => {
+    expect(recheckSummary(rechecked(BODY(581)))).toEqual(['merged: 1 new'])
   })
 
   it.each([
@@ -151,6 +161,7 @@ describe('recheckMerge', () => {
     [['--recheck'], 'invalid'],
     [['--recheck', 'x'], 'invalid'],
     [['--recheck', '0'], 'invalid'],
+    [['--recheck=700'], 'invalid'],
   ] as const)('reads the --recheck argument %j as %s', (argv, expected) => {
     expect(recheckArgument(argv)).toBe(expected)
   })
