@@ -28,6 +28,7 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
+import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
@@ -625,6 +626,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     deps.out(USAGE)
     return 0
   }
+  if (cloudOn(process.env))
+    return refuse(deps, [`${CLOUD_VARIABLE}=on routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
   const check = argv.includes('--check')
   const queue = argv.includes('--queue')
   const manual = argv.includes('--manual')

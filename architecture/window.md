@@ -260,6 +260,13 @@ Before launching a `brief`, `scan` or `review` agent, the window prints that rol
 sample holds no minutes it says `minutes not recorded` with the reason the command printed, never the tokens alone (Eli,
 2026-10-07). While fewer than five runs of the role carry `startedAt`, that line reads `минуты: копится, n=k из 5`, `k` being the role's runs that carry it. With `--effort` the same command prints the task's contour, the sum of the step bands.
 
+`CONSTRUCT_CLOUD` is one key, default off: everything runs locally as before. With `CONSTRUCT_CLOUD=on` card bodies
+and the `brief`, `scan` and `review` roles run as cloud sessions the window launches (routines) over the channel that
+already works, a git branch and the final message; locally only the journal, intake, close and merge stay. `pnpm
+ghosts:role <brief|scan|review> --task <id>` prints which route applies and `pnpm shift` refuses to spawn a
+local session. A cloud review is accepted with `pnpm ghosts:verdict --from <ref> <path in ref> --commit <sha>`: the
+verdict file and the report it names are read with `git show` and journaled as if given locally (Eli, 2026-10-08).
+
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
 keeps, changes or drops it.

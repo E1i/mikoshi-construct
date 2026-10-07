@@ -1,7 +1,7 @@
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -139,6 +139,31 @@ function reviewedCommit(dir: string, task: string, tree: string, file: Digest): 
   return commits.at(-1)
 }
 
+export type FetchedVerdict
+  = | { ok: true, verdictPath: string }
+    | { ok: false, reasons: string[] }
+
+function showFromRef(repo: string, ref: string, file: string): Buffer {
+  return execFileSync('git', ['-C', repo, 'show', `${ref}:${file}`], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+}
+
+export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: string, dir: string): FetchedVerdict {
+  const refDir = path.posix.dirname(verdictInRef)
+  try {
+    const verdictBytes = showFromRef(repo, ref, verdictInRef)
+    const reportPath = (JSON.parse(verdictBytes.toString('utf8')) as Verdict).report.path
+    const reportBytes = showFromRef(repo, ref, path.posix.join(refDir, reportPath))
+    mkdirSync(dir, { recursive: true })
+    const verdictPath = path.join(dir, path.posix.basename(verdictInRef))
+    writeFileSync(verdictPath, verdictBytes)
+    writeFileSync(path.join(dir, path.posix.basename(reportPath)), reportBytes)
+    return { ok: true, verdictPath }
+  }
+  catch (error) {
+    return { ok: false, reasons: [`--from ${ref}: cannot read ${verdictInRef} and the report it names: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`] }
+  }
+}
+
 function gitIn(repo: string): (args: string[]) => string {
   return args => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
@@ -243,7 +268,7 @@ function report(checked: VerdictCheck | DispositionCheck): void {
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { 'dir': { type: 'string' }, 'commit': { type: 'string' }, 'repo': { type: 'string' }, 'merge-follow-up': { type: 'string' }, 'task': { type: 'string' }, 'pr': { type: 'string' }, 'by': { type: 'string' } } })
+  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { 'dir': { type: 'string' }, 'commit': { type: 'string' }, 'repo': { type: 'string' }, 'merge-follow-up': { type: 'string' }, 'task': { type: 'string' }, 'pr': { type: 'string' }, 'by': { type: 'string' }, 'from': { type: 'string' } } })
   if (values['merge-follow-up'] !== undefined) {
     const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
     report(await recordDisposition({ task: values.task, pr: values.pr, followUp: values['merge-follow-up'], by: values.by }, dir))
@@ -252,12 +277,19 @@ async function main(): Promise<void> {
   const verdictPath = positionals[0]
   const commit = values.commit
   if (verdictPath === undefined || commit === undefined) {
-    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>]')
+    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>] [--from <git ref>]')
     console.error('       verdict.ts --merge-follow-up <issue> --task <id> --pr <merged PR> --by <owner|window> [--dir <handoff directory>]')
     process.exitCode = 1
     return
   }
-  report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo: values.repo ?? process.cwd() }))
+  const repo = values.repo ?? process.cwd()
+  if (values.from === undefined) {
+    report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo }))
+    return
+  }
+  const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const fetched = fetchVerdictFromRef(values.from, repo, verdictPath, dir)
+  report(fetched.ok ? await recordVerdict(fetched.verdictPath, dir, { commit, repo }) : fetched)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

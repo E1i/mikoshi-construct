@@ -1,12 +1,12 @@
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readContourSchema, violations } from '../../contract/contours.js'
-import { checkDisposition, checkVerdict, recordDisposition, recordVerdict } from '../../ghosts/verdict.js'
+import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict } from '../../ghosts/verdict.js'
 
 const IMPLEMENT = '/implement the contour contracts (t)'
 const REPORT = '[review:t]\nThe witnesses ran.\n'
@@ -215,5 +215,39 @@ describe('recordDisposition', () => {
     const result = await recordDisposition({ ...INPUT, ...change }, dir, NOW)
     expect(reasonsOf(result)).toEqual([text])
     expect(journalLines(journal)).toEqual([])
+  })
+})
+
+describe('verdict from a cloud branch', () => {
+  it('a review verdict from a cloud branch is journaled the same as a local one', async () => {
+    const local = handoff()
+    const localVerdict = path.join(local.dir, 'review.verdict.json')
+    write(localVerdict, local.good)
+    await recordVerdict(localVerdict, local.dir, TARGET)
+
+    const cloud = handoff()
+    git(REPO, 'checkout', '-q', '-b', 'role/t-review')
+    const roleDir = path.join(REPO, 'role', 't')
+    mkdirSync(roleDir, { recursive: true })
+    writeFileSync(path.join(roleDir, 'review-t.md'), REPORT)
+    write(path.join(roleDir, 'review.verdict.json'), local.good)
+    git(REPO, 'add', '-A')
+    git(REPO, 'commit', '-q', '-m', 'role output')
+    const fetched = fetchVerdictFromRef('role/t-review', REPO, 'role/t/review.verdict.json', cloud.dir)
+    expect(fetched).toEqual({ ok: true, verdictPath: path.join(cloud.dir, 'review.verdict.json') })
+    await recordVerdict(path.join(cloud.dir, 'review.verdict.json'), cloud.dir, TARGET)
+
+    const [localLine] = journalLines(local.journal).map(line => JSON.parse(line) as Record<string, unknown>)
+    const [cloudLine] = journalLines(cloud.journal).map(line => JSON.parse(line) as Record<string, unknown>)
+    const { ts: _localTs, ...localRest } = localLine!
+    const { ts: _cloudTs, ...cloudRest } = cloudLine!
+    expect(cloudRest).toEqual(localRest)
+    expect(cloudLine!.event).toBe('review')
+  })
+
+  it('refuses a ref that does not hold the verdict file', () => {
+    const { dir } = handoff()
+    const fetched = fetchVerdictFromRef('role/t-review', REPO, 'role/t/missing.json', dir)
+    expect(fetched.ok).toBe(false)
   })
 })

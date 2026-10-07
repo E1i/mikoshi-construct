@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runShift } from '../../shift/shift.js'
 
@@ -112,5 +113,34 @@ describe('the shift writes into the entry line the CONTRACT and the EXPECT it pr
     const entry = readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).find(line => line.event === 'entry')!
     expect(fieldsOf(out).EXPECT).toContain('expect tokens ≈ 3k')
     expect(entry.EXPECT).toBe(fieldsOf(out).EXPECT)
+  })
+})
+
+describe('cONSTRUCT_CLOUD', () => {
+  it('shift with CONSTRUCT_CLOUD=on spawns no local session', async () => {
+    const world = newWorld()
+    writeFileSync(path.join(world.shift, '01.md'), 'card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: a.ts\n\ndo a\n')
+    const out: string[] = []
+    const err: string[] = []
+    let spawned = 0
+    const deps = { ...shiftDeps(world, out), err: (line: string) => err.push(line), run: async () => {
+      spawned++
+      return { kind: 'exited' as const, code: 0, signal: null }
+    } }
+    const previous = process.env.CONSTRUCT_CLOUD
+    process.env.CONSTRUCT_CLOUD = 'on'
+    try {
+      expect(await runShift([world.shift], deps)).toBe(1)
+    }
+    finally {
+      if (previous === undefined)
+        delete process.env.CONSTRUCT_CLOUD
+      else
+        process.env.CONSTRUCT_CLOUD = previous
+    }
+    expect(spawned).toBe(0)
+    expect(err.join('\n')).toContain('CONSTRUCT_CLOUD=on')
+    expect(existsSync(path.join(world.shift, 'shift.jsonl'))).toBe(false)
+    expect(existsSync(world.handoff)).toBe(false)
   })
 })
