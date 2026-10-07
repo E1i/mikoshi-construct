@@ -1,7 +1,7 @@
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -150,18 +150,23 @@ function showFromRef(repo: string, ref: string, file: string): Buffer {
 function reportPathFault(ref: string, verdictInRef: string, reportPath: string): string | undefined {
   if (reportPath.split(/[\\/]/).includes('..'))
     return `--from ${ref}: the report path ${reportPath} leaves the verdict's directory; nothing written`
-  if (path.posix.basename(reportPath) === path.posix.basename(verdictInRef))
+  if (path.posix.basename(reportPath).toLowerCase() === path.posix.basename(verdictInRef).toLowerCase())
     return `--from ${ref}: the report ${reportPath} has the verdict file's name; nothing written`
   return undefined
 }
 
-function differentFileAt(target: string, bytes: Buffer): boolean {
-  return existsSync(target) && !readFileSync(target).equals(bytes)
+function occupiedTarget(target: string, bytes: Buffer): string | undefined {
+  const entry = lstatSync(target, { throwIfNoEntry: false })
+  if (entry === undefined)
+    return undefined
+  if (!entry.isFile())
+    return `${target} is not a regular file`
+  return readFileSync(target).equals(bytes) ? undefined : `${target} already holds other bytes`
 }
 
 export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: string, dir: string): FetchedVerdict {
-  if (ref.startsWith('-'))
-    return { ok: false, reasons: [`--from ${ref}: a ref cannot start with "-"; nothing written`] }
+  if (ref === '' || ref.startsWith('-'))
+    return { ok: false, reasons: [`--from ${ref}: a ref is a name that does not start with "-"; nothing written`] }
   const refDir = path.posix.dirname(verdictInRef)
   try {
     const verdictBytes = showFromRef(repo, ref, verdictInRef)
@@ -173,9 +178,9 @@ export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: str
     const verdictPath = path.join(dir, path.posix.basename(verdictInRef))
     const reportTarget = path.join(dir, path.posix.basename(reportPath))
     const taken = [[verdictPath, verdictBytes], [reportTarget, reportBytes]] as const
-    const occupied = taken.filter(([target, bytes]) => differentFileAt(target, bytes)).map(([target]) => target)
+    const occupied = taken.map(([target, bytes]) => occupiedTarget(target, bytes)).filter(reason => reason !== undefined)
     if (occupied.length > 0)
-      return { ok: false, reasons: [`--from ${ref}: ${occupied.join(', ')} already holds other bytes; nothing written`] }
+      return { ok: false, reasons: occupied.map(reason => `--from ${ref}: ${reason}; nothing written`) }
     mkdirSync(dir, { recursive: true })
     for (const [target, bytes] of taken)
       writeFileSync(target, bytes)

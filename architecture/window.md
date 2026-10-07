@@ -272,9 +272,11 @@ skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
 
 ```text
 Register every file you add in every registry that lists its kind, in the same commit:
-- a new scripts/ghosts/** or scripts/shift/** file: a row in architecture/owner-merges.md (the kind's cell or the
-  plain list, plus the dated history sentence); the window confirms the classification;
-- a new package.json script: its row in CONTRIBUTING.md § Scripts and its entry in tests/harness-membership.test.ts.
+- a new scripts/ghosts/** file: its path in architecture/owner-merges.md, in the `ghosts` cell or the plain list,
+  with the dated history sentence; the classification is Eli's, so name your choice in the final message;
+- a new scripts/shift/** file whose text names a merge: its path in the `own-instructions` cell, the same way;
+- a new package.json script: its row in CONTRIBUTING.md § Scripts, and, when the harness does not run it, its entry
+  in OUTSIDE_THE_HARNESS in tests/harness-membership.test.ts.
 Push to the branch named above. Your final message is at most 1200 characters.
 ```
 
