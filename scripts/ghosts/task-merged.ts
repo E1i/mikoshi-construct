@@ -13,6 +13,7 @@ import { GHOST_JOURNAL, REPO } from '../shift/places.js'
 export const PREFIX = '[task:merged] '
 export const MERGED_FILE = 'merged.txt'
 export const DETAILS_FLAG = '--details'
+export const RECHECK_FLAG = '--recheck'
 
 export interface MergedDeps {
   gh: GhRunner
@@ -104,6 +105,48 @@ export function recordMerges(deps: MergedDeps): MergedResult {
   return result
 }
 
+export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
+  const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
+  const entries = journalEntries(deps.readJournal(deps.journal)).filter(entry => entry.pr === pr)
+  if (entries.some(entry => entry.event === 'merge')) {
+    result.notes.push(`PR #${pr} already has a merge line; nothing written`)
+    return result
+  }
+  if (!entries.some(entry => entry.event === 'merge-skip' && entry.skip === 'no-card')) {
+    result.notes.push(`PR #${pr} has no merge-skip line with skip no-card in ${deps.journal}; nothing written`)
+    return result
+  }
+  try {
+    const outcome = lookUp(deps, pr)
+    if (outcome.kind === 'merge') {
+      deps.append(deps.journal, `${JSON.stringify(outcome.line)}\n`)
+      result.written.push(outcome.line)
+    }
+    else if (outcome.kind === 'skip') {
+      result.notes.push(`PR #${pr} still ${outcome.detail}; nothing written`)
+    }
+    else {
+      result.notes.push(`PR #${pr} is open; nothing written`)
+    }
+  }
+  catch (error) {
+    result.notes.push(`PR #${pr} not read: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
+  }
+  return result
+}
+
+export function recheckArgument(argv: readonly string[]): number | null | 'invalid' {
+  const at = argv.indexOf(RECHECK_FLAG)
+  if (at === -1)
+    return argv.some(arg => arg.startsWith(`${RECHECK_FLAG}=`)) ? 'invalid' : null
+  const value = argv[at + 1] ?? ''
+  return /^[1-9]\d*$/.test(value) ? Number(value) : 'invalid'
+}
+
+export function recheckSummary(result: MergedResult): string[] {
+  return result.written.length > 0 ? [`merged: ${result.written.length} new`] : result.notes
+}
+
 function lookedUp(result: MergedResult): number {
   return result.written.length + result.skipped.length + result.open.length + result.notes.length
 }
@@ -138,7 +181,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     process.exitCode = 1
   }
   else {
-    const result = recordMerges({
+    const deps: MergedDeps = {
       gh: execGh,
       journal,
       readJournal: file => readFileSync(file, 'utf8'),
@@ -147,8 +190,18 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
         appendFileSync(file, text)
       },
       now: () => new Date(),
-    })
-    console.log(`${PREFIX}${mergedSummary(result) ?? 'merged: nothing to look up'}`)
+    }
+    const recheck = recheckArgument(process.argv)
+    if (recheck === 'invalid') {
+      console.error(`${PREFIX}${RECHECK_FLAG} needs a pull request number; nothing written`)
+      process.exit(1)
+    }
+    const result = recheck === null ? recordMerges(deps) : recheckMerge(deps, recheck)
+    if (recheck !== null && result.written.length === 0)
+      process.exitCode = 1
+    const summary = recheck === null ? [mergedSummary(result) ?? 'merged: nothing to look up'] : recheckSummary(result)
+    for (const line of summary)
+      console.log(`${PREFIX}${line}`)
     if (process.argv.includes(DETAILS_FLAG)) {
       for (const line of mergedDetails(result))
         console.log(`${PREFIX}${line}`)

@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { approvalLine, checkAcceptanceBuild } from '../../ghosts/hash.js'
 import { realShell } from '../../ghosts/preflight-trees.js'
@@ -417,5 +418,38 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
     expect(() => approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, input => runPreflight(input, env))).toThrow(/preflight P6: lint of the ready witness files, no --fix, "scripts\/tests\/ghosts\/w.test.ts" exits 1/)
     expect(calls).toEqual(['pnpm exec eslint scripts/tests/ghosts/w.test.ts'])
     expect(git(repo, 'status', '--porcelain')).toBe('')
+  })
+})
+
+describe('realShell witness environment', () => {
+  function withCallerEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {
+    const saved = { ...process.env }
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined)
+        delete process.env[key]
+      else
+        process.env[key] = value
+    }
+    try {
+      return run()
+    }
+    finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in saved))
+          delete process.env[key]
+      }
+      Object.assign(process.env, saved)
+    }
+  }
+
+  it('witness environment: gives the command NO_COLOR=1 and no FORCE_COLOR', () => {
+    const result = withCallerEnv({ NO_COLOR: undefined, FORCE_COLOR: '1', CLICOLOR_FORCE: '1' }, () => realShell('echo "$NO_COLOR/$(env | grep -c ^FORCE_COLOR=)/$(env | grep -c ^CLICOLOR_FORCE=)"', process.cwd()))
+    expect(result.output.trim()).toBe('1/0/0')
+  })
+
+  it('counts a tick right whatever the colour of the caller', () => {
+    const command = `node -e "const c=process.env.FORCE_COLOR&&!process.env.NO_COLOR;console.log((c?'\\u001b[32m✓\\u001b[0m':'✓')+' ok')" | grep -Ec '✓ '`
+    const result = withCallerEnv({ NO_COLOR: undefined, FORCE_COLOR: '1', COLORTERM: 'truecolor' }, () => realShell(command, process.cwd()))
+    expect(result.output.trim()).toBe('1')
   })
 })
