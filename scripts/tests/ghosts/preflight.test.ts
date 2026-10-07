@@ -422,9 +422,14 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
 })
 
 describe('realShell witness environment', () => {
-  function withCallerEnv<T>(patch: Record<string, string>, run: () => T): T {
+  function withCallerEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {
     const saved = { ...process.env }
-    Object.assign(process.env, patch)
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined)
+        delete process.env[key]
+      else
+        process.env[key] = value
+    }
     try {
       return run()
     }
@@ -438,13 +443,13 @@ describe('realShell witness environment', () => {
   }
 
   it('witness environment: gives the command NO_COLOR=1 and no FORCE_COLOR', () => {
-    const result = withCallerEnv({ FORCE_COLOR: '1' }, () => realShell('echo "$NO_COLOR/$(env | grep -c ^FORCE_COLOR=)"', process.cwd()))
+    const result = withCallerEnv({ NO_COLOR: undefined, FORCE_COLOR: '1' }, () => realShell('echo "$NO_COLOR/$(env | grep -c ^FORCE_COLOR=)"', process.cwd()))
     expect(result.output.trim()).toBe('1/0')
   })
 
   it('counts a tick right whatever the colour of the caller', () => {
     const command = `node -e "const c=process.env.FORCE_COLOR&&!process.env.NO_COLOR;console.log((c?'\\u001b[32m✓\\u001b[0m':'✓')+' ok')" | grep -Ec '✓ '`
-    const result = withCallerEnv({ FORCE_COLOR: '1', COLORTERM: 'truecolor' }, () => realShell(command, process.cwd()))
+    const result = withCallerEnv({ NO_COLOR: undefined, FORCE_COLOR: '1', COLORTERM: 'truecolor' }, () => realShell(command, process.cwd()))
     expect(result.output.trim()).toBe('1')
   })
 })
