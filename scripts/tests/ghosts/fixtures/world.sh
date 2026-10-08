@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow sketch-regenerated sketch-regenerated-check-fails no-start-line tree-gone tree-elsewhere ahead'
+KINDS='ok tampered unapproved failing occupied with-matrix no-ladder no-result install-fails trailing-newline numeric-id install-unspawnable session-unspawnable two-implement journal-exists sketch sketch-no-line sketch-no-branch sketch-moved sketch-stale sketch-rebased sketch-rebased-changed sketch-rebased-reworded sketch-rebased-stale sketch-approved-unknown design-edited approval-old-rule args-elsewhere args-rewritten row-without-hashes expect expect-none expect-malformed expect-misplaced expect-steps expect-uncached steps-no-expect slow sketch-regenerated sketch-regenerated-check-fails no-start-line tree-gone tree-elsewhere ahead base-moved'
 ARGS_BROKEN_KINDS='args-elsewhere args-rewritten row-without-hashes'
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 ARGS_PATH=.construct/implement-args.json
@@ -278,6 +278,7 @@ hashes=",\"agreedSha256\":\"$(handle_field agreedSha256)\",\"argsSha256\":\"$(ha
 [ "$kind" = row-without-hashes ] && [ "$id" = g2 ] && hashes=''
 status=done
 [ "$kind" = failing ] && [ "$id" = g2 ] && status=failed
+[ "$kind" = base-moved ] && [ "$id" = g2 ] && status='base moved'
 [ "$kind" = no-ladder ] && [ "$id" = g2 ] && status=none
 if [ "$status" != none ]; then
   attempts='[{"rung":1,"effort":"low","outcome":"done","reason":""}]'

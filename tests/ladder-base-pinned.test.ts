@@ -12,7 +12,12 @@ const SCRIPT = 'scripts/construct/check-acceptance.mjs'
 const CRITERION = 'the rule rejects the case'
 const COMMAND = 'pnpm vitest run tests/rule.test.ts'
 const BASE_SHA = '36f7abc9815cea1962b05bcf98bdcec193ba9fc5'
-const MOVED_SHA = 'ab097ee5b0e1c2d3f4a5b6c7d8e9f00112233445'
+const MOVED_SHAS = ['ab097ee5b0e1c2d3f4a5b6c7d8e9f00112233445', 'bc108ff6c1f2d3e4f5a6b7c8d9e0f11223344556', 'cd219007d2f3e4f5a6b7c8d9e0f1a22334455667']
+const BASE_MOVES_KEPT = Number(/^const BASE_MOVES_KEPT = (\d+)$/m.exec(readFileSync(path.join(REPO_ROOT, WORKFLOW), 'utf8'))?.[1])
+const MOVES_PAST_KEPT = MOVED_SHAS.slice(0, BASE_MOVES_KEPT + 1)
+const LAST_KEPT_BASE = MOVES_PAST_KEPT.at(-2)
+const STOPPING_HEAD = MOVES_PAST_KEPT.at(-1)
+const CLEAN_REBASE = { outcome: 'clean', baseChangedFiles: [], conflictingHunks: [], witnessPaths: [] }
 
 interface Handle {
   argsPath: string
@@ -98,8 +103,10 @@ async function run(handle: Handle, verifies: Record<string, unknown>[]): Promise
   const source = readFileSync(path.join(REPO_ROOT, WORKFLOW), 'utf8').replace(/^export const meta = \{[\s\S]+?^\}$/m, '')
   const calls: Call[] = []
   const queues: Agents = { harness: [preflight(handle), ...verifies] }
-  const agent = async (prompt: string, options: { agentType: string }): Promise<unknown> => {
+  const agent = async (prompt: string, options: { agentType: string, label: string }): Promise<unknown> => {
     calls.push({ agentType: options.agentType, prompt })
+    if (options.label.startsWith('rebase '))
+      return CLEAN_REBASE
     if (options.agentType === 'implementer')
       return { status: 'done', summary: 's', files: ['a.ts'], harnessTail: 'ok', question: '' }
     const next = queues[options.agentType]?.shift()
@@ -116,27 +123,29 @@ function agentTypes(calls: Call[]): string[] {
 }
 
 describe('the ladder holds the base pinned at preflight', () => {
-  it('stops with base moved when HEAD is not the base after a rung', async () => {
+  it('stops with base moved only when HEAD moves past BASE_MOVES_KEPT times, keeping the diff on each move before', async () => {
     const handle = builtHandle()
 
-    const { result, calls } = await run(handle, [verdict(handle, { headSha: MOVED_SHA })])
+    const { result, calls } = await run(handle, MOVES_PAST_KEPT.map(headSha => verdict(handle, { headSha })))
 
+    expect(MOVES_PAST_KEPT).toHaveLength(BASE_MOVES_KEPT + 1)
     expect(result.status).toBe('base moved')
-    expect(result.validationError).toBe(`HEAD ${MOVED_SHA} is not the base ${BASE_SHA}`)
-    expect(result.attempts).toEqual([{ rung: 1, effort: 'low', outcome: 'base moved', reason: result.validationError, securityFinding: '' }])
-    expect(agentTypes(calls)).toEqual(['harness', 'implementer', 'harness'])
+    expect(result.validationError).toBe(`HEAD ${STOPPING_HEAD} is not the base ${LAST_KEPT_BASE}`)
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual([...Array.from({ length: BASE_MOVES_KEPT }).fill('base moved, diff kept'), 'base moved'])
+    expect(result.attempts.at(-1)).toEqual({ rung: 1, effort: 'low', outcome: 'base moved', reason: result.validationError, securityFinding: '' })
+    expect(agentTypes(calls)).toEqual(['harness', 'implementer', 'harness', ...Array.from({ length: BASE_MOVES_KEPT }, () => ['implementer', 'harness']).flat()])
   })
 
-  it('stops at a later rung too, with no rung after it, when an earlier rung kept the base', async () => {
+  it('stops at a later rung too, with no rung after it, once the moves go past BASE_MOVES_KEPT', async () => {
     const handle = builtHandle()
 
-    const { result, calls } = await run(handle, [red(handle), red(handle, { headSha: MOVED_SHA })])
+    const { result, calls } = await run(handle, [red(handle), ...MOVES_PAST_KEPT.map(headSha => red(handle, { headSha }))])
 
     expect(result.status).toBe('base moved')
-    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['harness failed', 'base moved'])
-    expect(result.validationError).toContain(MOVED_SHA)
-    expect(result.validationError).toContain(BASE_SHA)
-    expect(agentTypes(calls)).toEqual(['harness', 'implementer', 'harness', 'implementer', 'harness'])
+    expect(result.attempts.map(attempt => attempt.outcome)).toEqual(['harness failed', ...Array.from({ length: BASE_MOVES_KEPT }).fill('base moved, diff kept'), 'base moved'])
+    expect(result.validationError).toContain(STOPPING_HEAD)
+    expect(result.validationError).toContain(LAST_KEPT_BASE)
+    expect(agentTypes(calls)).toEqual(['harness', 'implementer', 'harness', 'implementer', 'harness', ...Array.from({ length: BASE_MOVES_KEPT }, () => ['implementer', 'harness']).flat()])
   })
 
   it('a run whose HEAD stays at the base goes on to the next rung', async () => {
