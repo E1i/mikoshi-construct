@@ -228,6 +228,20 @@ describe('mutate judge --card', () => {
     expect(existsSync(w.journal)).toBe(false)
   })
 
+  it('refuses a report in which the named test was skipped while others passed', () => {
+    const { w, appliedAt } = applied()
+    const report = w.report('m1.json', appliedAt + 1, [
+      { file: TEST_FILE, titles: ['within', 'is strict'], status: 'skipped' },
+      passing(TEST_FILE, 'within', 'is total'),
+    ])
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+
+    expect(result).toMatchObject({ status: 'refused', refusal: 'named-test-skipped' })
+    expect(printed(result)).toContain('skipped')
+    expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
   it('journals nothing when there is no witness', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt - 1, [failing(TEST_FILE, 'within', 'is strict')])

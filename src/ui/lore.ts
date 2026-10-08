@@ -261,6 +261,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   mutateRefusedNoRecord: (id: string) => string
   mutateRefusedNamedTestMissing: string
   mutateRefusedNamedTestAmbiguous: (count: string) => string
+  mutateRefusedNamedTestSkipped: string
   mutateHardFileChanged: (file: string) => string
   mutateHardCopyUnreadable: (file: string) => string
   mutateHardRestoreFailed: (file: string) => string
@@ -637,6 +638,7 @@ export const LORE: Lore = {
   mutateRefusedNoRecord: (id: string) => `NO SIGNAL: .construct/mutations/ holds no record of ${id}`,
   mutateRefusedNamedTestMissing: 'NO VERDICT // the named test is not in the report (the file is restored)',
   mutateRefusedNamedTestAmbiguous: (count: string) => `NO VERDICT // ${count} tests in the report carry the named file, describe path and title (the file is restored)`,
+  mutateRefusedNamedTestSkipped: 'NO VERDICT // the named test was skipped in the report: a witness that cannot fail proves nothing (the file is restored)',
   mutateHardFileChanged: (file: string) => `FLATLINE // ${file} is not what mutate wrote: someone else edited it, so it was not touched`,
   mutateHardCopyUnreadable: (file: string) => `FLATLINE // the copy of ${file} is missing or not the original, so it was not restored`,
   mutateHardRestoreFailed: (file: string) => `FLATLINE // ${file} could not be restored byte for byte`,
@@ -989,6 +991,7 @@ export const PLAIN_LORE: Lore = {
   mutateRefusedNoRecord: (id: string) => `Refused: .construct/mutations/ holds no record of ${id}. Nothing was changed.`,
   mutateRefusedNamedTestMissing: 'Refused: the named test is not in the report, so there is no verdict. The file is restored.',
   mutateRefusedNamedTestAmbiguous: (count: string) => `Refused: ${count} tests in the report carry the named file, describe path and title, so there is no verdict. The file is restored.`,
+  mutateRefusedNamedTestSkipped: 'Refused: the named test was skipped in the report, so it could not have failed and there is no verdict. Nothing was journaled. The file is restored.',
   mutateHardFileChanged: (file: string) => `Hard failure: ${file} is not the content mutate wrote. It is someone else's edit and was not touched.`,
   mutateHardCopyUnreadable: (file: string) => `Hard failure: the copy of ${file} is missing or not the original, so the file was not restored.`,
   mutateHardRestoreFailed: (file: string) => `Hard failure: ${file} could not be restored byte for byte from the copy.`,
