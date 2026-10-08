@@ -24,7 +24,7 @@ import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
 import { cheapClass, cheapForecastOf, claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
-import { execGh } from '../board/gh.js'
+import { execGh, prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
@@ -45,6 +45,12 @@ import { continuationBody, renderPrompt } from './prompt.js'
 import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
 
 export const PREFIX = '[shift] '
+export const CHAIN_WAIT_MINUTES = 120
+export const CHAIN_LIMIT_MINUTES = 600
+export const CHAIN_CARDS = 20
+const CHAIN_POLL_MS = 60_000
+const MINUTE_MS = 60_000
+const CHAIN_VALUED = ['--chain-wait', '--chain-limit', '--chain-cards']
 const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const REPORT_FILE_LINE = /(?:^Report:|report written to)\s+`?([^`\s]+?)`?[.,;]?\s*$/im
@@ -82,6 +88,9 @@ export const USAGE = [
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
   'whose session no guard refused and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
+  '--chain (with --parking) makes the run a chain: after a card closes with a pull request the shift waits for its merge, records it as pnpm task:merged does, and takes the next card whose depends are merged,',
+  'holding through a closed terminal (SIGHUP); an owner pull request is merged by the owner (or armed under --slot) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, merged, next or end).',
+  `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), question, guard-refusal, red-check (a required check red while waiting) or stop-<hash|boundary|fault>.`,
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
 
@@ -114,6 +123,8 @@ export interface ShiftDeps {
   err: (line: string) => void
   style?: SignalStyle
   cloud?: boolean
+  sleep?: (ms: number) => Promise<void>
+  holdHangup?: () => () => void
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -219,7 +230,7 @@ function sessionEvidence(deps: ShiftDeps, task: ShiftTask, places: Places, sessi
   }
 }
 
-type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[] }
+type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[], pr?: number }
 
 function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
   let result: MergeResult
@@ -466,7 +477,7 @@ function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Pl
   const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused }) : undefined
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
-  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines }) }
+  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
   return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: report ? deps.read(places.report) : null, merge, closed }) }
 }
 
@@ -653,6 +664,80 @@ function outcome(line: ShiftTaskLine): string {
   return restarts === 0 ? exit : `${exit}, ${restarts} ${restarts === 1 ? 'restart' : 'restarts'}`
 }
 
+interface Chain {
+  waitMs: number
+  limitMs: number
+  cards: number
+  started: number
+}
+
+type ChainEnd = 'no-eligible' | 'merge-timeout' | 'time-limit' | 'card-budget' | 'question' | 'guard-refusal' | 'red-check' | `stop-${Stop['at']}`
+
+function chainLine(deps: ShiftDeps, dir: string, fields: Record<string, unknown>): void {
+  deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify({ event: 'chain', shift: dir, ...fields, ts: deps.now().toISOString() })}\n`)
+  deps.out(`${PREFIX}chain: ${Object.entries(fields).map(([key, value]) => `${key} ${String(value)}`).join(' · ')}`)
+}
+
+function chainEnd(stop: StopRecord): ChainEnd {
+  if (stop.at === 'question')
+    return 'question'
+  return stop.at === 'fault' && stop.why === EXIT_REASON_TEXT['guard-refusal'] ? 'guard-refusal' : `stop-${stop.at}`
+}
+
+function requiredIsRed(deps: ShiftDeps, number: number): boolean {
+  try {
+    const view = JSON.parse(deps.gh(['pr', 'view', String(number), '-R', REPO, '--json', 'headRefName,headRefOid'])) as { headRefName: string, headRefOid: string }
+    return prDetails(deps.gh, REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red'
+  }
+  catch {
+    return false
+  }
+}
+
+async function waitForMerge(deps: ShiftDeps, dir: string, chain: Chain, task: ShiftTask, pr: number): Promise<'merged' | 'merge-timeout' | 'red-check' | 'time-limit'> {
+  const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  const waitStarted = deps.now().getTime()
+  for (;;) {
+    sweepMerges(deps, ghostJournal, dir)
+    if (mergedTasks(readIfThere(deps, ghostJournal)).has(task.id))
+      return 'merged'
+    if (requiredIsRed(deps, pr))
+      return 'red-check'
+    const now = deps.now().getTime()
+    if (now - waitStarted >= chain.waitMs)
+      return 'merge-timeout'
+    if (now - chain.started >= chain.limitMs)
+      return 'time-limit'
+    await deps.sleep!(CHAIN_POLL_MS)
+  }
+}
+
+async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: Chain, task: ShiftTask, ran: { line: ShiftTaskLine, stop: StopRecord | null }, taken: ReadonlySet<string>): Promise<ShiftTask | ChainEnd> {
+  const { line, stop } = ran
+  if (stop !== null && stop.at !== 'merge') {
+    recordStop(deps, dir, task.id, stop)
+    return chainEnd(stop)
+  }
+  if (line.pr !== undefined) {
+    chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr })
+    const result = await waitForMerge(deps, dir, chain, task, line.pr)
+    if (result !== 'merged') {
+      recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'merge', result === 'red-check' ? `PR #${line.pr} required check turned red while waiting for the merge` : `PR #${line.pr} not merged within ${result === 'time-limit' ? 'the chain time limit' : `${chain.waitMs / MINUTE_MS} minutes`}`, line.pr))
+      return result
+    }
+    chainLine(deps, dir, { step: 'merged', task: task.id, pr: line.pr })
+  }
+  if (deps.now().getTime() - chain.started >= chain.limitMs)
+    return 'time-limit'
+  if (taken.size >= chain.cards)
+    return 'card-budget'
+  const next = readParking(deps, parking).choice.chosen.find(candidate => !taken.has(candidate.id))
+  if (next === undefined)
+    return 'no-eligible'
+  chainLine(deps, dir, { step: 'next', task: next.id, after: task.id })
+  return next
+}
+
 export async function runShift(argv: string[], deps: ShiftDeps): Promise<number> {
   if (argv.includes('--help')) {
     deps.out(USAGE)
@@ -667,10 +752,19 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const parkingArg = parkingAt === -1 ? undefined : argv[parkingAt + 1]
   const slotAt = argv.indexOf('--slot')
   const shard = slotAt === -1 ? undefined : argv[slotAt + 1]
-  const valued = [parkingAt, slotAt].filter(at => at !== -1).flatMap(at => [at, at + 1])
-  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && arg !== '--manual' && !valued.includes(index))
-  if (rest.length !== 1 || rest[0]!.startsWith('-') || [parkingAt, slotAt].some(at => at !== -1 && (argv[at + 1] === undefined || argv[at + 1]!.startsWith('-'))))
+  const chained = argv.includes('--chain')
+  const chainFlags = CHAIN_VALUED.map(flag => argv.indexOf(flag))
+  const chainValues = CHAIN_VALUED.map((flag, index) => chainFlags[index] === -1 ? undefined : argv[chainFlags[index]! + 1])
+  const valuedAts = [parkingAt, slotAt, ...chainFlags].filter(at => at !== -1)
+  const valued = valuedAts.flatMap(at => [at, at + 1])
+  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && arg !== '--manual' && arg !== '--chain' && !valued.includes(index))
+  const chainNumbers = chainValues.map(value => value === undefined ? undefined : Number(value))
+  if (rest.length !== 1 || rest[0]!.startsWith('-') || valuedAts.some(at => argv[at + 1] === undefined || argv[at + 1]!.startsWith('-')) || chainNumbers.some(value => value !== undefined && !(Number.isInteger(value) && value > 0)))
     return refuse(deps, [USAGE.split('\n')[0]!])
+  if (chained && (parkingArg === undefined || manual))
+    return refuse(deps, ['--chain needs --parking and cannot be used with --manual; nothing started'])
+  if (chained && !check && (deps.sleep === undefined))
+    return refuse(deps, ['no sleep is wired into this shift, so --chain cannot wait for a merge; nothing started'])
   const dir = path.resolve(deps.cwd, rest[0]!)
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   if (shard !== undefined) {
@@ -718,21 +812,43 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
   deps.append(journal, autopilotLine(deps, dir, manual))
   let clean = true
-  for (const task of tasks) {
-    const forecast = cheapForecastOf(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir)
-    const handed = { ...startContract(task, formatCheapExpect(forecast)), forecast }
-    if (!(await takeAllowed(deps, task, manual))) {
-      deps.out(`${PREFIX}${task.file} ${task.id}: not taken, not confirmed (--manual)`)
-      continue
+  const [waitMinutes = CHAIN_WAIT_MINUTES, limitMinutes = CHAIN_LIMIT_MINUTES, cards = CHAIN_CARDS] = chainNumbers
+  const chain = chained ? { waitMs: waitMinutes * MINUTE_MS, limitMs: limitMinutes * MINUTE_MS, cards, started: deps.now().getTime() } : undefined
+  const releaseHangup = chain === undefined ? undefined : deps.holdHangup?.()
+  const pending = chain === undefined ? [...tasks] : tasks.slice(0, 1)
+  const taken = new Set<string>()
+  try {
+    while (pending.length > 0) {
+      const task = pending.shift()!
+      taken.add(task.id)
+      const forecast = cheapForecastOf(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir)
+      const handed = { ...startContract(task, formatCheapExpect(forecast)), forecast }
+      if (!(await takeAllowed(deps, task, manual))) {
+        deps.out(`${PREFIX}${task.file} ${task.id}: not taken, not confirmed (--manual)`)
+        continue
+      }
+      for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
+        deps.out(line)
+      const ran = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual, shard) : await runTask(deps, dir, task, claude, handed, parking, manual, shard)
+      deps.append(journal, `${JSON.stringify(ran.line)}\n`)
+      deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)
+      clean &&= succeeded(ran.line)
+      if (chain === undefined) {
+        if (ran.stop !== null)
+          recordStop(deps, dir, task.id, ran.stop)
+        continue
+      }
+      const next = await chainStep(deps, dir, parking!, chain, task, ran, taken)
+      if (typeof next === 'string') {
+        chainLine(deps, dir, { step: 'end', reason: next, cards: taken.size })
+        deps.out(`${PREFIX}chain ended: ${next}`)
+        break
+      }
+      pending.push(next)
     }
-    for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
-      deps.out(line)
-    const { line, stop } = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual, shard) : await runTask(deps, dir, task, claude, handed, parking, manual, shard)
-    deps.append(journal, `${JSON.stringify(line)}\n`)
-    if (stop !== null)
-      recordStop(deps, dir, task.id, stop)
-    deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(line)}`)
-    clean &&= succeeded(line)
+  }
+  finally {
+    releaseHangup?.()
   }
   if (parking !== undefined)
     sweepMerges(deps, ghostJournal, dir)
@@ -753,6 +869,20 @@ async function askOnTerminal(question: string): Promise<boolean> {
 export function runPnpmCommand(cwd: string, args: string[], input?: string): PnpmResult {
   const result = spawnSync('pnpm', args, { cwd, input, encoding: 'utf8', maxBuffer: PNPM_OUTPUT_LIMIT })
   return { code: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.error === undefined ? result.stderr ?? '' : result.error.message }
+}
+
+export function holdThroughHangup(proc: Pick<NodeJS.Process, 'on' | 'off'> = process): () => void {
+  const ignore = (): void => {}
+  proc.on('SIGHUP', ignore)
+  return () => proc.off('SIGHUP', ignore)
+}
+
+function writeQuietly(write: (line: string) => void, line: string): void {
+  try {
+    write(line)
+  }
+  catch {
+  }
 }
 
 function realDeps(): ShiftDeps {
@@ -777,9 +907,11 @@ function realDeps(): ShiftDeps {
     uuid: randomUUID,
     confirm: process.stdin.isTTY ? askOnTerminal : undefined,
     pnpm: runPnpmCommand,
+    sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    holdHangup: holdThroughHangup,
     run: runClaude,
-    out: line => console.log(line),
-    err: line => console.error(line),
+    out: line => writeQuietly(console.log, line),
+    err: line => writeQuietly(console.error, line),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     cloud: cloudOn(process.env),
   }
