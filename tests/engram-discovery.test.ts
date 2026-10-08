@@ -63,6 +63,7 @@ function foreignRepository(files: Record<string, string> = FOREIGN_SHOP): string
 }
 
 const UNKNOWN_TYPES = path.resolve(import.meta.dirname, 'fixtures/engram/unknown-types')
+const SINGLE_FILE_COMPONENTS = path.resolve(import.meta.dirname, 'fixtures/engram/single-file-components')
 
 function fixtureRepository(fixture: string): string {
   const dir = path.join(mkdtempSync(path.join(tmpdir(), 'construct-discovery-fixture-')), path.basename(fixture))
@@ -92,6 +93,23 @@ describe('every tracked file is a component, and a file discovery cannot read ke
     expect(mechanics.relations.filter(relation => relation.kind === 'imports').map(relation => `${relation.from} ${relation.specifier} ${relation.status} ${relation.to}`)).toEqual([
       'src/main.ts ./shader.glsl found src/shader.glsl',
       'src/main.ts ./scene.ts found src/scene.ts',
+    ])
+  })
+})
+
+describe('the script blocks of a single-file component are read for its relations', () => {
+  it('writes the relations of every script block into the engram, each at its line in the component', () => {
+    const model = parseModel(readFileSync(writeEngram(fixtureRepository(SINGLE_FILE_COMPONENTS), { attached: true, home: home() }), 'utf8'), MODEL_FILE)
+    expect(model.mechanics?.components.filter(component => component.relations === 'unknown')).toEqual([])
+    expect(model.mechanics?.relations.map(relation => `${relation.from}:${relation.source.line} ${relation.kind} ${relation.specifier} ${relation.status} ${relation.to}`)).toEqual([
+      'src/App.vue:7 imports ./greet.ts found src/greet.ts',
+      'src/App.vue:8 imports ./Badge.svelte found src/Badge.svelte',
+      'src/App.vue:10 calls ./greet.ts found src/greet.ts',
+      'src/Badge.svelte:2 imports ./tone.js found src/tone.ts',
+      'src/Page.astro:2 imports ./App.vue found src/App.vue',
+      'src/Page.astro:7 imports ./track.ts found src/track.ts',
+      'src/Page.astro:8 calls ./track.ts found src/track.ts',
+      'src/main.ts:1 imports ./App.vue found src/App.vue',
     ])
   })
 })
