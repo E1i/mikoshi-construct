@@ -42,11 +42,23 @@ cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
 
-At the Eddies warn Mikoshi, the interactive window the owner opened in a Terminal, also hands itself on: it writes
-`~/.construct/handoff/mikoshi.md`, runs `pnpm miko:handoff`, which opens a new Terminal whose `claude` reads that file and
-continues as Mikoshi, and then stops.
+At the Eddies warn Mikoshi, the interactive window the owner opened in a Terminal (the foreman), also hands itself on: it
+writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff:write`, under the same contract as the Operator's handoff
+(the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), runs `pnpm miko:handoff`, which opens a new
+Terminal whose `claude` reads that file and continues as Mikoshi, and then stops. `pnpm miko:handoff` opens no Terminal
+for a file that fails the `handoff:check` refusals, so a hand-edited one, with no `prev:`, hands nothing on.
 
-Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), one dated line each, appended and never rewritten, and every relaunch prompt names that file.
+Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that file.
+It is a numbered record: one line per decision, `- D-N · <date> — <decision>`, appended; a decision that replaces an
+earlier one gets its own number, and the earlier line gains `· superseded-by D-M` and nothing else. A session reads the
+decisions through `pnpm decisions`, which prints only the decisions in force, and refuses the whole file — a decision
+without `D-N`, a `D-N` twice, a `superseded-by` naming no decision, two identical decisions in force, or decisions in
+force over `DECISIONS_IN_FORCE_LIMIT` bytes — so the record cannot grow into prose that a session has to reconcile.
+
+Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
+foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of
+substance; whatever a reference cannot carry is written into its record first (a decision into the decisions file, a
+card change through `construct intake --admit`), and the message names it.
 
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
 the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
