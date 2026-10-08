@@ -64,6 +64,7 @@ function foreignRepository(files: Record<string, string> = FOREIGN_SHOP): string
 
 const UNKNOWN_TYPES = path.resolve(import.meta.dirname, 'fixtures/engram/unknown-types')
 const SINGLE_FILE_COMPONENTS = path.resolve(import.meta.dirname, 'fixtures/engram/single-file-components')
+const WORKSPACE_ALIASES = path.resolve(import.meta.dirname, 'fixtures/engram/workspace-aliases')
 
 function fixtureRepository(fixture: string): string {
   const dir = path.join(mkdtempSync(path.join(tmpdir(), 'construct-discovery-fixture-')), path.basename(fixture))
@@ -111,6 +112,43 @@ describe('the script blocks of a single-file component are read for its relation
       'src/Page.astro:8 calls ./track.ts found src/track.ts',
       'src/main.ts:1 imports ./App.vue found src/App.vue',
     ])
+  })
+})
+
+describe('a non-relative import resolves through the repository\'s own workspaces and path aliases', () => {
+  it('writes the cross-package import and the tsconfig alias import of the fixture monorepo into the engram as relations between its nodes', () => {
+    const model = parseModel(readFileSync(writeEngram(fixtureRepository(WORKSPACE_ALIASES), { attached: true, home: home() }), 'utf8'), MODEL_FILE)
+    expect(model.mechanics?.relations.map(relation => `${relation.from}:${relation.source.line} ${relation.kind} ${relation.specifier} ${relation.status} ${relation.to}`)).toEqual([
+      'packages/app/src/main.ts:1 imports @mono/core found packages/core/src/index.ts',
+      'packages/app/src/main.ts:3 imports @/format found packages/app/src/format.ts',
+      'packages/app/src/main.ts:5 calls @/format found packages/app/src/format.ts',
+      'packages/app/src/main.ts:5 calls @mono/core found packages/core/src/index.ts',
+    ])
+  })
+
+  it('reads the workspaces of package.json, resolves a subpath of a workspace package, and marks a workspace import that reaches no tracked file unknown', () => {
+    const mechanics = discoverMechanics(foreignRepository({
+      'package.json': JSON.stringify({ name: 'mono', workspaces: { packages: ['libs/**'] } }),
+      'libs/ui/button/package.json': JSON.stringify({ name: 'button', main: './lib/index.js' }),
+      'libs/ui/button/lib/index.js': 'export const button = 1\n',
+      'libs/ui/button/lib/size.js': 'export const size = 1\n',
+      'app/main.js': 'import { button } from \'button\'\nimport { size } from \'button/lib/size\'\nimport { gone } from \'button/lib/gone\'\nimport \'left-pad\'\n',
+    }))
+    expect(mechanics.relations.map(relation => `${relation.specifier} ${relation.status} ${relation.to}`)).toEqual([
+      'button found libs/ui/button/lib/index.js',
+      'button/lib/size found libs/ui/button/lib/size.js',
+      'button/lib/gone unknown null',
+    ])
+  })
+
+  it('resolves no workspace package the configuration does not list and no alias of a tsconfig that is not tracked', () => {
+    const mechanics = discoverMechanics(foreignRepository({
+      'package.json': JSON.stringify({ name: 'mono' }),
+      'tools/lib/package.json': JSON.stringify({ name: 'lib' }),
+      'tools/lib/index.js': 'export const lib = 1\n',
+      'src/main.ts': 'import { lib } from \'lib\'\n',
+    }))
+    expect(mechanics.relations).toEqual([])
   })
 })
 

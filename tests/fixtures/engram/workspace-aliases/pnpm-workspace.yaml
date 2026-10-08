@@ -1,0 +1,4 @@
+# the workspace of the fixture
+packages:
+  - 'packages/*'
+  - '!packages/ignored'

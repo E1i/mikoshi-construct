@@ -1,4 +1,5 @@
 import type { CommandReading } from '../detect/git.js'
+import type { SpecifierTargets } from './imports/specifiers.js'
 import type { ModuleReading } from './scan.js'
 import type { CommandSource, Component, Mechanics, Relation, RepositoryModel } from './schema.js'
 import { createHash } from 'node:crypto'
@@ -6,6 +7,8 @@ import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { readHead, readTrackedFiles } from '../detect/git.js'
 import { importReaderFor } from './imports/index.js'
+import { readPathAliases } from './imports/path-aliases.js'
+import { readWorkspaces } from './imports/workspaces.js'
 import { MODEL_FILE, MODEL_VERSION } from './schema.js'
 import { readModel, writeModel } from './write.js'
 
@@ -43,9 +46,24 @@ function candidates(target: string): string[] {
   return [target, ...swapped, ...IMPLICIT_SUFFIXES.map(suffix => `${target}${suffix}`)]
 }
 
-function resolve(from: string, specifier: string, tracked: Set<string>): string | null {
-  const target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier))
-  return candidates(target).find(candidate => tracked.has(candidate)) ?? null
+interface Resolution {
+  tracked: Set<string>
+  nonRelative: SpecifierTargets[]
+}
+
+function targetsOf(from: string, specifier: string, resolution: Resolution): string[] | null {
+  if (specifier.startsWith('.'))
+    return [path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier))]
+  for (const targets of resolution.nonRelative) {
+    const found = targets(from, specifier)
+    if (found != null)
+      return found
+  }
+  return null
+}
+
+function resolve(targets: string[], tracked: Set<string>): string | null {
+  return targets.flatMap(candidates).find(candidate => tracked.has(candidate)) ?? null
 }
 
 function readInside(root: string, file: string): string | null {
@@ -65,23 +83,24 @@ interface ComponentReading {
   relations: Relation[]
 }
 
-function readComponent(root: string, file: string, tracked: Set<string>): ComponentReading {
+function readComponent(root: string, file: string, resolution: Resolution): ComponentReading {
   const reader = importReaderFor(file)
   if (reader === undefined)
     return { component: { id: file, path: file, relations: 'unknown', reason: 'type-not-scanned' }, relations: [] }
   const source = readInside(root, file)
   if (source == null)
     return { component: { id: file, path: file, relations: 'unknown', reason: 'unreadable' }, relations: [] }
-  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(reader.read(source), file, tracked) }
+  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(reader.read(source), file, resolution) }
 }
 
-function relationsOf(reading: ModuleReading, file: string, tracked: Set<string>): Relation[] {
+function relationsOf(reading: ModuleReading, file: string, resolution: Resolution): Relation[] {
   const relations: Relation[] = []
   const owners = new Map<string, { to: string | null, specifier: string }>()
   for (const entry of reading.imports) {
-    if (!entry.specifier.startsWith('.'))
+    const targets = targetsOf(file, entry.specifier, resolution)
+    if (targets == null)
       continue
-    const to = resolve(file, entry.specifier, tracked)
+    const to = resolve(targets, resolution.tracked)
     relations.push({ from: file, to, kind: 'imports', specifier: entry.specifier, status: to == null ? 'unknown' : 'found', source: { path: file, line: entry.line } })
     for (const name of [...entry.bindings, ...entry.namespaces])
       owners.set(name, { to, specifier: entry.specifier })
@@ -105,7 +124,9 @@ export function discoverMechanics(root: string, readings: GitReadings = readGit(
   const treeFound = readings.tracked.exit === 0
   const files = treeFound ? readings.tracked.stdout.split('\0').filter(file => file !== '') : []
   const tracked = new Set(files)
-  const read = [...files].sort(compare).map(file => readComponent(root, file, tracked))
+  const readFile = (file: string): string | null => tracked.has(file) ? readInside(root, file) : null
+  const resolution: Resolution = { tracked, nonRelative: [readPathAliases(tracked, readFile), readWorkspaces(files, readFile)] }
+  const read = [...files].sort(compare).map(file => readComponent(root, file, resolution))
   const components: Component[] = read.map(reading => reading.component)
   const unique = new Map<string, Relation>()
   for (const reading of read) {
