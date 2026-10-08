@@ -69,6 +69,7 @@
     "model:check": "tsx scripts/model/check.ts",
     "model:render": "tsx scripts/model/sync-docs.ts",
     "lint:fix": "eslint --fix .",
+    "miko:handoff": "tsx scripts/miko/handoff.ts",
     "prepublishOnly": "pnpm build",
     "privacy:check": "tsx scripts/privacy/check.ts",
     "quality": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:pending && pnpm docs:anchors",

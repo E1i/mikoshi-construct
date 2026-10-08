@@ -42,6 +42,10 @@ cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
 
+At the Eddies warn the Miko window, the foreman session the owner opened in a Terminal, also hands itself on: it writes
+`~/.construct/handoff/foreman.md`, runs `pnpm miko:handoff`, which opens a new Terminal whose `claude` reads that file and
+continues as the foreman, and then stops.
+
 Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), one dated line each, appended and never rewritten, and every relaunch prompt names that file.
 
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
