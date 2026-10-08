@@ -227,6 +227,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   detachRefusedOriginalCopy: string
   detachSettingsEntry: string
   detachEntryRemoved: (file: string) => string
+  detachOriginalRestored: (file: string) => string
   detachRefusedIndexV4: string
   detachRefusedSplitIndex: string
   detachRefusedSparseIndex: string
@@ -604,6 +605,7 @@ export const LORE: Lore = {
   detachRefusedOriginalCopy: 'BREACH FAILED // PRE-IMAGE LOST: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps it; nothing was changed, the copy stays as the witness',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `guard entry cut out of ${file}; the file stays`,
+  detachOriginalRestored: (file: string) => `${file} put back as attach found it: the original bytes came back`,
   detachRefusedIndexV4: 'BREACH FAILED // INDEX V4: .git/index is version 4 (prefix-compressed names) and cannot be read here',
   detachRefusedSplitIndex: 'BREACH FAILED // SPLIT INDEX: .git/index carries a link extension and cannot be read here',
   detachRefusedSparseIndex: 'BREACH FAILED // SPARSE INDEX: .git/index carries an sdir extension and cannot be read here',
@@ -957,6 +959,7 @@ export const PLAIN_LORE: Lore = {
   detachRefusedOriginalCopy: 'Refused: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps copies, so the original bytes cannot be restored; nothing was changed and the copy stays as it is:',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `removed the commit guard entry from ${file}; the file stays.`,
+  detachOriginalRestored: (file: string) => `restored ${file}: the original bytes came back, byte for byte.`,
   detachRefusedIndexV4: 'Refused: .git/index is version 4 (prefix-compressed names), which detach cannot read; nothing was removed.',
   detachRefusedSplitIndex: 'Refused: .git/index is a split index (link extension), which detach cannot read; nothing was removed.',
   detachRefusedSparseIndex: 'Refused: .git/index is a sparse index (sdir extension), which detach cannot read; nothing was removed.',
