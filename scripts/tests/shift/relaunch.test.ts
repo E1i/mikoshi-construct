@@ -101,6 +101,7 @@ describe('statusOf', () => {
     ['CONTINUE', 'STATUS: CONTINUE\n', 'CONTINUE'],
     ['OWNER', 'STATUS: OWNER — the merge waits\n', 'OWNER'],
     ['DONE', 'STATUS:DONE\n', 'DONE'],
+    ['STOP', 'STATUS: STOP\n', 'STOP'],
     ['the last line over an earlier one', 'STATUS: CONTINUE\nmore\nSTATUS: DONE\n', 'DONE'],
     ['the last known word over an unknown later one', 'STATUS: OWNER\nSTATUS: MAYBE\n', 'OWNER'],
     ['no line', 'nothing here\n', null],
@@ -209,6 +210,15 @@ describe('runRelaunch', () => {
       expect(run.prompt).toContain(DECISIONS)
       expect(run.prompt).toContain('append each one there with its date, and never copy them into the handoff')
     }
+  })
+
+  it('starts nothing on a handoff ending in STATUS: STOP and stops with reason STATUS STOP', async () => {
+    const world = newWorld('STOP')
+    const result = await relaunch(world, ['--model', 'claude-test'])
+    expect(result.code).toBe(0)
+    expect(result.runs).toHaveLength(0)
+    expect(result.out.at(-1)).toBe('[relaunch] STATUS STOP')
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'STATUS STOP', sessions: 0 })
   })
 
   it('starts nothing on a handoff with no STATUS line', async () => {
