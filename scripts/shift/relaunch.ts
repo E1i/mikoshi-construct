@@ -8,6 +8,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
@@ -25,7 +26,7 @@ export function promptFirstLine(handoff: string): string {
   return `${OPERATOR_ROLE} ${CONTINUE_PROMPT}: ${handoff} — write it only with pnpm handoff:write ${handoff} <draft>`
 }
 export function relaunchPrompt(handoff: string, decisions: string | null): string {
-  const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each one there with its date, and never copy them into the handoff.`
+  const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${decisions}, and never copy them into the handoff.`
   return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'

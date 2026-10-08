@@ -4,10 +4,34 @@ export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
 export const DECISION_FORMAT = '- D-N · <date> — <decision> [· superseded-by D-M]'
 
-const ITEM = /^\s*[-*+]\s(.*)$/
-const NUMBERED = /^D-(\d+)\b(.*)$/
-const SUPERSEDED = /\s*(?:·\s*)?superseded-by D-(\d+)\s*$/
-const DATE_SEPARATOR = ' — '
+const FIELD_PATTERNS: Record<string, string> = {
+  'D-N': 'D-(?<number>[1-9]\\d*)',
+  'D-M': 'D-(?<supersededBy>[1-9]\\d*)',
+  '<date>': '\\d{4}-\\d{2}-\\d{2}(?: ~\\d{2}:\\d{2}Z)?',
+  '<decision>': '(?<body>\\S.*?)',
+}
+const FIELD = new RegExp(`(${Object.keys(FIELD_PATTERNS).join('|')})`)
+const OPTIONAL_TAIL = / \[(.+)\]$/
+const LIST_START = /^\s*(?:[-*+]|\d+[.)])\s|^\s*D-/
+const NUMBER_ATTEMPT = /^\s*(?:[-*+]\s+)?D-/
+const SUPERSEDED_MENTION = /superseded-by/i
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function patternOf(part: string): string {
+  return part.split(FIELD).map((piece, index) => index % 2 === 1 ? FIELD_PATTERNS[piece]! : escapeRegExp(piece)).join('')
+}
+
+function lineShape(format: string): RegExp {
+  const optional = OPTIONAL_TAIL.exec(format)
+  const required = optional === null ? format : format.slice(0, optional.index)
+  const tail = optional === null ? '' : `(?: ${patternOf(optional[1]!)})?`
+  return new RegExp(`^${patternOf(required)}${tail}$`)
+}
+
+const DECISION_LINE = lineShape(DECISION_FORMAT)
 
 export interface Decision {
   number: number
@@ -17,39 +41,44 @@ export interface Decision {
   supersededBy: number | null
 }
 
-export interface Decisions {
-  decisions: Decision[]
-  unnumbered: number[]
+export interface OffFormatLine {
+  line: number
+  numbered: boolean
 }
 
-function bodyOf(rest: string): string {
-  const separator = rest.indexOf(DATE_SEPARATOR)
-  return (separator < 0 ? rest : rest.slice(separator + DATE_SEPARATOR.length)).trim()
+export interface Decisions {
+  decisions: Decision[]
+  offFormat: OffFormatLine[]
+}
+
+function decisionOf(text: string, line: number): Decision | null {
+  const groups = DECISION_LINE.exec(text)?.groups
+  if (groups === undefined || SUPERSEDED_MENTION.test(groups.body!))
+    return null
+  return {
+    number: Number(groups.number),
+    line,
+    text,
+    body: groups.body!,
+    supersededBy: groups.supersededBy === undefined ? null : Number(groups.supersededBy),
+  }
 }
 
 export function parseDecisions(text: string): Decisions {
   const decisions: Decision[] = []
-  const unnumbered: number[] = []
+  const offFormat: OffFormatLine[] = []
+  let listStarted = false
   for (const [index, raw] of text.split(/\r?\n/).entries()) {
-    const item = ITEM.exec(raw)
-    if (item === null)
+    listStarted ||= LIST_START.test(raw)
+    if (!listStarted || raw.trim() === '')
       continue
-    const numbered = NUMBERED.exec(item[1]!.trim())
-    if (numbered === null) {
-      unnumbered.push(index + 1)
-      continue
-    }
-    const superseded = SUPERSEDED.exec(numbered[2]!)
-    const rest = superseded === null ? numbered[2]! : numbered[2]!.slice(0, superseded.index)
-    decisions.push({
-      number: Number(numbered[1]),
-      line: index + 1,
-      text: raw.trim(),
-      body: bodyOf(rest),
-      supersededBy: superseded === null ? null : Number(superseded[1]),
-    })
+    const decision = decisionOf(raw.trim(), index + 1)
+    if (decision === null)
+      offFormat.push({ line: index + 1, numbered: NUMBER_ATTEMPT.test(raw) })
+    else
+      decisions.push(decision)
   }
-  return { decisions, unnumbered }
+  return { decisions, offFormat }
 }
 
 export function inForce(decisions: readonly Decision[]): Decision[] {
@@ -60,8 +89,8 @@ export function inForceBytes(decisions: readonly Decision[]): number {
   return inForce(decisions).reduce((bytes, decision) => bytes + Buffer.byteLength(`${decision.text}\n`, 'utf8'), 0)
 }
 
-function unnumberedRefusals(lines: readonly number[]): string[] {
-  return lines.map(line => `${PREFIX}line ${line}: a decision without D-N; every decision is ${DECISION_FORMAT}`)
+function offFormatRefusals(lines: readonly OffFormatLine[]): string[] {
+  return lines.map(({ line, numbered }) => `${PREFIX}line ${line}: ${numbered ? 'a decision off the format' : 'a decision without D-N'}; every decision is ${DECISION_FORMAT}`)
 }
 
 function repeatedNumberRefusals(decisions: readonly Decision[]): string[] {
@@ -77,6 +106,21 @@ function repeatedNumberRefusals(decisions: readonly Decision[]): string[] {
   return refusals
 }
 
+function orderRefusals(decisions: readonly Decision[]): string[] {
+  const seen = new Set<number>()
+  const refusals: string[] = []
+  let previous = 0
+  for (const decision of decisions) {
+    if (seen.has(decision.number))
+      continue
+    seen.add(decision.number)
+    if (decision.number !== previous + 1)
+      refusals.push(`${PREFIX}D-${decision.number} on line ${decision.line}: expected D-${previous + 1}; numbers run 1..n in file order`)
+    previous = decision.number
+  }
+  return refusals
+}
+
 function supersedingRefusals(decisions: readonly Decision[]): string[] {
   const numbers = new Set(decisions.map(decision => decision.number))
   return decisions.flatMap((decision) => {
@@ -84,6 +128,8 @@ function supersedingRefusals(decisions: readonly Decision[]): string[] {
       return []
     if (decision.supersededBy === decision.number)
       return [`${PREFIX}D-${decision.number}: superseded-by itself`]
+    if (decision.supersededBy < decision.number)
+      return [`${PREFIX}D-${decision.number}: superseded-by D-${decision.supersededBy}, an earlier number; the replacement takes a new, later number`]
     return numbers.has(decision.supersededBy) ? [] : [`${PREFIX}D-${decision.number}: superseded-by D-${decision.supersededBy}, which is not in the file`]
   })
 }
@@ -108,10 +154,11 @@ function sizeRefusals(decisions: readonly Decision[]): string[] {
 }
 
 export function decisionsRefusals(text: string): string[] {
-  const { decisions, unnumbered } = parseDecisions(text)
+  const { decisions, offFormat } = parseDecisions(text)
   return [
-    ...unnumberedRefusals(unnumbered),
+    ...offFormatRefusals(offFormat),
     ...repeatedNumberRefusals(decisions),
+    ...orderRefusals(decisions),
     ...supersedingRefusals(decisions),
     ...duplicateInForceRefusals(decisions),
     ...sizeRefusals(decisions),

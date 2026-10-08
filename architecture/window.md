@@ -49,11 +49,16 @@ Terminal whose `claude` reads that file and continues as Mikoshi, and then stops
 for a file that fails the `handoff:check` refusals, so a hand-edited one, with no `prev:`, hands nothing on.
 
 Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that file.
-It is a numbered record: one line per decision, `- D-N · <date> — <decision>`, appended; a decision that replaces an
-earlier one gets its own number, and the earlier line gains `· superseded-by D-M` and nothing else. A session reads the
-decisions through `pnpm decisions`, which prints only the decisions in force, and refuses the whole file — a decision
-without `D-N`, a `D-N` twice, a `superseded-by` naming no decision, two identical decisions in force, or decisions in
-force over `DECISIONS_IN_FORCE_LIMIT` bytes — so the record cannot grow into prose that a session has to reconcile.
+It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
+[· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
+gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
+preamble. A session reads the decisions through `pnpm decisions`, which prints only the decisions in force, and refuses
+the whole file for any of these: after the first list item, a non-blank line that is not a decision line in that shape
+(a number other than `D-` and `[1-9][0-9]*`, no date, an empty decision, a line without the bullet, an ordered item, a
+heading); a `superseded-by` anywhere but as the exact trailing `· superseded-by D-M`; a `D-N` twice; numbers that do not
+run 1..n in file order; a `superseded-by` naming the decision itself, an earlier number or no decision in the file; two
+identical decisions in force; or decisions in force over `DECISIONS_IN_FORCE_LIMIT` bytes — so the record cannot grow
+into prose that a session has to reconcile, and no cycle of `superseded-by` can empty it.
 
 Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
 foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of

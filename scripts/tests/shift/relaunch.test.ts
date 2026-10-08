@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { ALREADY_RUNNING, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
@@ -208,7 +209,7 @@ describe('runRelaunch', () => {
     expect(result.runs).toHaveLength(2)
     for (const run of result.runs) {
       expect(run.prompt).toContain(DECISIONS)
-      expect(run.prompt).toContain('append each one there with its date, and never copy them into the handoff')
+      expect(run.prompt).toContain(`append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${DECISIONS}, and never copy them into the handoff`)
     }
   })
 

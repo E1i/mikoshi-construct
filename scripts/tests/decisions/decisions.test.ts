@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions } from '../../decisions/decisions.js'
+import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions } from '../../decisions/decisions.js'
 import { runDecisionsRead } from '../../decisions/read.js'
 
 const HEADER = '# Owner decisions\n\nOne line per decision, numbered D-N; a replaced one is marked superseded-by D-M.\n\n'
@@ -73,6 +73,55 @@ describe('owner decisions are a numbered record', () => {
     expect(refusals[0]).toMatch(new RegExp(`^\\[decisions\\] decisions in force: \\d+ bytes over the limit of ${DECISIONS_IN_FORCE_LIMIT}; mark the replaced ones superseded-by D-M$`))
     expect(read(over).code).toBe(1)
     expect(decisionsRefusals(file(long(1, ' · superseded-by D-3'), long(2), long(3)))).toEqual([])
+  })
+
+  it('refuses a malformed number: D-01, D-0, D-1.5 and D-1-2 are no D-N', () => {
+    for (const number of ['D-01', 'D-0', 'D-1.5', 'D-1-2']) {
+      expect(decisionsRefusals(file(`- ${number} · 2026-10-08 — one.`)), number).toEqual([`[decisions] line 5: a decision off the format; every decision is ${DECISION_FORMAT}`])
+      expect(read(file(`- ${number} · 2026-10-08 — one.`)).code, number).toBe(1)
+    }
+  })
+
+  it('refuses a line off the format: no date, an empty body, a non-exact superseded-by, a line outside the list', () => {
+    const offFormat = `every decision is ${DECISION_FORMAT}`
+    const cases: Record<string, [string, string]> = {
+      'no date': ['- D-1 just prose', 'a decision off the format'],
+      'no separator': ['- D-1 · 2026-10-08 one.', 'a decision off the format'],
+      'empty body': ['- D-1 · 2026-10-08 — ', 'a decision off the format'],
+      'superseded-by with a note': ['- D-1 · 2026-10-08 — one. · superseded-by D-2 (owner)', 'a decision off the format'],
+      'Superseded-by capitalised': ['- D-1 · 2026-10-08 — one. · Superseded-by D-2', 'a decision off the format'],
+      'superseded-by inside the body': ['- D-1 · 2026-10-08 — one, superseded-by D-2 later.', 'a decision off the format'],
+    }
+    for (const [name, [line, reason]] of Object.entries(cases))
+      expect(decisionsRefusals(file(line)), name).toEqual([`[decisions] line 5: ${reason}; ${offFormat}`])
+
+    const outside: Record<string, [string, string]> = {
+      'a dated line without a bullet': ['2026-10-09 — three.', 'a decision without D-N'],
+      'an ordered item': ['1. three.', 'a decision without D-N'],
+      'a D-N without a bullet': ['D-3 · 2026-10-09 — three.', 'a decision off the format'],
+      'a heading': ['## Later', 'a decision without D-N'],
+    }
+    for (const [name, [line, reason]] of Object.entries(outside)) {
+      const text = file('- D-1 · 2026-10-08 — one.', '', line, '- D-2 · 2026-10-08 — two.')
+      expect(decisionsRefusals(text), name).toEqual([`[decisions] line 7: ${reason}; ${offFormat}`])
+      expect(read(text).out, name).toEqual([])
+    }
+  })
+
+  it('refuses a backward superseded-by: the replacement takes a later number, so no cycle empties the record', () => {
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two. · superseded-by D-1'))).toEqual(['[decisions] D-2: superseded-by D-1, an earlier number; the replacement takes a new, later number'])
+    const cycle = file('- D-1 · 2026-10-08 — one. · superseded-by D-2', '- D-2 · 2026-10-08 — two. · superseded-by D-1')
+    expect(decisionsRefusals(cycle)).toEqual(['[decisions] D-2: superseded-by D-1, an earlier number; the replacement takes a new, later number'])
+    expect(read(cycle).code).toBe(1)
+  })
+
+  it('refuses numbers out of order: they run 1..n in file order', () => {
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-3 · 2026-10-08 — three.'))).toEqual(['[decisions] D-3 on line 6: expected D-2; numbers run 1..n in file order'])
+    expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two.', '- D-1 · 2026-10-08 — one.'))).toEqual([
+      '[decisions] D-2 on line 5: expected D-1; numbers run 1..n in file order',
+      '[decisions] D-1 on line 6: expected D-3; numbers run 1..n in file order',
+    ])
+    expect(read(file('- D-1 · 2026-10-08 — one.', '- D-3 · 2026-10-08 — three.')).code).toBe(1)
   })
 
   it('refuses a missing file and a flag', () => {
