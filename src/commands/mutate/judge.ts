@@ -29,6 +29,7 @@ export type JudgeRefusal
     | 'no-record'
     | 'named-test-missing'
     | 'named-test-ambiguous'
+    | 'named-test-skipped'
     | 'bad-card'
     | 'no-journal'
     | 'card-required'
@@ -112,6 +113,8 @@ function outcomeOf(prediction: Prediction, report: TestReport, failures: Failure
     return refused('named-test-missing')
   if (named.length > 1)
     return refused('named-test-ambiguous', String(named.length))
+  if (!named[0].ran && !named[0].failed)
+    return refused('named-test-skipped')
   if (named[0].failed)
     return { outcome: 'named-red', matched: true }
   return { outcome: failures.length === 0 ? 'nothing-red' : 'other-red', matched: false }
