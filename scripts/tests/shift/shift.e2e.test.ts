@@ -933,6 +933,20 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
   })
 
+  it('a guard refusal masked by task:close stops the chain', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-CLOSE STUB-REFUSED STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end guard-refusal'])
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
+  it('an Eddies stop masked by task:close ends the chain with eddies-budget', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-CLOSE STUB-STOP STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end eddies-budget'])
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
   it('a pull request closed without a merge ends the chain at once', async () => {
     const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
     const { slept } = await chainRun(world, chainGh({ owner: [101], state: 'CLOSED' }))

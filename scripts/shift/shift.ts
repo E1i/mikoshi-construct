@@ -231,7 +231,17 @@ function sessionEvidence(deps: ShiftDeps, task: ShiftTask, places: Places, sessi
   }
 }
 
-type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[], pr?: number }
+type HeldBy = 'guard-refusal' | 'eddies-stop'
+
+type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[], pr?: number, heldBy?: HeldBy }
+
+function heldBy(evidence: { refused: boolean, stopped: boolean }): { heldBy?: HeldBy } {
+  if (evidence.refused)
+    return { heldBy: 'guard-refusal' }
+  if (evidence.stopped)
+    return { heldBy: 'eddies-stop' }
+  return {}
+}
 
 function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
   let result: MergeResult
@@ -435,6 +445,7 @@ interface Sessions {
   exit: ClaudeExit
   lastExit: ExitReason
   refused: boolean
+  stopped: boolean
   halted: string | null
   current: string
   continuations: string[]
@@ -447,11 +458,13 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
   let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, card: task.card.id, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, places.number) })
   let lastExit: ExitReason = 'ended'
   let refused = false
+  let stopped = false
   let halted: string | null = null
   while (exit.kind === 'exited') {
     const evidence = sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null)
     lastExit = exitReason(evidence)
     refused = refused || evidence.refused
+    stopped = stopped || evidence.stopped
     const handoff = deps.exists(places.report) ? deps.read(places.report) : null
     halted = boundaryWhy(task, lastExit, continuations.length, handoff, places.report)
     if (!continues(task.continue, lastExit, continuations.length, handoff ?? ''))
@@ -466,22 +479,22 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
     const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
     exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, card: task.card.id, prompt, log: logPath(dir, places.number, continuations.length) })
   }
-  return { exit, lastExit, refused, halted, current, continuations }
+  return { exit, lastExit, refused, stopped, halted, current, continuations }
 }
 
 type TaskBase = Pick<TaskLine, 'event' | 'file' | 'number' | 'task' | 'card' | 'branch' | 'session' | 'started'>
 
 function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions, shard: string | undefined): { line: ShiftTaskLine, stop: StopRecord | null } {
   const { worktree } = places
-  const { exit, lastExit, refused, halted, current, continuations } = ran
+  const { exit, lastExit, refused, stopped, halted, current, continuations } = ran
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped: lastExit === 'eddies-stop' }) : undefined
+  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped }) : undefined
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
-  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
+  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...heldBy({ refused, stopped }), ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
   return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: report ? deps.read(places.report) : null, merge, closed }) }
 }
 
@@ -745,11 +758,11 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
     recordStop(deps, dir, task.id, stop)
     return chainEnd(stop)
   }
-  if (line.lastExit === 'guard-refusal') {
+  if (line.heldBy === 'guard-refusal') {
     recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'fault', EXIT_REASON_TEXT['guard-refusal'], line.pr))
     return 'guard-refusal'
   }
-  if (line.lastExit === 'eddies-stop')
+  if (line.heldBy === 'eddies-stop')
     return 'eddies-budget'
   if (line.pr !== undefined) {
     chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr })

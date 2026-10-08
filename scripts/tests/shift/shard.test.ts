@@ -171,6 +171,15 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'fault', why: 'eddies stop' }])
   })
 
+  it('an Eddies stop masked by task:close does not arm the owner PR', async () => {
+    const world = initWorld('do 1 STUB-CLOSE STUB-STOP STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const { gh, calls } = ownerGh()
+    await shift(world, gh, shard)
+    expect(merges(calls)).toEqual([])
+    expect(eventsOf(world, 'delegated')).toEqual([])
+  })
+
   it('a shard issued for another run is refused', async () => {
     const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
     const shard = issue(world)
