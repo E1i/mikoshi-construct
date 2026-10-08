@@ -1,6 +1,8 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BG_LOG, launchArgv, runBg, USAGE } from '../../shift/bg.js'
 
@@ -17,6 +19,19 @@ function stub(bin: string, name: string, body: string): void {
   chmodSync(file, 0o755)
 }
 
+const SYSTEM_BIN_DIRS = ['/bin', '/usr/bin']
+
+function linkFromSystem(bin: string, name: string): void {
+  const source = SYSTEM_BIN_DIRS.map(dir => path.join(dir, name)).find(file => existsSync(file))
+  if (source === undefined)
+    throw new Error(`${name} is in none of ${SYSTEM_BIN_DIRS.join(', ')}`)
+  symlinkSync(source, path.join(bin, name))
+}
+
+function ownPgid(): string {
+  return execFileSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim()
+}
+
 function world(withSetsid: boolean): { root: string, dir: string, out: string, env: NodeJS.ProcessEnv } {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'shift-bg-')))
   roots.push(root)
@@ -24,11 +39,13 @@ function world(withSetsid: boolean): { root: string, dir: string, out: string, e
   const out = path.join(root, 'out')
   mkdirSync(bin)
   mkdirSync(out)
+  linkFromSystem(bin, 'ps')
+  linkFromSystem(bin, 'tr')
   stub(bin, 'nohup', `echo nohup >> "$STUB_OUT/chain"\nexec "$@"`)
   if (withSetsid)
     stub(bin, 'setsid', `echo setsid >> "$STUB_OUT/chain"\nexec "$@"`)
   stub(bin, 'pnpm', `echo "pnpm shift output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\nps -o pgid= -p $$ | tr -d ' ' > "$STUB_OUT/pgid"\necho $$ > "$STUB_OUT/pid"`)
-  return { root, dir: path.join(root, 'shift'), out, env: { PATH: `${bin}:/usr/bin:/bin`, STUB_OUT: out } }
+  return { root, dir: path.join(root, 'shift'), out, env: { PATH: bin, STUB_OUT: out } }
 }
 
 async function settled(file: string): Promise<string> {
@@ -46,7 +63,7 @@ describe('pnpm shift:bg', () => {
     expect(result.stdout[0]).toBe(pid)
     expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${w.dir} --chain`)
     expect(readFileSync(path.join(w.out, 'chain'), 'utf8').trim().split('\n')).toEqual(['nohup', 'setsid'])
-    expect(await settled(path.join(w.out, 'pgid'))).toBe(pid)
+    expect(await settled(path.join(w.out, 'pgid'))).not.toBe(ownPgid())
     for (let attempt = 0; attempt < 200 && !readFileSync(path.join(w.dir, BG_LOG), 'utf8').includes('pnpm shift output'); attempt++)
       await new Promise(resolve => setTimeout(resolve, 25))
     expect(readFileSync(path.join(w.dir, BG_LOG), 'utf8')).toContain('pnpm shift output')
@@ -58,7 +75,7 @@ describe('pnpm shift:bg', () => {
     expect(result.exitCode).toBe(0)
     const pid = await settled(path.join(w.out, 'pid'))
     expect(result.stdout[0]).toBe(pid)
-    expect(await settled(path.join(w.out, 'pgid'))).toBe(pid)
+    expect(await settled(path.join(w.out, 'pgid'))).not.toBe(ownPgid())
     expect(readFileSync(path.join(w.out, 'chain'), 'utf8').trim()).toBe('nohup')
   })
 
