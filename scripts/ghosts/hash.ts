@@ -1,3 +1,4 @@
+import type { Card } from '../../src/card/grammar.js'
 import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
@@ -11,7 +12,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
 import { UNCLEAR_PREFIX } from '../../src/commands/intake/slice.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { approvalEvent, approvalSha256, approvedHashPath, approverOf, canonicalImplementText, cardNumberOf, extractApprovedHash, fallsOf, journalEvents, MORSE, revocationOf } from './approval.js'
+import { approvalEvent, approvalSha256, approvedHashPath, approverOf, canonicalImplementText, cardNumberOf, contourSuggestion, extractApprovedHash, fallsOf, journalEvents, MORSE, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
 import { appendJournalEvent } from './journal.js'
 import { runPreflight } from './preflight.js'
@@ -108,7 +109,12 @@ export interface MorseOptions {
   preflight?: Preflight
 }
 
-function parkedCard(parkingDir: string, card: number): { touches: string[], body: string } {
+export interface MorseApproval {
+  line: string
+  suggestion?: string
+}
+
+function parkedCard(parkingDir: string, card: number): { card: Card, touches: string[], body: string } {
   const file = path.join(parkingDir, `${card}.md`)
   if (!existsSync(file))
     throw new Error(`no parking file ${file} for card #${card}; the card is read from there before anything is built`)
@@ -148,7 +154,7 @@ function refuseOwnerApproval(briefPath: string, sha256: string): void {
   throw new Error(`${approvedPath} already holds this hash, approved by ${approver ?? 'an approver it does not name readably'}; it is left as it is`)
 }
 
-export async function morseApprove(briefPath: string, options: MorseOptions): Promise<string> {
+export async function morseApprove(briefPath: string, options: MorseOptions): Promise<MorseApproval> {
   const { card, parkingDir, journalPath, now, runBuild = checkAcceptanceBuild, preflight = runPreflight } = options
   const text = implementTextOf(briefPath)
   const sha256 = approvalSha256(text)
@@ -179,14 +185,17 @@ export async function morseApprove(briefPath: string, options: MorseOptions): Pr
     forecast,
     ts: now.toISOString(),
   })
+  const suggestion = contourSuggestion(parked.card, forecast)
   try {
     await appendJournalEvent(journalPath, event)
+    if (suggestion !== undefined)
+      await appendJournalEvent(journalPath, suggestionEvent(card, suggestion, now.toISOString()))
   }
   catch (error) {
     throw new Error(`the journal ${journalPath} cannot be written (${error instanceof Error ? error.message : String(error)}), so no approval file was written`)
   }
   writeFileSync(approvedHashPath(briefPath), `${line}\n`)
-  return line
+  return suggestion === undefined ? { line } : { line, suggestion }
 }
 
 interface HashArgs {
@@ -242,7 +251,10 @@ async function main(): Promise<void> {
   try {
     if (args.card !== undefined) {
       const parkingDir = args.parking === undefined ? path.join(os.homedir(), '.construct', 'parking') : path.resolve(args.parking)
-      console.log(await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir, journalPath: handoffJournalPath(), now: new Date() }))
+      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir, journalPath: handoffJournalPath(), now: new Date() })
+      console.log(approval.line)
+      if (approval.suggestion !== undefined)
+        console.log(approval.suggestion)
       return
     }
     console.log(approvalLine(args.briefPath, new Date(), resolveApprover(args.by)))
