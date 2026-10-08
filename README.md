@@ -157,6 +157,7 @@ with a named check, not a second fix.
 | `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |
 | `construct soulkill` | Print what the detector sees, write nothing (`--json`; aliases `inspect`, `capture`) |
 | `construct graph` | Draw the model — claims, hypotheses and the evidence under them — as a Mermaid flowchart on stdout |
+| `construct atlas` | Discover the code into the Engram and build the Atlas from it: one self-contained HTML page of stages, parts and the code under each, written into no tracked file of a repository the construct does not own (`--out`) |
 | `construct cost` | Token usage of the `/implement` runs in this directory, per agent, in tokens without cache reads and price-weighted (`--last`, `--json`) |
 | `construct board` | Where each task stands, from the ladder runs in `.construct/runs.jsonl` and a pull request list handed over with `--prs` (`--all`, `--stale`, `--every`, `--json`) |
 | `construct mutate` | Apply a brief's named wrong implementation (`mutate apply --from <file> --id <id>`), then restore it from its copy and judge the Vitest report the runner hands over (`mutate judge --id <id> --report <file>`); runs no test itself |

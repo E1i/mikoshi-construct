@@ -144,4 +144,19 @@ so that is the state to expect in a repository the construct has not been run in
 The diagram goes to standard output, so `construct graph > picture.mmd` keeps it; the
 [CLI reference](/cli) has the rest.
 
+## Then open the map of the code
+
+`construct graph` prints what the tool believes; `construct atlas` maps what the code is. One call
+reads the tracked files, writes what it found into the model and renders one self-contained page you
+open in a browser: the stages your repository names for itself, each part with its evidence, its links
+and its source, and the code under it.
+
+```bash
+construct atlas
+```
+
+The page lands in `.construct/atlas.html`, which the construct's `.gitignore` already ignores; in a
+repository you only attached, nothing tracked is written and `git status` stays clean. The
+[CLI reference](/cli#construct-atlas) says where each file goes and what the exit codes mean.
+
 From there the loop is [the development cycle](/guide/the-cycle).

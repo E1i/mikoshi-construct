@@ -1,0 +1,71 @@
+id: atlas
+title: construct atlas composition
+description: >-
+  `runAtlas(options)` in `src/atlas/index.ts` is the composition root: the command in
+  `src/program.ts` reads whether `attach` recorded this repository, `detectExisting` says whether
+  `init` made it, and the two decide where everything lands. `writeEngram` runs discovery — `git
+  rev-parse HEAD`, `git ls-files -z` and each tracked TypeScript or JavaScript file — and writes the
+  Engram's `mechanics` into `construct.model.json` of a repository `init` made, or into
+  `~/.construct/engram/<repo>/` of any other. The Engram is read back through `readModel`, the state of
+  every claim and hypothesis is derived once with `deriveModelState`, and `renderAtlas` writes one
+  self-contained page into `.construct/` where the construct owns that directory, beside the Engram
+  where it does not, or at the path `--out` names. No tracked file of a repository the construct does
+  not own is written. Dotted edges are wiring, solid edges are the flow.
+doc: architecture/atlas.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: place
+    label: Place · what the repository already is
+  - id: discover
+    label: Discover · what git holds
+  - id: derive
+    label: Derive
+  - id: render
+    label: Render
+nodes:
+  - id: cli
+    label: construct atlas (citty) · readAttachRecord
+    path: src/program.ts
+    boundary: entry
+  - id: run
+    label: runAtlas
+    path: src/atlas/index.ts
+    boundary: entry
+  - id: existing
+    label: detectExisting · construct.json is here or not
+    path: src/detect/existing.ts
+    boundary: place
+  - id: engram
+    label: writeEngram / engramFile · construct.model.json here, or ~/.construct/engram/<repo>/
+    path: src/model/discovery.ts
+    boundary: place
+  - id: git
+    label: readHead, readTrackedFiles · git rev-parse HEAD, git ls-files -z
+    path: src/detect/git.ts
+    boundary: discover
+  - id: mechanics
+    label: discoverMechanics · each tracked source file a component, its imports and calls relations
+    path: src/model/discovery.ts
+    boundary: discover
+  - id: read
+    label: readModel · the Engram read back, a model ahead of the reader is refused
+    path: src/model/write.ts
+    boundary: derive
+  - id: state
+    label: deriveModelState · each claim and hypothesis against the facts named under it
+    path: src/model/state.ts
+    boundary: derive
+  - id: page
+    label: renderAtlas → one self-contained page · .construct/atlas.html, beside the Engram, or --out
+    path: src/atlas/page.ts
+    boundary: render
+edges:
+  - {from: cli, to: run, kind: sequence, label: attached or not}
+  - {from: run, to: existing, kind: sequence}
+  - {from: run, to: engram, kind: sequence, label: init made it or not}
+  - {from: engram, to: mechanics, kind: sequence}
+  - {from: mechanics, to: git, kind: wires}
+  - {from: run, to: read, kind: sequence, label: after the Engram is written}
+  - {from: read, to: state, kind: sequence}
+  - {from: state, to: page, kind: sequence}

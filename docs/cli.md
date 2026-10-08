@@ -1663,10 +1663,6 @@ a diagram a program reads is already the JSON of this command.
 The page that can be opened rather than piped is the Atlas, which [`construct atlas`](#construct-atlas)
 builds; `graph` has no `--out` and writes no file.
 
-The diagram's colours are the derived states, and nothing more: *Colour carries the derived state and not the enforcement level: the same
-green covers an L0 claim nobody is obliged to read and an L3 claim that fails the build, and each
-claim’s level is written inside it.*
-
 The states in the labels are the ones `doctor` reports, derived on read by the same code and stored
 nowhere, with one named exception: a fact of kind `report-covers` or `report-misses`, and every
 claim or hypothesis that names one, is drawn as `runtime-report` and never evaluated, because a
