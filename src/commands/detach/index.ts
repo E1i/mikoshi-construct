@@ -112,9 +112,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   const runtime = classifyRuntime(record, reading.tracked, readRuntimeListing(root))
 
   const entryLabel = ui.lore.detachSettingsEntry
-  const { settingsDeleted, entryCutOut } = entry === 'remove' && isSettingsHook(hook)
+  const { settingsDeleted, entryCutOut, bytesRestored } = entry === 'remove' && isSettingsHook(hook)
     ? takeOutGuardEntry(root, hook, kept)
-    : { settingsDeleted: false, entryCutOut: false }
+    : { settingsDeleted: false, entryCutOut: false, bytesRestored: false }
   const removal = removeAttached(root, record, ofKind(classified, 'remove'), runtime)
   if (original != null)
     dropOriginal(original.copy)
@@ -125,6 +125,8 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
     ui.line(`  ${ui.theme.dim('-')} ${target}`)
   if (entryCutOut)
     ui.line(`  ${ui.lore.detachEntryRemoved(SETTINGS_FILE)}`)
+  if (bytesRestored)
+    ui.line(`  ${ui.lore.detachOriginalRestored(SETTINGS_FILE)}`)
   for (const target of ofKind(classified, 'adopted'))
     ui.line(`  ${ui.lore.detachAdopted(target)}`)
   if (entry === 'adopted')
