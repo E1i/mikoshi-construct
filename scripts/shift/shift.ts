@@ -40,7 +40,7 @@ import { reviewOf } from '../ghosts/verdict.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { COMMIT_FLAG, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { changedFiles, COMMIT_FLAG, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -95,7 +95,7 @@ export const USAGE = [
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a pipeline: once a card closes with a pull request, that pull request is in review and the chain takes the next card whose depends are merged and whose touches overlap no card in review;',
   'a card that overlaps one waits until that one merges and is then cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
-  `The chain arms auto-merge on a pull request only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain arms after CI with no verdict; R3 a diff review; R1 and R2 the full review.`,
+  `The chain arms auto-merge on a pull request only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain arms after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
   'An owner pull request is merged by the owner (or armed under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
   `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary>.`,
   'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run on its first fault (no second attempt): its stop carries failed: true and the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
@@ -319,13 +319,17 @@ interface Delegation {
 
 const LEFT_TO_THE_OWNER = /merge is Eli's$/
 
+function chainReview(deps: ShiftDeps, task: ShiftTask, number: string): ReturnType<typeof reviewOf> {
+  const declared = reviewOf(task.touches)
+  return declared.depth === 'none' ? reviewOf(task.touches, changedFiles(deps.gh, number)) : declared
+}
+
 function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: string, delegation: Delegation): string[] {
   if (asksTheOwner(text))
     return [`${MERGE_PREFIX}PR #${number} not armed: the report asks the owner; the merge waits for the owner's answer`]
-  if (delegation.afterReview) {
-    const { risk, depth } = reviewOf(task.touches)
-    return [`${MERGE_PREFIX}PR #${number} waits for its review verdict, a ${depth} review at risk ${risk}: the chain arms it after pnpm shift:merge ${number} ${VERDICT_FLAG} pass ${COMMIT_FLAG} <its head>`]
-  }
+  const review = delegation.afterReview ? chainReview(deps, task, number) : undefined
+  if (review !== undefined && review.depth !== 'none')
+    return [`${MERGE_PREFIX}PR #${number} waits for its review verdict, a ${review.depth} review at risk ${review.risk}: the chain arms it after pnpm shift:merge ${number} ${VERDICT_FLAG} pass ${COMMIT_FLAG} <its head>`]
   const lines = mergeAfterSession(deps, number, delegation.reviewed)
   const { shard } = delegation
   if (shard === undefined || lines.length === 0 || !lines.every(line => LEFT_TO_THE_OWNER.test(line)))
@@ -902,7 +906,7 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
   if (ending !== undefined && ENDS_OF_THE_CARD.includes(ending) && pipeline.outcome.result === 'done')
     Object.assign(pipeline.outcome, { result: `stop ${ending}`, reason: latestStops(readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL))).get(task.id)?.why ?? ending })
   if (ending === undefined && line.pr !== undefined) {
-    chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr, review: reviewOf(task.touches).depth })
+    chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr, review: chainReview(deps, task, String(line.pr)).depth })
     pipeline.reviews.push({ task, pr: line.pr, line, outcome: pipeline.outcome, since: deps.now().getTime(), decided: !line.merge?.some(merge => AWAITS_REVIEW.test(merge)) })
   }
   return advance(deps, dir, parking, chain, pipeline.reviews, taken, pipeline.shard, ending)
@@ -1002,7 +1006,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       }
       for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
         deps.out(line)
-      const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard, chain !== undefined && reviewOf(task.touches).depth !== 'none')
+      const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard, chain !== undefined)
       const ran = { line: finished.line, stop: failedStop(deps, dir, finished) }
       deps.append(journal, `${JSON.stringify(ran.line)}\n`)
       deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)

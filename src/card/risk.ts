@@ -20,6 +20,8 @@ const CARRIERS = 'the registration of the carriers attach delivers'
 const SECURITY = 'a security invariant'
 const CONTRACT = 'a contract or a recorded shape that others read'
 const FACTORY = 'the factory mechanism that decides on closing, merging and admitting a task'
+const PUBLISH = 'a publish, which cannot be unpublished'
+const ALWAYS_HIGH = 'always high: the composition models, the lint policy and who merges'
 const LOW = 'documentation, a log, a test or a script outside the gate'
 const ELSEWHERE = 'no path of the core, of a contract, or of the low list'
 
@@ -44,6 +46,12 @@ const CORE: readonly (readonly [string, string])[] = [
   ['src/commands/detach', FOREIGN_WRITE],
   ['scripts/attach', CARRIERS],
   ['architecture/security-invariants.md', SECURITY],
+  ['.changeset/config.json', PUBLISH],
+  ['scripts/release', PUBLISH],
+  ['.github/workflows', PUBLISH],
+  ['architecture/composition', ALWAYS_HIGH],
+  ['eslint.config.mjs', ALWAYS_HIGH],
+  ['architecture/owner-merges.md', ALWAYS_HIGH],
 ]
 const HIGH: readonly (readonly [string, string])[] = [
   ['contract', CONTRACT],

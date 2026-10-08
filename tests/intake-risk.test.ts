@@ -44,6 +44,15 @@ const LEVEL_OF_PATH: Record<string, string> = {
   'README.md': 'R4',
 }
 
+const ALWAYS_HIGH_OR_PUBLISH = [
+  '.changeset/config.json',
+  'scripts/release/verify-published.ts',
+  '.github/workflows/release.yml',
+  'architecture/composition/init.yaml',
+  'eslint.config.mjs',
+  'architecture/owner-merges.md',
+]
+
 const roots: string[] = []
 
 afterEach(() => {
@@ -97,6 +106,12 @@ describe('each path has the level its kind of change carries', () => {
       expect(riskOf(touch).level).toBe(level)
     })
   }
+})
+
+describe('a path AGENTS.md names always high or a publish reads R1, never R3 or R4', () => {
+  it.each(ALWAYS_HIGH_OR_PUBLISH)('always high: %s is R1', (touch) => {
+    expect(riskOf(touch).level).toBe('R1')
+  })
 })
 
 describe('intake writes the risk line into the card', () => {

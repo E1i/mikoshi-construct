@@ -37,8 +37,10 @@ export function reviewDepth(level: RiskLevel): ReviewDepth {
   return DEPTH_OF_RISK[level]
 }
 
-export function reviewOf(touches: readonly string[]): { risk: RiskLevel, depth: ReviewDepth } {
-  const risk = riskReading(touches, false).level
+const UNREAD_RISK: RiskLevel = 'R1'
+
+export function reviewOf(...pathSets: readonly (readonly string[])[]): { risk: RiskLevel, depth: ReviewDepth } {
+  const risk = pathSets.length === 0 || pathSets.some(paths => paths.length === 0) ? UNREAD_RISK : riskReading(pathSets.flat(), false).level
   return { risk, depth: reviewDepth(risk) }
 }
 

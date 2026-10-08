@@ -69,13 +69,26 @@ function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
 }
 
+export function readPrView(gh: GhRunner, number: string): PrView {
+  return JSON.parse(gh(['pr', 'view', number, '-R', REPO, '--json', 'body,headRefOid,files'])) as PrView
+}
+
+export function changedFiles(gh: GhRunner, number: string): string[] {
+  try {
+    return (readPrView(gh, number).files ?? []).map(file => file.path)
+  }
+  catch {
+    return []
+  }
+}
+
 export function runMerge(argv: string[], deps: MergeDeps, reviewed?: string): MergeResult {
   const number = argv[0]
   if (argv.length !== 1 || number === undefined || !/^\d+$/.test(number))
     return refuse(USAGE)
   let view: PrView
   try {
-    view = JSON.parse(deps.gh(['pr', 'view', number, '-R', REPO, '--json', 'body,headRefOid,files'])) as PrView
+    view = readPrView(deps.gh, number)
   }
   catch (error) {
     return refuse(`PR #${number} not read: ${firstLine(error)}`)

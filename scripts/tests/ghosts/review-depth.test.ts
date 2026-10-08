@@ -37,3 +37,16 @@ describe('review depth follows risk', () => {
     expect(body.includes('ghosts:verdict')).toBe(depth !== 'none')
   })
 })
+
+describe('no touches is a full review', () => {
+  it('an empty set of touches or changed files reads R1 and a full review, never none', () => {
+    expect(reviewOf([])).toEqual({ risk: 'R1', depth: 'full' })
+    expect(reviewOf()).toEqual({ risk: 'R1', depth: 'full' })
+    expect(reviewOf(['docs/cli.md'], [])).toEqual({ risk: 'R1', depth: 'full' })
+  })
+
+  it('the deeper of the touches and the changed files decides', () => {
+    expect(reviewOf(['docs/cli.md'], ['docs/cli.md'])).toEqual({ risk: 'R4', depth: 'none' })
+    expect(reviewOf(['docs/cli.md'], ['src/materialize/plan.ts'])).toEqual({ risk: 'R1', depth: 'full' })
+  })
+})

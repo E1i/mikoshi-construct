@@ -365,7 +365,10 @@ The depth of the review follows the card's risk level, and one function, `review
 `scripts/ghosts/verdict.ts`, maps a level to a depth; the ladder's review step (the Ghost
 verdict) and the shift chain's step wait both read it, from the risk `riskReading` gives the card's
 touches. R4 gets no review agent: the witnesses and CI decide, and the chain arms the pull request
-with no verdict line. R3 gets a short review of the diff only: no Design scan, no mutations, no
+with no verdict line, but only after `riskReading` over the pull request's changed files reads R4
+too; the deeper of the two decides, so a changed file above R4 sends it to the review wait. An empty
+set of touches or changed files, or files the chain could not read, is a full review, never none.
+R3 gets a short review of the diff only: no Design scan, no mutations, no
 Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict` as before.
 R1 and R2 get the full review: the witnesses, the mutations and the Design walk. The chain records
 the depth as `review` on its `event:chain` wait line. The baseline to compare against is the
