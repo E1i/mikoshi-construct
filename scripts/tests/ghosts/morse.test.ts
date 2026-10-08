@@ -1,4 +1,4 @@
-import type { BuildRunner } from '../../ghosts/hash.js'
+import type { BuildRunner, MorseApproval } from '../../ghosts/hash.js'
 import type { Preflight } from '../../ghosts/preflight.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -29,6 +29,7 @@ function briefText(expectLine: string): string {
 }
 
 interface Scenario {
+  cardLine?: string
   touches?: string
   body?: string
   expectLine?: string
@@ -43,14 +44,18 @@ function scenario(options: Scenario = {}): { brief: string, parkingDir: string, 
   const parkingDir = path.join(root, 'parking')
   mkdirSync(parkingDir)
   if (options.parked !== false)
-    writeFileSync(path.join(parkingDir, `${CARD}.md`), parkingFileText({ card: CARD_LINE, branch: `feat/${CARD}`, touches: [options.touches ?? 'src/thing/**'], continue: 'stop', who: 'shift', body: options.body ?? 'Do the thing.' }))
+    writeFileSync(path.join(parkingDir, `${CARD}.md`), parkingFileText({ card: options.cardLine ?? CARD_LINE, branch: `feat/${CARD}`, touches: [options.touches ?? 'src/thing/**'], continue: 'stop', who: 'shift', body: options.body ?? 'Do the thing.' }))
   const journalPath = path.join(root, 'ghosts.jsonl')
   writeFileSync(journalPath, (options.events ?? []).map(event => `${JSON.stringify(event)}\n`).join(''))
   return { brief, parkingDir, journalPath, runBuild: vi.fn<BuildRunner>(() => ({ status: 0, stderr: '' })), preflight: vi.fn<Preflight>(), approvedPath: `${brief.replace(/\.md$/, '')}.approved-sha256` }
 }
 
-function approve(world: ReturnType<typeof scenario>): Promise<string> {
+function approveWithSuggestion(world: ReturnType<typeof scenario>): Promise<MorseApproval> {
   return morseApprove(world.brief, { card: CARD, parkingDir: world.parkingDir, journalPath: world.journalPath, now: NOW, runBuild: world.runBuild, preflight: world.preflight })
+}
+
+async function approve(world: ReturnType<typeof scenario>): Promise<string> {
+  return (await approveWithSuggestion(world)).line
 }
 
 async function expectRefusal(world: ReturnType<typeof scenario>, message: RegExp): Promise<void> {
@@ -176,6 +181,63 @@ describe('the MORSE gate in process', () => {
     expect(readFileSync(world.approvedPath, 'utf8')).toBe(ownerLine)
     expect(readFileSync(world.journalPath, 'utf8')).toBe('')
     expect(world.runBuild).not.toHaveBeenCalled()
+  })
+})
+
+function ladderCard(size: string): string {
+  return `#${CARD} task-${CARD} [implement/ghosts/${size}/ladder/owner] · depends — · blocks —`
+}
+
+function forecastOf(minutes: number): string {
+  return `expect: tokens ≈ 166k, minutes ≈ ${minutes} — effort medium, n=61, median, ${BAND}`
+}
+
+function suggestionsOf(journalPath: string): Record<string, unknown>[] {
+  return journalOf(journalPath).filter(event => event.event === 'suggestion')
+}
+
+describe('mORSE suggests a cheaper contour', () => {
+  it('suggests cheap for a small ladder card', async () => {
+    for (const size of ['S', 'M']) {
+      const world = scenario({ cardLine: ladderCard(size), expectLine: forecastOf(17) })
+      const approval = await approveWithSuggestion(world)
+      const suggestions = suggestionsOf(world.journalPath)
+      expect(suggestions).toHaveLength(1)
+      expect(suggestions[0]).toMatchObject({ by: 'morse', card: CARD, contour: 'ladder', suggests: 'cheap', ts: NOW.toISOString() })
+      expect(suggestions[0]!.line).toBe(approval.suggestion)
+      expect(approval.suggestion).toMatch(/^mechanism: ladder, I suggest cheap, because /)
+      expect(approval.suggestion).toContain(`size ${size}`)
+      expect(approval.suggestion).toContain('difference ≈92k tokens / 12 minutes')
+    }
+  })
+
+  it('leaves the contour unchanged', async () => {
+    const world = scenario({ cardLine: ladderCard('S'), expectLine: forecastOf(17) })
+    const parkingFile = path.join(world.parkingDir, `${CARD}.md`)
+    const parkedBefore = readFileSync(parkingFile, 'utf8')
+    const approval = await approveWithSuggestion(world)
+    expect(approval.suggestion).toBeDefined()
+    expect(readFileSync(parkingFile, 'utf8')).toBe(parkedBefore)
+    expect(readFileSync(world.approvedPath, 'utf8')).toBe(`${approval.line}\n`)
+    expect(journalOf(world.journalPath).filter(event => event.event === 'approval')).toHaveLength(1)
+    expect(approval.suggestion).toContain('the contour stays as the card says')
+  })
+
+  it('no suggestion above the threshold or for size L', async () => {
+    const cases = [
+      { cardLine: ladderCard('S'), expectLine: forecastOf(64) },
+      { cardLine: ladderCard('M'), expectLine: forecastOf(90) },
+      { cardLine: ladderCard('L'), expectLine: forecastOf(17) },
+      { cardLine: ladderCard('XS'), expectLine: forecastOf(17) },
+      { cardLine: CARD_LINE, expectLine: forecastOf(17) },
+    ]
+    for (const options of cases) {
+      const world = scenario(options)
+      const approval = await approveWithSuggestion(world)
+      expect(approval.suggestion).toBeUndefined()
+      expect(suggestionsOf(world.journalPath)).toHaveLength(0)
+      expect(existsSync(world.approvedPath)).toBe(true)
+    }
   })
 })
 
