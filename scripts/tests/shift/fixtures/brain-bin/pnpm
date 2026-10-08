@@ -1,0 +1,2 @@
+#!/bin/sh
+printf '%s\n' "$*" >> "$STUB_OUT/pnpm.argv"
