@@ -1,6 +1,9 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { parseParkingFile } from '../../src/card/parking.js'
 
 export const PREFIX = '[handoff:check] '
 
@@ -80,31 +83,188 @@ export function refusal(missing: readonly HandoffField[]): string[] {
   return missing.map(field => `${PREFIX}missing: ${field.label} (${field.id}, ${field.group})`)
 }
 
+export const HANDOFF_LIMIT = 6000
+export const PREV_LABEL = 'prev'
+export const IN_FLIGHT_LABEL = 'in-flight'
+export const NO_PREV = 'none'
+export const IN_FLIGHT_FORMAT = '#N <stage> [PR #M]'
+
+const STOP_HEADING = /^#{1,6} +STOP\b/
+const STATUS_LABEL = 'status'
+const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL])
+const QUEUE_CARD = /#(\d+)/g
+const QUEUE_CARD_TEXT = /#\d+/g
+const QUEUE_SEPARATORS = /[\s,;→∥·|>-]+/g
+const IN_FLIGHT_ENTRY = /^#\d+ (?!PR\b)\S+(?: PR ?#\d+)?$/
+const NONE = /^none$/i
+
+export type ParkedDepends = ReadonlyMap<number, readonly number[]>
+
+export interface HandoffContext {
+  file: string
+  exists: (file: string) => boolean
+  parked: ParkedDepends
+}
+
+export type StopSections = 'exactly-one' | 'at-most-one'
+
+interface Block {
+  label: string
+  lines: string[]
+}
+
+function blocksOf(text: string): Block[] {
+  const blocks: Block[] = []
+  for (const line of text.split(/\r?\n/)) {
+    const head = HEADING.exec(line)
+    const field = head === null ? labelled(line) : null
+    if (head !== null)
+      blocks.push({ label: normalised(head[1]), lines: [] })
+    else if (field !== null && BLOCK_LABELS.has(field.label))
+      blocks.push({ label: field.label, lines: field.value === '' ? [] : [field.value] })
+    else if (line.trim() !== '' && blocks.length > 0)
+      blocks.at(-1)!.lines.push(line.trim())
+  }
+  return blocks
+}
+
+function blockOf(blocks: readonly Block[], label: string): Block | undefined {
+  return blocks.filter(block => block.label === label).at(-1)
+}
+
+function blockSize(block: Block): number {
+  return block.label.length + block.lines.join('\n').length
+}
+
+function stopRefusals(text: string, allowed: StopSections): string[] {
+  const stops = text.split(/\r?\n/).filter(line => STOP_HEADING.test(line)).length
+  return stops === 1 || (stops === 0 && allowed === 'at-most-one') ? [] : [`${PREFIX}STOP sections: ${stops}; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write`]
+}
+
+function sizeRefusals(text: string, blocks: readonly Block[]): string[] {
+  if (text.length <= HANDOFF_LIMIT)
+    return []
+  const largest = [...blocks].sort((a, b) => blockSize(b) - blockSize(a))[0]
+  const named = largest === undefined ? '' : `; largest field: ${largest.label} (${blockSize(largest)} chars)`
+  return [`${PREFIX}too large: ${text.length} chars over the limit of ${HANDOFF_LIMIT}${named}`]
+}
+
+function queueRefusals(blocks: readonly Block[], parked: ParkedDepends | null): string[] {
+  const queue = blockOf(blocks, 'queue')
+  if (queue === undefined)
+    return []
+  const value = queue.lines.join(' ')
+  const prose = value.replace(QUEUE_CARD_TEXT, ' ').replace(QUEUE_SEPARATORS, ' ').trim()
+  if (prose !== '' && !NONE.test(prose))
+    return [`${PREFIX}queue: prose "${prose.slice(0, 60)}"; queue takes only card numbers (#N), and their order comes from the cards' depends in parking`]
+  if (parked === null)
+    return []
+  const ids = [...value.matchAll(QUEUE_CARD)].map(match => Number(match[1]))
+  const refusals: string[] = []
+  for (const [index, id] of ids.entries()) {
+    const depends = parked.get(id)
+    if (depends === undefined) {
+      refusals.push(`${PREFIX}queue: #${id} is not a parked card`)
+      continue
+    }
+    for (const later of depends.filter(dependency => ids.indexOf(dependency) > index))
+      refusals.push(`${PREFIX}queue: #${id} depends on #${later}, which comes after it`)
+  }
+  return refusals
+}
+
+function prevRefusals(blocks: readonly Block[], context: HandoffContext): string[] {
+  const prev = blockOf(blocks, PREV_LABEL)?.lines.join(' ').trim() ?? ''
+  if (prev === '')
+    return [`${PREFIX}missing: ${PREV_LABEL} (the archive the previous handoff went to, or ${NO_PREV}); pnpm handoff:write writes it`]
+  if (prev === NO_PREV || context.exists(path.resolve(path.dirname(context.file), prev)))
+    return []
+  return [`${PREFIX}${PREV_LABEL}: ${prev} does not exist`]
+}
+
+function inFlightRefusals(blocks: readonly Block[]): string[] {
+  const inFlight = blockOf(blocks, IN_FLIGHT_LABEL)
+  if (inFlight === undefined || inFlight.lines.length === 0)
+    return [`${PREFIX}missing: ${IN_FLIGHT_LABEL} (one line per card, ${IN_FLIGHT_FORMAT}, or ${NO_PREV})`]
+  const entries = inFlight.lines.map(line => line.replace(LIST_MARKERS, '').trim())
+  if (entries.length === 1 && NONE.test(entries[0]!))
+    return []
+  return entries.filter(entry => !IN_FLIGHT_ENTRY.test(entry)).map(entry => `${PREFIX}${IN_FLIGHT_LABEL}: "${entry.slice(0, 60)}" is not ${IN_FLIGHT_FORMAT}`)
+}
+
+function boundRefusals(text: string, blocks: readonly Block[], stops: StopSections, parked: ParkedDepends | null): string[] {
+  return [...refusal(missingFields(text)), ...stopRefusals(text, stops), ...sizeRefusals(text, blocks), ...queueRefusals(blocks, parked)]
+}
+
+export function reportRefusals(text: string): string[] {
+  return boundRefusals(text, blocksOf(text), 'at-most-one', null)
+}
+
+export function handoffRefusals(text: string, context: HandoffContext): string[] {
+  const blocks = blocksOf(text)
+  return [
+    ...boundRefusals(text, blocks, 'exactly-one', context.parked),
+    ...prevRefusals(blocks, context),
+    ...inFlightRefusals(blocks),
+  ]
+}
+
+const PARKED_CARD = /^\d+\.md$/
+
+export function parkedDepends(parking: string): Map<number, number[]> {
+  const parked = new Map<number, number[]>()
+  const visit = (dir: string): void => {
+    for (const entry of existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : []) {
+      const file = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        visit(file)
+        continue
+      }
+      if (!PARKED_CARD.test(entry.name))
+        continue
+      const card = parseParkingFile(entry.name, readFileSync(file, 'utf8'))
+      if (card.kind === 'parked' && !parked.has(Number(card.parked.task.id)))
+        parked.set(Number(card.parked.task.id), card.parked.task.card.depends)
+    }
+  }
+  visit(parking)
+  return parked
+}
+
+export function defaultParking(home: string): string {
+  return path.join(home, '.construct', 'parking')
+}
+
 export interface HandoffCheckDeps {
   exists: (file: string) => boolean
   read: (file: string) => string
+  parked: (parking: string) => ParkedDepends
+  home: string
   out: (line: string) => void
   err: (line: string) => void
 }
 
+export const USAGE = 'usage: handoff-check.ts <handoff file> [--parking <dir>]'
+
 export function runHandoffCheck(args: string[], deps: HandoffCheckDeps): number {
   const [file, ...rest] = args
-  if (file === undefined || rest.length > 0) {
-    deps.err(`${PREFIX}usage: handoff-check.ts <handoff file>`)
+  const parking = rest.length === 2 && rest[0] === '--parking' ? rest[1] : rest.length === 0 ? defaultParking(deps.home) : undefined
+  if (file === undefined || file.startsWith('--') || parking === undefined) {
+    deps.err(`${PREFIX}${USAGE}`)
     return 2
   }
   if (!deps.exists(file)) {
     deps.err(`${PREFIX}no handoff at ${file}`)
     return 1
   }
-  const missing = missingFields(deps.read(file))
-  if (missing.length > 0) {
-    for (const line of refusal(missing))
+  const refusals = handoffRefusals(deps.read(file), { file, exists: deps.exists, parked: deps.parked(parking) })
+  if (refusals.length > 0) {
+    for (const line of refusals)
       deps.err(line)
-    deps.err(`${PREFIX}${file} is not a handoff: ${missing.length} of ${HANDOFF_FIELDS.length} fields missing`)
+    deps.err(`${PREFIX}${file} is not a handoff: ${refusals.length} refusals`)
     return 1
   }
-  deps.out(`${PREFIX}${file}: all ${HANDOFF_FIELDS.length} fields present`)
+  deps.out(`${PREFIX}${file}: all ${HANDOFF_FIELDS.length} fields present, one STOP section, within ${HANDOFF_LIMIT} chars`)
   return 0
 }
 
@@ -113,6 +273,8 @@ if (isEntry) {
   process.exitCode = runHandoffCheck(process.argv.slice(2), {
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
+    parked: parkedDepends,
+    home: os.homedir(),
     out: line => process.stdout.write(`${line}\n`),
     err: line => process.stderr.write(`${line}\n`),
   })

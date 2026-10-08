@@ -34,7 +34,7 @@ import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghos
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { startedTree } from '../ghosts/tasks.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
-import { BOUNDARY_LINE, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
+import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
 import { isListed, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -333,6 +333,9 @@ function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number, hand
   const missing = missingFields(handoff ?? '')
   if (restarts < MAX_RESTARTS && missing.length > 0)
     return `${EXIT_REASON_TEXT[reason]}; the handoff lacks ${missing.map(field => field.label).join(', ')}, so no session continues from it`
+  const refused = continuationRefusal(handoff ?? '')
+  if (restarts < MAX_RESTARTS && refused !== null)
+    return `${EXIT_REASON_TEXT[reason]}; ${refused}, so no session continues from it`
   return `${EXIT_REASON_TEXT[reason]}; ${restarts} of ${MAX_RESTARTS} restarts used`
 }
 

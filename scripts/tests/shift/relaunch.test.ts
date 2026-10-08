@@ -6,9 +6,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { expandHome, LAUNCH_LINE, NO_MODEL, projectDirOf, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
+import { expandHome, LAUNCH_LINE, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
 
-const FIELDS = HANDOFF_FIELDS.map(field => `${field.label}: x`).join('\n')
+const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : 'x'}`).join('\n')}`
 const roots: string[] = []
 
 interface World {
@@ -57,6 +57,8 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     journal: world.journal,
     projectsDir: world.projects,
     read: file => readFileSync(file, 'utf8'),
+    exists: existsSync,
+    parked: () => new Map(),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
     modified: file => statSync(file).mtimeMs,
     now: () => new Date(Date.parse('2026-10-07T01:00:00.000Z') + 1000 * ticks++),
@@ -121,7 +123,7 @@ describe('runRelaunch', () => {
   it('names the handoff it watches on the first line of every session\'s prompt', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
-    expect(result.runs.map(run => run.prompt.split('\n')[0])).toEqual([1, 2].map(() => `${CONTINUE_PROMPT}: ${world.handoff}`))
+    expect(result.runs.map(run => run.prompt.split('\n')[0])).toEqual([1, 2].map(() => promptFirstLine(world.handoff)))
     expect(result.runs.every(run => run.prompt.endsWith(LAUNCH_LINE))).toBe(true)
   })
 
@@ -130,7 +132,7 @@ describe('runRelaunch', () => {
     const seen: Seen = { runs: [], out: [], err: [] }
     const code = await runRelaunch(['~/handoff.md', '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
-    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([`${CONTINUE_PROMPT}: ${world.handoff}`])
+    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
     expect(journalLines(world)[0]).toMatchObject({ event: 'relaunch-start', handoff: world.handoff })
   })
 
@@ -139,7 +141,7 @@ describe('runRelaunch', () => {
     const seen: Seen = { runs: [], out: [], err: [] }
     const code = await runRelaunch([path.relative(world.repo, world.handoff), '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
-    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([`${CONTINUE_PROMPT}: ${world.handoff}`])
+    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
     expect(journalLines(world).map(line => line.handoff)).toEqual([world.handoff, world.handoff, world.handoff])
   })
 
@@ -161,11 +163,26 @@ describe('runRelaunch', () => {
   })
 
   it('starts nothing on a handoff that fails handoff:check and prints its refusal lines', async () => {
-    const world = newWorld('CONTINUE', HANDOFF_FIELDS.slice(1).map(field => `${field.label}: x`).join('\n'))
+    const world = newWorld('CONTINUE', FIELDS.replace(`${HANDOFF_FIELDS[0]!.label}: x`, ''))
     const result = await relaunch(world, ['--model', 'claude-test'])
     expect(result.code).toBe(1)
     expect(result.runs).toHaveLength(0)
     expect(result.err).toContain(`[handoff:check] missing: ${HANDOFF_FIELDS[0]!.label} (${HANDOFF_FIELDS[0]!.id}, ${HANDOFF_FIELDS[0]!.group})`)
+  })
+
+  it('stops with handoff-invalid and starts no further session once a session leaves a second STOP section', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], [`CONTINUE\n\n${FIELDS}\nSTATUS: CONTINUE`])
+    expect(result.code).toBe(1)
+    expect(result.runs).toHaveLength(1)
+    expect(result.err).toContain('[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write')
+    expect(result.err.at(-1)).toBe('[relaunch] handoff-invalid')
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'handoff-invalid', sessions: 1, refusals: ['[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write'] })
+  })
+
+  it('tells every session on its first line and below to write the handoff only through handoff:write', () => {
+    expect(relaunchPrompt('/h/handoff.md').split('\n')[0]).toBe(`${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
+    expect(relaunchPrompt('/h/handoff.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
   })
 
   it('starts nothing on a handoff with no STATUS line', async () => {
