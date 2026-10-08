@@ -2,4 +2,4 @@
 "mikoshi-construct": minor
 ---
 
-A brief witness or invariant command now keeps its spaces exactly as written, so a pattern that needs two spaces in a row can match.
+A brief's Invariant command now keeps the spaces inside its backticks exactly as written, as an Acceptance witness already did, so an invariant whose pattern needs two spaces in a row can match.
