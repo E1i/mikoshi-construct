@@ -361,6 +361,17 @@ those commands while a `.construct/mutations/<id>.json` is open is #162.
 
 ## Giving the verdict
 
+The depth of the review follows the card's risk level, and one function, `reviewDepth` in
+`scripts/ghosts/verdict.ts`, maps a level to a depth; the ladder's review step (the Ghost
+verdict) and the shift chain's step wait both read it, from the risk `riskReading` gives the card's
+touches. R4 gets no review agent: the witnesses and CI decide, and the chain arms the pull request
+with no verdict line. R3 gets a short review of the diff only: no Design scan, no mutations, no
+Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict` as before.
+R1 and R2 get the full review: the witnesses, the mutations and the Design walk. The chain records
+the depth as `review` on its `event:chain` wait line. The baseline to compare against is the
+review-minutes-baseline probe (#707): on 2026-10-08 a median of 8.8 minutes from ready to verdict, R3
+3.0 and R2 8.7.
+
 The coordinating window gives the verdict. A small divergence from the brief is merged, with a
 follow-up issue that names it. Opening an issue is never forbidden, but once more than ten are open,
 the evening triage takes each one: close it, fold it into a wave, or drop it.

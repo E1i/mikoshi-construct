@@ -47,8 +47,8 @@ function armedAt(calls: string[][]): string[] {
   return calls.filter(args => args[1] === 'merge').map(args => args[args.indexOf('--match-head-commit') + 1]!)
 }
 
-const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }]
-const TWO = [...ONE, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }]
+const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }]
+const TWO = [...ONE, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102', touches: 'src/2/**' }]
 
 describe('the chain arms a pull request after its review', () => {
   it('arms auto-merge only after the review verdict', async () => {
@@ -168,5 +168,29 @@ describe('pnpm shift:merge <N> --verdict', () => {
     ].join('')
     expect(latestPrReview(text, '1', 101)).toEqual({ task: '1', pr: 101, verdict: 'changes', commit: HEAD })
     expect(latestPrReview(text, '1', 102)).toBeUndefined()
+  })
+})
+
+describe('review depth follows risk', () => {
+  const BY_RISK = [
+    { touches: '.claude/agents/review.md', risk: 'R1', depth: 'full' },
+    { touches: 'scripts/shift/**', risk: 'R2', depth: 'full' },
+    { touches: 'src/1/**', risk: 'R3', depth: 'diff' },
+    { touches: 'docs/1.md', risk: 'R4', depth: 'none' },
+  ] as const
+
+  it.each(BY_RISK)('the chain in step wait reads $risk as review $depth', async ({ touches, risk, depth }) => {
+    const world = newWorld([{ ...ONE[0]!, touches }])
+    const { gh, calls } = chainGh()
+    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
+    expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: depth })
+    const report = readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')
+    if (depth === 'none') {
+      expect(merges(calls)).toEqual(['101'])
+      expect(report).not.toContain('waits for its review verdict')
+      return
+    }
+    expect(merges(calls)).toEqual([])
+    expect(report).toContain(`PR #101 waits for its review verdict, a ${depth} review at risk ${risk}`)
   })
 })

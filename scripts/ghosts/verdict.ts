@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer'
+import type { RiskLevel } from '../../src/card/risk.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -7,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { riskReading } from '../../src/card/risk.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
@@ -24,6 +26,21 @@ export const MERGE_FOLLOW_UP = 'merge-follow-up'
 export const DISPOSITION_DECIDERS = ['owner', 'window'] as const
 export const REVIEW_STATUS_CONTEXT = 'review'
 const STATUS_STATE: Record<string, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
+
+export const REVIEW_DEPTHS = ['none', 'diff', 'full'] as const
+
+export type ReviewDepth = typeof REVIEW_DEPTHS[number]
+
+const DEPTH_OF_RISK: Record<RiskLevel, ReviewDepth> = { R1: 'full', R2: 'full', R3: 'diff', R4: 'none' }
+
+export function reviewDepth(level: RiskLevel): ReviewDepth {
+  return DEPTH_OF_RISK[level]
+}
+
+export function reviewOf(touches: readonly string[]): { risk: RiskLevel, depth: ReviewDepth } {
+  const risk = riskReading(touches, false).level
+  return { risk, depth: reviewDepth(risk) }
+}
 
 export interface ReviewStatus {
   commit: string

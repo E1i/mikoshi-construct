@@ -36,6 +36,7 @@ export interface ParkedCard {
   header?: string
   intake?: boolean
   depends?: string
+  touches?: string
 }
 
 function git(cwd: string, args: string[]): string {
@@ -64,8 +65,8 @@ export function newWorld(cards: ParkedCard[]): World {
   const dirs = { shift: path.join(root, 'shift'), stubOut: path.join(root, 'stub-out'), parking: path.join(root, 'parking'), handoff: path.join(root, 'handoff') }
   for (const dir of Object.values(dirs))
     mkdirSync(dir)
-  for (const { id, kind, who, body, header, depends } of cards)
-    writeFileSync(path.join(dirs.parking, `${id}.md`), `card: ${cardLine(id, kind, depends)}\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who ?? 'shift'}\n${header ?? ''}\n${body ?? `do ${id}`}\n`)
+  for (const { id, kind, who, body, header, depends, touches } of cards)
+    writeFileSync(path.join(dirs.parking, `${id}.md`), `card: ${cardLine(id, kind, depends)}\nbranch: feat/${id}\ntouches: ${touches ?? `scripts/${id}/**`}\nwho: ${who ?? 'shift'}\n${header ?? ''}\n${body ?? `do ${id}`}\n`)
   const journal = path.join(dirs.handoff, 'ghosts.jsonl')
   const intake = cards.filter(card => card.intake !== false).map(({ id, kind, depends }) => ({ event: 'intake', task: String(id), card: cardLine(id, kind, depends), confirmation: 'none', corrections: [], ts: '2026-10-06T00:00:00.000Z' }))
   writeFileSync(journal, intake.map(line => `${JSON.stringify(line)}\n`).join(''))
