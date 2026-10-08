@@ -134,6 +134,15 @@ describe('runRelaunch', () => {
     expect(journalLines(world)[0]).toMatchObject({ event: 'relaunch-start', handoff: world.handoff })
   })
 
+  it('resolves a relative handoff path against the current directory before it reads, journals or names it', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([path.relative(world.repo, world.handoff), '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
+    expect(code).toBe(0)
+    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([`${CONTINUE_PROMPT}: ${world.handoff}`])
+    expect(journalLines(world).map(line => line.handoff)).toEqual([world.handoff, world.handoff, world.handoff])
+  })
+
   it.each([
     ['~', '/home/x'],
     ['~/a/b.md', '/home/x/a/b.md'],
