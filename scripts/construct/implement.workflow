@@ -87,6 +87,27 @@ const VERDICT = {
   },
 }
 
+const REBASE = {
+  type: 'object',
+  required: ['outcome', 'baseChangedFiles', 'conflictingHunks', 'witnessPaths'],
+  properties: {
+    outcome: { type: 'string', enum: ['clean', 'conflict', 'does not apply'] },
+    baseChangedFiles: { type: 'array', items: { type: 'string' } },
+    conflictingHunks: { type: 'array', items: { type: 'string' } },
+    witnessPaths: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['criterion', 'paths'],
+        properties: {
+          criterion: { type: 'string' },
+          paths: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+}
+
 const SPEC = {
   type: 'object',
   required: ['decision', 'contractChanges', 'compositionChanges', 'constraints', 'acceptance', 'files'],
@@ -120,6 +141,8 @@ const TEMPORARY_PATH_PLACEHOLDER = '<tmp>'
 const MISSING_TOOL = /command not found|Cannot find (?:module|package) '(?![./])[^']+'|ERR_MODULE_NOT_FOUND[^\n]*'(?![./])[^']+'/
 
 const HARNESS_COMMAND_QUESTION = 'Name the harness command: pass args.harness.command, taken from construct.json (harness.command) or, in an attached repository, from .construct/attach.json. Nothing is assumed.'
+
+const BASE_MOVES_KEPT = 2
 
 const DEFAULT_RETRY_LIMIT = 0
 const DESIGN_EFFORT = 'xhigh'
@@ -206,7 +229,7 @@ const ARGS_SHA_LINE = `Report the 64 hex characters that \`shasum -a 256 ${argsP
 const DESIGN_LINE = `Design from the brief: read design in ${argsPath} (sha256 ${argsSha256}) before anything else; it is the brief's Design section verbatim, and the file is pinned by that hash.`
 
 function baseMovedReason(observedHead) {
-  return `HEAD ${observedHead} is not the base ${base.baseSha}`
+  return `HEAD ${observedHead} is not the base ${currentBase}`
 }
 
 function argsMismatchReason(observed) {
@@ -225,14 +248,14 @@ function baselineScriptLine() {
   return `Run \`${BASELINE_SCRIPT}\` once, in the working tree, with every step of the harness, each quoted exactly as given:\n${harness.steps.map(step => `- ${step}`).join('\n')}\nReport its \`steps\` verbatim as the verdict's steps, its \`sha256\` as setSha256 (null when it printed null). Retell no failure in your own words: the caller compares the identities item by item. passed is whether every step's exitCode is 0.`
 }
 
-function harnessPrompt(baseSha) {
+function harnessPrompt(baseSha, digests) {
   return [
     `Harness command: ${harness.command}`,
     baseFailures == null ? '' : baselineScriptLine(),
     harness.extra.length > 0 ? `Extra commands for the area this task touches: ${harness.extra.join(' && ')}` : '',
     ARGS_SHA_LINE,
     HEAD_SHA_LINE,
-    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(digest, index + 1)}`).join('\n')}`,
+    `${WITNESS_DIR_LINE}\n\nWitness each acceptance criterion. The witnesses are held in ${argsPath}, whose sha256 is ${argsSha256}, one command per criterion; extract each one from that file with the first line below, in the working tree and before the base worktree is made, record its sha256, then run it exactly as extracted — never edit or substitute it. The extraction refuses a file whose sha256 is not ${argsSha256}: when it exits non-zero, report that witness with afterExitCode 2, its stderr as afterExcerpt and an empty ranSha256, and run nothing for it:\n${digests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(digest, index + 1)}`).join('\n')}`,
     `For each one, run \`bash <dir>/witness-N.sh\` in the working tree and report its exit code as afterExitCode and its last lines as afterExcerpt. Then run the same script against the base in a worktree of its own, outside the repository, created, installed and removed in one shell so the worktree goes even when a step fails: \`base=$(mktemp -d) && git worktree add --detach "$base" ${baseSha} && trap 'git worktree remove --force "$base"' EXIT && cd "$base" && <install> && bash <dir>/witness-N.sh\`. Install the way the repository installs from its lockfile, and report that command and its exit code as baseInstall; if the install fails or you do not run one, say so there and do not run the witnesses on the base. Report each witness's exit code there as baseExitCode and its last lines as baseExcerpt. Report the sha256 you recorded with shasum as ranSha256. The working tree has one writer: never stash, check out, move or rewrite a file in it to reach the base. Copy the criterion verbatim.`,
     contractDeclared ? `A contract check is declared for this repository: ${harness.contractCheck}. After the harness command passed, run it in the working tree and report it as contractCheck, with the command as given as command, its exit code as exitCode and its last lines as excerpt.` : '',
     sketch == null ? '' : `The base is ${baseSha}, without the sketch ${sketch.branch} @ ${sketch.sha}: the witnesses run red-before there, never on a tree that contains the sketch.`,
@@ -310,7 +333,7 @@ function implementerPrompt(spec, feedback) {
     `Each acceptance criterion is judged by a witness command fixed in the brief before you started; you do not choose, change or add witnesses, and the run is reported done only when each of these fails on the base and passes after your change. The commands are in ${argsPath} (sha256 ${argsSha256}, to be checked with shasum -a 256) as witnesses[], each criterion's command being the one whose sha256 is named after it:\n${witnessDigests.map(digest => `- ${digest.criterion} (sha256 ${digest.sha256})`).join('\n')}`,
     invariants.length > 0 ? `Invariants, true before your change and still true after it (the harness holds them):\n- ${invariants.join('\n- ')}` : '',
     immutable.length > 0 ? `Immutable paths, which you must not change; a rung that changes one fails (a path ending in / covers everything under it):\n- ${immutable.join('\n- ')}` : '',
-    `The base is ${base.baseSha}. Do not move HEAD: reset, checkout, rebase, stash and pull are forbidden. Change the working tree only.`,
+    `The base is ${currentBase}. Do not move HEAD: reset, checkout, rebase, stash and pull are forbidden. Change the working tree only.`,
     hasDesign ? DESIGN_LINE : '',
     spec == null
       ? ''
@@ -321,8 +344,76 @@ function implementerPrompt(spec, feedback) {
   ].filter(Boolean).join('\n\n')
 }
 
+function rebasePrompt(oldBase, newBase, files) {
+  return [
+    `The base moved from ${oldBase} to ${newBase} while this attempt was verified. Its finished diff is kept, not thrown away: it is the change the implementer made on top of ${oldBase} to these files:\n- ${files.join('\n- ')}`,
+    `Write that diff, untracked files included, to a patch outside the repository with mktemp before anything else. Restore those files to ${newBase} and apply the patch there with \`git apply --3way\`. Do not move HEAD: reset, checkout of a commit, rebase, stash and pull are forbidden. Change the working tree only.`,
+    'Report outcome clean when the patch applied with no conflict, conflict when it applied with conflicts left in the working tree, and does not apply when it could not be applied at all; in that last case leave every one of those files as it is at the new base.',
+    `Report as baseChangedFiles the paths \`git diff --name-only ${oldBase} ${newBase}\` prints, and as conflictingHunks each conflicting hunk as \`<path>: <its hunk header>\` ([] when there is none).`,
+    `For each witness, extract it with the line below and report as witnessPaths the repository paths the script names, files or directories, with the criterion copied verbatim:\n${witnessDigests.map((digest, index) => `- ${digest.criterion}\n${witnessScriptLines(digest, index + 1).split('\n')[0]}`).join('\n')}`,
+    `${WITNESS_DIR_LINE}`,
+    'Return the rebase object.',
+  ].join('\n\n')
+}
+
+function reworkPrompt(oldBase, newBase, hunks) {
+  return [
+    `Task: ${task}`,
+    `The base moved from ${oldBase} to ${newBase}. Your finished diff was rebased onto ${newBase}, and only these hunks conflict:\n- ${hunks.join('\n- ')}`,
+    `Rework only those hunks, so that each keeps both the base's change and the task's; leave the rest of the diff as it is. Do not move HEAD: reset, checkout, rebase, stash and pull are forbidden. Change the working tree only.`,
+    hasDesign ? DESIGN_LINE : '',
+    'Return the report object.',
+  ].filter(Boolean).join('\n\n')
+}
+
+function withoutTrailingSlash(entry) {
+  return entry.replace(/\/+$/, '')
+}
+
+function covers(witnessPath, file) {
+  const root = withoutTrailingSlash(witnessPath)
+  return file === root || file.startsWith(`${root}/`)
+}
+
+function intersectsTheBaseChange(digest, rebase) {
+  const named = (rebase.witnessPaths ?? []).find(entry => entry.criterion === digest.criterion)
+  if (named == null || named.paths.length === 0)
+    return true
+  return named.paths.some(witnessPath => rebase.baseChangedFiles.some(file => covers(witnessPath, file)))
+}
+
+function diffKept(rebase) {
+  return rebase != null && (rebase.outcome === 'clean' || rebase.outcome === 'conflict')
+}
+
+function argsUnverified(rung, effort, verdict) {
+  if (verdict == null || verdict.argsSha256 === argsSha256)
+    return null
+  const reason = argsMismatchReason(verdict.argsSha256)
+  attempts.push({ rung, effort, outcome: 'args mismatch', reason, securityFinding: verdict.securityFinding ?? '' })
+  return { status: 'args unverified', attempts, validationError: reason, acceptance, invariants, immutable }
+}
+
+function baseMovedUnder(verdict) {
+  return verdict != null && typeof verdict.headSha === 'string' && verdict.headSha !== currentBase
+}
+
+async function verify(rung, digests) {
+  phase('Verify')
+  log(`rung ${rung}/${rungs.length}: running ${harness.command} with ${digests.length} of ${witnessDigests.length} witnesses`)
+  return ask(harnessPrompt(currentBase, digests), {
+    agentType: 'harness',
+    effort: 'low',
+    phase: 'Verify',
+    label: `verify ${rung}/${rungs.length}`,
+    schema: VERDICT,
+  })
+}
+
 let spec = null
 let feedback = null
+let currentBase = null
+let baseMoves = 0
 let failingAsOnTheBase = { rung: 0, criteria: [] }
 let designComplete = false
 let designFailed = false
@@ -571,11 +662,13 @@ if (base.passed !== true) {
   baseFailures = Object.fromEntries(base.steps.map(entry => [entry.step, Array.isArray(entry.failures) ? entry.failures : []]))
   log(`preflight: the base is red with ${identitiesOf(baseFailures).length} known failures, pinned by ${harness.baseFailuresSha256}`)
 }
+currentBase = base.baseSha
 
-for (const [index, effort] of rungs.entries()) {
+for (let index = 0; index < rungs.length; index++) {
+  const effort = rungs[index]
   const rung = index + 1
 
-  if (rung === 1 && args.effort === 'high') {
+  if (rung === 1 && args.effort === 'high' && !designComplete) {
     const designed = await design(rung, 'The task is classified as high effort; design it before any implementation.', 'design')
     if (!designed)
       return designIncomplete(effort)
@@ -583,7 +676,7 @@ for (const [index, effort] of rungs.entries()) {
 
   phase('Implement')
   log(`rung ${rung}/${rungs.length} @ ${effort}: implementing`)
-  const report = await ask(implementerPrompt(spec, feedback), {
+  let report = await ask(implementerPrompt(spec, feedback), {
     agentType: 'implementer',
     effort,
     phase: 'Implement',
@@ -617,25 +710,64 @@ for (const [index, effort] of rungs.entries()) {
     continue
   }
 
-  phase('Verify')
-  log(`rung ${rung}/${rungs.length} @ ${effort}: running ${harness.command}`)
-  const verdict = await ask(harnessPrompt(base.baseSha), {
-    agentType: 'harness',
-    effort: 'low',
-    phase: 'Verify',
-    label: `verify ${rung}/${rungs.length}`,
-    schema: VERDICT,
-  })
-  if (verdict != null && verdict.argsSha256 !== argsSha256) {
-    const reason = argsMismatchReason(verdict.argsSha256)
-    attempts.push({ rung, effort, outcome: 'args mismatch', reason, securityFinding: verdict.securityFinding ?? '' })
-    return { status: 'args unverified', attempts, validationError: reason, acceptance, invariants, immutable }
-  }
-  if (verdict != null && typeof verdict.headSha === 'string' && verdict.headSha !== base.baseSha) {
+  let verdict = await verify(rung, witnessDigests)
+  let freshAttempt = false
+  while (baseMovedUnder(verdict)) {
+    const unverifiedArgs = argsUnverified(rung, effort, verdict)
+    if (unverifiedArgs != null)
+      return unverifiedArgs
     const reason = baseMovedReason(verdict.headSha)
-    attempts.push({ rung, effort, outcome: 'base moved', reason, securityFinding: verdict.securityFinding ?? '' })
-    return { status: 'base moved', attempts, validationError: reason, acceptance, invariants, immutable }
+    if (++baseMoves > BASE_MOVES_KEPT) {
+      attempts.push({ rung, effort, outcome: 'base moved', reason, securityFinding: verdict.securityFinding ?? '' })
+      return { status: 'base moved', attempts, validationError: reason, acceptance, invariants, immutable }
+    }
+    const oldBase = currentBase
+    currentBase = verdict.headSha
+    log(`rung ${rung}/${rungs.length} @ ${effort}: ${reason}; rebasing the finished diff onto it`)
+    const rebase = await ask(rebasePrompt(oldBase, currentBase, verdict.changedFiles), {
+      agentType: 'implementer',
+      effort: 'low',
+      phase: 'Verify',
+      label: `rebase ${rung}/${rungs.length}`,
+      schema: REBASE,
+    })
+    if (!diffKept(rebase)) {
+      attempts.push({ rung, effort, outcome: 'base moved, fresh attempt', reason: `${reason}; the finished diff does not apply to it`, securityFinding: '' })
+      freshAttempt = true
+      break
+    }
+    if (rebase.outcome === 'conflict') {
+      attempts.push({ rung, effort, outcome: 'base moved, hunks reworked', reason: `${reason}; conflicting: ${rebase.conflictingHunks.join(' | ')}`, securityFinding: '' })
+      phase('Implement')
+      const reworked = await ask(reworkPrompt(oldBase, currentBase, rebase.conflictingHunks), {
+        agentType: 'implementer',
+        effort,
+        phase: 'Implement',
+        label: `rework ${rung}/${rungs.length} @ ${effort}`,
+        schema: REPORT,
+      })
+      if (reworked == null) {
+        verdict = null
+        break
+      }
+      report = reworked
+      verdict = await verify(rung, witnessDigests)
+      continue
+    }
+    const rerun = witnessDigests.filter(digest => intersectsTheBaseChange(digest, rebase))
+    attempts.push({ rung, effort, outcome: 'base moved, diff kept', reason: `${reason}; re-running ${rerun.length} of ${witnessDigests.length} witnesses`, securityFinding: '' })
+    const kept = (verdict.witnesses ?? []).filter(witness => !rerun.some(digest => digest.criterion === witness.criterion))
+    const reverified = await verify(rung, rerun)
+    verdict = reverified == null ? null : { ...reverified, witnesses: [...(reverified.witnesses ?? []), ...kept] }
   }
+  if (freshAttempt) {
+    feedback = null
+    index--
+    continue
+  }
+  const unverifiedArgs = argsUnverified(rung, effort, verdict)
+  if (unverifiedArgs != null)
+    return unverifiedArgs
   const harnessPassed = baseFailures == null
     ? verdict?.passed === true && verdict.testsWeakened === false
     : verdict != null && verdict.testsWeakened === false && withinTheBase(verdict)
