@@ -17,7 +17,9 @@ export const PREFIX = '[relaunch] '
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>]'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
-export const RELAUNCH_PROMPT = `${CONTINUE_PROMPT}\n\n${LAUNCH_LINE}`
+export function relaunchPrompt(handoff: string): string {
+  return `${CONTINUE_PROMPT}: ${handoff}\n\nThis file is the handoff; write your STOP section and its STATUS line into it, never into another file.\n\n${LAUNCH_LINE}`
+}
 export const NO_MODEL = 'no model: pass --model <id>'
 
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE)\b/
@@ -170,7 +172,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     sessions += 1
     const session = deps.uuid()
     deps.out(`${PREFIX}session ${sessions}/${parsed.max} ${session} on ${model}`)
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: RELAUNCH_PROMPT, log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model] })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model] })
     await record(deps, {
       event: 'relaunch',
       handoff,
