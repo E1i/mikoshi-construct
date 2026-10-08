@@ -778,7 +778,7 @@ interface ChainGh {
   calls: string[][]
 }
 
-function chainGh(options: { ownerMergedAfterViews?: number, checks?: { name: string, status: string, conclusion: string }[], owner?: number[] } = {}): ChainGh {
+function chainGh(options: { ownerMergedAfterViews?: number, checks?: { name: string, status: string, conclusion: string }[], owner?: number[], state?: string, unreadable?: string } = {}): ChainGh {
   const owner = options.owner ?? []
   const inner = fakeGh({ 101: parkedCardLine(1, owner.includes(101) ? OWNER_KIND : undefined), 102: parkedCardLine(2, owner.includes(102) ? OWNER_KIND : undefined, '#1'), 103: parkedCardLine(3) })
   const calls: string[][] = []
@@ -786,6 +786,11 @@ function chainGh(options: { ownerMergedAfterViews?: number, checks?: { name: str
   const gh = (args: string[]): string => {
     calls.push(args)
     const number = Number(args[2])
+    if (args[1] === 'view' && args.at(-1) === 'headRefName,headRefOid,state') {
+      if (options.unreadable !== undefined)
+        throw new Error(options.unreadable)
+      return JSON.stringify({ headRefName: `feat/${number - 100}`, headRefOid: CHAIN_HEAD, state: options.state ?? 'OPEN' })
+    }
     if (args[1] === 'view' && args.at(-1) === 'headRefName,headRefOid')
       return JSON.stringify({ headRefName: `feat/${number - 100}`, headRefOid: CHAIN_HEAD })
     if (args[1] === 'view' && args.at(-1) === 'headRefOid,statusCheckRollup,files')
@@ -911,6 +916,71 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     expect(gh.calls.filter(args => args[1] === 'merge')).toHaveLength(1)
     expect(eventsOf(world, 'delegated')).toMatchObject([{ task: '1', pr: 101, shard }])
     expect(chainSteps(world)).toEqual(['wait 1', 'merged 1', 'end no-eligible'])
+  })
+
+  it('a guard refusal stops the chain', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-REFUSED STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end guard-refusal'])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'fault' }])
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
+  it('a session stopped on its Eddies budget ends the chain with eddies-budget', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-STOP STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end eddies-budget'])
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
+  it('a guard refusal masked by task:close stops the chain', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-CLOSE STUB-REFUSED STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end guard-refusal'])
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
+  it('an Eddies stop masked by task:close ends the chain with eddies-budget', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-CLOSE STUB-STOP STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end eddies-budget'])
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
+  it('a pull request closed without a merge ends the chain at once', async () => {
+    const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    const { slept } = await chainRun(world, chainGh({ owner: [101], state: 'CLOSED' }))
+    expect(slept).toEqual([])
+    expect(chainSteps(world)).toEqual(['wait 1', 'end pr-closed'])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: 'PR #101 was closed without a merge' }])
+  })
+
+  it('a merge timeout names the gh fault that kept the pull request unread', async () => {
+    const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    await chainRun(world, chainGh({ owner: [101], unreadable: 'gh: HTTP 502\nmore' }), ['--chain-wait', '3'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'end merge-timeout'])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', why: 'PR #101 not merged within 3 minutes; gh could not read it: gh: HTTP 502' }])
+  })
+
+  it('a chain spawns its sessions detached and a plain run does not', async () => {
+    const detached: (boolean | undefined)[] = []
+    const run: ShiftDeps['run'] = (claudeRun) => {
+      detached.push(claudeRun.detached)
+      return runClaude(claudeRun)
+    }
+    await chainRun(newChainWorld([A_AND_B[0]!]), chainGh(), [], { run })
+    const plain = newChainWorld([A_AND_B[0]!])
+    await runShift([plain.shift, '--parking', plain.parking], chainDepsOf(plain, chainGh().gh, capturedIo(), { run }))
+    expect(detached).toEqual([true, undefined])
+  })
+
+  it('the hangup hold ignores stream errors on a closed terminal until it is released', () => {
+    const listeners = { process: new Map<string, () => void>(), stdout: new Map<string, () => void>(), stderr: new Map<string, () => void>() }
+    const fake = (map: Map<string, () => void>) => ({ on: (event: string, listener: () => void) => map.set(event, listener), off: (event: string) => map.delete(event) })
+    const release = holdThroughHangup({ ...fake(listeners.process), stdout: fake(listeners.stdout), stderr: fake(listeners.stderr) } as never)
+    expect([[...listeners.process.keys()], [...listeners.stdout.keys()], [...listeners.stderr.keys()]]).toEqual([['SIGHUP'], ['error'], ['error']])
+    release()
+    expect([listeners.process.size, listeners.stdout.size, listeners.stderr.size]).toEqual([0, 0, 0])
   })
 
   it('--chain refuses a run without --parking, with --manual, or with a wait that is not a number', async () => {

@@ -161,6 +161,39 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', why: expect.stringContaining('is a version pull request (changeset-release/main) and stays the owner\'s') as unknown }])
   })
 
+  it('an Eddies stop with a shard does not arm the owner PR', async () => {
+    const world = initWorld('do 1 STUB-STOP STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const { gh, calls } = ownerGh()
+    await shift(world, gh, shard)
+    expect(merges(calls)).toEqual([])
+    expect(eventsOf(world, 'delegated')).toEqual([])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'fault', why: 'eddies stop' }])
+  })
+
+  it('an Eddies stop masked by task:close does not arm the owner PR', async () => {
+    const world = initWorld('do 1 STUB-CLOSE STUB-STOP STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const { gh, calls } = ownerGh()
+    await shift(world, gh, shard)
+    expect(merges(calls)).toEqual([])
+    expect(eventsOf(world, 'delegated')).toEqual([])
+  })
+
+  it('a shard issued for another run is refused', async () => {
+    const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const other = path.join(world.root, 'other-shift')
+    mkdirSync(other)
+    const io = captured()
+    const code = await runShift([other, '--parking', world.parking, '--slot', shard], depsOf(world, ownerGh().gh, io))
+    expect(code).toBe(1)
+    expect(io.err.join('\n')).toContain(`shard ${shard} was issued for `)
+    expect(io.err.join('\n')).toContain(`, not for ${other}`)
+    expect(eventsOf(world, 'shard-used')).toEqual([])
+    expect(stubRuns(world, 1)).toBe(0)
+  })
+
   it('a guard refusal masked by an Eddies stop is still a refusal for the shard', async () => {
     const world = initWorld('do 1 STUB-STOP STUB-REFUSED STUB-VERIFIED-run STUB-PR-101')
     const shard = issue(world)

@@ -86,11 +86,12 @@ export const USAGE = [
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
-  'whose session no guard refused and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
+  'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a chain: after a card closes with a pull request the shift waits for its merge, records it as pnpm task:merged does, and takes the next card whose depends are merged,',
   'holding through a closed terminal (SIGHUP); an owner pull request is merged by the owner (or armed under --slot) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, merged, next or end).',
-  `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), question, guard-refusal, red-check (a required check red while waiting) or stop-<hash|boundary|fault>.`,
+  `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary|fault>.`,
+  'A chain spawns its sessions detached, as the Ghost supervisor does, so a closed terminal stops neither the runner nor the session it is waiting on.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
 
@@ -230,7 +231,17 @@ function sessionEvidence(deps: ShiftDeps, task: ShiftTask, places: Places, sessi
   }
 }
 
-type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[], pr?: number }
+type HeldBy = 'guard-refusal' | 'eddies-stop'
+
+type ShiftTaskLine = TaskLine & { merge?: string[], steps?: string[], pr?: number, heldBy?: HeldBy }
+
+function heldBy(evidence: { refused: boolean, stopped: boolean }): { heldBy?: HeldBy } {
+  if (evidence.refused)
+    return { heldBy: 'guard-refusal' }
+  if (evidence.stopped)
+    return { heldBy: 'eddies-stop' }
+  return {}
+}
 
 function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
   let result: MergeResult
@@ -289,6 +300,7 @@ function asksTheOwner(report: string): boolean {
 interface Delegation {
   shard: string | undefined
   refused: boolean
+  stopped: boolean
 }
 
 const LEFT_TO_THE_OWNER = /merge is Eli's$/
@@ -302,6 +314,8 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
     return lines
   if (delegation.refused)
     return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
+  if (delegation.stopped)
+    return [...lines, `${MERGE_PREFIX}PR #${number} the session stopped on its Eddies budget; shard ${shard} not applied, merge is Eli's`]
   return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard)]
 }
 
@@ -431,6 +445,7 @@ interface Sessions {
   exit: ClaudeExit
   lastExit: ExitReason
   refused: boolean
+  stopped: boolean
   halted: string | null
   current: string
   continuations: string[]
@@ -443,11 +458,13 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
   let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, card: task.card.id, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, places.number) })
   let lastExit: ExitReason = 'ended'
   let refused = false
+  let stopped = false
   let halted: string | null = null
   while (exit.kind === 'exited') {
     const evidence = sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null)
     lastExit = exitReason(evidence)
     refused = refused || evidence.refused
+    stopped = stopped || evidence.stopped
     const handoff = deps.exists(places.report) ? deps.read(places.report) : null
     halted = boundaryWhy(task, lastExit, continuations.length, handoff, places.report)
     if (!continues(task.continue, lastExit, continuations.length, handoff ?? ''))
@@ -462,22 +479,22 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
     const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
     exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, card: task.card.id, prompt, log: logPath(dir, places.number, continuations.length) })
   }
-  return { exit, lastExit, refused, halted, current, continuations }
+  return { exit, lastExit, refused, stopped, halted, current, continuations }
 }
 
 type TaskBase = Pick<TaskLine, 'event' | 'file' | 'number' | 'task' | 'card' | 'branch' | 'session' | 'started'>
 
 function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions, shard: string | undefined): { line: ShiftTaskLine, stop: StopRecord | null } {
   const { worktree } = places
-  const { exit, lastExit, refused, halted, current, continuations } = ran
+  const { exit, lastExit, refused, stopped, halted, current, continuations } = ran
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused }) : undefined
+  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped }) : undefined
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
-  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
+  const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...heldBy({ refused, stopped }), ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
   return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: report ? deps.read(places.report) : null, merge, closed }) }
 }
 
@@ -671,7 +688,9 @@ interface Chain {
   started: number
 }
 
-type ChainEnd = 'no-eligible' | 'merge-timeout' | 'time-limit' | 'card-budget' | 'question' | 'guard-refusal' | 'red-check' | `stop-${Stop['at']}`
+type MergeWait = 'merged' | 'merge-timeout' | 'red-check' | 'pr-closed' | 'time-limit'
+type ChainEnd = Exclude<MergeWait, 'merged'> | 'no-eligible' | 'card-budget' | 'eddies-budget' | 'question' | 'guard-refusal' | `stop-${Stop['at']}`
+type PrWatch = { state: 'red' | 'closed' | 'open' } | { error: string }
 
 function chainLine(deps: ShiftDeps, dir: string, fields: Record<string, unknown>): void {
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify({ event: 'chain', shift: dir, ...fields, ts: deps.now().toISOString() })}\n`)
@@ -681,33 +700,54 @@ function chainLine(deps: ShiftDeps, dir: string, fields: Record<string, unknown>
 function chainEnd(stop: StopRecord): ChainEnd {
   if (stop.at === 'question')
     return 'question'
-  return stop.at === 'fault' && stop.why === EXIT_REASON_TEXT['guard-refusal'] ? 'guard-refusal' : `stop-${stop.at}`
+  if (stop.at === 'fault' && stop.why === EXIT_REASON_TEXT['guard-refusal'])
+    return 'guard-refusal'
+  return stop.at === 'fault' && stop.why === EXIT_REASON_TEXT['eddies-stop'] ? 'eddies-budget' : `stop-${stop.at}`
 }
 
-function requiredIsRed(deps: ShiftDeps, number: number): boolean {
+function watchPr(deps: ShiftDeps, number: number): PrWatch {
   try {
-    const view = JSON.parse(deps.gh(['pr', 'view', String(number), '-R', REPO, '--json', 'headRefName,headRefOid'])) as { headRefName: string, headRefOid: string }
-    return prDetails(deps.gh, REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red'
+    const view = JSON.parse(deps.gh(['pr', 'view', String(number), '-R', REPO, '--json', 'headRefName,headRefOid,state'])) as { headRefName: string, headRefOid: string, state?: string }
+    if (view.state === 'CLOSED')
+      return { state: 'closed' }
+    return { state: prDetails(deps.gh, REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red' ? 'red' : 'open' }
   }
-  catch {
-    return false
+  catch (error) {
+    return { error: (error instanceof Error ? error.message : String(error)).split('\n')[0]! }
   }
 }
 
-async function waitForMerge(deps: ShiftDeps, dir: string, chain: Chain, task: ShiftTask, pr: number): Promise<'merged' | 'merge-timeout' | 'red-check' | 'time-limit'> {
+function waitWhy(result: Exclude<MergeWait, 'merged'>, pr: number, chain: Chain, ghError: string | undefined): string {
+  if (result === 'red-check')
+    return `PR #${pr} required check turned red while waiting for the merge`
+  if (result === 'pr-closed')
+    return `PR #${pr} was closed without a merge`
+  const within = result === 'time-limit' ? 'the chain time limit' : `${chain.waitMs / MINUTE_MS} minutes`
+  return `PR #${pr} not merged within ${within}${ghError === undefined ? '' : `; gh could not read it: ${ghError}`}`
+}
+
+async function waitForMerge(deps: ShiftDeps, dir: string, chain: Chain, task: ShiftTask, pr: number): Promise<{ result: MergeWait, ghError?: string }> {
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const waitStarted = deps.now().getTime()
+  let ghError: string | undefined
   for (;;) {
     sweepMerges(deps, ghostJournal, dir)
     if (mergedTasks(readIfThere(deps, ghostJournal)).has(task.id))
-      return 'merged'
-    if (requiredIsRed(deps, pr))
-      return 'red-check'
+      return { result: 'merged' }
+    const watched = watchPr(deps, pr)
+    if ('error' in watched)
+      ghError = watched.error
+    else if (watched.state === 'red')
+      return { result: 'red-check' }
+    else if (watched.state === 'closed')
+      return { result: 'pr-closed' }
+    else
+      ghError = undefined
     const now = deps.now().getTime()
-    if (now - waitStarted >= chain.waitMs)
-      return 'merge-timeout'
     if (now - chain.started >= chain.limitMs)
-      return 'time-limit'
+      return { result: 'time-limit', ghError }
+    if (now - waitStarted >= chain.waitMs)
+      return { result: 'merge-timeout', ghError }
     await deps.sleep!(CHAIN_POLL_MS)
   }
 }
@@ -718,11 +758,17 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
     recordStop(deps, dir, task.id, stop)
     return chainEnd(stop)
   }
+  if (line.heldBy === 'guard-refusal') {
+    recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'fault', EXIT_REASON_TEXT['guard-refusal'], line.pr))
+    return 'guard-refusal'
+  }
+  if (line.heldBy === 'eddies-stop')
+    return 'eddies-budget'
   if (line.pr !== undefined) {
     chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr })
-    const result = await waitForMerge(deps, dir, chain, task, line.pr)
+    const { result, ghError } = await waitForMerge(deps, dir, chain, task, line.pr)
     if (result !== 'merged') {
-      recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'merge', result === 'red-check' ? `PR #${line.pr} required check turned red while waiting for the merge` : `PR #${line.pr} not merged within ${result === 'time-limit' ? 'the chain time limit' : `${chain.waitMs / MINUTE_MS} minutes`}`, line.pr))
+      recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'merge', waitWhy(result, line.pr, chain, ghError), line.pr))
       return result
     }
     chainLine(deps, dir, { step: 'merged', task: task.id, pr: line.pr })
@@ -815,6 +861,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const [waitMinutes = CHAIN_WAIT_MINUTES, limitMinutes = CHAIN_LIMIT_MINUTES, cards = CHAIN_CARDS] = chainNumbers
   const chain = chained ? { waitMs: waitMinutes * MINUTE_MS, limitMs: limitMinutes * MINUTE_MS, cards, started: deps.now().getTime() } : undefined
   const releaseHangup = chain === undefined ? undefined : deps.holdHangup?.()
+  const sessionDeps: ShiftDeps = chain === undefined ? deps : { ...deps, run: run => deps.run({ ...run, detached: true }) }
   const pending = chain === undefined ? [...tasks] : tasks.slice(0, 1)
   const taken = new Set<string>()
   try {
@@ -829,7 +876,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       }
       for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
         deps.out(line)
-      const ran = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual, shard) : await runTask(deps, dir, task, claude, handed, parking, manual, shard)
+      const ran = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard)
       deps.append(journal, `${JSON.stringify(ran.line)}\n`)
       deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)
       clean &&= succeeded(ran.line)
@@ -871,10 +918,19 @@ export function runPnpmCommand(cwd: string, args: string[], input?: string): Pnp
   return { code: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.error === undefined ? result.stderr ?? '' : result.error.message }
 }
 
-export function holdThroughHangup(proc: Pick<NodeJS.Process, 'on' | 'off'> = process): () => void {
+type Stream = Pick<NodeJS.WriteStream, 'on' | 'off'>
+
+export function holdThroughHangup(proc: Pick<NodeJS.Process, 'on' | 'off'> & { stdout?: Stream, stderr?: Stream } = process): () => void {
   const ignore = (): void => {}
+  const streams = [proc.stdout, proc.stderr].filter(stream => stream !== undefined)
   proc.on('SIGHUP', ignore)
-  return () => proc.off('SIGHUP', ignore)
+  for (const stream of streams)
+    stream.on('error', ignore)
+  return () => {
+    proc.off('SIGHUP', ignore)
+    for (const stream of streams)
+      stream.off('error', ignore)
+  }
 }
 
 function writeQuietly(write: (line: string) => void, line: string): void {
