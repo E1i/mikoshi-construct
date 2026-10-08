@@ -1792,8 +1792,10 @@ the shift read. A card the journal already admitted is amended when its card lin
 witnesses or its `touches` line differ from the latest `intake` line for its number — or that line
 recorded no `bodySha`, so the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
-did not change is reported and nothing is written, including one whose `intake` line was written before
-`bodySha` covered the `touches` line; `--dry-run` prints the card it would admit.
+did not change is reported and nothing is written. An `intake` line written before `bodySha` covered
+the `touches` line records no touches, so a card whose latest line is one of those is amended only once
+its card line, task text or witnesses change; a change to its `touches` line alone is not seen until
+then. `--dry-run` prints the card it would admit.
 
 **Moving a parked card.** `construct intake --move <#N> --to <dir>` moves a parked card between the
 parking root and its direct subdirectories (`--parking` names the root; `--to` is a subdirectory of it,
