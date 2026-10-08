@@ -992,3 +992,46 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     expect(existsSync(path.join(world.shift, 'shift.jsonl'))).toBe(false)
   })
 })
+
+describe('a failed card does not stop the shift', () => {
+  const A_FAILS = { id: 1, body: 'do 1 STUB-FAIL' }
+  const notes = (): { notify: ShiftDeps['notify'], seen: [string, string][] } => {
+    const seen: [string, string][] = []
+    return { notify: (title, message) => seen.push([title, message]), seen }
+  }
+
+  it('a failed card A does not stop the shift and the independent card B merges', async () => {
+    const world = newChainWorld([A_FAILS, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['next 2', 'wait 2', 'merged 2', 'end no-eligible'])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'fault', why: 'exit 1' }])
+    expect(eventsOf(world, 'merge').map(line => line.task)).toEqual(['2'])
+  })
+
+  it('a card C that depends on a failed card is skipped with depends failed', async () => {
+    const world = newChainWorld([A_FAILS, { id: 3, depends: '#1', body: 'do 3 STUB-VERIFIED-run STUB-PR-103' }])
+    const { io } = await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual(['end no-eligible'])
+    expect(existsSync(path.join(world.stubOut, 'mc-3.runs'))).toBe(false)
+    expect(readFileSync(path.join(world.shift, 'shift-report.md'), 'utf8')).toContain('| #3 | skipped | depends failed #1 | — |')
+    expect(io.out).toContain(`[shift] outcomes: 1 failed, 1 skipped; ${path.join(world.shift, 'shift-report.md')}`)
+  })
+
+  it('a failed card calls the notifier with its number, its reason and the shift report, and the end of the shift calls it once more', async () => {
+    const world = newChainWorld([A_FAILS, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }])
+    const { notify, seen } = notes()
+    await chainRun(world, chainGh(), [], { notify })
+    const report = path.join(world.shift, 'shift-report.md')
+    expect(seen).toEqual([['shift: #1 failed', `exit 1 — ${report}`], ['shift over', `2 cards · 1 failed · 0 skipped — ${report}`]])
+  })
+
+  it('the shift report has a failed row, a done row with its PR, and the last line of the failed session', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-FAIL STUB-SAY-tests-red' }, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }])
+    await chainRun(world, chainGh())
+    const table = readFileSync(path.join(world.shift, 'shift-report.md'), 'utf8').split('\n')
+    expect(table.slice(0, 2)).toEqual(['| card | result | reason | PR |', '|------|--------|--------|----|'])
+    expect(table).toContain('| #1 task-1 | failed | exit 1 · tests-red | — |')
+    expect(table).toContain('| #2 task-2 | done | — | PR #102 |')
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'fault', last: 'tests-red' }])
+  })
+})

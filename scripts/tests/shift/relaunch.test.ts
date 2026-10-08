@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { expandHome, LAUNCH_LINE, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
+import { expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -70,6 +70,7 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
       setStatus(world, statuses[seen.runs.length - 1] ?? 'CONTINUE')
       return { kind: 'exited', code: 0, signal: null }
     },
+    alive: () => false,
     out: line => seen.out.push(line),
     err: line => seen.err.push(line),
   }
@@ -292,5 +293,40 @@ describe('runRelaunch', () => {
     const result = await relaunch(world, ['--max', '0', '--model', 'claude-test'])
     expect(result.code).toBe(1)
     expect(result.runs).toHaveLength(0)
+  })
+
+  it('the relaunch line carries the session pid', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const deps = relaunchDeps(world, ['DONE'], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
+      run.onSpawn?.(4242)
+      return deps.run(run)
+    } })
+    expect(code).toBe(0)
+    const session = journalLines(world).filter(line => line.event === 'relaunch-session' || line.event === 'relaunch')
+    expect(session).toMatchObject([
+      { event: 'relaunch-session', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1, handoff: world.handoff },
+      { event: 'relaunch', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1 },
+    ])
+  })
+
+  it('live sessions are read from the journal pid, not from the command text', async () => {
+    const line = (event: string, session: string, pid: number): string => JSON.stringify({ event, handoff: '/h.md', session, pid, n: 1, command: 'claude --permission-mode auto -p' })
+    const journal = [line('relaunch-session', 'running', 111), line('relaunch-session', 'ended', 222), line('relaunch', 'ended', 222), line('relaunch-session', 'dead', 333), 'not json'].join('\n')
+    const asked: number[] = []
+    const live = liveSessions(journal, (pid) => {
+      asked.push(pid)
+      return pid !== 333
+    })
+    expect(live).toEqual([{ session: 'running', pid: 111, n: 1, handoff: '/h.md' }])
+    expect(asked.sort()).toEqual([111, 333])
+    const world = newWorld()
+    mkdirSync(path.dirname(world.journal), { recursive: true })
+    writeFileSync(world.journal, `${journal}\n`)
+    const seen: Seen = { runs: [], out: [], err: [] }
+    expect(await runRelaunch(['--live'], { ...relaunchDeps(world, [], seen), alive: pid => pid === 111 })).toBe(0)
+    expect(seen.out).toEqual(['[relaunch] live: session 1 running pid 111 on /h.md'])
+    expect(seen.runs).toEqual([])
   })
 })

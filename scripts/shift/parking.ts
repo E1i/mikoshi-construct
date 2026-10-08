@@ -18,6 +18,8 @@ export const LADDER_REASON = `ladder card: MORSE approves an R2–R4 brief (ghos
 export const STOP_AT = ['hash', 'merge', 'question', 'boundary', 'fault'] as const
 
 export type StopAt = typeof STOP_AT[number]
+export const FAILED_AT: StopAt = 'fault'
+export const DEPENDS_FAILED = 'depends failed '
 
 export interface Stop {
   task: string
@@ -47,6 +49,9 @@ function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: Reado
   if (stopped !== undefined)
     return `waits ${stopped}`
   const open = parked.task.card.depends.filter(id => !merged.has(String(id)))
+  const failed = open.filter(id => waiting.get(String(id)) === FAILED_AT)
+  if (failed.length > 0)
+    return `${DEPENDS_FAILED}${failed.map(id => `#${id}`).join(', ')}`
   if (open.length > 0)
     return `depends ${open.map(id => `#${id}`).join(', ')} not merged`
   const unclassified = parked.task.touches.find(file => file.startsWith(GHOSTS_DIR) && !file.includes('*') && created(file))

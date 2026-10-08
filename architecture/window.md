@@ -51,8 +51,10 @@ reads the handoff: a handoff that fails `handoff:check` stops it with exit 1 and
 `handoff-invalid` and the refusals, and no session starts; one with no `STATUS:` line stops it with exit 1; the last
 `STATUS: CONTINUE` runs the next session, `STATUS: OWNER` or `STATUS: DONE` stops it, and so does reaching `--max` (default
 the shift's restart ceiling, three). A leading `~/` in the handoff path is the home directory; the start leaves an
-`event:relaunch-start` line with the absolute path it watches, each session an `event:relaunch` line in `ghosts.jsonl`, each
-stop one `event:relaunch-stop` line with its reason.
+`event:relaunch-start` line with the absolute path it watches, each session an `event:relaunch-session` line with its `pid` when it spawns and an `event:relaunch` line with the same `pid`
+when it ends in `ghosts.jsonl`, each stop one `event:relaunch-stop` line with its reason. Whether a relaunch session is alive is
+read by `pnpm relaunch --live` from those pids (`kill -0`), never from the command text: `pgrep -fl "claude -p"` misses a
+session started as `claude --permission-mode auto -p`.
 
 ## Pull requests and branches
 
@@ -162,7 +164,10 @@ last session and the first refusal line, and the hash is the owner's), `merge` (
 report), `boundary` (a `boundary:` line the card does not follow: `continue: stop`, the restart limit, or a no under
 `--manual`) or `fault` (a session that did not spawn, exited non-zero, was stopped by Eddies or wrote no report or no
 pull request; a card `task:start` refuses leaves no stop, because the door writes nothing). A card that ends in an armed auto-merge or a probe closed by its report leaves no
-stop. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
+stop. A `fault` stop that is not a guard refusal or an Eddies stop is a failed card: it stops neither a chain nor a plain run,
+its stop carries `last`, the last line of its session log, a card that depends on it is left as `depends failed #N`, and a
+macOS notification names the card, the reason and `<dir>/shift-report.md`, the table (`card · result · reason · PR`) every
+real run writes at its end. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
 with no worktree, the card is left as `waits <at>` (a closed card stays `closed`), and a second `hash` stop is never
 written for it; the `hash` stop of a ladder card stops standing once the journal holds an `event:approval` for its brief's current hash and no `event:revoke` of it. `--manual` turns the automation off for that run only, never sticky: nothing is taken, and nothing is
 continued into a new session, without a yes from the runner's prompt; with no terminal every answer is no, and a run

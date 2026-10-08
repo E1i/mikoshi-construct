@@ -15,7 +15,7 @@ import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.j
 import { GHOST_JOURNAL } from './places.js'
 
 export const PREFIX = '[relaunch] '
-export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>]'
+export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
 export function promptFirstLine(handoff: string): string {
@@ -46,6 +46,7 @@ export interface RelaunchDeps {
   now: () => Date
   uuid: () => string
   run: (run: ClaudeRun) => Promise<ClaudeExit>
+  alive: (pid: number) => boolean
   out: (line: string) => void
   err: (line: string) => void
 }
@@ -54,6 +55,66 @@ interface RelaunchArgs {
   handoff: string
   max: number
   model: string | null
+}
+
+export interface LiveSession {
+  session: string
+  pid: number
+  n: number
+  handoff: string
+}
+
+interface JournalLine {
+  event?: unknown
+  session?: unknown
+  pid?: unknown
+  n?: unknown
+  handoff?: unknown
+}
+
+function journalEntries(text: string): JournalLine[] {
+  return text.split('\n').flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as JournalLine | null
+      return entry !== null && typeof entry === 'object' ? [entry] : []
+    }
+    catch {
+      return []
+    }
+  })
+}
+
+export function liveSessions(journal: string, alive: (pid: number) => boolean): LiveSession[] {
+  const open = new Map<string, LiveSession>()
+  for (const entry of journalEntries(journal)) {
+    if (typeof entry.session !== 'string')
+      continue
+    if (entry.event === 'relaunch-session' && typeof entry.pid === 'number')
+      open.set(entry.session, { session: entry.session, pid: entry.pid, n: Number(entry.n), handoff: String(entry.handoff) })
+    else if (entry.event === 'relaunch')
+      open.delete(entry.session)
+  }
+  return [...open.values()].filter(session => alive(session.pid))
+}
+
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+function printLive(deps: RelaunchDeps): number {
+  const text = deps.exists(deps.journal) ? deps.read(deps.journal) : ''
+  const live = liveSessions(text, deps.alive)
+  for (const session of live)
+    deps.out(`${PREFIX}live: session ${session.n} ${session.session} pid ${session.pid} on ${session.handoff}`)
+  if (live.length === 0)
+    deps.out(`${PREFIX}live: none in ${deps.journal}`)
+  return 0
 }
 
 export function statusOf(text: string): Status | null {
@@ -147,6 +208,8 @@ async function record(deps: RelaunchDeps, event: object): Promise<void> {
 }
 
 export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<number> {
+  if (args.length === 1 && args[0] === '--live')
+    return printLive(deps)
   const parsed = parseArgs(args)
   if (parsed === null) {
     deps.err(`${PREFIX}${USAGE}`)
@@ -187,11 +250,20 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     sessions += 1
     const session = deps.uuid()
     deps.out(`${PREFIX}session ${sessions}/${parsed.max} ${session} on ${model}`)
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home)), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model] })
+    let pid: number | null = null
+    let started: Promise<void> = Promise.resolve()
+    const n = sessions
+    const onSpawn = (spawned: number): void => {
+      pid = spawned
+      started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
+    }
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home)), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    await started
     await record(deps, {
       event: 'relaunch',
       handoff,
       session,
+      pid,
       model,
       n: sessions,
       exit: exit.kind === 'exited' ? exit.code : null,
@@ -219,6 +291,7 @@ function realDeps(): RelaunchDeps {
     now: () => new Date(),
     uuid: randomUUID,
     run: runClaude,
+    alive: pidAlive,
     out: line => console.log(line),
     err: line => console.error(line),
   }
