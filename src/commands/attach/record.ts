@@ -16,6 +16,7 @@ export interface AttachRecord {
   excludeCreated: boolean
   ledgerCreated?: boolean
   ledgerHeld?: string[]
+  browserHeld?: string[]
   excludeSeparator: number
   settingsHook?: SettingsHook
 }

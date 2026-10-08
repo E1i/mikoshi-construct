@@ -2,7 +2,7 @@ import type { Ui, Writer } from '../src/ui/console.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -829,8 +829,8 @@ describe('the runtime files the ladder writes come off a closed list', () => {
   it('a run directory under a .construct/browser present at attach stays', async () => {
     const dir = fixture()
     mkdirSync(path.join(dir, '.construct/browser'), { recursive: true })
-    await attached(dir)
     writeRuntime(dir)
+    await attached(dir)
     const { ui: plain, output } = capturing()
 
     expect(runDetach(plain, { dir }).status).toBe('done')
@@ -839,6 +839,86 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     expect(present(dir, RUN_DIRECTORY)).toBe(true)
     expect(present(dir, '.construct/browser')).toBe(true)
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/browser'))
+  })
+
+  it('removes the run directories the guest created inside a .construct/browser that existed before attach', async () => {
+    const dir = fixture()
+    const earlier = '.construct/browser/20200101T000000000Z-1'
+    mkdirSync(path.join(dir, '.construct/browser', path.basename(earlier)), { recursive: true })
+    writeFileSync(path.join(dir, earlier, '1280.png'), 'mine')
+    writeFileSync(path.join(dir, '.construct/browser/notes.txt'), 'mine\n')
+    await attached(dir)
+    const attachedAt = readAttachRecord(dir)?.attachedAt ?? ''
+    const later = `.construct/browser/${new Date(Date.parse(attachedAt) + 1000).toISOString().replace(/[-:.]/g, '')}-4242`
+    mkdirSync(path.join(dir, later), { recursive: true })
+    writeFileSync(path.join(dir, later, '1280.png'), '')
+    const { ui: plain, output } = capturing()
+
+    const result = runDetach(plain, { dir })
+
+    expect(result.status).toBe('done')
+    expect(result.removed).toEqual(expect.arrayContaining([`${later}/1280.png`, later]))
+    expect(present(dir, later)).toBe(false)
+    expect(readFileSync(path.join(dir, earlier, '1280.png'), 'utf8')).toBe('mine')
+    expect(readFileSync(path.join(dir, '.construct/browser/notes.txt'), 'utf8')).toBe('mine\n')
+    expect(removedLines(output())).not.toContain('.construct/browser')
+  })
+
+  it('a run directory under a .construct/browser present at attach with a non-png entry stays even when the guest created it', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct/browser'), { recursive: true })
+    await attached(dir)
+    const attachedAt = readAttachRecord(dir)?.attachedAt ?? ''
+    const later = `.construct/browser/${new Date(Date.parse(attachedAt) + 1000).toISOString().replace(/[-:.]/g, '')}-4242`
+    mkdirSync(path.join(dir, later), { recursive: true })
+    writeFileSync(path.join(dir, later, 'notes.txt'), 'mine\n')
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(present(dir, `${later}/notes.txt`)).toBe(true)
+  })
+
+  it('a run directory that existed before attach stays with a fresh mtime and a name stamped after attachedAt', async () => {
+    const dir = fixture()
+    const earlier = '.construct/browser/20991231T235959999Z-7'
+    mkdirSync(path.join(dir, earlier), { recursive: true })
+    writeFileSync(path.join(dir, earlier, '1280.png'), 'mine')
+    await attached(dir)
+    const now = new Date()
+    utimesSync(path.join(dir, earlier), now, now)
+    utimesSync(path.join(dir, earlier, '1280.png'), now, now)
+
+    const result = runDetach(ui, { dir })
+
+    expect(result.status).toBe('done')
+    expect(result.removed).not.toContain(earlier)
+    expect(readFileSync(path.join(dir, earlier, '1280.png'), 'utf8')).toBe('mine')
+  })
+
+  it('a record without browserHeld leaves every run directory in a .construct/browser present at attach', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct/browser'), { recursive: true })
+    await attached(dir)
+    rewriteRecord(dir, (record) => {
+      delete record.browserHeld
+    })
+    writeRuntime(dir)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+
+    expect(present(dir, `${RUN_DIRECTORY}/1280.png`)).toBe(true)
+  })
+
+  it('says the original bytes came back after a byte restore', async () => {
+    const dir = fixture()
+    writeHostSettings(dir, HOST_SETTINGS['two-space with a final newline'])
+    await attached(dir)
+    const { ui: plain, output } = capturing()
+
+    expect(runDetach(plain, { dir }).status).toBe('done')
+
+    expect(output()).toContain(PLAIN_LORE.detachOriginalRestored(SETTINGS_FILE))
+    expect(output()).not.toContain(PLAIN_LORE.detachEntryRemoved(SETTINGS_FILE))
   })
 
   it('a record without ledgerHeld removes the list only when ledgerCreated is true', async () => {
