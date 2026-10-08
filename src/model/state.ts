@@ -1,7 +1,10 @@
+import type { AbilityFinding } from './ability.js'
 import type { Fact, RepositoryModel } from './schema.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { abilityOf } from './ability.js'
 import { evaluateCoverage } from './coverage.js'
+import { failedWitnesses } from './witness-failures.js'
 
 export const FACT_EVALUATIONS = ['holds', 'does-not-hold', 'unevaluable'] as const
 export type FactEvaluation = (typeof FACT_EVALUATIONS)[number]
@@ -38,7 +41,7 @@ export interface ModelStateReport {
 }
 
 export interface EngramStateReport extends ModelStateReport {
-  nodes: Record<string, StageFinding>
+  nodes: Record<string, AbilityFinding>
 }
 
 const NEGATED: Record<FactEvaluation, FactEvaluation> = {
@@ -105,6 +108,7 @@ export function factOutcomes(facts: readonly Fact[], supportedBy: readonly strin
 
 export function deriveModelState(model: RepositoryModel, root: string, evidence: ModelEvidence = WITHHELD_EVIDENCE): EngramStateReport {
   const facts = evaluateFacts(model, root, evidence)
+  const failed = failedWitnesses(model, root, facts, evidence)
   return {
     facts,
     hypotheses: Object.fromEntries(model.hypotheses.map(hypothesis => [hypothesis.id, resolveFinding(model.facts, hypothesis.supportedBy, facts)])),
@@ -112,6 +116,6 @@ export function deriveModelState(model: RepositoryModel, root: string, evidence:
       enforcement: resolveFinding(model.facts, claim.enforcement?.supportedBy ?? [], facts),
       verification: resolveFinding(model.facts, claim.verification?.supportedBy ?? [], facts),
     }])),
-    nodes: Object.fromEntries(model.nodes.map(node => [node.id, resolveFinding(model.facts, node.supportedBy, facts)])),
+    nodes: Object.fromEntries(model.nodes.map(node => [node.id, abilityOf(model.facts, node.supportedBy, facts, failed, evidence)])),
   }
 }

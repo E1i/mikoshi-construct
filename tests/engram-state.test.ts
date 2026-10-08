@@ -25,13 +25,13 @@ function document(): string {
 }
 
 describe('a node state is derived from its facts and never stored', () => {
-  it('reads held, unsupported and unknown for a present file, an absent file and no fact', () => {
+  it('reads an assumption, an absence and an unknown for a present file, an absent file and no fact', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'engram-state-'))
     writeFileSync(path.join(root, 'present.txt'), 'x\n')
     const { nodes } = deriveModelState(parseModel(document(), 'M'), root)
-    expect(nodes.held?.state).toBe('held')
-    expect(nodes.unsupported?.state).toBe('unsupported')
-    expect(nodes.unknown?.state).toBe('unknown')
+    expect(nodes.held).toEqual({ status: 'assumption', reason: 'written-in-repo', state: 'unknown' })
+    expect(nodes.unsupported).toEqual({ status: 'unknown', reason: 'absent', state: 'unsupported' })
+    expect(nodes.unknown).toEqual({ status: 'unknown', reason: 'written-in-repo', state: 'unknown' })
   })
 
   it('holds no state key in the parsed model', () => {

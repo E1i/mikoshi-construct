@@ -1,0 +1,18 @@
+{
+  "modelVersion": 5,
+  "facts": [
+    { "id": "readme-describe-check", "kind": "file-contains", "path": "README.md", "authoredBy": "discovery", "needle": "`appa describe --check` checks that your configuration loads" },
+    { "id": "describe-check-flag", "kind": "file-contains", "path": "appa-runtime/src/bin/appa.rs", "authoredBy": "discovery", "needle": "--check" },
+    { "id": "describe-check-exit-0", "kind": "file-contains", "path": "atlas/verified.md", "authoredBy": "discovery", "needle": "`appa describe --check` → exit 0" },
+    { "id": "replay-test", "kind": "file-contains", "path": "appa-runtime/tests/replay.rs", "authoredBy": "discovery", "needle": "taken(OfferKind::Accept)" },
+    { "id": "replay-ok", "kind": "file-contains", "path": "atlas/verified.md", "authoredBy": "discovery", "needle": "`appa replay` ×8 ok" }
+  ],
+  "claims": [],
+  "hypotheses": [],
+  "stages": [{ "id": "verified", "label": "Verified" }],
+  "nodes": [
+    { "id": "verified-9", "label": "appa describe --check gates the configuration in CI", "stage": "verified", "source": { "path": "appa-runtime/src/describe.rs" }, "supportedBy": ["readme-describe-check", "describe-check-flag", "describe-check-exit-0"] },
+    { "id": "verified-5", "label": "appa replay checks the expected decisions", "stage": "verified", "source": { "path": "appa-runtime/tests/replay.rs" }, "supportedBy": ["replay-test", "replay-ok"] }
+  ],
+  "links": []
+}

@@ -1,0 +1,1 @@
+appa describe --check
