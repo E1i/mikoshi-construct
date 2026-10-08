@@ -938,6 +938,7 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     await chainRun(world, chainGh())
     expect(chainSteps(world)).toEqual(['end guard-refusal'])
     expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+    expect(readFileSync(path.join(world.shift, 'shift-report.md'), 'utf8')).toContain('| #1 task-1 | stop guard-refusal | guard refusal | PR #101 |')
   })
 
   it('an Eddies stop masked by task:close ends the chain with eddies-budget', async () => {
