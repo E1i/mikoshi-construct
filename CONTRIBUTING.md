@@ -102,6 +102,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm privacy:check` | In the harness. Fails on a home path or an unlisted domain in templates, docs, README or fixtures. | `pnpm privacy:check` |
 | `pnpm lint` | In the harness. ESLint over the repository; it is the only formatter. | `pnpm lint` |
 | `pnpm lint:fix` | ESLint with `--fix`, the way to fix style; `lint` is its gate. | `pnpm lint:fix` |
+| `pnpm miko:handoff` | Opens a new Terminal (`osascript`) whose `claude --permission-mode auto` reads `~/.construct/handoff/foreman.md` and continues as the foreman; the Miko window runs it at the Eddies warn after writing that file, then stops ([architecture/window.md § The boundary](architecture/window.md#the-boundary)). | `pnpm miko:handoff` |
 | `pnpm typecheck` | In the harness. `tsc --noEmit`. | `pnpm typecheck` |
 | `pnpm test` | In the harness. Vitest over `tests/` and `scripts/tests/`, once. | `pnpm test [<file>]` |
 | `pnpm test:watch` | The same tests in watch mode. | `pnpm test:watch [<file>]` |
