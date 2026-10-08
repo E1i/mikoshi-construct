@@ -195,3 +195,11 @@ unexercised B4 → #263.
 The snapshot itself never existed as one moment. PR #265 was opened at 08:48, three minutes after PR #264 (#263)
 merged. So #263 queued and #265 open were never true together. Its `runsAwaitingApproval: true` locks nothing, so the
 rows would be the same without it. Its `files` are the list at merge time.
+
+## A cut: caller with callee
+
+`scripts/shredder/cli.ts --cut <file>` reads a cut, `[{ id, defines, calls }]` in proposed order, and prints its slices
+as groups of ids. A slice none of whose `defines` is in its own `calls` has no calling code: it goes with the first other
+slice whose `calls` names one of its `defines`. A slice nothing calls stays on its own. `cut-fixtures/atlas.json` is the
+occasion: #532 (Engram) and #533 (renderer) were cut apart from #534, the command that calls both, and fell on
+`done:check` because nothing called their code; the cut gives one slice.
