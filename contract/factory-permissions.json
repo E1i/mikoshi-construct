@@ -1,0 +1,9 @@
+{
+  "allow": [
+    "Bash(pnpm shift:bg:*)",
+    "Bash(pnpm relaunch:bg:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(ps:*)"
+  ],
+  "denyMergeOfHead": "changeset-release/"
+}

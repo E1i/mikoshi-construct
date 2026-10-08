@@ -75,6 +75,17 @@ spawns `nohup pnpm shift <dir> …` as a detached process, a session of its own,
 `<dir>/shift-bg.log`, prints the PID of the running shift on its first line and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
 chain waited for the owner.
 
+The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch arguments]`: it spawns
+`nohup pnpm relaunch <handoff.md> …` as a detached process, a session of its own, appends its output to
+`~/.construct/handoff/relaunch-day.log` and prints its PID. Before every relaunch it runs `pnpm doctor:factory`, which
+compares the permissions the factory needs, `contract/factory-permissions.json`, with `.claude/settings.local.json`
+and names each missing rule, the deny of `gh pr merge` on every open version pull request (head `changeset-release/*`)
+included, and names each command this document or `OPERATOR_ROLE` tells the Operator to run that has no shape of a
+contract rule allowing it: a merge written with an env prefix, GH_TOKEN=… before gh pr merge, matches no
+`Bash(gh pr merge:*)`. A red `doctor:factory` stops the
+relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on that yes appends the missing rules to
+`.claude/settings.local.json`; it never reads or writes `.claude/settings.json`.
+
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
