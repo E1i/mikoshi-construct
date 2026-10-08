@@ -76,6 +76,7 @@
     "release": "pnpm build && tsx scripts/release/stage-publish.ts && changeset tag",
     "relaunch": "tsx scripts/shift/relaunch.ts",
     "shift": "tsx scripts/shift/shift.ts",
+    "shift:bg": "tsx scripts/shift/bg.ts",
     "shift:merge": "tsx scripts/shift/merge.ts",
     "shift:report": "tsx scripts/shift/report.ts",
     "shard": "tsx scripts/shift/shard.ts",
