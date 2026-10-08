@@ -1,7 +1,7 @@
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -29,6 +29,7 @@ export function relaunchPrompt(handoff: string, decisions: string | null): strin
   return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
+export const ALREADY_RUNNING = 'already-running'
 
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE)\b/
 const SYNTHETIC_MODEL = '<synthetic>'
@@ -38,10 +39,12 @@ export type Status = 'CONTINUE' | 'OWNER' | 'DONE'
 export interface RelaunchDeps {
   cwd: string
   home: string
+  pid: number
   claude: string | undefined
   journal: string
   projectsDir: string
   read: (file: string) => string
+  write: (file: string, text: string) => void
   exists: (file: string) => boolean
   parked: () => ParkedDepends
   listDir: (dir: string) => string[]
@@ -205,6 +208,17 @@ function sessionFailure(exit: ClaudeExit): string | null {
   return null
 }
 
+export function lockPath(handoff: string): string {
+  return `${handoff}.lock`
+}
+
+function lockHolder(deps: RelaunchDeps, lock: string): number | null {
+  if (!deps.exists(lock))
+    return null
+  const pid = Number(deps.read(lock).trim())
+  return Number.isInteger(pid) && pid > 0 && pid !== deps.pid && deps.alive(pid) ? pid : null
+}
+
 async function record(deps: RelaunchDeps, event: object): Promise<void> {
   mkdirSync(path.dirname(deps.journal), { recursive: true })
   await appendJournalEvent(deps.journal, event)
@@ -229,6 +243,11 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       deps.err(`${PREFIX}${reason}`)
     return code
   }
+  const lock = lockPath(handoff)
+  const holder = lockHolder(deps, lock)
+  if (holder !== null)
+    return stop(`${ALREADY_RUNNING} ${holder}`, 1)
+  deps.write(lock, `${deps.pid}\n`)
   const model = parsed.model ?? transcriptModel(deps)
   if (model === null)
     return stop(NO_MODEL, 1)
@@ -283,10 +302,12 @@ function realDeps(): RelaunchDeps {
   return {
     cwd: process.cwd(),
     home: os.homedir(),
+    pid: process.pid,
     claude: process.env[CLAUDE_VARIABLE],
     journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),
+    write: (file, text) => writeFileSync(file, text),
     exists: existsSync,
     parked: () => parkedDepends(defaultParking(os.homedir())),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],

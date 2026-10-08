@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { BRAIN_ROLE, CHAIN_COMMAND, expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, BRAIN_ROLE, CHAIN_COMMAND, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
 const roots: string[] = []
+const RELAUNCH_PID = 5151
 
 interface World {
   root: string
@@ -55,10 +56,12 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
   return {
     cwd: world.repo,
     home: world.root,
+    pid: RELAUNCH_PID,
     claude: 'true',
     journal: world.journal,
     projectsDir: world.projects,
     read: file => readFileSync(file, 'utf8'),
+    write: (file, text) => writeFileSync(file, text),
     exists: existsSync,
     parked: () => new Map(),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
@@ -316,6 +319,34 @@ describe('runRelaunch', () => {
       { event: 'relaunch-session', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1, handoff: world.handoff },
       { event: 'relaunch', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1 },
     ])
+  })
+
+  it('a second relaunch on the same handoff refuses with already-running and the live pid', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '7777\n')
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 7777 })
+    expect(code).toBe(1)
+    expect(seen.runs).toHaveLength(0)
+    expect(seen.err.at(-1)).toBe(`[relaunch] ${ALREADY_RUNNING} 7777`)
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `${ALREADY_RUNNING} 7777`, sessions: 0 })
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe('7777\n')
+  })
+
+  it('a lock whose pid is dead is taken over', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '8888\n')
+    const result = await relaunch(world, ['--model', 'claude-test'], ['DONE'])
+    expect(result.code).toBe(0)
+    expect(result.runs).toHaveLength(1)
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe(`${RELAUNCH_PID}\n`)
+  })
+
+  it('a relaunch writes its own pid into the lock beside the handoff', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], ['DONE'])
+    expect(result.code).toBe(0)
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe(`${RELAUNCH_PID}\n`)
   })
 
   it('live sessions are read from the journal pid, not from the command text', async () => {
