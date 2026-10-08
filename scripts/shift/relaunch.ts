@@ -86,7 +86,7 @@ function parseArgs(args: string[]): RelaunchArgs | null {
     const arg = args[index]!
     const value = args[index + 1]
     if (arg === '--max' || arg === '--model') {
-      if (value === undefined || value.startsWith('--'))
+      if (value === undefined || value.startsWith('-'))
         return null
       if (arg === '--max') {
         if (!/^[1-9]\d*$/.test(value))
@@ -115,6 +115,14 @@ function readHandoff(deps: RelaunchDeps, handoff: string): string | null {
   catch {
     return null
   }
+}
+
+function sessionFailure(exit: ClaudeExit): string | null {
+  if (exit.kind === 'unspawnable')
+    return `could not start: ${exit.error}`
+  if (exit.code !== 0)
+    return exit.code === null ? `ended by ${exit.signal ?? 'a signal'}` : `exited ${exit.code}`
+  return null
 }
 
 async function record(deps: RelaunchDeps, event: object): Promise<void> {
@@ -173,6 +181,9 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       status: statusOf(readHandoff(deps, handoff) ?? '') ?? 'none',
       ts: deps.now().toISOString(),
     })
+    const failure = sessionFailure(exit)
+    if (failure !== null)
+      return stop(`session ${sessions} ${failure}`, 1)
   }
 }
 

@@ -189,6 +189,39 @@ describe('runRelaunch', () => {
     expect(lines.every(line => typeof line.ts === 'string')).toBe(true)
   })
 
+  it('refuses a --model value that is a flag', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', '-p'])
+    expect(result.code).toBe(1)
+    expect(result.runs).toHaveLength(0)
+  })
+
+  it('stops after a session that exits nonzero, though the handoff still says CONTINUE', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const deps = relaunchDeps(world, [], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
+      seen.runs.push(run)
+      return { kind: 'exited', code: 2, signal: null }
+    } })
+    expect(code).toBe(1)
+    expect(seen.runs).toHaveLength(1)
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'session 1 exited 2', sessions: 1 })
+  })
+
+  it('stops after a session that could not start', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const deps = relaunchDeps(world, [], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
+      seen.runs.push(run)
+      return { kind: 'unspawnable', error: 'ENOENT' }
+    } })
+    expect(code).toBe(1)
+    expect(seen.runs).toHaveLength(1)
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'session 1 could not start: ENOENT' })
+  })
+
   it('refuses a bad argv', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--max', '0', '--model', 'claude-test'])
