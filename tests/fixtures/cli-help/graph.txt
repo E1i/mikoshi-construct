@@ -4,9 +4,8 @@ USAGE construct graph [OPTIONS]
 
 OPTIONS
 
-  --dir=<dir>    Target directory (Default: .)                                   
-      --plain    No colors, no lore (CI-friendly) (Default: false)               
-     --johnny    Wake up, Netrunner. (Default: false)                            
-  --out=<out>    Also write one self-contained HTML file rendering the same graph
+  --dir=<dir>    Target directory (Default: .)                    
+      --plain    No colors, no lore (CI-friendly) (Default: false)
+     --johnny    Wake up, Netrunner. (Default: false)             
 
 

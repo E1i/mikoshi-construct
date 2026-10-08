@@ -91,7 +91,7 @@ function stageWord(finding: StageFinding): string {
 
 type ReportBacked = (supportedBy: readonly string[]) => boolean
 
-function reportBackedIn(model: RepositoryModel): ReportBacked {
+export function reportBackedIn(model: RepositoryModel): ReportBacked {
   const reportFacts = new Set(model.facts.filter(fact => REPORT_KINDS.includes(fact.kind)).map(fact => fact.id))
   return supportedBy => supportedBy.some(id => reportFacts.has(id))
 }
@@ -122,11 +122,11 @@ function isReportFact(fact: Fact): boolean {
   return REPORT_KINDS.includes(fact.kind)
 }
 
-function factLines(fact: Fact, derived: ModelStateReport): [string, ...string[]] {
+export function factLines(fact: Fact, derived: ModelStateReport): [string, string] {
   return [factSubject(fact), isReportFact(fact) ? RUNTIME_REPORT_WORD : FACT_WORDS[derived.facts[fact.id] ?? 'unevaluable']]
 }
 
-function factClass(fact: Fact, derived: ModelStateReport): PictureClass {
+export function factClass(fact: Fact, derived: ModelStateReport): PictureClass {
   return isReportFact(fact) ? RUNTIME_REPORT : FACT_STATES[derived.facts[fact.id] ?? 'unevaluable']
 }
 

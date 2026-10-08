@@ -4,6 +4,7 @@ import antfu from '@antfu/eslint-config'
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 
 const ALLOWED_INTERNAL_IMPORTS = {
+  'src/atlas': ['detect', 'model', 'ui'],
   'src/card': [],
   'src/detect': [],
   'src/manifest.ts': ['detect', 'materialize', 'presets', 'record-ahead'],
@@ -15,7 +16,7 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/failure.ts': ['record-ahead', 'ui'],
   'src/known-flags.ts': [],
   'src/commands': ['card', 'detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
-  'src/program.ts': ['commands', 'detect', 'failure', 'known-flags', 'presets', 'ui', 'version'],
+  'src/program.ts': ['atlas', 'commands', 'detect', 'failure', 'known-flags', 'presets', 'ui', 'version'],
   'src/cli.ts': ['program'],
 }
 
@@ -68,11 +69,11 @@ const attachDecidesWithoutTheStack = {
 
 const ANTFU_RESTRICTED_SYNTAX = ['TSEnumDeclaration[const=true]', 'TSExportAssignment']
 
-const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts'
+const SPAWNS_ONLY_FIXED_READS = 'The CLI spawns nothing but `pnpm --version` in src/detect/package-manager.ts and the read-only `git rev-parse HEAD` and `git ls-files -z` in src/detect/git.ts'
 const RUNS_ONLY_SHIPPED_CODE = 'The CLI runs only the code it ships: doctor audits a repository it does not trust, so src/ reads file text and never loads or runs code from it'
 
 const NO_CHILD_PROCESS = [
-  { selector: 'ImportDeclaration[source.value="node:child_process"]', message: SPAWNS_ONLY_THE_PNPM_PROBE },
+  { selector: 'ImportDeclaration[source.value="node:child_process"]', message: SPAWNS_ONLY_FIXED_READS },
 ]
 
 const NO_RUNTIME_CODE_LOADING = [
@@ -98,6 +99,13 @@ const spawnPolicy = {
 
 const thePnpmProbeMaySpawnAndNothingElse = {
   files: ['src/detect/package-manager.ts'],
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
+  },
+}
+
+const theGitReadingsMaySpawnAndNothingElse = {
+  files: ['src/detect/git.ts'],
   rules: {
     'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
   },
@@ -173,6 +181,7 @@ export default antfu(
   attachDecidesWithoutTheStack,
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,
+  theGitReadingsMaySpawnAndNothingElse,
   theRecordItselfMayReadBothHalves,
   theSurfaceTestNeverWrites,
   aHookReadsStdinToItsEnd,

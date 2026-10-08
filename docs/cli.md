@@ -1660,24 +1660,12 @@ npx mikoshi-construct graph > model.mmd
 The Mermaid on stdout is the machine-readable artifact and is the default, so there is no `--json`:
 a diagram a program reads is already the JSON of this command.
 
-**`--out <path>` also writes one self-contained HTML file**, so the same graph can be opened rather
-than piped:
+The page that can be opened rather than piped is the Atlas, which [`construct atlas`](#construct-atlas)
+builds; `graph` has no `--out` and writes no file.
 
-```bash
-npx mikoshi-construct graph --out picture.html
-```
-
-That file is the whole picture. The graph is an inline SVG drawn from the same structure the Mermaid
-is serialized from, the styling is inline, and **nothing is fetched when you open it** — no CDN, no
-script, no network of any kind, from a `file://` URL or anywhere else. It is a few kilobytes, and it
-carries a legend for the four classes — the three states and `runtime-report` — and the state of each entry in the entry itself, in its colour
-and in its own words. Under that legend the page says what the colour is **not**, and this reference
-repeats that line rather than restating it: *Colour carries the derived state and not the enforcement
-level: the same green covers an L0 claim nobody is obliged to read and an L3 claim that fails the
-build, and each claim’s level is written inside it.*
-
-`--out` adds to stdout and never replaces it: the Mermaid is written exactly as it was before, and
-the file is written afterwards. Where a reading draws nothing, no file is written either.
+The diagram's colours are the derived states, and nothing more: *Colour carries the derived state and not the enforcement level: the same
+green covers an L0 claim nobody is obliged to read and an L3 claim that fails the build, and each
+claim’s level is written inside it.*
 
 The states in the labels are the ones `doctor` reports, derived on read by the same code and stored
 nowhere, with one named exception: a fact of kind `report-covers` or `report-misses`, and every
@@ -1692,10 +1680,10 @@ Four readings, and only the first draws anything:
 
 | Reading | Where it goes | Exit |
 |---|---|---|
-| The model carries entries | the diagram, on stdout — and the page, where `--out` names one | `0` |
-| `construct.model.json` is here and names no fact, claim or hypothesis | a line on stderr, nothing on stdout, and no file written | `0` |
-| There is no `construct.model.json` here | a line on stderr, nothing on stdout, and no file written | `0` |
-| `construct.model.json` declares a `modelVersion` this binary does not understand | the state named on stderr, nothing on stdout, and no file written | `1` |
+| The model carries entries | the diagram, on stdout | `0` |
+| `construct.model.json` is here and names no fact, claim or hypothesis | a line on stderr, nothing on stdout | `0` |
+| There is no `construct.model.json` here | a line on stderr, nothing on stdout | `0` |
+| `construct.model.json` declares a `modelVersion` this binary does not understand | the state named on stderr, nothing on stdout | `1` |
 
 The first three exit `0` because absence is not obstruction; the fourth is obstruction — the file is
 there and could not be read — and exits `1` like every other reading of a record from a later build.
@@ -1712,6 +1700,43 @@ This repository renders its own picture into
 [architecture/model.md](https://github.com/E1i/mikoshi-construct/blob/main/architecture/model.md)
 through the same function the command calls, so the committed block and the command agree by
 construction.
+
+## construct atlas
+
+Builds the Atlas of the repository in one call: discovery reads the code, writes what it found into
+the Engram, and the page is rendered from that Engram. Where `graph` prints the claims and the
+evidence under them as Mermaid text and writes nothing, `atlas` writes the Engram's `mechanics` and
+one self-contained HTML page: the stages the repository names for itself as columns, a panel per part
+with its evidence, its links and its source, and the code under each part as a scheme.
+
+```bash
+npx mikoshi-construct atlas
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `--out <path>` | `.construct/atlas.html` | Write the page here instead. |
+
+Discovery reads only what git holds: `git rev-parse HEAD`, `git ls-files -z`, and each tracked
+TypeScript or JavaScript file, which becomes a component, with its relative imports and the calls of
+what it imports as relations. Where the Engram and the page go depends on what the repository already
+is, and the command never writes a tracked file of a repository it was not asked to own:
+
+| Repository | Engram | Page |
+|---|---|---|
+| made by `init` (`construct.json` is here) | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
+| attached by `attach`, with no `init` | `~/.construct/engram/<repo>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
+| neither | `~/.construct/engram/<repo>/construct.model.json` | `~/.construct/engram/<repo>/atlas.html` |
+
+After `atlas` in an attached repository `git status` is as clean as before. Running it again on the
+same commit writes the same Engram and the same page, byte for byte. Every "Open the source" link is
+relative to the file the page was written to, so it opens the repository path from the default place
+and from `--out` alike. Nothing is fetched when the page is opened.
+
+| Reading | Where it goes | Exit |
+|---|---|---|
+| The Engram and the page were written | the path of the page, on stdout | `0` |
+| The Engram here was written by a later build, or a write failed | the reason, on stdout, and the page not written | `1` |
 
 ## construct intake
 
@@ -1833,8 +1858,8 @@ or printed, `1` when the draft was refused, `2` when corrections wait for a pers
 
 | Code | Meaning |
 |---|---|
-| `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw and every `soulkill` exit `0`. |
-| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft. |
+| `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw, `atlas` once its page is written and every `soulkill` exit `0`. |
+| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft; `atlas` met an Engram from a later build or failed to write. |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards, or a corrected card under `--admit`, until a person confirms them. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure. |
 

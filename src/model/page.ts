@@ -8,8 +8,7 @@ export interface PageMeta {
   generatedFrom: string
 }
 
-const STYLE = `
-:root {
+export const PALETTE = `:root {
   color-scheme: light dark;
   --surface: light-dark(#fbfbfd, #14161a);
   --surface-raised: light-dark(#ffffff, #1c1f25);
@@ -24,7 +23,10 @@ const STYLE = `
   --unsupported-fill: light-dark(#fdecea, #3a191733);
   --unknown-fill: light-dark(#fdf5e2, #332c1233);
   --runtime-report-fill: light-dark(#ebf0fb, #1a223a33);
-}
+}`
+
+const STYLE = `
+${PALETTE}
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -63,7 +65,7 @@ p.legend-caveat { margin: 0.6rem 0 0; color: var(--ink-dim); font-size: 0.85rem;
 footer { margin-block-start: 1.5rem; color: var(--ink-dim); font-size: 0.8rem; }
 `
 
-function escaped(value: string): string {
+export function escaped(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

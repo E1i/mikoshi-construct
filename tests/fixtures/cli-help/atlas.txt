@@ -1,0 +1,12 @@
+Discover the code into the Engram and build the Atlas page from it: one self-contained HTML file, written into no tracked file (construct atlas v<version>)
+
+USAGE construct atlas [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)                       
+      --plain    No colors, no lore (CI-friendly) (Default: false)   
+     --johnny    Wake up, Netrunner. (Default: false)                
+  --out=<out>    Write the page here instead of .construct/atlas.html
+
+

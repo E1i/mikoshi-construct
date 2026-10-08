@@ -15,9 +15,9 @@ whoever changes the thing they describe.
 `mikoshi-construct` is a CLI (`construct`, `miko`, `npx mikoshi-construct`) that materializes a
 construct — architecture policy, an optional OpenAPI contract, a quality harness and agent
 instructions — into a new or existing repository, hands the repository to the agent for discovery,
-and afterwards reads back what that repository has become. Eleven commands, as `src/program.ts` lists
+and afterwards reads back what that repository has become. Twelve commands, as `src/program.ts` lists
 them: `init`, `attach` (alias `jack-in`), `detach` (alias `jack-out`), `soulkill` (aliases `inspect`,
-`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `intake`, `mutate`. Pitch and lifecycle:
+`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `atlas`, `intake`, `mutate`. Pitch and lifecycle:
 [README.md § What it does](README.md#what-it-does); every command, its flags and its output:
 [docs/cli.md](docs/cli.md).
 
@@ -111,9 +111,8 @@ here. Before proposing an architecture, answer the questions and name the catego
   ([init.yaml](architecture/composition/init.yaml)) is the only path that materializes a tree, through
   `applyPlan`, `writeManifest` and `writeModel`. `applySync` in `src/commands/sync/index.ts`
   ([sync.yaml](architecture/composition/sync.yaml)) writes only the paths the construct owns and records
-  them in the manifest's `sync` branch, never the branch `init` froze. `writeGraphPage` in
-  `src/commands/graph.ts` ([graph.yaml](architecture/composition/graph.yaml)) writes one HTML file at
-  the path `--out` names, outside the repository it read.
+  them in the manifest's `sync` branch, never the branch `init` froze. `runAtlas` in
+  `src/atlas/index.ts` writes the Engram and the Atlas page, into no tracked file `init` did not make.
 
   `costReport` in `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads
   the session files and the ladder record, and writes one file: it appends to `.construct/steps.jsonl`
@@ -136,25 +135,25 @@ here. Before proposing an architecture, answer the questions and name the catego
   Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
   the declaration rather than a description of one: `detect` imports no other module (facts only);
   `presets` imports `detect`; `record-ahead` imports nothing, and only the two readers of a versioned
-  record and the failure reader may import it; `model` imports `detect`, `presets` and `record-ahead`;
+  record and the failure reader may import it; `model` imports `detect`, `presets` and `record-ahead`; `atlas` imports `detect`, `model` and `ui`;
   `materialize` and `ui` import `presets`; `manifest` imports `detect`, `materialize`, `presets` and
   `record-ahead`; `sync` imports `manifest`, `materialize` and `presets`; `failure` imports
-  `record-ahead` and `ui`; `commands` import everything but `cli`, `program` and `record-ahead`; `program` composes `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
+  `record-ahead` and `ui`; `commands` import everything but `cli`, `program` and `record-ahead`; `program` composes `atlas`, `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
   `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
   and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
   inspected repository goes through one reader that reports a path it could not read instead of dropping
   it from the set it inspected. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
   forbids `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
-  spawns only `pnpm --version` and runs only the code it ships; it also forbids reading `manifest.files`
+  spawns only `pnpm --version` and two `git` reads and runs only the code it ships; it also forbids reading `manifest.files`
   directly, because that branch is the frozen `init` record and `recordedShas()` is what overlays the
   `sync` one. `theRecordItselfMayReadBothHalves` restores the second of those for `src/manifest.ts`,
   which is the module that owns both branches.
 
-  `src/detect/package-manager.ts` carries the single spawn, and `thePnpmProbeMaySpawnAndNothingElse`
-  gives it the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
+  `src/detect/package-manager.ts` and `src/detect/git.ts` carry the spawns, and a block of their own
+  gives each the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
   because ESLint's `ignores` removes the whole config object rather than one selector from it.
-  Code loading, `createRequire` and the antfu base restrictions stay forbidden there, and
-  `tests/dependency-policy.test.ts` lints one sample per form against that file.
+  Code loading, `createRequire` and the antfu base restrictions stay forbidden there, as
+  `tests/dependency-policy.test.ts` proves per form for each.
 
   `tests/dependency-policy.test.ts` resolves the config per file, lints one source sample per forbidden
   form, and fails when a source file that names an internal import falls outside every boundary — so a
