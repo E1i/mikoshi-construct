@@ -31,10 +31,10 @@ export function relaunchPrompt(handoff: string, decisions: string | null): strin
 export const NO_MODEL = 'no model: pass --model <id>'
 export const ALREADY_RUNNING = 'already-running'
 
-const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE)\b/
+const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
 const SYNTHETIC_MODEL = '<synthetic>'
 
-export type Status = 'CONTINUE' | 'OWNER' | 'DONE'
+export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
 
 export interface RelaunchDeps {
   cwd: string

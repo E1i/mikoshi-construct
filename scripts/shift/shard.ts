@@ -94,7 +94,7 @@ function notApplied(number: string, shard: string, why: string): string[] {
   return [`${MERGE_PREFIX}PR #${number} ${why}; shard ${shard} not applied, merge is Eli's`]
 }
 
-export function delegatedMerge(deps: DelegationDeps, task: string, number: string, shard: string): string[] {
+export function delegatedMerge(deps: DelegationDeps, task: string, number: string, shard: string, reviewed?: string): string[] {
   let view: { headRefName: string, headRefOid: string }
   try {
     view = JSON.parse(deps.gh(['pr', 'view', number, '-R', REPO, '--json', 'headRefName,headRefOid'])) as typeof view
@@ -109,15 +109,16 @@ export function delegatedMerge(deps: DelegationDeps, task: string, number: strin
   const { ci } = prDetails(deps.gh, REPO, { number: Number(number), headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null })
   if (STOPPING_CI.has(ci.state))
     return notApplied(number, shard, `required checks ${ci.text}`)
+  const head = reviewed ?? view.headRefOid
   try {
-    deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', view.headRefOid, '-R', REPO])
+    deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', head, '-R', REPO])
   }
   catch (error) {
     return notApplied(number, shard, `gh pr merge failed: ${firstLine(error)}`)
   }
   const why = `owner decision delegated, shard ${shard}`
   deps.append(deps.journal, `${JSON.stringify({ event: DELEGATED_EVENT, task, pr: Number(number), shard, why, ts: deps.now().toISOString() })}\n`)
-  return [`${MERGE_PREFIX}${why} — auto-merge armed on PR #${number} at ${view.headRefOid}`]
+  return [`${MERGE_PREFIX}${why} — auto-merge armed on PR #${number} at ${head}`]
 }
 
 export function runShard(argv: string[], deps: ShardDeps): number {

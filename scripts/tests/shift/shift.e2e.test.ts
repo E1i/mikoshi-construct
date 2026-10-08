@@ -813,11 +813,13 @@ function chainRun(world: ReturnType<typeof newChainWorld>, gh: ChainGh, extra: s
     slept.push(ms)
     return Promise.resolve()
   }
+  for (const pr of [101, 102, 103])
+    writeFileSync(world.journal, `${JSON.stringify({ event: 'pr-review', task: String(pr - 100), pr, verdict: 'pass', commit: CHAIN_HEAD })}\n`, { flag: 'a' })
   return runShift([world.shift, '--parking', world.parking, '--chain', ...extra], chainDepsOf(world, gh.gh, io, { sleep, ...deps })).then(code => ({ code, io, slept }))
 }
 
 function chainSteps(world: ReturnType<typeof newChainWorld>): string[] {
-  return eventsOf(world, 'chain').map(line => `${String(line.step)}${line.task === undefined ? '' : ` ${String(line.task)}`}${line.reason === undefined ? '' : ` ${String(line.reason)}`}`)
+  return eventsOf(world, 'chain').filter(line => line.step !== 'reviewed').map(line => `${String(line.step)}${line.task === undefined ? '' : ` ${String(line.task)}`}${line.reason === undefined ? '' : ` ${String(line.reason)}`}`)
 }
 
 const A_AND_B = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, { id: 2, depends: '#1', body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }]
