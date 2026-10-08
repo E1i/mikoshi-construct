@@ -72,6 +72,7 @@
     "privacy:check": "tsx scripts/privacy/check.ts",
     "quality": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:pending && pnpm docs:anchors",
     "release": "pnpm build && tsx scripts/release/stage-publish.ts && changeset tag",
+    "relaunch": "tsx scripts/shift/relaunch.ts",
     "shift": "tsx scripts/shift/shift.ts",
     "shift:merge": "tsx scripts/shift/merge.ts",
     "shift:report": "tsx scripts/shift/report.ts",

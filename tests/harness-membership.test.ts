@@ -16,6 +16,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'ghosts:expect-sample': 'a read-only forecast printed by hand; its own tests are its gate',
   'task:start': 'cuts a task\'s worktree from its card and writes its journal start line when run by hand; its own tests are its gate',
   'task:close': 'appends a task\'s closing journal line when run by hand; its own tests are its gate',
+  'relaunch': 'runs the coordinating window\'s handoff in headless sessions when run by hand; its own tests, on a claude stub, are its gate',
   'shift': 'runs a shift of headless sessions when run by hand; its own tests, on a claude stub, are its gate',
   'shift:merge': 'arms auto-merge on a shift task\'s pull request when run by hand; its own tests, on a gh stub, are its gate',
   'shift:report': 'prints the table of a shift that ran; its own tests are its gate',
