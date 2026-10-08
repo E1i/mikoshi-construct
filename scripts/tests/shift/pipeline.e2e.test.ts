@@ -9,16 +9,18 @@ import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld } from '.
 const HEAD = 'a1b2c3d'
 const STALE = 'f00dfee'
 
-function chainGh(): { gh: (args: string[]) => string, calls: string[][] } {
+function chainGh(heads: { watched: () => string, armed: () => string } = { watched: () => HEAD, armed: () => HEAD }): { gh: (args: string[]) => string, calls: string[][] } {
   const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
   const calls: string[][] = []
   const gh = (args: string[]): string => {
     calls.push(args)
     const fields = args.at(-1)
     if (args[1] === 'view' && fields === 'headRefName,headRefOid,state')
-      return JSON.stringify({ headRefName: `feat/${Number(args[2]) - 100}`, headRefOid: HEAD, state: 'OPEN' })
+      return JSON.stringify({ headRefName: `feat/${Number(args[2]) - 100}`, headRefOid: heads.watched(), state: 'OPEN' })
     if (args[1] === 'view' && fields === 'headRefOid,statusCheckRollup,files')
-      return JSON.stringify({ headRefOid: HEAD, statusCheckRollup: [], files: [] })
+      return JSON.stringify({ headRefOid: heads.watched(), statusCheckRollup: [], files: [] })
+    if (args[1] === 'view' && fields === 'body,headRefOid,files')
+      return JSON.stringify({ ...JSON.parse(inner.gh(args)) as object, headRefOid: heads.armed() })
     return inner.gh(args)
   }
   return { gh, calls }
@@ -39,6 +41,10 @@ async function chainRun(world: World, gh: (args: string[]) => string, onSleep: (
 
 function merges(calls: string[][]): string[] {
   return calls.filter(args => args[1] === 'merge').map(args => args[2]!)
+}
+
+function armedAt(calls: string[][]): string[] {
+  return calls.filter(args => args[1] === 'merge').map(args => args[args.indexOf('--match-head-commit') + 1]!)
 }
 
 const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }]
@@ -78,6 +84,39 @@ describe('the chain arms a pull request after its review', () => {
   })
 })
 
+describe('the chain arms only the reviewed commit', () => {
+  it('arms only the reviewed commit: a push after the pass arms nothing, and the arm carries the sha the verdict names', async () => {
+    const pushed = newWorld(ONE)
+    let head = HEAD
+    const moved = chainGh({ watched: () => head, armed: () => head })
+    await chainRun(pushed, moved.gh, (slept) => {
+      if (slept === 1) {
+        review(pushed, 101, 'pass')
+        head = STALE
+      }
+    }, ['--chain-wait', '3'])
+    expect(merges(moved.calls)).toEqual([])
+
+    const raced = newWorld(ONE)
+    const racing = chainGh({ watched: () => HEAD, armed: () => STALE })
+    expect(await chainRun(raced, racing.gh, () => review(raced, 101, 'pass'))).toBe(0)
+    expect(armedAt(racing.calls)).toEqual([HEAD])
+  })
+
+  it('arms only the reviewed commit: --verdict without --commit, or with a commit that is not the head, is refused and writes nothing', () => {
+    const world = newWorld(ONE)
+    const before = readFileSync(world.journal, 'utf8')
+    const deps = { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date() }
+    const missing = runVerdict(['101', '--verdict', 'pass'], deps)
+    expect(missing).toMatchObject({ exitCode: 1, stdout: [] })
+    expect(missing.stderr[0]).toContain('--commit <sha>')
+    const notHead = runVerdict(['101', '--verdict', 'pass', '--commit', STALE], deps)
+    expect(notHead).toMatchObject({ exitCode: 1, stdout: [] })
+    expect(notHead.stderr[0]).toBe(`[shift:verdict] PR #101 head is ${HEAD}, not ${STALE}; nothing recorded`)
+    expect(readFileSync(world.journal, 'utf8')).toBe(before)
+  })
+})
+
 describe('a pipeline of two cards', () => {
   it('merges each pull request only after its review', async () => {
     const world = newWorld(TWO)
@@ -105,8 +144,8 @@ describe('pnpm shift:merge <N> --verdict', () => {
 
   it('records the verdict for the card on the first line of the pull request, at its head', () => {
     const world = newWorld(ONE)
-    const result = runVerdict(['101', '--verdict', 'pass'], { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date('2026-10-06T03:00:00.000Z') })
-    expect(result).toEqual({ stdout: ['[shift:verdict] #1 PR #101 pass at a1b2c3d; a chain arms its auto-merge only after a pass at its head'], stderr: [], exitCode: 0 })
+    const result = runVerdict(['101', '--verdict', 'pass', '--commit', HEAD], { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date('2026-10-06T03:00:00.000Z') })
+    expect(result).toEqual({ stdout: ['[shift:verdict] #1 PR #101 pass at a1b2c3d; a chain arms its auto-merge only after a pass at its head, and only at a1b2c3d'], stderr: [], exitCode: 0 })
     expect(latestPrReview(journal(world), '1', 101)).toEqual({ task: '1', pr: 101, verdict: 'pass', commit: HEAD })
   })
 
@@ -114,8 +153,8 @@ describe('pnpm shift:merge <N> --verdict', () => {
     const world = newWorld(ONE)
     const before = journal(world)
     const deps = { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date() }
-    expect(runVerdict(['101', '--verdict', 'maybe'], deps).exitCode).toBe(1)
-    expect(runVerdict(['999', '--verdict', 'pass'], deps).stderr[0]).toMatch(/^\[shift:verdict\] PR #999 not read: /)
+    expect(runVerdict(['101', '--verdict', 'maybe', '--commit', HEAD], deps).exitCode).toBe(1)
+    expect(runVerdict(['999', '--verdict', 'pass', '--commit', HEAD], deps).stderr[0]).toMatch(/^\[shift:verdict\] PR #999 not read: /)
     expect(journal(world)).toBe(before)
   })
 

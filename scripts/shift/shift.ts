@@ -39,7 +39,7 @@ import { startedTree } from '../ghosts/tasks.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { COMMIT_FLAG, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -254,7 +254,7 @@ function heldBy(evidence: { refused: boolean, stopped: boolean }): { heldBy?: He
   return {}
 }
 
-function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
+function mergeAfterSession(deps: ShiftDeps, number: string, reviewed: string | undefined): string[] {
   let result: MergeResult
   try {
     result = runMerge([number], {
@@ -263,7 +263,7 @@ function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
         deps.git(deps.cwd, ['fetch', 'origin', 'main'])
         return deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN])
       },
-    })
+    }, reviewed)
   }
   catch (error) {
     return [`${MERGE_PREFIX}PR #${number} not merged: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]!}`]
@@ -313,6 +313,7 @@ interface Delegation {
   refused: boolean
   stopped: boolean
   afterReview: boolean
+  reviewed?: string
 }
 
 const LEFT_TO_THE_OWNER = /merge is Eli's$/
@@ -321,8 +322,8 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
   if (asksTheOwner(text))
     return [`${MERGE_PREFIX}PR #${number} not armed: the report asks the owner; the merge waits for the owner's answer`]
   if (delegation.afterReview)
-    return [`${MERGE_PREFIX}PR #${number} waits for its review verdict: the chain arms it after pnpm shift:merge ${number} ${VERDICT_FLAG} pass at its head`]
-  const lines = mergeAfterSession(deps, number)
+    return [`${MERGE_PREFIX}PR #${number} waits for its review verdict: the chain arms it after pnpm shift:merge ${number} ${VERDICT_FLAG} pass ${COMMIT_FLAG} <its head>`]
+  const lines = mergeAfterSession(deps, number, delegation.reviewed)
   const { shard } = delegation
   if (shard === undefined || lines.length === 0 || !lines.every(line => LEFT_TO_THE_OWNER.test(line)))
     return lines
@@ -330,7 +331,7 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
     return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
   if (delegation.stopped)
     return [...lines, `${MERGE_PREFIX}PR #${number} the session stopped on its Eddies budget; shard ${shard} not applied, merge is Eli's`]
-  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard)]
+  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
 }
 
 function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation): { pr: string, lines: string[] } | undefined {
@@ -807,10 +808,10 @@ function waitWhy(result: ReviewEnd, review: Review, chain: Chain): string {
 
 function decideAfterReview(deps: ShiftDeps, dir: string, review: Review, head: string, shard: string | undefined): void {
   const verdict = latestPrReview(readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)), review.task.id, review.pr)
-  if (!passedAt(verdict, head))
+  if (verdict === undefined || !passedAt(verdict, head))
     return
   const report = reportPath(dir, review.line.number)
-  const lines = mergeLines(deps, review.task, String(review.pr), readIfThere(deps, report) ?? '', { shard, refused: false, stopped: false, afterReview: false })
+  const lines = mergeLines(deps, review.task, String(review.pr), readIfThere(deps, report) ?? '', { shard, refused: false, stopped: false, afterReview: false, reviewed: verdict.commit })
   deps.append(report, `\n${lines.join('\n')}\n`)
   for (const line of lines)
     deps.out(line)

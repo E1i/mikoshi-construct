@@ -69,7 +69,7 @@ function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
 }
 
-export function runMerge(argv: string[], deps: MergeDeps): MergeResult {
+export function runMerge(argv: string[], deps: MergeDeps, reviewed?: string): MergeResult {
   const number = argv[0]
   if (argv.length !== 1 || number === undefined || !/^\d+$/.test(number))
     return refuse(USAGE)
@@ -99,13 +99,14 @@ export function runMerge(argv: string[], deps: MergeDeps): MergeResult {
     return { stdout: [`${PREFIX}decision ${card.card.decision} — PR #${number} and the report, merge is Eli's`], stderr: [], exitCode: 0 }
   if (verdict.kind === 'owner-paths')
     return { stdout: verdict.paths.map(file => `${PREFIX}owner path ${file} — merge is Eli's`), stderr: [], exitCode: 0 }
+  const head = reviewed ?? view.headRefOid
   try {
-    deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', view.headRefOid, '-R', REPO])
+    deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', head, '-R', REPO])
   }
   catch (error) {
     return refuse(`gh pr merge failed: ${firstLine(error)}`)
   }
-  return { stdout: [`${PREFIX}decision auto, no owner path — auto-merge armed on PR #${number} at ${view.headRefOid}`], stderr: [], exitCode: 0 }
+  return { stdout: [`${PREFIX}decision auto, no owner path — auto-merge armed on PR #${number} at ${head}`], stderr: [], exitCode: 0 }
 }
 
 export const PR_REVIEW_EVENT = 'pr-review'
@@ -144,7 +145,7 @@ export function passedAt(review: PrReview | undefined, head: string): boolean {
   return review?.verdict === 'pass' && review.commit === head
 }
 
-export function readPrReview(gh: GhRunner, number: number, verdict: ReviewVerdict): PrReview | string {
+export function readPrReview(gh: GhRunner, number: number, verdict: ReviewVerdict, commit: string): PrReview | string {
   let view: { body?: unknown, headRefOid?: unknown } | null
   try {
     view = JSON.parse(gh(['pr', 'view', String(number), '-R', REPO, '--json', 'body,headRefOid,files'])) as typeof view
@@ -154,14 +155,18 @@ export function readPrReview(gh: GhRunner, number: number, verdict: ReviewVerdic
   }
   if (typeof view?.body !== 'string' || typeof view.headRefOid !== 'string')
     return `PR #${number} not read: gh returned no body and head`
+  if (view.headRefOid !== commit)
+    return `PR #${number} head is ${view.headRefOid}, not ${commit}`
   const card = parseCard(view.body.split('\n')[0]!.trim())
   if (card.kind === 'refused')
     return `the first line of PR #${number} is not the task's card (${card.reason})`
-  return { task: String(card.card.id), pr: number, verdict, commit: view.headRefOid }
+  return { task: String(card.card.id), pr: number, verdict, commit }
 }
 
 export const VERDICT_FLAG = '--verdict'
-export const VERDICT_USAGE = `usage: pnpm shift:merge <pull request number> ${VERDICT_FLAG} <${REVIEW_VERDICTS.join('|')}>`
+export const COMMIT_FLAG = '--commit'
+export const VERDICT_USAGE = `usage: pnpm shift:merge <pull request number> ${VERDICT_FLAG} <${REVIEW_VERDICTS.join('|')}> ${COMMIT_FLAG} <sha>`
+const SHA = /^[0-9a-f]{7,40}$/
 const VERDICT_PREFIX = '[shift:verdict] '
 
 export interface VerdictDeps {
@@ -173,15 +178,18 @@ export interface VerdictDeps {
 
 export function runVerdict(argv: string[], deps: VerdictDeps): MergeResult {
   const at = argv.indexOf(VERDICT_FLAG)
+  const commitAt = argv.indexOf(COMMIT_FLAG)
+  const flagged = [at, at + 1, commitAt, commitAt + 1]
   const verdict = argv[at + 1]
-  const number = argv.find((_, index) => index !== at && index !== at + 1)
-  if (argv.length !== 3 || number === undefined || !/^\d+$/.test(number) || !(REVIEW_VERDICTS as readonly (string | undefined)[]).includes(verdict))
+  const commit = argv[commitAt + 1]
+  const number = argv.find((_, index) => !flagged.includes(index))
+  if (argv.length !== 5 || commitAt === -1 || commit === undefined || !SHA.test(commit) || number === undefined || !/^\d+$/.test(number) || !(REVIEW_VERDICTS as readonly (string | undefined)[]).includes(verdict))
     return { stdout: [], stderr: [`${VERDICT_PREFIX}${VERDICT_USAGE}; nothing recorded`], exitCode: 1 }
-  const review = readPrReview(deps.gh, Number(number), verdict as ReviewVerdict)
+  const review = readPrReview(deps.gh, Number(number), verdict as ReviewVerdict, commit)
   if (typeof review === 'string')
     return { stdout: [], stderr: [`${VERDICT_PREFIX}${review}; nothing recorded`], exitCode: 1 }
   deps.append(deps.journal, prReviewLine(review, deps.now()))
-  return { stdout: [`${VERDICT_PREFIX}#${review.task} PR #${review.pr} ${review.verdict} at ${review.commit}; a chain arms its auto-merge only after a pass at its head`], stderr: [], exitCode: 0 }
+  return { stdout: [`${VERDICT_PREFIX}#${review.task} PR #${review.pr} ${review.verdict} at ${review.commit}; a chain arms its auto-merge only after a pass at its head, and only at ${review.commit}`], stderr: [], exitCode: 0 }
 }
 
 function realDeps(): MergeDeps {
