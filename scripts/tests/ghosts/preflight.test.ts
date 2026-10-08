@@ -296,6 +296,14 @@ describe('the preflight runs every witness verbatim on a clean tree of the pinne
     expect(refusal(run)).toMatch(/preflight P7: invariant "the readme is kept" exits 1 on the clean base/)
   })
 
+  it('keeps a run of spaces inside a backticked witness when it runs an invariant on the base', () => {
+    const { repo } = world({ ...BASE_FILES, 'notes.txt': 'a  b\n' })
+    const run = hashIn(repo, briefText({ invariants: 'grep -q \'a  b\' notes.txt' }))
+
+    expect(run.error).toBeNull()
+    expect(run.line).toMatch(/^approved \/implement text sha256: [0-9a-f]{64} /)
+  })
+
   it('runs the witnesses with nothing of the sketch in the tree: a witness the sketch makes green is red on the base', () => {
     const { repo } = world()
     const sha = sketchOn(repo, { 'added.txt': 'x\n' })
