@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { LAUNCH_LINE, NO_MODEL, projectDirOf, runRelaunch, statusOf } from '../../shift/relaunch.js'
+import { LAUNCH_LINE, NO_MODEL, projectDirOf, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
 
 const FIELDS = HANDOFF_FIELDS.map(field => `${field.label}: x`).join('\n')
 const roots: string[] = []
@@ -110,11 +110,18 @@ describe('runRelaunch', () => {
     expect(result.runs[0]).toMatchObject({
       command: 'true',
       cwd: world.repo,
-      prompt: `${CONTINUE_PROMPT}\n\n${LAUNCH_LINE}`,
+      prompt: relaunchPrompt(world.handoff),
       log: `${world.handoff}.relaunch-1.log`,
       extraArgv: ['--model', 'claude-test'],
     })
     expect(result.runs.map(run => run.log)).toEqual([1, 2, 3].map(n => `${world.handoff}.relaunch-${n}.log`))
+  })
+
+  it('names the handoff it watches on the first line of every session\'s prompt', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
+    expect(result.runs.map(run => run.prompt.split('\n')[0])).toEqual([1, 2].map(() => `${CONTINUE_PROMPT}: ${world.handoff}`))
+    expect(result.runs.every(run => run.prompt.endsWith(LAUNCH_LINE))).toBe(true)
   })
 
   it('stops after one session when the handoff says OWNER', async () => {
