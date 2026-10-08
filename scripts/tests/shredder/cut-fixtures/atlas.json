@@ -1,0 +1,5 @@
+[
+  { "id": "532-engram", "defines": ["writeEngram"], "calls": ["detect"] },
+  { "id": "533-renderer", "defines": ["renderAtlas"], "calls": [] },
+  { "id": "534-atlas-command", "defines": ["runAtlas"], "calls": ["runAtlas", "writeEngram", "renderAtlas"] }
+]
