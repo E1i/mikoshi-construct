@@ -68,7 +68,7 @@ const attachDecidesWithoutTheStack = {
 
 const ANTFU_RESTRICTED_SYNTAX = ['TSEnumDeclaration[const=true]', 'TSExportAssignment']
 
-const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version`, and only in src/detect/package-manager.ts'
+const SPAWNS_ONLY_THE_PNPM_PROBE = 'The CLI spawns nothing but `pnpm --version` in src/detect/package-manager.ts and the read-only `git rev-parse HEAD` and `git ls-files -z` in src/detect/git.ts'
 const RUNS_ONLY_SHIPPED_CODE = 'The CLI runs only the code it ships: doctor audits a repository it does not trust, so src/ reads file text and never loads or runs code from it'
 
 const NO_CHILD_PROCESS = [
@@ -98,6 +98,13 @@ const spawnPolicy = {
 
 const thePnpmProbeMaySpawnAndNothingElse = {
   files: ['src/detect/package-manager.ts'],
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
+  },
+}
+
+const theGitReadingsMaySpawnAndNothingElse = {
+  files: ['src/detect/git.ts'],
   rules: {
     'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_RUNTIME_CODE_LOADING, ...NO_BARE_INIT_RECORD],
   },
@@ -173,6 +180,7 @@ export default antfu(
   attachDecidesWithoutTheStack,
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,
+  theGitReadingsMaySpawnAndNothingElse,
   theRecordItselfMayReadBothHalves,
   theSurfaceTestNeverWrites,
   aHookReadsStdinToItsEnd,

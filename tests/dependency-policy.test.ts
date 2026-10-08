@@ -135,6 +135,21 @@ describe('dependency policy in eslint.config.mjs', () => {
       expect(await violations('src/detect/package-manager.ts', form), form).toContain('no-restricted-syntax')
   })
 
+  it('lets the git readings spawn and keeps every code-loading form forbidden there', async () => {
+    const spawn = 'import { spawnSync } from \'node:child_process\'\n\nexport const probe = spawnSync\n'
+    expect(await violations('src/detect/git.ts', spawn)).toEqual([])
+    expect(await violations('src/detect/probe.ts', spawn)).toEqual(['no-restricted-syntax'])
+    expect(await violations('src/model/probe.ts', spawn)).toEqual(['no-restricted-syntax'])
+    const forms = [
+      'import { createRequire } from \'node:module\'\n\nexport const probe = createRequire\n',
+      'export async function probe(specifier: string) {\n  return await import(specifier)\n}\n',
+      'export function probe(specifier: string) {\n  return require(specifier)\n}\n',
+      'export const enum Probe { A = 1 }\n',
+    ]
+    for (const form of forms)
+      expect(await violations('src/detect/git.ts', form), form).toContain('no-restricted-syntax')
+  })
+
   it('reports every form of loading code the CLI did not ship', async () => {
     const forms = [
       'export async function probe() {\n  return await import(\'node:child_process\')\n}\n',

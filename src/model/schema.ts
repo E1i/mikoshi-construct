@@ -1,7 +1,7 @@
 import { RecordAheadOfReader } from '../record-ahead.js'
 
 export const MODEL_FILE = 'construct.model.json'
-export const MODEL_VERSION = 4
+export const MODEL_VERSION = 5
 const OLDEST_READABLE_MODEL_VERSION = 1
 
 export const FACT_KINDS = ['file-exists', 'file-contains', 'file-lacks', 'report-covers', 'report-misses'] as const
@@ -78,6 +78,55 @@ export interface Link {
   to: string
 }
 
+export const RELATION_KINDS = ['imports', 'calls'] as const
+export type RelationKind = (typeof RELATION_KINDS)[number]
+
+export const OBSERVED_STATUSES = ['found', 'unknown'] as const
+export type ObservedStatus = (typeof OBSERVED_STATUSES)[number]
+
+export interface CommandSource {
+  command: string
+  exit: number | null
+  effects: string[]
+}
+
+export interface LineSource {
+  path: string
+  line: number
+}
+
+export interface Identity {
+  sha: string | null
+  status: ObservedStatus
+  source: CommandSource
+}
+
+export interface Tree {
+  status: ObservedStatus
+  source: CommandSource
+}
+
+export interface Component {
+  id: string
+  path: string
+}
+
+export interface Relation {
+  from: string
+  to: string | null
+  kind: RelationKind
+  specifier: string
+  status: ObservedStatus
+  source: LineSource
+}
+
+export interface Mechanics {
+  identity: Identity
+  tree: Tree
+  components: Component[]
+  relations: Relation[]
+}
+
 export interface RepositoryModel {
   modelVersion: number
   facts: Fact[]
@@ -86,6 +135,7 @@ export interface RepositoryModel {
   stages: Stage[]
   nodes: AbilityNode[]
   links: Link[]
+  mechanics?: Mechanics
 }
 
 const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle', 'surface', 'format']
@@ -97,8 +147,15 @@ export const STAGE_PROPERTIES = ['id', 'label']
 export const NODE_PROPERTIES = ['id', 'label', 'stage', 'source', 'supportedBy']
 export const NODE_SOURCE_PROPERTIES = ['path', 'fact']
 export const LINK_PROPERTIES = ['from', 'to']
+export const MECHANICS_PROPERTIES = ['identity', 'tree', 'components', 'relations']
+export const IDENTITY_PROPERTIES = ['sha', 'status', 'source']
+export const TREE_PROPERTIES = ['status', 'source']
+export const COMMAND_SOURCE_PROPERTIES = ['command', 'exit', 'effects']
+export const LINE_SOURCE_PROPERTIES = ['path', 'line']
+export const COMPONENT_PROPERTIES = ['id', 'path']
+export const RELATION_PROPERTIES = ['from', 'to', 'kind', 'specifier', 'status', 'source']
 const OPTIONAL_LISTS = ['stages', 'nodes', 'links']
-const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links']
+const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links', 'mechanics']
 
 export class DanglingFactReference extends Error {
   readonly factId: string
@@ -352,6 +409,77 @@ function parseLinks(name: string, raw: Record<string, unknown>, nodes: Set<strin
   })
 }
 
+function textList(name: string, record: Record<string, unknown>, key: string, where: string): string[] {
+  const value = record[key]
+  if (!Array.isArray(value) || !value.every(entry => typeof entry === 'string' && entry.trim() !== ''))
+    fail(name, `${where} needs a "${key}" list of non-empty strings`)
+  return value as string[]
+}
+
+function child(name: string, record: Record<string, unknown>, key: string, allowed: string[], where: string): Record<string, unknown> {
+  const value = record[key]
+  if (!isRecord(value))
+    fail(name, `${where} needs a "${key}" object`)
+  return closed(name, value, allowed, `${where}.${key}`)
+}
+
+function parseCommandSource(name: string, record: Record<string, unknown>, where: string): CommandSource {
+  const source = child(name, record, 'source', COMMAND_SOURCE_PROPERTIES, where)
+  const exit = source.exit
+  if (exit !== null && (typeof exit !== 'number' || !Number.isInteger(exit)))
+    fail(name, `${where}.source needs an integer "exit" or null`)
+  return { command: text(name, source, 'command', `${where}.source`), exit: exit as number | null, effects: textList(name, source, 'effects', `${where}.source`) }
+}
+
+function parseLineSource(name: string, record: Record<string, unknown>, where: string): LineSource {
+  const source = child(name, record, 'source', LINE_SOURCE_PROPERTIES, where)
+  const line = source.line
+  if (typeof line !== 'number' || !Number.isInteger(line) || line < 1)
+    fail(name, `${where}.source needs a "line" of 1 or more`)
+  return { path: text(name, source, 'path', `${where}.source`), line }
+}
+
+function status(name: string, record: Record<string, unknown>, where: string): ObservedStatus {
+  return member(name, text(name, record, 'status', where), OBSERVED_STATUSES, 'status', where)
+}
+
+function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
+  const mechanics = child(name, raw, 'mechanics', MECHANICS_PROPERTIES, 'the document')
+  const identityEntry = child(name, mechanics, 'identity', IDENTITY_PROPERTIES, 'mechanics')
+  const treeEntry = child(name, mechanics, 'tree', TREE_PROPERTIES, 'mechanics')
+  const components = list(name, mechanics, 'components').map((entry, index) => {
+    const where = `mechanics.components[${index}]`
+    closed(name, entry, COMPONENT_PROPERTIES, where)
+    return { id: text(name, entry, 'id', where), path: text(name, entry, 'path', where) }
+  })
+  const componentIds = uniqueIds(name, components.map(component => component.id), 'component')
+  const relations = list(name, mechanics, 'relations').map((entry, index) => {
+    const where = `mechanics.relations[${index}]`
+    closed(name, entry, RELATION_PROPERTIES, where)
+    const relationStatus = status(name, entry, where)
+    const to = relationStatus === 'unknown' ? null : declared(name, text(name, entry, 'to', where), componentIds, 'to', 'component', where)
+    if (relationStatus === 'unknown' && entry.to !== null)
+      fail(name, `${where} of status "unknown" needs "to": null`)
+    return {
+      from: declared(name, text(name, entry, 'from', where), componentIds, 'from', 'component', where),
+      to,
+      kind: member(name, text(name, entry, 'kind', where), RELATION_KINDS, 'kind', where),
+      specifier: text(name, entry, 'specifier', where),
+      status: relationStatus,
+      source: parseLineSource(name, entry, where),
+    }
+  })
+  const sha = identityEntry.sha
+  if (sha !== null && (typeof sha !== 'string' || sha.trim() === ''))
+    fail(name, 'mechanics.identity needs a non-empty "sha" or null')
+  return {
+    identity: { sha: sha as string | null, status: status(name, identityEntry, 'mechanics.identity'), source: parseCommandSource(name, identityEntry, 'mechanics.identity') },
+    tree: { status: status(name, treeEntry, 'mechanics.tree'), source: parseCommandSource(name, treeEntry, 'mechanics.tree') },
+    components,
+    relations,
+  }
+}
+
 export function parseModel(source: string, name: string): RepositoryModel {
   let raw: unknown
   try {
@@ -380,5 +508,8 @@ export function parseModel(source: string, name: string): RepositoryModel {
   const nodeIds = uniqueIds(name, nodes.map(node => node.id), 'node')
   const links = parseLinks(name, raw, nodeIds)
 
-  return { modelVersion: MODEL_VERSION, facts, claims, hypotheses, stages, nodes, links }
+  const model: RepositoryModel = { modelVersion: MODEL_VERSION, facts, claims, hypotheses, stages, nodes, links }
+  if (raw.mechanics !== undefined)
+    model.mechanics = parseMechanics(name, raw)
+  return model
 }
