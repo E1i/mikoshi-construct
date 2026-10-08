@@ -19,7 +19,7 @@ export const PICTURE_PROSE: Record<PictureReading, string> = {
   'no-model': 'There is no construct.model.json here. Nothing was read, so there is nothing to draw: this is what absence looks like, not an empty diagram.',
 }
 
-const FACT_WORDS: Record<FactEvaluation, string> = {
+export const FACT_WORDS: Record<FactEvaluation, string> = {
   'holds': 'holds',
   'does-not-hold': 'does not hold',
   'unevaluable': 'unevaluable',
@@ -91,7 +91,7 @@ function stageWord(finding: StageFinding): string {
 
 type ReportBacked = (supportedBy: readonly string[]) => boolean
 
-function reportBackedIn(model: RepositoryModel): ReportBacked {
+export function reportBackedIn(model: RepositoryModel): ReportBacked {
   const reportFacts = new Set(model.facts.filter(fact => REPORT_KINDS.includes(fact.kind)).map(fact => fact.id))
   return supportedBy => supportedBy.some(id => reportFacts.has(id))
 }
@@ -106,7 +106,7 @@ function hypothesisLines(hypothesis: Hypothesis, finding: StageFinding, reportBa
   return [hypothesis.id, reportBacked(hypothesis.supportedBy) ? RUNTIME_REPORT_WORD : stageWord(finding)]
 }
 
-function factSubject(fact: Fact): string {
+export function factSubject(fact: Fact): string {
   if (fact.kind === 'file-contains')
     return `${fact.path} contains "${fact.needle ?? ''}"`
   if (fact.kind === 'file-lacks')
