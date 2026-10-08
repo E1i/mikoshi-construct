@@ -9,7 +9,7 @@ import process from 'node:process'
 import { sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
-import { directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
+import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
 import { fileEditingMarks, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
@@ -146,6 +146,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
 
   const ledgerCreated = !existsSync(path.join(root, ATTACH_LEDGER_DIR))
   const ledgerHeld = runtimeHeldAtAttach(root)
+  const browserHeld = browserEntriesHeldAtAttach(root)
   const exclude = writeExcludeBlock(root, [...targets, SETTINGS_FILE])
   const directories = directoriesToCreate(root, targets).filter(directory => directory !== ATTACH_LEDGER_DIR)
   const rollbackDirectories = ledgerCreated ? [ATTACH_LEDGER_DIR, ...directories] : directories
@@ -180,6 +181,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     excludeSeparator: exclude.separator,
     ledgerCreated,
     ledgerHeld,
+    browserHeld,
     settingsHook: kept == null ? installed.hook : { ...installed.hook, original: { copy: kept.copy, sha256: kept.sha256, afterSha256: installed.afterSha256 } },
   })
 

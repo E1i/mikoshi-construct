@@ -735,6 +735,17 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     expect(readAttachRecord(dir)?.ledgerHeld).toEqual(['.construct/runs.jsonl', '.construct/browser'])
   })
 
+  it('records the names that were in .construct/browser before attach', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.construct/browser/20200101T000000000Z-1'), { recursive: true })
+    writeFileSync(path.join(dir, '.construct/browser/notes.txt'), 'mine\n')
+
+    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+
+    expect(readAttachRecord(dir)?.browserHeld).toEqual(['20200101T000000000Z-1', 'notes.txt'])
+    expect(readAttachRecord(dir)?.recordVersion).toBe(2)
+  })
+
   it('attach refuses with original-pending when an earlier copy is still there, and leaves the copy byte-identical', async () => {
     const withSettings = fixture()
     const withoutSettings = fixture()
