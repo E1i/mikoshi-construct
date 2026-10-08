@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { BRAIN_ROLE, CHAIN_COMMAND, expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, BRAIN_ROLE, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
 const roots: string[] = []
+const RELAUNCH_PID = 5151
 
 interface World {
   root: string
@@ -55,10 +56,14 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
   return {
     cwd: world.repo,
     home: world.root,
+    pid: RELAUNCH_PID,
     claude: 'true',
     journal: world.journal,
     projectsDir: world.projects,
     read: file => readFileSync(file, 'utf8'),
+    write: (file, text) => writeFileSync(file, text),
+    create: createExclusive,
+    remove: file => rmSync(file, { force: true }),
     exists: existsSync,
     parked: () => new Map(),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
@@ -316,6 +321,99 @@ describe('runRelaunch', () => {
       { event: 'relaunch-session', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1, handoff: world.handoff },
       { event: 'relaunch', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1 },
     ])
+  })
+
+  it('a second relaunch on the same handoff refuses with already-running and the live pid', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '7777\n')
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 7777 })
+    expect(code).toBe(1)
+    expect(seen.runs).toHaveLength(0)
+    expect(seen.err.at(-1)).toBe(`[relaunch] ${ALREADY_RUNNING} 7777`)
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `${ALREADY_RUNNING} 7777`, sessions: 0 })
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe('7777\n')
+  })
+
+  it('a lock whose pid is dead is taken over', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '8888\n')
+    const result = await relaunch(world, ['--model', 'claude-test'], ['DONE'])
+    expect(result.code).toBe(0)
+    expect(result.runs).toHaveLength(1)
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe(`${RELAUNCH_PID}\n`)
+  })
+
+  it('a missing handoff refuses before the lock and writes no lock file', async () => {
+    const world = newWorld()
+    rmSync(world.handoff)
+    const result = await relaunch(world, ['--model', 'claude-test'])
+    expect(result.code).toBe(1)
+    expect(result.err.at(-1)).toBe(`[relaunch] no handoff at ${world.handoff}`)
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `no handoff at ${world.handoff}`, sessions: 0 })
+    expect(existsSync(lockPath(world.handoff))).toBe(false)
+  })
+
+  it('a handoff whose directory is missing refuses with no handoff and creates nothing', async () => {
+    const world = newWorld()
+    const handoff = path.join(world.root, 'nodir', 'h.md')
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([handoff, '--model', 'claude-test'], relaunchDeps(world, [], seen))
+    expect(code).toBe(1)
+    expect(seen.err.at(-1)).toBe(`[relaunch] no handoff at ${handoff}`)
+    expect(existsSync(path.dirname(handoff))).toBe(false)
+  })
+
+  it('a dead lock under a live takeover refuses with the taker\'s pid', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '8888\n')
+    writeFileSync(`${lockPath(world.handoff)}.takeover`, '6666\n')
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 6666 })
+    expect(code).toBe(1)
+    expect(seen.runs).toHaveLength(0)
+    expect(seen.err.at(-1)).toBe(`[relaunch] ${ALREADY_RUNNING} 6666`)
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe('8888\n')
+  })
+
+  it('a takeover left by a dead pid is cleared and the dead lock taken over', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '8888\n')
+    writeFileSync(`${lockPath(world.handoff)}.takeover`, '6666\n')
+    const result = await relaunch(world, ['--model', 'claude-test'], ['DONE'])
+    expect(result.code).toBe(0)
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe(`${RELAUNCH_PID}\n`)
+    expect(existsSync(`${lockPath(world.handoff)}.takeover`)).toBe(false)
+  })
+
+  it('of two starts that both find a dead lock, the second refuses with the first\'s pid', async () => {
+    const world = newWorld()
+    writeFileSync(lockPath(world.handoff), '8888\n')
+    const first: Seen = { runs: [], out: [], err: [] }
+    const second: Seen = { runs: [], out: [], err: [] }
+    const alive = (pid: number): boolean => pid === RELAUNCH_PID || pid === 9999
+    const [a, b] = await Promise.all([
+      runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], first), alive }),
+      runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], second), pid: 9999, alive }),
+    ])
+    expect([a, b].sort()).toEqual([0, 1])
+    expect(first.runs.length + second.runs.length).toBe(1)
+    expect(existsSync(`${lockPath(world.handoff)}.takeover`)).toBe(false)
+  })
+
+  it('the lock is created exclusively: a second create of the same file fails and leaves the first pid', () => {
+    const world = newWorld()
+    const lock = lockPath(world.handoff)
+    expect(createExclusive(lock, '1111\n')).toBe(true)
+    expect(createExclusive(lock, '2222\n')).toBe(false)
+    expect(readFileSync(lock, 'utf8')).toBe('1111\n')
+  })
+
+  it('a relaunch writes its own pid into the lock beside the handoff', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], ['DONE'])
+    expect(result.code).toBe(0)
+    expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe(`${RELAUNCH_PID}\n`)
   })
 
   it('live sessions are read from the journal pid, not from the command text', async () => {

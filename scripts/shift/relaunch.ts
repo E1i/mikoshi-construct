@@ -1,7 +1,7 @@
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -29,6 +29,7 @@ export function relaunchPrompt(handoff: string, decisions: string | null): strin
   return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
+export const ALREADY_RUNNING = 'already-running'
 
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE)\b/
 const SYNTHETIC_MODEL = '<synthetic>'
@@ -38,10 +39,14 @@ export type Status = 'CONTINUE' | 'OWNER' | 'DONE'
 export interface RelaunchDeps {
   cwd: string
   home: string
+  pid: number
   claude: string | undefined
   journal: string
   projectsDir: string
   read: (file: string) => string
+  write: (file: string, text: string) => void
+  create: (file: string, text: string) => boolean
+  remove: (file: string) => void
   exists: (file: string) => boolean
   parked: () => ParkedDepends
   listDir: (dir: string) => string[]
@@ -188,7 +193,7 @@ function parseArgs(args: string[]): RelaunchArgs | null {
   return handoff === undefined ? null : { handoff, max, model }
 }
 
-function readHandoff(deps: RelaunchDeps, handoff: string): string | null {
+function readIfPresent(deps: RelaunchDeps, handoff: string): string | null {
   try {
     return deps.read(handoff)
   }
@@ -203,6 +208,68 @@ function sessionFailure(exit: ClaudeExit): string | null {
   if (exit.code !== 0)
     return exit.code === null ? `ended by ${exit.signal ?? 'a signal'}` : `exited ${exit.code}`
   return null
+}
+
+function noHandoff(handoff: string): string {
+  return `no handoff at ${handoff}`
+}
+
+export function lockPath(handoff: string): string {
+  return `${handoff}.lock`
+}
+
+function liveHolder(deps: RelaunchDeps, file: string): number | null {
+  const text = readIfPresent(deps, file)
+  if (text === null)
+    return null
+  const pid = Number(text.trim())
+  return Number.isInteger(pid) && pid > 0 && pid !== deps.pid && deps.alive(pid) ? pid : null
+}
+
+function takeoverPath(lock: string): string {
+  return `${lock}.takeover`
+}
+
+function claimLock(deps: RelaunchDeps, lock: string): number | null {
+  const own = `${deps.pid}\n`
+  const takeover = takeoverPath(lock)
+  for (;;) {
+    if (deps.create(lock, own))
+      return null
+    const holder = liveHolder(deps, lock)
+    if (holder !== null)
+      return holder
+    if (!deps.create(takeover, own)) {
+      const taker = liveHolder(deps, takeover)
+      if (taker !== null)
+        return taker
+      if (deps.exists(takeover))
+        deps.remove(takeover)
+      continue
+    }
+    try {
+      const current = liveHolder(deps, lock)
+      if (current !== null)
+        return current
+      deps.write(lock, own)
+      return null
+    }
+    finally {
+      deps.remove(takeover)
+    }
+  }
+}
+
+export function createExclusive(file: string, text: string): boolean {
+  try {
+    writeFileSync(file, text, { flag: 'wx' })
+    return true
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+      return false
+    throw error
+  }
 }
 
 async function record(deps: RelaunchDeps, event: object): Promise<void> {
@@ -229,14 +296,19 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       deps.err(`${PREFIX}${reason}`)
     return code
   }
+  if (readIfPresent(deps, handoff) === null)
+    return stop(noHandoff(handoff), 1)
+  const holder = claimLock(deps, lockPath(handoff))
+  if (holder !== null)
+    return stop(`${ALREADY_RUNNING} ${holder}`, 1)
   const model = parsed.model ?? transcriptModel(deps)
   if (model === null)
     return stop(NO_MODEL, 1)
   const command = deps.claude ?? DEFAULT_CLAUDE
   for (;;) {
-    const text = readHandoff(deps, handoff)
+    const text = readIfPresent(deps, handoff)
     if (text === null)
-      return stop(`no handoff at ${handoff}`, 1)
+      return stop(noHandoff(handoff), 1)
     const refusals = handoffRefusals(text, { file: handoff, home: deps.home, exists: deps.exists, parked: deps.parked() })
     if (refusals.length > 0) {
       for (const line of refusals)
@@ -270,7 +342,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       model,
       n: sessions,
       exit: exit.kind === 'exited' ? exit.code : null,
-      status: statusOf(readHandoff(deps, handoff) ?? '') ?? 'none',
+      status: statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none',
       ts: deps.now().toISOString(),
     })
     const failure = sessionFailure(exit)
@@ -283,10 +355,14 @@ function realDeps(): RelaunchDeps {
   return {
     cwd: process.cwd(),
     home: os.homedir(),
+    pid: process.pid,
     claude: process.env[CLAUDE_VARIABLE],
     journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),
+    write: (file, text) => writeFileSync(file, text),
+    create: createExclusive,
+    remove: file => rmSync(file, { force: true }),
     exists: existsSync,
     parked: () => parkedDepends(defaultParking(os.homedir())),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],

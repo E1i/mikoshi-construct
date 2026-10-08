@@ -2,10 +2,11 @@ import type { RelaunchDeps } from '../../shift/relaunch.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { runClaude } from '../../shift/claude.js'
-import { runRelaunch } from '../../shift/relaunch.js'
+import { createExclusive, runRelaunch } from '../../shift/relaunch.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub-brain.sh')
 const PNPM_SHIM_DIR = path.join(import.meta.dirname, 'fixtures', 'brain-bin')
@@ -26,10 +27,14 @@ function brainWorld(): { deps: RelaunchDeps, handoff: string, stubOut: string } 
   const deps: RelaunchDeps = {
     cwd: root,
     home: root,
+    pid: process.pid,
     claude: `STUB_OUT=${stubOut} PATH=${PNPM_SHIM_DIR}:$PATH ${STUB}`,
     journal: path.join(root, 'handoff-dir', 'ghosts.jsonl'),
     projectsDir: path.join(root, 'projects'),
     read: file => readFileSync(file, 'utf8'),
+    write: (file, text) => writeFileSync(file, text),
+    create: createExclusive,
+    remove: file => rmSync(file, { force: true }),
     exists: existsSync,
     parked: () => new Map(),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
