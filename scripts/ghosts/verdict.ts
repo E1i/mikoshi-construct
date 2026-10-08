@@ -156,6 +156,8 @@ function reportPathFault(ref: string, verdictInRef: string, reportPath: string):
     return `--from ${ref}: the report path ${reportPath} has a directory part; the report lies beside the verdict file; nothing written`
   if (path.posix.basename(reportPath).toLowerCase() === path.posix.basename(verdictInRef).toLowerCase())
     return `--from ${ref}: the report ${reportPath} has the verdict file's name; nothing written`
+  if (reportPath.toLowerCase() === JOURNAL_FILE)
+    return `--from ${ref}: the report ${reportPath} has the journal's name; nothing written`
   return undefined
 }
 

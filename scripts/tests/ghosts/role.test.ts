@@ -17,6 +17,7 @@ describe('ghosts:role', () => {
   it.each([
     { name: 'an unknown role', argv: ['plan', '--task', 't1'] },
     { name: 'a missing task', argv: ['brief'] },
+    { name: 'an unknown option', argv: ['review', '--task', 't1', '--bogus'] },
   ])('prints usage on stderr and exits 1 for $name', ({ argv }) => {
     const outcome = roleOutcome(argv, {})
     expect(outcome.code).toBe(1)

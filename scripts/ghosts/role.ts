@@ -24,11 +24,21 @@ function cloudLine(role: Role, task: string): string {
   return `cloud: ${role} for ${task} runs as a cloud session; it pushes role/${task}-${role} with role/${task}/${role}.md (and, for review, role/${task}/review.verdict.json); accept with pnpm ghosts:verdict --from <ref> ...`
 }
 
+function parsedArgs(argv: string[]): { positionals: string[], task: string | undefined } | undefined {
+  try {
+    const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { task: { type: 'string' } } })
+    return { positionals, task: values.task }
+  }
+  catch {
+    return undefined
+  }
+}
+
 export function roleOutcome(argv: string[], env: Record<string, string | undefined>): RoleOutcome {
-  const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { task: { type: 'string' } } })
-  const role = positionals[0]
-  const task = values.task
-  if (!isRole(role) || positionals.length !== 1 || task === undefined || task === '')
+  const parsed = parsedArgs(argv)
+  const role = parsed?.positionals[0]
+  const task = parsed?.task
+  if (parsed === undefined || !isRole(role) || parsed.positionals.length !== 1 || task === undefined || task === '')
     return { code: 1, out: [], err: [USAGE] }
   return { code: 0, out: [cloudOn(env) ? cloudLine(role, task) : `local: launch the ${role} agent for ${task}`], err: [] }
 }
