@@ -117,7 +117,7 @@ describe('discovery writes what it found in the code into the Engram', () => {
       expect(Object.keys(component)).toEqual(['id', 'path'])
   })
 
-  it('writes an attached repository\'s engram under the home directory and leaves the target tree untouched', async () => {
+  it('writes the engram of an attached repository under the home directory and leaves the target tree untouched', async () => {
     const dir = foreignRepository()
     await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
     expect(git(dir, 'status', '--porcelain')).toBe('')
@@ -128,7 +128,7 @@ describe('discovery writes what it found in the code into the Engram', () => {
     expect(parseModel(readFileSync(file, 'utf8'), MODEL_FILE).mechanics?.relations.length).toBeGreaterThan(0)
   })
 
-  it('writes an init repository\'s engram into its own construct.model.json and keeps its facts and claims', async () => {
+  it('writes the engram of an init repository into its own construct.model.json and keeps its facts and claims', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-discovery-init-'))
     await runInit(ui, { dir, yes: true, dryRun: false, preset: 'node-backend', ai: 'claude' })
     git(dir, 'init', '-q')
