@@ -71,9 +71,8 @@ line of every relaunch prompt says so (`OPERATOR_ROLE` in `scripts/shift/relaunc
 its messages `[mikoshi]`.
 
 The Operator starts chains only through `pnpm shift:bg <dir> [shift arguments]`, never with an inline `nohup … &`: it
-spawns `nohup setsid pnpm shift <dir> …` detached (without `setsid` on `PATH`, as on macOS, the detached spawn alone
-gives the shift a session of its own), appends its output to `<dir>/shift-bg.log`, prints the PID on its first line
-and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
+spawns `nohup pnpm shift <dir> …` as a detached process, a session of its own, appends its output to
+`<dir>/shift-bg.log`, prints the PID of the running shift on its first line and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
 chain waited for the owner.
 
 ## Pull requests and branches
