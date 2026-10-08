@@ -42,6 +42,7 @@ import { openPrWarnings, taskConflicts } from './overlap.js'
 import { choose, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
+import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
 
 export const PREFIX = '[shift] '
 const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
@@ -50,6 +51,7 @@ const REPORT_FILE_LINE = /(?:^Report:|report written to)\s+`?([^`\s]+?)`?[.,;]?\
 export const USAGE = [
   'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]',
   '  [--manual]  (optional: no automation; every take and every continuation asks first)',
+  '  [--slot <shard>]  (optional: consumes the owner\'s shard for this run; see below)',
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
   `With --parking, the tasks come from <parking>/<id>.md instead: the same header plus who: and an optional priority: p0.`,
@@ -77,6 +79,9 @@ export const USAGE = [
   'ghosts:launch with a yes on stdin and no session, then the review and the pull request in a session in the same tree. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
+  '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
+  'whose session no guard refused and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
+  'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
 
@@ -270,7 +275,26 @@ function asksTheOwner(report: string): boolean {
   return QUESTION_LINE.test(report) || WAITING_FOR_THE_OWNER.test(report)
 }
 
-function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string): { pr: string, lines: string[] } | undefined {
+interface Delegation {
+  shard: string | undefined
+  refused: boolean
+}
+
+const LEFT_TO_THE_OWNER = /merge is Eli's$/
+
+function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: string, delegation: Delegation): string[] {
+  if (asksTheOwner(text))
+    return [`${MERGE_PREFIX}PR #${number} not armed: the report asks the owner; the merge waits for the owner's answer`]
+  const lines = mergeAfterSession(deps, number)
+  const { shard } = delegation
+  if (shard === undefined || lines.length === 0 || !lines.every(line => LEFT_TO_THE_OWNER.test(line)))
+    return lines
+  if (delegation.refused)
+    return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
+  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard)]
+}
+
+function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation): { pr: string, lines: string[] } | undefined {
   const text = deps.read(report)
   if (task.card.kind === 'probe') {
     closeProbeFromReport(deps, task, session, text)
@@ -281,7 +305,7 @@ function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
     return undefined
   for (const line of closeFromReport(deps, task, session, text, ['--pr', pr[1]!]))
     deps.out(line)
-  const lines = asksTheOwner(text) ? [`${MERGE_PREFIX}PR #${pr[1]!} not armed: the report asks the owner; the merge waits for the owner's answer`] : mergeAfterSession(deps, pr[1]!)
+  const lines = mergeLines(deps, task, pr[1]!, text, delegation)
   deps.append(report, `\n${lines.join('\n')}\n`)
   for (const line of lines)
     deps.out(line)
@@ -395,6 +419,7 @@ interface Places extends PromptPlaces {
 interface Sessions {
   exit: ClaudeExit
   lastExit: ExitReason
+  refused: boolean
   halted: string | null
   current: string
   continuations: string[]
@@ -406,9 +431,12 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
   let current = session
   let exit = await deps.run({ command: claude, cwd: worktree, sessionId: session, card: task.card.id, prompt: renderPrompt(deps.header, task, places), log: logPath(dir, places.number) })
   let lastExit: ExitReason = 'ended'
+  let refused = false
   let halted: string | null = null
   while (exit.kind === 'exited') {
-    lastExit = exitReason(sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null))
+    const evidence = sessionEvidence(deps, task, places, current, exit.signal === null ? exit.code : null)
+    lastExit = exitReason(evidence)
+    refused = refused || evidence.refused
     const handoff = deps.exists(places.report) ? deps.read(places.report) : null
     halted = boundaryWhy(task, lastExit, continuations.length, handoff, places.report)
     if (!continues(task.continue, lastExit, continuations.length, handoff ?? ''))
@@ -423,19 +451,19 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
     const prompt = renderPrompt(deps.header, { ...task, body: continuationBody(task, places) }, places)
     exit = await deps.run({ command: claude, cwd: worktree, sessionId: current, card: task.card.id, prompt, log: logPath(dir, places.number, continuations.length) })
   }
-  return { exit, lastExit, halted, current, continuations }
+  return { exit, lastExit, refused, halted, current, continuations }
 }
 
 type TaskBase = Pick<TaskLine, 'event' | 'file' | 'number' | 'task' | 'card' | 'branch' | 'session' | 'started'>
 
-function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions): { line: ShiftTaskLine, stop: StopRecord | null } {
+function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions, shard: string | undefined): { line: ShiftTaskLine, stop: StopRecord | null } {
   const { worktree } = places
-  const { exit, lastExit, halted, current, continuations } = ran
+  const { exit, lastExit, refused, halted, current, continuations } = ran
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report) : undefined
+  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused }) : undefined
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
   const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines }) }
@@ -450,7 +478,7 @@ function startDeps(deps: ShiftDeps, dir: string, session: string, parking: strin
   return { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
   const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
@@ -458,7 +486,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
     return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
   }
   const places = { worktree: start.worktree, report: reportPath(dir, task.number), number: task.number }
-  return finishTask(deps, task, base, places, await runSessions(deps, dir, task, claude, places, session, manual))
+  return finishTask(deps, task, base, places, await runSessions(deps, dir, task, claude, places, session, manual), shard)
 }
 
 const LADDER_TURNS = 4
@@ -520,7 +548,7 @@ function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { fil
   return { file }
 }
 
-async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string, manual: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string, manual: boolean, shard: string | undefined): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const { card } = task
   const brief = briefPathOf(deps.handoffDir, card)
   const base = startedTask(deps, task, deps.uuid())
@@ -575,7 +603,7 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
     const body = step.kind === 'brief' ? briefBody(card, brief) : reviewBody(card, brief)
     const ran = await runSessions(deps, dir, { ...task, body: `${body}\n\n${task.body}` }, claude, places, session, manual)
     if (step.kind === 'review') {
-      const finished = finishTask(deps, task, { ...base, session }, places, ran)
+      const finished = finishTask(deps, task, { ...base, session }, places, ran, shard)
       return { line: { ...finished.line, steps }, stop: finished.stop }
     }
     if (ran.exit.kind === 'unspawnable')
@@ -637,15 +665,23 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const manual = argv.includes('--manual')
   const parkingAt = argv.indexOf('--parking')
   const parkingArg = parkingAt === -1 ? undefined : argv[parkingAt + 1]
-  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && arg !== '--manual' && (parkingAt === -1 || (index !== parkingAt && index !== parkingAt + 1)))
-  if (rest.length !== 1 || rest[0]!.startsWith('-') || (parkingAt !== -1 && (parkingArg === undefined || parkingArg.startsWith('-'))))
+  const slotAt = argv.indexOf('--slot')
+  const shard = slotAt === -1 ? undefined : argv[slotAt + 1]
+  const valued = [parkingAt, slotAt].filter(at => at !== -1).flatMap(at => [at, at + 1])
+  const rest = argv.filter((arg, index) => arg !== '--check' && arg !== '--queue' && arg !== '--manual' && !valued.includes(index))
+  if (rest.length !== 1 || rest[0]!.startsWith('-') || [parkingAt, slotAt].some(at => at !== -1 && (argv[at + 1] === undefined || argv[at + 1]!.startsWith('-'))))
     return refuse(deps, [USAGE.split('\n')[0]!])
   const dir = path.resolve(deps.cwd, rest[0]!)
+  const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  if (shard !== undefined) {
+    const refused = slotRefusal(deps.cwd) ?? shardRefusal(readIfThere(deps, ghostJournal), shard, dir)
+    if (refused !== null)
+      return refuse(deps, [`--slot: ${refused}; nothing started`])
+  }
   const journal = path.join(dir, SHIFT_JOURNAL)
   if (deps.exists(journal))
     return refuse(deps, [`${journal} exists: this shift already ran; start a new one in a new directory`])
   const parking = parkingArg === undefined ? undefined : path.resolve(deps.cwd, parkingArg)
-  const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   if (parking !== undefined && !check)
     sweepMerges(deps, ghostJournal, dir)
   const read = parking === undefined ? { ...readTasks(deps, dir), choice: undefined } : readParking(deps, parking)
@@ -673,6 +709,10 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   if (claude === '')
     return refuse(deps, [`${CLAUDE_VARIABLE} is not set; it names the claude command (see --help)`])
   const parked = read.choice === undefined ? {} : { parking, left: read.choice.left }
+  if (shard !== undefined) {
+    deps.append(ghostJournal, usedLine(shard, dir, deps.now()))
+    deps.out(`${PREFIX}shard ${shard} used by this run: an owner pull request the guards and the checks pass is armed`)
+  }
   if (read.choice !== undefined)
     deps.append(path.join(dir, QUEUE_FILE), queueText(read.choice.left))
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
@@ -687,7 +727,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     }
     for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
       deps.out(line)
-    const { line, stop } = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual) : await runTask(deps, dir, task, claude, handed, parking, manual)
+    const { line, stop } = parking !== undefined && isLadder(task.card) ? await runLadder(deps, dir, task, claude, handed, parking, manual, shard) : await runTask(deps, dir, task, claude, handed, parking, manual, shard)
     deps.append(journal, `${JSON.stringify(line)}\n`)
     if (stop !== null)
       recordStop(deps, dir, task.id, stop)
