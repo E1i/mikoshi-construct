@@ -62,6 +62,7 @@
     "task:start": "tsx scripts/ghosts/task-start.ts",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",
     "ghosts:launch": "tsx scripts/ghosts/launch.ts",
+    "ghosts:role": "tsx scripts/ghosts/role.ts",
     "ghosts:verdict": "tsx scripts/ghosts/verdict.ts",
     "ghosts:watch": "tsx scripts/ghosts/watch.ts",
     "lint": "eslint .",

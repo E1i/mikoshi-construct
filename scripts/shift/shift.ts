@@ -28,6 +28,7 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
+import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
@@ -107,6 +108,7 @@ export interface ShiftDeps {
   out: (line: string) => void
   err: (line: string) => void
   style?: SignalStyle
+  cloud?: boolean
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -629,6 +631,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     return 0
   }
   const check = argv.includes('--check')
+  if (deps.cloud === true && !check)
+    return refuse(deps, [`${CLOUD_VARIABLE}=1 routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
   const queue = argv.includes('--queue')
   const manual = argv.includes('--manual')
   const parkingAt = argv.indexOf('--parking')
@@ -737,6 +741,7 @@ function realDeps(): ShiftDeps {
     out: line => console.log(line),
     err: line => console.error(line),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
+    cloud: cloudOn(process.env),
   }
 }
 

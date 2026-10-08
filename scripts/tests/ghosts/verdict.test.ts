@@ -1,12 +1,12 @@
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readContourSchema, violations } from '../../contract/contours.js'
-import { checkDisposition, checkVerdict, recordDisposition, recordVerdict } from '../../ghosts/verdict.js'
+import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict } from '../../ghosts/verdict.js'
 
 const IMPLEMENT = '/implement the contour contracts (t)'
 const REPORT = '[review:t]\nThe witnesses ran.\n'
@@ -215,5 +215,131 @@ describe('recordDisposition', () => {
     const result = await recordDisposition({ ...INPUT, ...change }, dir, NOW)
     expect(reasonsOf(result)).toEqual([text])
     expect(journalLines(journal)).toEqual([])
+  })
+})
+
+describe('verdict from a cloud branch', () => {
+  it('a review verdict from a cloud branch is journaled the same as a local one', async () => {
+    const local = handoff()
+    const localVerdict = path.join(local.dir, 'review.verdict.json')
+    write(localVerdict, local.good)
+    await recordVerdict(localVerdict, local.dir, TARGET)
+
+    const cloud = handoff()
+    git(REPO, 'checkout', '-q', '-b', 'role/t-review')
+    const roleDir = path.join(REPO, 'role', 't')
+    mkdirSync(roleDir, { recursive: true })
+    writeFileSync(path.join(roleDir, 'review-t.md'), REPORT)
+    write(path.join(roleDir, 'review.verdict.json'), local.good)
+    git(REPO, 'add', '-A')
+    git(REPO, 'commit', '-q', '-m', 'role output')
+    const fetched = fetchVerdictFromRef('role/t-review', REPO, 'role/t/review.verdict.json', cloud.dir)
+    expect(fetched).toEqual({ ok: true, verdictPath: path.join(cloud.dir, 'review.verdict.json') })
+    await recordVerdict(path.join(cloud.dir, 'review.verdict.json'), cloud.dir, TARGET)
+
+    const [localLine] = journalLines(local.journal).map(line => JSON.parse(line) as Record<string, unknown>)
+    const [cloudLine] = journalLines(cloud.journal).map(line => JSON.parse(line) as Record<string, unknown>)
+    const { ts: _localTs, ...localRest } = localLine!
+    const { ts: _cloudTs, ...cloudRest } = cloudLine!
+    expect(cloudRest).toEqual(localRest)
+    expect(cloudLine!.event).toBe('review')
+  })
+
+  it('refuses a ref that does not hold the verdict file', () => {
+    const { dir } = handoff()
+    const fetched = fetchVerdictFromRef('role/t-review', REPO, 'role/t/missing.json', dir)
+    expect(fetched.ok).toBe(false)
+  })
+
+  it.each([
+    { name: 'a ref that starts with a dash', ref: '--output=leak' },
+    { name: 'an empty ref', ref: '' },
+  ])('refuses $name and writes nothing', ({ ref }) => {
+    const { dir } = handoff()
+    const fetched = fetchVerdictFromRef(ref, REPO, 'role/t/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: [`--from ${ref}: a ref is a name that does not start with "-"; nothing written`] })
+    expect(existsSync(path.join(dir, 'review.verdict.json'))).toBe(false)
+    expect(existsSync(path.join(process.cwd(), 'leak'))).toBe(false)
+  })
+
+  function roleBranch(name: string, reportPath: string): void {
+    git(REPO, 'checkout', '-q', '-b', name)
+    const roleDir = path.join(REPO, 'role', name)
+    mkdirSync(roleDir, { recursive: true })
+    writeFileSync(path.join(roleDir, 'review-t.md'), REPORT)
+    const { good } = handoff()
+    write(path.join(roleDir, 'review.verdict.json'), { ...good, report: { ...(good.report as object), path: reportPath } })
+    git(REPO, 'add', '-A')
+    git(REPO, 'commit', '-q', '-m', name)
+  }
+
+  it('refuses a report path with a directory part before any read, and creates nothing in the handoff dir', () => {
+    roleBranch('nested-report', 'sub/review.md')
+    const { dir } = handoff()
+    const before = readdirSync(dir)
+    const fetched = fetchVerdictFromRef('nested-report', REPO, 'role/nested-report/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: ['--from nested-report: the report path sub/review.md has a directory part; the report lies beside the verdict file; nothing written'] })
+    expect(readdirSync(dir)).toEqual(before)
+  })
+
+  it.each([['empty-report', ''], ['dot-report', '.']])('refuses a report path that names no file (%s) before any read, and writes nothing', (branch, reportPath) => {
+    roleBranch(branch, reportPath)
+    const { dir } = handoff()
+    const before = readdirSync(dir)
+    expect(fetchVerdictFromRef(branch, REPO, `role/${branch}/review.verdict.json`, dir)).toEqual({ ok: false, reasons: [`--from ${branch}: the report path "${reportPath}" names no file; nothing written`] })
+    expect(readdirSync(dir)).toEqual(before)
+  })
+
+  it.each([['journal-name', 'ghosts.jsonl'], ['approval-name', 'brief-681.approved-sha256'], ['status-name', 'status.md']])('refuses a report not named review*.md (%s) before any read, and writes nothing', (branch, reportPath) => {
+    roleBranch(branch, reportPath)
+    const { dir } = handoff()
+    const before = readdirSync(dir)
+    expect(fetchVerdictFromRef(branch, REPO, `role/${branch}/review.verdict.json`, dir)).toEqual({ ok: false, reasons: [`--from ${branch}: the report ${reportPath} is not named review*.md, the only name a cloud review writes; nothing written`] })
+    expect(readdirSync(dir)).toEqual(before)
+  })
+
+  it('refuses a verdict whose report.path is not a string, naming it', () => {
+    roleBranch('numeric-report', 7 as unknown as string)
+    const { dir } = handoff()
+    expect(fetchVerdictFromRef('numeric-report', REPO, 'role/numeric-report/review.verdict.json', dir)).toEqual({ ok: false, reasons: ['--from numeric-report: the verdict\'s report.path is not a string; nothing written'] })
+    expect(existsSync(path.join(dir, 'review.verdict.json'))).toBe(false)
+  })
+
+  it('refuses a report named like the verdict file or outside its directory, and writes nothing', () => {
+    roleBranch('same-name', 'review.verdict.json')
+    const first = handoff()
+    expect(fetchVerdictFromRef('same-name', REPO, 'role/same-name/review.verdict.json', first.dir)).toEqual({ ok: false, reasons: ['--from same-name: the report review.verdict.json has the verdict file\'s name; nothing written'] })
+    expect(existsSync(path.join(first.dir, 'review.verdict.json'))).toBe(false)
+
+    roleBranch('other-case', 'Review.verdict.json')
+    const cased = handoff()
+    expect(fetchVerdictFromRef('other-case', REPO, 'role/other-case/review.verdict.json', cased.dir)).toEqual({ ok: false, reasons: ['--from other-case: the report Review.verdict.json has the verdict file\'s name; nothing written'] })
+
+    roleBranch('up-a-level', '../review-t.md')
+    const second = handoff()
+    expect(fetchVerdictFromRef('up-a-level', REPO, 'role/up-a-level/review.verdict.json', second.dir)).toEqual({ ok: false, reasons: ['--from up-a-level: the report path ../review-t.md leaves the verdict\'s directory; nothing written'] })
+    expect(existsSync(path.join(second.dir, 'review.verdict.json'))).toBe(false)
+  })
+
+  it('refuses to overwrite a file in the handoff directory that holds other bytes, and writes nothing', () => {
+    roleBranch('occupied', 'review-t.md')
+    const { dir } = handoff()
+    writeFileSync(path.join(dir, 'review-t.md'), 'the window\'s own report\n')
+    const fetched = fetchVerdictFromRef('occupied', REPO, 'role/occupied/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: [`--from occupied: ${path.join(dir, 'review-t.md')} already holds other bytes; nothing written`] })
+    expect(readFileSync(path.join(dir, 'review-t.md'), 'utf8')).toBe('the window\'s own report\n')
+    expect(existsSync(path.join(dir, 'review.verdict.json'))).toBe(false)
+  })
+
+  it('refuses to write through a link planted in the handoff directory, and writes nothing', () => {
+    roleBranch('linked', 'review-t.md')
+    const { dir } = handoff()
+    const outside = path.join(mkdtempSync(path.join(tmpdir(), 'ghosts-verdict-outside-')), 'written-through')
+    rmSync(path.join(dir, 'review-t.md'))
+    symlinkSync(outside, path.join(dir, 'review-t.md'))
+    const fetched = fetchVerdictFromRef('linked', REPO, 'role/linked/review.verdict.json', dir)
+    expect(fetched).toEqual({ ok: false, reasons: [`--from linked: ${path.join(dir, 'review-t.md')} is not a regular file; nothing written`] })
+    expect(existsSync(outside)).toBe(false)
+    expect(existsSync(path.join(dir, 'review.verdict.json'))).toBe(false)
   })
 })

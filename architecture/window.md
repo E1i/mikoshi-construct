@@ -276,6 +276,26 @@ Before launching a `brief`, `scan` or `review` agent, the window prints that rol
 sample holds no minutes it says `minutes not recorded` with the reason the command printed, never the tokens alone (Eli,
 2026-10-07). While fewer than five runs of the role carry `startedAt`, that line reads `минуты: копится, n=k из 5`, `k` being the role's runs that carry it. With `--effort` the same command prints the task's contour, the sum of the step bands.
 
+`CONSTRUCT_CLOUD` is one key: `1` sends work to the cloud, and any other value, `0` or unset among them, runs everything locally as before. With `CONSTRUCT_CLOUD=1` card bodies
+and the `brief`, `scan` and `review` roles run as cloud sessions the window launches (routines) over the channel that
+already works, a git branch and the final message; locally only the journal, intake, close and merge stay. `pnpm
+ghosts:role <brief|scan|review> --task <id>` prints which route applies and `pnpm shift` refuses to spawn a
+local session. A cloud review is accepted with `pnpm ghosts:verdict --from <ref> <path in ref> --commit <sha>`: the
+verdict file and the report it names are read with `git show` and journaled as if given locally (Eli, 2026-10-08).
+
+Every cloud prompt, a card body's or a role's, carries these lines besides the task, because a cloud session that
+skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
+
+```text
+Register every file you add in every registry that lists its kind, in the same commit:
+- a new scripts/ghosts/** file: its path in architecture/owner-merges.md, in the `ghosts` cell or the plain list,
+  with the dated history sentence; the classification is Eli's, so name your choice in the final message;
+- a new scripts/shift/** file whose text names a merge: its path in the `own-instructions` cell, the same way;
+- a new package.json script: its row in CONTRIBUTING.md § Scripts, and, when the harness does not run it, its entry
+  in OUTSIDE_THE_HARNESS in tests/harness-membership.test.ts.
+Push to the branch named above. Your final message is at most 1200 characters.
+```
+
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
 keeps, changes or drops it.
