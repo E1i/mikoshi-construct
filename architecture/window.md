@@ -80,9 +80,10 @@ The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch
 `~/.construct/handoff/relaunch-day.log` and prints its PID. Before every relaunch it runs `pnpm doctor:factory`, which
 compares the permissions the factory needs, `contract/factory-permissions.json`, with `.claude/settings.local.json`
 and names each missing rule, the deny of `gh pr merge` on every open version pull request (head `changeset-release/*`)
-included, and names each command this document or `OPERATOR_ROLE` tells the Operator to run that has no shape of a
-contract rule allowing it: a merge written with an env prefix, GH_TOKEN=… before gh pr merge, matches no
-`Bash(gh pr merge:*)`. A red `doctor:factory` stops the
+included. It names each command quoted in `OPERATOR_ROLE` that no contract allow rule matches, and each command
+quoted in this document that names a contract rule without having its shape: a merge written with an env prefix,
+GH_TOKEN=… before gh pr merge, matches no `Bash(gh pr merge:*)`. Global gh flags before the subcommand (`-R`,
+`--repo`) are dropped before matching. A red `doctor:factory` stops the
 relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on that yes appends the missing rules to
 `.claude/settings.local.json`; it never reads or writes `.claude/settings.json`.
 

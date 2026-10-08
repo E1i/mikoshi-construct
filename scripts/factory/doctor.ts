@@ -6,8 +6,8 @@ import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { REPO } from '../shift/places.js'
-import { relaunchPrompt } from '../shift/relaunch.js'
-import { backtickedCommands, contractRules, missingRules, unmatchedCommands, withRules } from './permissions.js'
+import { OPERATOR_ROLE } from '../shift/relaunch.js'
+import { backtickedCommands, contractRules, missingRules, unallowedCommands, unmatchedCommands, withRules } from './permissions.js'
 
 export const PREFIX = '[doctor:factory] '
 export const USAGE = 'usage: pnpm doctor:factory [--apply]'
@@ -15,10 +15,15 @@ export const CONTRACT = path.join('contract', 'factory-permissions.json')
 export const LOCAL_SETTINGS = path.join('.claude', 'settings.local.json')
 export const WINDOW_DOC = path.join('architecture', 'window.md')
 
+export interface OperatorCommands {
+  window: string[]
+  role: string[]
+}
+
 export interface DoctorDeps {
   cwd: string
   gh: (args: string[]) => string
-  commands: () => string[]
+  commands: () => OperatorCommands
   confirm: (() => Promise<boolean>) | null
 }
 
@@ -48,12 +53,16 @@ export async function runDoctor(argv: string[], deps: DoctorDeps): Promise<Docto
   const settingsFile = path.join(deps.cwd, LOCAL_SETTINGS)
   const settings = readSettings(settingsFile)
   const missing = missingRules(contractRules(contract, openPulls(deps.gh)), settings)
-  const unmatched = unmatchedCommands(deps.commands(), contract.allow)
+  const { window, role } = deps.commands()
+  const unmatched = unmatchedCommands(window, contract.allow)
+  const unallowed = unallowedCommands(role, contract.allow)
   const stdout = [
     ...missing.map(ruleLine),
     ...unmatched.map(({ command, rule }) => `${PREFIX}command \`${command}\` does not have the shape of ${rule}`),
+    ...unallowed.map(command => `${PREFIX}command \`${command}\` is allowed by no rule in ${CONTRACT}`),
   ]
-  if (missing.length === 0 && unmatched.length === 0)
+  const commandsHold = unmatched.length === 0 && unallowed.length === 0
+  if (missing.length === 0 && commandsHold)
     return { stdout: [`${PREFIX}every contract rule is in ${LOCAL_SETTINGS} and every command has the shape of one`], stderr: [], exitCode: 0 }
   if (!apply || missing.length === 0)
     return { stdout, stderr: [], exitCode: 1 }
@@ -65,13 +74,15 @@ export async function runDoctor(argv: string[], deps: DoctorDeps): Promise<Docto
   return {
     stdout: [...stdout, `${PREFIX}appended ${missing.length} rule(s) to ${LOCAL_SETTINGS}`],
     stderr: [],
-    exitCode: unmatched.length === 0 ? 0 : 1,
+    exitCode: commandsHold ? 0 : 1,
   }
 }
 
-export function operatorCommands(cwd: string): string[] {
-  const window = readFileSync(path.join(cwd, WINDOW_DOC), 'utf8')
-  return [...backtickedCommands(window), ...backtickedCommands(relaunchPrompt('<handoff>', '<decisions>'))]
+export function operatorCommands(cwd: string): OperatorCommands {
+  return {
+    window: backtickedCommands(readFileSync(path.join(cwd, WINDOW_DOC), 'utf8')),
+    role: backtickedCommands(OPERATOR_ROLE),
+  }
 }
 
 async function askYes(): Promise<boolean> {

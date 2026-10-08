@@ -1,3 +1,4 @@
+import type { OperatorCommands } from '../../factory/doctor.js'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -43,8 +44,9 @@ function without(rule: string, list: 'allow' | 'deny'): typeof EVERY_RULE {
   return { ...EVERY_RULE, permissions: { ...EVERY_RULE.permissions, [list]: EVERY_RULE.permissions[list].filter(kept => kept !== rule) } }
 }
 
-async function doctor(cwd: string, argv: string[] = [], options: { commands?: string[], confirm?: (() => Promise<boolean>) | null } = {}) {
-  const result = await runDoctor(argv, { cwd, gh, commands: () => options.commands ?? [], confirm: options.confirm ?? null })
+async function doctor(cwd: string, argv: string[] = [], options: { commands?: Partial<OperatorCommands>, confirm?: (() => Promise<boolean>) | null } = {}) {
+  const commands = { window: [], role: [], ...options.commands }
+  const result = await runDoctor(argv, { cwd, gh, commands: () => commands, confirm: options.confirm ?? null })
   expect(readFileSync(path.join(cwd, '.claude', 'settings.json'), 'utf8')).toBe(SHARED_SETTINGS)
   return result
 }
@@ -112,21 +114,32 @@ describe('pnpm doctor:factory', () => {
   })
 
   it('names a command with an env prefix that matches no Bash(gh pr merge:*) rule and exits 1', async () => {
-    const result = await doctor(world(EVERY_RULE), [], { commands: ['GH_TOKEN=x gh pr merge 1 --squash'] })
+    const result = await doctor(world(EVERY_RULE), [], { commands: { window: ['GH_TOKEN=x gh pr merge 1 --squash'] } })
     expect(result.exitCode).toBe(1)
     expect(result.stdout).toEqual(['[doctor:factory] command `GH_TOKEN=x gh pr merge 1 --squash` does not have the shape of Bash(gh pr merge:*)'])
   })
 
-  it('passes a command that starts with the rule prefix and ignores commands no rule names', async () => {
-    const result = await doctor(world(EVERY_RULE), [], { commands: ['gh pr merge 1 --squash', 'pnpm board', 'pnpm shift <dir> --chain', 'git push https://x'] })
+  it('passes a window command that starts with the rule prefix and ignores window commands no rule names', async () => {
+    const result = await doctor(world(EVERY_RULE), [], { commands: { window: ['gh pr merge 1 --squash', 'gh -R E1i/x pr merge 1', 'pnpm board', 'git push https://x'] } })
     expect(result.exitCode).toBe(0)
   })
 
-  it('finds every command the Operator is told to run in the shape of a contract rule', async () => {
-    const commands = operatorCommands(REPO_ROOT)
-    expect(commands.some(command => command.startsWith('gh pr merge'))).toBe(true)
-    expect(commands.some(command => command.startsWith('pnpm relaunch:bg'))).toBe(true)
-    expect((await doctor(world(EVERY_RULE), [], { commands })).exitCode).toBe(0)
+  it('finds every window command in the shape of a contract rule', async () => {
+    const { window } = operatorCommands(REPO_ROOT)
+    expect(window.some(command => command.startsWith('gh pr merge'))).toBe(true)
+    expect(window.some(command => command.startsWith('pnpm relaunch:bg'))).toBe(true)
+    expect((await doctor(world(EVERY_RULE), [], { commands: { window } })).exitCode).toBe(0)
+  })
+
+  it('names a role command no rule allows and exits 1', async () => {
+    const real = await doctor(world(EVERY_RULE), [], { commands: operatorCommands(REPO_ROOT) })
+    expect(real.exitCode).toBe(1)
+    expect(real.stdout).toEqual([`[doctor:factory] command \`pnpm shift <dir> --parking <parking> --chain\` is allowed by no rule in ${CONTRACT}`])
+    const allowed = await doctor(world(EVERY_RULE), [], { commands: { role: ['gh -R E1i/x pr merge 1', 'gh --repo E1i/x pr merge 1 --squash', 'pnpm shift:bg x'] } })
+    expect(allowed.exitCode).toBe(0)
+    const named = await doctor(world(EVERY_RULE), [], { commands: { role: ['gh -R E1i/x pr view 1'] } })
+    expect(named.exitCode).toBe(1)
+    expect(named.stdout).toEqual([`[doctor:factory] command \`gh -R E1i/x pr view 1\` is allowed by no rule in ${CONTRACT}`])
   })
 
   it('refuses an unknown argument', async () => {

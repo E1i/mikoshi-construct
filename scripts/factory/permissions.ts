@@ -46,18 +46,39 @@ export function rulePrefix(rule: string): string | null {
   return PREFIX_RULE.exec(rule)?.[1] ?? null
 }
 
-export function unmatchedCommands(commands: string[], allow: string[]): { command: string, rule: string }[] {
-  const prefixes = allow.flatMap((rule) => {
+function prefixRules(allow: string[]): { rule: string, prefix: string }[] {
+  return allow.flatMap((rule) => {
     const prefix = rulePrefix(rule)
     return prefix === null ? [] : [{ rule, prefix }]
   })
+}
+
+export function unmatchedCommands(commands: string[], allow: string[]): { command: string, rule: string }[] {
+  const prefixes = prefixRules(allow)
   return commands.flatMap(command => prefixes
     .filter(({ prefix }) => namesPrefix(command, prefix) && !startsWithPrefix(command, prefix))
     .map(({ rule }) => ({ command, rule })))
 }
 
+export function unallowedCommands(commands: string[], allow: string[]): string[] {
+  const prefixes = prefixRules(allow)
+  return commands.filter(command => !allow.includes(`Bash(${words(command).join(' ')})`)
+    && !prefixes.some(({ prefix }) => startsWithPrefix(command, prefix)))
+}
+
+const GH_GLOBAL_FLAGS_WITH_VALUE = new Set(['-R', '--repo'])
+
+function withoutGhGlobalFlags(tokens: string[]): string[] {
+  if (tokens[0] !== 'gh')
+    return tokens
+  let at = 1
+  while (at < tokens.length && (GH_GLOBAL_FLAGS_WITH_VALUE.has(tokens[at]!) || tokens[at]!.startsWith('--repo=')))
+    at += GH_GLOBAL_FLAGS_WITH_VALUE.has(tokens[at]!) ? 2 : 1
+  return ['gh', ...tokens.slice(at)]
+}
+
 function words(text: string): string[] {
-  return text.trim().split(/\s+/)
+  return withoutGhGlobalFlags(text.trim().split(/\s+/))
 }
 
 function startsWithPrefix(command: string, prefix: string): boolean {
