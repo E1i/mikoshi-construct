@@ -6,7 +6,9 @@ import { writeEngram } from '../model/discovery.js'
 import { MODEL_FILE } from '../model/schema.js'
 import { deriveModelState } from '../model/state.js'
 import { readModel } from '../model/write.js'
+import { renderAtlasDocs } from './docs.js'
 import { renderAtlas } from './page.js'
+import { docsFileOf } from './switch.js'
 
 export const ATLAS_PAGE_FILE = 'atlas.html'
 export const OWNED_ATLAS_PAGE = '.construct/atlas.html'
@@ -45,7 +47,10 @@ export function runAtlas(options: AtlasOptions): AtlasWritten {
   const page = options.out == null ? defaultPage(root, constructed || options.attached, engram) : path.resolve(options.out)
   mkdirSync(path.dirname(page), { recursive: true })
   const input = { projectName: path.basename(root), model, states: deriveModelState(model, root), mechanics: model.mechanics }
-  writeFileSync(page, renderAtlas(input, MODEL_FILE, rootFrom(page, root)))
+  const modeFiles = constructed && !options.attached ? { map: path.basename(page), docs: docsFileOf(page) } : undefined
+  writeFileSync(page, renderAtlas(input, MODEL_FILE, rootFrom(page, root), modeFiles))
+  if (modeFiles != null)
+    writeFileSync(path.join(path.dirname(page), modeFiles.docs), renderAtlasDocs(input, MODEL_FILE, rootFrom(page, root), modeFiles))
   return { engram, page }
 }
 
