@@ -1,10 +1,11 @@
+import type { AbilityFinding } from '../model/ability.js'
 import type { PictureClass } from '../model/graph.js'
-import type { AbilityNode, Fact, RepositoryModel } from '../model/schema.js'
+import type { AbilityNode, Component, Fact, RepositoryModel } from '../model/schema.js'
 import type { EngramStateReport } from '../model/state.js'
 import { factClass, factLines, reportBackedIn, RUNTIME_REPORT } from '../model/graph.js'
 
 export interface AtlasMechanics {
-  components: { id: string, path: string }[]
+  components: Component[]
   relations: { from: string, to: string | null, kind: string, specifier: string, status: string, source: { path: string, line: number } }[]
 }
 
@@ -30,6 +31,7 @@ export interface AtlasNode {
   anchor: string
   label: string
   state: PictureClass
+  ability: AbilityFinding
   sourcePath: string
   evidence: AtlasEvidence[]
   leadsFrom: AtlasLink[]
@@ -67,6 +69,8 @@ function sourcePathOf(node: AbilityNode, facts: Fact[]): string {
   return facts.find(candidate => candidate.id === fact)?.path ?? fact
 }
 
+const NOT_EVALUATED: AbilityFinding = { status: 'unknown', reason: 'not-run', state: 'unknown' }
+
 function lies(componentPath: string, sourcePath: string): boolean {
   return componentPath === sourcePath || componentPath.startsWith(`${sourcePath.replace(/\/$/, '')}/`)
 }
@@ -88,6 +92,7 @@ export function atlasOf({ model, states, mechanics }: AtlasInput): Atlas {
       anchor: anchorOf.get(node.id) ?? node.id,
       label: node.label,
       state: reportBacked(node.supportedBy) ? RUNTIME_REPORT : (states.nodes[node.id]?.state ?? 'unknown'),
+      ability: states.nodes[node.id] ?? NOT_EVALUATED,
       sourcePath,
       evidence: node.supportedBy.flatMap((factId) => {
         const fact = model.facts.find(candidate => candidate.id === factId)

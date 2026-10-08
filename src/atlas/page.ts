@@ -4,10 +4,11 @@ import type { Atlas, AtlasInput, AtlasLink, AtlasNode } from './view.js'
 import { PICTURE_CLASSES } from '../model/graph.js'
 import { escaped } from '../model/page.js'
 import { STATE_LEGEND } from '../model/svg.js'
-import { relationsAmong, schemeOfMechanics } from './scheme.js'
+import { schemeOfMechanics } from './scheme.js'
 import { ATLAS_STYLE } from './style.js'
 import { switchHtml } from './switch.js'
 import { atlasOf } from './view.js'
+import { abilityWords } from './words.js'
 
 const WORDS = {
   title: (project: string) => `What ${project} is made of, and what holds each part up`,
@@ -51,8 +52,7 @@ function code(node: AtlasNode, input: AtlasInput): string {
 }
 
 function scheme(input: AtlasInput, paths: string[]): string {
-  const relations = relationsAmong(input.mechanics ?? { components: [], relations: [] }, paths)
-  return `<div class="scheme">${schemeOfMechanics(relations, paths)}</div>`
+  return `<div class="scheme">${schemeOfMechanics(input.mechanics ?? { components: [], relations: [] }, paths)}</div>`
 }
 
 function nodeHtml(node: AtlasNode, input: AtlasInput, rootFromPage: string): string {
@@ -60,6 +60,7 @@ function nodeHtml(node: AtlasNode, input: AtlasInput, rootFromPage: string): str
     `<li><article class="node" id="${escaped(node.anchor)}" data-state="${node.state}">`,
     `  <h3><a class="name" href="#${escaped(node.anchor)}">${escaped(node.label)}</a></h3>`,
     `  <p class="state">${node.state}</p>`,
+    `  <p class="status">${escaped(abilityWords(node.ability))}</p>`,
     `  <div class="panel">`,
     `    <p class="here">${escaped(WORDS.here)}</p>`,
     indent([evidence(node), links(WORDS.leadsFrom, node.leadsFrom), links(WORDS.leadsTo, node.leadsTo), code(node, input), `<a href="${sourceHref(node.sourcePath, rootFromPage)}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a>`].filter(part => part !== '').join('\n'), 4),

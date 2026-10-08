@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -136,8 +136,9 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
     expect(git(dir, 'status', '--porcelain')).toBe('')
     const html = readFileSync(written.page, 'utf8')
-    expect(html).toContain('Code no part claims (2)')
+    expect(html).toContain('Code no part claims (4)')
     expect(html).toContain('src/orders/api.ts')
+    expect(html).toContain('README.md: relations unknown — discovery reads no file of this type')
   })
 
   it('writes no documentation view into an attached repository and draws no switch on its map', async () => {
@@ -169,7 +170,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     const html = readFileSync(atlasOf(dir).page, 'utf8')
     expect(html).toContain('<h2>Take an order</h2>')
     expect(html).toContain('Code under it (2)')
-    expect(html).not.toContain('Code no part claims')
+    expect(html).toContain('Code no part claims (2)')
     expect(git(dir, 'status', '--porcelain')).toBe('')
   })
 })
@@ -217,6 +218,24 @@ describe('open the source resolves from where the page lies', () => {
       expect(targets).toEqual([path.join(dir, 'src/orders')])
       expect(existsSync(targets[0]!)).toBe(true)
     }
+  })
+})
+
+describe('construct atlas over a repository whose files discovery mostly cannot read', () => {
+  it('builds the Atlas with every tracked file as a node, and each file it cannot read carries relations unknown with the reason', () => {
+    const dir = path.join(mkdtempSync(path.join(tmpdir(), 'construct-atlas-unknown-')), 'unknown-types')
+    cpSync(path.resolve(import.meta.dirname, 'fixtures/engram/unknown-types'), dir, { recursive: true })
+    commitAll(dir)
+    const written = atlasOf(dir)
+    const tracked = git(dir, 'ls-files').split('\n').filter(file => file !== '')
+    const html = readFileSync(written.page, 'utf8')
+    expect(html).toContain(`Code no part claims (${tracked.length})`)
+    for (const file of tracked)
+      expect(html).toContain(`>${file}</text>`)
+    for (const file of ['README.md', 'assets/hall.blend', 'notes.xyz', 'src/shader.glsl'])
+      expect(html).toContain(`<title>${file}: relations unknown — discovery reads no file of this type</title>`)
+    expect(html).not.toContain('<title>src/main.ts: relations unknown')
+    expect(html).toMatch(/<path [^>]*data-state="held"><title>src\/main\.ts:1 imports \.\/shader\.glsl<\/title>/)
   })
 })
 

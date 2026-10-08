@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -62,6 +62,40 @@ function foreignRepository(files: Record<string, string> = FOREIGN_SHOP): string
   return dir
 }
 
+const UNKNOWN_TYPES = path.resolve(import.meta.dirname, 'fixtures/engram/unknown-types')
+
+function fixtureRepository(fixture: string): string {
+  const dir = path.join(mkdtempSync(path.join(tmpdir(), 'construct-discovery-fixture-')), path.basename(fixture))
+  cpSync(fixture, dir, { recursive: true })
+  git(dir, 'init', '-q')
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-qm', 'fixture')
+  return dir
+}
+
+describe('every tracked file is a component, and a file discovery cannot read keeps its place with the reason', () => {
+  it('makes every tracked file of the fixture a component and marks the relations of the files it does not read unknown, with the reason', () => {
+    const dir = fixtureRepository(UNKNOWN_TYPES)
+    const tracked = git(dir, 'ls-files').split('\n').filter(file => file !== '').sort()
+    const model = parseModel(readFileSync(writeEngram(dir, { attached: true, home: home() }), 'utf8'), MODEL_FILE)
+    expect(model.mechanics?.components.map(component => component.path)).toEqual(tracked)
+    expect(model.mechanics?.components.filter(component => component.relations === 'unknown')).toEqual([
+      { id: 'README.md', path: 'README.md', relations: 'unknown', reason: 'type-not-scanned' },
+      { id: 'assets/hall.blend', path: 'assets/hall.blend', relations: 'unknown', reason: 'type-not-scanned' },
+      { id: 'notes.xyz', path: 'notes.xyz', relations: 'unknown', reason: 'type-not-scanned' },
+      { id: 'src/shader.glsl', path: 'src/shader.glsl', relations: 'unknown', reason: 'type-not-scanned' },
+    ])
+  })
+
+  it('resolves the import of a file of an unknown type to that file\'s component', () => {
+    const mechanics = discoverMechanics(fixtureRepository(UNKNOWN_TYPES))
+    expect(mechanics.relations.filter(relation => relation.kind === 'imports').map(relation => `${relation.from} ${relation.specifier} ${relation.status} ${relation.to}`)).toEqual([
+      'src/main.ts ./shader.glsl found src/shader.glsl',
+      'src/main.ts ./scene.ts found src/scene.ts',
+    ])
+  })
+})
+
 describe('discovery writes what it found in the code into the Engram', () => {
   it('two runs on one fixture write a byte-identical engram', () => {
     const dir = foreignRepository()
@@ -76,7 +110,7 @@ describe('discovery writes what it found in the code into the Engram', () => {
     const mechanics = discoverMechanics(dir)
     expect(mechanics.identity).toEqual({ sha: git(dir, 'rev-parse', 'HEAD').trim(), status: 'found', source: { command: 'git rev-parse HEAD', exit: 0, effects: [] } })
     expect(mechanics.tree).toEqual({ status: 'found', source: { command: 'git ls-files -z', exit: 0, effects: [] } })
-    expect(mechanics.components.map(component => component.path)).toEqual(['src/audit/log.ts', 'src/index.ts', 'src/orders/api.ts', 'src/orders/order.ts', 'src/orders/store.ts'])
+    expect(mechanics.components.map(component => component.path)).toEqual(['README.md', 'package.json', 'src/audit/log.ts', 'src/index.ts', 'src/orders/api.ts', 'src/orders/order.ts', 'src/orders/store.ts'])
     const found = mechanics.relations.filter(relation => relation.status === 'found').map(relation => `${relation.source.path}:${relation.source.line} ${relation.kind} ${relation.to}`)
     expect(found).toEqual([
       'src/index.ts:1 imports src/orders/api.ts',
@@ -98,7 +132,7 @@ describe('discovery writes what it found in the code into the Engram', () => {
     ])
   })
 
-  it('marks an import of a tracked file that is not a component unknown, and the engram it writes passes the schema', () => {
+  it('resolves an import of a tracked file of a type it does not read to that file, and the engram it writes passes the schema', () => {
     const dir = foreignRepository({
       'src/view.ts': 'import data from \'./data.json\'\nimport \'./style.css\'\n\nexport const rows = data\n',
       'src/data.json': '[]\n',
@@ -107,7 +141,7 @@ describe('discovery writes what it found in the code into the Engram', () => {
     const mechanics = discoverMechanics(dir)
     const componentIds = new Set(mechanics.components.map(component => component.id))
     expect(mechanics.relations.filter(relation => relation.to !== null && !componentIds.has(relation.to))).toEqual([])
-    expect(mechanics.relations.map(relation => `${relation.specifier} ${relation.status} ${relation.to}`)).toEqual(['./data.json unknown null', './style.css unknown null'])
+    expect(mechanics.relations.map(relation => `${relation.specifier} ${relation.status} ${relation.to}`)).toEqual(['./data.json found src/data.json', './style.css found src/style.css'])
     const engram = writeEngram(dir, { attached: true, home: home() })
     expect(parseModel(readFileSync(engram, 'utf8'), MODEL_FILE).mechanics?.relations).toHaveLength(2)
   })
@@ -127,9 +161,9 @@ describe('discovery writes what it found in the code into the Engram', () => {
     const dir = foreignRepository()
     const model = parseModel(readFileSync(writeEngram(dir, { attached: true, home: home() }), 'utf8'), MODEL_FILE)
     expect([model.stages, model.nodes, model.links, model.facts, model.claims, model.hypotheses]).toEqual([[], [], [], [], [], []])
-    expect(model.mechanics?.components.length).toBe(5)
+    expect(model.mechanics?.components.length).toBe(7)
     for (const component of model.mechanics?.components ?? [])
-      expect(Object.keys(component)).toEqual(['id', 'path'])
+      expect(Object.keys(component)).toEqual(component.relations === 'found' ? ['id', 'path', 'relations'] : ['id', 'path', 'relations', 'reason'])
   })
 
   it('writes the engram of an attached repository under the home directory and leaves the target tree untouched', async () => {
@@ -233,6 +267,7 @@ describe('discovery reads only what git holds and only inside the repository', (
     git(dir, 'commit', '-qm', 'link')
     const mechanics = discoverMechanics(dir)
     expect(mechanics.components.map(component => component.path)).toEqual(['a.ts', 'link.ts'])
+    expect(mechanics.components.find(component => component.path === 'link.ts')).toEqual({ id: 'link.ts', path: 'link.ts', relations: 'unknown', reason: 'unreadable' })
     expect(mechanics.relations.some(relation => relation.from === 'link.ts')).toBe(false)
     expect(readFileSync(writeEngram(dir, { attached: true, home: home() }), 'utf8')).not.toContain('outside-marker')
   })
@@ -243,6 +278,7 @@ describe('discovery reads only what git holds and only inside the repository', (
     rmSync(path.join(dir, 'src'), { recursive: true, force: true })
     symlinkSync(outside, path.join(dir, 'src'))
     const mechanics = discoverMechanics(dir)
+    expect(mechanics.components.find(component => component.path === 'src/a.ts')?.relations).toBe('unknown')
     expect(mechanics.relations.some(relation => relation.from === 'src/a.ts')).toBe(false)
     expect(readFileSync(writeEngram(dir, { attached: true, home: home() }), 'utf8')).not.toContain('outside-marker')
   })
@@ -266,10 +302,13 @@ describe('the model refuses a mechanics block that contradicts itself', () => {
     ['a found identity with no sha', { ...found, identity: { ...found.identity, sha: null } }],
     ['an unknown identity with a sha', { ...found, identity: { ...found.identity, status: 'unknown' } }],
     ['an unknown tree with components', { ...found, tree: { ...found.tree, status: 'unknown' } }],
+    ['a component whose relations are unknown with no reason', { ...found, components: [{ id: 'a.ts', path: 'a.ts', relations: 'unknown' }, found.components[1]] }],
+    ['a component whose relations are found with a reason', { ...found, components: [{ id: 'a.ts', path: 'a.ts', relations: 'found', reason: 'unreadable' }, found.components[1]] }],
+    ['a component with a reason outside the vocabulary', { ...found, components: [{ id: 'a.ts', path: 'a.ts', relations: 'unknown', reason: 'binary' }, found.components[1]] }],
   ]
 
-  it('accepts the block that is consistent', () => {
-    expect(parseModel(document(found), MODEL_FILE).mechanics?.components.length).toBe(2)
+  it('accepts the block that is consistent, and reads a component written before relations were recorded as found', () => {
+    expect(parseModel(document(found), MODEL_FILE).mechanics?.components).toEqual([{ id: 'a.ts', path: 'a.ts', relations: 'found' }, { id: 'b.ts', path: 'b.ts', relations: 'found' }])
   })
 
   it('refuses a mechanics block whose component carries a state or whose status contradicts its evidence', () => {
