@@ -1234,7 +1234,7 @@ lists.
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
 | `settingsHook` | `file` (`.claude/settings.local.json`), `created` (`file`, `hooks` and `preToolUse`: whether this run created each), and `entry`, the element appended to `hooks.PreToolUse` as written. `detach` compares the entry by value and removes the file, `hooks` or `PreToolUse` only where `created` says attach made it and it is now empty. |
 | `settingsHook.original` | Present only when `.claude/settings.local.json` existed, untracked, before attach: `copy`, the absolute path of the pre-image attach kept, `sha256`, the hash of those bytes, and `afterSha256`, the hash of the file as attach left it. The copy is `.construct/attach/<key>/settings.local.json.orig` under the user's home directory, outside the repository, where `<key>` is the first twelve hex digits of the sha256 of the repository's real path, a dash and its directory name; the directory is `0700` and the copy `0600`. The record holds the path and the hashes, never the bytes. `detach` refuses before any write when the copy is missing, elsewhere or hashes differently; when the file is still what attach left, it writes the original bytes back instead of cutting the entry out, and then deletes the copy. |
-| `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/browser`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
+| `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/atlas.html`, `.construct/browser`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
 | `browserHeld` | The names inside `.construct/browser` at attach, sorted. When `.construct/browser` already existed, `detach` removes only the run directories not in this list; a record without the field leaves every run directory there. |
 | `excludeSeparator` | How many newlines (`0`, `1` or `2`) attach put before its block in `.git/info/exclude`. `detach` removes the block together with exactly that many, which is what makes the file byte for byte what it was; any other value is refused. |
 
@@ -1298,8 +1298,8 @@ that stays because it holds more than the entry — is never deleted; its direct
 Once the exclude block is gone such a file is an ordinary untracked path, so `git status` shows it.
 
 The guest's runtime goes too. The ladder's files `.construct/runs.jsonl`, `.construct/steps.jsonl`,
-`.construct/implement-agreed.txt` and `.construct/implement-args.json` are removed when they are
-untracked and were not on disk at attach. Under `.construct/browser`, a run directory (named
+`.construct/implement-agreed.txt` and `.construct/implement-args.json`, and the Atlas page
+`.construct/atlas.html`, are removed when they are untracked and were not on disk at attach. Under `.construct/browser`, a run directory (named
 `<yyyymmdd>T<hhmmssmmm>Z-<n>`, holding nothing but untracked `.png` shots) is removed with its shots;
 when attach created `.construct/browser` it goes once empty, and when `.construct/browser` existed
 before attach, only the run directories the guest created inside it are removed, the names recorded
@@ -1721,8 +1721,12 @@ is, and the command never writes a tracked file of a repository it was not asked
 | Repository | Engram | Page |
 |---|---|---|
 | made by `init` (`construct.json` is here) | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
-| attached by `attach`, with no `init` | `~/.construct/engram/<repo>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
-| neither | `~/.construct/engram/<repo>/construct.model.json` | `~/.construct/engram/<repo>/atlas.html` |
+| attached by `attach`, with no `init` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
+| neither | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `~/.construct/engram/<repo>-<hash>/atlas.html` |
+
+`<repo>` is the repository directory's name and `<hash>` the first 12 hex digits of the sha256 of the
+real path of its root, so `work/api` and `oss/api` keep an Engram each. `construct detach` removes
+`.construct/atlas.html` with the other files the construct wrote into `.construct/`.
 
 After `atlas` in an attached repository `git status` is as clean as before. Running it again on the
 same commit writes the same Engram and the same page, byte for byte. Every "Open the source" link is

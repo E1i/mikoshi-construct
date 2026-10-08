@@ -112,7 +112,8 @@ here. Before proposing an architecture, answer the questions and name the catego
   `applyPlan`, `writeManifest` and `writeModel`. `applySync` in `src/commands/sync/index.ts`
   ([sync.yaml](architecture/composition/sync.yaml)) writes only the paths the construct owns and records
   them in the manifest's `sync` branch, never the branch `init` froze. `runAtlas` in
-  `src/atlas/index.ts` writes the Engram and the Atlas page, into no tracked file `init` did not make.
+  `src/atlas/index.ts` ([atlas.yaml](architecture/composition/atlas.yaml)) writes the Engram and the
+  page, into no tracked file `init` did not make.
 
   `costReport` in `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads
   the session files and the ladder record, and writes one file: it appends to `.construct/steps.jsonl`
@@ -149,11 +150,10 @@ here. Before proposing an architecture, answer the questions and name the catego
   `sync` one. `theRecordItselfMayReadBothHalves` restores the second of those for `src/manifest.ts`,
   which is the module that owns both branches.
 
-  `src/detect/package-manager.ts` and `src/detect/git.ts` carry the spawns, and a block of their own
-  gives each the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
+  `src/detect/package-manager.ts` and `git.ts` carry the spawns, and their own block gives each the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
   because ESLint's `ignores` removes the whole config object rather than one selector from it.
-  Code loading, `createRequire` and the antfu base restrictions stay forbidden there, as
-  `tests/dependency-policy.test.ts` proves per form for each.
+  Code loading, `createRequire` and the antfu base restrictions stay forbidden in both, as
+  `tests/dependency-policy.test.ts` proves per form.
 
   `tests/dependency-policy.test.ts` resolves the config per file, lints one source sample per forbidden
   form, and fails when a source file that names an internal import falls outside every boundary — so a

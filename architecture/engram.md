@@ -95,8 +95,9 @@ bare specifier (a package, `node:fs`) is outside the repository and is not recor
 
 A repository made by `construct init` keeps its Engram in its own `construct.model.json`. An attached
 repository's Engram is written outside the target tree, at
-`~/.construct/engram/<repo>/construct.model.json` with `<repo>` the target directory's name, in the
-same schema; discovery writes no byte into the attached repository, so its `git status` stays as it
+`~/.construct/engram/<repo>-<hash>/construct.model.json`, `<repo>` the target directory's name and
+`<hash>` the first 12 hex digits of the sha256 of the real path of its root, so two repositories that
+share a directory name never share an Engram, in the same schema; discovery writes no byte into the attached repository, so its `git status` stays as it
 was (the owner, 2026-10-05, #532).
 
 ## Older documents

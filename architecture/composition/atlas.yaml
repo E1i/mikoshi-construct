@@ -6,7 +6,7 @@ description: >-
   `init` made it, and the two decide where everything lands. `writeEngram` runs discovery — `git
   rev-parse HEAD`, `git ls-files -z` and each tracked TypeScript or JavaScript file — and writes the
   Engram's `mechanics` into `construct.model.json` of a repository `init` made, or into
-  `~/.construct/engram/<repo>/` of any other. The Engram is read back through `readModel`, the state of
+  `~/.construct/engram/<repo>-<hash>/` of any other. The Engram is read back through `readModel`, the state of
   every claim and hypothesis is derived once with `deriveModelState`, and `renderAtlas` writes one
   self-contained page into `.construct/` where the construct owns that directory, beside the Engram
   where it does not, or at the path `--out` names. No tracked file of a repository the construct does
@@ -37,7 +37,7 @@ nodes:
     path: src/detect/existing.ts
     boundary: place
   - id: engram
-    label: writeEngram / engramFile · construct.model.json here, or ~/.construct/engram/<repo>/
+    label: writeEngram / engramFile · construct.model.json here, or ~/.construct/engram/<repo>-<hash>/
     path: src/model/discovery.ts
     boundary: place
   - id: git

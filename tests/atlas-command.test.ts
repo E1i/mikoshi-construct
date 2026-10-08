@@ -5,8 +5,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ATLAS_EXIT, printAtlas, runAtlas } from '../src/atlas/index.js'
 import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
+import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
-import { ENGRAM_HOME_DIR } from '../src/model/discovery.js'
+import { ENGRAM_HOME_DIR, engramDirectoryName } from '../src/model/discovery.js'
 import { MODEL_FILE, parseModel } from '../src/model/schema.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -96,7 +97,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(git(dir, 'status', '--porcelain')).toBe('')
     const written = atlasOf(dir)
     expect(written).toEqual({
-      engram: path.join(home(), ENGRAM_HOME_DIR, path.basename(dir), MODEL_FILE),
+      engram: path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir), MODEL_FILE),
       page: path.join(dir, '.construct', 'atlas.html'),
     })
     expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
@@ -130,11 +131,21 @@ describe('construct atlas in a repository construct attach jacked into, with no 
   })
 })
 
+describe('construct detach after construct atlas', () => {
+  it('takes the atlas page with the rest of what attach owned, so git sees no .construct/ afterwards', async () => {
+    const dir = foreignRepository()
+    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    expect(existsSync(atlasOf(dir).page)).toBe(true)
+    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect(git(dir, 'status', '--porcelain', '--ignored')).not.toContain('.construct/')
+  })
+})
+
 describe('construct atlas in a repository with neither init nor attach', () => {
   it('writes the engram and the page under the home directory and nothing into the repository', () => {
     const dir = foreignRepository()
     const written = atlasOf(dir)
-    const engramDir = path.join(home(), ENGRAM_HOME_DIR, path.basename(dir))
+    const engramDir = path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir))
     expect(written).toEqual({ engram: path.join(engramDir, MODEL_FILE), page: path.join(engramDir, 'atlas.html') })
     expect(git(dir, 'status', '--porcelain', '--ignored')).toBe('')
   })

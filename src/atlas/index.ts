@@ -9,7 +9,7 @@ import { readModel } from '../model/write.js'
 import { renderAtlas } from './page.js'
 
 export const ATLAS_PAGE_FILE = 'atlas.html'
-export const OWNED_DIR = '.construct'
+export const OWNED_ATLAS_PAGE = '.construct/atlas.html'
 
 export const ATLAS_EXIT = {
   written: 0,
@@ -28,7 +28,7 @@ export interface AtlasWritten {
 }
 
 function defaultPage(root: string, ownsDir: boolean, engram: string): string {
-  return ownsDir ? path.join(root, OWNED_DIR, ATLAS_PAGE_FILE) : path.join(path.dirname(engram), ATLAS_PAGE_FILE)
+  return ownsDir ? path.join(root, OWNED_ATLAS_PAGE) : path.join(path.dirname(engram), ATLAS_PAGE_FILE)
 }
 
 function rootFrom(page: string, root: string): string {
@@ -50,6 +50,6 @@ export function runAtlas(options: AtlasOptions): AtlasWritten {
 }
 
 export function printAtlas(ui: Ui, written: AtlasWritten): number {
-  ui.line(ui.lore.graphPageWritten(written.page))
+  ui.line(ui.lore.atlasPageWritten(written.page))
   return ATLAS_EXIT.written
 }

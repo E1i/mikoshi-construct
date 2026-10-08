@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { readTrackedFiles } from '../src/detect/git.js'
-import { discoverMechanics, ENGRAM_HOME_DIR, writeEngram } from '../src/model/discovery.js'
+import { discoverMechanics, ENGRAM_HOME_DIR, engramDirectoryName, writeEngram } from '../src/model/discovery.js'
 import { scanModule } from '../src/model/scan.js'
 import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -123,10 +123,38 @@ describe('discovery writes what it found in the code into the Engram', () => {
     await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
     expect(git(dir, 'status', '--porcelain')).toBe('')
     const file = writeEngram(dir, { attached: true, home: home() })
-    expect(file).toBe(path.join(home(), ENGRAM_HOME_DIR, path.basename(dir), MODEL_FILE))
+    expect(file).toBe(path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir), MODEL_FILE))
     expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
     expect(git(dir, 'status', '--porcelain')).toBe('')
     expect(parseModel(readFileSync(file, 'utf8'), MODEL_FILE).mechanics?.relations.length).toBeGreaterThan(0)
+  })
+
+  it('gives two attached repositories with the same directory name an engram each, and neither sees the other\'s mechanics', () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'construct-discovery-twins-'))
+    const work = path.join(parent, 'work', 'api')
+    const oss = path.join(parent, 'oss', 'api')
+    for (const [dir, file] of [[work, 'alpha'], [oss, 'beta']] as const) {
+      mkdirSync(path.join(dir, 'src'), { recursive: true })
+      writeFileSync(path.join(dir, 'src', `${file}.ts`), 'export const x = 1\n')
+      git(dir, 'init', '-q')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-qm', 'base')
+    }
+    const workFile = writeEngram(work, { attached: true, home: home() })
+    const ossFile = writeEngram(oss, { attached: true, home: home() })
+    expect(workFile).not.toBe(ossFile)
+    for (const file of [workFile, ossFile])
+      expect(path.basename(path.dirname(file))).toMatch(/^api-[0-9a-f]{12}$/)
+    const componentsOf = (file: string): string[] => parseModel(readFileSync(file, 'utf8'), MODEL_FILE).mechanics?.components.map(component => component.path) ?? []
+    expect(componentsOf(workFile)).toEqual(['src/alpha.ts'])
+    expect(componentsOf(ossFile)).toEqual(['src/beta.ts'])
+  })
+
+  it('names the engram directory after the real path, so a symlink to a repository reaches the same engram', () => {
+    const dir = foreignRepository()
+    const link = path.join(mkdtempSync(path.join(tmpdir(), 'construct-discovery-link-')), 'shop')
+    symlinkSync(dir, link)
+    expect(engramDirectoryName(link)).toBe(engramDirectoryName(dir))
   })
 
   it('writes the engram of an init repository into its own construct.model.json and keeps its facts and claims', async () => {

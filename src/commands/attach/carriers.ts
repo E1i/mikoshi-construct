@@ -31,6 +31,7 @@ export const ATTACH_RUNTIME_FILES: readonly string[] = [
   '.construct/steps.jsonl',
   '.construct/implement-agreed.txt',
   '.construct/implement-args.json',
+  '.construct/atlas.html',
 ]
 
 export const ATTACH_RUNTIME_BROWSER = '.construct/browser'

@@ -1,5 +1,6 @@
 import type { CommandReading } from '../detect/git.js'
 import type { CommandSource, Component, Mechanics, Relation, RepositoryModel } from './schema.js'
+import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { readHead, readTrackedFiles } from '../detect/git.js'
@@ -111,9 +112,17 @@ export interface EngramPlace {
   home: string
 }
 
+const ENGRAM_PATH_HASH_LENGTH = 12
+
+export function engramDirectoryName(root: string): string {
+  const real = realpathSync(path.resolve(root))
+  const hash = createHash('sha256').update(real).digest('hex').slice(0, ENGRAM_PATH_HASH_LENGTH)
+  return `${path.basename(real)}-${hash}`
+}
+
 export function engramFile(root: string, place: EngramPlace): string {
   const resolved = path.resolve(root)
-  return place.attached ? path.join(place.home, ENGRAM_HOME_DIR, path.basename(resolved), MODEL_FILE) : path.join(resolved, MODEL_FILE)
+  return place.attached ? path.join(place.home, ENGRAM_HOME_DIR, engramDirectoryName(resolved), MODEL_FILE) : path.join(resolved, MODEL_FILE)
 }
 
 function emptyModel(): RepositoryModel {

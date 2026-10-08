@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { OWNED_ATLAS_PAGE } from '../src/atlas/index.js'
 import { ATTACH_RUNTIME_BROWSER, ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_RUN_DIRECTORY, ATTACH_RUNTIME_SHOT_SUFFIX, ATTACH_WRITES } from '../src/commands/attach/carriers.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
 import { LEDGER_FILE, STEP_CACHE_FILE } from '../src/commands/cost/index.js'
@@ -16,6 +17,7 @@ const WRITERS: Record<string, string> = {
   [STEP_CACHE_FILE]: read('src/commands/cost/step-cache.ts'),
   '.construct/implement-agreed.txt': read('templates/ai/claude/_claude/skills/implement/SKILL.md'),
   '.construct/implement-args.json': read('templates/ai/claude/_claude/skills/implement/SKILL.md'),
+  [OWNED_ATLAS_PAGE]: read('src/atlas/index.ts'),
 }
 
 describe('the closed list of runtime files is what the ladder writes under .construct/', () => {
