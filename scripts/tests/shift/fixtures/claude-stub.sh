@@ -27,6 +27,7 @@ case "$prompt" in *STUB-WARN*|*STUB-STOP*|*STUB-CLOSE*|*STUB-QUESTION*|*STUB-REF
 case "$prompt" in *STUB-STOP*) eddies budget-stop ;; esac
 case "$prompt" in *STUB-REFUSED*) printf '{"v":1,"event":"unread","hook":"eddies-guard","reason":"config-missing","session_id":"%s","agent_id":null,"at":"x"}\n' "$session" >> "$PWD/.construct/eddies.jsonl" ;; esac
 case "$prompt" in *STUB-CLOSE*) printf '{"event":"path","task":"%s","path":"cheap","pr":1,"verification":"run","ts":"x"}\n' "${task#mc-}" >> "$CONSTRUCT_HANDOFF_DIR/ghosts.jsonl" ;; esac
+case "$prompt" in *STUB-SAY-*) printf '%s\n' "$prompt" | sed -n 's/.*STUB-SAY-\([a-z-]*\).*/\1/p' | head -n 1 ;; esac
 case "$prompt" in *STUB-FAIL*) exit 1 ;; *STUB-SILENT*) exit 0 ;; esac
 report=$(printf '%s\n' "$prompt" | sed -n 's/.*write the shift report to `\([^`]*\)`.*/\1/p' | head -n 1)
 case "$prompt" in *STUB-NO-PR*) pr='no PR' ;; *) pr='PR #1' ;; esac

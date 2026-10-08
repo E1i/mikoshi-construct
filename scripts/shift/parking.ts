@@ -18,6 +18,8 @@ export const LADDER_REASON = `ladder card: MORSE approves an R2–R4 brief (ghos
 export const STOP_AT = ['hash', 'merge', 'question', 'boundary', 'fault'] as const
 
 export type StopAt = typeof STOP_AT[number]
+export const FAILED_AT: StopAt = 'fault'
+export const DEPENDS_FAILED = 'depends failed '
 
 export interface Stop {
   task: string
@@ -28,6 +30,7 @@ export interface Stop {
   session: string | null
   ts: string
   pr?: number
+  failed?: boolean
 }
 
 function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
@@ -38,7 +41,7 @@ const GHOSTS_DIR = 'scripts/ghosts/'
 
 export type Created = (file: string) => boolean
 
-function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt>, created: Created): string | null {
+function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt>, created: Created, failedCards: ReadonlySet<string>): string | null {
   if (done.has(parked.task.id))
     return CLOSED
   if (parked.who !== SHIFT_WHO)
@@ -47,6 +50,9 @@ function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: Reado
   if (stopped !== undefined)
     return `waits ${stopped}`
   const open = parked.task.card.depends.filter(id => !merged.has(String(id)))
+  const failed = open.filter(id => failedCards.has(String(id)))
+  if (failed.length > 0)
+    return `${DEPENDS_FAILED}${failed.map(id => `#${id}`).join(', ')}`
   if (open.length > 0)
     return `depends ${open.map(id => `#${id}`).join(', ')} not merged`
   const unclassified = parked.task.touches.find(file => file.startsWith(GHOSTS_DIR) && !file.includes('*') && created(file))
@@ -77,11 +83,15 @@ export function standingStops(stops: ReadonlyMap<string, Stop>, exists: (target:
   return standing
 }
 
-export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt> = new Map(), created: Created = () => false): Choice {
+export function failedCards(stops: ReadonlyMap<string, Stop>, standing: ReadonlyMap<string, StopAt>): Set<string> {
+  return new Set([...standing.keys()].filter(task => standing.get(task) === FAILED_AT && stops.get(task)?.failed === true))
+}
+
+export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt> = new Map(), created: Created = () => false, failed: ReadonlySet<string> = new Set()): Choice {
   const chosen: ShiftTask[] = []
   const left: LeftCard[] = []
   for (const card of [...parked].sort(byPriorityThenId)) {
-    const reason = leftReason(card, done, merged, waiting, created)
+    const reason = leftReason(card, done, merged, waiting, created, failed)
     const overlapping = reason === null ? chosen.find(task => taskConflicts([task, card.task]).length > 0) : undefined
     if (reason !== null)
       left.push({ id: card.task.id, reason })

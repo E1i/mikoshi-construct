@@ -1,7 +1,7 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, latestStops, standingStops } from '../../shift/parking.js'
+import { choose, failedCards, latestStops, standingStops } from '../../shift/parking.js'
 
 function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift', depends = '—'): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [${kind}] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who}\n\ndo ${id}\n`)
@@ -77,5 +77,16 @@ describe('choose with a created scripts/ghosts file', () => {
   it('a card whose scripts/ghosts file exists, or a file elsewhere, is taken', () => {
     expect(choose([touching('scripts/ghosts/old.ts')], new Set(), new Set(), new Map(), () => false).chosen).toHaveLength(1)
     expect(choose([touching('scripts/shift/new.ts')], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
+  })
+})
+
+describe('depends failed', () => {
+  it('names only a dependency whose standing fault stop says failed, never a guard refusal or an Eddies stop', () => {
+    const stops = latestStops(journal(stop('1', 'fault', '/t1', { failed: true }), stop('2', 'fault', '/t2'), stop('5', 'fault', '/gone', { failed: true })))
+    const standing = standingStops(stops, tree => tree !== '/gone')
+    const failed = failedCards(stops, standing)
+    expect([...failed]).toEqual(['1'])
+    const choice = choose([parked(3, undefined, 'shift', '#1'), parked(4, undefined, 'shift', '#2')], new Set(), new Set(), standing, () => false, failed)
+    expect(choice.left).toEqual([{ id: '3', reason: 'depends failed #1' }, { id: '4', reason: 'depends #2 not merged' }])
   })
 })
