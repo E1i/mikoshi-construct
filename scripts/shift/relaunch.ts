@@ -19,7 +19,8 @@ export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>]
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
 export const CHAIN_COMMAND = 'pnpm shift <dir> --parking <parking> --chain'
-export const BRAIN_ROLE = `You are the window under relaunch, the brain: you never take a card body and never run pnpm task:start yourself; start the queue as a shift chain with \`${CHAIN_COMMAND}\`, read the journal and its failed notifications, repair only what stopped (restart the card, correct it with construct intake --admit, answer the session), and at the context limit write STOP so relaunch raises the next session.`
+export const WINDOW_BODY_NOTE = 'window took body #N'
+export const BRAIN_ROLE = `You are the window under relaunch, the brain: start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them; you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}; read the journal and its failed notifications, repair only what stopped (restart the card, correct it with construct intake --admit, answer the session), and at the context limit write STOP so relaunch raises the next session.`
 export function promptFirstLine(handoff: string): string {
   return `${BRAIN_ROLE} ${CONTINUE_PROMPT}: ${handoff} — write it only with pnpm handoff:write ${handoff} <draft>`
 }

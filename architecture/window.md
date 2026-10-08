@@ -56,12 +56,14 @@ when it ends in `ghosts.jsonl`, each stop one `event:relaunch-stop` line with it
 read by `pnpm relaunch --live` from those pids (`kill -0`), never from the command text: `pgrep -fl "claude -p"` misses a
 session started as `claude --permission-mode auto -p`.
 
-A window under relaunch never takes a card body: it is the brain, and its work is the run, not a card. It starts the
-queue as a shift chain (`pnpm shift <dir> --parking <parking> --chain`), never `pnpm task:start` itself; reads the journal
-and the notifications of a failed card; repairs only what stopped — restarts the card, corrects it with `construct intake
---admit`, answers the session; writes the handoff through `pnpm handoff:write`; and at the context limit writes its STOP
-so relaunch raises the next session. The first line of every relaunch prompt says so (`BRAIN_ROLE` in
-`scripts/shift/relaunch.ts`).
+A window under relaunch never takes a card body, except a `who: window` card: it is the brain, and its work is the run.
+It starts the `who: shift` cards as a shift chain (`pnpm shift <dir> --parking <parking> --chain`) and never runs
+`pnpm task:start` for them; the chain takes them in its own order (`p0` first, then by id, once their `depends` are
+merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
+and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
+stopped — restarts the card, corrects it with `construct intake --admit`, answers the session; writes the handoff
+through `pnpm handoff:write`; and at the context limit writes its STOP so relaunch raises the next session. The first
+line of every relaunch prompt says so (`BRAIN_ROLE` in `scripts/shift/relaunch.ts`).
 
 ## Pull requests and branches
 

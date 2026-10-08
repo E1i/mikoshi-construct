@@ -8,6 +8,7 @@ import { runClaude } from '../../shift/claude.js'
 import { runRelaunch } from '../../shift/relaunch.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub-brain.sh')
+const PNPM_SHIM_DIR = path.join(import.meta.dirname, 'fixtures', 'brain-bin')
 const roots: string[] = []
 
 afterEach(() => {
@@ -25,7 +26,7 @@ function brainWorld(): { deps: RelaunchDeps, handoff: string, stubOut: string } 
   const deps: RelaunchDeps = {
     cwd: root,
     home: root,
-    claude: `STUB_OUT=${stubOut} ${STUB}`,
+    claude: `STUB_OUT=${stubOut} PATH=${PNPM_SHIM_DIR}:$PATH ${STUB}`,
     journal: path.join(root, 'handoff-dir', 'ghosts.jsonl'),
     projectsDir: path.join(root, 'projects'),
     read: file => readFileSync(file, 'utf8'),
@@ -47,8 +48,9 @@ describe('relaunch end to end', () => {
   it('a relaunch session with stub claude starts the shift, not task:start', async () => {
     const world = brainWorld()
     expect(await runRelaunch([world.handoff, '--max', '1', '--model', 'claude-test'], world.deps)).toBe(0)
-    const started = readFileSync(path.join(world.stubOut, 'started'), 'utf8').trim()
-    expect(started).toMatch(/^pnpm shift \S+ --parking \S+ --chain$/)
-    expect(started).not.toContain('task:start')
+    const ran = readFileSync(path.join(world.stubOut, 'pnpm.argv'), 'utf8').trim().split('\n')
+    expect(ran).toHaveLength(1)
+    expect(ran[0]).toMatch(/^shift \S+ --parking \S+ --chain$/)
+    expect(ran.some(argv => argv.startsWith('task:start'))).toBe(false)
   })
 })

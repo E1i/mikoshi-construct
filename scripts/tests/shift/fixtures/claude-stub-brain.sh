@@ -1,3 +1,7 @@
 #!/bin/sh
 first=$(head -n 1)
-printf '%s\n' "$first" | sed -n 's/^[^`]*`\([^`]*\)`.*/\1/p' > "$STUB_OUT/started"
+command=$(printf '%s\n' "$first" | sed -n 's/^[^`]*`\([^`]*\)`.*/\1/p')
+[ -n "$command" ] || exit 0
+set -f
+set -- $command
+"$@"

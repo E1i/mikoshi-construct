@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { BRAIN_ROLE, CHAIN_COMMAND, expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
+import { BRAIN_ROLE, CHAIN_COMMAND, expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -191,8 +191,8 @@ describe('runRelaunch', () => {
   it('the first line of the relaunch prompt names the brain role', () => {
     const first = relaunchPrompt('/h/handoff.md', null).split('\n')[0]!
     expect(first.startsWith(BRAIN_ROLE)).toBe(true)
-    expect(first).toContain('never take a card body')
-    expect(first).toContain(`\`${CHAIN_COMMAND}\``)
+    expect(first).toContain(`start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them`)
+    expect(first).toContain(`you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}`)
   })
 
   it('every session prompt names the owner decisions file', async () => {
