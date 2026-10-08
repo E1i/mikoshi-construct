@@ -8,12 +8,28 @@ export type Confirmation = 'auto' | 'person' | 'none'
 
 const TOKEN_LENGTH = 12
 export const INTAKE_EVENT = 'intake'
+export const TOUCHES_HEADER = 'touches: '
 
-export function bodySha(text: string): string {
+function digest(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, TOKEN_LENGTH)
+}
+
+function headerAndBody(text: string): { header: string[], body: string } {
   const lines = text.split('\n')
   const headerEnd = lines.findIndex(line => line.trim() === '')
-  const body = headerEnd === -1 ? '' : lines.slice(headerEnd).join('\n').trim()
-  return createHash('sha256').update(body).digest('hex').slice(0, TOKEN_LENGTH)
+  if (headerEnd === -1)
+    return { header: lines, body: '' }
+  return { header: lines.slice(0, headerEnd), body: lines.slice(headerEnd).join('\n').trim() }
+}
+
+export function bodyShaWithoutTouches(text: string): string {
+  return digest(headerAndBody(text).body)
+}
+
+export function bodySha(text: string): string {
+  const { header, body } = headerAndBody(text)
+  const touches = header.find(line => line.startsWith(TOUCHES_HEADER)) ?? ''
+  return digest(`${touches}\n${body}`)
 }
 
 export function confirmationToken(cards: readonly SlicedCard[]): string {
