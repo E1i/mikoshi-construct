@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer'
+import type { ReviewStatus } from '../../ghosts/verdict.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -6,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readContourSchema, violations } from '../../contract/contours.js'
-import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict } from '../../ghosts/verdict.js'
+import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict, reviewStatus } from '../../ghosts/verdict.js'
 
 const IMPLEMENT = '/implement the contour contracts (t)'
 const REPORT = '[review:t]\nThe witnesses ran.\n'
@@ -183,6 +184,42 @@ describe('recordVerdict', () => {
     write(verdict, good)
     expect((await recordVerdict(verdict, dir, TARGET)).ok).toBe(true)
     expect(journalLines(journal)).toHaveLength(2)
+  })
+})
+
+describe('the review commit status', () => {
+  it.each([
+    { verdict: 'pass', state: 'success' },
+    { verdict: 'changes', state: 'failure' },
+  ])('publishes the verdict as a review commit status on the PR head: $verdict is $state', async ({ verdict: value, state }) => {
+    const { dir, verdict, good } = handoff()
+    write(verdict, { ...good, verdict: value })
+    const posted: ReviewStatus[] = []
+    const result = await recordVerdict(verdict, dir, TARGET, status => posted.push(status))
+    expect(result.ok).toBe(true)
+    expect(posted).toEqual([{ commit: PR.commit, state, context: 'review', description: `review verdict ${value} for task t` }])
+  })
+
+  it('publishes nothing for a refused verdict', async () => {
+    const { dir, verdict, good } = handoff()
+    write(verdict, { ...good, verdict: 'merge' })
+    const posted: ReviewStatus[] = []
+    expect((await recordVerdict(verdict, dir, TARGET, status => posted.push(status))).ok).toBe(false)
+    expect(posted).toEqual([])
+  })
+
+  it('reports a status that could not be posted, keeping the journal line it already wrote', async () => {
+    const { dir, verdict, journal, good } = handoff()
+    write(verdict, good)
+    const result = await recordVerdict(verdict, dir, TARGET, () => {
+      throw new Error('gh: HTTP 403\nmore')
+    })
+    expect(reasonsOf(result)).toEqual([`the journal line is written, but the review status on ${PR.commit} was not posted: gh: HTTP 403`])
+    expect(journalLines(journal)).toHaveLength(1)
+  })
+
+  it('puts a carried verdict on the commit it was carried to', () => {
+    expect(reviewStatus({ event: 'review-carry', task: 't', verdict: 'pass', from: BASE.commit, to: PR.commit })).toEqual({ commit: PR.commit, state: 'success', context: 'review', description: 'review verdict pass for task t' })
   })
 })
 
