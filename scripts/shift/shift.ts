@@ -43,7 +43,7 @@ import { isListed, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { choose, FAILED_AT, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
+import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
@@ -95,8 +95,8 @@ export const USAGE = [
   '--chain (with --parking) makes the run a chain: after a card closes with a pull request the shift waits for its merge, records it as pnpm task:merged does, and takes the next card whose depends are merged,',
   'holding through a closed terminal (SIGHUP); an owner pull request is merged by the owner (or armed under --slot) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, merged, next or end).',
   `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary>.`,
-  'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run: its stop carries the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
-  `At the end the run writes <dir>/${OUTCOMES_FILE}, one row per card: card · result (done, failed, skipped, stop <at>) · reason · PR, and notifies once more.`,
+  'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run on its first fault (no second attempt): its stop carries failed: true and the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
+  `At the end the run writes <dir>/${OUTCOMES_FILE}, one row per card it ran and per card skipped: card · result (done, failed, skipped, stop <at>, stop not-started, stop <chain end>) · reason · PR, and notifies once more.`,
   'A chain spawns its sessions detached, as the Ghost supervisor does, so a closed terminal stops neither the runner nor the session it is waiting on.',
   'Afterwards: pnpm shift:report <dir>.',
 ].join('\n')
@@ -177,8 +177,10 @@ function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors
   const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
   const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
   const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(deps, ladder.get(stop.task)!)
+  const stops = latestStops(text)
+  const standing = standingStops(stops, deps.exists, released)
   return {
-    choice: choose(cards, done, mergedTasks(text), standingStops(latestStops(text), deps.exists, released), createdFile(deps)),
+    choice: choose(cards, done, mergedTasks(text), standing, createdFile(deps), failedCards(stops, standing)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }
@@ -351,6 +353,7 @@ interface StopRecord {
   session: string | null
   pr?: number
   last?: string
+  failed?: true
 }
 
 const MERGE_ARMED = /auto-merge armed on PR #\d+/
@@ -378,7 +381,7 @@ function autopilotLine(deps: ShiftDeps, dir: string, manual: boolean): string {
 }
 
 function recordStop(deps: ShiftDeps, dir: string, task: string, stop: StopRecord): void {
-  const line = { event: 'stop', task, at: stop.at, why: stop.why, worktree: stop.worktree, shift: dir, session: stop.session, ts: deps.now().toISOString(), ...(stop.pr === undefined ? {} : { pr: stop.pr }), ...(stop.last === undefined ? {} : { last: stop.last }) }
+  const line = { event: 'stop', task, at: stop.at, why: stop.why, worktree: stop.worktree, shift: dir, session: stop.session, ts: deps.now().toISOString(), ...(stop.pr === undefined ? {} : { pr: stop.pr }), ...(stop.last === undefined ? {} : { last: stop.last }), ...(stop.failed === undefined ? {} : { failed: stop.failed }) }
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify(line)}\n`)
 }
 
@@ -705,8 +708,12 @@ function chainLine(deps: ShiftDeps, dir: string, fields: Record<string, unknown>
   deps.out(`${PREFIX}chain: ${Object.entries(fields).map(([key, value]) => `${key} ${String(value)}`).join(' · ')}`)
 }
 
-function isFailure(stop: StopRecord): boolean {
-  return stop.at === FAILED_AT && stop.why !== EXIT_REASON_TEXT['guard-refusal'] && stop.why !== EXIT_REASON_TEXT['eddies-stop']
+function isFailure(stop: StopRecord | null): stop is StopRecord & { failed: true } {
+  return stop?.failed === true
+}
+
+function failsTheCard(line: ShiftTaskLine, stop: StopRecord): boolean {
+  return stop.at === FAILED_AT && line.heldBy === undefined && stop.why !== EXIT_REASON_TEXT['guard-refusal'] && stop.why !== EXIT_REASON_TEXT['eddies-stop']
 }
 
 function lastOutputLine(deps: ShiftDeps, dir: string, line: ShiftTaskLine): string | undefined {
@@ -716,10 +723,10 @@ function lastOutputLine(deps: ShiftDeps, dir: string, line: ShiftTaskLine): stri
 }
 
 function failedStop(deps: ShiftDeps, dir: string, ran: { line: ShiftTaskLine, stop: StopRecord | null }): StopRecord | null {
-  if (ran.stop === null || !isFailure(ran.stop))
+  if (ran.stop === null || !failsTheCard(ran.line, ran.stop))
     return ran.stop
   const last = lastOutputLine(deps, dir, ran.line)
-  return last === undefined ? ran.stop : { ...ran.stop, last }
+  return { ...ran.stop, failed: true, ...(last === undefined ? {} : { last }) }
 }
 
 function outcomeOf(task: ShiftTask, line: ShiftTaskLine, stop: StopRecord | null): Outcome {
@@ -744,6 +751,10 @@ function writeOutcomes(deps: ShiftDeps, dir: string, outcomes: Outcome[], parkin
   const failed = all.filter(outcome => outcome.result === 'failed').length
   deps.out(`${PREFIX}outcomes: ${failed} failed, ${skipped.length} skipped; ${file}`)
   deps.notify?.('shift over', `${all.length} cards · ${failed} failed · ${skipped.length} skipped — ${file}`)
+}
+
+function heldEnd(line: ShiftTaskLine): ChainEnd | undefined {
+  return line.heldBy === undefined ? undefined : line.heldBy === 'guard-refusal' ? 'guard-refusal' : 'eddies-budget'
 }
 
 function chainEnd(stop: StopRecord): ChainEnd {
@@ -806,7 +817,7 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
   if (stop !== null && stop.at !== 'merge') {
     recordStop(deps, dir, task.id, stop)
     if (!isFailure(stop))
-      return chainEnd(stop)
+      return heldEnd(line) ?? chainEnd(stop)
   }
   else if (line.heldBy === 'guard-refusal') {
     recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'fault', EXIT_REASON_TEXT['guard-refusal'], line.pr))
@@ -934,7 +945,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)
       clean &&= succeeded(ran.line)
       outcomes.push(outcomeOf(task, ran.line, ran.stop))
-      if (ran.stop !== null && isFailure(ran.stop))
+      if (isFailure(ran.stop))
         deps.notify?.(`shift: #${task.id} failed`, `${ran.stop.why} — ${outcomesPath(dir)}`)
       if (chain === undefined) {
         if (ran.stop !== null)
@@ -945,7 +956,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       if (typeof next === 'string') {
         const last = outcomes.at(-1)!
         if (last.result === 'done' && ENDS_OF_THE_TASK.includes(next))
-          last.result = `stop ${next}`
+          Object.assign(last, { result: `stop ${next}`, reason: latestStops(readIfThere(deps, ghostJournal)).get(task.id)?.why ?? next })
         chainLine(deps, dir, { step: 'end', reason: next, cards: taken.size })
         deps.out(`${PREFIX}chain ended: ${next}`)
         break

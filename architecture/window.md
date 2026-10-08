@@ -165,9 +165,9 @@ report), `boundary` (a `boundary:` line the card does not follow: `continue: sto
 `--manual`) or `fault` (a session that did not spawn, exited non-zero, was stopped by Eddies or wrote no report or no
 pull request; a card `task:start` refuses leaves no stop, because the door writes nothing). A card that ends in an armed auto-merge or a probe closed by its report leaves no
 stop. A `fault` stop that is not a guard refusal or an Eddies stop is a failed card: it stops neither a chain nor a plain run,
-its stop carries `last`, the last line of its session log, a card that depends on it is left as `depends failed #N`, and a
+on its first fault (the shift starts no second attempt), its stop carries `failed: true` and `last`, the last line of its session log, a card that depends on it is left as `depends failed #N`, and a
 macOS notification names the card, the reason and `<dir>/shift-report.md`, the table (`card · result · reason · PR`) every
-real run writes at its end. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
+real run writes at its end: one row per card it ran and one `skipped` row per card left on a failed dependency. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
 with no worktree, the card is left as `waits <at>` (a closed card stays `closed`), and a second `hash` stop is never
 written for it; the `hash` stop of a ladder card stops standing once the journal holds an `event:approval` for its brief's current hash and no `event:revoke` of it. `--manual` turns the automation off for that run only, never sticky: nothing is taken, and nothing is
 continued into a new session, without a yes from the runner's prompt; with no terminal every answer is no, and a run

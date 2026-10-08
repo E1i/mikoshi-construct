@@ -947,6 +947,17 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
   })
 
+  it.each([
+    ['STUB-REFUSED', 'guard-refusal'],
+    ['STUB-STOP', 'eddies-budget'],
+  ])('a %s masked by task:close in a session that exits 1 is no failure and still ends the chain with %s', async (marker, end) => {
+    const world = newChainWorld([{ id: 1, body: `do 1 STUB-CLOSE ${marker} STUB-FAIL` }, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }])
+    await chainRun(world, chainGh())
+    expect(chainSteps(world)).toEqual([`end ${end}`])
+    expect(eventsOf(world, 'stop')[0]).not.toHaveProperty('failed')
+    expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)
+  })
+
   it('a pull request closed without a merge ends the chain at once', async () => {
     const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
     const { slept } = await chainRun(world, chainGh({ owner: [101], state: 'CLOSED' }))
