@@ -49,8 +49,9 @@ const REPORT_PR_LINE = /^PR #(\d+)\s*$/m
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const REPORT_FILE_LINE = /(?:^Report:|report written to)\s+`?([^`\s]+?)`?[.,;]?\s*$/im
 export const USAGE = [
-  'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue] [--slot <shard>]',
+  'usage: pnpm shift <dir> [--parking <parking>] [--check] [--queue]',
   '  [--manual]  (optional: no automation; every take and every continuation asks first)',
+  '  [--slot <shard>]  (optional: consumes the owner\'s shard for this run; see below)',
   '',
   'Runs every NN.md in <dir> in order, each as a fresh headless claude session in its own tree cut by task:start.',
   `With --parking, the tasks come from <parking>/<id>.md instead: the same header plus who: and an optional priority: p0.`,
