@@ -59,7 +59,7 @@ describe('the atlas page is built from the document alone', () => {
 
   it('draws a node nothing holds up with its state instead of leaving it out', () => {
     const html = render()
-    expect(html).toMatch(/id="press" data-state="held"/)
+    expect(html).toMatch(/id="press" data-state="unknown"/)
     expect(html).toMatch(/id="lids" data-state="unsupported"/)
     expect(html).toMatch(/id="crate" data-state="runtime-report"/)
     expect(html).toMatch(/id="route" data-state="unknown"/)

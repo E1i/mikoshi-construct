@@ -1,0 +1,2 @@
+- verified-9: `appa describe --check` → exit 0
+- verified-5: `appa replay` ×8 ok
