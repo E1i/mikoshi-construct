@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,6 +9,7 @@ function completeHandoff(except: string[] = []): string {
   return HANDOFF_FIELDS.filter(field => !except.includes(field.id)).map(field => `${field.label}: ${field.id} value`).join('\n')
 }
 
+const DECISIONS = '/d/owner-decisions.md'
 const PARKED = new Map<number, number[]>([[650, []], [652, [650]], [681, []]])
 
 function check(file: string | undefined, text: string | null): { code: number, out: string[], err: string[] } {
@@ -18,16 +20,29 @@ function check(file: string | undefined, text: string | null): { code: number, o
 }
 
 function handoff(fields: Record<string, string> = {}, sections = 1): string {
-  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, `${field.id} value`])), 'queue': '#650 → #652 → #681', 'prev': 'none', 'in-flight': '#681 review PR #625', ...fields }
+  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, `${field.id} value`])), 'queue': '#650 → #652 → #681', 'decisions': DECISIONS, 'prev': 'none', 'in-flight': '#681 review PR #625', ...fields }
   const section = Object.entries(values).map(([label, value]) => `${label}: ${value}`).join('\n')
   return [`# Handoff`, ...Array.from({ length: sections }, (_, index) => `## STOP — window ${index + 1}\n${section}\n\nSTATUS: CONTINUE`)].join('\n\n')
 }
 
-function refusals(text: string, exists: (file: string) => boolean = () => false): string[] {
-  return handoffRefusals(text, { file: '/h/handoff.md', exists, parked: PARKED })
+function refusals(text: string, exists: (file: string) => boolean = file => file === DECISIONS): string[] {
+  return handoffRefusals(text, { file: '/h/handoff.md', home: '/home/x', exists, parked: PARKED })
 }
 
 describe('handoff-check', () => {
+  it('refuses owner decisions written as prose', () => {
+    expect(refusals(handoff({ 'owner decisions': 'ship A, not B' }))).toEqual(['[handoff:check] owner decisions as prose: move them to the decisions file'])
+    expect(refusals(`${handoff()}\n## Owner decisions\n- ship A`)).toContain('[handoff:check] owner decisions as prose: move them to the decisions file')
+    for (const line of ['1. owner decisions: ship A', '**Owner decisions**: ship A', '- **owner decisions:** ship A'])
+      expect(refusals(`${handoff()}\n${line}`)).toContain('[handoff:check] owner decisions as prose: move them to the decisions file')
+  })
+
+  it('refuses a decisions path that does not exist', () => {
+    expect(refusals(handoff({ decisions: '/d/missing.md' }))).toEqual(['[handoff:check] decisions: /d/missing.md does not exist'])
+    expect(refusals(handoff({ decisions: '~/owner-decisions.md' }), file => file === '/home/x/owner-decisions.md')).toEqual([])
+    expect(refusals(handoff({ decisions: 'owner-decisions.md' }), file => file === '/h/owner-decisions.md')).toEqual([])
+  })
+
   it('passes a complete handoff', () => {
     expect(missingFields(completeHandoff())).toEqual([])
   })
@@ -87,7 +102,7 @@ describe('handoff-check', () => {
 
   it('refuses a handoff over the size limit and names the bloated field', () => {
     const bloated = handoff({ 'not done': 'x'.repeat(HANDOFF_LIMIT) })
-    expect(refusals(bloated)).toEqual([`[handoff:check] too large: ${bloated.length} chars over the limit of ${HANDOFF_LIMIT}; largest field: not done (${'not done'.length + HANDOFF_LIMIT} chars)`])
+    expect(refusals(bloated)).toEqual([`[handoff:check] too large: ${Buffer.byteLength(bloated)} bytes over the limit of ${HANDOFF_LIMIT}; largest field: not done (${'not done'.length + HANDOFF_LIMIT} bytes)`])
     expect(refusals(handoff({ 'not done': 'x'.repeat(HANDOFF_LIMIT - handoff().length - 200) }))).toEqual([])
   })
 
@@ -108,15 +123,20 @@ describe('handoff-check', () => {
     expect(refusals(text)).toEqual(expect.arrayContaining(['[handoff:check] queue: appears 2 times; a handoff holds one', '[handoff:check] in-flight: appears 2 times; a handoff holds one']))
   })
 
+  it('counts the largest field in bytes', () => {
+    const bloated = handoff({ 'not done': 'é'.repeat(HANDOFF_LIMIT / 2) })
+    expect(refusals(bloated)[0]).toContain(`largest field: not done (${'not done'.length + HANDOFF_LIMIT} bytes)`)
+  })
+
   it('names an unknown bloated label rather than the field before it', () => {
     const bloated = `${handoff()}\nnotes: ${'x'.repeat(HANDOFF_LIMIT)}`
-    expect(refusals(bloated)[0]).toContain(`largest field: notes (${'notes'.length + HANDOFF_LIMIT} chars)`)
+    expect(refusals(bloated)[0]).toContain(`largest field: notes (${'notes'.length + HANDOFF_LIMIT} bytes)`)
   })
 
   it('takes prev: none or an archive that exists beside the handoff', () => {
     expect(refusals(handoff({ prev: 'handoff.md' }), () => true)).toEqual(['[handoff:check] prev: handoff.md is not archive/NNNN.md beside the handoff'])
     expect(refusals(handoff({ prev: '../h/archive/0001.md' }), () => true)[0]).toContain('is not archive/NNNN.md')
-    expect(refusals(handoff({ prev: 'archive/0001.md' }), file => file === '/h/archive/0001.md')).toEqual([])
+    expect(refusals(handoff({ prev: 'archive/0001.md' }), file => file === DECISIONS || file === '/h/archive/0001.md')).toEqual([])
     expect(refusals(handoff({ prev: 'archive/0002.md' }))).toEqual(['[handoff:check] prev: archive/0002.md does not exist'])
     expect(refusals(handoff({ prev: '' }))[0]).toContain('missing: prev')
   })

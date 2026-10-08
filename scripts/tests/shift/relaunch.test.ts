@@ -3,12 +3,14 @@ import type { RelaunchDeps } from '../../shift/relaunch.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { expandHome, LAUNCH_LINE, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
 
-const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : 'x'}`).join('\n')}`
+const DECISIONS = fileURLToPath(import.meta.url)
+const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
 const roots: string[] = []
 
 interface World {
@@ -113,7 +115,7 @@ describe('runRelaunch', () => {
     expect(result.runs[0]).toMatchObject({
       command: 'true',
       cwd: world.repo,
-      prompt: relaunchPrompt(world.handoff),
+      prompt: relaunchPrompt(world.handoff, DECISIONS),
       log: `${world.handoff}.relaunch-1.log`,
       extraArgv: ['--model', 'claude-test'],
     })
@@ -181,8 +183,18 @@ describe('runRelaunch', () => {
   })
 
   it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {
-    expect(relaunchPrompt('/h/handoff.md').split('\n')[0]).toBe(`${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
-    expect(relaunchPrompt('/h/handoff.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
+    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md').split('\n')[0]).toBe(`${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
+    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
+  })
+
+  it('every session prompt names the owner decisions file', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
+    expect(result.runs).toHaveLength(2)
+    for (const run of result.runs) {
+      expect(run.prompt).toContain(DECISIONS)
+      expect(run.prompt).toContain('append each one there with its date, and never copy them into the handoff')
+    }
   })
 
   it('starts nothing on a handoff with no STATUS line', async () => {
