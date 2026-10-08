@@ -1,0 +1,22 @@
+{
+  "modelVersion": 4,
+  "facts": [
+    { "id": "press-module", "kind": "file-exists", "path": "src/press/main.ts", "authoredBy": "discovery" },
+    { "id": "press-stores", "kind": "file-contains", "path": "src/press/main.ts", "authoredBy": "discovery", "needle": "store()" },
+    { "id": "cellar-module", "kind": "file-exists", "path": "src/cellar/store.ts", "authoredBy": "discovery" }
+  ],
+  "claims": [],
+  "hypotheses": [],
+  "stages": [
+    { "id": "press", "label": "Press the apples" },
+    { "id": "keep", "label": "Keep the juice" },
+    { "id": "sell", "label": "Sell the juice" }
+  ],
+  "nodes": [
+    { "id": "press-apples", "label": "Press apples", "stage": "press", "source": { "path": "src/press" }, "supportedBy": ["press-module", "press-stores"] },
+    { "id": "cellar", "label": "Store juice", "stage": "keep", "source": { "fact": "cellar-module" }, "supportedBy": ["cellar-module"] }
+  ],
+  "links": [
+    { "from": "press-apples", "to": "cellar" }
+  ]
+}
