@@ -8,8 +8,8 @@ import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { runClaude } from '../../shift/claude.js'
 import { createExclusive, runRelaunch } from '../../shift/relaunch.js'
 
-const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub-brain.sh')
-const PNPM_SHIM_DIR = path.join(import.meta.dirname, 'fixtures', 'brain-bin')
+const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub-operator.sh')
+const PNPM_SHIM_DIR = path.join(import.meta.dirname, 'fixtures', 'operator-bin')
 const roots: string[] = []
 
 afterEach(() => {

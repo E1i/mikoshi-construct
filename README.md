@@ -192,7 +192,8 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 
 | Word | Here |
 |---|---|
-| Mikoshi | Where constructs are kept: `templates/`, one day a registry of presets |
+| Mikoshi | Where constructs are kept: `templates/`, one day a registry of presets. Also the interactive window the owner opens in a Terminal; it signs its messages `[mikoshi]` and hands itself on through `pnpm miko:handoff` |
+| Operator | The window under `pnpm relaunch`: it starts the shift chains, repairs only what stopped and signs its messages `[operator]` |
 | Construct | What `init` materializes into a repository — policy, contract, harness, agent instructions |
 | Soulkiller | `construct soulkill`: extracts the facts about a repository and writes nothing |
 | Netrunner | The coding agent — Claude Code, Cursor — that connects to the project through the construct |

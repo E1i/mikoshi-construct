@@ -8,9 +8,9 @@ const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const HANDOFF = path.join(REPO_ROOT, 'scripts', 'miko', 'handoff.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const RECORDING_OSASCRIPT = '#!/bin/sh\nfor arg in "$@"; do printf \'%s\\0\' "$arg"; done > "$OSASCRIPT_ARGS"\n'
-const EXPECTED_SCRIPT = 'tell app "Terminal" to do script "cd ~/projects/mikoshi-construct && GH_TOKEN=$(gh auth token --user E1i) caffeinate -dis claude --permission-mode auto \\"Прочитай ~/.construct/handoff/foreman.md и продолжай как прораб\\""'
+const EXPECTED_SCRIPT = 'tell app "Terminal" to do script "cd ~/projects/mikoshi-construct && GH_TOKEN=$(gh auth token --user E1i) caffeinate -dis claude --permission-mode auto \\"Прочитай ~/.construct/handoff/mikoshi.md и продолжай как Mikoshi\\""'
 
-describe('miko:handoff opens a new Terminal whose claude reads foreman.md', () => {
+describe('miko:handoff opens a new Terminal whose claude reads mikoshi.md', () => {
   it('hands osascript exactly the card\'s script and nothing else', () => {
     const bin = mkdtempSync(path.join(tmpdir(), 'miko-handoff-'))
     const recorded = path.join(bin, 'args')

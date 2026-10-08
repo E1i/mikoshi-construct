@@ -42,9 +42,9 @@ cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
 
-At the Eddies warn the Miko window, the foreman session the owner opened in a Terminal, also hands itself on: it writes
-`~/.construct/handoff/foreman.md`, runs `pnpm miko:handoff`, which opens a new Terminal whose `claude` reads that file and
-continues as the foreman, and then stops.
+At the Eddies warn Mikoshi, the interactive window the owner opened in a Terminal, also hands itself on: it writes
+`~/.construct/handoff/mikoshi.md`, runs `pnpm miko:handoff`, which opens a new Terminal whose `claude` reads that file and
+continues as Mikoshi, and then stops.
 
 Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), one dated line each, appended and never rewritten, and every relaunch prompt names that file.
 
@@ -60,19 +60,19 @@ when it ends in `ghosts.jsonl`, each stop one `event:relaunch-stop` line with it
 read by `pnpm relaunch --live` from those pids (`kill -0`), never from the command text: `pgrep -fl "claude -p"` misses a
 session started as `claude --permission-mode auto -p`.
 
-A window under relaunch never takes a card body, except a `who: window` card: it is the brain, and its work is the run.
+A window under relaunch never takes a card body, except a `who: window` card: it is the Operator, and its work is the run.
 It starts the `who: shift` cards as a shift chain (`pnpm shift <dir> --parking <parking> --chain`) and never runs
 `pnpm task:start` for them; the chain takes them in its own order (`p0` first, then by id, once their `depends` are
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
 stopped — restarts the card, corrects it with `construct intake --admit`, answers the session; writes the handoff
 through `pnpm handoff:write`; and at the context limit writes its STOP so relaunch raises the next session. The first
-line of every relaunch prompt says so (`BRAIN_ROLE` in `scripts/shift/relaunch.ts`).
+line of every relaunch prompt says so (`OPERATOR_ROLE` in `scripts/shift/relaunch.ts`), and it opens with the tag the Operator signs every message with: `[operator]`. Mikoshi signs
+its messages `[mikoshi]`.
 
 The Operator starts chains only through `pnpm shift:bg <dir> [shift arguments]`, never with an inline `nohup … &`: it
-spawns `nohup setsid pnpm shift <dir> …` detached (without `setsid` on `PATH`, as on macOS, the detached spawn alone
-gives the shift a session of its own), appends its output to `<dir>/shift-bg.log`, prints the PID on its first line
-and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
+spawns `nohup pnpm shift <dir> …` as a detached process, a session of its own, appends its output to
+`<dir>/shift-bg.log`, prints the PID of the running shift on its first line and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
 chain waited for the owner.
 
 ## Pull requests and branches
