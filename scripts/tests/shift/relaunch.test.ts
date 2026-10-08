@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { LAUNCH_LINE, NO_MODEL, projectDirOf, runRelaunch, statusOf } from '../../shift/relaunch.js'
+import { expandHome, LAUNCH_LINE, NO_MODEL, projectDirOf, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
 
 const FIELDS = HANDOFF_FIELDS.map(field => `${field.label}: x`).join('\n')
 const roots: string[] = []
@@ -52,6 +52,7 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
   let ticks = 0
   return {
     cwd: world.repo,
+    home: world.root,
     claude: 'true',
     journal: world.journal,
     projectsDir: world.projects,
@@ -110,11 +111,45 @@ describe('runRelaunch', () => {
     expect(result.runs[0]).toMatchObject({
       command: 'true',
       cwd: world.repo,
-      prompt: `${CONTINUE_PROMPT}\n\n${LAUNCH_LINE}`,
+      prompt: relaunchPrompt(world.handoff),
       log: `${world.handoff}.relaunch-1.log`,
       extraArgv: ['--model', 'claude-test'],
     })
     expect(result.runs.map(run => run.log)).toEqual([1, 2, 3].map(n => `${world.handoff}.relaunch-${n}.log`))
+  })
+
+  it('names the handoff it watches on the first line of every session\'s prompt', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
+    expect(result.runs.map(run => run.prompt.split('\n')[0])).toEqual([1, 2].map(() => `${CONTINUE_PROMPT}: ${world.handoff}`))
+    expect(result.runs.every(run => run.prompt.endsWith(LAUNCH_LINE))).toBe(true)
+  })
+
+  it('reads, journals and names a handoff given as a literal ~ path under the home directory', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch(['~/handoff.md', '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
+    expect(code).toBe(0)
+    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([`${CONTINUE_PROMPT}: ${world.handoff}`])
+    expect(journalLines(world)[0]).toMatchObject({ event: 'relaunch-start', handoff: world.handoff })
+  })
+
+  it('resolves a relative handoff path against the current directory before it reads, journals or names it', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([path.relative(world.repo, world.handoff), '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
+    expect(code).toBe(0)
+    expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([`${CONTINUE_PROMPT}: ${world.handoff}`])
+    expect(journalLines(world).map(line => line.handoff)).toEqual([world.handoff, world.handoff, world.handoff])
+  })
+
+  it.each([
+    ['~', '/home/x'],
+    ['~/a/b.md', '/home/x/a/b.md'],
+    ['~other/b.md', '~other/b.md'],
+    ['a/~/b.md', 'a/~/b.md'],
+  ])('expandHome %s', (file, expanded) => {
+    expect(expandHome(file, '/home/x')).toBe(expanded)
   })
 
   it('stops after one session when the handoff says OWNER', async () => {
@@ -178,14 +213,15 @@ describe('runRelaunch', () => {
     expect(result.runs[0]!.extraArgv).toEqual(['--model', 'claude-flag'])
   })
 
-  it('journals one relaunch line per session and one relaunch-stop line', async () => {
+  it('journals one relaunch-start line, one relaunch line per session and one relaunch-stop line', async () => {
     const world = newWorld()
     await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
     const lines = journalLines(world)
-    expect(lines.map(line => line.event)).toEqual(['relaunch', 'relaunch', 'relaunch-stop'])
-    expect(lines[0]).toMatchObject({ handoff: world.handoff, session: '00000000-0000-4000-8000-000000000001', model: 'claude-test', n: 1, exit: 0, status: 'CONTINUE' })
-    expect(lines[1]).toMatchObject({ session: '00000000-0000-4000-8000-000000000002', model: 'claude-test', n: 2, status: 'DONE' })
-    expect(lines[2]).toMatchObject({ handoff: world.handoff, reason: 'STATUS DONE', sessions: 2 })
+    expect(lines.map(line => line.event)).toEqual(['relaunch-start', 'relaunch', 'relaunch', 'relaunch-stop'])
+    expect(lines[0]).toMatchObject({ handoff: world.handoff, max: MAX_RESTARTS })
+    expect(lines[1]).toMatchObject({ handoff: world.handoff, session: '00000000-0000-4000-8000-000000000001', model: 'claude-test', n: 1, exit: 0, status: 'CONTINUE' })
+    expect(lines[2]).toMatchObject({ session: '00000000-0000-4000-8000-000000000002', model: 'claude-test', n: 2, status: 'DONE' })
+    expect(lines[3]).toMatchObject({ handoff: world.handoff, reason: 'STATUS DONE', sessions: 2 })
     expect(lines.every(line => typeof line.ts === 'string')).toBe(true)
   })
 
