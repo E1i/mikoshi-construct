@@ -1753,8 +1753,8 @@ says the confirmation was for another list. `--auto-confirm`, off by default, is
 corrections in advance: the cards are parked at once. Every parked card gets an `intake` line in
 `--journal` — `{"event":"intake","task","card","confirmation","corrections","bodySha","ts"}`, with
 `confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
-recorded with the corrections it accepted; `bodySha` is the digest of the card's text below its header,
-the task and its witnesses. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+recorded with the corrections it accepted; `bodySha` is the digest of the card's `touches` line and
+its text below its header, the task and its witnesses. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1789,10 +1789,11 @@ token (exit `2`) until `--confirm <token>` or `--auto-confirm`. Admitting rewrit
 and the `touches` line a correction changed, appends the `corrected:` and `unclear:` lines, leaves
 `who` as it is, and writes the card's `intake` line with `"source":"admit"`, which `task:start` and
 the shift read. A card the journal already admitted is amended when its card line, task text or
-witnesses differ from the latest `intake` line for its number — or that line recorded no `bodySha`, so
-the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
+witnesses or its `touches` line differ from the latest `intake` line for its number — or that line
+recorded no `bodySha`, so the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
-did not change is reported and nothing is written; `--dry-run` prints the card it would admit.
+did not change is reported and nothing is written, including one whose `intake` line was written before
+`bodySha` covered the `touches` line; `--dry-run` prints the card it would admit.
 
 **Moving a parked card.** `construct intake --move <#N> --to <dir>` moves a parked card between the
 parking root and its direct subdirectories (`--parking` names the root; `--to` is a subdirectory of it,
