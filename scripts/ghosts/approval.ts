@@ -1,6 +1,9 @@
+import type { Card } from '../../src/card/grammar.js'
+import type { Expect } from './expect.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { formatTokens } from './expect-sample.js'
 
 export type ApprovalCheck
   = | { ok: true, text: string, sha256: string, approvedSketch: string }
@@ -177,4 +180,27 @@ export function revokeEvent(sha256: string, card: number, ts: string): JournalEv
 
 export function revocationOf(events: JournalEvent[], sha256: string, card: number): JournalEvent | undefined {
   return events.find(event => event.event === 'revoke' && event.sha256 === sha256 && event.card === card)
+}
+
+export const CHEAP_P75_START_TO_MERGE_MINUTES_550 = 64
+export const CHEAP_MEDIAN_TOKENS_550 = 74_000
+export const CHEAP_MEDIAN_START_TO_PR_MINUTES_550 = 5
+const SIZES_CHEAP_CAN_CARRY: readonly string[] = ['S', 'M']
+
+type Forecast = Extract<Expect, { kind: 'forecast' }>
+
+function signedTokens(tokens: number): string {
+  return tokens < 0 ? `-${formatTokens(-tokens)}` : formatTokens(tokens)
+}
+
+export function contourSuggestion(card: Card, forecast: Forecast): string | undefined {
+  if (card.contour !== 'ladder' || !SIZES_CHEAP_CAN_CARRY.includes(card.size) || forecast.minutes >= CHEAP_P75_START_TO_MERGE_MINUTES_550)
+    return undefined
+  const tokens = signedTokens(forecast.tokens - CHEAP_MEDIAN_TOKENS_550)
+  const minutes = Math.round(forecast.minutes - CHEAP_MEDIAN_START_TO_PR_MINUTES_550)
+  return `mechanism: ladder, I suggest cheap, because card #${card.id} is size ${card.size} and its forecast ${forecast.minutes} minutes is under ${CHEAP_P75_START_TO_MERGE_MINUTES_550}, the cheap path's p75 start to merge in #550, difference ≈${tokens} tokens / ${minutes} minutes against the cheap median in #550; the contour stays as the card says, a person decides`
+}
+
+export function suggestionEvent(card: number, line: string, ts: string): JournalEvent {
+  return { event: 'suggestion', by: MORSE, card, contour: 'ladder', suggests: 'cheap', line, ts }
 }
