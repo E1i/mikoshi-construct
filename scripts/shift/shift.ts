@@ -9,7 +9,7 @@ import type { MergeResult } from './merge.js'
 import type { Notify } from './notify.js'
 import type { Outcome } from './outcomes.js'
 import type { OpenPr } from './overlap.js'
-import type { Choice, Stop } from './parking.js'
+import type { Choice, InReview, Stop } from './parking.js'
 import type { TaskLine } from './places.js'
 import type { PromptPlaces } from './prompt.js'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -39,11 +39,11 @@ import { startedTree } from '../ghosts/tasks.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { isListed, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
+import { COMMIT_FLAG, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, QUEUE_FILE, queueText, standingStops } from './parking.js'
+import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, standingStops } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
@@ -92,8 +92,10 @@ export const USAGE = [
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
   'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
-  '--chain (with --parking) makes the run a chain: after a card closes with a pull request the shift waits for its merge, records it as pnpm task:merged does, and takes the next card whose depends are merged,',
-  'holding through a closed terminal (SIGHUP); an owner pull request is merged by the owner (or armed under --slot) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, merged, next or end).',
+  '--chain (with --parking) makes the run a pipeline: once a card closes with a pull request, that pull request is in review and the chain takes the next card whose depends are merged and whose touches overlap no card in review;',
+  'a card that overlaps one waits until that one merges and is then cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
+  `The chain arms auto-merge on a pull request only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step.`,
+  'An owner pull request is merged by the owner (or armed under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
   `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary>.`,
   'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run on its first fault (no second attempt): its stop carries failed: true and the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
   `At the end the run writes <dir>/${OUTCOMES_FILE}, one row per card it ran and per card skipped: card · result (done, failed, skipped, stop <at>, stop not-started, stop <chain end>) · reason · PR, and notifies once more.`,
@@ -252,7 +254,7 @@ function heldBy(evidence: { refused: boolean, stopped: boolean }): { heldBy?: He
   return {}
 }
 
-function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
+function mergeAfterSession(deps: ShiftDeps, number: string, reviewed: string | undefined): string[] {
   let result: MergeResult
   try {
     result = runMerge([number], {
@@ -261,7 +263,7 @@ function mergeAfterSession(deps: ShiftDeps, number: string): string[] {
         deps.git(deps.cwd, ['fetch', 'origin', 'main'])
         return deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN])
       },
-    })
+    }, reviewed)
   }
   catch (error) {
     return [`${MERGE_PREFIX}PR #${number} not merged: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]!}`]
@@ -310,6 +312,8 @@ interface Delegation {
   shard: string | undefined
   refused: boolean
   stopped: boolean
+  afterReview: boolean
+  reviewed?: string
 }
 
 const LEFT_TO_THE_OWNER = /merge is Eli's$/
@@ -317,7 +321,9 @@ const LEFT_TO_THE_OWNER = /merge is Eli's$/
 function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: string, delegation: Delegation): string[] {
   if (asksTheOwner(text))
     return [`${MERGE_PREFIX}PR #${number} not armed: the report asks the owner; the merge waits for the owner's answer`]
-  const lines = mergeAfterSession(deps, number)
+  if (delegation.afterReview)
+    return [`${MERGE_PREFIX}PR #${number} waits for its review verdict: the chain arms it after pnpm shift:merge ${number} ${VERDICT_FLAG} pass ${COMMIT_FLAG} <its head>`]
+  const lines = mergeAfterSession(deps, number, delegation.reviewed)
   const { shard } = delegation
   if (shard === undefined || lines.length === 0 || !lines.every(line => LEFT_TO_THE_OWNER.test(line)))
     return lines
@@ -325,7 +331,7 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
     return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
   if (delegation.stopped)
     return [...lines, `${MERGE_PREFIX}PR #${number} the session stopped on its Eddies budget; shard ${shard} not applied, merge is Eli's`]
-  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard)]
+  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
 }
 
 function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation): { pr: string, lines: string[] } | undefined {
@@ -357,6 +363,7 @@ interface StopRecord {
 }
 
 const MERGE_ARMED = /auto-merge armed on PR #\d+/
+const AWAITS_REVIEW = /PR #\d+ waits for its review verdict/
 const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/m
 
 async function confirmed(deps: ShiftDeps, question: string): Promise<boolean> {
@@ -436,7 +443,7 @@ function stopAfter(task: ShiftTask, where: Where, finish: Finish): StopRecord | 
   const asked = askedStop(where, finish)
   if (asked !== null)
     return asked
-  if (merge?.lines.some(line => MERGE_ARMED.test(line)))
+  if (merge?.lines.some(line => MERGE_ARMED.test(line) || AWAITS_REVIEW.test(line)))
     return null
   const interrupted = interruptedStop(where, finish)
   if (interrupted !== null)
@@ -495,14 +502,14 @@ async function runSessions(deps: ShiftDeps, dir: string, task: ShiftTask, claude
 
 type TaskBase = Pick<TaskLine, 'event' | 'file' | 'number' | 'task' | 'card' | 'branch' | 'session' | 'started'>
 
-function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions, shard: string | undefined): { line: ShiftTaskLine, stop: StopRecord | null } {
+function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Places, ran: Sessions, shard: string | undefined, afterReview = false): { line: ShiftTaskLine, stop: StopRecord | null } {
   const { worktree } = places
   const { exit, lastExit, refused, stopped, halted, current, continuations } = ran
   const ended = deps.now().toISOString()
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped }) : undefined
+  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped, afterReview }) : undefined
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
   const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...heldBy({ refused, stopped }), ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
@@ -517,7 +524,7 @@ function startDeps(deps: ShiftDeps, dir: string, session: string, parking: strin
   return { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined, afterReview: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
   const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
@@ -525,7 +532,7 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
     return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
   }
   const places = { worktree: start.worktree, report: reportPath(dir, task.number), number: task.number }
-  return finishTask(deps, task, base, places, await runSessions(deps, dir, task, claude, places, session, manual), shard)
+  return finishTask(deps, task, base, places, await runSessions(deps, dir, task, claude, places, session, manual), shard, afterReview)
 }
 
 const LADDER_TURNS = 4
@@ -699,9 +706,9 @@ interface Chain {
   started: number
 }
 
-type MergeWait = 'merged' | 'merge-timeout' | 'red-check' | 'pr-closed' | 'time-limit'
-type ChainEnd = Exclude<MergeWait, 'merged'> | 'no-eligible' | 'card-budget' | 'eddies-budget' | 'question' | 'guard-refusal' | `stop-${Stop['at']}`
-type PrWatch = { state: 'red' | 'closed' | 'open' } | { error: string }
+type ReviewEnd = 'merge-timeout' | 'red-check' | 'pr-closed' | 'time-limit'
+type ChainEnd = ReviewEnd | 'no-eligible' | 'card-budget' | 'eddies-budget' | 'question' | 'guard-refusal' | `stop-${Stop['at']}`
+type PrWatch = { state: 'red' | 'closed' | 'merged' } | { state: 'open', head: string } | { error: string }
 
 function chainLine(deps: ShiftDeps, dir: string, fields: Record<string, unknown>): void {
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify({ event: 'chain', shift: dir, ...fields, ts: deps.now().toISOString() })}\n`)
@@ -741,8 +748,6 @@ function outcomeOf(task: ShiftTask, line: ShiftTaskLine, stop: StopRecord | null
   return { card, result: `stop ${stop.at}`, reason: stop.why, pr }
 }
 
-const ENDS_OF_THE_TASK: readonly ChainEnd[] = ['merge-timeout', 'red-check', 'pr-closed', 'guard-refusal', 'eddies-budget']
-
 function writeOutcomes(deps: ShiftDeps, dir: string, outcomes: Outcome[], parking: string | undefined, taken: ReadonlySet<string>): void {
   const skipped = parking === undefined ? [] : skippedOutcomes(readParking(deps, parking).choice.left, taken)
   const file = outcomesPath(dir)
@@ -770,80 +775,134 @@ function watchPr(deps: ShiftDeps, number: number): PrWatch {
     const view = JSON.parse(deps.gh(['pr', 'view', String(number), '-R', REPO, '--json', 'headRefName,headRefOid,state'])) as { headRefName: string, headRefOid: string, state?: string }
     if (view.state === 'CLOSED')
       return { state: 'closed' }
-    return { state: prDetails(deps.gh, REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red' ? 'red' : 'open' }
+    if (view.state === 'MERGED')
+      return { state: 'merged' }
+    const red = prDetails(deps.gh, REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red'
+    return red ? { state: 'red' } : { state: 'open', head: view.headRefOid }
   }
   catch (error) {
     return { error: (error instanceof Error ? error.message : String(error)).split('\n')[0]! }
   }
 }
 
-function waitWhy(result: Exclude<MergeWait, 'merged'>, pr: number, chain: Chain, ghError: string | undefined): string {
+interface Review extends InReview {
+  line: ShiftTaskLine
+  outcome: Outcome
+  since: number
+  decided: boolean
+  ghError?: string
+}
+
+const NO_PASS_AT_HEAD = '; no review verdict pass at its head, so the chain never armed it'
+
+function waitWhy(result: ReviewEnd, review: Review, chain: Chain): string {
+  const { pr, ghError } = review
   if (result === 'red-check')
     return `PR #${pr} required check turned red while waiting for the merge`
   if (result === 'pr-closed')
     return `PR #${pr} was closed without a merge`
   const within = result === 'time-limit' ? 'the chain time limit' : `${chain.waitMs / MINUTE_MS} minutes`
-  return `PR #${pr} not merged within ${within}${ghError === undefined ? '' : `; gh could not read it: ${ghError}`}`
+  const unreviewed = !review.decided && review.task.card.decision === 'auto' ? NO_PASS_AT_HEAD : ''
+  return `PR #${pr} not merged within ${within}${unreviewed}${ghError === undefined ? '' : `; gh could not read it: ${ghError}`}`
 }
 
-async function waitForMerge(deps: ShiftDeps, dir: string, chain: Chain, task: ShiftTask, pr: number): Promise<{ result: MergeWait, ghError?: string }> {
+function decideAfterReview(deps: ShiftDeps, dir: string, review: Review, head: string, shard: string | undefined): void {
+  const verdict = latestPrReview(readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)), review.task.id, review.pr)
+  if (verdict === undefined || !passedAt(verdict, head))
+    return
+  const report = reportPath(dir, review.line.number)
+  const lines = mergeLines(deps, review.task, String(review.pr), readIfThere(deps, report) ?? '', { shard, refused: false, stopped: false, afterReview: false, reviewed: verdict.commit })
+  deps.append(report, `\n${lines.join('\n')}\n`)
+  for (const line of lines)
+    deps.out(line)
+  review.decided = true
+  chainLine(deps, dir, { step: 'reviewed', task: review.task.id, pr: review.pr, armed: lines.some(line => MERGE_ARMED.test(line)) })
+}
+
+function endReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review[], reason: ChainEnd, culprit?: Review): ChainEnd {
+  for (const review of reviews) {
+    const own = review === culprit || reason === 'time-limit'
+    const why = own ? waitWhy(reason as ReviewEnd, review, chain) : `PR #${review.pr} ${review.decided ? 'not merged' : 'had no review verdict pass at its head'} when the chain ended on ${reason}`
+    recordStop(deps, dir, review.task.id, stopAt({ worktree: review.line.worktree, session: review.line.session }, 'merge', why, review.pr))
+    Object.assign(review.outcome, { result: `stop ${own ? reason : 'merge'}`, reason: why })
+  }
+  reviews.length = 0
+  return reason
+}
+
+function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review[], shard: string | undefined): ChainEnd | undefined {
+  for (const review of reviews) {
+    const watched = watchPr(deps, review.pr)
+    if ('error' in watched) {
+      review.ghError = watched.error
+      continue
+    }
+    review.ghError = undefined
+    if (watched.state === 'red')
+      return endReviews(deps, dir, chain, reviews, 'red-check', review)
+    if (watched.state === 'closed')
+      return endReviews(deps, dir, chain, reviews, 'pr-closed', review)
+    if (watched.state === 'open' && !review.decided)
+      decideAfterReview(deps, dir, review, watched.head, shard)
+  }
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
-  const waitStarted = deps.now().getTime()
-  let ghError: string | undefined
+  sweepMerges(deps, ghostJournal, dir)
+  const merged = mergedTasks(readIfThere(deps, ghostJournal))
+  for (const review of reviews.filter(open => merged.has(open.task.id))) {
+    reviews.splice(reviews.indexOf(review), 1)
+    chainLine(deps, dir, { step: 'merged', task: review.task.id, pr: review.pr })
+  }
+  const now = deps.now().getTime()
+  const late = reviews.find(review => now - review.since >= chain.waitMs)
+  return late === undefined ? undefined : endReviews(deps, dir, chain, reviews, 'merge-timeout', late)
+}
+
+async function advance(deps: ShiftDeps, dir: string, parking: string, chain: Chain, reviews: Review[], taken: ReadonlySet<string>, shard: string | undefined, ending: ChainEnd | undefined): Promise<ShiftTask | ChainEnd> {
   for (;;) {
-    sweepMerges(deps, ghostJournal, dir)
-    if (mergedTasks(readIfThere(deps, ghostJournal)).has(task.id))
-      return { result: 'merged' }
-    const watched = watchPr(deps, pr)
-    if ('error' in watched)
-      ghError = watched.error
-    else if (watched.state === 'red')
-      return { result: 'red-check' }
-    else if (watched.state === 'closed')
-      return { result: 'pr-closed' }
-    else
-      ghError = undefined
-    const now = deps.now().getTime()
-    if (now - chain.started >= chain.limitMs)
-      return { result: 'time-limit', ghError }
-    if (now - waitStarted >= chain.waitMs)
-      return { result: 'merge-timeout', ghError }
+    const ended = pollReviews(deps, dir, chain, reviews, shard)
+    if (ended !== undefined)
+      return ended
+    if (deps.now().getTime() - chain.started >= chain.limitMs)
+      return endReviews(deps, dir, chain, reviews, 'time-limit')
+    const stopsTaking = ending ?? (taken.size >= chain.cards ? 'card-budget' : undefined)
+    if (stopsTaking === undefined) {
+      const { next } = nextInPipeline(readParking(deps, parking).choice.chosen, taken, reviews)
+      if (next !== undefined) {
+        chainLine(deps, dir, { step: 'next', task: next.id, after: [...taken].at(-1) })
+        return next
+      }
+    }
+    if (reviews.length === 0)
+      return stopsTaking ?? 'no-eligible'
     await deps.sleep!(CHAIN_POLL_MS)
   }
 }
 
-async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: Chain, task: ShiftTask, ran: { line: ShiftTaskLine, stop: StopRecord | null }, taken: ReadonlySet<string>): Promise<ShiftTask | ChainEnd> {
+const ENDS_OF_THE_CARD: readonly ChainEnd[] = ['guard-refusal', 'eddies-budget']
+
+function cardEnding(deps: ShiftDeps, dir: string, task: ShiftTask, ran: { line: ShiftTaskLine, stop: StopRecord | null }): ChainEnd | undefined {
   const { line, stop } = ran
   if (stop !== null && stop.at !== 'merge') {
     recordStop(deps, dir, task.id, stop)
-    if (!isFailure(stop))
-      return heldEnd(line) ?? chainEnd(stop)
+    return isFailure(stop) ? undefined : heldEnd(line) ?? chainEnd(stop)
   }
-  else if (line.heldBy === 'guard-refusal') {
+  if (line.heldBy === 'guard-refusal') {
     recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'fault', EXIT_REASON_TEXT['guard-refusal'], line.pr))
     return 'guard-refusal'
   }
-  else if (line.heldBy === 'eddies-stop') {
-    return 'eddies-budget'
-  }
-  else if (line.pr !== undefined) {
+  return line.heldBy === 'eddies-stop' ? 'eddies-budget' : undefined
+}
+
+async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: Chain, task: ShiftTask, ran: { line: ShiftTaskLine, stop: StopRecord | null }, taken: ReadonlySet<string>, pipeline: { reviews: Review[], outcome: Outcome, shard: string | undefined }): Promise<ShiftTask | ChainEnd> {
+  const { line } = ran
+  const ending = cardEnding(deps, dir, task, ran)
+  if (ending !== undefined && ENDS_OF_THE_CARD.includes(ending) && pipeline.outcome.result === 'done')
+    Object.assign(pipeline.outcome, { result: `stop ${ending}`, reason: latestStops(readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL))).get(task.id)?.why ?? ending })
+  if (ending === undefined && line.pr !== undefined) {
     chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr })
-    const { result, ghError } = await waitForMerge(deps, dir, chain, task, line.pr)
-    if (result !== 'merged') {
-      recordStop(deps, dir, task.id, stopAt({ worktree: line.worktree, session: line.session }, 'merge', waitWhy(result, line.pr, chain, ghError), line.pr))
-      return result
-    }
-    chainLine(deps, dir, { step: 'merged', task: task.id, pr: line.pr })
+    pipeline.reviews.push({ task, pr: line.pr, line, outcome: pipeline.outcome, since: deps.now().getTime(), decided: !line.merge?.some(merge => AWAITS_REVIEW.test(merge)) })
   }
-  if (deps.now().getTime() - chain.started >= chain.limitMs)
-    return 'time-limit'
-  if (taken.size >= chain.cards)
-    return 'card-budget'
-  const next = readParking(deps, parking).choice.chosen.find(candidate => !taken.has(candidate.id))
-  if (next === undefined)
-    return 'no-eligible'
-  chainLine(deps, dir, { step: 'next', task: next.id, after: task.id })
-  return next
+  return advance(deps, dir, parking, chain, pipeline.reviews, taken, pipeline.shard, ending)
 }
 
 export async function runShift(argv: string[], deps: ShiftDeps): Promise<number> {
@@ -927,6 +986,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const pending = chain === undefined ? [...tasks] : tasks.slice(0, 1)
   const taken = new Set<string>()
   const outcomes: Outcome[] = []
+  const reviews: Review[] = []
   try {
     while (pending.length > 0) {
       const task = pending.shift()!
@@ -939,7 +999,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       }
       for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
         deps.out(line)
-      const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard)
+      const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard, chain !== undefined)
       const ran = { line: finished.line, stop: failedStop(deps, dir, finished) }
       deps.append(journal, `${JSON.stringify(ran.line)}\n`)
       deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)
@@ -952,11 +1012,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
           recordStop(deps, dir, task.id, ran.stop)
         continue
       }
-      const next = await chainStep(deps, dir, parking!, chain, task, ran, taken)
+      const next = await chainStep(deps, dir, parking!, chain, task, ran, taken, { reviews, outcome: outcomes.at(-1)!, shard })
       if (typeof next === 'string') {
-        const last = outcomes.at(-1)!
-        if (last.result === 'done' && ENDS_OF_THE_TASK.includes(next))
-          Object.assign(last, { result: `stop ${next}`, reason: latestStops(readIfThere(deps, ghostJournal)).get(task.id)?.why ?? next })
         chainLine(deps, dir, { step: 'end', reason: next, cards: taken.size })
         deps.out(`${PREFIX}chain ended: ${next}`)
         break
