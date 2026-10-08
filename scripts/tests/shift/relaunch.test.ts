@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
+import { BRAIN_ROLE, CHAIN_COMMAND, expandHome, LAUNCH_LINE, liveSessions, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -184,8 +184,15 @@ describe('runRelaunch', () => {
   })
 
   it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {
-    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md').split('\n')[0]).toBe(`${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
+    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md').split('\n')[0]).toBe(`${BRAIN_ROLE} ${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
     expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
+  })
+
+  it('the first line of the relaunch prompt names the brain role', () => {
+    const first = relaunchPrompt('/h/handoff.md', null).split('\n')[0]!
+    expect(first.startsWith(BRAIN_ROLE)).toBe(true)
+    expect(first).toContain('never take a card body')
+    expect(first).toContain(`\`${CHAIN_COMMAND}\``)
   })
 
   it('every session prompt names the owner decisions file', async () => {
