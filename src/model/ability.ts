@@ -17,6 +17,7 @@ export type AbilityFinding
 
 interface NamedFact {
   witness: boolean
+  failed: boolean
   evaluation: FactEvaluation
 }
 
@@ -24,10 +25,10 @@ function unconfirmed(status: Exclude<AbilityStatus, 'confirmed'>, reason: Abilit
   return { status, reason, state: reason === 'absent' ? 'unsupported' : 'unknown' }
 }
 
-function namedFacts(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>): NamedFact[] {
+function namedFacts(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>, failed: ReadonlySet<string>): NamedFact[] {
   return supportedBy.map((id) => {
     const kind = facts.find(fact => fact.id === id)?.kind
-    return { witness: kind !== undefined && WITNESS_KINDS.includes(kind), evaluation: evaluations[id] ?? 'unevaluable' }
+    return { witness: kind !== undefined && WITNESS_KINDS.includes(kind), failed: failed.has(id), evaluation: evaluations[id] ?? 'unevaluable' }
   })
 }
 
@@ -37,9 +38,9 @@ function openReason(open: readonly NamedFact[], evidence: ModelEvidence): Abilit
   return evidence.reports === 'withheld' && open.some(fact => fact.witness) ? 'confirmed-elsewhere' : 'not-run'
 }
 
-export function abilityOf(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>, evidence: ModelEvidence): AbilityFinding {
-  const named = namedFacts(facts, supportedBy, evaluations)
-  if (named.some(fact => fact.evaluation === 'does-not-hold'))
+export function abilityOf(facts: readonly Fact[], supportedBy: readonly string[], evaluations: Record<string, FactEvaluation>, failed: ReadonlySet<string>, evidence: ModelEvidence): AbilityFinding {
+  const named = namedFacts(facts, supportedBy, evaluations, failed)
+  if (named.some(fact => fact.evaluation === 'does-not-hold' || fact.failed))
     return unconfirmed('unknown', 'absent')
   const held = named.filter(fact => fact.evaluation === 'holds')
   const open = named.filter(fact => fact.evaluation === 'unevaluable')

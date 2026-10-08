@@ -17,7 +17,7 @@ function repositoryFiles(root: string, directory = ''): string[] {
   })
 }
 
-function surfaceOf(fact: Fact, root: string, constructPaths: ReadonlySet<string>): string[] {
+export function surfaceOf(fact: Fact, root: string, constructPaths: ReadonlySet<string>): string[] {
   return repositoryFiles(root).filter(file => file !== fact.path && !constructPaths.has(file) && matchesAnyGlob(file, fact.surface ?? []))
 }
 
