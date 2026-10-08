@@ -5,5 +5,5 @@ import process from 'node:process'
 import { HANDOFF_FIELDS } from '../../../ghosts/handoff-check.js'
 
 const file = path.join(mkdtempSync(path.join(tmpdir(), 'stub-handoff-')), 'handoff.txt')
-writeFileSync(file, `${HANDOFF_FIELDS.map(field => `${field.label}: x`).join('\n')}\n`)
+writeFileSync(file, `${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : 'x'}`).join('\n')}\n`)
 process.env.STUB_HANDOFF = file

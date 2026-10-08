@@ -57,6 +57,7 @@
     "ghosts:expect-sample": "tsx scripts/ghosts/expect-sample.ts",
     "task:close": "tsx scripts/ghosts/task-close.ts",
     "handoff:check": "tsx scripts/ghosts/handoff-check.ts",
+    "handoff:write": "tsx scripts/shift/handoff-write.ts",
     "task:merged": "tsx scripts/ghosts/task-merged.ts",
     "task:start": "tsx scripts/ghosts/task-start.ts",
     "ghosts:hash": "tsx scripts/ghosts/hash.ts",

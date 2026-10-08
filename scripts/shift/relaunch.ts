@@ -1,3 +1,4 @@
+import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -7,18 +8,21 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { missingFields, refusal } from '../ghosts/handoff-check.js'
+import { defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
-import { CONTINUE_PROMPT, MAX_RESTARTS } from './continuation.js'
+import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
 import { GHOST_JOURNAL } from './places.js'
 
 export const PREFIX = '[relaunch] '
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>]'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
+export function promptFirstLine(handoff: string): string {
+  return `${CONTINUE_PROMPT}: ${handoff} — write it only with pnpm handoff:write ${handoff} <draft>`
+}
 export function relaunchPrompt(handoff: string): string {
-  return `${CONTINUE_PROMPT}: ${handoff}\n\nThis file is the handoff; write your STOP section and its STATUS line into it, never into another file.\n\n${LAUNCH_LINE}`
+  return `${promptFirstLine(handoff)}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
 
@@ -34,6 +38,8 @@ export interface RelaunchDeps {
   journal: string
   projectsDir: string
   read: (file: string) => string
+  exists: (file: string) => boolean
+  parked: () => ParkedDepends
   listDir: (dir: string) => string[]
   modified: (file: string) => number
   now: () => Date
@@ -148,8 +154,8 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   const handoff = path.resolve(deps.cwd, expandHome(parsed.handoff, deps.home))
   await record(deps, { event: 'relaunch-start', handoff, max: parsed.max, ts: deps.now().toISOString() })
   let sessions = 0
-  const stop = async (reason: string, code: number): Promise<number> => {
-    await record(deps, { event: 'relaunch-stop', handoff, reason, sessions, ts: deps.now().toISOString() })
+  const stop = async (reason: string, code: number, refusals?: string[]): Promise<number> => {
+    await record(deps, { event: 'relaunch-stop', handoff, reason, sessions, ...(refusals === undefined ? {} : { refusals }), ts: deps.now().toISOString() })
     if (code === 0)
       deps.out(`${PREFIX}${reason}`)
     else
@@ -164,11 +170,11 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     const text = readHandoff(deps, handoff)
     if (text === null)
       return stop(`no handoff at ${handoff}`, 1)
-    const missing = missingFields(text)
-    if (missing.length > 0) {
-      for (const line of refusal(missing))
+    const refusals = handoffRefusals(text, { file: handoff, exists: deps.exists, parked: deps.parked() })
+    if (refusals.length > 0) {
+      for (const line of refusals)
         deps.err(line)
-      return stop(`${handoff} fails handoff:check: ${missing.length} fields missing`, 1)
+      return stop(HANDOFF_INVALID, 1, refusals)
     }
     const status = statusOf(text)
     if (status === null)
@@ -205,6 +211,8 @@ function realDeps(): RelaunchDeps {
     journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),
+    exists: existsSync,
+    parked: () => parkedDepends(defaultParking(os.homedir())),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
     modified: file => statSync(file).mtimeMs,
     now: () => new Date(),

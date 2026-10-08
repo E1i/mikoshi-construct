@@ -1,9 +1,9 @@
 import type { SessionEvidence } from '../../shift/continuation.js'
 import { describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { BOUNDARY_LINE, continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../shift/continuation.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT } from '../../ghosts/handoff-check.js'
+import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../shift/continuation.js'
 
-const HANDOFF = HANDOFF_FIELDS.map(field => `${field.label}: x`).join('\n')
+const HANDOFF = HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? '#1 → #2' : 'x'}`).join('\n')
 const QUIET: SessionEvidence = { exit: 0, closed: false, stopped: false, refused: false, question: false, boundary: false, warned: false }
 
 describe('exitReason', () => {
@@ -68,5 +68,16 @@ describe('eddiesEvidence', () => {
     ].map(line => JSON.stringify(line)).join('\n')
     expect(eddiesEvidence(`${journal}\nnot json`, 'a')).toEqual({ warned: true, stopped: false, refused: false })
     expect(eddiesEvidence(journal, 'b')).toEqual({ warned: false, stopped: true, refused: true })
+  })
+
+  it.each([
+    ['two STOP sections', () => `## STOP — one\n${HANDOFF}\n## STOP — two\n`, 'STOP sections: 2'],
+    ['a size over the limit', () => `${HANDOFF}\nnot done: ${'x'.repeat(HANDOFF_LIMIT)}`, 'too large'],
+    ['prose in queue', () => HANDOFF.replace('queue: #1 → #2', 'queue: #650 then whatever the owner says'), 'queue: prose'],
+  ] as const)('does not continue a Ghost from a handoff the bounded check refuses: %s', (_, handoff, refused) => {
+    expect(continues('auto', 'eddies-warn', 0, handoff())).toBe(false)
+    expect(continues('auto', 'boundary', 0, handoff())).toBe(false)
+    expect(continuationRefusal(handoff())).toMatch(new RegExp(`^handoff-invalid: .*${refused}`))
+    expect(continuationRefusal(HANDOFF)).toBeNull()
   })
 })
