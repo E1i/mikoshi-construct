@@ -101,7 +101,7 @@ const SINGLE_LABELS = ['queue', IN_FLIGHT_LABEL, PREV_LABEL] as const
 const ARCHIVED_PREV = /^archive\/\d{4,}\.md$/
 export const RETIRED_PARKING = ['archive', 'dropped', 'sliced'] as const
 const STATUS_LABEL = 'status'
-const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL])
+const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL, OWNER_DECISIONS_LABEL])
 const QUEUE_CARD = /#(\d+)/g
 const QUEUE_CARD_TEXT = /#\d+/g
 const QUEUE_SEPARATORS = /[\s,;→∥·|>-]+/g

@@ -33,6 +33,8 @@ describe('handoff-check', () => {
   it('refuses owner decisions written as prose', () => {
     expect(refusals(handoff({ 'owner decisions': 'ship A, not B' }))).toEqual(['[handoff:check] owner decisions as prose: move them to the decisions file'])
     expect(refusals(`${handoff()}\n## Owner decisions\n- ship A`)).toContain('[handoff:check] owner decisions as prose: move them to the decisions file')
+    for (const line of ['1. owner decisions: ship A', '**Owner decisions**: ship A', '- **owner decisions:** ship A'])
+      expect(refusals(`${handoff()}\n${line}`)).toContain('[handoff:check] owner decisions as prose: move them to the decisions file')
   })
 
   it('refuses a decisions path that does not exist', () => {
@@ -119,6 +121,11 @@ describe('handoff-check', () => {
   it('refuses a second queue, in-flight or prev line that would carry what the first one may not', () => {
     const text = handoff().replace('STATUS: CONTINUE', 'queue: after #650 lands ask the owner\nin-flight: rewriting everything\nSTATUS: CONTINUE')
     expect(refusals(text)).toEqual(expect.arrayContaining(['[handoff:check] queue: appears 2 times; a handoff holds one', '[handoff:check] in-flight: appears 2 times; a handoff holds one']))
+  })
+
+  it('counts the largest field in bytes', () => {
+    const bloated = handoff({ 'not done': 'é'.repeat(HANDOFF_LIMIT / 2) })
+    expect(refusals(bloated)[0]).toContain(`largest field: not done (${'not done'.length + HANDOFF_LIMIT} bytes)`)
   })
 
   it('names an unknown bloated label rather than the field before it', () => {

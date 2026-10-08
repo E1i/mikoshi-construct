@@ -42,6 +42,8 @@ cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
 
+Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), one dated line each, appended and never rewritten, and every relaunch prompt names that file.
+
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
 the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
 this directory under `~/.claude/projects/`; with neither it starts nothing). Before every session, the first included, it
