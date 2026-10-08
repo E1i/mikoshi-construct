@@ -43,8 +43,8 @@ function world(withSetsid: boolean): { root: string, dir: string, out: string, e
   linkFromSystem(bin, 'tr')
   stub(bin, 'nohup', `echo nohup >> "$STUB_OUT/chain"\nexec "$@"`)
   if (withSetsid)
-    stub(bin, 'setsid', `echo setsid >> "$STUB_OUT/chain"\nexec "$@"`)
-  stub(bin, 'pnpm', `echo "pnpm shift output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\nps -o pgid= -p $$ | tr -d ' ' > "$STUB_OUT/pgid"\necho $$ > "$STUB_OUT/pid"`)
+    stub(bin, 'setsid', `echo setsid >> "$STUB_OUT/chain"\n"$@" &\nexit 0`)
+  stub(bin, 'pnpm', `echo "pnpm shift output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\nps -o pgid= -p $$ | tr -d ' ' > "$STUB_OUT/pgid"\nps -o args= -p $$ > "$STUB_OUT/self"\necho $$ > "$STUB_OUT/pid"`)
   return { root, dir: path.join(root, 'shift'), out, env: { PATH: bin, STUB_OUT: out } }
 }
 
@@ -55,21 +55,23 @@ async function settled(file: string): Promise<string> {
 }
 
 describe('pnpm shift:bg', () => {
-  it('spawns one detached nohup setsid pnpm shift <dir> --chain, its output in <dir>, and prints its PID', async () => {
+  it('with a setsid on PATH that forks and exits, never runs it and prints the PID of the running pnpm shift', async () => {
     const w = world(true)
     const result = runBg([w.dir, '--chain'], w.env)
     expect(result.exitCode).toBe(0)
     const pid = await settled(path.join(w.out, 'pid'))
     expect(result.stdout[0]).toBe(pid)
+    expect(await settled(path.join(w.out, 'self'))).toContain('pnpm shift')
     expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${w.dir} --chain`)
-    expect(readFileSync(path.join(w.out, 'chain'), 'utf8').trim().split('\n')).toEqual(['nohup', 'setsid'])
+    expect(readFileSync(path.join(w.out, 'chain'), 'utf8')).not.toContain('setsid')
+    expect(readFileSync(path.join(w.out, 'chain'), 'utf8').trim()).toBe('nohup')
     expect(await settled(path.join(w.out, 'pgid'))).not.toBe(ownPgid())
     for (let attempt = 0; attempt < 200 && !readFileSync(path.join(w.dir, BG_LOG), 'utf8').includes('pnpm shift output'); attempt++)
       await new Promise(resolve => setTimeout(resolve, 25))
     expect(readFileSync(path.join(w.dir, BG_LOG), 'utf8')).toContain('pnpm shift output')
   })
 
-  it('without setsid on PATH still starts the shift in a session of its own through the detached spawn', async () => {
+  it('without setsid on PATH starts the shift in a session of its own through the detached spawn', async () => {
     const w = world(false)
     const result = runBg([w.dir, '--chain'], w.env)
     expect(result.exitCode).toBe(0)
@@ -89,8 +91,8 @@ describe('pnpm shift:bg', () => {
     expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
   })
 
-  it('puts setsid between nohup and pnpm only when it is there', () => {
-    expect(launchArgv(['d', '--chain'], true)).toEqual(['nohup', 'setsid', 'pnpm', 'shift', 'd', '--chain'])
-    expect(launchArgv(['d'], false)).toEqual(['nohup', 'pnpm', 'shift', 'd'])
+  it('launches nohup pnpm shift with the shift arguments and no setsid', () => {
+    expect(launchArgv(['d', '--chain'])).toEqual(['nohup', 'pnpm', 'shift', 'd', '--chain'])
+    expect(launchArgv(['d'])).toEqual(['nohup', 'pnpm', 'shift', 'd'])
   })
 })

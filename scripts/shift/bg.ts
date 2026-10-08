@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, realpathSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -15,20 +15,8 @@ export interface BgResult {
   exitCode: number
 }
 
-export function onPath(name: string, searchPath: string | undefined): boolean {
-  return (searchPath ?? '').split(path.delimiter).filter(Boolean).some((dir) => {
-    try {
-      accessSync(path.join(dir, name), constants.X_OK)
-      return true
-    }
-    catch {
-      return false
-    }
-  })
-}
-
-export function launchArgv(shiftArgs: string[], withSetsid: boolean): string[] {
-  return ['nohup', ...(withSetsid ? ['setsid'] : []), 'pnpm', 'shift', ...shiftArgs]
+export function launchArgv(shiftArgs: string[]): string[] {
+  return ['nohup', 'pnpm', 'shift', ...shiftArgs]
 }
 
 export function runBg(argv: string[], env: NodeJS.ProcessEnv = process.env): BgResult {
@@ -39,7 +27,7 @@ export function runBg(argv: string[], env: NodeJS.ProcessEnv = process.env): BgR
     return { stdout: [], stderr: [`${PREFIX}${path.join(dir, SHIFT_JOURNAL)} exists — that shift already ran; pnpm shift refuses it`], exitCode: 1 }
   mkdirSync(dir, { recursive: true })
   const log = path.resolve(dir, BG_LOG)
-  const [command, ...args] = launchArgv(argv, onPath('setsid', env.PATH))
+  const [command, ...args] = launchArgv(argv)
   const fd = openSync(log, 'a')
   try {
     const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env })
