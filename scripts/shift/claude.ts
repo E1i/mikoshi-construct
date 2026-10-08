@@ -13,6 +13,7 @@ export interface ClaudeRun {
   prompt: string
   log: string
   extraArgv?: readonly string[]
+  detached?: boolean
 }
 
 export type ClaudeExit = { kind: 'exited', code: number | null, signal: string | null } | { kind: 'unspawnable', error: string }
@@ -25,7 +26,7 @@ export async function runClaude(run: ClaudeRun): Promise<ClaudeExit> {
   const fd = openSync(run.log, 'w')
   try {
     return await new Promise((resolve) => {
-      const child = spawn('sh', claudeArgv(run.command, run.sessionId, run.extraArgv), { cwd: run.cwd, env: sessionEnv(process.env, run.card), stdio: ['pipe', fd, fd] })
+      const child = spawn('sh', claudeArgv(run.command, run.sessionId, run.extraArgv), { cwd: run.cwd, env: sessionEnv(process.env, run.card), stdio: ['pipe', fd, fd], detached: run.detached === true })
       child.on('error', error => resolve({ kind: 'unspawnable', error: error.message }))
       child.on('close', (code, signal) => resolve({ kind: 'exited', code, signal }))
       child.stdin?.on('error', () => {})
