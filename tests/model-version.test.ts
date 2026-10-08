@@ -5,9 +5,9 @@ import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
 
 const FIXTURES = path.resolve(import.meta.dirname, 'fixtures/verification')
 
-describe('the model format is version 4', () => {
-  it('writes modelVersion 4, which a reader of version 3 reads as ahead of it (0033)', () => {
-    expect(MODEL_VERSION).toBe(4)
+describe('the model format is version 5', () => {
+  it('writes modelVersion 5, which a reader of version 4 reads as ahead of it (0033)', () => {
+    expect(MODEL_VERSION).toBe(5)
   })
 
   it('still reads a version 1 model, which every repository initialised before it carries', () => {
