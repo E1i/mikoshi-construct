@@ -14,6 +14,7 @@ import { appendJournalEvent } from './journal.js'
 import { reviewCarry } from './review-carry.js'
 
 const JOURNAL_FILE = 'ghosts.jsonl'
+const CLOUD_REPORT_NAME = /^review(?:-[\w.-]+)?\.md$/
 const VERDICT_SCHEMA = 'review-verdict'
 const JOURNAL_LINE = '#/$defs/journalLine'
 const CARD_NUMBER_MARKER = /^\[review:\d+\]$/
@@ -156,8 +157,8 @@ function reportPathFault(ref: string, verdictInRef: string, reportPath: string):
     return `--from ${ref}: the report path ${reportPath} has a directory part; the report lies beside the verdict file; nothing written`
   if (path.posix.basename(reportPath).toLowerCase() === path.posix.basename(verdictInRef).toLowerCase())
     return `--from ${ref}: the report ${reportPath} has the verdict file's name; nothing written`
-  if (reportPath.toLowerCase() === JOURNAL_FILE)
-    return `--from ${ref}: the report ${reportPath} has the journal's name; nothing written`
+  if (!CLOUD_REPORT_NAME.test(reportPath))
+    return `--from ${ref}: the report ${reportPath} is not named review*.md, the only name a cloud review writes; nothing written`
   return undefined
 }
 

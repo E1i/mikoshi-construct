@@ -290,11 +290,11 @@ describe('verdict from a cloud branch', () => {
     expect(readdirSync(dir)).toEqual(before)
   })
 
-  it('refuses a report named like the journal before any read, and writes nothing', () => {
-    roleBranch('journal-name', 'ghosts.jsonl')
+  it.each([['journal-name', 'ghosts.jsonl'], ['approval-name', 'brief-681.approved-sha256'], ['status-name', 'status.md']])('refuses a report not named review*.md (%s) before any read, and writes nothing', (branch, reportPath) => {
+    roleBranch(branch, reportPath)
     const { dir } = handoff()
     const before = readdirSync(dir)
-    expect(fetchVerdictFromRef('journal-name', REPO, 'role/journal-name/review.verdict.json', dir)).toEqual({ ok: false, reasons: ['--from journal-name: the report ghosts.jsonl has the journal\'s name; nothing written'] })
+    expect(fetchVerdictFromRef(branch, REPO, `role/${branch}/review.verdict.json`, dir)).toEqual({ ok: false, reasons: [`--from ${branch}: the report ${reportPath} is not named review*.md, the only name a cloud review writes; nothing written`] })
     expect(readdirSync(dir)).toEqual(before)
   })
 
