@@ -49,20 +49,36 @@ function candidates(target: string): string[] {
 
 function resolve(from: string, specifier: string, tracked: Set<string>): string | null {
   const target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier))
-  return candidates(target).find(candidate => isSource(candidate) && tracked.has(candidate)) ?? null
+  return candidates(target).find(candidate => tracked.has(candidate)) ?? null
 }
 
-function relationsOf(root: string, file: string, tracked: Set<string>): Relation[] {
-  let source: string
+function readInside(root: string, file: string): string | null {
   try {
     const absolute = path.join(root, file)
     if (!lstatSync(absolute).isFile() || !realpathSync(absolute).startsWith(`${realpathSync(root)}${path.sep}`))
-      return []
-    source = readFileSync(absolute, 'utf8')
+      return null
+    return readFileSync(absolute, 'utf8')
   }
   catch {
-    return []
+    return null
   }
+}
+
+interface ComponentReading {
+  component: Component
+  relations: Relation[]
+}
+
+function readComponent(root: string, file: string, tracked: Set<string>): ComponentReading {
+  if (!isSource(file))
+    return { component: { id: file, path: file, relations: 'unknown', reason: 'type-not-scanned' }, relations: [] }
+  const source = readInside(root, file)
+  if (source == null)
+    return { component: { id: file, path: file, relations: 'unknown', reason: 'unreadable' }, relations: [] }
+  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(source, file, tracked) }
+}
+
+function relationsOf(source: string, file: string, tracked: Set<string>): Relation[] {
   const reading = scanModule(source)
   const relations: Relation[] = []
   const owners = new Map<string, { to: string | null, specifier: string }>()
@@ -93,10 +109,11 @@ export function discoverMechanics(root: string, readings: GitReadings = readGit(
   const treeFound = readings.tracked.exit === 0
   const files = treeFound ? readings.tracked.stdout.split('\0').filter(file => file !== '') : []
   const tracked = new Set(files)
-  const components: Component[] = files.filter(isSource).sort(compare).map(file => ({ id: file, path: file }))
+  const read = [...files].sort(compare).map(file => readComponent(root, file, tracked))
+  const components: Component[] = read.map(reading => reading.component)
   const unique = new Map<string, Relation>()
-  for (const component of components) {
-    for (const relation of relationsOf(root, component.path, tracked))
+  for (const reading of read) {
+    for (const relation of reading.relations)
       unique.set(relationKey(relation), relation)
   }
   return {

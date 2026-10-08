@@ -65,15 +65,20 @@ code (`identity`, `tree`), or a path and a line (each relation). Whatever discov
 carries the status `unknown` instead of a guess. Components and relations are read from the working-tree
 copy of the files `git ls-files` lists, and `identity` names HEAD at that moment. The same tracked files
 with the same contents give the same bytes: no time, no absolute path and no order that depends on the
-machine enters the document. A tracked symlink is a component and yields no relation, because discovery
-reads only regular files inside the repository.
+machine enters the document. Every tracked file is a component, and none is dropped: discovery reads the
+relations of each TypeScript or JavaScript file, and any other file is a component whose `relations`
+are `unknown` with the `reason` `type-not-scanned`. A TypeScript or JavaScript file discovery cannot read
+as a regular file inside the repository, a tracked symlink among them, is a component whose `relations`
+are `unknown` with the `reason` `unreadable`. The component properties `relations` and `reason` are
+part of `modelVersion` 5; a component written before them reads as having its relations `found`.
 
 | Property | Meaning |
 |----------|---------|
 | `identity` | The commit the observation was made at: `sha`, `status` and its command `source` |
 | `tree` | The tracked file list the components were read from: its `status` and command `source` |
-| `components` | The tracked TypeScript and JavaScript files, one per file, sorted by path |
-| `relations` | The imports and calls found between components, sorted by the file and line they stand on |
+| `components` | Every tracked file, one per file, sorted by path |
+| `relations` | In `mechanics`, the imports and calls found between components, sorted by the file and line they stand on; on a component, `found` when discovery read its relations and `unknown` when it did not |
+| `reason` | Why a component's relations are `unknown`: `type-not-scanned` for a file of a type discovery does not read, `unreadable` for a file it could not read as a regular file inside the repository |
 | `sha` | The full commit sha `git rev-parse HEAD` printed, or null when it exited other than 0 |
 | `status` | `found` when the source proves the statement, `unknown` when it does not |
 | `source` | Where the statement stands: a command source or a line source, below |

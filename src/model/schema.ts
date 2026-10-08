@@ -106,10 +106,12 @@ export interface Tree {
   source: CommandSource
 }
 
-export interface Component {
-  id: string
-  path: string
-}
+export const COMPONENT_REASONS = ['type-not-scanned', 'unreadable'] as const
+export type ComponentReason = (typeof COMPONENT_REASONS)[number]
+
+export type Component
+  = | { id: string, path: string, relations: 'found' }
+    | { id: string, path: string, relations: 'unknown', reason: ComponentReason }
 
 export interface Relation {
   from: string
@@ -152,7 +154,7 @@ export const IDENTITY_PROPERTIES = ['sha', 'status', 'source']
 export const TREE_PROPERTIES = ['status', 'source']
 export const COMMAND_SOURCE_PROPERTIES = ['command', 'exit', 'effects']
 export const LINE_SOURCE_PROPERTIES = ['path', 'line']
-export const COMPONENT_PROPERTIES = ['id', 'path']
+export const COMPONENT_PROPERTIES = ['id', 'path', 'relations', 'reason']
 export const RELATION_PROPERTIES = ['from', 'to', 'kind', 'specifier', 'status', 'source']
 const OPTIONAL_LISTS = ['stages', 'nodes', 'links']
 const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links', 'mechanics']
@@ -443,6 +445,18 @@ function status(name: string, record: Record<string, unknown>, where: string): O
   return member(name, text(name, record, 'status', where), OBSERVED_STATUSES, 'status', where)
 }
 
+function parseComponent(name: string, entry: Record<string, unknown>, where: string): Component {
+  const id = text(name, entry, 'id', where)
+  const componentPath = text(name, entry, 'path', where)
+  const relations = entry.relations === undefined ? 'found' : member(name, text(name, entry, 'relations', where), OBSERVED_STATUSES, 'relations', where)
+  if (relations === 'found') {
+    if (entry.reason !== undefined)
+      fail(name, `${where} whose relations are "found" carries no "reason"`)
+    return { id, path: componentPath, relations }
+  }
+  return { id, path: componentPath, relations, reason: member(name, text(name, entry, 'reason', where), COMPONENT_REASONS, 'reason', where) }
+}
+
 function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
   const mechanics = child(name, raw, 'mechanics', MECHANICS_PROPERTIES, 'the document')
   const identityEntry = child(name, mechanics, 'identity', IDENTITY_PROPERTIES, 'mechanics')
@@ -450,7 +464,7 @@ function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
   const components = list(name, mechanics, 'components').map((entry, index) => {
     const where = `mechanics.components[${index}]`
     closed(name, entry, COMPONENT_PROPERTIES, where)
-    return { id: text(name, entry, 'id', where), path: text(name, entry, 'path', where) }
+    return parseComponent(name, entry, where)
   })
   const componentIds = uniqueIds(name, components.map(component => component.id), 'component')
   const relations = list(name, mechanics, 'relations').map((entry, index) => {

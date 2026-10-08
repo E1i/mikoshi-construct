@@ -29,9 +29,9 @@ const DOCUMENT = {
 
 const MECHANICS: AtlasMechanics = {
   components: [
-    { id: 'press/main.ts', path: 'press/main.ts' },
-    { id: 'press/squeeze.ts', path: 'press/squeeze.ts' },
-    { id: 'tools/clock.ts', path: 'tools/clock.ts' },
+    { id: 'press/main.ts', path: 'press/main.ts', relations: 'found' },
+    { id: 'press/squeeze.ts', path: 'press/squeeze.ts', relations: 'found' },
+    { id: 'tools/clock.ts', path: 'tools/clock.ts', relations: 'found' },
   ],
   relations: [
     { from: 'press/main.ts', to: 'press/squeeze.ts', kind: 'imports', specifier: './squeeze.js', status: 'found', source: { path: 'press/main.ts', line: 1 } },
@@ -107,11 +107,39 @@ describe('mechanics are drawn when the document carries them and nothing otherwi
     expect(html).toContain('data-layer="mechanics"')
   })
 
+  it('draws a file whose relations are unknown as unknown, with the reason', () => {
+    const html = render({ ...MECHANICS, components: [...MECHANICS.components, { id: 'tools/logo.blend', path: 'tools/logo.blend', relations: 'unknown', reason: 'type-not-scanned' }] })
+    expect(html).toContain('Code no part claims (2)')
+    expect(html).toMatch(/<g data-state="unknown"><title>tools\/logo\.blend: relations unknown — discovery reads no file of this type<\/title><rect [^>]*\/><text [^>]*>tools\/logo\.blend<\/text>/)
+  })
+
   it('draws nothing for mechanics when there are none', () => {
     const html = render()
     expect(html).not.toContain('data-layer="mechanics"')
     expect(html).not.toContain('Code under it')
     expect(html).not.toContain('<svg')
+  })
+})
+
+describe('a node shows the status word and the reason derived from its proof', () => {
+  it('shows unknown and not run on a node whose only witness has no report', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'atlas-'))
+    const model = parseModel(JSON.stringify(DOCUMENT), 'M')
+    const states = deriveModelState(model, root, { reports: 'read', constructPaths: [] })
+    expect(states.nodes.crate).toEqual({ status: 'unknown', reason: 'not-run', state: 'unknown' })
+    const html = renderAtlas({ projectName: 'orchard', model, states }, 'construct.model.json')
+    const crate = html.slice(html.indexOf('id="crate"'), html.indexOf('</article>', html.indexOf('id="crate"')))
+    expect(crate).toContain('<p class="status">unknown — not run</p>')
+  })
+
+  it('shows the status of every node, beside its painted state', () => {
+    const html = render()
+    expect([...html.matchAll(/<p class="status">([^<]+)<\/p>/g)].map(match => match[1])).toEqual([
+      'assumption — written in the repository',
+      'unknown — absent',
+      'unknown — confirmed elsewhere',
+      'unknown — written in the repository',
+    ])
   })
 })
 
@@ -127,7 +155,7 @@ describe('a hostile document', () => {
 })
 
 describe('what the review of the renderer found', () => {
-  const sibling = { ...MECHANICS, components: [...MECHANICS.components, { id: 'pressure/x.ts', path: 'pressure/x.ts' }] }
+  const sibling = { ...MECHANICS, components: [...MECHANICS.components, { id: 'pressure/x.ts', path: 'pressure/x.ts', relations: 'found' as const }] }
 
   it('draws no code section for a node no component lies under', () => {
     const html = render(MECHANICS)

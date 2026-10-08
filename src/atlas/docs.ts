@@ -6,6 +6,7 @@ import { DOCS_STYLE } from './docs-style.js'
 import { sourceHref } from './page.js'
 import { switchHtml } from './switch.js'
 import { atlasOf } from './view.js'
+import { abilityWords, componentWords } from './words.js'
 
 const WORDS = {
   title: (project: string) => `${project}, read in order`,
@@ -20,6 +21,12 @@ const WORDS = {
   source: 'Source',
   unclaimed: 'Code no part claims',
   footer: (name: string) => `Every state is derived on read, never stored. Rendered from ${name}; nothing here is fetched when you open it.`,
+}
+
+function unclaimedItem(entry: string, input: AtlasInput): string {
+  const component = input.mechanics?.components.find(candidate => candidate.path === entry)
+  const words = component == null ? null : componentWords(component)
+  return words == null ? `<li>${escaped(entry)}</li>` : `<li data-state="unknown">${escaped(entry)} — ${escaped(words)}</li>`
 }
 
 function stageAnchor(index: number): string {
@@ -43,6 +50,7 @@ function nodeSection(node: AtlasNode, rootFromPage: string): string {
     `<article id="${escaped(node.anchor)}" data-state="${node.state}">`,
     `<h3>${escaped(node.label)}</h3>`,
     `<p class="state">${node.state} — ${escaped(STATE_LEGEND[node.state])}</p>`,
+    `<p class="status">${escaped(abilityWords(node.ability))}</p>`,
     evidence,
     linkList(WORDS.leadsFrom, node.leadsFrom),
     linkList(WORDS.leadsTo, node.leadsTo),
@@ -69,7 +77,7 @@ export function renderAtlasDocs(input: AtlasInput, generatedFrom: string, rootFr
   const atlas = atlasOf(input)
   const unclaimed = atlas.unclaimed.length === 0
     ? ''
-    : `<section data-layer="mechanics"><h2>${escaped(WORDS.unclaimed)} (${atlas.unclaimed.length})</h2><ul>${atlas.unclaimed.map(entry => `<li>${escaped(entry)}</li>`).join('')}</ul></section>`
+    : `<section data-layer="mechanics"><h2>${escaped(WORDS.unclaimed)} (${atlas.unclaimed.length})</h2><ul>${atlas.unclaimed.map(entry => unclaimedItem(entry, input)).join('')}</ul></section>`
   return `<!doctype html>
 <html lang="en">
 <head>
