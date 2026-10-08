@@ -29,6 +29,7 @@ export type Status = 'CONTINUE' | 'OWNER' | 'DONE'
 
 export interface RelaunchDeps {
   cwd: string
+  home: string
   claude: string | undefined
   journal: string
   projectsDir: string
@@ -51,6 +52,12 @@ interface RelaunchArgs {
 export function statusOf(text: string): Status | null {
   const found = text.split(/\r?\n/).flatMap(line => STATUS_LINE.exec(line)?.[1] ?? [])
   return (found.at(-1) as Status | undefined) ?? null
+}
+
+export function expandHome(file: string, home: string): string {
+  if (file === '~')
+    return home
+  return file.startsWith('~/') ? path.join(home, file.slice(2)) : file
 }
 
 export function projectDirOf(projectsDir: string, cwd: string): string {
@@ -138,7 +145,8 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     deps.err(`${PREFIX}${USAGE}`)
     return 1
   }
-  const handoff = path.resolve(deps.cwd, parsed.handoff)
+  const handoff = path.resolve(deps.cwd, expandHome(parsed.handoff, deps.home))
+  await record(deps, { event: 'relaunch-start', handoff, max: parsed.max, ts: deps.now().toISOString() })
   let sessions = 0
   const stop = async (reason: string, code: number): Promise<number> => {
     await record(deps, { event: 'relaunch-stop', handoff, reason, sessions, ts: deps.now().toISOString() })
@@ -192,6 +200,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
 function realDeps(): RelaunchDeps {
   return {
     cwd: process.cwd(),
+    home: os.homedir(),
     claude: process.env[CLAUDE_VARIABLE],
     journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
