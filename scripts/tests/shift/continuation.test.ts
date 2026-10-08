@@ -73,8 +73,8 @@ describe('eddiesEvidence', () => {
   it.each([
     ['two STOP sections', () => `## STOP — one\n${HANDOFF}\n## STOP — two\n`, 'STOP sections: 2'],
     ['a size over the limit', () => `${HANDOFF}\nnot done: ${'x'.repeat(HANDOFF_LIMIT)}`, 'too large'],
-    ['prose in queue', () => `${HANDOFF}\nqueue: #650 then whatever the owner says`, 'queue: prose'],
-  ] as const)('refuses to continue on a handoff that fails the bounded check: %s', (_, handoff, refused) => {
+    ['prose in queue', () => HANDOFF.replace('queue: #1 → #2', 'queue: #650 then whatever the owner says'), 'queue: prose'],
+  ] as const)('does not continue a Ghost from a handoff the bounded check refuses: %s', (_, handoff, refused) => {
     expect(continues('auto', 'eddies-warn', 0, handoff())).toBe(false)
     expect(continues('auto', 'boundary', 0, handoff())).toBe(false)
     expect(continuationRefusal(handoff())).toMatch(new RegExp(`^handoff-invalid: .*${refused}`))

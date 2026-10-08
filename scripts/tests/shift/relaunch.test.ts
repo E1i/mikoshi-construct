@@ -177,10 +177,10 @@ describe('runRelaunch', () => {
     expect(result.runs).toHaveLength(1)
     expect(result.err).toContain('[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write')
     expect(result.err.at(-1)).toBe('[relaunch] handoff-invalid')
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'handoff-invalid', sessions: 1, refusals: ['[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write'] })
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'handoff-invalid', sessions: 1, refusals: expect.arrayContaining(['[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write']) })
   })
 
-  it('tells every session on its first line and below to write the handoff only through handoff:write', () => {
+  it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {
     expect(relaunchPrompt('/h/handoff.md').split('\n')[0]).toBe(`${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
     expect(relaunchPrompt('/h/handoff.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
   })

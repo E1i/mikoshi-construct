@@ -83,7 +83,7 @@ describe('handoff:write', () => {
     expect(existsSync(path.join(dir, 'archive'))).toBe(false)
   })
 
-  it('writes to the handoff dir it is given, with the archive and prev: there', () => {
+  it('writes into the directory CONSTRUCT_HANDOFF_DIR names, with the archive and prev: there', () => {
     const { dir, draft: file } = world()
     const ghostDir = path.join(dir, 'ghost-handoff')
     mkdirSync(ghostDir)

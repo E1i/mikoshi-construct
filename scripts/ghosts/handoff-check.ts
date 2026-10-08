@@ -90,6 +90,10 @@ export const NO_PREV = 'none'
 export const IN_FLIGHT_FORMAT = '#N <stage> [PR #M]'
 
 const STOP_HEADING = /^#{1,6} +STOP\b/
+const ANY_LABEL = /^\s*(?:[-*+]\s+)?[a-z][\w -]{0,30}:/i
+const SINGLE_LABELS = ['queue', IN_FLIGHT_LABEL, PREV_LABEL] as const
+const ARCHIVED_PREV = /^archive\/\d{4,}\.md$/
+export const RETIRED_PARKING = ['archive', 'dropped', 'sliced'] as const
 const STATUS_LABEL = 'status'
 const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL])
 const QUEUE_CARD = /#(\d+)/g
@@ -120,7 +124,7 @@ function blocksOf(text: string): Block[] {
     const field = head === null ? labelled(line) : null
     if (head !== null)
       blocks.push({ label: normalised(head[1]), lines: [] })
-    else if (field !== null && BLOCK_LABELS.has(field.label))
+    else if (field !== null && (BLOCK_LABELS.has(field.label) || ANY_LABEL.test(line)))
       blocks.push({ label: field.label, lines: field.value === '' ? [] : [field.value] })
     else if (line.trim() !== '' && blocks.length > 0)
       blocks.at(-1)!.lines.push(line.trim())
@@ -129,7 +133,14 @@ function blocksOf(text: string): Block[] {
 }
 
 function blockOf(blocks: readonly Block[], label: string): Block | undefined {
-  return blocks.filter(block => block.label === label).at(-1)
+  return blocks.find(block => block.label === label)
+}
+
+function repeatedRefusals(blocks: readonly Block[]): string[] {
+  return SINGLE_LABELS.flatMap((label) => {
+    const count = blocks.filter(block => block.label === label).length
+    return count > 1 ? [`${PREFIX}${label}: appears ${count} times; a handoff holds one`] : []
+  })
 }
 
 function blockSize(block: Block): number {
@@ -155,11 +166,11 @@ function queueRefusals(blocks: readonly Block[], parked: ParkedDepends | null): 
     return []
   const value = queue.lines.join(' ')
   const prose = value.replace(QUEUE_CARD_TEXT, ' ').replace(QUEUE_SEPARATORS, ' ').trim()
-  if (prose !== '' && !NONE.test(prose))
+  const ids = [...value.matchAll(QUEUE_CARD)].map(match => Number(match[1]))
+  if (prose !== '' && !(NONE.test(prose) && ids.length === 0))
     return [`${PREFIX}queue: prose "${prose.slice(0, 60)}"; queue takes only card numbers (#N), and their order comes from the cards' depends in parking`]
   if (parked === null)
     return []
-  const ids = [...value.matchAll(QUEUE_CARD)].map(match => Number(match[1]))
   const refusals: string[] = []
   for (const [index, id] of ids.entries()) {
     const depends = parked.get(id)
@@ -177,9 +188,11 @@ function prevRefusals(blocks: readonly Block[], context: HandoffContext): string
   const prev = blockOf(blocks, PREV_LABEL)?.lines.join(' ').trim() ?? ''
   if (prev === '')
     return [`${PREFIX}missing: ${PREV_LABEL} (the archive the previous handoff went to, or ${NO_PREV}); pnpm handoff:write writes it`]
-  if (prev === NO_PREV || context.exists(path.resolve(path.dirname(context.file), prev)))
+  if (prev === NO_PREV)
     return []
-  return [`${PREFIX}${PREV_LABEL}: ${prev} does not exist`]
+  if (!ARCHIVED_PREV.test(prev))
+    return [`${PREFIX}${PREV_LABEL}: ${prev} is not archive/NNNN.md beside the handoff`]
+  return context.exists(path.resolve(path.dirname(context.file), prev)) ? [] : [`${PREFIX}${PREV_LABEL}: ${prev} does not exist`]
 }
 
 function inFlightRefusals(blocks: readonly Block[]): string[] {
@@ -193,7 +206,7 @@ function inFlightRefusals(blocks: readonly Block[]): string[] {
 }
 
 function boundRefusals(text: string, blocks: readonly Block[], stops: StopSections, parked: ParkedDepends | null): string[] {
-  return [...refusal(missingFields(text)), ...stopRefusals(text, stops), ...sizeRefusals(text, blocks), ...queueRefusals(blocks, parked)]
+  return [...refusal(missingFields(text)), ...stopRefusals(text, stops), ...sizeRefusals(text, blocks), ...repeatedRefusals(blocks), ...queueRefusals(blocks, parked)]
 }
 
 export function reportRefusals(text: string): string[] {
@@ -213,11 +226,12 @@ const PARKED_CARD = /^\d+\.md$/
 
 export function parkedDepends(parking: string): Map<number, number[]> {
   const parked = new Map<number, number[]>()
-  const visit = (dir: string): void => {
+  const visit = (dir: string, nested: boolean): void => {
     for (const entry of existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : []) {
       const file = path.join(dir, entry.name)
       if (entry.isDirectory()) {
-        visit(file)
+        if (!nested && !(RETIRED_PARKING as readonly string[]).includes(entry.name))
+          visit(file, true)
         continue
       }
       if (!PARKED_CARD.test(entry.name))
@@ -227,7 +241,7 @@ export function parkedDepends(parking: string): Map<number, number[]> {
         parked.set(Number(card.parked.task.id), card.parked.task.card.depends)
     }
   }
-  visit(parking)
+  visit(parking, false)
   return parked
 }
 
