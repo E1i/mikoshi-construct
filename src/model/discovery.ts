@@ -49,7 +49,7 @@ function candidates(target: string): string[] {
 
 function resolve(from: string, specifier: string, tracked: Set<string>): string | null {
   const target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier))
-  return candidates(target).find(candidate => tracked.has(candidate)) ?? null
+  return candidates(target).find(candidate => isSource(candidate) && tracked.has(candidate)) ?? null
 }
 
 function relationsOf(root: string, file: string, tracked: Set<string>): Relation[] {

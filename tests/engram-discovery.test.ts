@@ -98,6 +98,20 @@ describe('discovery writes what it found in the code into the Engram', () => {
     ])
   })
 
+  it('marks an import of a tracked file that is not a component unknown, and the engram it writes passes the schema', () => {
+    const dir = foreignRepository({
+      'src/view.ts': 'import data from \'./data.json\'\nimport \'./style.css\'\n\nexport const rows = data\n',
+      'src/data.json': '[]\n',
+      'src/style.css': 'body {}\n',
+    })
+    const mechanics = discoverMechanics(dir)
+    const componentIds = new Set(mechanics.components.map(component => component.id))
+    expect(mechanics.relations.filter(relation => relation.to !== null && !componentIds.has(relation.to))).toEqual([])
+    expect(mechanics.relations.map(relation => `${relation.specifier} ${relation.status} ${relation.to}`)).toEqual(['./data.json unknown null', './style.css unknown null'])
+    const engram = writeEngram(dir, { attached: true, home: home() })
+    expect(parseModel(readFileSync(engram, 'utf8'), MODEL_FILE).mechanics?.relations).toHaveLength(2)
+  })
+
   it('marks the identity and the tree unknown in a directory git does not hold', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-discovery-plain-'))
     writeFileSync(path.join(dir, 'a.ts'), 'export const a = 1\n')
