@@ -1,10 +1,11 @@
 import type { CommandReading } from '../detect/git.js'
+import type { ModuleReading } from './scan.js'
 import type { CommandSource, Component, Mechanics, Relation, RepositoryModel } from './schema.js'
 import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { readHead, readTrackedFiles } from '../detect/git.js'
-import { scanModule } from './scan.js'
+import { importReaderFor } from './imports/index.js'
 import { MODEL_FILE, MODEL_VERSION } from './schema.js'
 import { readModel, writeModel } from './write.js'
 
@@ -15,7 +16,6 @@ export interface GitReadings {
 
 export const ENGRAM_HOME_DIR = '.construct/engram'
 
-const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
 const RESOLVED_EXTENSIONS: Record<string, string[]> = {
   '.js': ['.ts', '.tsx', '.js', '.jsx'],
   '.jsx': ['.tsx', '.jsx'],
@@ -35,10 +35,6 @@ function sourceOf(reading: CommandReading): CommandSource {
 
 export function readGit(root: string): GitReadings {
   return { head: readHead(root), tracked: readTrackedFiles(root) }
-}
-
-function isSource(file: string): boolean {
-  return SOURCE_EXTENSIONS.some(extension => file.endsWith(extension))
 }
 
 function candidates(target: string): string[] {
@@ -70,16 +66,16 @@ interface ComponentReading {
 }
 
 function readComponent(root: string, file: string, tracked: Set<string>): ComponentReading {
-  if (!isSource(file))
+  const reader = importReaderFor(file)
+  if (reader === undefined)
     return { component: { id: file, path: file, relations: 'unknown', reason: 'type-not-scanned' }, relations: [] }
   const source = readInside(root, file)
   if (source == null)
     return { component: { id: file, path: file, relations: 'unknown', reason: 'unreadable' }, relations: [] }
-  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(source, file, tracked) }
+  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(reader.read(source), file, tracked) }
 }
 
-function relationsOf(source: string, file: string, tracked: Set<string>): Relation[] {
-  const reading = scanModule(source)
+function relationsOf(reading: ModuleReading, file: string, tracked: Set<string>): Relation[] {
   const relations: Relation[] = []
   const owners = new Map<string, { to: string | null, specifier: string }>()
   for (const entry of reading.imports) {
