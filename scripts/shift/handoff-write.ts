@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { defaultParking, handoffRefusals, NO_PREV, parkedDepends, PREV_LABEL } from '../ghosts/handoff-check.js'
+import { defaultParking, handoffBytes, handoffRefusals, NO_PREV, parkedDepends, PREV_LABEL } from '../ghosts/handoff-check.js'
 
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
@@ -71,6 +71,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const text = withPrev(deps.read(draft), prev)
   const refusals = handoffRefusals(text, {
     file: handoff,
+    home: deps.home,
     exists: file => file === archived || deps.exists(file),
     parked: deps.parked(parsed.parking ?? defaultParking(deps.home)),
   })
@@ -87,7 +88,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const staged = `${handoff}.writing`
   deps.write(staged, text.endsWith('\n') ? text : `${text}\n`)
   deps.rename(staged, handoff)
-  deps.out(`${PREFIX}${handoff}: ${text.length} chars, ${PREV_LABEL}: ${prev}`)
+  deps.out(`${PREFIX}${handoff}: ${handoffBytes(text)} bytes, ${PREV_LABEL}: ${prev}`)
   return 0
 }
 

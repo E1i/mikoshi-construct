@@ -1,11 +1,14 @@
+import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT } from '../../ghosts/handoff-check.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
 import { nextArchive, runHandoffWrite, withPrev } from '../../shift/handoff-write.js'
 
 const roots: string[] = []
+const DECISIONS = fileURLToPath(import.meta.url)
 const PARKED = new Map<number, number[]>([[650, []], [652, [650]]])
 
 afterEach(() => {
@@ -14,7 +17,7 @@ afterEach(() => {
 })
 
 function draft(extra: Record<string, string> = {}): string {
-  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, `${field.id} value`])), 'queue': '#650 → #652', 'in-flight': '#650 brief', ...extra }
+  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? DECISIONS : `${field.id} value`])), 'queue': '#650 → #652', 'in-flight': '#650 brief', ...extra }
   return `# Handoff\n\n## STOP — window 2\n${Object.entries(values).map(([label, value]) => `${label}: ${value}`).join('\n')}\n\nSTATUS: CONTINUE\n`
 }
 
@@ -46,6 +49,25 @@ function write(args: string[], handoffDir?: string): { code: number, out: string
 }
 
 describe('handoff:write', () => {
+  it('measures the limit as handoff:check does', () => {
+    const { handoff, draft: file } = world()
+    const bloated = draft({ 'not done': 'é'.repeat(HANDOFF_LIMIT / 2 - 100) })
+    expect(bloated.length).toBeLessThan(HANDOFF_LIMIT)
+    expect(Buffer.byteLength(bloated)).toBeGreaterThan(HANDOFF_LIMIT)
+    writeFileSync(file, bloated)
+    const refused = write([handoff, file])
+    expect(refused.code).toBe(1)
+    expect(refused.err.join('\n')).toContain('bytes over the limit of 6000')
+    const checked: string[] = []
+    const code = runHandoffCheck([file, '--parking', '/p'], { exists: existsSync, read: f => readFileSync(f, 'utf8'), parked: () => PARKED, home: '/home/x', out: () => {}, err: line => checked.push(line) })
+    expect(code).toBe(1)
+    expect(checked.join('\n')).toContain('bytes over the limit of 6000')
+    writeFileSync(file, draft())
+    const ok = write([handoff, file])
+    expect(ok.code).toBe(0)
+    expect(ok.out[0]).toContain(`${Buffer.byteLength(readFileSync(handoff, 'utf8'))} bytes`)
+  })
+
   it('archives the old handoff and writes prev', () => {
     const { dir, handoff, draft: file } = world()
     const old = '# Handoff\n\n## STOP — window 1\nold\n\n## STOP — window 0\nolder\n'

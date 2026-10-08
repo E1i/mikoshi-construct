@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,7 +27,7 @@ export const HANDOFF_FIELDS: readonly HandoffField[] = [
   { id: 'judge-format', label: 'judge format', group: 'how to verify' },
   { id: 'gates', label: 'gates', group: 'how to verify' },
   { id: 'owner-waits', label: 'owner waits', group: 'how to verify' },
-  { id: 'owner-decisions', label: 'owner decisions', group: 'what must not be lost' },
+  { id: 'decisions', label: 'decisions', group: 'what must not be lost' },
   { id: 'intake-tokens', label: 'intake tokens', group: 'what must not be lost' },
   { id: 'probe-results', label: 'probe results', group: 'what must not be lost' },
   { id: 'stop-reason', label: 'stop reason', group: 'what must not be lost' },
@@ -84,6 +85,11 @@ export function refusal(missing: readonly HandoffField[]): string[] {
 }
 
 export const HANDOFF_LIMIT = 6000
+export const OWNER_DECISIONS_LABEL = 'owner decisions'
+
+export function handoffBytes(text: string): number {
+  return Buffer.byteLength(text, 'utf8')
+}
 export const PREV_LABEL = 'prev'
 export const IN_FLIGHT_LABEL = 'in-flight'
 export const NO_PREV = 'none'
@@ -95,7 +101,7 @@ const SINGLE_LABELS = ['queue', IN_FLIGHT_LABEL, PREV_LABEL] as const
 const ARCHIVED_PREV = /^archive\/\d{4,}\.md$/
 export const RETIRED_PARKING = ['archive', 'dropped', 'sliced'] as const
 const STATUS_LABEL = 'status'
-const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL])
+const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL, OWNER_DECISIONS_LABEL])
 const QUEUE_CARD = /#(\d+)/g
 const QUEUE_CARD_TEXT = /#\d+/g
 const QUEUE_SEPARATORS = /[\s,;→∥·|>-]+/g
@@ -106,6 +112,7 @@ export type ParkedDepends = ReadonlyMap<number, readonly number[]>
 
 export interface HandoffContext {
   file: string
+  home: string
   exists: (file: string) => boolean
   parked: ParkedDepends
 }
@@ -144,7 +151,7 @@ function repeatedRefusals(blocks: readonly Block[]): string[] {
 }
 
 function blockSize(block: Block): number {
-  return block.label.length + block.lines.join('\n').length
+  return handoffBytes(block.label) + handoffBytes(block.lines.join('\n'))
 }
 
 function stopRefusals(text: string, allowed: StopSections): string[] {
@@ -153,11 +160,12 @@ function stopRefusals(text: string, allowed: StopSections): string[] {
 }
 
 function sizeRefusals(text: string, blocks: readonly Block[]): string[] {
-  if (text.length <= HANDOFF_LIMIT)
+  const bytes = handoffBytes(text)
+  if (bytes <= HANDOFF_LIMIT)
     return []
   const largest = [...blocks].sort((a, b) => blockSize(b) - blockSize(a))[0]
-  const named = largest === undefined ? '' : `; largest field: ${largest.label} (${blockSize(largest)} chars)`
-  return [`${PREFIX}too large: ${text.length} chars over the limit of ${HANDOFF_LIMIT}${named}`]
+  const named = largest === undefined ? '' : `; largest field: ${largest.label} (${blockSize(largest)} bytes)`
+  return [`${PREFIX}too large: ${bytes} bytes over the limit of ${HANDOFF_LIMIT}${named}`]
 }
 
 function queueRefusals(blocks: readonly Block[], parked: ParkedDepends | null): string[] {
@@ -195,6 +203,23 @@ function prevRefusals(blocks: readonly Block[], context: HandoffContext): string
   return context.exists(path.resolve(path.dirname(context.file), prev)) ? [] : [`${PREFIX}${PREV_LABEL}: ${prev} does not exist`]
 }
 
+export function decisionsPath(text: string, file: string, home: string): string | null {
+  const value = valuesOf(text).get('decisions')?.trim() ?? ''
+  if (PLACEHOLDER.test(value))
+    return null
+  if (value === '~' || value.startsWith('~/'))
+    return path.join(home, value.slice(2))
+  return path.resolve(path.dirname(file), value)
+}
+
+function decisionsRefusals(text: string, blocks: readonly Block[], context: HandoffContext): string[] {
+  const refusals = blocks.some(block => block.label === OWNER_DECISIONS_LABEL)
+    ? [`${PREFIX}${OWNER_DECISIONS_LABEL} as prose: move them to the decisions file`]
+    : []
+  const decisions = decisionsPath(text, context.file, context.home)
+  return decisions === null || context.exists(decisions) ? refusals : [...refusals, `${PREFIX}decisions: ${decisions} does not exist`]
+}
+
 function inFlightRefusals(blocks: readonly Block[]): string[] {
   const inFlight = blockOf(blocks, IN_FLIGHT_LABEL)
   if (inFlight === undefined || inFlight.lines.length === 0)
@@ -218,6 +243,7 @@ export function handoffRefusals(text: string, context: HandoffContext): string[]
   return [
     ...boundRefusals(text, blocks, 'exactly-one', context.parked),
     ...prevRefusals(blocks, context),
+    ...decisionsRefusals(text, blocks, context),
     ...inFlightRefusals(blocks),
   ]
 }
@@ -271,14 +297,14 @@ export function runHandoffCheck(args: string[], deps: HandoffCheckDeps): number 
     deps.err(`${PREFIX}no handoff at ${file}`)
     return 1
   }
-  const refusals = handoffRefusals(deps.read(file), { file, exists: deps.exists, parked: deps.parked(parking) })
+  const refusals = handoffRefusals(deps.read(file), { file, home: deps.home, exists: deps.exists, parked: deps.parked(parking) })
   if (refusals.length > 0) {
     for (const line of refusals)
       deps.err(line)
     deps.err(`${PREFIX}${file} is not a handoff: ${refusals.length} refusals`)
     return 1
   }
-  deps.out(`${PREFIX}${file}: all ${HANDOFF_FIELDS.length} fields present, one STOP section, within ${HANDOFF_LIMIT} chars`)
+  deps.out(`${PREFIX}${file}: all ${HANDOFF_FIELDS.length} fields present, one STOP section, within ${HANDOFF_LIMIT} bytes`)
   return 0
 }
 
