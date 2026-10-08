@@ -69,6 +69,12 @@ stopped — restarts the card, corrects it with `construct intake --admit`, answ
 through `pnpm handoff:write`; and at the context limit writes its STOP so relaunch raises the next session. The first
 line of every relaunch prompt says so (`BRAIN_ROLE` in `scripts/shift/relaunch.ts`).
 
+The Operator starts chains only through `pnpm shift:bg <dir> [shift arguments]`, never with an inline `nohup … &`: it
+spawns `nohup setsid pnpm shift <dir> …` detached (without `setsid` on `PATH`, as on macOS, the detached spawn alone
+gives the shift a session of its own), appends its output to `<dir>/shift-bg.log`, prints the PID on its first line
+and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
+chain waited for the owner.
+
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
