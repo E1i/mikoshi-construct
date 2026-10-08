@@ -86,7 +86,7 @@ export const USAGE = [
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
-  'whose session no guard refused and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
+  'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a chain: after a card closes with a pull request the shift waits for its merge, records it as pnpm task:merged does, and takes the next card whose depends are merged,',
   'holding through a closed terminal (SIGHUP); an owner pull request is merged by the owner (or armed under --slot) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, merged, next or end).',
@@ -290,6 +290,7 @@ function asksTheOwner(report: string): boolean {
 interface Delegation {
   shard: string | undefined
   refused: boolean
+  stopped: boolean
 }
 
 const LEFT_TO_THE_OWNER = /merge is Eli's$/
@@ -303,6 +304,8 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
     return lines
   if (delegation.refused)
     return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
+  if (delegation.stopped)
+    return [...lines, `${MERGE_PREFIX}PR #${number} the session stopped on its Eddies budget; shard ${shard} not applied, merge is Eli's`]
   return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard)]
 }
 
@@ -475,7 +478,7 @@ function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Pl
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused }) : undefined
+  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped: lastExit === 'eddies-stop' }) : undefined
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
   const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
