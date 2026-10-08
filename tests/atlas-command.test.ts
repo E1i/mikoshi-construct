@@ -79,6 +79,13 @@ describe('construct atlas in a repository construct init made', () => {
     expect(git(dir, 'status', '--porcelain')).toBe(` M ${MODEL_FILE}\n`)
   })
 
+  it('writes no docs view when the caller says the repository is attached, init or not', async () => {
+    const dir = await initRepository()
+    const written = runAtlas({ dir, home: home(), attached: true })
+    expect(existsSync(path.join(path.dirname(written.page), 'atlas-docs.html'))).toBe(false)
+    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
+  })
+
   it('writes the docs view beside the map, each with the switch to the other', async () => {
     const dir = await initRepository()
     const { page } = atlasOf(dir)

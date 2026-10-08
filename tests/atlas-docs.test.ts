@@ -48,6 +48,12 @@ describe('the docs view', () => {
     expect(renderAtlas(input('Juice press'), 'm', '', FILES)).toContain('<a href="atlas-docs.html">Docs</a>')
   })
 
+  it('fetches nothing and runs no script', () => {
+    const docs = renderAtlasDocs(input('Juice press'), 'm', '', FILES)
+    for (const forbidden of ['<script', '<link', '@import', 'url(', 'http'])
+      expect(docs).not.toContain(forbidden)
+  })
+
   it('draws no switch on a map written without a docs view', () => {
     expect(renderAtlas(input('Juice press'), 'm')).not.toContain('class="switch"')
   })
