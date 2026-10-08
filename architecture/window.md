@@ -33,13 +33,20 @@ not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for o
 
 At the Eddies warn the window writes its handoff with the fields `scripts/ghosts/handoff-check.ts` lists, one labelled line
 or heading each, and runs `pnpm handoff:check <file>`. A handoff that fails is not a handoff, and the next window does not
-start from it. A Ghost's continuation under `continue: auto` is held to the same check on its shift report
+start from it. The handoff does not grow and does not retell the queue: it holds exactly one STOP section, at most
+`HANDOFF_LIMIT` characters (a refusal names the largest field), a `queue:` of card numbers only (`#N`, in an order the
+cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #M]` line per card (or `none`), and a
+`prev:` naming the archive the previous handoff went to. The handoff file is written only by
+`pnpm handoff:write <handoff> <draft> [--parking <dir>]`, never by hand: it checks the draft, moves the old handoff to
+`<dir>/archive/NNNN.md`, writes `prev:` under the STOP heading and replaces the file; a refused draft archives nothing. A Ghost's continuation under `continue: auto` is held to the same fields and bounds on its shift report — at most one
+STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
 
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
-the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to write the STOP section into, and `--model` (the flag, else the model of the newest transcript of
+the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
 this directory under `~/.claude/projects/`; with neither it starts nothing). Before every session, the first included, it
-reads the handoff: a handoff that fails `handoff:check`, or has no `STATUS:` line, stops it with exit 1; the last
+reads the handoff: a handoff that fails `handoff:check` stops it with exit 1 and an `event:relaunch-stop` line with reason
+`handoff-invalid` and the refusals, and no session starts; one with no `STATUS:` line stops it with exit 1; the last
 `STATUS: CONTINUE` runs the next session, `STATUS: OWNER` or `STATUS: DONE` stops it, and so does reaching `--max` (default
 the shift's restart ceiling, three). A leading `~/` in the handoff path is the home directory; the start leaves an
 `event:relaunch-start` line with the absolute path it watches, each session an `event:relaunch` line in `ghosts.jsonl`, each
@@ -268,6 +275,26 @@ Before launching a `brief`, `scan` or `review` agent, the window prints that rol
 `none` with its reason), and states it to the owner with both tokens and minutes, `review ≈ 119k · ≈ 4 min`; when the
 sample holds no minutes it says `minutes not recorded` with the reason the command printed, never the tokens alone (Eli,
 2026-10-07). While fewer than five runs of the role carry `startedAt`, that line reads `минуты: копится, n=k из 5`, `k` being the role's runs that carry it. With `--effort` the same command prints the task's contour, the sum of the step bands.
+
+`CONSTRUCT_CLOUD` is one key: `1` sends work to the cloud, and any other value, `0` or unset among them, runs everything locally as before. With `CONSTRUCT_CLOUD=1` card bodies
+and the `brief`, `scan` and `review` roles run as cloud sessions the window launches (routines) over the channel that
+already works, a git branch and the final message; locally only the journal, intake, close and merge stay. `pnpm
+ghosts:role <brief|scan|review> --task <id>` prints which route applies and `pnpm shift` refuses to spawn a
+local session. A cloud review is accepted with `pnpm ghosts:verdict --from <ref> <path in ref> --commit <sha>`: the
+verdict file and the report it names are read with `git show` and journaled as if given locally (Eli, 2026-10-08).
+
+Every cloud prompt, a card body's or a role's, carries these lines besides the task, because a cloud session that
+skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
+
+```text
+Register every file you add in every registry that lists its kind, in the same commit:
+- a new scripts/ghosts/** file: its path in architecture/owner-merges.md, in the `ghosts` cell or the plain list,
+  with the dated history sentence; the classification is Eli's, so name your choice in the final message;
+- a new scripts/shift/** file whose text names a merge: its path in the `own-instructions` cell, the same way;
+- a new package.json script: its row in CONTRIBUTING.md § Scripts, and, when the harness does not run it, its entry
+  in OUTSIDE_THE_HARNESS in tests/harness-membership.test.ts.
+Push to the branch named above. Your final message is at most 1200 characters.
+```
 
 After every Ghost, a `scan` agent first runs a blind Design check (about two minutes). A blocker → a new attempt without a full review; none → the ordinary review.
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner

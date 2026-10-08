@@ -1,7 +1,7 @@
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,6 +14,7 @@ import { appendJournalEvent } from './journal.js'
 import { reviewCarry } from './review-carry.js'
 
 const JOURNAL_FILE = 'ghosts.jsonl'
+const CLOUD_REPORT_NAME = /^review(?:-[\w.-]+)?\.md$/
 const VERDICT_SCHEMA = 'review-verdict'
 const JOURNAL_LINE = '#/$defs/journalLine'
 const CARD_NUMBER_MARKER = /^\[review:\d+\]$/
@@ -139,6 +140,66 @@ function reviewedCommit(dir: string, task: string, tree: string, file: Digest): 
   return commits.at(-1)
 }
 
+export type FetchedVerdict
+  = | { ok: true, verdictPath: string }
+    | { ok: false, reasons: string[] }
+
+function showFromRef(repo: string, ref: string, file: string): Buffer {
+  return execFileSync('git', ['-C', repo, 'show', `${ref}:${file}`], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+}
+
+function reportPathFault(ref: string, verdictInRef: string, reportPath: string): string | undefined {
+  if (reportPath === '' || reportPath === '.')
+    return `--from ${ref}: the report path "${reportPath}" names no file; nothing written`
+  if (reportPath.split(/[\\/]/).includes('..'))
+    return `--from ${ref}: the report path ${reportPath} leaves the verdict's directory; nothing written`
+  if (/[\\/]/.test(reportPath))
+    return `--from ${ref}: the report path ${reportPath} has a directory part; the report lies beside the verdict file; nothing written`
+  if (path.posix.basename(reportPath).toLowerCase() === path.posix.basename(verdictInRef).toLowerCase())
+    return `--from ${ref}: the report ${reportPath} has the verdict file's name; nothing written`
+  if (!CLOUD_REPORT_NAME.test(reportPath))
+    return `--from ${ref}: the report ${reportPath} is not named review*.md, the only name a cloud review writes; nothing written`
+  return undefined
+}
+
+function occupiedTarget(target: string, bytes: Buffer): string | undefined {
+  const entry = lstatSync(target, { throwIfNoEntry: false })
+  if (entry === undefined)
+    return undefined
+  if (!entry.isFile())
+    return `${target} is not a regular file`
+  return readFileSync(target).equals(bytes) ? undefined : `${target} already holds other bytes`
+}
+
+export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: string, dir: string): FetchedVerdict {
+  if (ref === '' || ref.startsWith('-'))
+    return { ok: false, reasons: [`--from ${ref}: a ref is a name that does not start with "-"; nothing written`] }
+  const refDir = path.posix.dirname(verdictInRef)
+  try {
+    const verdictBytes = showFromRef(repo, ref, verdictInRef)
+    const reportPath: unknown = (JSON.parse(verdictBytes.toString('utf8')) as { report?: { path?: unknown } } | null)?.report?.path
+    if (typeof reportPath !== 'string')
+      return { ok: false, reasons: [`--from ${ref}: the verdict's report.path is not a string; nothing written`] }
+    const fault = reportPathFault(ref, verdictInRef, reportPath)
+    if (fault !== undefined)
+      return { ok: false, reasons: [fault] }
+    const reportBytes = showFromRef(repo, ref, path.posix.join(refDir, reportPath))
+    const verdictPath = path.join(dir, path.posix.basename(verdictInRef))
+    const reportTarget = path.join(dir, path.posix.basename(reportPath))
+    const taken = [[verdictPath, verdictBytes], [reportTarget, reportBytes]] as const
+    const occupied = taken.map(([target, bytes]) => occupiedTarget(target, bytes)).filter(reason => reason !== undefined)
+    if (occupied.length > 0)
+      return { ok: false, reasons: occupied.map(reason => `--from ${ref}: ${reason}; nothing written`) }
+    mkdirSync(dir, { recursive: true })
+    for (const [target, bytes] of taken)
+      writeFileSync(target, bytes)
+    return { ok: true, verdictPath }
+  }
+  catch (error) {
+    return { ok: false, reasons: [`--from ${ref}: cannot read ${verdictInRef} and the report it names: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`] }
+  }
+}
+
 function gitIn(repo: string): (args: string[]) => string {
   return args => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
@@ -243,7 +304,7 @@ function report(checked: VerdictCheck | DispositionCheck): void {
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { 'dir': { type: 'string' }, 'commit': { type: 'string' }, 'repo': { type: 'string' }, 'merge-follow-up': { type: 'string' }, 'task': { type: 'string' }, 'pr': { type: 'string' }, 'by': { type: 'string' } } })
+  const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { 'dir': { type: 'string' }, 'commit': { type: 'string' }, 'repo': { type: 'string' }, 'merge-follow-up': { type: 'string' }, 'task': { type: 'string' }, 'pr': { type: 'string' }, 'by': { type: 'string' }, 'from': { type: 'string' } } })
   if (values['merge-follow-up'] !== undefined) {
     const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
     report(await recordDisposition({ task: values.task, pr: values.pr, followUp: values['merge-follow-up'], by: values.by }, dir))
@@ -252,12 +313,19 @@ async function main(): Promise<void> {
   const verdictPath = positionals[0]
   const commit = values.commit
   if (verdictPath === undefined || commit === undefined) {
-    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>]')
+    console.error('usage: verdict.ts <review-<task>.verdict.json> --commit <PR head> [--repo <repository>] [--dir <handoff directory>] [--from <git ref>]')
     console.error('       verdict.ts --merge-follow-up <issue> --task <id> --pr <merged PR> --by <owner|window> [--dir <handoff directory>]')
     process.exitCode = 1
     return
   }
-  report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo: values.repo ?? process.cwd() }))
+  const repo = values.repo ?? process.cwd()
+  if (values.from === undefined) {
+    report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo }))
+    return
+  }
+  const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const fetched = fetchVerdictFromRef(values.from, repo, verdictPath, dir)
+  report(fetched.ok ? await recordVerdict(fetched.verdictPath, dir, { commit, repo }) : fetched)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

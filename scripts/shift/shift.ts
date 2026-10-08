@@ -28,13 +28,14 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
+import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { startedTree } from '../ghosts/tasks.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
-import { BOUNDARY_LINE, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
+import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
 import { isListed, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, runMerge } from './merge.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -107,6 +108,7 @@ export interface ShiftDeps {
   out: (line: string) => void
   err: (line: string) => void
   style?: SignalStyle
+  cloud?: boolean
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -333,6 +335,9 @@ function boundaryWhy(task: ShiftTask, reason: ExitReason, restarts: number, hand
   const missing = missingFields(handoff ?? '')
   if (restarts < MAX_RESTARTS && missing.length > 0)
     return `${EXIT_REASON_TEXT[reason]}; the handoff lacks ${missing.map(field => field.label).join(', ')}, so no session continues from it`
+  const refused = continuationRefusal(handoff ?? '')
+  if (restarts < MAX_RESTARTS && refused !== null)
+    return `${EXIT_REASON_TEXT[reason]}; ${refused}, so no session continues from it`
   return `${EXIT_REASON_TEXT[reason]}; ${restarts} of ${MAX_RESTARTS} restarts used`
 }
 
@@ -626,6 +631,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     return 0
   }
   const check = argv.includes('--check')
+  if (deps.cloud === true && !check)
+    return refuse(deps, [`${CLOUD_VARIABLE}=1 routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
   const queue = argv.includes('--queue')
   const manual = argv.includes('--manual')
   const parkingAt = argv.indexOf('--parking')
@@ -734,6 +741,7 @@ function realDeps(): ShiftDeps {
     out: line => console.log(line),
     err: line => console.error(line),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
+    cloud: cloudOn(process.env),
   }
 }
 
