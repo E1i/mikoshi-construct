@@ -75,6 +75,8 @@ export function sessionParams(task: PreparedTask): SpawnSessionParams {
   }
 }
 
+const LADDER_STOPS_THAT_ARE_NOT_FALLS = new Set(['done', 'base moved'])
+
 export function fallEvent(card: number, kind: FallKind): object {
   return { event: 'fall', card, kind, ts: new Date().toISOString() }
 }
@@ -221,7 +223,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     actual: ladder.actual,
   })
 
-  if (ladder.status !== 'done')
+  if (!LADDER_STOPS_THAT_ARE_NOT_FALLS.has(ladder.status))
     await appendJournalEvent(ctx.journalPath, fallEvent(task.card.id, 'ladder-not-done'))
 
   const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
