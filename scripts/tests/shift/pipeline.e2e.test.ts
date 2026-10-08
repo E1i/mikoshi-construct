@@ -9,7 +9,7 @@ import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld } from '.
 const HEAD = 'a1b2c3d'
 const STALE = 'f00dfee'
 
-function chainGh(heads: { watched: () => string, armed: () => string } = { watched: () => HEAD, armed: () => HEAD }): { gh: (args: string[]) => string, calls: string[][] } {
+function chainGh(heads: { watched: () => string, armed: () => string } = { watched: () => HEAD, armed: () => HEAD }, files?: string[]): { gh: (args: string[]) => string, calls: string[][] } {
   const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
   const calls: string[][] = []
   const gh = (args: string[]): string => {
@@ -20,7 +20,7 @@ function chainGh(heads: { watched: () => string, armed: () => string } = { watch
     if (args[1] === 'view' && fields === 'headRefOid,statusCheckRollup,files')
       return JSON.stringify({ headRefOid: heads.watched(), statusCheckRollup: [], files: [] })
     if (args[1] === 'view' && fields === 'body,headRefOid,files')
-      return JSON.stringify({ ...JSON.parse(inner.gh(args)) as object, headRefOid: heads.armed() })
+      return JSON.stringify({ ...JSON.parse(inner.gh(args)) as object, headRefOid: heads.armed(), ...(files === undefined ? {} : { files: files.map(file => ({ path: file })) }) })
     return inner.gh(args)
   }
   return { gh, calls }
@@ -47,8 +47,8 @@ function armedAt(calls: string[][]): string[] {
   return calls.filter(args => args[1] === 'merge').map(args => args[args.indexOf('--match-head-commit') + 1]!)
 }
 
-const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }]
-const TWO = [...ONE, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }]
+const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }]
+const TWO = [...ONE, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102', touches: 'src/2/**' }]
 
 describe('the chain arms a pull request after its review', () => {
   it('arms auto-merge only after the review verdict', async () => {
@@ -168,5 +168,55 @@ describe('pnpm shift:merge <N> --verdict', () => {
     ].join('')
     expect(latestPrReview(text, '1', 101)).toEqual({ task: '1', pr: 101, verdict: 'changes', commit: HEAD })
     expect(latestPrReview(text, '1', 102)).toBeUndefined()
+  })
+})
+
+describe('review depth follows risk', () => {
+  const BY_RISK = [
+    { touches: '.claude/agents/review.md', risk: 'R1', depth: 'full' },
+    { touches: 'scripts/shift/**', risk: 'R2', depth: 'full' },
+    { touches: 'src/1/**', risk: 'R3', depth: 'diff' },
+    { touches: 'docs/1.md', risk: 'R4', depth: 'none' },
+  ] as const
+
+  it.each(BY_RISK)('the chain in step wait reads $risk as review $depth', async ({ touches, risk, depth }) => {
+    const world = newWorld([{ ...ONE[0]!, touches }])
+    const { gh, calls } = chainGh()
+    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
+    expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: depth })
+    const report = readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')
+    if (depth === 'none') {
+      expect(merges(calls)).toEqual(['101'])
+      expect(report).not.toContain('waits for its review verdict')
+      return
+    }
+    expect(merges(calls)).toEqual([])
+    expect(report).toContain(`PR #101 waits for its review verdict, a ${depth} review at risk ${risk}`)
+  })
+})
+
+describe('review depth follows the changed files', () => {
+  const R4_CARD = { ...ONE[0]!, touches: 'docs/1.md' }
+  const BOTH_HEADS = { watched: () => HEAD, armed: () => HEAD }
+
+  it.each([
+    { files: ['src/materialize/plan.ts'], risk: 'R1', depth: 'full' },
+    { files: ['docs/1.md', 'src/atlas/x.ts'], risk: 'R3', depth: 'diff' },
+    { files: [], risk: 'R1', depth: 'full' },
+  ])('a card of R4 touches whose changed files are $files waits for a $depth review verdict', async ({ files, risk, depth }) => {
+    const world = newWorld([R4_CARD])
+    const { gh, calls } = chainGh(BOTH_HEADS, files)
+    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
+    expect(merges(calls)).toEqual([])
+    expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: depth })
+    expect(readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')).toContain(`PR #101 waits for its review verdict, a ${depth} review at risk ${risk}`)
+  })
+
+  it('the R4 arm calls gh pr merge with --auto and --match-head-commit at the head', async () => {
+    const world = newWorld([R4_CARD])
+    const { gh, calls } = chainGh(BOTH_HEADS, ['docs/1.md', 'tests/x.test.ts'])
+    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
+    expect(calls.filter(args => args[1] === 'merge')).toEqual([['pr', 'merge', '101', '--auto', '--squash', '--match-head-commit', HEAD, '-R', 'E1i/mikoshi-construct']])
+    expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: 'none' })
   })
 })

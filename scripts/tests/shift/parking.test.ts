@@ -121,11 +121,11 @@ async function pipelineRun(world: World, onSleep: (slept: number) => void): Prom
   return runShift([world.shift, '--parking', world.parking, '--chain'], depsOf(world, pipelineGh(world), captured(), { sleep }))
 }
 
-const TWO = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }]
+const TWO = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102', touches: 'src/2/**' }]
 
 function overlapCardTwo(world: World): void {
   const file = path.join(world.parking, '2.md')
-  writeFileSync(file, readFileSync(file, 'utf8').replace('touches: scripts/2/**', 'touches: scripts/1/x.ts'))
+  writeFileSync(file, readFileSync(file, 'utf8').replace('touches: src/2/**', 'touches: src/1/x.ts'))
 }
 
 describe('the chain as a pipeline', () => {
