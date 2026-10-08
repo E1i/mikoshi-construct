@@ -1,0 +1,7 @@
+{
+  "name": "@mono/app",
+  "dependencies": {
+    "@mono/core": "workspace:*",
+    "zod": "^4.0.0"
+  }
+}

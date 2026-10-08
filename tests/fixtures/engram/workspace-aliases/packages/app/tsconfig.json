@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    /* the alias of the app */
+    "paths": { "@/*": ["./src/*"] },
+  },
+}

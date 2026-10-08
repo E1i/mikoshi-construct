@@ -1,0 +1,6 @@
+{
+  // shared by every package
+  "compilerOptions": {
+    "strict": true,
+  },
+}

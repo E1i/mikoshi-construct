@@ -1,0 +1,9 @@
+{
+  "name": "@mono/core",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts"
+    }
+  }
+}
