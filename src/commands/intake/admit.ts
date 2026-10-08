@@ -11,7 +11,7 @@ import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText } from './check.js'
-import { bodySha, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine } from './confirm.js'
+import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { INTAKE_EXIT } from './index.js'
 import { parkedNumbers } from './numbers.js'
@@ -21,7 +21,6 @@ const WITNESS_ITEM = /^- (.+)$/
 const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 const CARD_HEADER = 'card: '
-const TOUCHES_HEADER = 'touches: '
 export const ADMIT_SOURCE = 'admit'
 export const AMEND_SOURCE = 'amend'
 
@@ -133,6 +132,10 @@ function sameCardLine(recorded: string, line: string): boolean {
   return recordedCard.kind === 'card' && cardLine(recordedCard.card) === wanted
 }
 
+function sameBody(recorded: unknown, text: string): boolean {
+  return recorded === bodySha(text) || recorded === bodyShaWithoutTouches(text)
+}
+
 function siblings(file: string): string[] {
   const parking = path.dirname(file)
   return existsSync(parking) ? readdirSync(parking) : []
@@ -175,7 +178,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const recorded = latestIntake(journal, card)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
   const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source }
-  if (recorded !== null && sameCardLine(recorded.card, line) && recorded.bodySha === bodySha(admitted.text))
+  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text))
     return { ...base, status: 'alreadyAdmitted' }
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
