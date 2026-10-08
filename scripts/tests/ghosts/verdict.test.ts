@@ -282,6 +282,14 @@ describe('verdict from a cloud branch', () => {
     expect(readdirSync(dir)).toEqual(before)
   })
 
+  it.each([['empty-report', ''], ['dot-report', '.']])('refuses a report path that names no file (%s) before any read, and writes nothing', (branch, reportPath) => {
+    roleBranch(branch, reportPath)
+    const { dir } = handoff()
+    const before = readdirSync(dir)
+    expect(fetchVerdictFromRef(branch, REPO, `role/${branch}/review.verdict.json`, dir)).toEqual({ ok: false, reasons: [`--from ${branch}: the report path "${reportPath}" names no file; nothing written`] })
+    expect(readdirSync(dir)).toEqual(before)
+  })
+
   it('refuses a verdict whose report.path is not a string, naming it', () => {
     roleBranch('numeric-report', 7 as unknown as string)
     const { dir } = handoff()

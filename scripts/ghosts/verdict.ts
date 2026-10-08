@@ -148,6 +148,8 @@ function showFromRef(repo: string, ref: string, file: string): Buffer {
 }
 
 function reportPathFault(ref: string, verdictInRef: string, reportPath: string): string | undefined {
+  if (reportPath === '' || reportPath === '.')
+    return `--from ${ref}: the report path "${reportPath}" names no file; nothing written`
   if (reportPath.split(/[\\/]/).includes('..'))
     return `--from ${ref}: the report path ${reportPath} leaves the verdict's directory; nothing written`
   if (/[\\/]/.test(reportPath))
