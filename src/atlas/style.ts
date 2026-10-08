@@ -1,7 +1,9 @@
 import { PALETTE } from '../model/page.js'
+import { SWITCH_STYLE } from './switch.js'
 
 export const ATLAS_STYLE = `
 ${PALETTE}
+${SWITCH_STYLE}
 * { box-sizing: border-box; }
 body { margin: 0; padding: 1.5rem 1rem; background: var(--surface); color: var(--ink); font: 1rem/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-inline-size: 80rem; margin-inline: auto; }

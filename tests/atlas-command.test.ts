@@ -79,6 +79,15 @@ describe('construct atlas in a repository construct init made', () => {
     expect(git(dir, 'status', '--porcelain')).toBe(` M ${MODEL_FILE}\n`)
   })
 
+  it('writes the docs view beside the map, each with the switch to the other', async () => {
+    const dir = await initRepository()
+    const { page } = atlasOf(dir)
+    const docs = path.join(path.dirname(page), 'atlas-docs.html')
+    expect(readFileSync(docs, 'utf8')).toContain('<h2>Take an order</h2>')
+    expect(readFileSync(docs, 'utf8')).toContain('<a href="atlas.html">Map</a>')
+    expect(readFileSync(page, 'utf8')).toContain('<a href="atlas-docs.html">Docs</a>')
+  })
+
   it('a second run writes the same engram and the same page, byte for byte', async () => {
     const dir = await initRepository()
     const first = atlasOf(dir)
@@ -107,6 +116,16 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(html).toContain('src/orders/api.ts')
   })
 
+  it('writes no documentation view into an attached repository and draws no switch on its map', async () => {
+    const dir = foreignRepository()
+    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    const written = atlasOf(dir)
+    expect(existsSync(path.join(dir, '.construct', 'atlas-docs.html'))).toBe(false)
+    expect(existsSync(path.join(path.dirname(written.engram), 'atlas-docs.html'))).toBe(false)
+    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=all')).toBe('')
+  })
+
   it('a second run writes the same engram and the same page, byte for byte', async () => {
     const dir = foreignRepository()
     await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
@@ -128,6 +147,16 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(html).toContain('Code under it (2)')
     expect(html).not.toContain('Code no part claims')
     expect(git(dir, 'status', '--porcelain')).toBe('')
+  })
+})
+
+describe('construct atlas in a repository with neither init nor attach, docs view', () => {
+  it('writes no documentation view anywhere', () => {
+    const dir = foreignRepository()
+    const written = atlasOf(dir)
+    expect(existsSync(path.join(path.dirname(written.page), 'atlas-docs.html'))).toBe(false)
+    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
+    expect(git(dir, 'status', '--porcelain', '--ignored')).toBe('')
   })
 })
 
