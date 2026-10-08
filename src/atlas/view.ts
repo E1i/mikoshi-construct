@@ -1,0 +1,117 @@
+import type { PictureClass } from '../model/graph.js'
+import type { AbilityNode, Fact, RepositoryModel } from '../model/schema.js'
+import type { EngramStateReport } from '../model/state.js'
+import { FACT_WORDS, factSubject, reportBackedIn, RUNTIME_REPORT, RUNTIME_REPORT_WORD } from '../model/graph.js'
+import { REPORT_KINDS } from '../model/schema.js'
+
+export interface AtlasMechanics {
+  components: { id: string, path: string }[]
+  relations: { from: string, to: string | null, kind: string, specifier: string, status: string, source: { path: string, line: number } }[]
+}
+
+export interface AtlasInput {
+  projectName: string
+  model: RepositoryModel
+  states: EngramStateReport
+  mechanics?: AtlasMechanics
+}
+
+export interface AtlasEvidence {
+  subject: string
+  word: string
+  state: PictureClass
+}
+
+export interface AtlasLink {
+  anchor: string
+  label: string
+}
+
+export interface AtlasNode {
+  anchor: string
+  label: string
+  state: PictureClass
+  sourcePath: string
+  evidence: AtlasEvidence[]
+  leadsFrom: AtlasLink[]
+  leadsTo: AtlasLink[]
+  components: string[]
+}
+
+export interface AtlasStage {
+  id: string
+  label: string
+  nodes: AtlasNode[]
+}
+
+export interface Atlas {
+  stages: AtlasStage[]
+  unclaimed: string[]
+}
+
+function anchors(ids: string[]): Map<string, string> {
+  const taken = new Set<string>()
+  return new Map(ids.map((id) => {
+    const base = id.replaceAll(/[^\w.-]/g, '_')
+    let candidate = base
+    for (let suffix = 2; taken.has(candidate); suffix += 1)
+      candidate = `${base}-${suffix}`
+    taken.add(candidate)
+    return [id, candidate]
+  }))
+}
+
+function sourcePathOf(node: AbilityNode, facts: Fact[]): string {
+  if ('path' in node.source)
+    return node.source.path
+  const { fact } = node.source
+  return facts.find(candidate => candidate.id === fact)?.path ?? fact
+}
+
+function lies(componentPath: string, sourcePath: string): boolean {
+  return componentPath === sourcePath || componentPath.startsWith(`${sourcePath.replace(/\/$/, '')}/`)
+}
+
+export function atlasOf({ model, states, mechanics }: AtlasInput): Atlas {
+  const anchorOf = anchors(model.nodes.map(node => node.id))
+  const labelOf = new Map(model.nodes.map(node => [node.id, node.label]))
+  const reportBacked = reportBackedIn(model)
+  const componentPaths = (mechanics?.components ?? []).map(component => component.path)
+  const claimed = new Set<string>()
+
+  const link = (id: string): AtlasLink => ({ anchor: anchorOf.get(id) ?? id, label: labelOf.get(id) ?? id })
+
+  const nodeOf = (node: AbilityNode): AtlasNode => {
+    const sourcePath = sourcePathOf(node, model.facts)
+    const components = componentPaths.filter(path => lies(path, sourcePath))
+    components.forEach(path => claimed.add(path))
+    return {
+      anchor: anchorOf.get(node.id) ?? node.id,
+      label: node.label,
+      state: reportBacked(node.supportedBy) ? RUNTIME_REPORT : (states.nodes[node.id]?.state ?? 'unknown'),
+      sourcePath,
+      evidence: node.supportedBy.flatMap((factId) => {
+        const fact = model.facts.find(candidate => candidate.id === factId)
+        if (fact == null)
+          return []
+        const isReport = REPORT_KINDS.includes(fact.kind)
+        const evaluation = states.facts[fact.id] ?? 'unevaluable'
+        return [{
+          subject: factSubject(fact),
+          word: isReport ? RUNTIME_REPORT_WORD : FACT_WORDS[evaluation],
+          state: isReport ? RUNTIME_REPORT : ({ 'holds': 'held', 'does-not-hold': 'unsupported', 'unevaluable': 'unknown' } as const)[evaluation],
+        }]
+      }),
+      leadsFrom: model.links.filter(candidate => candidate.to === node.id).map(candidate => link(candidate.from)),
+      leadsTo: model.links.filter(candidate => candidate.from === node.id).map(candidate => link(candidate.to)),
+      components,
+    }
+  }
+
+  const stages = model.stages.map(stage => ({
+    id: stage.id,
+    label: stage.label,
+    nodes: model.nodes.filter(node => node.stage === stage.id).map(nodeOf),
+  }))
+  return { stages, unclaimed: componentPaths.filter(path => !claimed.has(path)) }
+}

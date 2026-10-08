@@ -4,6 +4,7 @@ import antfu from '@antfu/eslint-config'
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 
 const ALLOWED_INTERNAL_IMPORTS = {
+  'src/atlas': ['model'],
   'src/card': [],
   'src/detect': [],
   'src/manifest.ts': ['detect', 'materialize', 'presets', 'record-ahead'],
