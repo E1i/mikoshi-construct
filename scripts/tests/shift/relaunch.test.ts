@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { ALREADY_RUNNING, BRAIN_ROLE, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -189,13 +189,14 @@ describe('runRelaunch', () => {
   })
 
   it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {
-    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md').split('\n')[0]).toBe(`${BRAIN_ROLE} ${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
+    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md').split('\n')[0]).toBe(`${OPERATOR_ROLE} ${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
     expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
   })
 
-  it('the first line of the relaunch prompt names the brain role', () => {
+  it('the first line of the relaunch prompt names the Operator role and carries its tag', () => {
     const first = relaunchPrompt('/h/handoff.md', null).split('\n')[0]!
-    expect(first.startsWith(BRAIN_ROLE)).toBe(true)
+    expect(first.startsWith(OPERATOR_ROLE)).toBe(true)
+    expect(promptFirstLine('/h/handoff.md')).toContain('[operator]')
     expect(first).toContain(`start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them`)
     expect(first).toContain(`you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}`)
   })
