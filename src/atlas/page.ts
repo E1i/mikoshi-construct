@@ -1,10 +1,12 @@
 import type { PictureClass } from '../model/graph.js'
+import type { AtlasMode } from './switch.js'
 import type { Atlas, AtlasInput, AtlasLink, AtlasNode } from './view.js'
 import { PICTURE_CLASSES } from '../model/graph.js'
 import { escaped } from '../model/page.js'
 import { STATE_LEGEND } from '../model/svg.js'
 import { relationsAmong, schemeOfMechanics } from './scheme.js'
 import { ATLAS_STYLE } from './style.js'
+import { switchHtml } from './switch.js'
 import { atlasOf } from './view.js'
 
 const WORDS = {
@@ -22,7 +24,7 @@ const WORDS = {
   footer: (name: string) => `Every state is derived on read, never stored. Rendered from ${name}; nothing here is fetched when you open it.`,
 }
 
-function sourceHref(sourcePath: string, rootFromPage: string): string {
+export function sourceHref(sourcePath: string, rootFromPage: string): string {
   const encoded = sourcePath.split('/').filter(segment => segment !== '').map(encodeURIComponent).join('/')
   return escaped(`${rootFromPage === '' ? '' : `${rootFromPage.split('/').map(encodeURIComponent).join('/')}/`}${encoded}`)
 }
@@ -88,7 +90,7 @@ function legend(atlas: Atlas): string {
   return PICTURE_CLASSES.filter(state => present.has(state)).map(state => `<li data-state="${state}"><b>${state}</b> — ${escaped(STATE_LEGEND[state])}</li>`).join('')
 }
 
-export function renderAtlas(input: AtlasInput, generatedFrom: string, rootFromPage = ''): string {
+export function renderAtlas(input: AtlasInput, generatedFrom: string, rootFromPage = '', modeFiles?: Record<AtlasMode, string>): string {
   const atlas = atlasOf(input)
   return `<!doctype html>
 <html lang="en">
@@ -100,6 +102,7 @@ export function renderAtlas(input: AtlasInput, generatedFrom: string, rootFromPa
 </head>
 <body>
 <main>
+${modeFiles == null ? '' : switchHtml('map', modeFiles)}
 <h1>${escaped(WORDS.title(input.projectName))}</h1>
 <p class="prose">${escaped(WORDS.prose)}</p>
 <div class="map">

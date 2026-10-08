@@ -1728,6 +1728,10 @@ is, and the command never writes a tracked file of a repository it was not asked
 real path of its root, so `work/api` and `oss/api` keep an Engram each. `construct detach` removes
 `.construct/atlas.html` with the other files the construct wrote into `.construct/`.
 
+In a repository `init` made, `atlas` also writes `atlas-docs.html` beside the page (`<name>-docs.html`
+beside `--out <name>.html`): the same Engram read in order, stage by stage, with a Map / Docs switch on both pages. An attached repository and one
+with neither get the map alone, since the Atlas writes no documentation into a tree it does not own.
+
 After `atlas` in an attached repository `git status` is as clean as before. Running it again on the
 same commit writes the same Engram and the same page, byte for byte. Every "Open the source" link is
 relative to the file the page was written to, so it opens the repository path from the default place

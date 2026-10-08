@@ -79,6 +79,39 @@ describe('construct atlas in a repository construct init made', () => {
     expect(git(dir, 'status', '--porcelain')).toBe(` M ${MODEL_FILE}\n`)
   })
 
+  it('writes no docs view when the caller says the repository is attached, init or not', async () => {
+    const dir = await initRepository()
+    const written = runAtlas({ dir, home: home(), attached: true })
+    expect(existsSync(path.join(path.dirname(written.page), 'atlas-docs.html'))).toBe(false)
+    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
+  })
+
+  it('writes the docs view beside the map, each with the switch to the other', async () => {
+    const dir = await initRepository()
+    const { page } = atlasOf(dir)
+    const docs = path.join(path.dirname(page), 'atlas-docs.html')
+    expect(readFileSync(docs, 'utf8')).toContain('<h2>Take an order</h2>')
+    expect(readFileSync(docs, 'utf8')).toContain('<a href="atlas.html">Map</a>')
+    expect(readFileSync(page, 'utf8')).toContain('<a href="atlas-docs.html">Docs</a>')
+  })
+
+  it('names the docs view after a map written with --out, and its Map link goes back to that map', async () => {
+    const dir = await initRepository()
+    const out = path.join(mkdtempSync(path.join(tmpdir(), 'atlas-out-')), 'view.html')
+    runAtlas({ dir, home: home(), attached: false, out })
+    const docs = readFileSync(path.join(path.dirname(out), 'view-docs.html'), 'utf8')
+    expect(docs).toContain('<a href="view.html">Map</a>')
+    expect(readFileSync(out, 'utf8')).toContain('<a href="view-docs.html">Docs</a>')
+  })
+
+  it('never lets the docs view overwrite a map written with --out under the docs view\'s default name', async () => {
+    const dir = await initRepository()
+    const out = path.join(mkdtempSync(path.join(tmpdir(), 'atlas-out-')), 'atlas-docs.html')
+    runAtlas({ dir, home: home(), attached: false, out })
+    expect(readFileSync(out, 'utf8')).toContain('<a href="atlas-docs-docs.html">Docs</a>')
+    expect(readFileSync(path.join(path.dirname(out), 'atlas-docs-docs.html'), 'utf8')).toContain('<a href="atlas-docs.html">Map</a>')
+  })
+
   it('a second run writes the same engram and the same page, byte for byte', async () => {
     const dir = await initRepository()
     const first = atlasOf(dir)
@@ -107,6 +140,16 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(html).toContain('src/orders/api.ts')
   })
 
+  it('writes no documentation view into an attached repository and draws no switch on its map', async () => {
+    const dir = foreignRepository()
+    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    const written = atlasOf(dir)
+    expect(existsSync(path.join(dir, '.construct', 'atlas-docs.html'))).toBe(false)
+    expect(existsSync(path.join(path.dirname(written.engram), 'atlas-docs.html'))).toBe(false)
+    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=all')).toBe('')
+  })
+
   it('a second run writes the same engram and the same page, byte for byte', async () => {
     const dir = foreignRepository()
     await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
@@ -128,6 +171,16 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(html).toContain('Code under it (2)')
     expect(html).not.toContain('Code no part claims')
     expect(git(dir, 'status', '--porcelain')).toBe('')
+  })
+})
+
+describe('construct atlas in a repository with neither init nor attach, docs view', () => {
+  it('writes no documentation view anywhere', () => {
+    const dir = foreignRepository()
+    const written = atlasOf(dir)
+    expect(existsSync(path.join(path.dirname(written.page), 'atlas-docs.html'))).toBe(false)
+    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
+    expect(git(dir, 'status', '--porcelain', '--ignored')).toBe('')
   })
 })
 
