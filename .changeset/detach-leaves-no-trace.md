@@ -1,0 +1,5 @@
+---
+"mikoshi-construct": minor
+---
+
+cli: `construct detach` leaves no trace of the guest (#656). When `.claude/settings.local.json` existed before `attach`, attach keeps its original bytes as a `0600` copy under `.construct/attach/<key>/` in the home directory and records the copy's path and hashes as `settingsHook.original` in `.construct/attach.json`; detach puts those bytes back when the file is still what attach left, refuses before any write when the copy is missing or does not match, and then deletes the copy. detach also removes the ladder's runtime files and browser-lab run directories the guest created, including the runs inside a `.construct/browser` that existed before attach, and leaves what was there at attach. `docs/cli.md` documents the record fields and the removal
