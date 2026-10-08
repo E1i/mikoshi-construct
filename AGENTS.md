@@ -145,16 +145,16 @@ here. Before proposing an architecture, answer the questions and name the catego
   inspected repository goes through one reader that reports a path it could not read instead of dropping
   it from the set it inspected. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
   forbids `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
-  spawns only `pnpm --version` and runs only the code it ships; it also forbids reading `manifest.files`
+  spawns only `pnpm --version` and two `git` reads and runs only the code it ships; it also forbids reading `manifest.files`
   directly, because that branch is the frozen `init` record and `recordedShas()` is what overlays the
   `sync` one. `theRecordItselfMayReadBothHalves` restores the second of those for `src/manifest.ts`,
   which is the module that owns both branches.
 
-  `src/detect/package-manager.ts` carries the single spawn, and `thePnpmProbeMaySpawnAndNothingElse`
-  gives it the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
+  `src/detect/package-manager.ts` and `src/detect/git.ts` carry the spawns, and a block of their own
+  gives each the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
   because ESLint's `ignores` removes the whole config object rather than one selector from it.
   Code loading, `createRequire` and the antfu base restrictions stay forbidden there, and
-  `tests/dependency-policy.test.ts` lints one sample per form against that file.
+  `tests/dependency-policy.test.ts` lints one sample per form against each.
 
   `tests/dependency-policy.test.ts` resolves the config per file, lints one source sample per forbidden
   form, and fails when a source file that names an internal import falls outside every boundary — so a

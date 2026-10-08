@@ -110,7 +110,7 @@ describe('the engram lists of modelVersion 4', () => {
 
   it('reads a repository that is not a Mikoshi one, whose path sources all resolve', () => {
     const model = parseModel(readFileSync(path.join(FOREIGN, MODEL_FILE), 'utf8'), 'M')
-    expect(model.modelVersion).toBe(4)
+    expect(model.modelVersion).toBe(5)
     expect(model.stages.length).toBeGreaterThanOrEqual(2)
     expect(model.nodes.length).toBeGreaterThanOrEqual(3)
     expect(model.links.length).toBeGreaterThanOrEqual(1)
