@@ -1,15 +1,17 @@
 import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import type { BoardReading } from './commands/board/index.js'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
-import { ATTACH_EXIT, printEntryProtocol, runAttach } from './commands/attach/index.js'
+import { printAtlas, runAtlas } from './atlas/index.js'
+import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
-import { modelPicture, printGraph, writeGraphPage } from './commands/graph.js'
+import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
 import { defaultParking, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
@@ -282,19 +284,28 @@ const cost = withKnownFlags(defineCommand({
 
 const graph = withKnownFlags(defineCommand({
   meta: { name: 'graph', description: 'Draw what this repository claims, and the evidence under it, as a Mermaid diagram on stdout' },
-  args: {
-    ...commonArgs,
-    out: { type: 'string', description: 'Also write one self-contained HTML file rendering the same graph' },
-  },
+  args: commonArgs,
   run({ args }) {
     const console = ui(args, stderrWriter)
     const failed = reported(console, () => {
       process.exitCode = printGraph(console, modelPicture(args.dir), stdoutWriter)
-      if (args.out == null)
-        return
-      const written = writeGraphPage(args.dir, args.out)
-      if (written != null)
-        console.line(console.lore.graphPageWritten(written))
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+}), ROOT_META)
+
+const atlas = withKnownFlags(defineCommand({
+  meta: { name: 'atlas', description: 'Discover the code into the Engram and build the Atlas page from it: one self-contained HTML file, written into no tracked file' },
+  args: {
+    ...commonArgs,
+    out: { type: 'string', description: 'Write the page here instead of .construct/atlas.html' },
+  },
+  run({ args }) {
+    const console = ui(args)
+    const failed = reported(console, () => {
+      const attached = readAttachRecord(path.resolve(args.dir)) != null
+      process.exitCode = printAtlas(console, runAtlas({ dir: args.dir, home: homedir(), attached, out: args.out }))
     })
     if (failed !== 0)
       process.exitCode = failed
@@ -467,6 +478,7 @@ export const main = defineCommand({
     cost,
     board,
     graph,
+    atlas,
     intake,
     mutate,
   },

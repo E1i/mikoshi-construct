@@ -1,5 +1,21 @@
 {
   "commands": {
+    "atlas": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "out": {
+          "type": "string"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
     "attach": {
       "flags": {
         "ai": {
@@ -123,9 +139,6 @@
         },
         "johnny": {
           "type": "boolean"
-        },
-        "out": {
-          "type": "string"
         },
         "plain": {
           "type": "boolean"
@@ -422,7 +435,7 @@
   },
   "formats": {
     "manifestVersion": 6,
-    "modelVersion": 4,
+    "modelVersion": 5,
     "recordVersion": 2
   },
   "jsonKeys": {

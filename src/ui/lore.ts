@@ -148,7 +148,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   recordClaimNotBorn: (claimId: string, doesNotHold: readonly [string, ...string[]]) => string
   recordAhead: (record: string, field: string, found: number, understood: number) => string
   modelIsWrittenByInit: string
-  graphPageWritten: (target: string) => string
+  atlasPageWritten: (target: string) => string
   intakeRefusedAdmitWithDraft: string
   intakeRefusedNoDraft: string
   intakeRefusedNoTaken: string
@@ -482,7 +482,7 @@ export const LORE: Lore = {
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `ENGRAM WITHHELD: ${claimId} was not recorded \u2014 ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
   recordAhead: (record: string, field: string, found: number, understood: number) => `RELIC FROM A LATER BUILD: ${record} declares ${field} ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
-  graphPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
+  atlasPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
   intakeRefusedAdmitWithDraft: 'INTAKE REFUSED // ONE DOOR: --admit takes a card already parked; --draft and --taken slice new ones, never in the same run',
   intakeRefusedNoDraft: 'INTAKE REFUSED // NO DRAFT: --draft names the sliced cards as JSON, a file or - for stdin',
   intakeRefusedNoTaken: 'INTAKE REFUSED // NO TAKEN NUMBERS: --taken names the pull request and issue numbers, a file or - for stdin; a card number shared with one of them is worse than no card',
@@ -836,7 +836,7 @@ export const PLAIN_LORE: Lore = {
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `Did not record the claim ${claimId}: ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
   recordAhead: (record: string, field: string, found: number, understood: number) => `${record} declares ${field} ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
-  graphPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
+  atlasPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
   intakeRefusedAdmitWithDraft: 'Refused: --admit takes a card already parked, and --draft with --taken slices new ones; run them separately. Nothing was written.',
   intakeRefusedNoDraft: 'Refused: --draft names the sliced cards as JSON, a file or - for stdin. Nothing was written.',
   intakeRefusedNoTaken: 'Refused: --taken names the pull request and issue numbers, a file or - for stdin, because card numbers are shared with them. Nothing was written.',

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { LINK_PROPERTIES, NODE_PROPERTIES, NODE_SOURCE_PROPERTIES, STAGE_PROPERTIES } from '../src/model/schema.js'
+import { COMMAND_SOURCE_PROPERTIES, COMPONENT_PROPERTIES, IDENTITY_PROPERTIES, LINE_SOURCE_PROPERTIES, LINK_PROPERTIES, MECHANICS_PROPERTIES, NODE_PROPERTIES, NODE_SOURCE_PROPERTIES, RELATION_PROPERTIES, STAGE_PROPERTIES, TREE_PROPERTIES } from '../src/model/schema.js'
 import { buildModel } from '../src/model/write.js'
 
 const DOCUMENT = readFileSync(path.join(import.meta.dirname, '../architecture/engram.md'), 'utf8')
@@ -16,6 +16,11 @@ describe('architecture/engram.md explains every property the engram lists use', 
   it('names all eleven members with what each means beside it', () => {
     expect(MEMBERS).toHaveLength(11)
     expect(unexplained(MEMBERS)).toEqual([])
+  })
+
+  it('names every property of the mechanics discovery writes', () => {
+    const mechanics = [...MECHANICS_PROPERTIES, ...IDENTITY_PROPERTIES, ...TREE_PROPERTIES, ...COMMAND_SOURCE_PROPERTIES, ...LINE_SOURCE_PROPERTIES, ...COMPONENT_PROPERTIES, ...RELATION_PROPERTIES]
+    expect(unexplained(mechanics)).toEqual([])
   })
 
   it('reports an invented member', () => {

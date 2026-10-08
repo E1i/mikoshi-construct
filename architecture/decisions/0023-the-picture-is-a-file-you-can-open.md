@@ -1,6 +1,6 @@
 # 0023 — The picture is one file you can open, and what would count as evidence anyone did
 
-Status: accepted · 2026-09-21
+Status: superseded by [0054](0054-the-atlas-page-replaces-graph-out.md)
 
 ## Context
 
