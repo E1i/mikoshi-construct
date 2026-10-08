@@ -36,6 +36,14 @@ or heading each, and runs `pnpm handoff:check <file>`. A handoff that fails is n
 start from it. A Ghost's continuation under `continue: auto` is held to the same check on its shift report
 (`continues` in `scripts/shift/continuation.ts`).
 
+`pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
+the current directory, each with the continuation prompt and `--model` (the flag, else the model of the newest transcript of
+this directory under `~/.claude/projects/`; with neither it starts nothing). Before every session, the first included, it
+reads the handoff: a handoff that fails `handoff:check`, or has no `STATUS:` line, stops it with exit 1; the last
+`STATUS: CONTINUE` runs the next session, `STATUS: OWNER` or `STATUS: DONE` stops it, and so does reaching `--max` (default
+the shift's restart ceiling, three). Each session leaves an `event:relaunch` line in `ghosts.jsonl`, each stop one
+`event:relaunch-stop` line with its reason.
+
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
