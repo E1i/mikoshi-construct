@@ -8,7 +8,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
+import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
@@ -21,8 +21,9 @@ export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this
 export function promptFirstLine(handoff: string): string {
   return `${CONTINUE_PROMPT}: ${handoff} — write it only with pnpm handoff:write ${handoff} <draft>`
 }
-export function relaunchPrompt(handoff: string): string {
-  return `${promptFirstLine(handoff)}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
+export function relaunchPrompt(handoff: string, decisions: string | null): string {
+  const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each one there with its date, and never copy them into the handoff.`
+  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
 
@@ -170,7 +171,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     const text = readHandoff(deps, handoff)
     if (text === null)
       return stop(`no handoff at ${handoff}`, 1)
-    const refusals = handoffRefusals(text, { file: handoff, exists: deps.exists, parked: deps.parked() })
+    const refusals = handoffRefusals(text, { file: handoff, home: deps.home, exists: deps.exists, parked: deps.parked() })
     if (refusals.length > 0) {
       for (const line of refusals)
         deps.err(line)
@@ -186,7 +187,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     sessions += 1
     const session = deps.uuid()
     deps.out(`${PREFIX}session ${sessions}/${parsed.max} ${session} on ${model}`)
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model] })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home)), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model] })
     await record(deps, {
       event: 'relaunch',
       handoff,

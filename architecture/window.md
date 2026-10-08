@@ -34,7 +34,7 @@ not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for o
 At the Eddies warn the window writes its handoff with the fields `scripts/ghosts/handoff-check.ts` lists, one labelled line
 or heading each, and runs `pnpm handoff:check <file>`. A handoff that fails is not a handoff, and the next window does not
 start from it. The handoff does not grow and does not retell the queue: it holds exactly one STOP section, at most
-`HANDOFF_LIMIT` characters (a refusal names the largest field), a `queue:` of card numbers only (`#N`, in an order the
+`HANDOFF_LIMIT` bytes, UTF-8, by one measure in `handoff:check` and `handoff:write` (a refusal names the largest field), a `queue:` of card numbers only (`#N`, in an order the
 cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #M]` line per card (or `none`), and a
 `prev:` naming the archive the previous handoff went to. The handoff file is written only by
 `pnpm handoff:write <handoff> <draft> [--parking <dir>]`, never by hand: it checks the draft, moves the old handoff to
