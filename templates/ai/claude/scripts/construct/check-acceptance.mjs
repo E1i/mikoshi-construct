@@ -36,7 +36,7 @@ export const ENTRY_RESULT = 'accepted · not started'
 export class InputError extends Error {}
 
 export function normalizeItem(item) {
-  return item.trim().replace(/\s+/g, ' ').replace(/\.$/, '')
+  return item.trim().replace(/(`[^`]*`)|\s+/g, (_run, quoted) => quoted ?? ' ').replace(/\.$/, '')
 }
 
 function splitOutsideBackticks(body) {

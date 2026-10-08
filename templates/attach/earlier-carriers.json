@@ -548,5 +548,10 @@
     "target": "scripts/construct/browser-lab.mjs",
     "sha256": "78c81662ffb5ad7e8eb2d388253e080533783368ab2eece9ed50a45f1c17b512",
     "date": "2026-10-06"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "5c8958af12ab15132eb5ab02d441ba6a0fae937884ad40b995556ed0d2d1e342",
+    "date": "2026-10-08"
   }
 ]
