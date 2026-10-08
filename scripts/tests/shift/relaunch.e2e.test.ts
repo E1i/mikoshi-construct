@@ -6,7 +6,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { runClaude } from '../../shift/claude.js'
-import { runRelaunch } from '../../shift/relaunch.js'
+import { createExclusive, runRelaunch } from '../../shift/relaunch.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub-brain.sh')
 const PNPM_SHIM_DIR = path.join(import.meta.dirname, 'fixtures', 'brain-bin')
@@ -33,6 +33,8 @@ function brainWorld(): { deps: RelaunchDeps, handoff: string, stubOut: string } 
     projectsDir: path.join(root, 'projects'),
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),
+    create: createExclusive,
+    remove: file => rmSync(file, { force: true }),
     exists: existsSync,
     parked: () => new Map(),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
