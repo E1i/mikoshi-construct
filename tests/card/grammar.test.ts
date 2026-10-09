@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardHead, cardLine, decisionsOf, parseCard } from '../../src/card/grammar.js'
+import { cardHead, cardLine, decisionsOf, parseCard, readBodyCard } from '../../src/card/grammar.js'
 import { MILESTONES } from '../../src/card/milestones.js'
 
 const VALID = '#123 task-card [implement/ghosts/M/cheap/owner] · depends #86, #90 · blocks #124 the board card'
@@ -72,5 +72,24 @@ describe('decisionsOf', () => {
   it('lists the decisions a kind takes, the default first', () => {
     expect(decisionsOf('implement')).toEqual(['owner', 'auto'])
     expect(decisionsOf('probe')).toEqual(['none'])
+  })
+})
+
+describe('readBodyCard', () => {
+  it('the body card line reads with and without the card: prefix and is written in one form', () => {
+    const parsed = parseCard(VALID)
+    if (parsed.kind !== 'card')
+      throw new Error(parsed.reason)
+    const written = cardLine(parsed.card)
+    expect(written.startsWith('#123 ')).toBe(true)
+    expect(readBodyCard(`${written}\n\nbody`)).toEqual(parseCard(written))
+    expect(readBodyCard(`card: ${written}\n\nbody`)).toEqual(parseCard(written))
+    expect(readBodyCard(` card: ${written} `)).toEqual(parseCard(written))
+  })
+
+  it('refuses a body whose first line is not a card, prefixed or not', () => {
+    expect(readBodyCard('not a card\n#1 x [implement/ice/S/cheap/auto] · depends — · blocks —').kind).toBe('refused')
+    expect(readBodyCard('card: not a card').kind).toBe('refused')
+    expect(readBodyCard('').kind).toBe('refused')
   })
 })

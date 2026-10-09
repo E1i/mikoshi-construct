@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parseCard } from '../../src/card/grammar.js'
+import { readBodyCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { GHOST_JOURNAL, REPO } from '../shift/places.js'
@@ -74,7 +74,7 @@ function lookUp(deps: MergedDeps, pr: number): Outcome {
     return { kind: 'skip', skip: 'closed', detail: 'closed without merge' }
   if (view.state !== 'MERGED')
     return { kind: 'open' }
-  const card = parseCard((view.body ?? '').split('\n')[0]!)
+  const card = readBodyCard(view.body ?? '')
   if (card.kind === 'refused')
     return { kind: 'skip', skip: 'no-card', detail: `without a card: ${card.reason}` }
   return { kind: 'merge', line: { event: 'merge', task: String(card.card.id), pr, by: view.mergedBy.login, commit: view.mergeCommit.oid, merged: view.mergedAt, ts: deps.now().toISOString() } }

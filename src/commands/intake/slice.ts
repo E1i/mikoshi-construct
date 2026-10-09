@@ -4,7 +4,7 @@ import type { DraftCard, UnclearField } from './draft.js'
 import { seamLines, splitSignal } from '../../card/complexity.js'
 import { cardLine } from '../../card/grammar.js'
 import { parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
-import { riskLines, riskReading } from '../../card/risk.js'
+import { riskLines, riskReading, SLICE_PREFIX } from '../../card/risk.js'
 import { CARD_REFERENCE, correctionText, DEFAULT_CONTOUR } from './check.js'
 
 export interface SlicedCard {
@@ -71,6 +71,10 @@ function bodyOf(card: CheckedCard, unclear: readonly UnclearField[], seam: reado
   ].join('\n')
 }
 
+function slicedByItsText(card: CheckedCard): boolean {
+  return card.task.split('\n').some(line => line.trim().startsWith(SLICE_PREFIX))
+}
+
 function sorted(ids: Iterable<number>): number[] {
   return [...new Set(ids)].sort((a, b) => a - b)
 }
@@ -99,6 +103,9 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const seam = seamLines(split)
     const reading = riskReading(card.touches, split.slices.length > 0)
     const risk = riskLines(reading)
+    const proposesSlices = split.slices.length > 0 || reading.slices.length > 0
+    if (proposesSlices && card.whole === undefined && slicedByItsText(card))
+      reasons.push(`${card.name}: the task text names its own slices and the seam proposes others; a card has one source of slicing, so cut the draft into the cards its text names, or drop the '${SLICE_PREFIX.trim()}' lines from the task`)
     const heldForSlicing = card.whole === undefined && (split.split || reading.slices.length > 0)
     const who = unclear.length > 0 || heldForSlicing ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
     const file = `${id}.md`
