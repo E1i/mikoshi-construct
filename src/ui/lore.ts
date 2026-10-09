@@ -157,6 +157,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeRefusedUnreadable: (why: string) => string
   intakeRefusedInvalid: string
   intakeRefusedInvalidTestPattern: string
+  intakeRefusedQueueFrozen: (lane: string, axes: readonly string[]) => string
   intakeWritten: (file: string, card: string) => string
   intakeUnclear: (count: number, who: string) => string
   intakeCorrected: (text: string) => string
@@ -492,6 +493,7 @@ export const LORE: Lore = {
   intakeRefusedNoTaken: 'INTAKE REFUSED // NO TAKEN NUMBERS: --taken names the pull request and issue numbers, a file or - for stdin; a card number shared with one of them is worse than no card',
   intakeRefusedBothFromStdin: 'INTAKE REFUSED // ONE STDIN: --draft and --taken cannot both read -',
   intakeRefusedUnreadable: (why: string) => `INTAKE REFUSED // NO SIGNAL: ${why}`,
+  intakeRefusedQueueFrozen: (lane: string, axes: readonly string[]) => `INTAKE REFUSED // QUEUE FROZEN: ${lane} takes only a card with the line «Решение: Law» or one that blocks a card already in a lane; park this one under an axis instead: ${axes.join(', ')}`,
   intakeRefusedInvalidTestPattern: 'INTAKE REFUSED // a witness passes vitest a -t that is not a regular expression and can never exit 0; nothing parked',
   intakeRefusedInvalid: 'INTAKE REFUSED // the draft does not slice into valid cards; nothing parked',
   intakeWritten: (file: string, card: string) => `CARD PARKED // ${file}: ${card}`,
@@ -846,6 +848,7 @@ export const PLAIN_LORE: Lore = {
   intakeRefusedNoTaken: 'Refused: --taken names the pull request and issue numbers, a file or - for stdin, because card numbers are shared with them. Nothing was written.',
   intakeRefusedBothFromStdin: 'Refused: --draft and --taken cannot both read stdin. Nothing was written.',
   intakeRefusedUnreadable: (why: string) => `Refused: ${why}. Nothing was written.`,
+  intakeRefusedQueueFrozen: (lane: string, axes: readonly string[]) => `Refused: the queue is frozen, and ${lane} takes only a card with the line «Решение: Law» or one that blocks a card already in a lane. Park this one under one of the axes instead: ${axes.join(', ')}. Nothing was written.`,
   intakeRefusedInvalidTestPattern: 'Refused: a witness passes vitest a -t that does not compile as a regular expression, so it can never exit 0. Nothing was written:',
   intakeRefusedInvalid: 'Refused: the draft does not slice into valid cards. Nothing was written:',
   intakeWritten: (file: string, card: string) => `Wrote ${file}: ${card}`,

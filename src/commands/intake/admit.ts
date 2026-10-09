@@ -15,6 +15,7 @@ import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, corr
 import { DirectoryFacts } from './facts.js'
 import { defaultParking, INTAKE_EXIT } from './index.js'
 import { parkedNumbers } from './numbers.js'
+import { AXES, entersFrozenQueue, laneOf, queueNumbers } from './queue.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 const WITNESS_ITEM = /^- (.+)$/
@@ -38,6 +39,7 @@ export interface AdmitOptions {
 
 export type AdmitResult
   = | { status: 'refused', why: string }
+    | { status: 'queueFrozen', lane: string }
     | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
@@ -175,9 +177,10 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const invalidPatterns = invalidTestPatterns([draft])
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
+  const parkingRoot = options.parkingRoot ?? defaultParking()
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
-    parked: new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking()))),
+    parked: new Set(parkedNumbers(parkedAcrossLanes(options.file, parkingRoot))),
     done: new Set(closedTasks(journal).keys()),
     merged: mergedTasks(journal),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
@@ -196,6 +199,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const recorded = latestIntake(journal, card)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
+  const lane = laneOf(options.file, parkingRoot)
+  if (source === ADMIT_SOURCE && lane !== null && entersFrozenQueue(card.id, parsed.parked.task.body, ids(checked.blocks), queueNumbers(parkingRoot)))
+    return { status: 'queueFrozen', lane }
   const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source }
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text))
     return { ...base, status: 'alreadyAdmitted' }
@@ -217,6 +223,10 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
 export function printAdmit(ui: Ui, result: AdmitResult): number {
   if (result.status === 'refused') {
     ui.flatline(ui.lore.intakeRefusedUnreadable(result.why))
+    return INTAKE_EXIT.refused
+  }
+  if (result.status === 'queueFrozen') {
+    ui.flatline(ui.lore.intakeRefusedQueueFrozen(result.lane, AXES))
     return INTAKE_EXIT.refused
   }
   if (result.status === 'invalidTestPattern') {

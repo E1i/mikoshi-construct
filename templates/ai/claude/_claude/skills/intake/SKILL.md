@@ -80,7 +80,16 @@ Every parked card gets an `intake` line in the journal, with its confirmation (`
 corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is what holds a
 corrected card back. Only an unclear field sets `who: window`.
 
-## 4. Report
+## 4. The queue is frozen
+
+A lane is a parking directory directly under the parking root named `lane-<n>` or by date (`2026-10-09-a`); the
+queue is every card in a lane when `construct intake --admit <lane>/<id>.md` runs. The queue is frozen at its
+current composition: a new card enters a lane only if its body carries the line `Решение: Law` or it blocks a card
+already in the queue. `--admit` refuses any other card in a lane and names the axes to park it under instead:
+`autonomy`, `cost`, `self-learning`, `interface`, `architecture`. Slice that work with
+`--parking <parking root>/<axis>`; a card already admitted is amended in its lane as before.
+
+## 5. Report
 
 Report each card line `construct intake` printed and every `corrected:` and `unclear:` line under it. On exit `2`,
 report the held cards, their corrections and the token, and wait for the person before running `--confirm`. If it
