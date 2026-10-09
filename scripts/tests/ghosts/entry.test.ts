@@ -9,6 +9,10 @@ describe('the entry line', () => {
     expect(entryLine('7', SIGNAL, 't').endsWith('\n')).toBe(true)
   })
 
+  it('orders its keys event, schema, task, the four fields, then the time', () => {
+    expect(Object.keys(JSON.parse(entryLine('7', SIGNAL, 't')) as object)).toEqual(['event', 'schema', 'task', 'CONTRACT', 'EXPECT', 'ACTION', 'RESULT', 'ts'])
+  })
+
   it('is read back for its own task, the last one, past lines that are not entries', () => {
     const journal = [entryLine('7', { ...SIGNAL, CONTRACT: 'old' }, 't'), '{not json', JSON.stringify({ event: 'path', task: '7' }), entryLine('8', SIGNAL, 't'), entryLine('7', SIGNAL, 't')].join('')
     expect(entryOf(journal, '7')).toMatchObject(SIGNAL)

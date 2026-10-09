@@ -18,7 +18,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { ENTRY_RESULT, entryLine } from './entry.js'
 
 export const PREFIX = '[task:start] '
-export const USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
+export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]'
 const CARD_FLAG = '--card'
 const PARKING_FLAG = '--parking'
 const WITHOUT_INTAKE_FLAG = '--without-intake'
@@ -176,7 +176,13 @@ function readCardFile(deps: TaskStartDeps, card: Card, parkingDir: string | unde
   if (deps.parking === undefined)
     return { kind: 'missing' }
   const file = path.join(parkingDir === undefined ? deps.parking.dir : path.resolve(deps.cwd, parkingDir), `${card.id}.md`)
-  const text = deps.parking.read(file)
+  let text: string | null
+  try {
+    text = deps.parking.read(file)
+  }
+  catch (error) {
+    return { kind: 'refused', reason: `${file} could not be read: ${firstLine(error)}` }
+  }
   if (text === null)
     return { kind: 'missing' }
   const parsed = parseParkingFile(path.basename(file), text)
