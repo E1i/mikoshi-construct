@@ -70,7 +70,12 @@ A `touches` path that does not exist, a number the retelling names, a contour or
 card grammar and a `depends` on a card already closed are each corrected by facts, and each correction
 is written into the card as `corrected: <field> — <was> → <now> — <reason>`, so the original is never
 lost. Where the facts do not name one answer, the value stays as written and an `unclear:` line says
-what was found. The check refuses nothing: a kind outside the grammar is still refused by the
+what was found. A change of some kinds always carries companions — a README row, a `docs/guide` page,
+a CONTRIBUTING row, a changeset, the test beside the code — and asking for each of them stops an
+unattended shift on a question whose answer is mechanical. One table, `COMPANION_TABLE` in
+`src/commands/intake/check.ts`, maps a kind of touched path to its companions; intake adds every
+companion a card lacks to `touches` as a correction, and those corrections alone do not hold the card
+for a person. The check refuses nothing: a kind outside the grammar is still refused by the
 grammar's own reason.
 
 ## Corrected is confirmed before it is parked

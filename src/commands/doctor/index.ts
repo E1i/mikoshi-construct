@@ -1,6 +1,6 @@
 import type { DiscoveryMarker } from '../../manifest.js'
 import type { ProvenanceEvidence } from './families.js'
-import type { HarnessReading } from './harness.js'
+import type { HarnessReading, NoHarnessReading } from './harness.js'
 import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
@@ -10,11 +10,11 @@ import { readManifest, recordedShas } from '../../manifest.js'
 import { authoredByOwner } from '../../model/ownership.js'
 import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
-import { readAttachRecord } from '../attach/record.js'
+import { NO_HARNESS, readAttachRecord } from '../attach/record.js'
 import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
 import { isIntact } from './families.js'
-import { HARNESS_COVERAGE_CLAIM, harnessProblems, harnessReading, readHarnessFacts } from './harness.js'
+import { HARNESS_COVERAGE_CLAIM, harnessProblems, harnessReading, NO_HARNESS_READING, readHarnessFacts } from './harness.js'
 import { claimsNotCarried } from './not-carried.js'
 import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
@@ -44,7 +44,7 @@ export interface DoctorResult {
 
 export interface AttachedReport {
   state: 'attached'
-  harness: HarnessReading
+  harness: HarnessReading | NoHarnessReading
 }
 
 export function runDoctor(root: string, version: string = VERSION): DoctorResult | AttachedReport | null {
@@ -53,6 +53,8 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     const record = readAttachRecord(root)
     if (record == null)
       return null
+    if (record.harness === NO_HARNESS)
+      return { state: 'attached', harness: NO_HARNESS_READING }
     const knowledge = projectKnowledge(readModel(root), root, authoredByOwner, { reports: 'read', constructPaths: [] })
     return { state: 'attached', harness: harnessReading(record.harness.command, knowledge.stages[HARNESS_COVERAGE_CLAIM]?.verification) }
   }

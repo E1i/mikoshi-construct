@@ -1,8 +1,9 @@
-import type { CheckVerdict, ClaimPlacement, DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
+import type { AttachedReport, CheckVerdict, ClaimPlacement, DoctorResult, MarkerReading } from '../src/commands/doctor/index.js'
 import type { SelectedPath, StoppingFinding } from '../src/model/path.js'
 import type { ThemeName } from '../src/ui/theme.js'
 import { describe, expect, it } from 'vitest'
-import { printDoctor } from '../src/commands/doctor/index.js'
+import { NO_HARNESS_READING } from '../src/commands/doctor/harness.js'
+import { DOCTOR_EXIT, doctorJson, printDoctor } from '../src/commands/doctor/index.js'
 import { CHAIN_STAGES } from '../src/model/path.js'
 import { createUi } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
@@ -45,7 +46,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
   }
 }
 
-function render(value: DoctorResult | null, theme: ThemeName = 'plain'): { output: string, code: number } {
+function render(value: DoctorResult | AttachedReport | null, theme: ThemeName = 'plain'): { output: string, code: number } {
   const lines: string[] = []
   const ui = createUi(resolveTheme({ plain: theme === 'plain', johnny: theme === 'johnny' }), text => lines.push(text))
   const code = printDoctor(ui, value)
@@ -279,4 +280,28 @@ describe('the you-are-here line names the fact that stopped matching', () => {
       expect(() => lore.youAreHereUnsupported('harness-steps', 'enforcement', [])).not.toThrow()
     })
   }
+})
+
+describe('an attached repository whose record names no harness', () => {
+  const none: AttachedReport = { state: 'attached', harness: NO_HARNESS_READING }
+
+  for (const theme of ['plain', 'arasaka', 'johnny'] as const) {
+    it(`says plainly in the ${theme} theme that the harness is not covered, and names no command`, () => {
+      const { output, code } = render(none, theme)
+      expect([PLAIN_LORE.doctorAttachedNoHarness, LORE.doctorAttachedNoHarness].some(line => output.includes(line))).toBe(true)
+      expect(output.toLowerCase()).toContain('not covered')
+      expect(output).not.toContain('Harness `')
+      expect(code).toBe(DOCTOR_EXIT.ok)
+    })
+  }
+
+  it('keeps the --json keys of an attached report, with no command and the state none', () => {
+    expect(doctorJson(none)).toMatchObject({ state: 'attached', harness: { command: null, state: 'none' } })
+  })
+
+  it('still reads a named harness by its command', () => {
+    const { output } = render({ state: 'attached', harness: { command: 'pnpm test', state: 'unknown' } })
+    expect(output).toContain(PLAIN_LORE.doctorAttachedHarness('pnpm test', 'unknown'))
+    expect(output).not.toContain(PLAIN_LORE.doctorAttachedNoHarness)
+  })
 })
