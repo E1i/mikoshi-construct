@@ -19,6 +19,8 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'task:close': 'appends a task\'s closing journal line when run by hand; its own tests are its gate',
   'relaunch': 'runs the coordinating window\'s handoff in headless sessions when run by hand; its own tests, on a claude stub, are its gate',
   'shift': 'runs a shift of headless sessions when run by hand; its own tests, on a claude stub, are its gate',
+  'relaunch:bg': 'starts relaunch as a detached process when run by hand; its own tests, on nohup and pnpm stubs, are its gate',
+  'doctor:factory': 'compares the factory permissions contract with the local settings of the machine it runs on, which the harness does not have; its own tests, on a gh stub, are its gate',
   'shift:bg': 'starts a shift as a detached process when run by hand; its own tests, on nohup, setsid and pnpm stubs, are its gate',
   'shift:merge': 'arms auto-merge on a shift task\'s pull request when run by hand; its own tests, on a gh stub, are its gate',
   'shift:report': 'prints the table of a shift that ran; its own tests are its gate',
