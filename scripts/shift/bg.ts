@@ -19,7 +19,7 @@ export interface BgResult {
 }
 
 const ANSWERABLE_STOPS: readonly unknown[] = ['question', 'merge']
-const STATELESS_EVENTS: readonly unknown[] = ['intake', 'intake-move', 'answer-brief', 'note']
+const STATELESS_EVENTS: readonly unknown[] = ['intake', 'intake-move', 'answer-brief', 'note', 'review-missing']
 
 interface JournalLine {
   event?: unknown
