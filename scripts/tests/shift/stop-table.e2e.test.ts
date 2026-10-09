@@ -29,6 +29,7 @@ const ROWS: Record<string, Row> = {
   'an owner card stops at merge naming the owner': { card: { id: 1, kind: OWNER, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, at: 'merge', why: /merge is Eli's/, worktree: true },
   'an auto card whose pull request is armed leaves no stop': { card: { id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, at: null, why: null, worktree: true },
   'a probe closed by its report leaves no stop': { card: { id: 1, kind: PROBE, body: 'do 1 STUB-PROBE-CLOSE' }, at: null, why: null, worktree: true },
+  'a question card the probe closed writes no stop line': { card: { id: 1, kind: PROBE, body: 'do 1 STUB-QUESTION STUB-PROBE-CLOSE' }, at: null, why: null, worktree: true },
   'a probe whose report closes nothing stops at fault': { card: { id: 1, kind: PROBE, body: 'do 1' }, at: 'fault', why: 'the probe report closed no task', worktree: true },
 }
 

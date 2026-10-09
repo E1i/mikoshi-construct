@@ -503,8 +503,9 @@ function stopAt(where: Where, kind: Stop['at'], why: string, pr?: number): StopR
   return { at: kind, why, ...where, ...(pr === undefined ? {} : { pr }) }
 }
 
-function askedStop(where: Where, finish: Pick<Finish, 'reason' | 'report'>): StopRecord | null {
-  return finish.reason === 'owner-question' ? stopAt(where, 'question', QUESTION_TEXT.exec(finish.report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[finish.reason]) : null
+function askedStop(where: Where, finish: Pick<Finish, 'reason' | 'report' | 'closed' | 'merge'>): StopRecord | null {
+  const closedByItsReport = finish.closed && finish.merge === undefined
+  return finish.reason === 'owner-question' && !closedByItsReport ? stopAt(where, 'question', QUESTION_TEXT.exec(finish.report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[finish.reason]) : null
 }
 
 function interruptedStop(where: Where, finish: Pick<Finish, 'reason' | 'halted' | 'exit'>): StopRecord | null {
