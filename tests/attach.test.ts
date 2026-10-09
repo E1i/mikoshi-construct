@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
-import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
+import { ATTACH_EXIT, ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { originalCopyPath } from '../src/commands/attach/original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
@@ -209,7 +209,6 @@ const REFUSALS: RefusalCase[] = [
     mkdirSync(path.join(dir, 'scripts/construct'), { recursive: true })
     writeFileSync(path.join(dir, 'scripts/construct/check-acceptance.mjs'), 'export {}\n')
   } },
-  { name: '--yes without --harness', refusal: 'no-harness', reason: PLAIN_LORE.attachRefusedNoHarness, arrange: () => {}, options: { harness: undefined } },
   { name: '--ai cursor', refusal: 'cursor', reason: PLAIN_LORE.attachRefusedCursor, arrange: () => {}, options: { ai: 'cursor' } },
   { name: 'a harness that is a script name', refusal: 'not-a-command', reason: PLAIN_LORE.attachRefusedNotACommand('quality', ['npm run quality', 'npx quality']).what, arrange: () => {}, options: { harness: 'quality' } },
 ]
@@ -505,15 +504,13 @@ describe('attach decides without reading the stack (#232)', () => {
     expect(listing(dir)).toEqual(before)
   })
 
-  it('refuses a Go repository with --yes and no --harness as no-harness, and changes nothing', async () => {
+  it('attaches a Go repository with --yes and no --harness, exiting 0 with harness none', async () => {
     const dir = goRepository(false)
-    const before = listing(dir)
 
     const result = await runAttach(ui, { dir, harness: undefined, yes: true })
 
-    expect(result.status).toBe('refused')
-    expect(result.refusal).toBe('no-harness')
-    expect(listing(dir)).toEqual(before)
+    expect(ATTACH_EXIT[result.status]).toBe(0)
+    expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
   })
 
   it('reads an attached Go repository as attached, never checked, without a report', async () => {
@@ -924,6 +921,20 @@ describe('interactive attach proposes the harness candidates it read from the re
 
     expect(result.status).toBe('done')
     expect(offered()).toEqual(['npm run test'])
+    expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
+    expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
+  })
+
+  it('with candidates in the repository, --yes and no --harness asks nothing, exits 0 and records harness none', async () => {
+    const dir = fixture()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'unattended', private: true, scripts: { test: 'vitest run' } }))
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(candidates => candidates[0])
+
+    const result = await runAttach(ui, { dir, yes: true }, prompter)
+
+    expect(ATTACH_EXIT[result.status]).toBe(0)
+    expect(offered()).toBeUndefined()
     expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
     expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
   })

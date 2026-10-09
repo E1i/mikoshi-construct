@@ -72,7 +72,6 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'settings-guarded': lore => lore.attachRefusedSettingsGuarded,
   'settings-original': lore => lore.attachRefusedSettingsOriginal,
   'original-pending': lore => lore.attachRefusedOriginalPending,
-  'no-harness': lore => ({ what: lore.attachRefusedNoHarness, ...lore.attachNoHarnessExplained }),
   'cursor': lore => lore.attachRefusedCursor,
   'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
 }
@@ -156,7 +155,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   }
   const interactive = options.yes ? undefined : prompter
 
-  const harness = options.harness != null ? { command: options.harness } : interactive == null ? undefined : await askHarness(ui, root, interactive)
+  const harness = options.harness != null ? { command: options.harness } : interactive == null ? NO_HARNESS : await askHarness(ui, root, interactive)
   if (harness == null)
     return aborted()
   if (harness === NO_HARNESS)

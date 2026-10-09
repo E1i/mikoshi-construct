@@ -197,8 +197,6 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachRefusedAttached: string
   attachRefusedNothingToAttach: string
   attachRefusedCollision: (paths: string[]) => string
-  attachRefusedNoHarness: string
-  attachNoHarnessExplained: { why: string, next: string }
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => { why: string, next: string }
   attachCollisionEarlier: (date: string) => string
   attachCollisionForeign: string
@@ -536,11 +534,6 @@ export const LORE: Lore = {
   attachRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
   attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
-  attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
-  attachNoHarnessExplained: {
-    why: 'The net never guesses the command the ladder verifies with; which command mirrors what this repository\'s CI runs is a reading of the repository, and that reading is the agent\'s.',
-    next: 'npx mikoshi-construct attach --entry prints the entry protocol: the agent reads CI, scripts, test configs and hooks, proposes one command, and you answer yes or no.',
-  },
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
     why: recognised === 0
       ? 'None of them is byte for byte a construct template of any version, so they are yours; the net writes over nothing.'
@@ -895,11 +888,6 @@ export const PLAIN_LORE: Lore = {
   attachRefusedAttached: 'Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.',
   attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
-  attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
-  attachNoHarnessExplained: {
-    why: 'attach never guesses the command the ladder verifies with; which command mirrors what this repository\'s CI runs is a reading of the repository, and that reading is the agent\'s.',
-    next: 'npx mikoshi-construct attach --entry prints the entry protocol: the agent reads CI, scripts, test configs and hooks, proposes one command, and you answer yes or no.',
-  },
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
     why: recognised === 0
       ? 'None of them is byte for byte a construct template of any version, so they are yours; attach writes over nothing.'

@@ -1061,9 +1061,9 @@ did in `.construct/attach.json`. No `construct.json`, no
 
 | Option | Default | What it does |
 |---|---|---|
-| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: without a terminal it must be passed; in a terminal attach first offers the [candidates](#harness-candidates) it read. |
+| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
-| `--yes`, `-y` | `false` | Skip the confirmation. Needs `--harness`. |
+| `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
 
 ```bash
@@ -1119,9 +1119,9 @@ with nothing to propose, which attach says without asking — is not a refusal: 
 goes on, and records `"harness": "none"` in [the record](#the-record). `construct doctor` in that
 repository then says `Harness: none — not covered.` and names the way to one: `construct detach`, then
 `construct attach --harness "<command>"`; its `--json` carries `"harness": { "command": null, "state": "none" }`.
-Under `--yes` nothing is proposed and `--harness` is still required.
+Under `--yes` without `--harness` nothing is proposed or asked: that is the answer no, and attach records `"harness": "none"` the same way, whether or not the repository offers candidates.
 
-### The twelve refusals
+### The eleven refusals
 
 Every check runs before anything is written, in this order, and a refusal creates nothing — not even
 `.construct/`:
@@ -1138,7 +1138,6 @@ Every check runs before anything is written, in this order, and a refusal create
 | `.claude/settings.local.json` is tracked by git | `Refused: .claude/settings.local.json is tracked by git.`, then why and next |
 | `.claude/settings.local.json` does not parse as a JSON object, its `hooks` is not an object, its `hooks.PreToolUse` is not a list, or it is not a regular file (a symlink) | `Refused: .claude/settings.local.json is not a settings file attach can edit.`, then why and next |
 | `.claude/settings.local.json` already carries an entry that runs `.construct/commit-guard.mjs` | `Refused: .claude/settings.local.json already carries an entry that runs .construct/commit-guard.mjs.`, then why, and next: keep the file; run `construct detach` first if the repository is still attached, or delete only that entry |
-| `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.`, then why, and the next step: `npx mikoshi-construct attach --entry` prints the entry protocol |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
 | the first word of the harness command (after any `VAR=value`) is not a path, a shell word such as `cd`, or an executable in an absolute `PATH` directory — a `package.json` script name such as `quality`, or a binary under `node_modules/.bin` such as `vitest` | `Refused: "quality" is not a command found on PATH.`, then why, and the next step with the rest of the command kept: `--harness "npm run quality"  or  --harness "npx quality"` |
 
