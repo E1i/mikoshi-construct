@@ -1,4 +1,4 @@
-import type { TaskCloseDeps } from '../../ghosts/task-close.js'
+import type { OpenIssue, TaskCloseDeps } from '../../ghosts/task-close.js'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
@@ -404,5 +404,69 @@ describe('the card line of the pull request body', () => {
     expect(result.exitCode).toBe(0)
     expect(written).toHaveLength(1)
     expect(result.stderr).toEqual([expect.stringContaining('body not read, card line not checked: gh: no network')])
+  })
+})
+
+describe('task:close closes the GitHub issue of its card', () => {
+  function issues(open: Record<number, OpenIssue>): { closed: [number, string][], deps: Pick<TaskCloseDeps, 'openIssue' | 'closeIssue'> } {
+    const closed: [number, string][] = []
+    return { closed, deps: { openIssue: number => open[number] ?? null, closeIssue: (number, comment) => closed.push([number, comment]) } }
+  }
+
+  it('task:close closes the issue of its card with a link to the PR', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    const github = issues({ 123: { title: 'n: the thing to do', body: null } })
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, ...github.deps })
+    expect(result.exitCode).toBe(0)
+    expect(github.closed).toEqual([[123, 'Closed by task:close #123 n: PR #460.']])
+    expect(result.stdout.at(-1)).toBe('[task:close] issue #123 closed with a comment naming PR #460')
+  })
+
+  it('closes an issue whose body says card #N, and names the report of a probe', () => {
+    const { deps } = world([startLine('7', 'probe')])
+    const github = issues({ 7: { title: 'something else entirely', body: 'parked as card #7, see the board' } })
+    runTaskClose(['7', '--report', 'probe-7.md', '--verification', 'measurement'], { ...deps, ...github.deps })
+    expect(github.closed).toEqual([[7, 'Closed by task:close #7 n: report /work/probe-7.md.']])
+  })
+
+  it('an issue with the same number about another card stays open and is named', () => {
+    const { deps, written } = world([startLine('594', 'implement')])
+    const title = 'ladder-release-only-hash-stop (was parking card #630)'
+    const github = issues({ 594: { title, body: 'card #5940 and card #630' } })
+    const result = runTaskClose(['594', '--pr', '700', '--verification', 'run'], { ...deps, ...github.deps })
+    expect(result.exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+    expect(github.closed).toEqual([])
+    expect(result.stdout.at(-1)).toBe(`[task:close] issue #594 '${title}' is about another card, not n; left open`)
+  })
+
+  it('does not take a slug that only contains the card name for the card name', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    const github = issues({ 123: { title: 'n-other', body: null } })
+    runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, ...github.deps })
+    expect(github.closed).toEqual([])
+  })
+
+  it('says nothing when no open issue carries the card number', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    const github = issues({})
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, ...github.deps })
+    expect(github.closed).toEqual([])
+    expect(result.stdout).toHaveLength(6)
+  })
+
+  it('still closes the task when the issue cannot be read or closed, and names it', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const unread = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, openIssue: () => {
+      throw new Error('gh: no network')
+    }, closeIssue: () => {} })
+    expect(unread.exitCode).toBe(0)
+    expect(unread.stdout.at(-1)).toBe('[task:close] issue #123 not read, left as it is: gh: no network')
+    const unclosed = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, openIssue: () => ({ title: 'n', body: null }), closeIssue: () => {
+      throw new Error('gh: forbidden')
+    } })
+    expect(unclosed.exitCode).toBe(0)
+    expect(unclosed.stdout.at(-1)).toBe('[task:close] issue #123 not closed: gh: forbidden; re-run task:close #123 to close it')
+    expect(written).toHaveLength(2)
   })
 })
