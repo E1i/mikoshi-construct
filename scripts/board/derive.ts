@@ -345,9 +345,13 @@ function supersededFacts(attempt: Attempt): Stage[] {
   return event === undefined ? [] : [{ name: 'superseded', ...fact(`by ${event.by}`, `journal event:superseded, ${new Date(event.ts).toISOString()}`) }]
 }
 
+function stoppedCategory(view: AttemptView): Category {
+  return view.attempt.stopEvent !== undefined && view.mergedAt === undefined ? 'waiting' : view.category
+}
+
 function viewAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): AttemptView {
   const view = viewPathAttempt(attempt, prs, checksOf)
-  return { ...view, facts: [...view.facts, ...supersededFacts(attempt)] }
+  return { ...view, category: stoppedCategory(view), facts: [...view.facts, ...supersededFacts(attempt)] }
 }
 
 function viewPathAttempt(attempt: Attempt, prs: PrList, checksOf: ChecksOf): AttemptView {
