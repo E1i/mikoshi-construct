@@ -128,7 +128,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
   })
 })
 
-function drafted(w: World, decision: string, touches: readonly string[]): IntakeResult {
+function drafted(w: World, decision: string | undefined, touches: readonly string[]): IntakeResult {
   const draft = path.join(path.dirname(w.repo), 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [{ name: 'drafted-card', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision, who: 'shift', touches, task: 'Do the thing.', witnesses: ['`pnpm test` passes'] }] }))
   return runIntake({ draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: true, autoConfirm: false, readStdin: () => '600' })
@@ -148,5 +148,12 @@ describe('construct intake --draft derives the decision from architecture/owner-
     expect(draftedLine(drafted(toAuto, 'owner', ['src/board/run.ts']))).toContain('/auto]')
     const withoutOwnerMerges = world(['src/board/run.ts'], false)
     expect(draftedLine(drafted(withoutOwnerMerges, 'owner', ['src/board/run.ts']))).toContain('/owner]')
+  })
+
+  it('a drafted card with no decision gets auto when no owner path is met, and owner when one is', () => {
+    const toAuto = drafted(world(['src/board/run.ts']), undefined, ['src/board/run.ts'])
+    expect(draftedLine(toAuto)).toContain('/auto]')
+    expect(toAuto.status !== 'refused' && toAuto.cards[0]!.text).not.toContain('unclear: decision')
+    expect(draftedLine(drafted(world(['.claude/skills/intake/SKILL.md']), undefined, ['.claude/skills/intake/SKILL.md']))).toContain('/owner]')
   })
 })

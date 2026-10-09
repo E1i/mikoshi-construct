@@ -176,6 +176,12 @@ function derivedDecision(decision: string, touches: readonly string[], owner: Ow
   return decision === OWNER_DECISION ? [] : [{ field: 'decision', was: decision, now: OWNER_DECISION, reason: `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}` }]
 }
 
+function unstatedDecision(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): string | undefined {
+  if (card.decision !== undefined || owner === undefined || !includes(KINDS, card.kind) || !includes(decisionsOf(card.kind as Kind), OWNER_DECISION))
+    return undefined
+  return ownerHold(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
+}
+
 function decisionCorrection(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): Correction[] {
   if (card.decision === undefined || !includes(KINDS, card.kind))
     return []
@@ -324,7 +330,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
   return {
     ...card,
     contour: contour[0]?.now ?? card.contour,
-    decision: decision[0]?.now ?? card.decision,
+    decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, touched.touches, facts.ownerMerges),
     touches: touched.touches,
     depends: depends.kept,
     blocks: blocks.kept,
