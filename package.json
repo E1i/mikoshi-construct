@@ -72,6 +72,7 @@
     "model:render": "tsx scripts/model/sync-docs.ts",
     "lint:fix": "eslint --fix .",
     "miko": "tsx scripts/miko/loop.ts",
+    "miko:exit": "tsx scripts/miko/exit.ts",
     "miko:watch": "tsx scripts/miko/watch.ts",
     "prepublishOnly": "pnpm build",
     "privacy:check": "tsx scripts/privacy/check.ts",
