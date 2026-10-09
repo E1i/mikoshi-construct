@@ -15,7 +15,7 @@ import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, renewLease, 
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { DRY_RUN_ACTOR, dryRun, RENEW_MS, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorker } from '../../bus/review-worker.js'
+import { DRY_RUN_ACTOR, dryRun, RENEW_MS, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorker, stepLine } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -345,7 +345,7 @@ describe('review worker', () => {
     db.close()
   })
 
-  it('a lease whose head moved or whose CI is not green is denied before the reviewer runs', async () => {
+  it('a pending CI before the review leaves the task queued without counting a failure', async () => {
     const { db, gitHub, tick, worker } = setUp()
     gitHub.open({ number: 951 })
     tick()
@@ -356,13 +356,41 @@ describe('review worker', () => {
     }
 
     gitHub.pulls.get(951)!.required = 'pending'
-    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(951), denial: { kind: 'technical', reason: 'ci_not_ready' }, next: 'queued' })
+    for (let lease = 1; lease <= 4; lease++) {
+      const step = await worker(counting).step()
+      expect(step).toMatchObject({ kind: 'waiting', taskKey: review(951) })
+      expect(stepLine(step)).toContain('the task is queued again with no failure counted')
+      expect(task(db, review(951))).toEqual({ state: 'queued', lease_gen: lease, failures: 0 })
+    }
+    expect(leases).toEqual([])
+    expect(events(db, 'policy.denied')).toEqual([])
+    expect(events(db, 'card.stopped')).toEqual([])
+    expect(events(db, 'board.alarm')).toEqual([])
+    expect(events(db, 'task.released')).toMatchObject([1, 2, 3, 4].map(lease_gen => ({ lease_gen, reason: 'ci_not_ready' })))
+
     gitHub.pulls.get(951)!.required = 'success'
-    gitHub.pulls.get(951)!.head = sha('b')
-    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(951), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(await worker(counting).step()).toEqual({ kind: 'recorded', taskKey: review(951), verdict: 'pass' })
+    expect(leases).toHaveLength(1)
+    expectReplayIdentical(db)
+    db.close()
+  })
+
+  it('a lease whose head moved is denied as stale_head before the reviewer runs', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    gitHub.open({ number: 952 })
+    tick()
+    const leases: Lease[] = []
+    const counting: Reviewer = async (lease) => {
+      leases.push(lease)
+      return { verdict: 'pass', findings: [], session: 'reviewer-1' }
+    }
+
+    gitHub.pulls.get(952)!.head = sha('b')
+    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(952), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
     expect(leases).toEqual([])
     expect(events(db, 'review.recorded')).toEqual([])
-    expect(task(db, review(951))).toEqual({ state: 'queued', lease_gen: 2, failures: 2 })
+    expect(events(db, 'policy.denied')).toMatchObject([{ command: 'record_verdict', kind: 'technical', reason: 'stale_head' }])
+    expect(task(db, review(952))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
     expectReplayIdentical(db)
     db.close()
   })
