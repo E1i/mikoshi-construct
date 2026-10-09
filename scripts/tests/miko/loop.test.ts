@@ -63,23 +63,23 @@ async function until(condition: () => boolean): Promise<void> {
 }
 
 describe('pnpm miko restarts Miko in place when it wrote mikoshi.md', () => {
-  it('starts the next session with the continue prompt after a write, whatever the exit code, and stops on an exit without a write', async () => {
+  it('starts the first session without a prompt when mikoshi.md is absent, the next with the continue prompt after a write, whatever the exit code, and stops on an exit without a write', async () => {
     const dir = home(['write 0', 'write 3', 'quiet 0'])
     const { code } = await startLoop(dir).done
     expect(code).toBe(0)
     expect(calls(dir)).toEqual(['0|', `1|${CONTINUE_PROMPT}`, `1|${CONTINUE_PROMPT}`])
   })
 
-  it('stops after the first session when it exited without writing mikoshi.md, even with an old one in place and a failing exit code', async () => {
+  it('starts the first session with the continue prompt when mikoshi.md is present, and stops after it when it exited without writing mikoshi.md and with a failing exit code', async () => {
     const dir = home(['quiet 1', 'write 0'])
     writeFileSync(mikoshiHandoff(dir), 'old handoff')
     const { code, stderr } = await startLoop(dir).done
     expect(code).toBe(0)
-    expect(calls(dir)).toEqual(['0|'])
+    expect(calls(dir)).toEqual([`1|${CONTINUE_PROMPT}`])
     expect(stderr).toContain('without writing mikoshi.md')
   })
 
-  it('stops on Ctrl+C and starts nothing, even though the interrupted session wrote mikoshi.md', async () => {
+  it('stops on Ctrl+C and starts nothing, even though the interrupted session wrote mikoshi.md, when mikoshi.md was absent at the start', async () => {
     const dir = home(['hang', 'write 0'])
     const loop = startLoop(dir)
     await until(() => existsSync(path.join(dir, 'ready')))
@@ -91,8 +91,10 @@ describe('pnpm miko restarts Miko in place when it wrote mikoshi.md', () => {
 })
 
 describe('runMikoLoop decides from the mtime of mikoshi.md alone', () => {
-  it('restarts while each session changed the mtime, and stops on the first that did not', async () => {
-    const mtimes = [undefined, 1, 1, 2, 2, 2]
+  it.each([
+    { name: 'absent', mtimes: [undefined, 1, 2, 2], prompts: [undefined, CONTINUE_PROMPT, CONTINUE_PROMPT] },
+    { name: 'present', mtimes: [1, 2, 3, 3], prompts: [CONTINUE_PROMPT, CONTINUE_PROMPT, CONTINUE_PROMPT] },
+  ])('with mikoshi.md $name at the start, restarts while each session changed the mtime, and stops on the first that did not', async ({ mtimes, prompts: expected }) => {
     const prompts: (string | undefined)[] = []
     const code = await runMikoLoop({
       handoffMtime: () => mtimes.shift(),
@@ -104,13 +106,13 @@ describe('runMikoLoop decides from the mtime of mikoshi.md alone', () => {
       err: () => {},
     })
     expect(code).toBe(0)
-    expect(prompts).toEqual([undefined, CONTINUE_PROMPT, CONTINUE_PROMPT])
+    expect(prompts).toEqual(expected)
   })
 
   it.each([
     { name: 'signal SIGINT', end: { code: null, signal: 'SIGINT' as const } },
     { name: 'exit code 130', end: { code: 130, signal: null } },
-  ])('stops on a session that ended by $name before the SIGINT handler set the flag, though mikoshi.md changed', async ({ end }) => {
+  ])('stops on a session that ended by $name before the SIGINT handler set the flag, though mikoshi.md, present at the start, changed', async ({ end }) => {
     const mtimes = [1, 2]
     const prompts: (string | undefined)[] = []
     const lines: string[] = []
@@ -124,7 +126,7 @@ describe('runMikoLoop decides from the mtime of mikoshi.md alone', () => {
       err: line => lines.push(line),
     })
     expect(code).toBe(0)
-    expect(prompts).toEqual([undefined])
+    expect(prompts).toEqual([CONTINUE_PROMPT])
     expect(lines.join('\n')).toContain('Ctrl+C')
   })
 })
