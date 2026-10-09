@@ -78,7 +78,7 @@ read by `pnpm relaunch --live` from those pids (`kill -0`), never from the comma
 session started as `claude --permission-mode auto -p`.
 
 A window under relaunch never takes a card body, except a `who: window` card: it is the Operator, and its work is the run.
-It starts the `who: shift` cards as a shift chain (`pnpm shift <dir> --parking <parking> --chain`) and never runs
+It starts the `who: shift` cards as a shift chain (`pnpm shift:bg <dir> --parking <parking> --chain`) and never runs
 `pnpm task:start` for them; the chain takes them in its own order (`p0` first, then by id, once their `depends` are
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
@@ -122,6 +122,11 @@ Independent branches are cut in parallel by default (`/plan`). A branch the wind
 over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, never into branch names, and the
 launcher names a Ghost's branch itself. A change under `templates/`, or one that changes what the published CLI does
 for a user, is a `minor` changeset.
+
+After the merge of the first card that adds a new user-facing command, the brain itself sets a probe of that command on
+the foreign repositories A–D, as `~/.construct/probes/atlas-foreign/mapping.md` maps them, without waiting to be
+asked. The repositories are named only as A–D, in the card, the report and every record; their paths stay in
+`mapping.md`, which never leaves that folder.
 
 ## The version pull request lock
 
@@ -265,8 +270,8 @@ Approving a brief's hash is the permission to launch: the coordinating window th
 itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`, which prints the
 decision and opens nothing.
 The owner approves an R1 brief; MORSE may approve an R2–R4 one with `pnpm ghosts:hash <brief> --by morse --card <N>`,
-which computes the risk from the card's touches, refuses a card with an `unclear:` field, a fall or a revoked hash and a
-forecast above its p75, and journals `event:approval` before it writes the line. The launcher accepts a morse line only
+which computes the risk from the card's touches, refuses a card with an `unclear:` field, a fall or a revoked hash, a
+brief that restates a line of the card's prose above its `Witnesses:` verbatim, and a forecast above its p75, and journals `event:approval` before it writes the line. The launcher accepts a morse line only
 with that event and prints `by morse`; the owner revokes any approval with `pnpm ghosts:launch --revoke <sha256> --card
 <N>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)).
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,

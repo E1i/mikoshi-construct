@@ -16,6 +16,11 @@ a commit, pushed after each milestone so that a stop does not lose it, and the l
 names it, `Sketch: sketch/<task> @ <sha>`, so the ladder starts from it. When the brief needs an independent
 implementation as its witness, or no sketch was made, that line reads `Sketch: none — <reason>`.
 
+The brief is a record across a boundary: it references its card as `#card` (`#<N>`) and holds the sketch, the
+steps and the witnesses, never the card's prose. The ladder does not read the card, so the witnesses and the steps are
+in the `/implement` text; a line of the card above its `Witnesses:` copied verbatim makes `pnpm ghosts:hash --by morse --card <N>`
+refuse the brief; the owner's `pnpm ghosts:hash` without `--card` does not read the card and does not check it.
+
 A positive control is PR-equivalent: it runs every check a pull request must pass, not only `pnpm run quality` — each
 job the `required` job in `.github/workflows/ci.yml` needs, the `contract-bump` self-check and the acceptance run among
 them, and `Secret scan` in `.github/workflows/security.yml`. No one command runs them all; read the list from those
