@@ -120,7 +120,7 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
   }
 }
 
-function pastShift(world: World, size: string, count: number): void {
+function pastShift(world: World, size: string, count: number, seconds: (index: number) => number = index => 60 * (index + 1)): void {
   const lines = Array.from({ length: count }, (_, index) => {
     const worktree = path.join(world.root, `mc-past-${size}-${index}`)
     const session = `past-${size}-${index}`
@@ -128,7 +128,7 @@ function pastShift(world: World, size: string, count: number): void {
     mkdirSync(path.dirname(sessionFile), { recursive: true })
     writeFileSync(sessionFile, `${JSON.stringify({ requestId: 'r1', message: { role: 'assistant', usage: { input_tokens: 1000 * (index + 1), output_tokens: 0 } } })}\n`)
     const card = { id: 900 + index, name: `past-${index}`, kind: 'implement', milestone: 'runner', size, contour: 'cheap', decision: 'auto', depends: [], blocks: [], line: '' }
-    return JSON.stringify({ event: 'task', file: '01.md', number: '01', task: String(900 + index), card, branch: `past/${index}`, session, started: '2026-10-01T00:00:00.000Z', worktree, ended: `2026-10-01T00:0${index + 1}:00.000Z`, exit: 0, signal: null, report: true, continuations: [] })
+    return JSON.stringify({ event: 'task', file: '01.md', number: '01', task: String(900 + index), card, branch: `past/${index}`, session, started: '2026-10-01T00:00:00.000Z', worktree, ended: new Date(Date.parse('2026-10-01T00:00:00.000Z') + seconds(index) * 1000).toISOString(), exit: 0, signal: null, report: true, continuations: [] })
   })
   mkdirSync(path.join(world.root, `past-${size}`))
   writeFileSync(path.join(world.root, `past-${size}`, 'shift.jsonl'), `${lines.join('\n')}\n`)
@@ -333,6 +333,58 @@ function parkedCard(dir: string, id: string, header: string, touches = `scripts/
   mkdirSync(dir, { recursive: true })
   writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n`)
 }
+
+describe('the shift prints a forecast table before it starts', () => {
+  it('the shift forecast table on a three-card parking with one card without journal data', async () => {
+    const world = newWorld()
+    pastShift(world, 'S', 5)
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    parkedCard(parking, '40', 'who: shift')
+    mkdirSync(parking, { recursive: true })
+    writeFileSync(path.join(parking, '50.md'), `card: ${cardOf('50', 'probe')}\nbranch: feat/50\ntouches: scripts/50/**\nwho: shift\n\ndo 50\n`)
+    parkedCard(parking, '20', 'who: window')
+    const io = captured()
+    await runShift([world.shift, '--parking', parking], shiftDeps(world, io))
+    expect(io.out.slice(2, 7)).toEqual([
+      '[shift] CARD         CONTOUR  TOKENS median · p25–p75  MINUTES median · p25–p75',
+      '[shift] #30 task-30  cheap    ≈ 3k · 2k–4k             ≈ 3 · 2–4',
+      '[shift] #40 task-40  cheap    ≈ 3k · 2k–4k             ≈ 3 · 2–4',
+      '[shift] #50 task-50  cheap    — n=0                    — n=0',
+      '[shift] total: tokens ≈ 6k, minutes ≈ 6 · takes 3 · left: 1 who window · incomplete: no journal data for #50',
+    ])
+  })
+
+  it('the shift forecast table rounds fractional minutes to tenths', async () => {
+    const world = newWorld()
+    const durations = [50, 100, 130, 200, 250]
+    pastShift(world, 'S', durations.length, index => durations[index]!)
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    parkedCard(parking, '40', 'who: shift')
+    const io = captured()
+    await runShift([world.shift, '--parking', parking], shiftDeps(world, io))
+    expect(io.out.slice(2, 6)).toEqual([
+      '[shift] CARD         CONTOUR  TOKENS median · p25–p75  MINUTES median · p25–p75',
+      '[shift] #30 task-30  cheap    ≈ 3k · 2k–4k             ≈ 2.2 · 1.7–3.3',
+      '[shift] #40 task-40  cheap    ≈ 3k · 2k–4k             ≈ 2.2 · 1.7–3.3',
+      '[shift] total: tokens ≈ 6k, minutes ≈ 4.3 · takes 2 · left: none',
+    ])
+  })
+
+  it('a forecast total over cards none of which has journal data sums nothing and names every card', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    const io = captured()
+    await runShift([world.shift, '--parking', parking], shiftDeps(world, io))
+    expect(io.out.slice(2, 5)).toEqual([
+      '[shift] CARD         CONTOUR  TOKENS median · p25–p75  MINUTES median · p25–p75',
+      '[shift] #30 task-30  cheap    — n=0                    — n=0',
+      '[shift] total: tokens —, minutes — · takes 1 · left: none · incomplete: no journal data for #30',
+    ])
+  })
+})
 
 describe('w9: with --parking the shift takes the cards whose who is shift', () => {
   it('w9: runs only the cards for the shift, p0 first, prints what it took and left, and records the choice in the journal', async () => {
