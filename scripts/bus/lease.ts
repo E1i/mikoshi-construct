@@ -59,7 +59,7 @@ interface LeaseRow {
 const NEXT_LEASABLE = `
   SELECT tasks.* FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND prs.state = 'open' AND prs.head = tasks.head
-  ORDER BY tasks.id LIMIT 1
+  ORDER BY tasks.event_id LIMIT 1
 `
 
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`

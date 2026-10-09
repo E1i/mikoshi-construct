@@ -375,6 +375,51 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('a red CI before the review counts a failure each time and stops the card on the third', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    gitHub.open({ number: 953 })
+    tick()
+    const leases: Lease[] = []
+    const counting: Reviewer = async (lease) => {
+      leases.push(lease)
+      return { verdict: 'pass', findings: [], session: 'reviewer-1' }
+    }
+
+    gitHub.pulls.get(953)!.required = 'failure'
+    for (const next of ['queued', 'queued', 'stopped'])
+      expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(953), denial: { kind: 'technical', reason: 'ci_red' }, next })
+    expect(leases).toEqual([])
+    expect(task(db, review(953))).toEqual({ state: 'stopped', lease_gen: 3, failures: 3 })
+    expect(events(db, 'task.released')).toEqual([])
+    expect(events(db, 'policy.denied')).toHaveLength(3)
+    expect(events(db, 'card.stopped')).toEqual([{ reason: 'fault', detail: `3 failures in a row on ${review(953)}, the last: ci_red` }])
+    expect(events(db, 'board.alarm')).toMatchObject([{ task_key: review(953), reason: 'fault', failures: 3 }])
+    expectReplayIdentical(db)
+    db.close()
+  })
+
+  it('a task waiting on a pending CI does not hold back a green one queued behind it', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    gitHub.open({ number: 954 })
+    gitHub.open({ number: 955, head: sha('b') })
+    tick()
+    const reviewed: (number | null)[] = []
+    const counting: Reviewer = async (lease) => {
+      reviewed.push(lease.pr)
+      return { verdict: 'pass', findings: [], session: 'reviewer-1' }
+    }
+
+    gitHub.pulls.get(954)!.required = 'pending'
+    expect(await worker(counting).step()).toMatchObject({ kind: 'waiting', taskKey: review(954) })
+    expect(await worker(counting).step()).toEqual({ kind: 'recorded', taskKey: review(955, sha('b')), verdict: 'pass' })
+    expect(await worker(counting).step()).toMatchObject({ kind: 'waiting', taskKey: review(954) })
+    expect(reviewed).toEqual([955])
+    expect(task(db, review(954))).toEqual({ state: 'queued', lease_gen: 2, failures: 0 })
+    expect(task(db, review(955, sha('b'))).state).toBe('completed')
+    expectReplayIdentical(db)
+    db.close()
+  })
+
   it('a lease whose head moved is denied as stale_head before the reviewer runs', async () => {
     const { db, gitHub, tick, worker } = setUp()
     gitHub.open({ number: 952 })
