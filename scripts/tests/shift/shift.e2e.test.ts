@@ -334,6 +334,41 @@ function parkedCard(dir: string, id: string, header: string, touches = `scripts/
   writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n`)
 }
 
+describe('the shift prints a forecast table before it starts', () => {
+  it('the shift forecast table on a three-card parking with one card without journal data', async () => {
+    const world = newWorld()
+    pastShift(world, 'S', 5)
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    parkedCard(parking, '40', 'who: shift')
+    mkdirSync(parking, { recursive: true })
+    writeFileSync(path.join(parking, '50.md'), `card: ${cardOf('50', 'probe')}\nbranch: feat/50\ntouches: scripts/50/**\nwho: shift\n\ndo 50\n`)
+    parkedCard(parking, '20', 'who: window')
+    const io = captured()
+    await runShift([world.shift, '--parking', parking], shiftDeps(world, io))
+    expect(io.out.slice(2, 7)).toEqual([
+      '[shift] CARD         CONTOUR  TOKENS median · p25–p75  MINUTES median · p25–p75',
+      '[shift] #30 task-30  cheap    ≈ 3k · 2k–4k             ≈ 3 · 2–4',
+      '[shift] #40 task-40  cheap    ≈ 3k · 2k–4k             ≈ 3 · 2–4',
+      '[shift] #50 task-50  cheap    — n=0                    — n=0',
+      '[shift] total: tokens ≈ 6k, minutes ≈ 6 · takes 3 · left: 1 who window · incomplete: no journal data for #50',
+    ])
+  })
+
+  it('a forecast total over cards none of which has journal data sums nothing and names every card', async () => {
+    const world = newWorld()
+    const parking = path.join(world.root, 'parking')
+    parkedCard(parking, '30', 'who: shift')
+    const io = captured()
+    await runShift([world.shift, '--parking', parking], shiftDeps(world, io))
+    expect(io.out.slice(2, 5)).toEqual([
+      '[shift] CARD         CONTOUR  TOKENS median · p25–p75  MINUTES median · p25–p75',
+      '[shift] #30 task-30  cheap    — n=0                    — n=0',
+      '[shift] total: tokens —, minutes — · takes 1 · left: none · incomplete: no journal data for #30',
+    ])
+  })
+})
+
 describe('w9: with --parking the shift takes the cards whose who is shift', () => {
   it('w9: runs only the cards for the shift, p0 first, prints what it took and left, and records the choice in the journal', async () => {
     const world = newWorld()
