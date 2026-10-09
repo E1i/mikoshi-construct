@@ -8,6 +8,7 @@ const MOVING_REF = /\borigin\/main\b/
 const INVARIANT_WITNESS = /^(.*?) — witness: `([^`]+)`$/
 const GHOSTS_FILE = /^scripts\/ghosts\/[\w./-]+\.\w+$/
 const SHIFT_FILE = /scripts\/shift\/[\w.-]+\.\w+/g
+const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
 const GHOSTS_FILE_IN_TEXT = /scripts\/ghosts\/[\w.-]+\.\w+/g
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 const GENERATORS = [
@@ -74,6 +75,9 @@ export function ownerMergesRefusal(show: ShowAt, design: string, changed: string
 }
 
 export function immutableRefusal(changed: string[], immutable: string[]): string | null {
+  const unread = immutable.filter(item => !IMMUTABLE_PATH.test(item))
+  if (unread.length > 0)
+    return `the brief's Immutable line holds ${unread.map(item => `"${item}"`).join(', ')}, which the ladder does not understand and so guards nothing: name each exact file, or a directory ending in /`
   for (const file of changed) {
     const held = immutable.find(item => file === item || file.startsWith(item.endsWith('/') ? item : `${item}/`))
     if (held !== undefined)

@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { approvalLine, checkAcceptanceBuild } from '../../ghosts/hash.js'
+import { immutableRefusal } from '../../ghosts/preflight-static.js'
 import { realShell } from '../../ghosts/preflight-trees.js'
 import { runPreflight } from '../../ghosts/preflight.js'
 
@@ -252,6 +253,19 @@ describe('the preflight before ghosts:hash prints a hash', () => {
     const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, immutable: 'src/card/' }))
 
     expect(refusal(run)).toContain('preflight P5: the sketch changes src/card/parking.ts, which the brief holds Immutable (src/card/)')
+  })
+
+  it('refuses an Immutable entry the ladder does not understand', () => {
+    const { repo } = world()
+    const run = hashIn(repo, briefText({ immutable: 'src/**' }))
+
+    expect(refusal(run)).toContain('preflight P5: the brief\'s Immutable line holds "src/**", which the ladder does not understand')
+  })
+
+  it('names every Immutable entry the ladder does not understand, a single-star glob and prose alike, and keeps the exact file and the directory', () => {
+    expect(immutableRefusal([], ['scripts/ghosts/preflight*.ts', 'the preflight files', 'src/card/', 'README.md']))
+      .toBe('the brief\'s Immutable line holds "scripts/ghosts/preflight*.ts", "the preflight files", which the ladder does not understand and so guards nothing: name each exact file, or a directory ending in /')
+    expect(immutableRefusal([], ['src/card/', 'README.md'])).toBeNull()
   })
 
   it('refuses a sketch that does not contain the pinned base', () => {
