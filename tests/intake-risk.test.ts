@@ -176,6 +176,23 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
     ])
   })
 
+  it('keeps a test with the R1 code it witnesses and leaves an unnamed test with the rest', () => {
+    const reading = riskReading(['src/commands/sync/index.ts', 'tests/sync.test.ts', 'tests/docs.test.ts', 'docs/cli.md', 'scripts/shredder/classify.ts'], false)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['src/commands/sync/index.ts', 'tests/sync.test.ts'],
+      ['tests/docs.test.ts', 'docs/cli.md', 'scripts/shredder/classify.ts'],
+    ])
+  })
+
+  it('keeps the capability / delivery seam when a test rides with the delivery slice', () => {
+    const reading = riskReading(['src/presets/index.ts', 'tests/presets.test.ts', 'scripts/shredder/classify.ts', 'tests/shredder.test.ts'], false)
+    expect(reading.capabilityDelivery).toBe(true)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['src/presets/index.ts', 'tests/presets.test.ts'],
+      ['scripts/shredder/classify.ts', 'tests/shredder.test.ts'],
+    ])
+  })
+
   it('offers nothing when the only lower touches are tests and the changeset that go with the change', () => {
     expect(riskReading(['templates/base/architecture/principles.md', 'tests/presets.test.ts', '.changeset/x.md'], false).slices).toEqual([])
   })
