@@ -123,6 +123,11 @@ over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, 
 launcher names a Ghost's branch itself. A change under `templates/`, or one that changes what the published CLI does
 for a user, is a `minor` changeset.
 
+After the merge of the first card that adds a new user-facing command, the brain itself sets a probe of that command on
+the foreign repositories A–D, as `~/.construct/probes/atlas-foreign/mapping.md` maps them, without waiting to be
+asked. The repositories are named only as A–D, in the card, the report and every record; their paths stay in
+`mapping.md`, which never leaves that folder.
+
 ## The version pull request lock
 
 The lock is in force once the workflow runs of a `changeset-release/main` pull request have been approved. The
