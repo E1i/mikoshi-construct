@@ -10,7 +10,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
-import { UNCLEAR_PREFIX } from '../../src/commands/intake/slice.js'
+import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { approvalEvent, approvalSha256, approvedHashPath, approverOf, canonicalImplementText, cardNumberOf, contourSuggestion, extractApprovedHash, fallsOf, journalEvents, MORSE, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
@@ -123,8 +123,6 @@ function parkedCard(parkingDir: string, card: number): { card: Card, touches: st
     throw new Error(`card #${card}: ${parsed.reason}`)
   return parsed.parked.task
 }
-
-const WITNESSES_HEADING = 'Witnesses:'
 
 export function cardProseIn(text: string, body: string): string[] {
   const lines = body.split('\n')
