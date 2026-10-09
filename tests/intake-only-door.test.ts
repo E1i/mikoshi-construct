@@ -91,7 +91,7 @@ describe('task:start takes only a card that intake sliced and confirmed', () => 
   it('refuses --without-intake without a reason', () => {
     for (const argv of [['feat/door', '--card', CARD, '--without-intake'], ['feat/door', '--card', CARD, '--without-intake', ' ']]) {
       const { deps, appended } = world(null)
-      expect(runTaskStart(argv, deps).stderr).toEqual(['[task:start] usage: pnpm task:start <branch> --card "<card>"'])
+      expect(runTaskStart(argv, deps).stderr).toEqual(['[task:start] usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]'])
       expect(appended).toEqual([])
     }
   })
