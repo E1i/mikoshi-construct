@@ -53,6 +53,14 @@ describe('the stop table: where a card ends decides the stop line it leaves', ()
       expect(existsSync(String(stop!.worktree))).toBe(true)
   })
 
+  it('the stop line keeps its key order', async () => {
+    const card = { id: 1, kind: OWNER, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }
+    const world = newWorld([card])
+    const { gh } = fakeGh({ 101: cardLine(1, card.kind) })
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, captured()))
+    expect(eventsOf(world, 'stop').map(stop => Object.keys(stop))).toEqual([['event', 'task', 'at', 'why', 'worktree', 'shift', 'session', 'ts', 'pr']])
+  })
+
   it('a claude that cannot be spawned stops at fault naming the error', async () => {
     const world = newWorld([{ id: 1 }])
     const { gh } = fakeGh({})
