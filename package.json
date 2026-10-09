@@ -82,6 +82,7 @@
     "relaunch:bg": "tsx scripts/shift/relaunch-bg.ts",
     "shift": "tsx scripts/shift/shift.ts",
     "shift:bg": "tsx scripts/shift/bg.ts",
+    "shift:current": "tsx scripts/shift/current.ts",
     "shift:merge": "tsx scripts/shift/merge.ts",
     "shift:report": "tsx scripts/shift/report.ts",
     "shard": "tsx scripts/shift/shard.ts",

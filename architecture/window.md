@@ -229,7 +229,7 @@ taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `park
 `shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
 is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `auto` with no
 owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
-nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The flags and refusals are in
+nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The Operator runs `pnpm shift:current` on a merge event, which updates one armed or owner-merge pull request that is BEHIND and carries its review, and journals `ready-for-owner` for a CLEAN owner-merge one. The flags and refusals are in
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
