@@ -50,11 +50,11 @@ export function authorSessions(db: DatabaseSync, cardId: number): Set<string> {
   return sessions
 }
 
-function technical(reason: TechnicalReason, detail: string): VerdictOutcome {
-  return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
+function technical(reason: TechnicalReason, detail: string): Denial {
+  return { kind: 'technical', reason, detail }
 }
 
-function freshDenial(gitHub: GitHub, lease: Lease, nowMs: () => number): VerdictOutcome | null {
+export function freshDenial(gitHub: GitHub, lease: Lease, nowMs: () => number): Denial | null {
   const meter = new Meter(gitHub, nowMs)
   try {
     const pull = meter.get(`${REPO}/pulls/${lease.pr}`) as Pull
@@ -75,12 +75,12 @@ export function recordVerdict(db: DatabaseSync, gitHub: GitHub, publish: StatusP
     return { kind: 'denied', denial: { kind: 'authority', rule: 'reviewer_is_author', detail: `session ${request.reviewerSession} wrote card #${lease.cardId}` } }
   const denial = freshDenial(gitHub, lease, nowMs)
   if (denial !== null)
-    return denial
+    return { kind: 'denied', denial }
   try {
     publish({ commit: lease.head!, state: STATUS_STATE[request.verdict], context: REVIEW_STATUS_CONTEXT, description: `review verdict ${request.verdict} for card #${lease.cardId} by ${request.reviewerSession}` })
   }
   catch (error) {
-    return technical('github_error', error instanceof Error ? error.message : String(error))
+    return { kind: 'denied', denial: technical('github_error', error instanceof Error ? error.message : String(error)) }
   }
   return { kind: 'recorded' }
 }

@@ -1,10 +1,11 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
+import type { ReviewRun } from '../../bus/review-worker.js'
 import type { Reviewer } from '../../bus/reviewer.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
@@ -14,7 +15,7 @@ import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, renewLease, 
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { DRY_RUN_ACTOR, dryRun, RENEW_MS, reviewMode, ReviewWorker, ShadowNotClean, startReviewWorker } from '../../bus/review-worker.js'
+import { DRY_RUN_ACTOR, dryRun, RENEW_MS, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorker } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -22,12 +23,14 @@ const roots: string[] = []
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
 
 interface Bench {
   db: DatabaseSync
+  busPath: string
   gitHub: FakeGitHub
   clock: Clock
   statuses: ReviewStatus[]
@@ -38,7 +41,8 @@ interface Bench {
 function setUp(): Bench {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-review-worker-'))
   roots.push(root)
-  const db = openBus(path.join(root, 'bus.db'))
+  const busPath = path.join(root, 'bus.db')
+  const db = openBus(busPath)
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
@@ -51,6 +55,7 @@ function setUp(): Bench {
   }
   return {
     db,
+    busPath,
     gitHub,
     clock,
     statuses,
@@ -295,6 +300,121 @@ describe('review worker', () => {
     expect({ events: eventCount(db), tasks: projectionDump(db) }).toEqual(before)
     expect(reviewMode(['--dry-run', '949'])).toEqual({ kind: 'dry-run', pr: 949 })
     db.close()
+  })
+
+  it('the heartbeat survives a busy database and stops on a stale lease', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const printed = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { db, busPath, gitHub, clock, tick, worker } = setUp()
+    gitHub.open({ number: 950 })
+    tick()
+    let finish: () => void = () => {}
+    const slow: Reviewer = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      return { verdict: 'pass', findings: [], session: 'reviewer-1' }
+    }
+    const beat = async (): Promise<void> => {
+      clock.advance(RENEW_MS)
+      await vi.advanceTimersByTimeAsync(RENEW_MS)
+    }
+
+    const step = worker(slow).step()
+    db.exec('PRAGMA busy_timeout = 0')
+    const other = new DatabaseSync(busPath)
+    other.exec('BEGIN IMMEDIATE')
+    await beat()
+    other.exec('ROLLBACK')
+    other.close()
+    expect(events(db, 'task.renewed')).toEqual([])
+    expect(printed.mock.calls.map(call => String(call[0]))).toEqual([expect.stringContaining(`${review(950)}: the lease was not renewed this beat`)])
+    expect(String(printed.mock.calls[0]![0])).toContain('database is locked')
+
+    await beat()
+    expect(events(db, 'task.renewed')).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(1)
+
+    clock.advance(LEASE_MS + 1)
+    expect(expireLeases(db, clock.now().toISOString())).toEqual([review(950)])
+    await beat()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(printed).toHaveBeenCalledTimes(1)
+    finish()
+    expect(await step).toEqual({ kind: 'fenced', taskKey: review(950) })
+    db.close()
+  })
+
+  it('a lease whose head moved or whose CI is not green is denied before the reviewer runs', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    gitHub.open({ number: 951 })
+    tick()
+    const leases: Lease[] = []
+    const counting: Reviewer = async (lease) => {
+      leases.push(lease)
+      return { verdict: 'pass', findings: [], session: 'reviewer-1' }
+    }
+
+    gitHub.pulls.get(951)!.required = 'pending'
+    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(951), denial: { kind: 'technical', reason: 'ci_not_ready' }, next: 'queued' })
+    gitHub.pulls.get(951)!.required = 'success'
+    gitHub.pulls.get(951)!.head = sha('b')
+    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(951), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(leases).toEqual([])
+    expect(events(db, 'review.recorded')).toEqual([])
+    expect(task(db, review(951))).toEqual({ state: 'queued', lease_gen: 2, failures: 2 })
+    expectReplayIdentical(db)
+    db.close()
+  })
+
+  it('main dispatches off, dry run and on', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-review-main-'))
+    roots.push(root)
+    const busPath = path.join(root, 'bus.db')
+    const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const gitHub = new FakeGitHub()
+    gitHub.open({ number: 952 })
+    const leases: Lease[] = []
+    const statuses: ReviewStatus[] = []
+    class Stopped extends Error {}
+    const run: ReviewRun = {
+      busPath,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        statuses.push(status)
+      },
+      reviewer: async (lease) => {
+        leases.push(lease)
+        return { verdict: 'pass', findings: [], session: 'reviewer-main' }
+      },
+      session: 'main-1',
+      pause: async () => {
+        throw new Stopped()
+      },
+    }
+    const output = (): string => printed.mock.calls.map(call => String(call[0])).join('\n')
+
+    expect(await runReview([], run)).toBe(0)
+    expect(output()).toContain('switched off')
+    expect(leases).toEqual([])
+    expect(existsSync(busPath)).toBe(false)
+
+    expect(await runReview(['--dry-run', '952'], run)).toBe(0)
+    expect(leases.map(lease => lease.actor)).toEqual([DRY_RUN_ACTOR])
+    expect(output()).toContain('nothing recorded')
+    expect(statuses).toEqual([])
+    expect(existsSync(busPath)).toBe(false)
+
+    gitHub.pulls.clear()
+    await expect(runReview(['--on'], run)).rejects.toThrow(Stopped)
+    expect(output()).toContain(`${busPath}: the review worker worker:review:main-1 takes the review queue`)
+    expect(existsSync(busPath)).toBe(true)
+  })
+
+  it('a dry run takes only a decimal pull request number', () => {
+    for (const given of ['0x10', '1e3', '16.0', ' 16', '-16', '0', ''])
+      expect(reviewMode(['--dry-run', given])).toMatchObject({ kind: 'refused' })
+    expect(reviewMode(['--dry-run', '16'])).toEqual({ kind: 'dry-run', pr: 16 })
   })
 
   it('a dry run together with the switch is refused', () => {

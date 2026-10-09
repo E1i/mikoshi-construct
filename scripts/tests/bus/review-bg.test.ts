@@ -6,7 +6,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { psList, runningBus, runningInstance, startDetached } from '../../bus/bg.js'
-import { REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../bus/review-bg.js'
+import { openBus } from '../../bus/db.js'
+import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../bus/review-bg.js'
+import { FakeGitHub } from './github-fake.js'
 
 const roots: string[] = []
 const started: number[] = []
@@ -142,6 +144,49 @@ describe('pnpm bus:review:bg', () => {
     expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
     expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
     expect(existsSync(path.join(w.busDir, REVIEW_START_LOCK))).toBe(false)
+  })
+
+  it('a running dry run is not taken for the review worker', async () => {
+    const w = world()
+    const dryRuns = [
+      { pid: 4444, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --dry-run 717' },
+      { pid: 4445, args: 'node pnpm.cjs --silent bus:review --dry-run 717' },
+    ]
+    expect(runningInstance(dryRuns, REVIEW_WORKER_MARKERS)).toBeUndefined()
+    const result = startDetached(reviewLaunch(clean), w.busDir, w.env, () => dryRuns)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
+
+    const worker = { pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --on' }
+    const refused = startDetached(reviewLaunch(clean), w.busDir, w.env, () => [...dryRuns, worker])
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr.join('\n')).toContain('pid 4343')
+  })
+
+  it('a missing bus.db or a GitHub error in the preflight is a prefixed refusal', async () => {
+    const w = world()
+    const gitHub = new FakeGitHub()
+    const busPath = path.join(w.busDir, 'bus.db')
+    const launch = reviewLaunch(() => busShadowProblems(busPath, gitHub.client))
+
+    const missing = startDetached(launch, w.busDir, w.env, w.processes)
+    expect(missing.exitCode).toBe(1)
+    expect(missing.stdout).toEqual([])
+    expect(missing.stderr[0]!.startsWith(PREFIX)).toBe(true)
+    expect(missing.stderr.join('\n')).toContain(busPath)
+    expect(existsSync(busPath)).toBe(false)
+
+    openBus(busPath).close()
+    gitHub.failing = true
+    const failing = startDetached(launch, w.busDir, w.env, w.processes)
+    expect(failing.exitCode).toBe(1)
+    expect(failing.stdout).toEqual([])
+    expect(failing.stderr[0]!.startsWith(PREFIX)).toBe(true)
+    expect(failing.stderr.join('\n')).toContain('gh api: connection refused')
+    expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
   })
 
   it('the review worker and bus:run are told apart by their markers', () => {

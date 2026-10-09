@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { reviewOf, reviewPrompt, reviewSession } from '../../bus/reviewer.js'
+import type { SpawnSessionParams } from '../../ghosts/session.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import { claudeReviewer, PREFIX, reviewOf, reviewPrompt, reviewSession } from '../../bus/reviewer.js'
 import { sessionArgv } from '../../ghosts/session.js'
 import { sha } from './github-fake.js'
 
@@ -29,6 +33,34 @@ describe('reviewer', () => {
     expect(params.cwd).not.toBe(params.tree)
     expect(params.addDirs).toEqual(['/reviews'])
     expect(params.prompt).toContain('checked out at /reviews/s-1')
+  })
+
+  it('a failing worktree remove does not mask the review', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-'))
+    const printed = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const git = (_cwd: string, args: string[]): void => {
+        if (args[0] === 'worktree' && args[1] === 'remove')
+          throw new Error('fatal: the tree is locked')
+      }
+      const passing = async (params: SpawnSessionParams): Promise<number> => {
+        writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+        return 0
+      }
+
+      expect(await claudeReviewer('/repo', dir, { git, spawn: passing })(lease)).toMatchObject({ verdict: 'pass', findings: [] })
+      await expect(claudeReviewer('/repo', dir, { git, spawn: async () => 1 })(lease)).rejects.toThrow(/exited 1/)
+      const lines = printed.mock.calls.map(call => String(call[0]))
+      expect(lines).toHaveLength(2)
+      for (const line of lines) {
+        expect(line.startsWith(`${PREFIX}could not remove the review tree ${dir}/`)).toBe(true)
+        expect(line.endsWith('fatal: the tree is locked')).toBe(true)
+      }
+    }
+    finally {
+      printed.mockRestore()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('an added directory goes before the headless flags, so it cannot take the prompt as a second directory', () => {
