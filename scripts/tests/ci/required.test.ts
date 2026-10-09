@@ -89,7 +89,7 @@ describe('ci.yml wiring', () => {
       expect(workflow.jobs[job]!.if).toBe(`needs.${CLASSIFY_JOB}.outputs.fast-path != 'true'`)
     expect(workflow.jobs[CLASSIFY_JOB]!.outputs).toHaveProperty('fast-path')
     expect(workflow.jobs.docs!.steps.map(step => step.run ?? '')).toEqual(expect.arrayContaining(['pnpm docs:build', 'pnpm docs:pending']))
-    expect(manifest.scripts.quality).toContain('pnpm docs:pending')
+    expect(manifest.scripts['quality:steps']).toContain('pnpm docs:pending')
   })
 
   it('starts the preset matrix beside the quality jobs rather than after them', () => {

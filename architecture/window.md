@@ -116,7 +116,9 @@ relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on tha
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
-with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
+with what it guards (it runs `quality:steps` under `scripts/quality/lock.ts`, one machine-wide lock in
+`~/.construct/quality` whose `lock.log` records who held it, who waited and when each started and ended, so a run
+in another lane or worktree waits for the one before it); then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
 then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
 review when main merged in cleanly and refuses with `review again` otherwise, and for a cheap one `pnpm shift:merge <N> --carry`,
 which carries its journalled `event:pr-review` verdict to the new head as the `review` status `carried from <sha>` when every
