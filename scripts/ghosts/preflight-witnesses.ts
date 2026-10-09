@@ -1,8 +1,8 @@
 import type { Witness } from './preflight-static.js'
 import type { Shell, ShellResult } from './preflight-trees.js'
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { lastLine, stageSketch } from './preflight-trees.js'
+import { lastLine, stageSketch, tailLines } from './preflight-trees.js'
 
 export type Refuse = (step: string, problem: string | null) => void
 export type Timer = <T>(name: string, run: () => T) => T
@@ -30,6 +30,10 @@ const ATTACH_CARRIER_SOURCES = ['templates/ai/claude/', 'templates/attach/earlie
 const EARLIER_CARRIERS_CHECK = 'pnpm exec tsx scripts/attach/earlier-carriers.ts --check'
 const LOCKFILE = 'pnpm-lock.yaml'
 const INSTALL = 'pnpm install --frozen-lockfile'
+const WITNESSES_SUFFIX = /\.witnesses$/
+const QUALITY_STEPS = 'quality:steps'
+const PNPM_STEP = /^pnpm\s+(?:run\s+)?(\S+)/
+const SCRIPT_HEADER = /^> \S+ (\S+)/
 const NEGATION = /^!\s/
 const PIPED_GREP = /^(.*[^|])\|\s*grep(\s.*)$/
 const INVERT_LONG_FLAG = /\s--invert-match(?=\s|$)/g
@@ -68,6 +72,38 @@ function baseRedRefusal(witness: Witness, result: ShellResult, base: string): st
 
 function greenRefusal(label: string, witness: Witness, result: ShellResult, where: string): string | null {
   return result.status === 0 ? null : `${label} "${witness.criterion}" exits ${result.status ?? 'without a status'} on ${where}: ${lastLine(result.output)}`
+}
+
+function firstFailingStep(stepsScript: string, output: string): string | null {
+  const steps = stepsScript.split('&&').map(step => PNPM_STEP.exec(step.trim())?.[1]).filter(step => step !== undefined)
+  const started = output.split('\n').map(line => SCRIPT_HEADER.exec(line.trim())?.[1]).filter(step => step !== undefined && steps.includes(step))
+  return started.at(-1) ?? null
+}
+
+function qualityStepsOf(tree: string): string {
+  try {
+    const manifest = JSON.parse(readFileSync(path.join(tree, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
+    return manifest.scripts?.[QUALITY_STEPS] ?? ''
+  }
+  catch {
+    return ''
+  }
+}
+
+function harnessLogOf(witnessesDir: string): string {
+  return witnessesDir.replace(WITNESSES_SUFFIX, '.p8.log')
+}
+
+function harnessRefusal(run: TreeRun, task: TreeTask, where: string): string | null {
+  const log = harnessLogOf(task.witnessesDir)
+  rmSync(log, { force: true })
+  const result = run.shell(task.harnessCommand, run.tree)
+  if (result.status === 0)
+    return null
+  writeFileSync(log, result.output)
+  const step = firstFailingStep(qualityStepsOf(run.tree), result.output)
+  const failing = step === null ? `no step of ${QUALITY_STEPS} named in its output` : `first failing step of ${QUALITY_STEPS}: ${step}`
+  return `harness "${task.harnessCommand}" exits ${result.status ?? 'without a status'} on ${where}; ${failing}; log ${log}\n${tailLines(result.output)}`
 }
 
 function firstProblem<T>(items: T[], problemOf: (item: T) => string | null): string | null {
@@ -135,7 +171,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
     refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
     refuse('P8', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))
   })
-  time('P8 harness', () => refuse('P8', greenRefusal('harness', { criterion: task.harnessCommand, command: task.harnessCommand }, shell(task.harnessCommand, tree), where)))
+  time('P8 harness', () => refuse('P8', harnessRefusal(run, task, where)))
   time('P6 lint', () => lint(run, lintTargets(tree, changed, ''), 'lint of the sketch test files, no --fix,', where))
   if (changed.some(file => ATTACH_CARRIER_SOURCES.some(source => file.startsWith(source))))
     time('P9 carriers', () => refuse('P9', greenRefusal('earlier-carriers --check', { criterion: 'the known set', command: EARLIER_CARRIERS_CHECK }, shell(EARLIER_CARRIERS_CHECK, tree), where)))
