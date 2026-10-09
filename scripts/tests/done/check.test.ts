@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { doneCheck } from '../../done/check.js'
+import { realShell } from '../../ghosts/preflight-trees.js'
 
 const LEGACY = 'export function legacy(value: number): number {\n  return 0\n}\n'
 const REAL = 'function add(sum: number, item: number): number {\n  return sum + item\n}\n\nexport function total(items: number[]): number {\n  return items.reduce(add, 0)\n}\n'
@@ -23,6 +24,7 @@ interface World {
   root: string
   base: string
   args: string
+  journal: string
 }
 
 function git(root: string, args: string[]): string {
@@ -36,7 +38,7 @@ function put(root: string, file: string, text: string): void {
 
 function world(total: string, wired: boolean, tracked: Record<string, [string, string]> = {}): World {
   const root = mkdtempSync(path.join(tmpdir(), 'done-check-'))
-  fixtures.push(root, `${root}-args.json`)
+  fixtures.push(root, `${root}-args.json`, `${root}-handoff`)
   git(root, ['init', '-q'])
   put(root, 'package.json', '{"name":"fixture","type":"module","bin":"src/cli.ts"}\n')
   put(root, 'src/cli.ts', 'import { main } from \'./app.js\'\n\nmain()\n')
@@ -57,7 +59,7 @@ function world(total: string, wired: boolean, tracked: Record<string, [string, s
   put(root, 'tests/skipped.test.ts', 'import { it } from \'vitest\'\nimport { total } from \'../src/total.js\'\n\nit.skip(\'sums the items\', () => {\n  total([])\n})\n')
   const args = `${root}-args.json`
   writeFileSync(args, JSON.stringify({ acceptance: ['the total sums the items'], design: '- D1. total sums its items.' }))
-  return { root, base, args }
+  return { root, base, args, journal: `${root}-handoff/ghosts.jsonl` }
 }
 
 function row(id: string, line: number): { id: string, code: string[], tests: Array<{ file: string, title: string } | { witness: string }> } {
@@ -68,7 +70,7 @@ function run(w: World, rows: unknown, base = w.base): { passed: boolean, lines: 
   const map = path.join(tmpdir(), `done-map-${Math.random().toString(36).slice(2)}.json`)
   fixtures.push(map)
   writeFileSync(map, typeof rows === 'string' ? rows : JSON.stringify({ requirements: rows }))
-  return doneCheck(w.root, { args: w.args, map, base })
+  return doneCheck(w.root, { args: w.args, map, base, task: 't1' }, { shell: realShell, journal: w.journal })
 }
 
 function withoutMapPath(result: { lines: string[] }): string[] {
@@ -208,6 +210,29 @@ describe('doneCheck', () => {
       lines: ['PASS · text only 2', ...TOTAL_PASS.slice(1), 'text only:', '  A1: NOTES.md:3', '  D1: tests/total.test.ts:1'],
     })
     expect(run(w, [{ ...prose, code: ['NOTES.md:3', 'src/total.ts:6'] }, testFileOnly]).lines).toEqual(['FAIL', 'requirements:', '  A1: no test cited'])
+  })
+
+  it('a grep witness with no match on the head is refused and journalled', () => {
+    const w = world(REAL, true)
+    const witnesses = [
+      { criterion: 'the total is written', command: 'cat src/total.ts | grep -q total' },
+      { criterion: 'the average is written', command: 'cat src/total.ts | grep -q average' },
+      { criterion: 'the test exits 0', command: 'test -e src/total.ts' },
+    ]
+    writeFileSync(w.args, JSON.stringify({ acceptance: ['the total sums the items'], design: '- D1. total sums its items.', witnesses }))
+    const short = w.base.slice(0, 7)
+
+    expect(existsSync(w.journal)).toBe(false)
+    expect(run(w, [row('A1', 6), row('D1', 6)]).lines).toEqual([
+      'FAIL',
+      'witnesses:',
+      `  grep witness "the average is written" matches its pattern on neither the base ${short} nor the head ${short}: nothing it reads prints what it looks for, so its red on the base is not red for a reason; grep where the output is written (a reporter with an outputFile writes there, not to stdout)`,
+    ])
+    expect(readFileSync(w.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)).toEqual([
+      { event: 'grep-witness', task: 't1', criterion: 'the total is written', head: w.base, matched: true },
+      { event: 'grep-witness', task: 't1', criterion: 'the average is written', head: w.base, matched: false },
+    ])
+    expect(git(w.root, ['worktree', 'list']).split('\n')).toHaveLength(1)
   })
 
   it('a file whose path git quotes in its diff keeps its added lines', () => {
