@@ -6,6 +6,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bench:architect': 'a benchmark run on demand, not a verdict on a change',
   'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',
+  'bus:import': 'imports the journal into bus.db once when run by hand; its own tests are its gate',
   'changeset': 'an authoring tool',
   'composition:render': 'a writer; composition:check is its gate',
   'contract:bump': 'a gate, deliberately outside: it needs the release tags and full history, so it runs in its own CI job with fetch-depth 0',
