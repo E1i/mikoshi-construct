@@ -42,6 +42,7 @@
     "board": "tsx scripts/board/board.ts",
     "build": "tsup",
     "bus:import": "tsx scripts/bus/import.ts",
+    "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",
     "changeset": "changeset",
     "ci": "pnpm run quality",

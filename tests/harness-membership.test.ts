@@ -7,6 +7,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',
   'bus:import': 'imports the journal into bus.db once when run by hand; its own tests are its gate',
+  'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',
   'bus:reduce': 'rebuilds the prs and cards projections of bus.db when run by hand; its own tests are its gate',
   'changeset': 'an authoring tool',
   'composition:render': 'a writer; composition:check is its gate',
