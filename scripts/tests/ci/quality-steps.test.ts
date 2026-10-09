@@ -14,10 +14,10 @@ const scripts = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), '
 const SCRIPT_CALL = /^pnpm (?:run )?([\w:.-]+)(\s.*)?$/
 
 function qualitySteps(): string[] {
-  return scripts.quality!.split('&&').map((part) => {
+  return scripts['quality:steps']!.split('&&').map((part) => {
     const match = SCRIPT_CALL.exec(part.trim())
     if (match == null || match[2] !== undefined)
-      throw new Error(`the quality script has a step that is not a bare package script: ${part.trim()}`)
+      throw new Error(`the quality:steps script has a step that is not a bare package script: ${part.trim()}`)
     return match[1]!
   })
 }
@@ -33,7 +33,7 @@ function repositoryScriptInvocations(): Invocation[] {
     .map(match => ({ job, script: match![1]!, args: (match![2] ?? '').trim() })))
 }
 
-describe('the CI jobs run exactly the steps of package.json\'s quality', () => {
+describe('the CI jobs run exactly the steps of package.json\'s quality:steps', () => {
   const steps = qualitySteps()
   const invocations = repositoryScriptInvocations()
 
@@ -51,7 +51,7 @@ describe('the CI jobs run exactly the steps of package.json\'s quality', () => {
   it('never runs the whole gate or its alias in this repository, so no step runs twice', () => {
     const aliases = Object.entries(scripts).filter(([, body]) => body.trim() === 'pnpm run quality').map(([name]) => name)
     expect(aliases).toContain('ci')
-    for (const whole of ['quality', ...aliases])
+    for (const whole of ['quality', 'quality:steps', ...aliases])
       expect(invocations.filter(invocation => invocation.script === whole)).toEqual([])
   })
 

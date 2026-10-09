@@ -209,6 +209,6 @@ describe('this repository\'s own picture is committed and checked', () => {
   it('runs that check inside the harness, so a model change that lands unrendered turns it red', () => {
     const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
     expect(manifest.scripts['model:check']).toBe('tsx scripts/model/check.ts')
-    expect(manifest.scripts.quality).toContain('pnpm model:check')
+    expect(manifest.scripts['quality:steps']).toContain('pnpm model:check')
   })
 })
