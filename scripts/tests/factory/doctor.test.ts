@@ -10,7 +10,7 @@ const RELEASE_PR = 812
 const SHARED_SETTINGS = '{ "permissions": { "allow": ["Bash(git status)"] } }\n'
 const EVERY_RULE = {
   permissions: {
-    allow: ['Bash(git log:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(gh pr merge:*)', 'Bash(ps:*)'],
+    allow: ['Bash(git log:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(gh pr merge:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)'],
     deny: [`Bash(gh pr merge ${RELEASE_PR}:*)`],
   },
   model: 'kept',
@@ -78,7 +78,7 @@ describe('pnpm doctor:factory', () => {
   it('treats a missing settings.local.json as holding no rule', async () => {
     const result = await doctor(world(undefined))
     expect(result.exitCode).toBe(1)
-    expect(result.stdout).toHaveLength(5)
+    expect(result.stdout).toHaveLength(6)
   })
 
   it('with --apply and a yes appends exactly the missing rules and keeps every rule already there', async () => {
@@ -88,7 +88,7 @@ describe('pnpm doctor:factory', () => {
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(local(cwd))).toEqual({
       permissions: {
-        allow: ['Bash(git log:*)', 'Bash(gh pr merge:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(ps:*)'],
+        allow: ['Bash(git log:*)', 'Bash(gh pr merge:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)'],
         deny: ['Bash(rm:*)', `Bash(gh pr merge ${RELEASE_PR}:*)`],
       },
       model: 'kept',
