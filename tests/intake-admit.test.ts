@@ -8,6 +8,7 @@ import { readJournalFile, runTaskStart } from '../scripts/ghosts/task-start.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
+import { isWithin, parkingTree } from '../src/commands/intake/parking-tree.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
@@ -393,5 +394,32 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const file = parkIn(w, 'lane-2', 58, '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks —')
     admit(w, file, { parkingRoot: path.join(w.root, 'elsewhere') })
     expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
+  })
+})
+
+describe('the parking tree draft and admit both read', () => {
+  it('lists the root and every lane under it, nested lanes included', () => {
+    const w = world()
+    mkdirSync(path.join(w.parking, 'lane-1', 'nested'), { recursive: true })
+    mkdirSync(path.join(w.parking, 'lane-2'), { recursive: true })
+    writeFileSync(path.join(w.parking, 'lane-2', '58.md'), '')
+    expect(parkingTree(w.parking).sort()).toEqual([
+      w.parking,
+      path.join(w.parking, 'lane-1'),
+      path.join(w.parking, 'lane-1', 'nested'),
+      path.join(w.parking, 'lane-2'),
+    ])
+  })
+
+  it('is empty for a parking root that does not exist', () => {
+    expect(parkingTree(path.join(world().root, 'missing'))).toEqual([])
+  })
+
+  it('holds the root and its lanes within, and a sibling sharing its prefix outside', () => {
+    const w = world()
+    expect(isWithin(w.parking, w.parking)).toBe(true)
+    expect(isWithin(w.parking, path.join(w.parking, 'lane-1'))).toBe(true)
+    expect(isWithin(w.parking, `${w.parking}-other`)).toBe(false)
+    expect(isWithin(w.parking, w.root)).toBe(false)
   })
 })
