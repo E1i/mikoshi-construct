@@ -45,7 +45,7 @@ export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
-export const SCRIPT_COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
+export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
 
 export interface Correction {
   field: string
@@ -161,7 +161,7 @@ function withCompanions(touched: Touched, repository: RepositoryFacts): Touched 
   return {
     ...touched,
     touches: [...touched.touches, ...missing],
-    corrections: [...touched.corrections, ...missing.map(companion => ({ field: 'touches', was: '(absent)', now: companion, reason: SCRIPT_COMPANION_REASON }))],
+    corrections: [...touched.corrections, ...missing.map(companion => ({ field: 'touches', was: '(absent)', now: companion, reason: COMPANION_REASON }))],
   }
 }
 

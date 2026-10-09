@@ -10,7 +10,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
-import { checkDraft, COMPANION_TABLE, DEFAULT_CONTOUR, invalidTestPatterns, SCRIPT_COMPANION_REASON } from '../src/commands/intake/check.js'
+import { checkDraft, COMPANION_REASON, COMPANION_TABLE, DEFAULT_CONTOUR, invalidTestPatterns } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -253,7 +253,7 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     const dir = repository(['src/commands/intake/check.ts', 'tests/commands/intake/check.test.ts', 'tests/other.test.ts'])
     const [checked] = checkDraft([draftCard({ touches: ['src/commands/intake/check.ts'] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
     expect(checked!.touches).toEqual(['src/commands/intake/check.ts', 'tests/commands/intake/check.test.ts'])
-    expect(checked!.corrections).toEqual([{ field: 'touches', was: '(absent)', now: 'tests/commands/intake/check.test.ts', reason: SCRIPT_COMPANION_REASON }])
+    expect(checked!.corrections).toEqual([{ field: 'touches', was: '(absent)', now: 'tests/commands/intake/check.test.ts', reason: COMPANION_REASON }])
   })
 
   const companionCases: Record<string, { repository: string[], touches: string[], added: string[] }> = {
@@ -273,7 +273,7 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
       const kept = facts({ repository: new DirectoryFacts(dir, '') })
       const [checked] = checkDraft([draftCard({ touches })], [2], kept)
       expect(checked!.touches).toEqual([...touches, ...added])
-      expect(checked!.corrections).toEqual(added.map(now => ({ field: 'touches', was: '(absent)', now, reason: SCRIPT_COMPANION_REASON })))
+      expect(checked!.corrections).toEqual(added.map(now => ({ field: 'touches', was: '(absent)', now, reason: COMPANION_REASON })))
       expect(checkDraft([draftCard({ touches: checked!.touches })], [2], kept)[0]!.corrections).toEqual([])
       const row = COMPANION_TABLE.find(entry => entry.kind === kind)!
       rmSync(path.join(dir, row.keptBy), { recursive: true, force: true })
