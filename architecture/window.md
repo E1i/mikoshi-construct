@@ -116,8 +116,10 @@ relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on tha
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
 with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
-then, for a pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
-review when main merged in cleanly and refuses with `review again` otherwise
+then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
+review when main merged in cleanly and refuses with `review again` otherwise, and for a cheap one `pnpm shift:merge <N> --carry`,
+which carries its journalled `event:pr-review` verdict to the new head as the `review` status `carried from <sha>` when every
+merge on the path is clean and otherwise publishes nothing and names the new review it needs
 ([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md));
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
@@ -411,7 +413,8 @@ with no verdict line, but only after `riskReading` over the pull request's chang
 too; the deeper of the two decides, so a changed file above R4 sends it to the review wait. An empty
 set of touches or changed files, or files the chain could not read, is a full review, never none.
 R3 gets a short review of the diff only: no Design scan, no mutations, no
-Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict` as before.
+Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict <verdict> --commit <sha>` as before, and after an update-branch
+through `ghosts:verdict --commit <new head>` or `shift:merge <N> --carry`.
 R1 and R2 get the full review: the witnesses, the mutations and the Design walk. The chain records
 the depth as `review` on its `event:chain` wait line. The baseline to compare against is the
 review-minutes-baseline probe (#707): on 2026-10-08 a median of 8.8 minutes from ready to verdict, R3
