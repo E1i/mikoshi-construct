@@ -29,14 +29,16 @@ export function transcriptContext(text: string): number | null {
   return text.split('\n').map(contextOfLine).filter(context => context !== null).at(-1) ?? null
 }
 
+const END_ACTION = 'write STOP with STATUS: CONTINUE through pnpm handoff:write and exit, so relaunch starts the next session from the handoff'
+
 export function boundaryMove(context: number | null): BoundaryMove {
-  return context !== null && context >= OPERATOR_CONTEXT_THRESHOLD ? 'end' : 'next'
+  return context === null || context >= OPERATOR_CONTEXT_THRESHOLD ? 'end' : 'next'
 }
 
 export function boundaryLine(context: number | null, transcript: string): string {
   if (context === null)
-    return `next: context unread in ${transcript}; take the next task`
+    return `end: context unread in ${transcript}; ${END_ACTION}`
   return boundaryMove(context) === 'end'
-    ? `end: context ${context} ≥ ${OPERATOR_CONTEXT_THRESHOLD}; write STOP with STATUS: CONTINUE through pnpm handoff:write and exit, so relaunch starts the next session from the handoff`
+    ? `end: context ${context} ≥ ${OPERATOR_CONTEXT_THRESHOLD}; ${END_ACTION}`
     : `next: context ${context} < ${OPERATOR_CONTEXT_THRESHOLD}; take the next task`
 }

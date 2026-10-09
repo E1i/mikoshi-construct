@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
+import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
 import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
@@ -510,10 +510,31 @@ describe('the Operator at a task boundary', () => {
     expect(line).toContain(String(context))
   })
 
-  it('takes the next task and names the transcript when the context is unread', async () => {
+  it('finds the session\'s transcript by its id in another project directory than the one it runs from and ends past the threshold', async () => {
     const world = newWorld()
+    const other = path.join(world.projects, '-elsewhere-main-checkout')
+    mkdirSync(other, { recursive: true })
+    writeFileSync(path.join(other, 's-1.jsonl'), JSON.stringify(usageLine(OPERATOR_CONTEXT_THRESHOLD)))
+    expect(await boundaryOf(world, 's-1')).toBe(`[relaunch] ${boundaryLine(OPERATOR_CONTEXT_THRESHOLD, path.join(other, 's-1.jsonl'))}`)
+  })
+
+  it('ends the session and names where it looked when no transcript carries the session id', async () => {
+    const world = newWorld()
+    writeTranscript(world, 's-other.jsonl', [usageLine(1000)], 1_000_000)
     const line = await boundaryOf(world, 's-missing')
-    expect(line).toBe(`[relaunch] next: context unread in ${path.join(projectDirOf(world.projects, world.repo), 's-missing.jsonl')}; take the next task`)
+    expect(line).toBe(`[relaunch] ${boundaryLine(null, path.join(world.projects, '*', 's-missing.jsonl'))}`)
+    expect(line.startsWith('[relaunch] end: context unread in ')).toBe(true)
+  })
+
+  it('tells an ending session and every relaunch prompt to write STATUS: CONTINUE', () => {
+    expect(boundaryLine(OPERATOR_CONTEXT_THRESHOLD, 't.jsonl')).toContain('STATUS: CONTINUE')
+    expect(boundaryLine(null, 't.jsonl')).toContain('STATUS: CONTINUE')
+    expect(relaunchPrompt('/h/handoff.md', null, 's-1')).toContain(`run ${boundaryCommand('s-1')}: on end, write STOP with STATUS: CONTINUE and exit`)
+  })
+
+  it('ends the session before the Eddies warning fires', () => {
+    const eddies = JSON.parse(readFileSync(fileURLToPath(new URL('../../../.claude/eddies.json', import.meta.url)), 'utf8')) as { contextLimit: number, warnRatio: number }
+    expect(OPERATOR_CONTEXT_THRESHOLD).toBeLessThan(eddies.contextLimit * eddies.warnRatio)
   })
 
   it('refuses a session id that is not a plain id', async () => {

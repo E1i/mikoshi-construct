@@ -169,9 +169,17 @@ export function transcriptModel(deps: RelaunchDeps): string | null {
   return deps.read(newest).split('\n').map(modelOfLine).filter(model => model !== null).at(-1) ?? null
 }
 
+function sessionTranscript(deps: RelaunchDeps, session: string): string | null {
+  return deps.listDir(deps.projectsDir)
+    .map(project => path.join(deps.projectsDir, project, `${session}.jsonl`))
+    .find(file => deps.exists(file)) ?? null
+}
+
 function printBoundary(deps: RelaunchDeps, session: string): number {
-  const transcript = path.join(projectDirOf(deps.projectsDir, deps.cwd), `${session}.jsonl`)
-  deps.out(`${PREFIX}${boundaryLine(transcriptContext(readIfPresent(deps, transcript) ?? ''), transcript)}`)
+  const transcript = sessionTranscript(deps, session)
+  const text = transcript === null ? null : readIfPresent(deps, transcript)
+  const context = text === null ? null : transcriptContext(text)
+  deps.out(`${PREFIX}${boundaryLine(context, transcript ?? path.join(deps.projectsDir, '*', `${session}.jsonl`))}`)
   return 0
 }
 
