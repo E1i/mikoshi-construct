@@ -1112,10 +1112,14 @@ typecheck candidate, and anything else (an install, a build, an `echo`) is not a
 candidates come before typecheck ones, CI steps before scripts, and a script that repeats a CI step
 (`pnpm run test` beside `pnpm test`) is not offered twice. No list of frameworks or tools is consulted.
 
-attach then asks `Use 1 as the harness? yes / no / a number (1–3)`: yes takes the first, a number
-that one, and no — or a repository with nothing to propose, which attach says — asks for the command
-as before. The chosen command is checked like one passed with `--harness`. Under `--yes` nothing is
-proposed and `--harness` is still required.
+attach then asks `Use 1 as the harness? yes / no / a number (1–3)`: yes takes the first and a number
+that one, and the chosen command is checked like one passed with `--harness`. No — or a repository
+with nothing to propose, which attach says without asking — is not a refusal: attach prints
+`Harness: none — attach goes on without a gate, and doctor reports the harness as not covered until one is named.`,
+goes on, and records `"harness": "none"` in [the record](#the-record). `construct doctor` in that
+repository then says `Harness: none — not covered.` and names the way to one: `construct detach`, then
+`construct attach --harness "<command>"`; its `--json` carries `"harness": { "command": null, "state": "none" }`.
+Under `--yes` nothing is proposed and `--harness` is still required.
 
 ### The twelve refusals
 
@@ -1241,15 +1245,15 @@ takes the entry out again.
 ### The record
 
 `.construct/attach.json` is a public format: the carried commands read `harness.command` from it
-when there is no `construct.json`, and [`construct detach`](#construct-detach) removes exactly what it
+when there is no `construct.json`, and report that no harness command was named when it is `none`, and [`construct detach`](#construct-detach) removes exactly what it
 lists.
 
 | Field | What it holds |
 |---|---|
-| `recordVersion` | `2`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought. |
+| `recordVersion` | `3`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
-| `harness.command` | The command passed or answered. Never a default. |
+| `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
 | `files` | Every carrier path, `.construct/commit-guard.mjs` and `.construct/shell-parser.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
@@ -1347,8 +1351,8 @@ Two refusals are about the record itself, and both come before anything else is 
 `recordVersion` that is missing or not a positive integer means which build wrote the record cannot be
 told, so detach refuses and names the value it found. A `recordVersion` higher than this binary
 understands is refused the way a later `construct.json` is: the line names both versions and says to
-upgrade the CLI. That is what a CLI from before the commit guard says of a `recordVersion` 2 record
-this build wrote: upgrade the CLI (`npx mikoshi-construct@latest`) before running `detach` on a
+upgrade the CLI. That is what a CLI from before `harness: none` says of a `recordVersion` 3 record
+this build wrote, as one from before the commit guard says of a `2`: upgrade the CLI (`npx mikoshi-construct@latest`) before running `detach` on a
 repository this release attached. Nothing is removed in either case.
 
 Two more refusals are about the exclude block rather than the index. An `excludeSeparator` that is

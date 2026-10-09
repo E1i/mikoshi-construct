@@ -2,6 +2,7 @@ import type { Ui } from '../../ui/console.js'
 import type { Lore, Notice } from '../../ui/lore.js'
 import type { Prompter } from '../../ui/prompts.js'
 import type { HarnessCandidate } from './harness.js'
+import type { AttachHarness } from './record.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
 import { existsSync } from 'node:fs'
@@ -14,7 +15,7 @@ import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeH
 import { writeExcludeBlock } from './exclude.js'
 import { fileEditingMarks, harnessCandidates, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
-import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { installGuardEntry, readSettings, SETTINGS_FILE } from './settings.js'
@@ -116,12 +117,28 @@ function printCandidates(ui: Ui, candidates: HarnessCandidate[]): void {
   candidates.forEach(({ command, source }, index) => ui.line(`    ${ui.lore.attachHarnessCandidate(index + 1, command, source)}`))
 }
 
-async function askHarness(ui: Ui, root: string, interactive: Prompter | undefined): Promise<string | null> {
-  if (interactive == null)
-    return null
+async function askHarness(ui: Ui, root: string, interactive: Prompter): Promise<AttachHarness | undefined> {
   const candidates = harnessCandidates(root)
   printCandidates(ui, candidates)
-  return interactive.harnessCommand(candidates.map(candidate => candidate.command))
+  if (candidates.length === 0)
+    return NO_HARNESS
+  const command = await interactive.harnessCommand(candidates.map(candidate => candidate.command))
+  if (command === undefined)
+    return undefined
+  return command == null ? NO_HARNESS : { command }
+}
+
+function checkedHarness(ui: Ui, command: string, searchPath: string): AttachRefusal | null {
+  const unresolved = harnessRefusal(command, searchPath)
+  if (unresolved != null)
+    return unresolved
+  const marks = fileEditingMarks(command)
+  if (marks.length > 0) {
+    const notice = ui.lore.attachHarnessEditsFiles(marks)
+    ui.glitch(notice.what)
+    explained(ui, notice)
+  }
+  return null
 }
 
 export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Prompter): Promise<AttachResult> {
@@ -139,20 +156,16 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   }
   const interactive = options.yes ? undefined : prompter
 
-  const command = options.harness ?? await askHarness(ui, root, interactive)
-  if (command == null)
+  const harness = options.harness != null ? { command: options.harness } : interactive == null ? undefined : await askHarness(ui, root, interactive)
+  if (harness == null)
     return aborted()
-  const unresolved = harnessRefusal(command, (options.env ?? process.env).PATH ?? '')
-  if (unresolved != null)
-    return refused(ui, unresolved)
-  const marks = fileEditingMarks(command)
-  if (marks.length > 0) {
-    const notice = ui.lore.attachHarnessEditsFiles(marks)
-    ui.glitch(notice.what)
-    explained(ui, notice)
-  }
+  if (harness === NO_HARNESS)
+    ui.line(`  ${ui.lore.attachHarnessNone}`)
+  const unchecked = harness === NO_HARNESS ? null : checkedHarness(ui, harness.command, (options.env ?? process.env).PATH ?? '')
+  if (unchecked != null)
+    return refused(ui, unchecked)
 
-  const ops = planCarriers(root, command)
+  const ops = planCarriers(root, harness)
   const targets = ops.map(op => op.target)
   for (const target of targets)
     ui.line(`  ${ui.theme.ok('+')} ${target}`)
@@ -192,7 +205,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     recordVersion: ATTACH_RECORD_VERSION,
     construct: VERSION,
     attachedAt: new Date().toISOString(),
-    harness: { command },
+    harness,
     files: Object.fromEntries(written.map(op => [op.target, sha256(op.content)])),
     directories,
     excludeCreated: exclude.created,

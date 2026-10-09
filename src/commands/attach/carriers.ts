@@ -1,12 +1,14 @@
 import type { FileOp } from '../../materialize/plan.js'
 import type { TemplateVars } from '../../presets/index.js'
+import type { AttachHarness } from './record.js'
 import { existsSync, lstatSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { planMaterialize } from '../../materialize/plan.js'
 import { ATTACH_CARRIERS, ATTACH_GUARD, defaultProjectName } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
+import { NO_HARNESS } from './record.js'
 
-function carrierVars(root: string, harnessCommand: string): TemplateVars {
+function carrierVars(root: string, harness: AttachHarness): TemplateVars {
   const projectName = defaultProjectName(root)
   return {
     projectName,
@@ -16,7 +18,7 @@ function carrierVars(root: string, harnessCommand: string): TemplateVars {
     contractPath: '',
     contractTypesOutput: '',
     compositionDir: '',
-    harnessCommand,
+    harnessCommand: harness === NO_HARNESS ? NO_HARNESS : harness.command,
     packageManager: '',
     pnpmVersion: '',
     reviewModel: '',
@@ -63,9 +65,9 @@ export function browserEntriesHeldAtAttach(root: string): string[] {
 
 const ATTACH_GROUPS: string[] = [...ATTACH_CARRIERS.groups, ATTACH_GUARD.group]
 
-export function planCarriers(root: string, harnessCommand: string): FileOp[] {
+export function planCarriers(root: string, harness: AttachHarness): FileOp[] {
   const targets = ATTACH_WRITES
-  const plan = planMaterialize(root, ATTACH_GROUPS, carrierVars(root, harnessCommand), { emptyTarget: false, ai: 'claude' })
+  const plan = planMaterialize(root, ATTACH_GROUPS, carrierVars(root, harness), { emptyTarget: false, ai: 'claude' })
   const ops = targets.flatMap(target => plan.ops.filter(op => op.target === target))
   const missing = targets.filter(target => !ops.some(op => op.target === target))
   if (missing.length > 0)

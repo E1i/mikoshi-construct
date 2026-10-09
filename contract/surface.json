@@ -436,7 +436,7 @@
   "formats": {
     "manifestVersion": 6,
     "modelVersion": 5,
-    "recordVersion": 2
+    "recordVersion": 3
   },
   "jsonKeys": {
     "board": {

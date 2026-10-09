@@ -10,7 +10,7 @@ export interface Prompter {
   projectName: (initial: string) => Promise<string | undefined>
   review: (initial: boolean) => Promise<boolean | undefined>
   confirm: (message: string) => Promise<boolean | undefined>
-  harnessCommand: (candidates?: string[]) => Promise<string | null>
+  harnessCommand: (candidates: string[]) => Promise<string | null | undefined>
 }
 
 type SingleAiTarget = Exclude<AiTarget, 'both'>
@@ -100,26 +100,16 @@ export function createClackPrompter(lore: Lore, streams: PromptStreams = {}): Pr
     async confirm(message) {
       return settle(await confirm({ ...streams, message, initialValue: true }))
     },
-    async harnessCommand(candidates = []) {
-      if (candidates.length > 0) {
-        const picked = settle(await text({
-          ...streams,
-          message: lore.askHarnessCandidate(candidates.length),
-          validate: value => (pickedCandidate(value ?? '', candidates.length) === undefined ? lore.harnessCandidateInvalid(candidates.length) : undefined),
-        }))
-        if (picked == null)
-          return null
-        const index = pickedCandidate(picked, candidates.length)
-        if (index != null)
-          return candidates[index]
-      }
-      const answer = await text({
+    async harnessCommand(candidates) {
+      const picked = settle(await text({
         ...streams,
-        message: lore.askHarness,
-        validate: value => ((value ?? '').trim() === '' ? lore.harnessEmpty : undefined),
-      })
-      const value = settle(answer)
-      return value == null ? null : value.trim()
+        message: lore.askHarnessCandidate(candidates.length),
+        validate: value => (pickedCandidate(value ?? '', candidates.length) === undefined ? lore.harnessCandidateInvalid(candidates.length) : undefined),
+      }))
+      if (picked == null)
+        return undefined
+      const index = pickedCandidate(picked, candidates.length)
+      return index == null ? null : candidates[index]
     },
   }
 }
