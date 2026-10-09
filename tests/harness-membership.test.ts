@@ -49,6 +49,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'test:watch': 'a local loop over the same tests',
   'test:weights': 'rewrites the table CI balances its vitest shards by; it changes how the tests are split, not whether they pass',
   'version-packages': 'the version step; the release index tests gate its output',
+  'worktrees:sweep': 'removes the worktrees of merged or closed cards when run by hand with --apply; its own tests are its gate',
 }
 
 describe('every gate is reachable from the harness, and anything outside it says why', () => {

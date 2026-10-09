@@ -1,10 +1,11 @@
 import type { TaskStartDeps } from '../../ghosts/task-start.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
+import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ghosts/worktree-home.js'
 
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')
@@ -102,6 +103,24 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
       admission: { by: 'intake', confirmation: 'none', intake: INTAKE_TS },
       ts: NOW.toISOString(),
     }])
+  })
+
+  it('cuts a new worktree under the worktree home', () => {
+    const world = newWorld()
+    const home = path.join(world.root, 'home', 'worktrees')
+    const result = runTaskStart(['feat/h1', '--card', card(41)], { ...depsOf(world), worktreeHome: home })
+    const worktree = path.join(home, 'mc-41')
+    expect(result.exitCode).toBe(0)
+    expect(result.worktree).toBe(worktree)
+    expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/h1')
+    expect(existsSync(path.join(world.root, 'mc-41'))).toBe(false)
+    expect(lines(world).find(entry => entry.event === 'path')).toMatchObject({ task: '41', worktree })
+  })
+
+  it('reads the worktree home from its environment variable, else ~/.construct/worktrees', () => {
+    expect(worktreeHome({ [WORKTREE_HOME_VARIABLE]: '/elsewhere/trees' })).toBe('/elsewhere/trees')
+    expect(worktreeHome({})).toBe(path.join(homedir(), '.construct', 'worktrees'))
+    expect(worktreeHome({ [WORKTREE_HOME_VARIABLE]: '' })).toBe(DEFAULT_WORKTREE_HOME)
   })
 
   it('the start line names the shift that started the card', () => {

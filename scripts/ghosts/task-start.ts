@@ -16,6 +16,7 @@ import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { ENTRY_RESULT, entryLine } from './entry.js'
+import { taskWorktree, worktreeHome } from './worktree-home.js'
 
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]'
@@ -36,6 +37,7 @@ export interface TaskStartDeps {
   session: string | undefined
   shift?: string
   handoffDir: string
+  worktreeHome?: string
   readJournal: TaskStartJournalReader
   style?: SignalStyle
   parking?: { dir: string, read: (file: string) => string | null }
@@ -263,7 +265,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   catch (error) {
     return refuse(`not inside a git repository: ${firstLine(error)}`)
   }
-  const worktree = path.join(path.dirname(repo), `mc-${id}`)
+  const worktree = taskWorktree(deps.worktreeHome ?? path.dirname(repo), id)
   if (deps.exists(worktree))
     return refuse(`${worktree} already exists; nothing written`)
   if (branchExists(deps, repo, branch))
@@ -316,6 +318,7 @@ function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    worktreeHome: worktreeHome(process.env),
     readJournal: readJournalFile,
     parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readJournalFile },
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
