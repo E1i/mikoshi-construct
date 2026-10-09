@@ -390,6 +390,12 @@ describe('the card line of the pull request body', () => {
     expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: prBodyOf(body) }).stderr).toEqual([])
   })
 
+  it('says nothing when the card line opens with card: ', () => {
+    const { deps } = world([startLine('123', 'implement')])
+    const body = 'card: #123 n [implement/ghosts/S/cheap/owner] · depends — · blocks —\n\nbody'
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: prBodyOf(body) }).stderr).toEqual([])
+  })
+
   it('notes a body that cannot be read and still closes', () => {
     const { deps, written } = world([startLine('123', 'implement')])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => {

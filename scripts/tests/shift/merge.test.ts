@@ -188,10 +188,10 @@ describe('runCarry', () => {
     git(repo, 'checkout', '-q', 'pr')
   }
 
-  function carryRun(repo: string, reviewed: string, head: string): { posted: ReviewStatus[], result: ReturnType<typeof runCarry> } {
+  function carryRun(repo: string, reviewed: string, head: string, body = cardLine('auto')): { posted: ReviewStatus[], result: ReturnType<typeof runCarry> } {
     const posted: ReviewStatus[] = []
     const journal = prReviewLine({ task: '7', pr: 42, verdict: 'pass', commit: reviewed }, new Date('2026-10-09T03:00:00.000Z'))
-    const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: head, files: [{ path: 'scripts/board/derive.ts' }] })
+    const gh = (): string => JSON.stringify({ body, headRefOid: head, files: [{ path: 'scripts/board/derive.ts' }] })
     const result = runCarry(['42', '--carry'], { gh, git: args => git(repo, ...args), fetch: () => {}, journal: () => journal, main: 'main', publish: status => posted.push(status) })
     return { posted, result }
   }
@@ -202,6 +202,17 @@ describe('runCarry', () => {
     git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main')
     const head = git(repo, 'rev-parse', 'HEAD')
     const { posted, result } = carryRun(repo, reviewed, head)
+    expect(posted).toEqual([{ commit: head, state: 'success', context: 'review', description: `carried from ${reviewed}` }])
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('carry accepts a body whose first line starts with card: ', () => {
+    const { repo, reviewed } = reviewedPullRequest({ 'own.txt': 'the pull request\n' })
+    mainMoves(repo, { 'other.txt': 'main moved\n' })
+    git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main')
+    const head = git(repo, 'rev-parse', 'HEAD')
+    const { posted, result } = carryRun(repo, reviewed, head, `card: ${cardLine('auto')}\n\nbody`)
+    expect(result.stderr).toEqual([])
     expect(posted).toEqual([{ commit: head, state: 'success', context: 'review', description: `carried from ${reviewed}` }])
     expect(result.exitCode).toBe(0)
   })

@@ -174,8 +174,6 @@ export async function morseApprove(briefPath: string, options: MorseOptions): Pr
   const parked = parkedCard(parkingDir, card)
 
   const reading = riskReading(parked.touches, false)
-  if (reading.level === 'R1')
-    throw new Error(`the brief waits for the owner: card #${card} is R1 (${reading.why})`)
   if (parked.body.split('\n').some(line => line.startsWith(UNCLEAR_PREFIX.trimEnd())))
     throw new Error(`card #${card} has an unclear field, so MORSE does not approve; the brief waits for the owner`)
   refuseCardProse(text, card, parked.body)

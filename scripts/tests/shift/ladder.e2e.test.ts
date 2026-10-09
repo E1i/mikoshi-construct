@@ -125,17 +125,17 @@ describe('a ladder card in a shift', () => {
   })
 })
 
-describe('an R1 brief waits in the owner queue', () => {
-  it('an R1 brief waits in the owner queue: the hash stop names the tree, the last session and the refusal', async () => {
+describe('a refused brief waits in the owner queue', () => {
+  it('a refused brief waits in the owner queue: the hash stop names the tree, the last session and the refusal', async () => {
     const world = newLadderWorld()
     await shiftOver(world, { morse: 'refuses' })
     const stops = eventsOf(world, 'stop')
     expect(stops).toHaveLength(1)
     expect(stops[0]).toMatchObject({ task: '1', at: 'hash', worktree: path.join(world.root, 'mc-1'), session: readFileSync(path.join(world.stubOut, 'mc-1.session'), 'utf8').trim(), shift: world.shift })
-    expect(stops[0]!.why).toBe(`ladder card: MORSE approves an R2–R4 brief (ghosts:hash --by morse), the owner approves an R1 brief: the brief waits for the owner: card #1 is R1 (it touches the runner)`)
+    expect(stops[0]!.why).toBe(`ladder card: MORSE approves a brief of any risk (ghosts:hash --by morse), a refused brief is left to the owner: card #1 fell 1 time(s) (review-hole), so MORSE does not approve; the brief waits for the owner`)
   })
 
-  it('an R1 brief waits in the owner queue: a rerun leaves it as waits hash, writes no second stop and starts no session', async () => {
+  it('a refused brief waits in the owner queue: a rerun leaves it as waits hash, writes no second stop and starts no session', async () => {
     const world = newLadderWorld()
     await shiftOver(world, { morse: 'refuses' })
     const rerun = path.join(world.root, 'shift-2')
@@ -147,7 +147,7 @@ describe('an R1 brief waits in the owner queue', () => {
     expect(eventsOf(world, 'stop')).toHaveLength(1)
   })
 
-  it('an R1 brief waits in the owner queue: the shift writes no approval file and launches nothing', async () => {
+  it('a refused brief waits in the owner queue: the shift writes no approval file and launches nothing', async () => {
     const world = newLadderWorld()
     const { ladder } = await shiftOver(world, { morse: 'refuses' })
     expect(existsSync(approvedHashPath(briefOf(world, 1)))).toBe(false)
@@ -155,7 +155,7 @@ describe('an R1 brief waits in the owner queue', () => {
     expect(existsSync(path.join(world.handoff, 'tasks-1-task-1.json'))).toBe(false)
   })
 
-  it('an R1 brief waits in the owner queue until the owner approves it, and then the next run goes on', async () => {
+  it('a refused brief waits in the owner queue until the owner approves it, and then the next run goes on', async () => {
     const world = newLadderWorld()
     await shiftOver(world, { morse: 'refuses' })
     approve(world, 1)
@@ -171,7 +171,7 @@ describe('an R1 brief waits in the owner queue', () => {
     return shiftOver(world, { launch: 'running' }, path.join(world.root, 'shift-2'))
   }
 
-  it('an R1 brief waits in the owner queue: an .approved-sha256 file for the current hash with no approval event leaves it waits hash', async () => {
+  it('a refused brief waits in the owner queue: an .approved-sha256 file for the current hash with no approval event leaves it waits hash', async () => {
     const world = newLadderWorld()
     const next = await heldAfter(world, () => approvedFile(world, 1))
     expect(next.io.out).toContain('[shift] parking: takes none')
@@ -180,7 +180,7 @@ describe('an R1 brief waits in the owner queue', () => {
     expect(eventsOf(world, 'stop')).toHaveLength(1)
   })
 
-  it('an R1 brief waits in the owner queue: a revoke after the approval leaves it held', async () => {
+  it('a refused brief waits in the owner queue: a revoke after the approval leaves it held', async () => {
     const world = newLadderWorld()
     const next = await heldAfter(world, () => {
       approve(world, 1)
@@ -191,7 +191,7 @@ describe('an R1 brief waits in the owner queue', () => {
     expect(eventsOf(world, 'stop')).toHaveLength(1)
   })
 
-  it('an R1 brief waits in the owner queue: an approval event for an older hash leaves it held', async () => {
+  it('a refused brief waits in the owner queue: an approval event for an older hash leaves it held', async () => {
     const world = newLadderWorld()
     const next = await heldAfter(world, () => {
       approvedFile(world, 1)
