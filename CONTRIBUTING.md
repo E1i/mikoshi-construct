@@ -93,7 +93,8 @@ and the journal, `<worktree>` for a Ghost's worktree.
 
 | Script | What it does | How to run it |
 |---|---|---|
-| `pnpm run quality` | The harness: `composition:check`, `model:check`, `privacy:check`, `lint`, `typecheck`, `test`, `docs:build`, `docs:pending` and `docs:anchors`, in that order, stopping at the first failure. | `pnpm run quality` |
+| `pnpm run quality` | The harness: runs `quality:steps` under `scripts/quality/lock.ts`, one lock per machine in `~/.construct/quality` (`CONSTRUCT_QUALITY_LOCK_DIR` moves it), so a second run in any worktree waits for the first; `lock.log` there records each `wait`, `start` and `end`, and a holder whose pid is gone is released as `stale`. | `pnpm run quality` |
+| `pnpm quality:steps` | In the harness. `composition:check`, `model:check`, `privacy:check`, `lint`, `typecheck`, `test`, `docs:build`, `docs:pending` and `docs:anchors`, in that order, stopping at the first failure, without the lock. | `pnpm quality:steps` |
 | `pnpm run ci` | An alias of `quality`; `run` is needed because bare `pnpm ci` is pnpm's install builtin. | `pnpm run ci` |
 | `pnpm composition:check` | In the harness. Checks each composition model under `architecture/composition/`: named after its id, every path it names exists, its rendered doc current. | `pnpm composition:check` |
 | `pnpm composition:render` | Rewrites the rendered flow docs from the composition models; `composition:check` is its gate. | `pnpm composition:render` |
