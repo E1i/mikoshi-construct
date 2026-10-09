@@ -1,9 +1,13 @@
 import type { Card } from '../../../src/card/grammar.js'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { approvedSha256Of, briefPathOf, isLadder, ladderStep, tasksFilePathOf, tasksFileText } from '../../shift/ladder.js'
-import { approvalLine, BRIEF_TEXT, revokeLine } from './fixtures/ladder-world.js'
+import { runShift } from '../../shift/shift.js'
+import { captured, cardLine, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
+import { approvalLine, approve, BRIEF_TEXT, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
 
 function cardOf(line: string): Card {
   const parsed = parseCard(line)
@@ -84,5 +88,23 @@ describe('the approved hash of a card is read from the journal alone', () => {
   it('is brief after a revoke of that hash, and launch for an approval by the owner as much as by MORSE', () => {
     expect(step(`${APPROVED}${revokeLine(603)}`)).toBe('brief')
     expect(step(approvalLine(603, 'owner'))).toBe('launch')
+  })
+})
+
+describe('a failed ladder launch keeps what it printed', () => {
+  it('a failed ladder launch writes its stderr tail and log path into its fault line', async () => {
+    const world = newWorld([{ id: 1, kind: LADDER, who: 'shift', body: 'do 1 STUB-BRIEF-WRITE STUB-VERIFIED-run STUB-PR-101' }])
+    const { gh } = fakeGh({ 101: cardLine(1, LADDER) })
+    await runShift([world.shift, '--parking', world.parking], ladderDeps(world, gh, captured(), ladderPnpm(world, 1, { morse: 'refuses' })))
+    approve(world, 1)
+    const shift = path.join(world.root, 'shift-2')
+    const lines = Array.from({ length: 25 }, (_, index) => `launch line ${index}`)
+    const refused = ladderPnpm(world, 1, { launch: 'exit' })
+    const launch = { calls: refused.calls, pnpm: (cwd: string, args: string[], input?: string) => args[0] === 'ghosts:launch' ? { ...refused.pnpm(cwd, args, input), stdout: 'preflight: base abc1234\n', stderr: `${lines.join('\n')}\n` } : refused.pnpm(cwd, args, input) }
+    await runShift([shift, '--parking', world.parking], ladderDeps(world, gh, captured(), launch))
+
+    const log = path.join(shift, '1-launch.log')
+    expect(eventsOf(world, 'stop').at(-1)).toMatchObject({ task: '1', at: 'fault', why: 'launch line 0', tail: lines.slice(-20).join('\n'), log })
+    expect(readFileSync(log, 'utf8')).toBe(`preflight: base abc1234\n${lines.join('\n')}\n`)
   })
 })

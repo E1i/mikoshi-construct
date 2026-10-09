@@ -34,6 +34,7 @@ import { VERIFICATION_WORDS } from '../board/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
+import { tailLines } from '../ghosts/preflight-trees.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
@@ -445,6 +446,8 @@ interface StopRecord {
   pr?: number
   last?: string
   failed?: true
+  tail?: string
+  log?: string
 }
 
 const MERGE_ARMED = /auto-merge armed on PR #\d+/
@@ -473,7 +476,7 @@ function autopilotLine(deps: ShiftDeps, dir: string, manual: boolean): string {
 }
 
 function recordStop(deps: ShiftDeps, dir: string, task: string, stop: StopRecord): void {
-  const line = { event: 'stop', task, at: stop.at, why: stop.why, worktree: stop.worktree, shift: dir, session: stop.session, ts: deps.now().toISOString(), ...(stop.pr === undefined ? {} : { pr: stop.pr }), ...(stop.last === undefined ? {} : { last: stop.last }), ...(stop.failed === undefined ? {} : { failed: stop.failed }) }
+  const line = { event: 'stop', task, at: stop.at, why: stop.why, worktree: stop.worktree, shift: dir, session: stop.session, ts: deps.now().toISOString(), ...(stop.pr === undefined ? {} : { pr: stop.pr }), ...(stop.last === undefined ? {} : { last: stop.last }), ...(stop.failed === undefined ? {} : { failed: stop.failed }), ...(stop.tail === undefined ? {} : { tail: stop.tail }), ...(stop.log === undefined ? {} : { log: stop.log }) }
   deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify(line)}\n`)
 }
 
@@ -662,6 +665,10 @@ function runPnpm(deps: ShiftDeps, args: string[], input?: string): PnpmResult | 
   }
 }
 
+function launchLogPath(dir: string, card: ShiftTask['card']): string {
+  return path.join(dir, `${card.id}-launch.log`)
+}
+
 function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { file: string } | { problem: string } {
   const file = tasksFilePathOf(deps.handoffDir, task.card)
   let repo: string
@@ -726,7 +733,10 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
       if (launched.code === 0)
         continue
       const after = ladderStep(briefFacts(deps, task), card)
-      return stopped('fault', after.kind === 'fault' ? after.why : firstLine(launched.stderr) || `ghosts:launch exit ${launched.code}`)
+      const log = launchLogPath(dir, card)
+      deps.append(log, `${launched.stdout}${launched.stderr}`)
+      const why = after.kind === 'fault' ? after.why : firstLine(launched.stderr) || `ghosts:launch exit ${launched.code}`
+      return result({ ...stopAt({ worktree: worktree ?? null, session: null }, 'fault', why), tail: tailLines(`${launched.stdout}${launched.stderr}`), log })
     }
     const session = deps.uuid()
     const label = step.kind === 'brief' ? `${task.number}-brief` : task.number

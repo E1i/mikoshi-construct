@@ -250,7 +250,7 @@ nothing; a pull request that changes `src/` or `templates/` with no matrix count
 
 The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
 auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one
-`{"event":"stop","task","at","why","worktree","shift","session","ts"}` line to `ghosts.jsonl` (`pr` too when `at` is `merge`):
+`{"event":"stop","task","at","why","worktree","shift","session","ts"}` line to `ghosts.jsonl` (`pr` too when `at` is `merge`; `tail`, the last 20 lines of its output, and `log`, the path of all of it, when a mechanism step went red: a failed `ghosts:launch` of a ladder card keeps its stdout and stderr in `<dir>/<card>-launch.log`, and a red P8 harness in `ghosts:hash` keeps its output beside the brief as `<brief>.p8.log` and names the first failing step of `quality:steps` in its refusal, with the same tail and log path):
 `at` is `hash` (the brief of a ladder card that MORSE refused to approve: the stop names the tree, the
 last session and the first refusal line, and the hash is the owner's), `merge` (a pull request the merge rules left to the owner), `question` (a `question:` line in the
 report), `boundary` (a `boundary:` line the card does not follow: `continue: stop`, the restart limit, or a no under
