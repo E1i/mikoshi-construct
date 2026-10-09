@@ -41,6 +41,7 @@
     "bench:architect": "tsx scripts/bench/run.ts",
     "board": "tsx scripts/board/board.ts",
     "build": "tsup",
+    "bus:bg": "tsx scripts/bus/bg.ts",
     "bus:import": "tsx scripts/bus/import.ts",
     "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",
