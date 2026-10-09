@@ -71,6 +71,15 @@ export interface SupersededEvent {
   ts: string
 }
 
+export interface StopEvent {
+  event: 'stop'
+  task: string
+  at: string
+  why: string
+  pr?: number
+  ts: string
+}
+
 export interface StatusRow {
   state: string
   start: string
@@ -104,6 +113,7 @@ export interface Attempt {
   window: Window
   handoffFile: string | undefined
   supersededEvent: SupersededEvent | undefined
+  stopEvent: StopEvent | undefined
   entryLine: Signal | undefined
   journalPath: string
 }
@@ -114,7 +124,7 @@ export interface Handoff {
   warnings: string[]
 }
 
-type JournalLine = TaskEvent | ReviewEvent | MergeEvent | PathEvent | SupersededEvent
+type JournalLine = TaskEvent | ReviewEvent | MergeEvent | PathEvent | SupersededEvent | StopEvent
 
 interface Named {
   ghost: string | undefined
@@ -281,6 +291,11 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
   const lastOf = <K extends JournalLine['event']>(id: string, event: K): Extract<JournalLine, { event: K }> | undefined =>
     journal.filter((line): line is Extract<JournalLine, { event: K }> => line.event === event && attemptOf(line.task) === id).at(-1)
 
+  const standingStop = (id: string): StopEvent | undefined => {
+    const last = journal.filter(line => typeof line.task === 'string' && attemptOf(line.task) === id).at(-1)
+    return last?.event === 'stop' ? last : undefined
+  }
+
   const windowBudgetLines = readBudgetLines(repoRoot)
   const attempts = [...named].map(([id, facts]): Attempt => {
     const pathEvent = foldPath(journal, task => attemptOf(task) === id)
@@ -309,6 +324,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
       window: readWindow([repoRoot, worktree], session),
       handoffFile: handoffFileOf(dir, ghost) ?? handoffFileOf(dir, id),
       supersededEvent: journal.filter((line): line is SupersededEvent => line.event === 'superseded' && line.task === ghost).at(-1),
+      stopEvent: standingStop(id),
       entryLine: entryOf(journalText, ghost) ?? entryOf(journalText, id),
       journalPath,
     }

@@ -1816,7 +1816,9 @@ It runs no model and no `gh`.
 Each card of the draft takes `name`, `kind`, `milestone`, `size`, `touches`, `task` and `witnesses`,
 none of which has a default, and optionally `contour`, `decision`, `branch`, `who`, `continue`,
 `depends`, `blocks`, `creates` (the `touches` entries the change makes, so they are not expected to
-exist), `number` and `unclear` (a list of `{ "field", "reason" }`). `depends` and `blocks` name
+exist; an entry is `<path>` or `<path> (<kind>)`, the kind `ghosts` or `plain`, which the shift reads
+for a new file under `scripts/ghosts/` in place of a row in `architecture/ghosts-files.md`; an entry
+of any other form is refused, and `--admit` marks it `unclear:`), `number` and `unclear` (a list of `{ "field", "reason" }`). `depends` and `blocks` name
 another card of the draft by its `name` or an existing card as `#<id>`; a card another one depends on
 gets the matching `blocks` entry.
 

@@ -18,6 +18,7 @@ import { ageSince } from '../../board/row.js'
 import { HELP, runBoard, USAGE } from '../../board/run.js'
 import { TONES } from '../../board/tone.js'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
+import { STOP_AT } from '../../shift/parking.js'
 
 const STATUS_MD_ZONE = 'UTC'
 const machineZone = process.env.TZ
@@ -31,6 +32,7 @@ const CHEAP = path.join(FIXTURES, 'cheap')
 const NEXT = path.join(FIXTURES, 'next')
 const SKEW = path.join(FIXTURES, 'skew')
 const SUPERSEDED = path.join(FIXTURES, 'superseded')
+const STOP = path.join(FIXTURES, 'stop')
 const HAND = path.join(FIXTURES, 'hand')
 const BOARD = path.join(REPO_ROOT, 'scripts/board/board.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
@@ -719,7 +721,7 @@ describe('board: one line per live task, TASK · PATH · STAGE · AGE · NEXT', 
   })
 
   it('gives every situation of the NEXT table a fixture above', () => {
-    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report', 'hand-ladder-running', 'window-closed', 'window-handoff'])
+    const covered = new Set(['ci', 'new-attempt', 'ghost-running', 'verdict', 'merged', 'brief', 'approval', 'launch', 'pr', 'ci-red', 'owner-merge', 'auto-merge', 'merge-unknown', 'pr-closed', 'pr-unknown', 'superseded', 'report', 'hand-ladder-running', 'window-closed', 'window-handoff', 'stop'])
     expect(Object.keys(NEXT_BY_SITUATION).filter(situation => !covered.has(situation))).toEqual(['ci-unknown'])
   })
 
@@ -838,6 +840,38 @@ describe('board: an attempt a journal event:superseded names', () => {
     expect(attempts['271-4'].superseded).toBeNull()
     expect(attempts['271-2'].derived.next).toEqual({ situation: 'superseded', text: '— (superseded)', why: 'by 271-4' })
     expect(json.tasks.filter((task: any) => task.derived.shownByDefault).map((task: any) => task.derived.live)).toEqual(['271-4'])
+  })
+})
+
+describe('board: a journal event:stop the shift wrote for a task', () => {
+  const STOP_WHY: Record<string, string> = {
+    hash: 'the brief\'s hash is not approved',
+    merge: 'PR #101 not merged within 3 minutes',
+    question: 'the report asks the owner',
+    boundary: 'boundary; the card says continue: stop',
+    fault: 'exit 1',
+  }
+
+  it('has a fixture task for every at the shift records', () => {
+    expect(Object.keys(STOP_WHY)).toEqual([...STOP_AT])
+  })
+
+  it.each(STOP_AT.map(at => ({ at })))('a stop at $at shows waits $at and its why in NEXT', ({ at }) => {
+    const { stdout } = board(['--dir', STOP])
+    expect(rowOf(stdout, `s-${at}`)[4]).toBe(`stale 5h00m · waits ${at}: ${STOP_WHY[at]}`)
+  })
+
+  it('counts a stopped task as waiting, and a later journal line of the task lifts the stop', () => {
+    const { stdout } = board(['--dir', STOP])
+    expect(stdout[0]).toMatch(/^open 6: running 1, waiting 5, blocked 0, /)
+    expect(rowOf(stdout, 's-resumed')[4]).not.toContain('waits')
+  })
+
+  it('names the journal line in the card and carries the stop in --json', () => {
+    expect(board(['--dir', STOP, 's-merge']).stdout).toContain('next waits merge: PR #101 not merged within 3 minutes (derived; journal event:stop, 2026-09-28T07:10:00.000Z)')
+    const json = JSON.parse(board(['--dir', STOP, '--json']).stdout[0])
+    const merge = json.tasks.flatMap((task: any) => task.attempts).find((attempt: any) => attempt.id === 's-merge')
+    expect(merge.derived.next).toEqual({ situation: 'stop', text: 'waits merge: PR #101 not merged within 3 minutes', why: 'journal event:stop, 2026-09-28T07:10:00.000Z' })
   })
 })
 
