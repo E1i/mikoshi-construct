@@ -1,16 +1,20 @@
 import type { OperatorCommands } from '../../factory/doctor.js'
+import type { Projection, StateDeps, StatePlaces } from '../../state/index.js'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTRACT, LOCAL_SETTINGS, operatorCommands, runDoctor } from '../../factory/doctor.js'
+import { projectionPath, readView, runState, sealOf, stateFindings, statePlaces } from '../../state/index.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const RELEASE_PR = 812
+const STATE_RULES = ['Bash(pnpm state:*)', 'Bash(pnpm state:note:*)', 'Bash(pnpm state:decision:*)', 'Bash(pnpm state:card:*)', 'Bash(pnpm state:handoff:*)']
 const SHARED_SETTINGS = '{ "permissions": { "allow": ["Bash(git status)"] } }\n'
 const EVERY_RULE = {
   permissions: {
-    allow: ['Bash(git log:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(gh pr merge:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)'],
+    allow: ['Bash(git log:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(gh pr merge:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)', ...STATE_RULES],
     deny: [`Bash(gh pr merge ${RELEASE_PR}:*)`],
   },
   model: 'kept',
@@ -44,11 +48,26 @@ function without(rule: string, list: 'allow' | 'deny'): typeof EVERY_RULE {
   return { ...EVERY_RULE, permissions: { ...EVERY_RULE.permissions, [list]: EVERY_RULE.permissions[list].filter(kept => kept !== rule) } }
 }
 
-async function doctor(cwd: string, argv: string[] = [], options: { commands?: Partial<OperatorCommands>, confirm?: (() => Promise<boolean>) | null } = {}) {
+async function doctor(cwd: string, argv: string[] = [], options: { commands?: Partial<OperatorCommands>, confirm?: (() => Promise<boolean>) | null, state?: StatePlaces } = {}) {
   const commands = { window: [], role: [], ...options.commands }
-  const result = await runDoctor(argv, { cwd, gh, commands: () => commands, confirm: options.confirm ?? null })
+  const state = options.state
+  const result = await runDoctor(argv, { cwd, gh, commands: () => commands, state: () => state === undefined ? [] : stateFindings(state), confirm: options.confirm ?? null })
   expect(readFileSync(path.join(cwd, '.claude', 'settings.json'), 'utf8')).toBe(SHARED_SETTINGS)
   return result
+}
+
+function stateWorld(): StatePlaces {
+  const home = mkdtempSync(path.join(tmpdir(), 'doctor-state-'))
+  roots.push(home)
+  const places = statePlaces(home)
+  mkdirSync(path.dirname(places.journal), { recursive: true })
+  writeFileSync(places.decisions, '# Owner decisions\n\n- D-1 · 2026-10-01 — the first decision\n')
+  writeFileSync(places.journal, '')
+  return places
+}
+
+function stateDeps(places: StatePlaces): StateDeps {
+  return { places, cwd: places.home, now: () => new Date('2026-10-10T08:00:00.000Z'), pid: process.pid, alive: () => false, out: () => {}, err: () => {} }
 }
 
 function local(cwd: string): string {
@@ -78,7 +97,7 @@ describe('pnpm doctor:factory', () => {
   it('treats a missing settings.local.json as holding no rule', async () => {
     const result = await doctor(world(undefined))
     expect(result.exitCode).toBe(1)
-    expect(result.stdout).toHaveLength(6)
+    expect(result.stdout).toHaveLength(11)
   })
 
   it('with --apply and a yes appends exactly the missing rules and keeps every rule already there', async () => {
@@ -88,7 +107,7 @@ describe('pnpm doctor:factory', () => {
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(local(cwd))).toEqual({
       permissions: {
-        allow: ['Bash(git log:*)', 'Bash(gh pr merge:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)'],
+        allow: ['Bash(git log:*)', 'Bash(gh pr merge:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)', ...STATE_RULES],
         deny: ['Bash(rm:*)', `Bash(gh pr merge ${RELEASE_PR}:*)`],
       },
       model: 'kept',
@@ -140,6 +159,29 @@ describe('pnpm doctor:factory', () => {
     const named = await doctor(world(EVERY_RULE), [], { commands: { role: ['gh -R E1i/x pr view 1'] } })
     expect(named.exitCode).toBe(1)
     expect(named.stdout).toEqual([`[doctor:factory] command \`gh -R E1i/x pr view 1\` is allowed by no rule in ${CONTRACT}`])
+  })
+
+  it('write bypassing state: names a state file changed with no state:* event after its last one, and exits 1', async () => {
+    const places = stateWorld()
+    expect(runState(['decision', 'through', 'the', 'command'], stateDeps(places))).toBe(0)
+    const passed = await doctor(world(EVERY_RULE), [], { state: places })
+    expect(passed.exitCode).toBe(0)
+    writeFileSync(places.decisions, `${readFileSync(places.decisions, 'utf8')}- D-3 · 2026-10-10 — appended by hand\n`)
+    const named = await doctor(world(EVERY_RULE), [], { state: places })
+    expect(named.exitCode).toBe(1)
+    expect(named.stdout).toEqual([`[doctor:factory] state: ${places.decisions}: changed with no state:* event since the decision at 2026-10-10T08:00:00.000Z`])
+  })
+
+  it('write bypassing state: names a stored projection that differs from the one rebuilt from scratch, and exits 1', async () => {
+    const places = stateWorld()
+    readView('decisions', places)
+    const file = projectionPath('decisions', places)
+    const stored = JSON.parse(readFileSync(file, 'utf8')) as Projection
+    const forged = { ...stored, lines: ['- D-9 · 2026-10-10 — never decided'] }
+    writeFileSync(file, JSON.stringify({ ...forged, seal: sealOf(forged) }))
+    const named = await doctor(world(EVERY_RULE), [], { state: places })
+    expect(named.exitCode).toBe(1)
+    expect(named.stdout).toEqual([`[doctor:factory] state: ${file}: differs from the decisions view rebuilt from its source`])
   })
 
   it('refuses an unknown argument', async () => {

@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { REPO } from '../shift/places.js'
 import { OPERATOR_ROLE } from '../shift/relaunch.js'
+import { realStateDeps, stateFindings } from '../state/index.js'
 import { backtickedCommands, contractRules, missingRules, unallowedCommands, unmatchedCommands, withRules } from './permissions.js'
 
 export const PREFIX = '[doctor:factory] '
@@ -24,6 +25,7 @@ export interface DoctorDeps {
   cwd: string
   gh: (args: string[]) => string
   commands: () => OperatorCommands
+  state: () => string[]
   confirm: (() => Promise<boolean>) | null
 }
 
@@ -56,14 +58,16 @@ export async function runDoctor(argv: string[], deps: DoctorDeps): Promise<Docto
   const { window, role } = deps.commands()
   const unmatched = unmatchedCommands(window, contract.allow)
   const unallowed = unallowedCommands(role, contract.allow)
+  const state = deps.state()
   const stdout = [
     ...missing.map(ruleLine),
     ...unmatched.map(({ command, rule }) => `${PREFIX}command \`${command}\` does not have the shape of ${rule}`),
     ...unallowed.map(command => `${PREFIX}command \`${command}\` is allowed by no rule in ${CONTRACT}`),
+    ...state.map(finding => `${PREFIX}state: ${finding}`),
   ]
-  const commandsHold = unmatched.length === 0 && unallowed.length === 0
+  const commandsHold = unmatched.length === 0 && unallowed.length === 0 && state.length === 0
   if (missing.length === 0 && commandsHold)
-    return { stdout: [`${PREFIX}every contract rule is in ${LOCAL_SETTINGS} and every command has the shape of one`], stderr: [], exitCode: 0 }
+    return { stdout: [`${PREFIX}every contract rule is in ${LOCAL_SETTINGS}, every command has the shape of one and every state file was written through state:*`], stderr: [], exitCode: 0 }
   if (!apply || missing.length === 0)
     return { stdout, stderr: [], exitCode: 1 }
   if (deps.confirm === null)
@@ -101,6 +105,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     cwd,
     gh: args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     commands: () => operatorCommands(cwd),
+    state: () => stateFindings(realStateDeps().places),
     confirm: process.stdin.isTTY ? askYes : null,
   })
   for (const line of result.stdout)

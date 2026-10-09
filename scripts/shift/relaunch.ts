@@ -11,6 +11,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
+import { realStateDeps, renderViews } from '../state/index.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
 import { boundaryLine, transcriptContext } from './operator-boundary.js'
@@ -29,9 +30,11 @@ export function promptFirstLine(handoff: string): string {
 export function boundaryCommand(session: string): string {
   return `pnpm relaunch --boundary ${session}`
 }
-export function relaunchPrompt(handoff: string, decisions: string | null, session: string): string {
+export const STATE_VIEWS_LEAD = 'The state views as this session starts, each re-read with its own command and never copied into the handoff:'
+export function relaunchPrompt(handoff: string, decisions: string | null, session: string, views = ''): string {
   const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${decisions}, and never copy them into the handoff.`
-  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
+  const viewsBlock = views === '' ? '' : `\n\n${STATE_VIEWS_LEAD}\n\n${views}`
+  return `${promptFirstLine(handoff)}${decisionsLine}${viewsBlock}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
 export const ALREADY_RUNNING = 'already-running'
@@ -61,6 +64,7 @@ export interface RelaunchDeps {
   uuid: () => string
   run: (run: ClaudeRun) => Promise<ClaudeExit>
   alive: (pid: number) => boolean
+  views?: () => string
   out: (line: string) => void
   err: (line: string) => void
 }
@@ -354,7 +358,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session, deps.views?.() ?? ''), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
     await record(deps, {
       event: 'relaunch',
@@ -393,6 +397,7 @@ function realDeps(): RelaunchDeps {
     uuid: randomUUID,
     run: runClaude,
     alive: pidAlive,
+    views: () => renderViews(realStateDeps().places),
     out: line => console.log(line),
     err: line => console.error(line),
   }

@@ -37,7 +37,8 @@ start from it. The handoff does not grow and does not retell the queue: it holds
 `HANDOFF_LIMIT` bytes, UTF-8, by one measure in `handoff:check` and `handoff:write` (a refusal names the largest field), a `queue:` of card numbers only (`#N`, in an order the
 cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #M]` line per card (or `none`), and a
 `prev:` naming the archive the previous handoff went to. The handoff file is written only by
-`pnpm handoff:write <handoff> <draft> [--parking <dir>]`, never by hand: it checks the draft, moves the old handoff to
+`pnpm state:handoff <handoff> <draft> [--parking <dir>]`, which runs `pnpm handoff:write` under the state lock and
+journals it ([state.md](state.md)), never by hand: it checks the draft, moves the old handoff to
 `<dir>/archive/NNNN.md`, writes `prev:` under the STOP heading and replaces the file; a refused draft archives nothing. A Ghost's continuation under `continue: auto` is held to the same fields and bounds on its shift report — at most one
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
@@ -60,7 +61,7 @@ line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop
 `scripts/miko/watch.ts`, any case), and `pid <pid> exited` once for each watched PID that dies. Lines already in the
 journal when it starts, lines of any other event and live PIDs print nothing.
 
-Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
+Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command; it writes one with `pnpm state:decision <text> [--cards #A #B]` and a note with `pnpm state:note <task> <text>`, never through `python3` or `node -e`.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
 [· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
 gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
@@ -74,8 +75,8 @@ into prose that a session has to reconcile, and no cycle of `superseded-by` can 
 
 Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
 foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of
-substance; whatever a reference cannot carry is written into its record first (a decision into the decisions file, a
-card change through `construct intake --admit`), and the message names it.
+substance; whatever a reference cannot carry is written into its record first (a decision through `pnpm state:decision`, a
+card change through `construct intake --admit` or `pnpm state:card <lane>/<id>.md <draft>`), and the message names it.
 
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
 the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
@@ -95,7 +96,7 @@ It starts the `who: shift` cards as a shift chain (`pnpm shift:bg <dir> --parkin
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
 stopped — restarts the card, corrects it with `construct intake --admit`, answers the session; writes the handoff
-through `pnpm handoff:write`; and ends its session by size, not by the Eddies warning: at every task boundary it runs
+through `pnpm state:handoff`; and ends its session by size, not by the Eddies warning: at every task boundary it runs
 `pnpm relaunch --boundary <session>`, the session id its prompt names, which finds `<session>.jsonl` by that id in
 any project directory under `~/.claude/projects/`, whatever directory it runs from, reads the context of the last
 response in it (input, cache-write and cache-read tokens, the reading the Eddies warning takes) and prints `end` at or

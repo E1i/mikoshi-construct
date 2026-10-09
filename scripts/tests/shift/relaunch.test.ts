@@ -9,7 +9,8 @@ import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
-import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, STATE_VIEWS_LEAD, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { renderViews, statePlaces, VIEWS } from '../../state/index.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -189,6 +190,32 @@ describe('runRelaunch', () => {
     expect(result.err).toContain('[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write')
     expect(result.err.at(-1)).toBe('[relaunch] handoff-invalid')
     expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'handoff-invalid', sessions: 1, refusals: expect.arrayContaining(['[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write']) })
+  })
+
+  it('state views: the Operator\'s start prompt carries the three views, read from the state home at each session', async () => {
+    const world = newWorld()
+    const home = path.join(world.root, 'construct')
+    const places = statePlaces(home, path.join(world.root, 'handoff-dir'))
+    mkdirSync(path.join(places.parking, 'lane-1'), { recursive: true })
+    writeFileSync(places.decisions, '# Owner decisions\n\n- D-1 · 2026-10-09 — views go into the start prompt\n')
+    writeFileSync(path.join(places.parking, 'lane-1', '750.md'), 'card: #750 decisions-have-a-lifetime [implement/runner/M/ladder/owner] · depends #738 · blocks —\nbranch: feat/750\ntouches: scripts/state/**\nwho: shift\n\ndo 750\n')
+    mkdirSync(path.dirname(places.journal), { recursive: true })
+    writeFileSync(places.journal, `${JSON.stringify({ event: 'path', task: '738', path: 'ladder', started: '2026-10-10T01:00:00Z', branch: 'feat/named-shared-state-writes' })}\n`)
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), views: () => renderViews(places) })
+    expect(code).toBe(0)
+    const prompt = seen.runs[0]!.prompt
+    expect(prompt).toContain(STATE_VIEWS_LEAD)
+    for (const view of VIEWS)
+      expect(prompt).toContain(`## pnpm state ${view}`)
+    expect(prompt).toContain('- D-1 · 2026-10-09 — views go into the start prompt')
+    expect(prompt).toContain('#750 decisions-have-a-lifetime')
+    expect(prompt).toContain('#738 ladder since 2026-10-10T01:00:00Z')
+    expect(prompt.endsWith(LAUNCH_LINE)).toBe(true)
+  })
+
+  it('state views: a prompt with no views carries no views block', () => {
+    expect(relaunchPrompt('/h/handoff.md', null, 's-1')).not.toContain(STATE_VIEWS_LEAD)
   })
 
   it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {

@@ -4,7 +4,12 @@
     "Bash(pnpm relaunch:bg:*)",
     "Bash(gh pr merge:*)",
     "Bash(ps:*)",
-    "Bash(pnpm miko:exit:*)"
+    "Bash(pnpm miko:exit:*)",
+    "Bash(pnpm state:*)",
+    "Bash(pnpm state:note:*)",
+    "Bash(pnpm state:decision:*)",
+    "Bash(pnpm state:card:*)",
+    "Bash(pnpm state:handoff:*)"
   ],
   "denyMergeOfHead": "changeset-release/"
 }
