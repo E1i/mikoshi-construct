@@ -1,7 +1,6 @@
-import type { Mergeable, OpenPullRequest } from './branch-update.js'
+import type { HeadCommits, Mergeable, OpenPullRequest } from './branch-update.js'
 import process from 'node:process'
-import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
-import { nextToUpdate, TOKEN_SECRET } from './branch-update.js'
+import { carriesReviewStatus, nextToUpdate, TOKEN_SECRET } from './branch-update.js'
 
 const BASE = 'main'
 const API = 'https://api.github.com'
@@ -14,7 +13,7 @@ interface PullRequestNode {
   mergeable: Mergeable
   headRefOid: string
   autoMergeRequest: { enabledAt: string } | null
-  commits: { nodes: { commit: { status: { contexts: { context: string }[] } | null } }[] }
+  commits: HeadCommits
 }
 
 const QUERY = `query($owner: String!, $name: String!, $base: String!) {
@@ -63,13 +62,13 @@ const prs: OpenPullRequest[] = await Promise.all(nodes.map(async node => ({
   isCrossRepository: node.isCrossRepository,
   autoMerge: node.autoMergeRequest !== null,
   mergeable: node.mergeable,
-  hasReviewStatus: node.commits.nodes.some(({ commit }) => commit.status?.contexts.some(({ context }) => context === REVIEW_STATUS_CONTEXT) ?? false),
+  hasReviewStatus: carriesReviewStatus(node.commits),
   behindBy: (await api<{ behind_by: number }>(`/repos/${repository}/compare/${BASE}...${node.headRefOid}`)).behind_by,
 })))
 
 const next = nextToUpdate(prs)
 if (!next) {
-  console.log(`No open pull request against ${BASE} has auto-merge on, is behind ${BASE}, carries no ${REVIEW_STATUS_CONTEXT} status and can be updated; nothing to do.`)
+  console.log(`No open pull request against ${BASE} has auto-merge on, is behind ${BASE}, carries no review status and can be updated; nothing to do.`)
   process.exit(0)
 }
 

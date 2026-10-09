@@ -1,11 +1,11 @@
-import type { OpenPullRequest } from '../../ci/branch-update.js'
+import type { HeadCommits, OpenPullRequest } from '../../ci/branch-update.js'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import YAML from 'yaml'
-import { nextToUpdate, TOKEN_SECRET } from '../../ci/branch-update.js'
+import { carriesReviewStatus, nextToUpdate, TOKEN_SECRET } from '../../ci/branch-update.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -48,6 +48,25 @@ describe('the pull request a push to main updates', () => {
     nextToUpdate(prs)
     expect(prs.map(({ number }) => number)).toEqual([9, 4])
   })
+})
+
+function head(contexts: string[] | null): HeadCommits {
+  return { nodes: [{ commit: { status: contexts === null ? null : { contexts: contexts.map(context => ({ context })) } } }] }
+}
+
+const HEAD_CASES: { name: string, commits: HeadCommits, carries: boolean }[] = [
+  { name: 'a head with no commit status at all', commits: head(null), carries: false },
+  { name: 'a head whose only status is another context', commits: head(['Secret scan']), carries: false },
+  { name: 'a head with a review status', commits: head(['Secret scan', 'review']), carries: true },
+  { name: 'a pull request with no commits read', commits: { nodes: [] }, carries: false },
+]
+
+describe('whether the head of a pull request carries a review status', () => {
+  for (const { name, commits, carries } of HEAD_CASES) {
+    it(`is ${carries} for ${name}`, () => {
+      expect(carriesReviewStatus(commits)).toBe(carries)
+    })
+  }
 })
 
 interface Step { run?: string, env?: Record<string, string> }
