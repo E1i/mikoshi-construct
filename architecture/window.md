@@ -46,7 +46,10 @@ Mikoshi, the interactive window the owner opens, runs under `pnpm miko`: a loop 
 the one built into VS Code included) that starts `claude` (`$MIKO_CLAUDE`, default `claude --permission-mode auto`). At
 the limit Mikoshi writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff:write`, under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process; how it ends it is not prescribed. When the mtime of `mikoshi.md` changed during the session, the loop at once
+process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. `pnpm miko:exit`
+(`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors only when a `scripts/miko/loop.ts` process stands
+above that claude and `mikoshi.md` was written in the last two minutes (`FRESH_MS`); otherwise it refuses with the reason
+(the file's age, when that is the reason) and ends nothing. When the mtime of `mikoshi.md` changed during the session, the loop at once
 starts a new session with the prompt `прочитай mikoshi.md`, whatever the exit code, which it never reads. A session that
 ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
 `pnpm miko` starts gets the prompt `прочитай mikoshi.md` when `mikoshi.md` exists, and no prompt when it does not.
@@ -229,13 +232,13 @@ taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `park
 `shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
 is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `auto` with no
 owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
-nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The flags and refusals are in
+nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The Operator runs `pnpm shift:current` on a merge event, which updates one armed or owner-merge pull request that is BEHIND and carries its review, and journals `ready-for-owner` for a CLEAN owner-merge one. The flags and refusals are in
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
 auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one
 `{"event":"stop","task","at","why","worktree","shift","session","ts"}` line to `ghosts.jsonl` (`pr` too when `at` is `merge`):
-`at` is `hash` (the brief of a ladder card that MORSE refused to approve, an R1 brief among them: the stop names the tree, the
+`at` is `hash` (the brief of a ladder card that MORSE refused to approve: the stop names the tree, the
 last session and the first refusal line, and the hash is the owner's), `merge` (a pull request the merge rules left to the owner), `question` (a `question:` line in the
 report), `boundary` (a `boundary:` line the card does not follow: `continue: stop`, the restart limit, or a no under
 `--manual`) or `fault` (a session that did not spawn, exited non-zero, was stopped by Eddies or wrote no report or no
@@ -255,8 +258,8 @@ A ladder card (`implement`, contour `ladder`) with `who: shift` is taken like a 
 step derived from `ghosts.jsonl` and the brief at `<handoff>/brief-<id>-<name>.md`, never remembered: `brief` (no brief, no
 `event:approval` for its current hash, or an `event:revoke` of it; an `.approved-sha256` file alone never counts) is a headless session in a tree `task:start` cuts, which designs, writes the brief and
 runs `pnpm ghosts:hash <brief>` without `--by`, and after it exits the shift runs `pnpm ghosts:hash <brief> --by morse --card <id>
---parking <parking>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)): approved,
-it goes on; refused (an R1 brief, a forecast above its band, a fall), it stops at `hash` and the card waits for the owner;
+--parking <parking>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md), [0058](decisions/0058-morse-approves-a-brief-of-every-risk.md)): approved,
+it goes on; refused (a forecast above its band, a fall), it stops at `hash` and the card waits for the owner;
 `launch` (approved, no launch entry under that hash) writes `<handoff>/tasks-<id>-<name>.json` and runs `pnpm ghosts:launch --tasks
 <file>` with `yes` on stdin and no session, and a non-zero exit is a `fault` stop with its first stderr line; `running` (an entry
 and no Ghost `task` line after it) leaves the card with no stop; `review` (the Ghost's `task` line says `ladder: done`) is a
@@ -292,11 +295,11 @@ the owner's approval against the brief's hash (`pnpm ghosts:hash`). There is no 
 Approving a brief's hash is the permission to launch: the coordinating window then launches the Ghost
 itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`, which prints the
 decision and opens nothing.
-The owner approves an R1 brief; MORSE may approve an R2–R4 one with `pnpm ghosts:hash <brief> --by morse --card <N>`,
+MORSE approves a brief of any risk with `pnpm ghosts:hash <brief> --by morse --card <N>`,
 which computes the risk from the card's touches, refuses a card with an `unclear:` field, a fall or a revoked hash, a
 brief that restates a line of the card's prose above its `Witnesses:` verbatim, and a forecast above its p75, and journals `event:approval` before it writes the line. The launcher accepts a morse line only
 with that event and prints `by morse`; the owner revokes any approval with `pnpm ghosts:launch --revoke <sha256> --card
-<N>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)).
+<N>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md), [0058](decisions/0058-morse-approves-a-brief-of-every-risk.md)).
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,
 recorded as a row of the `policy` table in `status.md` before the session opens.
 A brief that produced a working sketch names it on the line after its `/implement` line,

@@ -41,6 +41,7 @@ import { startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
+import { PREFIX as CURRENT_PREFIX, realCurrentDeps, runCurrent } from './current.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
 import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
@@ -90,7 +91,7 @@ export const USAGE = [
   '--check parses the tasks and checks touches against each other and the open pull requests, records no merge line, and starts nothing.',
   'The shift is an autopilot by default: it takes the next ready card, follows a session into a new one at a boundary the card allows, arms auto-merge where the merge rules allow it,',
   'and stops only at a gate the owner holds, writing one event:stop line to ghosts.jsonl (at: hash, merge, question, boundary or fault, and why).',
-  'A ladder card (implement, contour ladder) with who: shift is taken like a cheap card and walked step by step: the brief in a session, the approval by MORSE (ghosts:hash --by morse; an R1 brief or a refusal stops at hash and waits for the owner),',
+  'A ladder card (implement, contour ladder) with who: shift is taken like a cheap card and walked step by step: the brief in a session, the approval by MORSE (ghosts:hash --by morse; a refusal, whatever its cause, stops at hash and waits for the owner),',
   'ghosts:launch with a yes on stdin and no session, then the review and the pull request in a session in the same tree. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
@@ -140,6 +141,7 @@ export interface ShiftDeps {
   sleep?: (ms: number) => Promise<void>
   holdHangup?: () => () => void
   notify?: Notify
+  current?: (journal: string) => MergeResult
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -194,6 +196,21 @@ function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors
 
 const MERGE_HINT = `${PREFIX}hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests`
 
+function keepCurrent(deps: ShiftDeps, journal: string): void {
+  if (deps.current === undefined)
+    return
+  try {
+    const result = deps.current(journal)
+    for (const line of result.stdout)
+      deps.out(line)
+    for (const line of result.stderr)
+      deps.err(line)
+  }
+  catch (error) {
+    deps.err(`${CURRENT_PREFIX}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
+  }
+}
+
 function sweepMerges(deps: ShiftDeps, journal: string, dir: string): void {
   try {
     const result = recordMerges({ gh: deps.gh, journal, readJournal: deps.readJournal, append: deps.append, now: deps.now })
@@ -202,6 +219,7 @@ function sweepMerges(deps: ShiftDeps, journal: string, dir: string): void {
       return
     deps.append(path.join(dir, MERGED_FILE), mergedDetails(result).map(line => `${line}\n`).join(''))
     deps.err(`${PREFIX}${summary}; details in ${path.join(dir, MERGED_FILE)}`)
+    keepCurrent(deps, journal)
   }
   catch (error) {
     deps.err(`${PREFIX}merged: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
@@ -1159,6 +1177,7 @@ function realDeps(): ShiftDeps {
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
     holdHangup: holdThroughHangup,
     notify: osascriptNotify(),
+    current: journal => runCurrent(realCurrentDeps(journal)),
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),

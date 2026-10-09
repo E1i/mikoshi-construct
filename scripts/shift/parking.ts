@@ -15,7 +15,7 @@ export interface Choice {
 }
 
 const CLOSED = 'closed'
-export const LADDER_REASON = `ladder card: MORSE approves an R2–R4 brief (ghosts:hash --by morse), the owner approves an R1 brief`
+export const LADDER_REASON = `ladder card: MORSE approves a brief of any risk (ghosts:hash --by morse), a refused brief is left to the owner`
 export const STOP_AT = ['hash', 'merge', 'question', 'boundary', 'fault'] as const
 
 export type StopAt = typeof STOP_AT[number]

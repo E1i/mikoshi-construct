@@ -1,6 +1,6 @@
 # 0053 — MORSE approves a brief the risk matrix does not reserve for the owner
 
-Status: accepted · 2026-10-06
+Status: accepted · 2026-10-06 · point 2 replaced by 0058
 
 ## Context
 
@@ -14,7 +14,7 @@ judge. The owner decided on 2026-10-05 that the hash stays and who approves chan
 
 1. **The hash stays.** An approval still pins the exact `/implement` text, and the launcher still refuses a brief whose
    text drifted from it.
-2. **R1 stays with the owner.** `pnpm ghosts:hash <brief> --by morse --card <N>` reads the card from the parking
+2. **R1 stays with the owner.** Replaced by [0058](0058-morse-approves-a-brief-of-every-risk.md). `pnpm ghosts:hash <brief> --by morse --card <N>` reads the card from the parking
    directory (`~/.construct/parking`, or `--parking <dir>`) and computes its risk from its `touches:` with
    `riskReading` (`src/card/risk.ts`, the matrix of #585), never from the card's stored `risk:` line. An R1 card —
    the ladder mechanism, the attach carriers, a security invariant — is refused with "waits for the owner".

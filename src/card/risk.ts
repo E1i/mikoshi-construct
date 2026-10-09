@@ -73,6 +73,13 @@ const TWINS: readonly (readonly [string, string])[] = [
   ['scripts/construct', 'templates/ai/claude/scripts/construct'],
 ]
 const ACCOMPANYING = ['tests', '.changeset']
+const WITNESS_ROOTS: readonly (readonly [string, string | null])[] = [
+  ['scripts/tests', 'scripts'],
+  ['tests', null],
+]
+const COMMANDS_CONTAINER = 'commands'
+const TEST_SUFFIX = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+const EXTENSION = /\.[^.]+$/
 const DELIVERY = ['templates/attach', 'templates/ai', 'src/presets', 'scripts/attach']
 const CAPABILITY = ['src', 'scripts']
 const NO_COMPLEXITY_SLICES = 'R1 and R3–R4 in one card, and the complexity seam proposed no slices that keep them apart'
@@ -176,7 +183,7 @@ function criticalSide(touches: readonly RiskOfTouch[]): boolean[] {
 }
 
 function isCapabilityDelivery(critical: readonly RiskOfTouch[], rest: readonly RiskOfTouch[]): boolean {
-  return critical.every(entry => DELIVERY.some(root => reaches(entry.touch, root)) || critical.some(other => twins(entry.touch, other.touch)))
+  return critical.filter(entry => !accompanies(entry.touch)).every(entry => DELIVERY.some(root => reaches(entry.touch, root)) || critical.some(other => twins(entry.touch, other.touch)))
     && rest.some(entry => CAPABILITY.some(root => under(scopeOf(entry.touch).path, root)))
 }
 
@@ -184,12 +191,40 @@ function accompanies(touch: string): boolean {
   return ACCOMPANYING.some(root => under(scopeOf(touch).path, root))
 }
 
+function witnessRootOf(touch: string): readonly [string, string | null] | undefined {
+  const scope = scopeOf(touch).path
+  return WITNESS_ROOTS.find(([root]) => under(scope, root) && scope !== root)
+}
+
+function witnessedNames(test: string, root: string): string[] {
+  return scopeOf(test).path.slice(root.length + 1).split('/').map(segment => segment.replace(TEST_SUFFIX, ''))
+}
+
+function codeNames(code: string): string[] {
+  return scopeOf(code).path.split('/').slice(1).map(segment => segment.replace(EXTENSION, '')).filter(segment => segment !== COMMANDS_CONTAINER)
+}
+
+function witnesses(test: string, code: string): boolean {
+  const witnessRoot = witnessRootOf(test)
+  if (witnessRoot === undefined || witnessRootOf(code) !== undefined)
+    return false
+  const [root, codeRoot] = witnessRoot
+  if (codeRoot !== null && !under(scopeOf(code).path, codeRoot))
+    return false
+  const segments = codeNames(code)
+  return witnessedNames(test, root).some(name => segments.some(segment => name === segment || name.startsWith(`${segment}-`)))
+}
+
+function withWitnesses(touches: readonly string[], critical: readonly boolean[]): boolean[] {
+  return touches.map((touch, index) => critical[index]! || touches.some((code, at) => critical[at]! && witnesses(touch, code)))
+}
+
 export function riskReading(touches: readonly string[], complexitySliced: boolean): RiskReading {
   const read = touches.map(riskOf)
   const level = highest(read.map(entry => entry.level))
   const top = read.filter(entry => entry.level === level)
   const why = [...new Set(top.map(entry => entry.why))].map(reason => `${reason}: ${top.filter(entry => entry.why === reason).map(entry => entry.touch).join(', ')}`).join('; ')
-  const critical = criticalSide(read)
+  const critical = withWitnesses(touches, criticalSide(read))
   const high = read.filter((_, index) => critical[index])
   const rest = read.filter((_, index) => !critical[index])
   const mixed = high.length > 0 && rest.some(entry => (entry.level === 'R3' || entry.level === 'R4') && !accompanies(entry.touch))

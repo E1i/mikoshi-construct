@@ -176,6 +176,55 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
     ])
   })
 
+  it('keeps a test with the R1 code it witnesses and leaves an unnamed test with the rest', () => {
+    const reading = riskReading(['src/commands/sync/index.ts', 'tests/sync.test.ts', 'tests/docs.test.ts', 'docs/cli.md', 'scripts/shredder/classify.ts'], false)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['src/commands/sync/index.ts', 'tests/sync.test.ts'],
+      ['tests/docs.test.ts', 'docs/cli.md', 'scripts/shredder/classify.ts'],
+    ])
+  })
+
+  it('keeps the capability / delivery seam when a test rides with the delivery slice', () => {
+    const reading = riskReading(['src/presets/index.ts', 'tests/presets.test.ts', 'scripts/shredder/classify.ts', 'tests/shredder.test.ts'], false)
+    expect(reading.capabilityDelivery).toBe(true)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['src/presets/index.ts', 'tests/presets.test.ts'],
+      ['scripts/shredder/classify.ts', 'tests/shredder.test.ts'],
+    ])
+  })
+
+  it('a test under scripts/tests rides with the R1 script it witnesses', () => {
+    const reading = riskReading(['scripts/attach/earlier-carriers.ts', 'scripts/tests/attach/earlier-carriers.test.ts', 'docs/cli.md'], false)
+    expect(reading.slices.map(slice => [slice.level, slice.touches])).toEqual([
+      ['R1', ['scripts/attach/earlier-carriers.ts', 'scripts/tests/attach/earlier-carriers.test.ts']],
+      ['R4', ['docs/cli.md']],
+    ])
+  })
+
+  it('a test whose directory names the code rides with it', () => {
+    const reading = riskReading(['src/commands/detach/**', 'tests/detach/restore.test.ts', 'docs/cli.md'], false)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['src/commands/detach/**', 'tests/detach/restore.test.ts'],
+      ['docs/cli.md'],
+    ])
+  })
+
+  it('a top-level root never makes a test a witness', () => {
+    const reading = riskReading(['architecture/composition/init.yaml', 'tests/architecture-links.test.ts', 'src/commands/attach/index.ts', 'tests/commands.test.ts', 'docs/cli.md'], false)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['architecture/composition/init.yaml', 'src/commands/attach/index.ts'],
+      ['tests/architecture-links.test.ts', 'tests/commands.test.ts', 'docs/cli.md'],
+    ])
+  })
+
+  it('a test named for the code with a suffix rides with it', () => {
+    const reading = riskReading(['src/commands/detach/**', 'tests/detach-restore.test.ts', 'docs/cli.md'], false)
+    expect(reading.slices.map(slice => slice.touches)).toEqual([
+      ['src/commands/detach/**', 'tests/detach-restore.test.ts'],
+      ['docs/cli.md'],
+    ])
+  })
+
   it('offers nothing when the only lower touches are tests and the changeset that go with the change', () => {
     expect(riskReading(['templates/base/architecture/principles.md', 'tests/presets.test.ts', '.changeset/x.md'], false).slices).toEqual([])
   })
