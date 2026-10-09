@@ -80,7 +80,7 @@ read by `pnpm relaunch --live` from those pids (`kill -0`), never from the comma
 session started as `claude --permission-mode auto -p`.
 
 A window under relaunch never takes a card body, except a `who: window` card: it is the Operator, and its work is the run.
-It starts the `who: shift` cards as a shift chain (`pnpm shift <dir> --parking <parking> --chain`) and never runs
+It starts the `who: shift` cards as a shift chain (`pnpm shift:bg <dir> --parking <parking> --chain`) and never runs
 `pnpm task:start` for them; the chain takes them in its own order (`p0` first, then by id, once their `depends` are
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
