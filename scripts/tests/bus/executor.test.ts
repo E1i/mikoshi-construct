@@ -1,3 +1,4 @@
+import type { FakeRun } from './github-fake.js'
 import { describe, expect, it } from 'vitest'
 import { taskKey } from '../../bus/identifiers.js'
 import { ownerInbox } from '../../bus/inbox.js'
@@ -7,8 +8,9 @@ import { MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const merge = (pr: number, head = sha('a')): string => taskKey({ queue: 'merge', cardId: pr + 100, pr, head })
-const APPROVED = ['completed', 'action_required']
-const AWAITING = ['action_required', 'action_required']
+const WAITING: FakeRun = { status: 'completed', conclusion: 'action_required' }
+const APPROVED: FakeRun[] = [{ status: 'in_progress', conclusion: null }, { status: 'completed', conclusion: 'success' }, WAITING]
+const AWAITING: FakeRun[] = [WAITING, WAITING]
 
 describe('the merge executor', () => {
   it('a pass on a green, clean head is queued for merge and merged with its sha', () => {

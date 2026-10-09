@@ -90,8 +90,8 @@ function ownerMergesText(meter: Meter): string {
 function approvedRunsOn(meter: Meter, head: string | undefined): boolean {
   if (head === undefined)
     return false
-  const runs = (meter.get(`${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`) as { workflow_runs?: { status?: string }[] }).workflow_runs ?? []
-  return runs.some(run => run.status !== AWAITING_APPROVAL)
+  const runs = (meter.get(`${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`) as { workflow_runs?: { conclusion?: string | null }[] }).workflow_runs ?? []
+  return runs.some(run => run.conclusion !== AWAITING_APPROVAL)
 }
 
 export class MergeExecutor {

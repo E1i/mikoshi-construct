@@ -9,6 +9,11 @@ export const MAIN_1 = sha('1')
 export const MAIN_2 = sha('2')
 export const MAIN_3 = sha('3')
 
+export interface FakeRun {
+  status: 'queued' | 'in_progress' | 'completed'
+  conclusion: 'action_required' | 'success' | 'failure' | null
+}
+
 export interface FakePull {
   number: number
   state: 'open' | 'closed'
@@ -25,7 +30,7 @@ export interface FakePull {
   title?: string
   files?: string[]
   patches?: Record<string, string>
-  runs?: string[]
+  runs?: FakeRun[]
 }
 
 export function cardBody(pr: number, decision = 'auto'): string {
@@ -144,7 +149,7 @@ export class FakeGitHub {
     const runs = /\/actions\/runs\?head_sha=([0-9a-f]{40})&per_page=100$/.exec(endpoint)
     if (runs !== null) {
       const owner = [...this.pulls.values()].find(candidate => candidate.head === runs[1])
-      return { workflow_runs: (owner?.runs ?? []).map(status => ({ status })) }
+      return { workflow_runs: owner?.runs ?? [] }
     }
     const commit = /\/commits\/([0-9a-f]{40})$/.exec(endpoint)
     if (commit !== null)
