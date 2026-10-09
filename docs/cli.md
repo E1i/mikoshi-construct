@@ -1829,7 +1829,15 @@ journal, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
 card grammar becomes the grammar's default, a `depends` or `blocks` on a card a merge line names in the journal is
-removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path with no single
+removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
+which carries a companion gets each companion it lacks added to `touches`, from one table,
+`COMPANION_TABLE` in `src/commands/intake/check.ts`: `package.json` carries `CONTRIBUTING.md` and
+`tests/harness-membership.test.ts`, `src/program.ts` carries `README.md`, `docs/cli.md` and
+`docs/guide/**`, a path under `src/` or `templates/` carries `.changeset/**`, and a path under `src/`
+carries its test — `tests/<module>.test.ts` when that file exists, else `tests/**` — unless the card
+already touches a test. A row applies only in a repository that keeps the file the row names
+(`tests/harness-membership.test.ts`, `tests/readme-commands.test.ts`, `.changeset/config.json`,
+`tests/`), and a companion is added only where it exists. These corrections need no confirmation. A path with no single
 candidate, a `#<id>` that is neither parked, done nor merged, and a witness with no backticked command or a
 command that is not on `PATH` are marked `unclear:` and kept. A kind outside the grammar is still
 refused.
