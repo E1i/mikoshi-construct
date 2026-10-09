@@ -6,7 +6,7 @@ import { appendEvent, inTransaction } from './db.js'
 import { QUEUES, taskKey } from './identifiers.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
-export const TASK_QUEUED = 'task.queued'
+export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const QUEUE_ACTOR = 'policy'
 
@@ -52,7 +52,7 @@ function taskRow(db: DatabaseSync, key: string): { state: string } | undefined {
   return db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string } | undefined
 }
 
-function foldQueued(db: DatabaseSync, event: StoredEvent): void {
+function foldEnqueued(db: DatabaseSync, event: StoredEvent): void {
   const { key, queue } = identityOf(event)
   if (taskRow(db, key) !== undefined)
     reject(`task ${key} is already queued`)
@@ -69,7 +69,7 @@ function foldSuperseded(db: DatabaseSync, event: StoredEvent): void {
 }
 
 export const TASK_FOLDS: Record<string, Fold> = {
-  [TASK_QUEUED]: foldQueued,
+  [TASK_ENQUEUED]: foldEnqueued,
   [TASK_SUPERSEDED]: foldSuperseded,
 }
 
@@ -88,7 +88,7 @@ function written(db: DatabaseSync, event: BusEvent): boolean {
 }
 
 export function queueTask(db: DatabaseSync, ts: string, task: TaskIdentity): boolean {
-  return written(db, taskEvent(ts, TASK_QUEUED, task))
+  return written(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
 export function supersedeTask(db: DatabaseSync, ts: string, task: TaskIdentity): boolean {

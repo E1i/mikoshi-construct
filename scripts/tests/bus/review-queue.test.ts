@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
-import { queueTask, TASK_QUEUED, TASK_SUPERSEDED } from '../../bus/queue.js'
+import { queueTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -98,7 +98,7 @@ describe('review queue', () => {
     db.exec('DROP TRIGGER no_task_events')
     expect(queueTask(db, '2026-10-09T12:00:00.000Z', task)).toBe(true)
     const row = db.prepare('SELECT event_id FROM tasks').get() as { event_id: number }
-    expect(db.prepare('SELECT type, dedupe_key FROM events WHERE id = ?').get(row.event_id)).toEqual({ type: TASK_QUEUED, dedupe_key: `${TASK_QUEUED}:${taskKey(task)}` })
+    expect(db.prepare('SELECT type, dedupe_key FROM events WHERE id = ?').get(row.event_id)).toEqual({ type: 'task.enqueued', dedupe_key: `task.enqueued:${taskKey(task)}` })
     expect(queueTask(db, '2026-10-09T12:01:00.000Z', task)).toBe(false)
     expect(taskEvents(db)).toHaveLength(1)
     db.close()

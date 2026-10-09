@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
-import { TASK_QUEUED, TASK_SUPERSEDED } from './queue.js'
+import { TASK_ENQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { projectionDump, reduce, REJECTED } from './reducer.js'
 import { REDUCED } from './run.js'
 
@@ -100,7 +100,7 @@ function eligible(row: Row): boolean {
 }
 
 function latencyLine(period: Period): string {
-  const queued = new Map(period.events(TASK_QUEUED).map(row => [`${row.pr}:${row.head}`, row.id]))
+  const queued = new Map(period.events(TASK_ENQUEUED).map(row => [`${row.pr}:${row.head}`, row.id]))
   const firstEligible = new Map<string, Row>()
   for (const row of period.events('pr.observed')) {
     const head = `${row.pr}:${row.head}`
