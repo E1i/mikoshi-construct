@@ -50,6 +50,12 @@ process; how it ends it is not prescribed. When the mtime of `mikoshi.md` change
 starts a new session with the prompt `прочитай mikoshi.md`, whatever the exit code, which it never reads. A session that
 ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing.
 
+Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
+`pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
+line appended to `ghosts.jsonl` whose `event` is `merge`, `failed`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
+`scripts/miko/watch.ts`, any case), and `pid <pid> exited` once for each watched PID that dies. Lines already in the
+journal when it starts, lines of any other event and live PIDs print nothing.
+
 Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that file.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
 [· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line

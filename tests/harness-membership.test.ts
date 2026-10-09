@@ -36,6 +36,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'docs:preview': 'a local server',
   'lint:fix': 'a fixer; lint is its gate',
   'miko': 'runs Mikoshi sessions in a loop in the owner\'s terminal when run by hand; its own tests, on a claude stub, are its gate',
+  'miko:watch': 'blocks until a journal event or a watched PID exits, for the foreman to wait on when run by hand; its own tests are its gate',
   'model:render': 'a writer; model:check is its gate',
   'prepublishOnly': 'a packaging hook',
   'release': 'publishes',
