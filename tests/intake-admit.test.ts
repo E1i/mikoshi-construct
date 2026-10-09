@@ -262,6 +262,27 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(existsSync(w.journal)).toBe(false)
   })
 
+  it('admit refuses a witness whose -t is not a regex', () => {
+    const w = world()
+    const witness = '`pnpm exec vitest run tests/a.test.ts -t \'a named file against tests/** is no conflict\'` exit 0'
+    const file = park(w, 80, CLEAN, 'src/board/**', `Do the thing.\n\nWitnesses:\n- ${witness}`)
+    const before = readFileSync(file, 'utf8')
+    const result = admit(w, file)
+    expect(result.status).toBe('invalidTestPattern')
+    const { lines, exit } = printed(result)
+    expect(exit).toBe(INTAKE_EXIT.refused)
+    expect(lines.join('\n')).toContain(witness)
+    expect(lines.join('\n')).toContain('Nothing to repeat')
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
+  it('admit takes a witness whose -t compiles', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/**', 'Do the thing.\n\nWitnesses:\n- `pnpm exec vitest run tests/a.test.ts -t \'tests/\\*\\*\'` exit 0')
+    expect(admit(w, file).status).toBe('admitted')
+  })
+
   it('refuses a file that is not a parked card, and --admit beside --draft', () => {
     const w = world()
     mkdirSync(w.parking, { recursive: true })

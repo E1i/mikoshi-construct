@@ -57,7 +57,7 @@ line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop
 `scripts/miko/watch.ts`, any case), and `pid <pid> exited` once for each watched PID that dies. Lines already in the
 journal when it starts, lines of any other event and live PIDs print nothing.
 
-Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that file.
+Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
 [· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
 gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
@@ -206,7 +206,11 @@ door: it takes a card only when `ghosts.jsonl` holds an `intake` line whose card
 intake` when it sliced and confirmed the card, or by `construct intake --admit <parking>/<id>.md` for a card parked
 before the door; a card with no such line, or one that changed since its line, is refused with nothing written. The one
 exception is `--without-intake "<reason>"`, which admits the card and records the flag and its reason on the start line
-as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: intake}` with its confirmation. The
+as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: intake}` with its confirmation.
+Waived or admitted, the entry line's `CONTRACT` takes the card's `touches` from `~/.construct/parking/<id>.md`, or
+from `<dir>/<id>.md` under `--parking <dir>`; a missing file is named in it (`touches not recorded on the card: no
+parking file for #<id>`), and a file whose card line is not the `--card` given is refused with nothing written. That
+entry line carries `"schema":2`; the entry line `ghosts:launch` writes carries no `schema` and stays version 1. The
 shift starts its tasks through the same `task:start`, so the door holds there too. It closes with `pnpm task:close <id> (--pr <N> | --report
 <path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
 whose start line carries no card. That `event:path` line carries `verification`, and a closing line without that word
