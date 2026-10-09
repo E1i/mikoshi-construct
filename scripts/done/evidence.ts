@@ -3,6 +3,7 @@ import type { MapRow, MapTest } from './map.js'
 import type { Brief } from './requirements.js'
 import type { Tree } from './tree.js'
 import { createHash } from 'node:crypto'
+import { grepMatchProbe, grepRefusal } from '../ghosts/preflight-witnesses.js'
 import { isWitnessEntry } from './map.js'
 import { isParseable, parse, testTitles } from './syntax.js'
 import { isSource, isTestPath, reaches } from './wiring.js'
@@ -13,6 +14,23 @@ const WITNESS_ID = /^W([1-9]\d*)$/
 export interface TextOnlyRow {
   id: string
   code: string[]
+}
+
+export interface GrepReading {
+  criterion: string
+  matched: boolean
+}
+
+export interface GrepSides {
+  head: string
+  base: string
+  matchesOnHead: (probe: string) => boolean
+  matchesOnBase: (probes: string[]) => boolean[]
+}
+
+export interface GrepEvidence {
+  problems: string[]
+  readings: GrepReading[]
 }
 
 export interface Evidence {
@@ -98,4 +116,18 @@ export function checkEvidence(tree: Tree, brief: Brief, rows: MapRow[]): Evidenc
   for (const row of rows.filter(candidate => !brief.requirements.includes(candidate.id)))
     problems.push(`${row.id}: the brief has no such requirement`)
   return { problems, citations, textOnly }
+}
+
+export function grepWitnessEvidence(brief: Brief, sides: GrepSides): GrepEvidence {
+  const probed = brief.witnesses.flatMap((witness) => {
+    const probe = grepMatchProbe(witness.command)
+    return probe === null ? [] : [{ witness, probe, matched: sides.matchesOnHead(probe) }]
+  })
+  const unmatched = probed.filter(({ matched }) => !matched)
+  const onBase = unmatched.length === 0 ? [] : sides.matchesOnBase(unmatched.map(({ probe }) => probe))
+  const where = `the base ${sides.base.slice(0, 7)} nor the head ${sides.head.slice(0, 7)}`
+  return {
+    problems: unmatched.filter((_, index) => !onBase[index]).map(({ witness }) => grepRefusal(witness, where)),
+    readings: probed.map(({ witness, matched }) => ({ criterion: witness.criterion, matched })),
+  }
 }
