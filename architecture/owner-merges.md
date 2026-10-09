@@ -32,6 +32,7 @@ brief, not who merges, and a pull request that changes `scripts/ghosts/approval.
 whether a verification word its shift report contradicts is written. On 2026-10-07, at Eli's instruction (task #665), the coordinating window added `scripts/ghosts/cloud-start.ts` to `ghosts`: `task:close` closes a cloud run on the start line it writes. The same day, at Eli's instruction (task #676), it added `scripts/ghosts/handoff-check.ts` to the plain list: it checks a handoff for its mandatory fields, and no merge decision is taken on its output. On 2026-10-08, at Eli's instruction (task #681), it added `scripts/ghosts/cloud-key.ts` to `ghosts`: `CONSTRUCT_CLOUD` decides whether card bodies and roles run locally or in the cloud; and `scripts/ghosts/role.ts` to the plain list: it prints the route a role takes, and no merge decision is taken on its output. On 2026-10-08, at Eli's instruction (task #650), it added `scripts/shift/shard.ts` to `own-instructions`: with a shard the shift arms auto-merge on an owner pull request on its output.
 On 2026-10-09, at Eli's instruction (task #753), the coordinating window narrowed the list: it removed `scripts/shift/**` and `scripts/shredder/{reader,authority,glob}.ts` from `own-instructions`, removed the kind `ghosts` and the plain list, and moved the classification of `scripts/ghosts/**` into [ghosts-files.md](ghosts-files.md), which is not owner-merged; it narrowed `.claude/**` to `.claude/agents/**`, `.claude/rules/**`, `.claude/settings*.json`, `.claude/skills/**` and `.claude/commands/**`, folded `agents-md` into `own-instructions`, and added the kind `agent-permissions`.
 On 2026-10-09, at Eli's instruction (task #753, answer on PR #690), the coordinating window added `.claude/hooks/**` and `.claude/eddies.json` to `own-instructions`: `eddies.json` holds the agent's limits, and an agent never raises them for itself; `.claude/statusline.sh` stays auto-merged.
+On 2026-10-09, at Eli's instruction (task #775), `construct intake` derives a card's decision from this file: a touch that meets a glob of a kind makes the card `owner`, otherwise `auto`. The same day, at Eli's instruction (task #775), the coordinating window added the table «Owner by risk» below: an R1 card that changes the rules by which a brief is approved is owner by risk. It is no merge kind: a pull request on those paths is merged by Eli because its card says `owner`, not because of its paths, so the classification of `scripts/ghosts/**` stays in [ghosts-files.md](ghosts-files.md).
 
 Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction): **Eli merges a pull request if at least
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
@@ -48,3 +49,11 @@ is matched by its title.)
 
 Everything else is merged through auto-merge by the window that gated it, including `quality`/CI gates and `formats.*`
 bumps. Branch protection is a GitHub setting that Eli applies.
+
+## Owner by risk
+
+A card whose risk level is at least the row's, and whose touches meet one of its globs, is `owner` (Eli, 2026-10-09, task #775).
+
+| by risk | paths (globs) | what it covers | example |
+|---|---|---|---|
+| R1 | `scripts/ghosts/hash.ts`, `scripts/ghosts/approve.ts`, `scripts/ghosts/approval.ts`, `architecture/decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md`, `architecture/decisions/0058-morse-approves-a-brief-of-every-risk.md` | the rules by which a brief is approved: the approval hash, `pnpm approve`, the approval the launcher trusts, and the decision records they cite | #729 |
