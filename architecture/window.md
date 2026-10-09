@@ -114,7 +114,10 @@ whose sha256 is the one the latest `event:answer-brief` line for the task and th
 written, and refuses a task with no `event:path` start line in `ghosts.jsonl`. It runs exactly one session in the start
 line's tree through the shift's claude runner with `SHIFT_CLAUDE`, so `gh` acts as E1i, writes `answer-<task>.pid` (the
 claude process, which a watcher's `kill -0` follows) and `log-<task>-answer.txt` into `<dir>`, and an `event:note` line
-when the session starts and when it ends. It takes no merge, verdict or arm decision.
+when the session starts and when it ends. It takes no merge, verdict or arm decision. `shift:bg` lets `--answer` past
+its one-shift-per-directory guard (an existing `shift.jsonl`) only to answer a stopped card: the card's last
+`ghosts.jsonl` line whose `shift` is `<dir>` must be an `event:stop` at `question` or at `merge` (a review stop), and
+anything else is refused with what that line is. Every invocation without `--answer` keeps the refusal.
 
 The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch arguments]`: it spawns
 `nohup pnpm relaunch <handoff.md> …` as a detached process, a session of its own, appends its output to

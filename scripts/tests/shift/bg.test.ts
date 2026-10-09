@@ -45,7 +45,22 @@ function world(withSetsid: boolean): { root: string, dir: string, out: string, e
   if (withSetsid)
     stub(bin, 'setsid', `echo setsid >> "$STUB_OUT/chain"\n"$@" &\nexit 0`)
   stub(bin, 'pnpm', `echo "pnpm shift output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\nps -o pgid= -p $$ | tr -d ' ' > "$STUB_OUT/pgid"\nps -o args= -p $$ > "$STUB_OUT/self"\necho $$ > "$STUB_OUT/pid"`)
-  return { root, dir: path.join(root, 'shift'), out, env: { PATH: bin, STUB_OUT: out } }
+  const handoff = path.join(root, 'handoff')
+  mkdirSync(handoff)
+  return { root, dir: path.join(root, 'shift'), out, env: { PATH: bin, STUB_OUT: out, CONSTRUCT_HANDOFF_DIR: handoff } }
+}
+
+function ranShift(dir: string): void {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(path.join(dir, 'shift.jsonl'), '')
+}
+
+function journal(w: { env: NodeJS.ProcessEnv }, ...lines: object[]): void {
+  writeFileSync(path.join(w.env.CONSTRUCT_HANDOFF_DIR!, 'ghosts.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+}
+
+function answerArgv(dir: string): string[] {
+  return [dir, '--answer', '758', '--prompt', path.join(dir, 'answer-758.md')]
 }
 
 async function settled(file: string): Promise<string> {
@@ -88,6 +103,46 @@ describe('pnpm shift:bg', () => {
     mkdirSync(w.dir)
     writeFileSync(path.join(w.dir, 'shift.jsonl'), '')
     expect(runBg([w.dir, '--chain'], w.env).exitCode).toBe(1)
+    expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+  })
+
+  it('shift:bg --answer starts on a shift directory whose shift.jsonl exists', async () => {
+    const w = world(false)
+    ranShift(w.dir)
+    journal(w, { event: 'path', task: '758', path: 'cheap', shift: w.dir }, { event: 'stop', task: '758', at: 'question', why: 'which way', shift: w.dir }, { event: 'intake', task: '758' }, { event: 'answer-brief', task: '758', file: path.join(w.dir, 'answer-758.md') }, { event: 'stop', task: '759', at: 'fault', shift: w.dir })
+    const result = runBg(answerArgv(w.dir), w.env)
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${answerArgv(w.dir).join(' ')}`)
+  })
+
+  it('shift:bg without --answer still refuses a directory whose shift.jsonl exists', () => {
+    const w = world(false)
+    ranShift(w.dir)
+    journal(w, { event: 'stop', task: '758', at: 'question', why: 'which way', shift: w.dir })
+    const result = runBg([w.dir, '--chain'], w.env)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toContain('shift.jsonl exists')
+    expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+  })
+
+  it('shift:bg --answer refuses a card whose last journal line is not a stop', () => {
+    const w = world(false)
+    ranShift(w.dir)
+    const elsewhere = path.join(w.root, 'other-shift')
+    const cases: Record<string, { lines: object[], reason: string }> = {
+      'no journal line': { lines: [], reason: 'no journal line' },
+      'a path line after the stop': { lines: [{ event: 'stop', task: '758', at: 'question', shift: w.dir }, { event: 'path', task: '758', path: 'cheap', shift: w.dir }], reason: 'event:path' },
+      'a stop at fault': { lines: [{ event: 'stop', task: '758', at: 'fault', shift: w.dir }], reason: 'event:stop at fault' },
+      'a stop in another shift': { lines: [{ event: 'stop', task: '758', at: 'question', shift: elsewhere }], reason: 'no journal line' },
+    }
+    for (const { lines, reason } of Object.values(cases)) {
+      journal(w, ...lines)
+      const result = runBg(answerArgv(w.dir), w.env)
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain('#758')
+      expect(result.stderr[0]).toContain(reason)
+    }
     expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
   })
 
