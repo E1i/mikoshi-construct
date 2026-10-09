@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Lease } from '../../bus/lease.js'
 import type { Reviewer } from '../../bus/reviewer.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -13,7 +14,7 @@ import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, renewLease, 
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { RENEW_MS, ReviewWorker, ShadowNotClean, startReviewWorker } from '../../bus/review-worker.js'
+import { DRY_RUN_ACTOR, dryRun, RENEW_MS, reviewMode, ReviewWorker, ShadowNotClean, startReviewWorker } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -267,5 +268,40 @@ describe('review worker', () => {
       .run(clock.now().toISOString(), sha('d'), JSON.stringify({ base: 'main', head: sha('d'), mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }))
     expect(() => startReviewWorker(parts)).toThrow(/replay byte-diff: differs/)
     db.close()
+  })
+
+  it('a dry run prints the review and writes nothing to the bus or GitHub', async () => {
+    const { db, gitHub, statuses, tick } = setUp()
+    gitHub.open({ number: 949 })
+    tick()
+    gitHub.open({ number: 949, head: sha('e') })
+    const before = { events: eventCount(db), tasks: projectionDump(db) }
+    gitHub.calls.length = 0
+    const leases: Lease[] = []
+    const reviewer: Reviewer = async (lease) => {
+      leases.push(lease)
+      return { verdict: 'changes', findings: ['the first finding', 'the second finding'], session: 'reviewer-dry' }
+    }
+
+    const lines = await dryRun(gitHub.client, reviewer, 949)
+    expect(leases).toEqual([{ taskKey: review(949, sha('e')), queue: 'review', cardId: 1049, pr: 949, head: sha('e'), leaseGen: 0, actor: DRY_RUN_ACTOR }])
+    expect(lines.join('\n')).toContain(sha('e'))
+    expect(lines.join('\n')).toContain('verdict: changes')
+    expect(lines.join('\n')).toContain('reviewer session: reviewer-dry')
+    expect(lines.filter(line => line.includes('finding: '))).toHaveLength(2)
+    expect(gitHub.calls).toEqual(['repos/{owner}/{repo}/pulls/949'])
+    expect(statuses).toEqual([])
+    expect(gitHub.pulls.get(949)!.review).toBeUndefined()
+    expect({ events: eventCount(db), tasks: projectionDump(db) }).toEqual(before)
+    expect(reviewMode(['--dry-run', '949'])).toEqual({ kind: 'dry-run', pr: 949 })
+    db.close()
+  })
+
+  it('a dry run together with the switch is refused', () => {
+    for (const argv of [['--dry-run', '949', '--on'], ['--on', '--dry-run', '949']])
+      expect(reviewMode(argv)).toMatchObject({ kind: 'refused', reason: expect.stringContaining('not both') })
+    expect(reviewMode(['--dry-run'])).toMatchObject({ kind: 'refused' })
+    expect(reviewMode(['--on'])).toEqual({ kind: 'on' })
+    expect(reviewMode([])).toEqual({ kind: 'off' })
   })
 })

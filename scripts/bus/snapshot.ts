@@ -1,7 +1,7 @@
 import type { Meter } from './meter.js'
 import { REQUIRED_CHECK } from '../board/gh.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
-import { cardIdOf, isFullSha } from './identifiers.js'
+import { cardIdOfDescription, isFullSha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
@@ -80,10 +80,6 @@ interface CommitStatus {
 
 const REPO = 'repos/{owner}/{repo}'
 
-function cardOf(pull: Pull): number | null {
-  return cardIdOf((pull.body ?? '').split('\n')[0] ?? '')
-}
-
 export function ciOf(meter: Meter, sha: string): CiReading {
   const runs = (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
   const required = runs.find(run => run.name === REQUIRED_CHECK)
@@ -104,7 +100,7 @@ function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
     return null
   return {
     pr: pull.number,
-    cardId: cardOf(pull),
+    cardId: cardIdOfDescription(pull.body),
     base: pull.base.ref,
     head: pull.head.sha,
     mergeable,
@@ -117,7 +113,7 @@ function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
 
 function closedPrOf(pull: Pull): ClosedPr {
   const merged = pull.merged === true
-  return { pr: pull.number, cardId: cardOf(pull), merged, commit: merged && isFullSha(pull.merge_commit_sha) ? pull.merge_commit_sha : null }
+  return { pr: pull.number, cardId: cardIdOfDescription(pull.body), merged, commit: merged && isFullSha(pull.merge_commit_sha) ? pull.merge_commit_sha : null }
 }
 
 export function touchesMechanics(files: string[]): boolean {

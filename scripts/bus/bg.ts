@@ -25,8 +25,29 @@ export interface RunningProcess {
 
 export type ProcessList = () => RunningProcess[]
 
-export function launchArgv(): string[] {
-  return ['nohup', 'pnpm', '--silent', RUN_SCRIPT]
+export interface DetachedLaunch {
+  prefix: string
+  script: string
+  args: string[]
+  markers: readonly string[]
+  instanceFile: string
+  startLock: string
+  log: string
+  preflight?: () => string[]
+}
+
+export const BUS_RUN_LAUNCH: DetachedLaunch = {
+  prefix: PREFIX,
+  script: RUN_SCRIPT,
+  args: [],
+  markers: BUS_RUN_MARKERS,
+  instanceFile: INSTANCE_FILE,
+  startLock: START_LOCK,
+  log: SHADOW_LOG,
+}
+
+export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH): string[] {
+  return ['nohup', 'pnpm', '--silent', launch.script, ...launch.args]
 }
 
 export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
@@ -38,8 +59,12 @@ export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
     })
 }
 
+export function runningInstance(processes: RunningProcess[], markers: readonly string[]): RunningProcess | undefined {
+  return processes.find(candidate => candidate.pid !== process.pid && markers.some(marker => candidate.args.includes(marker)))
+}
+
 export function runningBus(processes: RunningProcess[]): RunningProcess | undefined {
-  return processes.find(candidate => candidate.pid !== process.pid && BUS_RUN_MARKERS.some(marker => candidate.args.includes(marker)))
+  return runningInstance(processes, BUS_RUN_MARKERS)
 }
 
 function recordedPid(file: string): number | null {
@@ -77,28 +102,32 @@ function startHolder(lock: string): number | null {
   return recordedPid(lock) ?? 0
 }
 
-export function runBusBg(busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
-  const instance = path.join(busDir, INSTANCE_FILE)
-  const lock = path.join(busDir, START_LOCK)
-  const log = path.join(busDir, SHADOW_LOG)
+export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
+  const { prefix, script } = launch
+  const instance = path.join(busDir, launch.instanceFile)
+  const lock = path.join(busDir, launch.startLock)
+  const log = path.join(busDir, launch.log)
   mkdirSync(busDir, { recursive: true })
   const holder = startHolder(lock)
   if (holder !== null)
-    return { stdout: [], stderr: [`${PREFIX}another bus:bg (pid ${holder}) is starting ${RUN_SCRIPT} (${lock}); nothing started`], exitCode: 1 }
+    return { stdout: [], stderr: [`${prefix}another start (pid ${holder}) is starting ${script} (${lock}); nothing started`], exitCode: 1 }
   try {
-    const running = runningBus(processes())
+    const running = runningInstance(processes(), launch.markers)
     if (running !== undefined)
-      return { stdout: [], stderr: [`${PREFIX}${RUN_SCRIPT} is already running as pid ${running.pid} (${running.args}); nothing started`], exitCode: 1 }
-    const [command, ...args] = launchArgv()
+      return { stdout: [], stderr: [`${prefix}${script} is already running as pid ${running.pid} (${running.args}); nothing started`], exitCode: 1 }
+    const problems = launch.preflight?.() ?? []
+    if (problems.length > 0)
+      return { stdout: [], stderr: [`${prefix}refused to start ${script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
+    const [command, ...args] = launchArgv(launch)
     const fd = openSync(log, 'a')
     try {
       const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env })
       child.on('error', () => {})
       child.unref()
       if (child.pid === undefined)
-        return { stdout: [], stderr: [`${PREFIX}${command} did not start`], exitCode: 1 }
+        return { stdout: [], stderr: [`${prefix}${command} did not start`], exitCode: 1 }
       writeFileSync(instance, `${child.pid}\n`)
-      return { stdout: [String(child.pid), `${PREFIX}pnpm ${RUN_SCRIPT} · log ${log}`], stderr: [], exitCode: 0 }
+      return { stdout: [String(child.pid), `${prefix}pnpm ${[script, ...launch.args].join(' ')} · log ${log}`], stderr: [], exitCode: 0 }
     }
     finally {
       closeSync(fd)
@@ -109,11 +138,17 @@ export function runBusBg(busDir: string, env: NodeJS.ProcessEnv = process.env, p
   }
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = runBusBg(path.join(os.homedir(), '.construct', 'bus'))
+export function runBusBg(busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
+  return startDetached(BUS_RUN_LAUNCH, busDir, env, processes)
+}
+
+export function printBg(result: BgResult): void {
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)
     console.error(line)
   process.exitCode = result.exitCode
 }
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  printBg(runBusBg(path.join(os.homedir(), '.construct', 'bus')))
