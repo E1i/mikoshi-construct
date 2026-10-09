@@ -35,7 +35,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'docs:dev': 'a local server',
   'docs:preview': 'a local server',
   'lint:fix': 'a fixer; lint is its gate',
-  'miko:handoff': 'opens a new Terminal for the next Mikoshi session when run by hand, only from a foreman handoff that passes handoff:check; its own tests, on an osascript stub, are its gate',
+  'miko': 'runs Mikoshi sessions in a loop in the owner\'s terminal when run by hand; its own tests, on a claude stub, are its gate',
   'model:render': 'a writer; model:check is its gate',
   'prepublishOnly': 'a packaging hook',
   'release': 'publishes',
