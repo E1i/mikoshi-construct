@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { CREATES_KINDS, parseCreatesEntry } from '../../src/card/parking.js'
 
 export class MissingSnapshotFileError extends Error {}
 
@@ -94,7 +95,7 @@ export function readOwnerMergeKinds(ownerMergesText: string): OwnerMergeKind[] {
 }
 
 export const GHOSTS_FILES = 'architecture/ghosts-files.md'
-export const GHOSTS_FILE_KINDS = ['ghosts', 'plain'] as const
+export const GHOSTS_FILE_KINDS = CREATES_KINDS
 
 export type GhostsFileKind = typeof GHOSTS_FILE_KINDS[number]
 
@@ -115,12 +116,9 @@ export function readGhostsFiles(ghostsFilesText: string): GhostsFile[] {
   })
 }
 
-const DECLARED_KIND = /^(\S+) \((\w+)\)$/
-
 export function declaredGhostsFile(createsEntry: string): GhostsFile | null {
-  const found = DECLARED_KIND.exec(createsEntry.trim())
-  const kind = found === null ? null : ghostsFileKind(found[2]!)
-  return found === null || kind === null ? null : { file: found[1]!, kind }
+  const parsed = parseCreatesEntry(createsEntry)
+  return parsed.kind === 'refused' || parsed.fileKind === null ? null : { file: parsed.path, kind: parsed.fileKind }
 }
 
 const TASK_FILE_NAME = /^\d+-(.+)\.(issue|brief)\.md$/
