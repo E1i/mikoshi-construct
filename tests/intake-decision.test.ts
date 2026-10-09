@@ -1,4 +1,5 @@
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
+import type { IntakeResult } from '../src/commands/intake/index.js'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { riskOf } from '../src/card/risk.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
 import { NO_OWNER_PATH, OWNER_MERGES, ownerPathsOf } from '../src/commands/intake/check.js'
-import { INTAKE_EXIT } from '../src/commands/intake/index.js'
+import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
@@ -124,5 +125,28 @@ describe('construct intake --admit derives the decision from architecture/owner-
     const file = park(w, 86, 'owner', 'src/board/**')
     expect(admit(w, file).status).toBe('admitted')
     expect(cardOf(file)).toContain('/owner]')
+  })
+})
+
+function drafted(w: World, decision: string, touches: readonly string[]): IntakeResult {
+  const draft = path.join(path.dirname(w.repo), 'draft.json')
+  writeFileSync(draft, JSON.stringify({ cards: [{ name: 'drafted-card', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision, who: 'shift', touches, task: 'Do the thing.', witnesses: ['`pnpm test` passes'] }] }))
+  return runIntake({ draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: true, autoConfirm: false, readStdin: () => '600' })
+}
+
+function draftedLine(result: IntakeResult): string {
+  if (result.status === 'refused')
+    throw new Error(`refused: ${result.detail.join('; ')}`)
+  return result.cards[0]!.text.split('\n')[0]!
+}
+
+describe('construct intake --draft derives the decision from architecture/owner-merges.md', () => {
+  it('a drafted card gets its decision from owner-merges at --draft', () => {
+    const toOwner = world(['.claude/skills/intake/SKILL.md'])
+    expect(draftedLine(drafted(toOwner, 'auto', ['.claude/skills/intake/SKILL.md']))).toContain('/owner]')
+    const toAuto = world(['src/board/run.ts'])
+    expect(draftedLine(drafted(toAuto, 'owner', ['src/board/run.ts']))).toContain('/auto]')
+    const withoutOwnerMerges = world(['src/board/run.ts'], false)
+    expect(draftedLine(drafted(withoutOwnerMerges, 'owner', ['src/board/run.ts']))).toContain('/owner]')
   })
 })
