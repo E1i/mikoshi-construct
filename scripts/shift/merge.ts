@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parseCard } from '../../src/card/grammar.js'
+import { readBodyCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
@@ -98,7 +98,7 @@ export function runMerge(argv: string[], deps: MergeDeps, reviewed?: string): Me
   catch (error) {
     return refuse(`PR #${number} not read: ${firstLine(error)}`)
   }
-  const card = parseCard(view.body.split('\n')[0]!.trim())
+  const card = readBodyCard(view.body)
   if (card.kind === 'refused')
     return refuse(`the first line of PR #${number} is not the task's card (${card.reason})`)
   const files = (view.files ?? []).map(file => file.path)
@@ -179,7 +179,7 @@ export function readPrReview(gh: GhRunner, number: number, verdict: ReviewVerdic
     return `PR #${number} not read: gh returned no body and head`
   if (view.headRefOid !== commit)
     return `PR #${number} head is ${view.headRefOid}, not ${commit}`
-  const card = parseCard(view.body.split('\n')[0]!.trim())
+  const card = readBodyCard(view.body)
   if (card.kind === 'refused')
     return `the first line of PR #${number} is not the task's card (${card.reason})`
   return { task: String(card.card.id), pr: number, verdict, commit }
@@ -247,7 +247,7 @@ export function runCarry(argv: string[], deps: CarryDeps): MergeResult {
   catch (error) {
     return carryRefused(`PR #${number} not read: ${firstLine(error)}`)
   }
-  const card = parseCard(view.body.split('\n')[0]!.trim())
+  const card = readBodyCard(view.body)
   if (card.kind === 'refused')
     return carryRefused(`the first line of PR #${number} is not the task's card (${card.reason})`)
   const task = String(card.card.id)
