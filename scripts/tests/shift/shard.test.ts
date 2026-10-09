@@ -14,6 +14,7 @@ const HEAD = 'a1b2c3d'
 interface Pr {
   branch?: string
   checks?: { name: string, status: string, conclusion: string }[] | 'fails'
+  files?: string[]
 }
 
 function initWorld(body: string): World {
@@ -32,7 +33,7 @@ function ownerGh(pr: Pr = {}): { gh: (args: string[]) => string, calls: string[]
     if (args[1] === 'view' && args.at(-1) === 'headRefOid,statusCheckRollup,files') {
       if (pr.checks === 'fails')
         throw new Error('gh: HTTP 502')
-      return JSON.stringify({ headRefOid: HEAD, statusCheckRollup: pr.checks ?? [{ name: 'required', status: 'IN_PROGRESS', conclusion: '' }], files: [] })
+      return JSON.stringify({ headRefOid: HEAD, statusCheckRollup: pr.checks ?? [{ name: 'required', status: 'IN_PROGRESS', conclusion: '' }], files: (pr.files ?? []).map(file => ({ path: file })) })
     }
     return inner.gh(args)
   }
@@ -73,10 +74,10 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(eventsOf(world, 'shard-used')).toEqual([])
   })
 
-  it('with a shard an owner PR is armed and journals the delegation', async () => {
+  it('under a shard an owner card without a reservation is armed and merged', async () => {
     const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
     const shard = issue(world)
-    const { gh, calls } = ownerGh()
+    const { gh, calls } = ownerGh({ files: ['AGENTS.md', 'scripts/shift/shard.ts'] })
     const { code } = await shift(world, gh, shard)
     expect(code).toBe(0)
     expect(merges(calls)).toEqual([['pr', 'merge', '101', '--auto', '--squash', '--match-head-commit', HEAD, '-R', 'E1i/mikoshi-construct']])
@@ -159,6 +160,28 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(merges(calls)).toEqual([])
     expect(eventsOf(world, 'delegated')).toEqual([])
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', why: expect.stringContaining('is a version pull request (changeset-release/main) and stays the owner\'s') as unknown }])
+  })
+
+  it('under a shard the version PR and security-invariants are not touched', async () => {
+    for (const pr of [{ branch: 'changeset-release/main' }, { files: ['architecture/security-invariants.md'] }, { files: ['templates/base/architecture/security-invariants.md'] }]) {
+      const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
+      const shard = issue(world)
+      const { gh, calls } = ownerGh(pr)
+      await shift(world, gh, shard)
+      expect(merges(calls)).toEqual([])
+      expect(eventsOf(world, 'delegated')).toEqual([])
+      expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', why: expect.stringContaining(`shard ${shard} not applied`) as unknown }])
+    }
+  })
+
+  it('under a shard an owner-by-risk card is not armed', async () => {
+    const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const { gh, calls } = ownerGh({ files: ['scripts/shift/shard.ts', 'scripts/ghosts/approve.ts'] })
+    await shift(world, gh, shard)
+    expect(merges(calls)).toEqual([])
+    expect(eventsOf(world, 'delegated')).toEqual([])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', why: expect.stringContaining('changes scripts/ghosts/approve.ts, owner by risk R1') as unknown }])
   })
 
   it('an Eddies stop with a shard does not arm the owner PR', async () => {

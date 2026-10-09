@@ -245,8 +245,17 @@ taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `park
 `shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
 is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `auto` with no
 owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
-nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The Operator runs `pnpm shift:current` on a merge event, which updates one armed or owner-merge pull request that is BEHIND and carries its review, and journals `ready-for-owner` for a CLEAN owner-merge one. The flags and refusals are in
+nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The Operator runs `pnpm shift:current` on a merge event, which updates one armed or owner-merge pull request that is BEHIND and carries its review, and journals `ready-for-owner` for a CLEAN owner-merge one; without a Shard it never arms an owner pull request. The flags and refusals are in
 [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+Under an active Shard (`pnpm shard <dir>`, consumed by `pnpm shift <dir> --slot <shard>`) the shift merges owner cards
+too (Eli, 2026-10-09, task #721): an owner pull request whose report asks nothing, whose session no guard refused and
+did not stop on its Eddies budget, and whose required checks are not red or unknown is armed, whatever owner path it
+changes. That is the point of the delegation, and the rule that an owner pull request is never armed yields to it,
+except for three it never merges: the version pull request (`changeset-release/*`, the kind `release`), a pull request
+that changes a path of the kind `security-invariants`, and a card the table «Owner by risk» of
+[owner-merges.md](owner-merges.md) marks (a changed file that reaches the row's risk and meets one of its globs). Those
+stop at `merge` and wait for the owner, as without a Shard. `reservedFromShard` in `scripts/shift/shard.ts` applies it.
 
 The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
 auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one

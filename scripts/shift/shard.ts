@@ -6,10 +6,14 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { ATTACH_RECORD_FILE, readAttachRecord } from '../../src/commands/attach/record.js'
+import { ownerPathsOf } from '../../src/commands/intake/check.js'
 import { MANIFEST_FILE, readManifest } from '../../src/manifest.js'
 import { prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { matchGlob } from '../shredder/glob.js'
+import { readOwnerMergeKinds } from '../shredder/reader.js'
 import { PREFIX as MERGE_PREFIX } from './merge.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
 
@@ -20,6 +24,7 @@ export const SHARD_USED_EVENT = 'shard-used'
 export const DELEGATED_EVENT = 'delegated'
 export const VERSION_BRANCH = /^changeset-release\//
 const STOPPING_CI = new Set(['red', 'unknown'])
+const KINDS_A_SHARD_NEVER_MERGES = ['security-invariants']
 
 export interface ShardDeps {
   cwd: string
@@ -37,6 +42,7 @@ export interface DelegationDeps {
   journal: string
   append: (file: string, text: string) => void
   now: () => Date
+  ownerMergesText: () => string
 }
 
 interface JournalLine {
@@ -90,6 +96,29 @@ export function usedLine(id: string, run: string, now: Date): string {
   return `${JSON.stringify({ event: SHARD_USED_EVENT, id, run, ts: now.toISOString() })}\n`
 }
 
+function meetsAny(file: string, globs: readonly string[]): boolean {
+  return globs.some(glob => matchGlob(glob, file))
+}
+
+function reachesRisk(file: string, level: string): boolean {
+  const at = RISK_LEVELS.findIndex(candidate => candidate === level)
+  return at !== -1 && RISK_LEVELS.indexOf(riskOf(file).level) <= at
+}
+
+export function reservedFromShard(files: readonly string[], ownerMergesText: string): string | undefined {
+  for (const kind of readOwnerMergeKinds(ownerMergesText).filter(entry => KINDS_A_SHARD_NEVER_MERGES.includes(entry.kind))) {
+    const file = files.find(candidate => meetsAny(candidate, kind.globs))
+    if (file !== undefined)
+      return `changes ${file} (${kind.kind}) and stays the owner's`
+  }
+  for (const row of ownerPathsOf(ownerMergesText).byRisk) {
+    const file = files.find(candidate => reachesRisk(candidate, row.level) && meetsAny(candidate, row.globs))
+    if (file !== undefined)
+      return `changes ${file}, owner by risk ${row.level}, and stays the owner's`
+  }
+  return undefined
+}
+
 function notApplied(number: string, shard: string, why: string): string[] {
   return [`${MERGE_PREFIX}PR #${number} ${why}; shard ${shard} not applied, merge is Eli's`]
 }
@@ -106,9 +135,20 @@ export function delegatedMerge(deps: DelegationDeps, task: string, number: strin
     return notApplied(number, shard, 'not read: the view names no head branch or commit')
   if (VERSION_BRANCH.test(view.headRefName))
     return notApplied(number, shard, `is a version pull request (${view.headRefName}) and stays the owner's`)
-  const { ci } = prDetails(deps.gh, REPO, { number: Number(number), headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null })
+  const { ci, files } = prDetails(deps.gh, REPO, { number: Number(number), headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null })
   if (STOPPING_CI.has(ci.state))
     return notApplied(number, shard, `required checks ${ci.text}`)
+  if (files === undefined)
+    return notApplied(number, shard, 'not read: the view names no changed files')
+  let reserved: string | undefined
+  try {
+    reserved = reservedFromShard(files, deps.ownerMergesText())
+  }
+  catch (error) {
+    return notApplied(number, shard, `owner-merges not read: ${firstLine(error)}`)
+  }
+  if (reserved !== undefined)
+    return notApplied(number, shard, reserved)
   const head = reviewed ?? view.headRefOid
   try {
     deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', head, '-R', REPO])

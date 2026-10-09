@@ -99,7 +99,7 @@ export const USAGE = [
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
   'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
-  'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
+  'A version pull request (changeset-release/*), one that changes a security-invariants path and an owner-by-risk card (architecture/owner-merges.md) stay the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a pipeline: once a card closes with a pull request, that pull request is in review and the chain takes the next card whose depends are merged and whose touches overlap no card in review;',
   'a card that overlaps one waits until that one merges and is then cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
   `The chain arms auto-merge on a pull request only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain arms after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
@@ -334,16 +334,15 @@ function heldBy(evidence: { refused: boolean, stopped: boolean }): { heldBy?: He
   return {}
 }
 
+function ownerMergesOnMain(deps: ShiftDeps): string {
+  deps.git(deps.cwd, ['fetch', 'origin', 'main'])
+  return deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN])
+}
+
 function mergeAfterSession(deps: ShiftDeps, number: string, reviewed: string | undefined): string[] {
   let result: MergeResult
   try {
-    result = runMerge([number], {
-      gh: deps.gh,
-      ownerMergesText: () => {
-        deps.git(deps.cwd, ['fetch', 'origin', 'main'])
-        return deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN])
-      },
-    }, reviewed)
+    result = runMerge([number], { gh: deps.gh, ownerMergesText: () => ownerMergesOnMain(deps) }, reviewed)
   }
   catch (error) {
     return [`${MERGE_PREFIX}PR #${number} not merged: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]!}`]
@@ -417,7 +416,7 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
     return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
   if (delegation.stopped)
     return [...lines, `${MERGE_PREFIX}PR #${number} the session stopped on its Eddies budget; shard ${shard} not applied, merge is Eli's`]
-  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
+  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now, ownerMergesText: () => ownerMergesOnMain(deps) }, task.id, number, shard, delegation.reviewed)]
 }
 
 function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation): { pr: string, lines: string[] } | undefined {

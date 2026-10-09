@@ -93,6 +93,15 @@ describe('runCurrent', () => {
     expect(result.stdout.join('\n')).toContain('carried from old to new-head')
   })
 
+  it('without a shard an owner card is never armed', () => {
+    const { calls, deps } = setup([
+      { number: 1, createdAt: '2026-10-01T00:00:00Z', armed: false, decision: 'owner' },
+      { number: 2, createdAt: '2026-10-02T00:00:00Z', armed: false, decision: 'owner', state: 'CLEAN' },
+    ])
+    expect(runCurrent(deps).exitCode).toBe(0)
+    expect(armedCalls(calls)).toEqual([])
+  })
+
   it('a CLEAN owner-merge PR gets one ready-for-owner journal line with its merge command', () => {
     const pr: FakePr = { number: 5, createdAt: '2026-10-01T00:00:00Z', armed: false, decision: 'owner', state: 'CLEAN', head: 'abc1234' }
     const first = setup([pr])
