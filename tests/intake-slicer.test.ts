@@ -203,6 +203,35 @@ describe('intake keeps the who of the draft for a seamed card a person kept whol
   })
 })
 
+describe('a test rides in the slice whose change it witnesses', () => {
+  const detach = { name: 'detach-no-trace-slice-2', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['docs/cli.md', '.changeset/**', 'src/commands/detach/**', 'src/ui/lore.ts', 'tests/detach.test.ts', 'architecture/detach.md', 'scripts/privacy/allowlist.ts'], task: 'Detach says the original bytes came back after a byte restore.', witnesses: ['`pnpm exec vitest run tests/detach.test.ts -t \'original bytes\'` exits 0'] }
+
+  it('a test that witnesses a slice rides in the same slice as its code', () => {
+    const [card] = cards(intake({ cards: [detach] }, '655', path.join(scratch(), 'parking'), { dryRun: true }))
+    expect(card!.risk.filter(line => line.startsWith('slice: '))).toEqual([
+      'slice: 1 R1 — .changeset/**, src/commands/detach/**, tests/detach.test.ts',
+      'slice: 2 R3 — docs/cli.md, src/ui/lore.ts, architecture/detach.md, scripts/privacy/allowlist.ts',
+    ])
+  })
+
+  it('refuses a card whose task text names its own slices when a seam proposes others', () => {
+    const task = `${detach.task}\nslice: 1 — src/commands/detach/**, tests/detach.test.ts`
+    const result = intake({ cards: [{ ...detach, task }] }, '655', path.join(scratch(), 'parking'))
+    expect(detail(result)).toEqual(['detach-no-trace-slice-2: the task text names its own slices and the seam proposes others; a card has one source of slicing, so cut the draft into the cards its text names, or drop the \'slice:\' lines from the task'])
+  })
+
+  it('a card a person kept whole is not refused for its own slice lines', () => {
+    const task = `${detach.task}\nslice: 1 — src/commands/detach/**, tests/detach.test.ts`
+    const [card] = cards(intake({ cards: [{ ...detach, task, whole: 'the owner kept it whole on 2026-10-09' }] }, '655', path.join(scratch(), 'parking'), { dryRun: true }))
+    expect(card!.text).toContain('whole: the owner kept it whole on 2026-10-09')
+  })
+
+  it('takes a task text that names slices when no seam proposes any', () => {
+    const task = 'Board shows the parking.\nslice: 1 — scripts/board/**'
+    expect(intake({ cards: [{ ...SLICED.cards[0], task }] }, '1', path.join(scratch(), 'parking')).status).toBe('written')
+  })
+})
+
 describe('intake refuses what it cannot number or check', () => {
   it('refuses without --taken, since a card number is shared with pull requests and issues', () => {
     const root = scratch()
