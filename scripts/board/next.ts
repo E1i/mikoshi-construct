@@ -27,6 +27,7 @@ export const NEXT_BY_SITUATION = {
   'window-closed': 'window closed, no PR',
   'window-handoff': 'handoff, waits for a new window',
   'superseded': '— (superseded)',
+  'stop': 'waits ',
 } as const
 
 export type Situation = keyof typeof NEXT_BY_SITUATION
@@ -100,6 +101,9 @@ export function nextOf(view: AttemptView, details: PrDetails | undefined, kinds:
     return next('merged')
   if (view.attempt.supersededEvent !== undefined)
     return next('superseded', `by ${view.attempt.supersededEvent.by}`)
+  const stop = view.attempt.stopEvent
+  if (stop !== undefined)
+    return { situation: 'stop', text: `${NEXT_BY_SITUATION.stop}${stop.at}: ${stop.why}`, why: `journal event:stop, ${new Date(stop.ts).toISOString()}` }
   const report = reportOf(view.attempt.pathEvent)
   if (view.path === 'cheap' && report !== undefined)
     return { situation: 'report', text: `${NEXT_BY_SITUATION.report}${report}`, why: undefined }
