@@ -1,4 +1,3 @@
-import type { GhResponse, GitHub } from '../../bus/github.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,104 +5,16 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { parseIncluded } from '../../bus/github.js'
 import { NetWatch, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
+import { reduce } from '../../bus/reducer.js'
 import { touchesMechanics } from '../../bus/snapshot.js'
+import { Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, REPO, sha } from './github-fake.js'
 
-const REPO = 'repos/{owner}/{repo}'
-const sha = (digit: string): string => digit.repeat(40)
-const MAIN_1 = sha('1')
-const MAIN_2 = sha('2')
-const MAIN_3 = sha('3')
 const roots: string[] = []
 
 afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
-
-interface FakePull {
-  number: number
-  state: 'open' | 'closed'
-  head: string
-  mergeable_state: string
-  merged?: boolean
-  merge_commit_sha?: string
-  draft?: boolean
-  required?: 'pending' | 'success' | 'failure'
-  review?: 'success' | 'failure'
-}
-
-class FakeGitHub {
-  pulls = new Map<number, FakePull>()
-  main = MAIN_1
-  mainFiles: Record<string, string[]> = {}
-  limited: GhResponse | null = null
-  failing = false
-  calls: string[] = []
-  remaining = 5000
-
-  readonly client: GitHub = (endpoint) => {
-    this.calls.push(endpoint)
-    if (this.failing)
-      throw new Error('gh api: connection refused')
-    if (this.limited !== null)
-      return this.limited
-    this.remaining -= 1
-    return { status: 200, headers: { 'x-ratelimit-remaining': String(this.remaining) }, body: this.answer(endpoint) }
-  }
-
-  open(pull: Partial<FakePull> & { number: number }): void {
-    this.pulls.set(pull.number, { state: 'open', head: sha('a'), mergeable_state: 'clean', required: 'success', ...pull })
-  }
-
-  private pullBody(pull: FakePull): object {
-    return {
-      number: pull.number,
-      state: pull.state,
-      draft: pull.draft ?? false,
-      body: `#${pull.number + 100} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —`,
-      merged: pull.merged ?? false,
-      merge_commit_sha: pull.merge_commit_sha ?? null,
-      mergeable_state: pull.mergeable_state,
-      auto_merge: null,
-      base: { ref: 'main' },
-      head: { sha: pull.head },
-    }
-  }
-
-  private answer(endpoint: string): unknown {
-    if (endpoint === `${REPO}/pulls?state=open&per_page=100`)
-      return [...this.pulls.values()].filter(pull => pull.state === 'open').map(pull => ({ ...this.pullBody(pull), mergeable_state: undefined }))
-    const pull = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)$/.exec(endpoint)
-    if (pull !== null)
-      return this.pullBody(this.pulls.get(Number(pull[1]))!)
-    const checks = /\/commits\/([0-9a-f]{40})\/check-runs/.exec(endpoint)
-    if (checks !== null) {
-      const owner = [...this.pulls.values()].find(candidate => candidate.head === checks[1])
-      const required = owner?.required ?? 'pending'
-      return { check_runs: [{ name: 'required', status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }] }
-    }
-    const status = /\/commits\/([0-9a-f]{40})\/status$/.exec(endpoint)
-    if (status !== null) {
-      const owner = [...this.pulls.values()].find(candidate => candidate.head === status[1])
-      return { statuses: owner?.review === undefined ? [] : [{ context: 'review', state: owner.review }] }
-    }
-    if (endpoint === `${REPO}/commits/main`)
-      return { sha: this.main, files: (this.mainFiles[this.main] ?? []).map(filename => ({ filename })) }
-    const compare = /\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(endpoint)
-    if (compare !== null)
-      return { files: Object.entries(this.mainFiles).filter(([commit]) => commit > compare[1] && commit <= compare[2]).flatMap(([, files]) => files.map(filename => ({ filename }))) }
-    throw new Error(`the fake has no answer for ${endpoint}`)
-  }
-}
-
-class Clock {
-  constructor(public ms = Date.parse('2026-10-09T12:00:00.000Z')) {}
-  advance(ms: number): void {
-    this.ms += ms
-  }
-
-  readonly now = (): Date => new Date(this.ms)
-}
 
 function setUp(): { db: ReturnType<typeof openBus>, gitHub: FakeGitHub, clock: Clock, netWatch: NetWatch } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-netwatch-'))
@@ -135,12 +46,38 @@ describe('netwatch', () => {
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatchObject({ pr: 900, card_id: 1000, head: sha('a') })
     expect(observed[0]!.payload).toEqual({ base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false })
-    expect(observed[0]!.dedupe_key).toMatch(/^pr:900:[0-9a-f]{64}$/)
+    expect(observed[0]!.dedupe_key).toMatch(/^pr:900:[0-9a-f]{64}:-$/)
 
     gitHub.open({ number: 900, mergeable_state: 'behind', review: 'success' })
     clock.advance(TICK_MS)
     netWatch.poll()
     expect(events(db, 'pr.observed').map(event => event.payload.mergeable)).toEqual(['clean', 'behind'])
+    db.close()
+  })
+
+  // eslint-disable-next-line test/prefer-lowercase-title -- the witness of card #795 names this test with a capital A, and vitest -t matches case-sensitively
+  it('A then B then A on the same head gives three events and the projection ends on A, a repeated tick gives one', () => {
+    const { db, gitHub, clock, netWatch } = setUp()
+    const tick = (): void => {
+      clock.advance(TICK_MS)
+      netWatch.poll()
+    }
+    gitHub.open({ number: 911 })
+    netWatch.poll()
+    tick()
+    gitHub.open({ number: 911, mergeable_state: 'behind' })
+    tick()
+    tick()
+    gitHub.open({ number: 911 })
+    tick()
+    tick()
+
+    const observed = events(db, 'pr.observed')
+    expect(observed.map(event => [event.head, event.payload.mergeable])).toEqual([[sha('a'), 'clean'], [sha('a'), 'behind'], [sha('a'), 'clean']])
+    const ids = db.prepare(`SELECT id FROM events WHERE type = 'pr.observed' ORDER BY id`).all().map(row => Number(row.id))
+    expect(observed.map(event => event.dedupe_key.split(':').at(-1))).toEqual(['-', String(ids[0]), String(ids[1])])
+    reduce(db)
+    expect(db.prepare('SELECT head, mergeable FROM prs WHERE pr = 911').get()).toEqual({ head: sha('a'), mergeable: 'clean' })
     db.close()
   })
 

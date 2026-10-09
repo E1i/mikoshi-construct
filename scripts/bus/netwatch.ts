@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
+import type { PreviousObservation } from './observations.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -31,6 +32,13 @@ const KNOWN_OPEN_PRS = `
 `
 
 const LAST_MAIN = `SELECT payload FROM events WHERE type = 'main.advanced' ORDER BY id DESC LIMIT 1`
+
+const LAST_OBSERVED = `SELECT id, dedupe_key, payload FROM events WHERE type = 'pr.observed' AND pr = ? ORDER BY id DESC LIMIT 1`
+
+export function lastObserved(db: DatabaseSync, pr: number): PreviousObservation | null {
+  const row = db.prepare(LAST_OBSERVED).get(pr)
+  return row === undefined ? null : { id: Number(row.id), dedupeKey: String(row.dedupe_key), payload: String(row.payload) }
+}
 
 export function knownOpenPrs(db: DatabaseSync): number[] {
   return db.prepare(KNOWN_OPEN_PRS).all().map(row => Number(row.pr))
@@ -79,7 +87,7 @@ export class NetWatch {
       const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
       inTransaction(this.db, () => {
-        for (const event of observationsOf(ts, snapshot)) {
+        for (const event of observationsOf(ts, snapshot, pr => lastObserved(this.db, pr))) {
           if (appendEvent(this.db, event))
             poll.written += 1
         }

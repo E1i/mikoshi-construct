@@ -1,26 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Fold, StoredEvent } from './stored.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
+import { TASK_FOLDS } from './queue.js'
+import { payloadOf, reject, Rejection, STORED_COLUMNS } from './stored.js'
 
 export const PREFIX = '[bus:reduce] '
 export const REJECTED = 'reducer.rejected'
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
-
-interface StoredEvent {
-  id: number
-  ts: string
-  type: string
-  card_id: number | null
-  pr: number | null
-  head: string | null
-  dedupe_key: string
-  payload: string
-}
 
 interface PrRow {
   pr: number
@@ -44,22 +36,6 @@ interface CardRow {
 export interface ReduceCount {
   applied: number
   rejected: number
-}
-
-class Rejection extends Error {}
-
-function reject(reason: string): never {
-  throw new Rejection(reason)
-}
-
-function payloadOf(event: StoredEvent): Record<string, unknown> {
-  try {
-    const payload = JSON.parse(event.payload) as unknown
-    if (payload !== null && typeof payload === 'object' && !Array.isArray(payload))
-      return payload as Record<string, unknown>
-  }
-  catch {}
-  return reject('payload is not a JSON object')
 }
 
 function boolean(payload: Record<string, unknown>, field: string): boolean {
@@ -160,11 +136,12 @@ function prOpened(db: DatabaseSync, event: StoredEvent): void {
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
 
-const REDUCERS: Record<string, (db: DatabaseSync, event: StoredEvent) => void> = {
+const REDUCERS: Record<string, Fold> = {
   'pr.observed': prObserved,
   'pr.closed': prClosed,
   'main.advanced': mainAdvanced,
   'pr.opened': prOpened,
+  ...TASK_FOLDS,
 }
 
 function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): void {
@@ -181,7 +158,7 @@ function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): 
   })
 }
 
-function applied(db: DatabaseSync, event: StoredEvent, apply: (db: DatabaseSync, event: StoredEvent) => void): boolean {
+function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
   db.exec('SAVEPOINT reducer_event')
   try {
     apply(db, event)
@@ -200,8 +177,8 @@ function applied(db: DatabaseSync, event: StoredEvent, apply: (db: DatabaseSync,
 
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
-    db.exec('DELETE FROM cards; DELETE FROM prs;')
-    const events = db.prepare('SELECT id, ts, type, card_id, pr, head, dedupe_key, payload FROM events WHERE legacy = 0 ORDER BY id').all() as unknown as StoredEvent[]
+    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
     const count: ReduceCount = { applied: 0, rejected: 0 }
     for (const event of events) {
       const apply = REDUCERS[event.type]

@@ -44,6 +44,8 @@
     "bus:import": "tsx scripts/bus/import.ts",
     "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",
+    "bus:report": "tsx scripts/bus/report.ts",
+    "bus:run": "tsx scripts/bus/run.ts",
     "changeset": "changeset",
     "ci": "pnpm run quality",
     "contract:bump": "tsx scripts/contract/bump.ts",
