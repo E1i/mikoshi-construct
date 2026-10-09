@@ -65,7 +65,7 @@ export function ladderPnpm(world: World, id: number, behaviour: { morse?: Morse,
     calls.push({ args, input })
     if (args[0] === 'ghosts:hash') {
       if (behaviour.morse === 'refuses')
-        return { code: 1, stdout: '', stderr: `the brief waits for the owner: card #${id} is R1 (it touches the runner)\nsecond line\n` }
+        return { code: 1, stdout: '', stderr: `card #${id} fell 1 time(s) (review-hole), so MORSE does not approve; the brief waits for the owner\nsecond line\n` }
       writeFileSync(approvedHashPath(briefOf(world, id)), `approved /implement text sha256: ${briefSha256()} sketch: none (2026-10-06, morse)\n`)
       appendFileSync(world.journal, approvalLine(id, 'morse'))
       return { code: 0, stdout: 'approved\n', stderr: '' }

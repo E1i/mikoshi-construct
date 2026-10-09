@@ -45,8 +45,8 @@ describe('the documents say the shift runs a ladder card', () => {
 
   it('the LADDER_REASON on a hash stop names both approvers', () => {
     expect(LADDER_REASON).toContain('MORSE')
-    expect(LADDER_REASON).toContain('R2–R4')
+    expect(LADDER_REASON).not.toContain('R2–R4')
     expect(LADDER_REASON).toContain('owner')
-    expect(LADDER_REASON).toContain('R1')
+    expect(LADDER_REASON).not.toContain('R1')
   })
 })
