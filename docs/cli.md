@@ -1829,7 +1829,15 @@ journal, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
 card grammar becomes the grammar's default, a `depends` or `blocks` on a card a merge line names in the journal is
-removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path with no single
+removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
+which carries a companion gets each companion it lacks added to `touches`, from one table,
+`COMPANION_TABLE` in `src/commands/intake/check.ts`: `package.json` carries `CONTRIBUTING.md` and
+`tests/harness-membership.test.ts`, `src/program.ts` carries `README.md`, `docs/cli.md` and
+`docs/guide/**`, a path under `src/` or `templates/` carries `.changeset/**`, and a path under `src/`
+carries its test — `tests/<module>.test.ts` when that file exists, else `tests/**` — unless the card
+already touches a test. A row applies only in a repository that keeps the file the row names
+(`tests/harness-membership.test.ts`, `tests/readme-commands.test.ts`, `.changeset/config.json`,
+`tests/`), and a companion is added only where it exists. These corrections need no confirmation. A path with no single
 candidate, a `#<id>` that is neither parked, done nor merged, and a witness with no backticked command or a
 command that is not on `PATH` are marked `unclear:` and kept. A kind outside the grammar is still
 refused.
@@ -1900,6 +1908,13 @@ file is moved unchanged, so it is the same record with no new number, and one li
 the witnesses, beside every entry of the draft's own `unclear` list. A card with any `unclear:` line is
 written with `who: window`, so the shift does not take it until a person settles it. A missing field
 with no default refuses the draft.
+
+**Read back at the start.** `pnpm task:start <branch> --card "<card>" [--parking <dir>]` reads the
+card's `touches` from `<dir>/<id>.md`, `~/.construct/parking` by default, into the `CONTRACT` of the
+entry line it writes to `ghosts.jsonl`, under `--without-intake` too. A missing file is named in that
+value as `touches not recorded on the card: no parking file for #<id>`; a file whose card line is not
+the `--card` given is refused with nothing written. The entry line `task:start` writes carries
+`"schema":2`; the one `ghosts:launch` writes carries no `schema` and stays version 1.
 
 One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written
 or printed, `1` when the draft was refused, `2` when corrections wait for a person's confirmation.
