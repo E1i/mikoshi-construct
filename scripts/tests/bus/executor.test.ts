@@ -7,6 +7,8 @@ import { MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const merge = (pr: number, head = sha('a')): string => taskKey({ queue: 'merge', cardId: pr + 100, pr, head })
+const APPROVED = ['completed', 'action_required']
+const AWAITING = ['action_required', 'action_required']
 
 describe('the merge executor', () => {
   it('a pass on a green, clean head is queued for merge and merged with its sha', () => {
@@ -68,10 +70,35 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('an open version pull request whose runs all wait at action_required does not lock the merge', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 978, review: 'success' })
+    bench.gitHub.open({ number: 979, head: sha('c'), ref: 'changeset-release/main', runs: AWAITING })
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toEqual({ kind: 'merged', taskKey: merge(978), commit: MAIN_2, rule: 'auto' })
+    expect(eventsOf(bench.db, 'policy.denied')).toEqual([])
+    bench.close()
+  })
+
+  it('a version pull request with approved runs on its head locks the merge as technical version_pr_open and requeues', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 980, review: 'success' })
+    bench.gitHub.open({ number: 981, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: merge(980), denial: { kind: 'technical', reason: 'version_pr_open' }, next: 'queued' })
+    expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'merge', kind: 'technical', reason: 'version_pr_open' }])
+    expect(taskState(bench.db, merge(980))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
+    expect(bench.gitHub.puts).toEqual([])
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
   it('an open version pull request locks every merge and requeues without reaching the inbox', () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 969, review: 'success' })
-    bench.gitHub.open({ number: 970, head: sha('c'), ref: 'changeset-release/main' })
+    bench.gitHub.open({ number: 970, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
 
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: merge(969), denial: { kind: 'technical', reason: 'version_pr_open' }, next: 'queued' })
@@ -83,7 +110,7 @@ describe('the merge executor', () => {
   it('the version pull request lock leaves the task queued however many ticks it lasts, and never stops the card', () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 973, review: 'success' })
-    bench.gitHub.open({ number: 974, head: sha('c'), ref: 'changeset-release/main' })
+    bench.gitHub.open({ number: 974, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -113,7 +140,7 @@ describe('the merge executor', () => {
   it('a released task returns to the queue with its failure count unchanged and its lease_gen fenced', () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 976, review: 'success' })
-    bench.gitHub.open({ number: 977, head: sha('c'), ref: 'changeset-release/main' })
+    bench.gitHub.open({ number: 977, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
     const old = bench.lease()!
     bench.merge(old)

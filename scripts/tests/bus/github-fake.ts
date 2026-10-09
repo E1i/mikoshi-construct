@@ -25,6 +25,7 @@ export interface FakePull {
   title?: string
   files?: string[]
   patches?: Record<string, string>
+  runs?: string[]
 }
 
 export function cardBody(pr: number, decision = 'auto'): string {
@@ -139,6 +140,11 @@ export class FakeGitHub {
       const owner = [...this.pulls.values()].find(candidate => candidate.head === status[1])
       const state = this.statuses.get(status[1]) ?? owner?.review
       return { statuses: state === undefined ? [] : [{ context: 'review', state }] }
+    }
+    const runs = /\/actions\/runs\?head_sha=([0-9a-f]{40})&per_page=100$/.exec(endpoint)
+    if (runs !== null) {
+      const owner = [...this.pulls.values()].find(candidate => candidate.head === runs[1])
+      return { workflow_runs: (owner?.runs ?? []).map(status => ({ status })) }
     }
     const commit = /\/commits\/([0-9a-f]{40})$/.exec(endpoint)
     if (commit !== null)
