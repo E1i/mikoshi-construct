@@ -1,7 +1,8 @@
+import type { ReviewStatus } from '../../ghosts/verdict.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isListed, runMerge } from '../../shift/merge.js'
+import { isListed, runMerge, runVerdict } from '../../shift/merge.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const HEAD = 'a1b2c3d'
@@ -82,5 +83,43 @@ describe('isListed', () => {
 
   it('finds a path in a kind list and in the plain list, and not an unlisted one', () => {
     expect([isListed('scripts/ghosts/a.ts', text), isListed('scripts/ghosts/b.ts', text), isListed('scripts/ghosts/c.ts', text)]).toEqual([true, true, false])
+  })
+})
+
+describe('runVerdict', () => {
+  const NOW = new Date('2026-10-09T03:00:00.000Z')
+
+  function verdictRun(argv: string[], publish: (status: ReviewStatus) => void): { appended: string[], result: ReturnType<typeof runVerdict> } {
+    const appended: string[] = []
+    const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: HEAD, files: [{ path: 'scripts/board/derive.ts' }] })
+    const result = runVerdict(argv, { gh, journal: 'ghosts.jsonl', append: (_, text) => appended.push(text), now: () => NOW, publish })
+    return { appended, result }
+  }
+
+  it.each([
+    { verdict: 'pass', state: 'success' },
+    { verdict: 'changes', state: 'failure' },
+  ])('posts the review status on the reviewed commit of a cheap PR: $verdict is $state', ({ verdict, state }) => {
+    const posted: ReviewStatus[] = []
+    const { appended, result } = verdictRun(['42', '--verdict', verdict, '--commit', HEAD], status => posted.push(status))
+    expect(result.exitCode).toBe(0)
+    expect(appended).toHaveLength(1)
+    expect(posted).toEqual([{ commit: HEAD, state, context: 'review', description: `review verdict ${verdict} for task 7` }])
+  })
+
+  it('posts nothing for a commit that is not the head', () => {
+    const posted: ReviewStatus[] = []
+    const { appended, result } = verdictRun(['42', '--verdict', 'pass', '--commit', 'f00dfee'], status => posted.push(status))
+    expect(result.exitCode).toBe(1)
+    expect([appended, posted]).toEqual([[], []])
+  })
+
+  it('reports a status gh could not post after the journal line is written', () => {
+    const { appended, result } = verdictRun(['42', '--verdict', 'pass', '--commit', HEAD], () => {
+      throw new Error('gh: HTTP 403\nmore')
+    })
+    expect(appended).toHaveLength(1)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[shift:verdict] the journal line is written, but the review status on ${HEAD} was not posted: gh: HTTP 403`])
   })
 })

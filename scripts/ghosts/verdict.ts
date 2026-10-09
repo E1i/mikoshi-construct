@@ -293,7 +293,7 @@ export function ghStatusPublisher(repo: string): StatusPublisher {
   }
 }
 
-function publishReasons(publish: StatusPublisher, status: ReviewStatus): string[] {
+export function publishReasons(publish: StatusPublisher, status: ReviewStatus): string[] {
   try {
     publish(status)
     return []

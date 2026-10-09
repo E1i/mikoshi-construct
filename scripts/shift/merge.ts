@@ -1,5 +1,6 @@
 import type { Decision } from '../../src/card/grammar.js'
 import type { GhRunner } from '../board/gh.js'
+import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { OwnerMergeKind } from '../shredder/reader.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, realpathSync } from 'node:fs'
@@ -10,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { parseCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { ghStatusPublisher, publishReasons, reviewStatus } from '../ghosts/verdict.js'
 import { matchGlob } from '../shredder/glob.js'
 import { readOwnerMergeKinds, readPlainPaths } from '../shredder/reader.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
@@ -134,8 +136,12 @@ export interface PrReview {
   commit: string
 }
 
+function prReviewEvent(review: PrReview, now: Date): Record<string, unknown> {
+  return { event: PR_REVIEW_EVENT, task: review.task, pr: review.pr, verdict: review.verdict, commit: review.commit, ts: now.toISOString() }
+}
+
 export function prReviewLine(review: PrReview, now: Date): string {
-  return `${JSON.stringify({ event: PR_REVIEW_EVENT, task: review.task, pr: review.pr, verdict: review.verdict, commit: review.commit, ts: now.toISOString() })}\n`
+  return `${JSON.stringify(prReviewEvent(review, now))}\n`
 }
 
 function asReview(line: string): PrReview | undefined {
@@ -187,6 +193,7 @@ export interface VerdictDeps {
   journal: string
   append: (file: string, text: string) => void
   now: () => Date
+  publish?: StatusPublisher
 }
 
 export function runVerdict(argv: string[], deps: VerdictDeps): MergeResult {
@@ -201,8 +208,11 @@ export function runVerdict(argv: string[], deps: VerdictDeps): MergeResult {
   const review = readPrReview(deps.gh, Number(number), verdict as ReviewVerdict, commit)
   if (typeof review === 'string')
     return { stdout: [], stderr: [`${VERDICT_PREFIX}${review}; nothing recorded`], exitCode: 1 }
-  deps.append(deps.journal, prReviewLine(review, deps.now()))
-  return { stdout: [`${VERDICT_PREFIX}#${review.task} PR #${review.pr} ${review.verdict} at ${review.commit}; a chain arms its auto-merge only after a pass at its head, and only at ${review.commit}`], stderr: [], exitCode: 0 }
+  const now = deps.now()
+  deps.append(deps.journal, prReviewLine(review, now))
+  const recorded = `${VERDICT_PREFIX}#${review.task} PR #${review.pr} ${review.verdict} at ${review.commit}; a chain arms its auto-merge only after a pass at its head, and only at ${review.commit}`
+  const unposted = deps.publish === undefined ? [] : publishReasons(deps.publish, reviewStatus(prReviewEvent(review, now)))
+  return { stdout: [recorded], stderr: unposted.map(reason => `${VERDICT_PREFIX}${reason}`), exitCode: unposted.length > 0 ? 1 : 0 }
 }
 
 function realDeps(): MergeDeps {
@@ -218,7 +228,7 @@ function realDeps(): MergeDeps {
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2)
   const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
-  const result = argv.includes(VERDICT_FLAG) ? runVerdict(argv, { gh: execGh, journal, append: appendFileSync, now: () => new Date() }) : runMerge(argv, realDeps())
+  const result = argv.includes(VERDICT_FLAG) ? runVerdict(argv, { gh: execGh, journal, append: appendFileSync, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)
