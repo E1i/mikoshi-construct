@@ -15,6 +15,7 @@ export const RISK_MEANING: Record<RiskLevel, string> = {
 }
 
 const LADDER = 'the ladder mechanism a task runs on'
+const APPROVAL_RULES = 'the rules by which a brief is approved'
 const FOREIGN_WRITE = 'what init, attach, sync or detach write into another repository'
 const CARRIERS = 'the registration of the carriers attach delivers'
 const SECURITY = 'a security invariant'
@@ -32,6 +33,9 @@ const CORE: readonly (readonly [string, string])[] = [
   ['scripts/ghosts/approval.ts', LADDER],
   ['scripts/ghosts/hash.ts', LADDER],
   ['scripts/ghosts/launch.ts', LADDER],
+  ['scripts/ghosts/approve.ts', APPROVAL_RULES],
+  ['architecture/decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md', APPROVAL_RULES],
+  ['architecture/decisions/0058-morse-approves-a-brief-of-every-risk.md', APPROVAL_RULES],
   ['templates/ai/claude/_claude/skills/implement', LADDER],
   ['templates/ai/claude/_claude/agents', LADDER],
   ['templates/ai/claude/scripts/construct', LADDER],
