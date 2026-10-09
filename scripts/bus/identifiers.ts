@@ -37,6 +37,10 @@ export function cardIdOf(value: unknown): number | null {
   return null
 }
 
+export function cardIdOfDescription(description: string | null | undefined): number | null {
+  return cardIdOf((description ?? '').split('\n')[0] ?? '')
+}
+
 export function prOf(value: unknown): number | null {
   return positiveInteger(value)
 }

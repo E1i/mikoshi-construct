@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
+import { cardIdOfDescription, isFullSha, prOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, expireLeases, failTask, leaseNext, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
@@ -26,6 +27,9 @@ export const PREFIX = '[bus:review] '
 export const REVIEW_RECORDED = 'review.recorded'
 export const RENEW_MS = 10 * 60_000
 export const SWITCH_FLAG = '--on'
+export const DRY_RUN_FLAG = '--dry-run'
+export const DRY_RUN_ACTOR = 'worker:review:dry-run'
+export const REVIEWS_DIR = path.join(os.homedir(), '.construct', 'bus', 'reviews')
 
 export type Step
   = | { kind: 'idle' }
@@ -157,19 +161,75 @@ export function stepLine(step: Step): string | null {
   return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${reason}): ${step.denial.detail}; the task is ${step.next}`
 }
 
+export type ReviewMode
+  = | { kind: 'off' }
+    | { kind: 'on' }
+    | { kind: 'dry-run', pr: number }
+    | { kind: 'refused', reason: string }
+
+export function reviewMode(argv: string[]): ReviewMode {
+  const on = argv.includes(SWITCH_FLAG)
+  const dry = argv.indexOf(DRY_RUN_FLAG)
+  if (dry === -1)
+    return on ? { kind: 'on' } : { kind: 'off' }
+  if (on)
+    return { kind: 'refused', reason: `${DRY_RUN_FLAG} records nothing and ${SWITCH_FLAG} records verdicts; give one of them, not both` }
+  const pr = prOf(Number(argv[dry + 1]))
+  return pr === null ? { kind: 'refused', reason: `${DRY_RUN_FLAG} needs a pull request number: ${DRY_RUN_FLAG} <pr>` } : { kind: 'dry-run', pr }
+}
+
+export function dryRunLease(gitHub: GitHub, pr: number): Lease {
+  const response = gitHub(`repos/{owner}/{repo}/pulls/${pr}`)
+  if (response.status !== 200)
+    throw new Error(`GitHub answered ${response.status} for pull request #${pr}`)
+  const pull = response.body as { head?: { sha?: unknown }, body?: string | null }
+  const head = pull.head?.sha
+  if (!isFullSha(head))
+    throw new Error(`pull request #${pr} has no head sha on GitHub`)
+  const cardId = cardIdOfDescription(pull.body)
+  if (cardId === null)
+    throw new Error(`the first line of pull request #${pr} names no card`)
+  return { taskKey: taskKey({ queue: 'review', cardId, pr, head }), queue: 'review', cardId, pr, head, leaseGen: 0, actor: DRY_RUN_ACTOR }
+}
+
+export function dryRunLines(lease: Lease, review: Review): string[] {
+  return [
+    `${PREFIX}dry run of #${lease.pr} (card #${lease.cardId}) at ${lease.head}; nothing recorded`,
+    `${PREFIX}verdict: ${review.verdict}`,
+    `${PREFIX}reviewer session: ${review.session}`,
+    ...(review.findings.length === 0 ? [`${PREFIX}findings: none`] : review.findings.map(finding => `${PREFIX}finding: ${finding}`)),
+  ]
+}
+
+export async function dryRun(gitHub: GitHub, reviewer: Reviewer, pr: number): Promise<string[]> {
+  const lease = dryRunLease(gitHub, pr)
+  return dryRunLines(lease, await reviewer(lease))
+}
+
 async function main(): Promise<number> {
-  if (!process.argv.includes(SWITCH_FLAG)) {
+  const mode = reviewMode(process.argv.slice(2))
+  if (mode.kind === 'refused') {
+    console.error(`${PREFIX}${mode.reason}`)
+    return 1
+  }
+  if (mode.kind === 'off') {
     console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG} once pnpm bus:report is clean`)
+    return 0
+  }
+  const cwd = process.cwd()
+  const reviewer = claudeReviewer(cwd, REVIEWS_DIR)
+  if (mode.kind === 'dry-run') {
+    for (const line of await dryRun(ghApi(cwd), reviewer, mode.pr))
+      console.log(line)
     return 0
   }
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const cwd = process.cwd()
   const parts: WorkerParts = {
     db,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
-    reviewer: claudeReviewer(cwd, path.join(os.homedir(), '.construct', 'bus', 'reviews')),
+    reviewer,
     clock: () => new Date(),
     session: randomUUID(),
   }
