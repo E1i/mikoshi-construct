@@ -1,4 +1,5 @@
 import type { GhResponse, GitHub, GitHubPut } from '../../bus/github.js'
+import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'
 
@@ -23,6 +24,7 @@ export interface FakePull {
   base?: string
   title?: string
   files?: string[]
+  patches?: Record<string, string>
 }
 
 export function cardBody(pr: number, decision = 'auto'): string {
@@ -40,6 +42,17 @@ export class FakeGitHub {
   ownerMerges = readFileSync('architecture/owner-merges.md', 'utf8')
   mergeStatus = 200
   puts: { endpoint: string, fields: Record<string, string> }[] = []
+  updateStatus = 202
+  updatedHead = sha('d')
+  updatedPatches: Record<string, string> | null = null
+  parents = new Map<string, string[]>()
+  statuses = new Map<string, ReviewStatus['state']>()
+  published: ReviewStatus[] = []
+
+  readonly publish: StatusPublisher = (status) => {
+    this.published.push(status)
+    this.statuses.set(status.commit, status.state)
+  }
 
   readonly client: GitHub = (endpoint) => {
     this.calls.push(endpoint)
@@ -77,6 +90,9 @@ export class FakeGitHub {
 
   readonly put: GitHubPut = (endpoint, fields) => {
     this.puts.push({ endpoint, fields })
+    const update = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/update-branch$/.exec(endpoint)
+    if (update !== null)
+      return this.updateBranch(this.pulls.get(Number(update[1]))!, fields.expected_head_sha)
     const merge = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/merge$/.exec(endpoint)
     const pull = merge === null ? undefined : this.pulls.get(Number(merge[1]))
     if (pull === undefined)
@@ -89,6 +105,16 @@ export class FakeGitHub {
     return { status: 200, headers: {}, body: { sha: MAIN_2, merged: true } }
   }
 
+  private updateBranch(pull: FakePull, expected: string | undefined): GhResponse {
+    if (this.updateStatus !== 202)
+      return { status: this.updateStatus, headers: {}, body: { message: 'merge conflict between base and head' } }
+    if (expected !== pull.head)
+      return { status: 422, headers: {}, body: { message: 'expected head sha didn\'t match current head ref.' } }
+    this.parents.set(this.updatedHead, [pull.head, this.main])
+    this.pulls.set(pull.number, { ...pull, head: this.updatedHead, mergeable_state: 'clean', review: undefined, patches: this.updatedPatches ?? pull.patches })
+    return { status: 202, headers: {}, body: { message: 'Updating pull request branch.' } }
+  }
+
   private answer(endpoint: string): unknown {
     if (endpoint === `${REPO}/pulls?state=open&per_page=100`)
       return [...this.pulls.values()].filter(pull => pull.state === 'open').map(pull => ({ ...this.pullBody(pull), mergeable_state: undefined }))
@@ -96,8 +122,10 @@ export class FakeGitHub {
     if (pull !== null)
       return this.pullBody(this.pulls.get(Number(pull[1]))!)
     const files = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/files\?per_page=100&page=(\d+)$/.exec(endpoint)
-    if (files !== null)
-      return Number(files[2]) === 1 ? (this.pulls.get(Number(files[1]))!.files ?? []).map(filename => ({ filename })) : []
+    if (files !== null) {
+      const listed = this.pulls.get(Number(files[1]))!
+      return Number(files[2]) === 1 ? (listed.files ?? []).map(filename => ({ filename, status: 'modified', patch: listed.patches?.[filename] ?? `@@ -1 +1 @@ ${filename}` })) : []
+    }
     if (endpoint === `${REPO}/contents/architecture/owner-merges.md?ref=main`)
       return { content: Buffer.from(this.ownerMerges).toString('base64') }
     const checks = /\/commits\/([0-9a-f]{40})\/check-runs/.exec(endpoint)
@@ -109,8 +137,12 @@ export class FakeGitHub {
     const status = /\/commits\/([0-9a-f]{40})\/status$/.exec(endpoint)
     if (status !== null) {
       const owner = [...this.pulls.values()].find(candidate => candidate.head === status[1])
-      return { statuses: owner?.review === undefined ? [] : [{ context: 'review', state: owner.review }] }
+      const state = this.statuses.get(status[1]) ?? owner?.review
+      return { statuses: state === undefined ? [] : [{ context: 'review', state }] }
     }
+    const commit = /\/commits\/([0-9a-f]{40})$/.exec(endpoint)
+    if (commit !== null)
+      return { sha: commit[1], parents: (this.parents.get(commit[1]) ?? [MAIN_1]).map(parent => ({ sha: parent })) }
     if (endpoint === `${REPO}/commits/main`)
       return { sha: this.main, files: (this.mainFiles[this.main] ?? []).map(filename => ({ filename })) }
     const compare = /\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(endpoint)
