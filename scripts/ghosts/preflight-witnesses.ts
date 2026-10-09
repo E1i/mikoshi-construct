@@ -30,6 +30,33 @@ const ATTACH_CARRIER_SOURCES = ['templates/ai/claude/', 'templates/attach/earlie
 const EARLIER_CARRIERS_CHECK = 'pnpm exec tsx scripts/attach/earlier-carriers.ts --check'
 const LOCKFILE = 'pnpm-lock.yaml'
 const INSTALL = 'pnpm install --frozen-lockfile'
+const NEGATION = /^!\s/
+const PIPED_GREP = /^(.*[^|])\|\s*grep(\s.*)$/
+const INVERT_LONG_FLAG = /\s--invert-match(?=\s|$)/g
+const SHORT_FLAGS_WITH_INVERT = /\s-([A-UW-Z]*)v([A-Z]*)(?=\s|$)/gi
+
+interface GrepWitness { witness: Witness, probe: string }
+
+export function grepMatchProbe(command: string): string | null {
+  const piped = PIPED_GREP.exec(command.trim().replace(NEGATION, '').trim())
+  if (piped === null)
+    return null
+  const args = piped[2]
+    .replace(INVERT_LONG_FLAG, '')
+    .replace(SHORT_FLAGS_WITH_INVERT, (_, before: string, after: string) => `${before}${after}` === '' ? '' : ` -${before}${after}`)
+  return `${piped[1]}| grep${args} >/dev/null`
+}
+
+function grepWitnesses(witnesses: Witness[]): GrepWitness[] {
+  return witnesses.flatMap((witness) => {
+    const probe = grepMatchProbe(witness.command)
+    return probe === null ? [] : [{ witness, probe }]
+  })
+}
+
+function grepRefusal(witness: Witness, sides: string): string {
+  return `grep witness "${witness.criterion}" matches its pattern on neither ${sides}: nothing it reads prints what it looks for, so its red on the base is not red for a reason; grep where the output is written (a reporter with an outputFile writes there, not to stdout)`
+}
 
 function baseRedRefusal(witness: Witness, result: ShellResult, base: string): string | null {
   if (result.status === null || NOT_RUN_STATUSES.includes(result.status))
@@ -86,13 +113,16 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const baseShort = base.slice(0, 7)
   const harnessRuns = task.sketchSha !== null && task.changed !== null
   const invariants = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
+  let unmatchedOnBase: GrepWitness[] = []
   if (existsSync(path.join(tree, LOCKFILE)))
     time('install', () => refuse('P7', shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`))
   time('P7 base', () => {
     refuse('P7', firstProblem(task.acceptance, witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
     refuse('P7', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
+    unmatchedOnBase = grepWitnesses(task.acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
   })
   if (task.sketchSha === null || task.changed === null) {
+    refuse('P7', firstProblem(unmatchedOnBase, ({ witness }) => grepRefusal(witness, `the base ${baseShort} nor a head: Sketch: none leaves nothing to show it can match`)))
     time('P6 lint', () => lint(run, lintTargets(tree, null, task.witnessesDir), 'lint of the ready witness files, no --fix,', 'a throwaway tree of the base'))
     run.log('positive control: none (Sketch: none)')
     return
@@ -102,6 +132,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   time('P8 sketch', () => {
     stageSketch(tree, base, sketchSha)
     refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
+    refuse('P8', firstProblem(unmatchedOnBase, ({ witness, probe }) => shell(probe, tree).status === 0 ? null : grepRefusal(witness, `the base ${baseShort} nor ${where}`)))
     refuse('P8', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))
   })
   time('P8 harness', () => refuse('P8', greenRefusal('harness', { criterion: task.harnessCommand, command: task.harnessCommand }, shell(task.harnessCommand, tree), where)))

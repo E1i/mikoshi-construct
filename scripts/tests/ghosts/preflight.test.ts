@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { approvalLine, checkAcceptanceBuild } from '../../ghosts/hash.js'
 import { immutableRefusal } from '../../ghosts/preflight-static.js'
 import { realShell } from '../../ghosts/preflight-trees.js'
+import { grepMatchProbe } from '../../ghosts/preflight-witnesses.js'
 import { runPreflight } from '../../ghosts/preflight.js'
 
 const NOW = new Date(2026, 9, 5, 12)
@@ -351,6 +352,41 @@ describe('the preflight runs every witness verbatim on a clean tree of the pinne
 
     expect(refusal(run)).toMatch(/preflight P7: invariant "the readme is kept" exits 1 on the clean base/)
     expect(run.log).not.toContain('I1: covered by harness')
+  })
+
+  it('a grep witness on stdout the report is not written to is refused', () => {
+    const { repo, base } = world()
+    const run = hashIn(repo, briefText({ acceptance: 'echo \'{"numPassedTests":1}\' > report.json | grep -q numPassedTests' }))
+
+    expect(refusal(run)).toContain(`preflight P7: grep witness "the file exists" matches its pattern on neither the base ${base.slice(0, 7)} nor a head`)
+  })
+
+  it('a grep witness that matches on the head passes', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'added.txt': 'ready\n' })
+
+    expect(hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, acceptance: 'cat added.txt | grep -q ready' })).line).not.toBeNull()
+  })
+
+  it('a negated grep witness that matches on the base passes with no sketch', () => {
+    const { repo } = world()
+
+    expect(hashIn(repo, briefText({ acceptance: '! cat README.md | grep -q base' })).line).not.toBeNull()
+  })
+
+  it('refuses a negated grep witness that matches on neither the base nor the sketch', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'README.md': '' })
+    const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, acceptance: '! cat README.md | grep -vq other' }))
+
+    expect(refusal(run)).toMatch(/preflight P8: grep witness "the file exists" matches its pattern on neither the base [0-9a-f]{7} nor the sketch/)
+  })
+
+  it('probes the pattern of the last piped grep with the inverting flag dropped, and leaves other commands alone', () => {
+    expect(grepMatchProbe('! a | b | grep -qv x')).toBe('a | b | grep -q x >/dev/null')
+    expect(grepMatchProbe('a | grep --invert-match -v -c x')).toBe('a | grep -c x >/dev/null')
+    expect(grepMatchProbe('a || grep x')).toBeNull()
+    expect(grepMatchProbe('grep -q x file')).toBeNull()
   })
 
   it('removes the trees it made', () => {
