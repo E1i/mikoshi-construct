@@ -113,6 +113,7 @@ describe('pnpm shift:bg', () => {
     const result = runBg(answerArgv(w.dir), w.env)
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
+    await settled(path.join(w.out, 'pid'))
     expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${answerArgv(w.dir).join(' ')}`)
   })
 
@@ -163,6 +164,7 @@ describe('pnpm shift:bg', () => {
       if (refused === null) {
         expect(result.stderr).toEqual([])
         expect(result.exitCode).toBe(0)
+        await settled(path.join(w.out, 'pid'))
         expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${answerArgv(w.dir).join(' ')}`)
       }
       else {
