@@ -2,7 +2,7 @@ import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -12,6 +12,7 @@ import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLin
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
+import { isDirectory, isWithin, parkingTree } from './parking-tree.js'
 import { sliceCards } from './slice.js'
 
 export const FROM_STDIN = '-'
@@ -99,15 +100,6 @@ function refused(refusal: Refusal, detail: string[] = []): IntakeResult {
   return { status: 'refused', refusal, detail }
 }
 
-function isDirectory(dir: string): boolean {
-  try {
-    return statSync(dir).isDirectory()
-  }
-  catch {
-    return false
-  }
-}
-
 function readJournal(journal: string): string | null {
   return existsSync(journal) ? readFileSync(journal, 'utf8') : null
 }
@@ -118,18 +110,6 @@ function readInput(source: string, readStdin: () => string): string {
 
 function parkedFiles(parking: string): string[] {
   return existsSync(parking) ? readdirSync(parking) : []
-}
-
-function parkingTree(dir: string): string[] {
-  if (!isDirectory(dir))
-    return []
-  const subdirectories = readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory())
-  return [dir, ...subdirectories.flatMap(entry => parkingTree(path.join(dir, entry.name)))]
-}
-
-function isWithin(root: string, dir: string): boolean {
-  const relative = path.relative(root, dir)
-  return !relative.startsWith('..') && !path.isAbsolute(relative)
 }
 
 function parkingsSharingNumbers(parking: string, root: string): string[] {
