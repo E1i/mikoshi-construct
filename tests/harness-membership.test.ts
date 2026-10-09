@@ -22,6 +22,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'relaunch:bg': 'starts relaunch as a detached process when run by hand; its own tests, on nohup and pnpm stubs, are its gate',
   'doctor:factory': 'compares the factory permissions contract with the local settings of the machine it runs on, which the harness does not have; its own tests, on a gh stub, are its gate',
   'shift:bg': 'starts a shift as a detached process when run by hand; its own tests, on nohup, setsid and pnpm stubs, are its gate',
+  'shift:current': 'updates the open armed or owner-merge pull requests that are behind main when run by hand; its own tests, on a gh stub, are its gate',
   'shift:merge': 'arms auto-merge on a shift task\'s pull request when run by hand; its own tests, on a gh stub, are its gate',
   'shift:report': 'prints the table of a shift that ran; its own tests are its gate',
   'shard': 'appends the owner\'s shard line to the journal when run by hand; its own tests are its gate',
