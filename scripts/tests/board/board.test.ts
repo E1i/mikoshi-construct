@@ -35,7 +35,7 @@ const HAND = path.join(FIXTURES, 'hand')
 const BOARD = path.join(REPO_ROOT, 'scripts/board/board.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date('2026-09-28T12:00Z')
-const WAITS_FOR_THE_FRAME_NOT_THE_CLOCK = 0
+const WAITS_FOR_THE_FRAME_BUT_A_HANG_FAILS_THE_TEST_MS = 60_000
 const HAND_NOW = new Date('2026-09-30T12:00:00Z')
 
 afterAll(() => {
@@ -598,7 +598,7 @@ describe('board --every: reprint the view until interrupted', () => {
       rmSync(bin, { recursive: true, force: true })
       rmSync(handoff, { recursive: true, force: true })
     }
-  }, WAITS_FOR_THE_FRAME_NOT_THE_CLOCK)
+  }, WAITS_FOR_THE_FRAME_BUT_A_HANG_FAILS_THE_TEST_MS)
 })
 
 describe('board: summary, edges and prefixes', () => {
