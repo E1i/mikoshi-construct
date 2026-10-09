@@ -12,7 +12,8 @@ const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
 const SCRIPT_MANIFEST = 'package.json'
-const SCRIPT_COMPANIONS = ['CONTRIBUTING.md', 'tests/harness-membership.test.ts']
+const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
+const SCRIPT_COMPANIONS = ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST]
 export const SCRIPT_COMPANION_REASON = `a card touching ${SCRIPT_MANIFEST} also touches the scripts table and the harness membership test`
 
 export interface Correction {
@@ -110,7 +111,7 @@ function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
 }
 
 function withScriptCompanions(touched: Touched, repository: RepositoryFacts): Touched {
-  if (!touched.touches.includes(SCRIPT_MANIFEST))
+  if (!touched.touches.includes(SCRIPT_MANIFEST) || !repository.exists(HARNESS_MEMBERSHIP_TEST))
     return touched
   const missing = SCRIPT_COMPANIONS.filter(companion => repository.exists(companion) && !touched.touches.includes(companion))
   return {
