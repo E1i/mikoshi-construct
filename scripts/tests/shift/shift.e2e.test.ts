@@ -198,7 +198,9 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     taskFile(world, '01.md', '7', 'scripts/a/**', 'do a')
     const deps = shiftDeps(world, captured())
     const seen = path.join(world.stubOut, 'card')
-    expect(await runShift([world.shift], { ...deps, claude: `printf '%s' "$CONSTRUCT_CARD" >${seen}; ${deps.claude}` })).toBe(0)
+    const recordsCard = path.join(world.stubOut, 'records-card')
+    writeFileSync(recordsCard, `#!/bin/sh\nprintf '%s' "$CONSTRUCT_CARD" >${seen}\nexec env "$@"\n`, { mode: 0o755 })
+    expect(await runShift([world.shift], { ...deps, claude: `${recordsCard} ${deps.claude}` })).toBe(0)
     expect(readFileSync(seen, 'utf8')).toBe('7')
   })
 
