@@ -284,7 +284,10 @@ export function checkVerdict(verdictPath: string, dir: string, target: ReviewTar
 
 export function reviewStatus(line: Record<string, unknown>): ReviewStatus {
   const verdict = String(line.verdict)
-  return { commit: String(line.event === REVIEW_CARRY_EVENT ? line.to : line.commit), state: STATUS_STATE[verdict] ?? 'failure', context: REVIEW_STATUS_CONTEXT, description: `review verdict ${verdict} for task ${String(line.task)}` }
+  const state = STATUS_STATE[verdict] ?? 'failure'
+  if (line.event === REVIEW_CARRY_EVENT)
+    return { commit: String(line.to), state, context: REVIEW_STATUS_CONTEXT, description: `carried from ${String(line.from)}` }
+  return { commit: String(line.commit), state, context: REVIEW_STATUS_CONTEXT, description: `review verdict ${verdict} for task ${String(line.task)}` }
 }
 
 export function ghStatusPublisher(repo: string): StatusPublisher {

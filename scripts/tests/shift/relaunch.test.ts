@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
-import { ALREADY_RUNNING, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
+import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -123,7 +124,7 @@ describe('runRelaunch', () => {
     expect(result.runs[0]).toMatchObject({
       command: 'true',
       cwd: world.repo,
-      prompt: relaunchPrompt(world.handoff, DECISIONS),
+      prompt: relaunchPrompt(world.handoff, DECISIONS, '00000000-0000-4000-8000-000000000001'),
       log: `${world.handoff}.relaunch-1.log`,
       extraArgv: ['--model', 'claude-test'],
     })
@@ -191,12 +192,12 @@ describe('runRelaunch', () => {
   })
 
   it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {
-    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md').split('\n')[0]).toBe(`${OPERATOR_ROLE} ${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
-    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
+    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md', 's-1').split('\n')[0]).toBe(`${OPERATOR_ROLE} ${CONTINUE_PROMPT}: /h/handoff.md — write it only with pnpm handoff:write /h/handoff.md <draft>`)
+    expect(relaunchPrompt('/h/handoff.md', '/d/owner-decisions.md', 's-1')).toContain('only with pnpm handoff:write /h/handoff.md <draft>, never by editing it')
   })
 
   it('the first line of the relaunch prompt names the Operator role and carries its tag', () => {
-    const first = relaunchPrompt('/h/handoff.md', null).split('\n')[0]!
+    const first = relaunchPrompt('/h/handoff.md', null, 's-1').split('\n')[0]!
     expect(first.startsWith(OPERATOR_ROLE)).toBe(true)
     expect(promptFirstLine('/h/handoff.md')).toContain('[operator]')
     expect(first).toContain(`start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them`)
@@ -446,5 +447,100 @@ describe('runRelaunch', () => {
     expect(await runRelaunch(['--live'], { ...relaunchDeps(world, [], seen), alive: pid => pid === 111 })).toBe(0)
     expect(seen.out).toEqual(['[relaunch] live: session 1 running pid 111 on /h.md'])
     expect(seen.runs).toEqual([])
+  })
+})
+
+describe('the Operator at a task boundary', () => {
+  function usageLine(context: number): object {
+    return { message: { role: 'assistant', usage: { input_tokens: 10, cache_creation_input_tokens: 90, cache_read_input_tokens: context - 100 } } }
+  }
+
+  async function boundaryOf(world: World, session: string): Promise<string> {
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch(['--boundary', session], relaunchDeps(world, [], seen))
+    expect(code).toBe(0)
+    return seen.out.join('\n')
+  }
+
+  async function operatorShift(world: World, contexts: number[]): Promise<{ code: number, runs: ClaudeRun[], taken: number[] }> {
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const taken: number[] = []
+    const deps = relaunchDeps(world, [], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
+      seen.runs.push(run)
+      const n = seen.runs.length
+      writeTranscript(world, `${run.sessionId}.jsonl`, [usageLine(contexts[n - 1]!)], 1_000_000)
+      const move = await boundaryOf(world, run.sessionId!)
+      if (move.startsWith('[relaunch] end:')) {
+        setStatus(world, 'CONTINUE')
+      }
+      else {
+        taken.push(n)
+        setStatus(world, 'DONE')
+      }
+      return { kind: 'exited', code: 0, signal: null }
+    } })
+    return { code, runs: seen.runs, taken }
+  }
+
+  it('a session above the threshold ends with STATUS: CONTINUE and the next session starts from the handoff; one below it takes the next task', async () => {
+    const world = newWorld()
+    const result = await operatorShift(world, [OPERATOR_CONTEXT_THRESHOLD + 1, OPERATOR_CONTEXT_THRESHOLD - 1])
+    expect(result.code).toBe(0)
+    expect(result.runs).toHaveLength(2)
+    expect(result.taken).toEqual([2])
+    expect(result.runs[1]!.prompt.split('\n')[0]).toBe(promptFirstLine(world.handoff))
+    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => line.status)).toEqual(['CONTINUE', 'DONE'])
+  })
+
+  it('names the boundary command with the session\'s own id in every session prompt', async () => {
+    const world = newWorld()
+    const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
+    expect(result.runs.map(run => run.prompt.includes(boundaryCommand(run.sessionId!)))).toEqual([true, true])
+  })
+
+  it.each([
+    ['end at the threshold', OPERATOR_CONTEXT_THRESHOLD, '[relaunch] end:'],
+    ['take the next task below it', OPERATOR_CONTEXT_THRESHOLD - 1, '[relaunch] next:'],
+  ])('reads the last response of the session\'s transcript and says %s', async (_, context, start) => {
+    const world = newWorld()
+    writeTranscript(world, 's-1.jsonl', [usageLine(OPERATOR_CONTEXT_THRESHOLD * 2), { type: 'user' }, usageLine(context)], 1_000_000)
+    const line = await boundaryOf(world, 's-1')
+    expect(line.startsWith(start)).toBe(true)
+    expect(line).toContain(String(context))
+  })
+
+  it('finds the session\'s transcript by its id in another project directory than the one it runs from and ends past the threshold', async () => {
+    const world = newWorld()
+    const other = path.join(world.projects, '-elsewhere-main-checkout')
+    mkdirSync(other, { recursive: true })
+    writeFileSync(path.join(other, 's-1.jsonl'), JSON.stringify(usageLine(OPERATOR_CONTEXT_THRESHOLD)))
+    expect(await boundaryOf(world, 's-1')).toBe(`[relaunch] ${boundaryLine(OPERATOR_CONTEXT_THRESHOLD, path.join(other, 's-1.jsonl'))}`)
+  })
+
+  it('ends the session and names where it looked when no transcript carries the session id', async () => {
+    const world = newWorld()
+    writeTranscript(world, 's-other.jsonl', [usageLine(1000)], 1_000_000)
+    const line = await boundaryOf(world, 's-missing')
+    expect(line).toBe(`[relaunch] ${boundaryLine(null, path.join(world.projects, '*', 's-missing.jsonl'))}`)
+    expect(line.startsWith('[relaunch] end: context unread in ')).toBe(true)
+  })
+
+  it('tells an ending session and every relaunch prompt to write STATUS: CONTINUE', () => {
+    expect(boundaryLine(OPERATOR_CONTEXT_THRESHOLD, 't.jsonl')).toContain('STATUS: CONTINUE')
+    expect(boundaryLine(null, 't.jsonl')).toContain('STATUS: CONTINUE')
+    expect(relaunchPrompt('/h/handoff.md', null, 's-1')).toContain(`run ${boundaryCommand('s-1')}: on end, write STOP with STATUS: CONTINUE and exit`)
+  })
+
+  it('ends the session before the Eddies warning fires', () => {
+    const eddies = JSON.parse(readFileSync(fileURLToPath(new URL('../../../.claude/eddies.json', import.meta.url)), 'utf8')) as { contextLimit: number, warnRatio: number }
+    expect(OPERATOR_CONTEXT_THRESHOLD).toBeLessThan(eddies.contextLimit * eddies.warnRatio)
+  })
+
+  it('refuses a session id that is not a plain id', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [] }
+    expect(await runRelaunch(['--boundary', '../x'], relaunchDeps(world, [], seen))).toBe(1)
+    expect(seen.out).toEqual([])
   })
 })

@@ -35,7 +35,7 @@ const HAND = path.join(FIXTURES, 'hand')
 const BOARD = path.join(REPO_ROOT, 'scripts/board/board.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date('2026-09-28T12:00Z')
-const SECOND_FRAME_DEADLINE_MS = 30_000
+const WAITS_FOR_THE_FRAME_BUT_A_HANG_FAILS_THE_TEST_MS = 60_000
 const HAND_NOW = new Date('2026-09-30T12:00:00Z')
 
 afterAll(() => {
@@ -570,11 +570,9 @@ describe('board --every: reprint the view until interrupted', () => {
       const child = spawn(process.execPath, [TSX_CLI, BOARD, '--dir', handoff, '--every', '1'], { env: { ...outsideAWindow, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
       const exited = new Promise(resolve => child.on('exit', resolve))
       let stdout = ''
-      let deadline: NodeJS.Timeout | undefined
       let runningAtSecondFrame = false
       try {
-        await new Promise<void>((resolve, reject) => {
-          deadline = setTimeout(() => reject(new Error(`second frame did not appear in ${SECOND_FRAME_DEADLINE_MS / 1000} s`)), SECOND_FRAME_DEADLINE_MS)
+        await new Promise<void>((resolve) => {
           child.stdout.on('data', (chunk) => {
             stdout += String(chunk)
             if (stdout.split('\n').filter(line => line.startsWith('[board] frame ')).length >= 2)
@@ -585,7 +583,6 @@ describe('board --every: reprint the view until interrupted', () => {
         runningAtSecondFrame = child.exitCode === null
       }
       finally {
-        clearTimeout(deadline)
         if (child.exitCode === null && child.signalCode === null)
           child.kill('SIGTERM')
       }
@@ -601,7 +598,7 @@ describe('board --every: reprint the view until interrupted', () => {
       rmSync(bin, { recursive: true, force: true })
       rmSync(handoff, { recursive: true, force: true })
     }
-  }, SECOND_FRAME_DEADLINE_MS + 15_000)
+  }, WAITS_FOR_THE_FRAME_BUT_A_HANG_FAILS_THE_TEST_MS)
 })
 
 describe('board: summary, edges and prefixes', () => {

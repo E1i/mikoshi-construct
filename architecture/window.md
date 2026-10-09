@@ -48,7 +48,8 @@ the limit Mikoshi writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
 process; how it ends it is not prescribed. When the mtime of `mikoshi.md` changed during the session, the loop at once
 starts a new session with the prompt `прочитай mikoshi.md`, whatever the exit code, which it never reads. A session that
-ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing.
+ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
+`pnpm miko` starts gets the prompt `прочитай mikoshi.md` when `mikoshi.md` exists, and no prompt when it does not.
 
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
 `pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
@@ -91,7 +92,13 @@ It starts the `who: shift` cards as a shift chain (`pnpm shift:bg <dir> --parkin
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
 stopped — restarts the card, corrects it with `construct intake --admit`, answers the session; writes the handoff
-through `pnpm handoff:write`; and at the context limit writes its STOP so relaunch raises the next session. The first
+through `pnpm handoff:write`; and ends its session by size, not by the Eddies warning: at every task boundary it runs
+`pnpm relaunch --boundary <session>`, the session id its prompt names, which finds `<session>.jsonl` by that id in
+any project directory under `~/.claude/projects/`, whatever directory it runs from, reads the context of the last
+response in it (input, cache-write and cache-read tokens, the reading the Eddies warning takes) and prints `end` at or
+past `OPERATOR_CONTEXT_THRESHOLD` (`scripts/shift/operator-boundary.ts`) or when it found or read no context, `next`
+below it. On `end` the Operator writes its STOP with `STATUS: CONTINUE` and exits, and relaunch starts the next session
+from the handoff; on `next` it takes the next task. The first
 line of every relaunch prompt says so (`OPERATOR_ROLE` in `scripts/shift/relaunch.ts`), and it opens with the tag the Operator signs every message with: `[operator]`. Mikoshi signs
 its messages `[mikoshi]`.
 
@@ -115,9 +122,13 @@ relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on tha
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
-with what it guards; then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
-then, for a pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
-review when main merged in cleanly and refuses with `review again` otherwise
+with what it guards (it runs `quality:steps` under `scripts/quality/lock.ts`, one machine-wide lock in
+`~/.construct/quality` whose `lock.log` records who held it, who waited and when each started and ended, so a run
+in another lane or worktree waits for the one before it); then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
+then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
+review when main merged in cleanly and refuses with `review again` otherwise, and for a cheap one `pnpm shift:merge <N> --carry`,
+which carries its journalled `event:pr-review` verdict to the new head as the `review` status `carried from <sha>` when every
+merge on the path is clean and otherwise publishes nothing and names the new review it needs
 ([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md));
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
@@ -411,7 +422,8 @@ with no verdict line, but only after `riskReading` over the pull request's chang
 too; the deeper of the two decides, so a changed file above R4 sends it to the review wait. An empty
 set of touches or changed files, or files the chain could not read, is a full review, never none.
 R3 gets a short review of the diff only: no Design scan, no mutations, no
-Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict` as before.
+Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict <verdict> --commit <sha>` as before, and after an update-branch
+through `ghosts:verdict --commit <new head>` or `shift:merge <N> --carry`.
 R1 and R2 get the full review: the witnesses, the mutations and the Design walk. The chain records
 the depth as `review` on its `event:chain` wait line. The baseline to compare against is the
 review-minutes-baseline probe (#707): on 2026-10-08 a median of 8.8 minutes from ready to verdict, R3
