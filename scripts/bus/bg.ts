@@ -33,7 +33,7 @@ export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
   return () => execFileSync('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', env })
     .split('\n')
     .flatMap((line) => {
-      const match = /^\s*(\d+)\s+(.*)$/.exec(line)
+      const match = /^\s*(\d+)\s(.*)$/.exec(line)
       return match === null ? [] : [{ pid: Number(match[1]), args: match[2]! }]
     })
 }
