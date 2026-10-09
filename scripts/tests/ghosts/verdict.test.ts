@@ -218,8 +218,8 @@ describe('the review commit status', () => {
     expect(journalLines(journal)).toHaveLength(1)
   })
 
-  it('puts a carried verdict on the commit it was carried to', () => {
-    expect(reviewStatus({ event: 'review-carry', task: 't', verdict: 'pass', from: BASE.commit, to: PR.commit })).toEqual({ commit: PR.commit, state: 'success', context: 'review', description: 'review verdict pass for task t' })
+  it('puts a carried verdict on the commit it was carried to, naming the commit it was carried from', () => {
+    expect(reviewStatus({ event: 'review-carry', task: 't', verdict: 'pass', from: BASE.commit, to: PR.commit })).toEqual({ commit: PR.commit, state: 'success', context: 'review', description: `carried from ${BASE.commit}` })
   })
 })
 
