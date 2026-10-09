@@ -1,3 +1,5 @@
+import { parseCreatesEntry } from '../../card/parking.js'
+
 export interface UnclearField {
   field: string
   reason: string
@@ -68,8 +70,12 @@ function draftCard(entry: unknown, at: string, reasons: string[]): DraftCard | n
     reasons.push(`${at}: 'number' must be a positive integer when given`)
   if (isTextList(entry.creates)) {
     const touches = isTextList(entry.touches) ? entry.touches : []
-    for (const created of entry.creates.filter(created => !touches.includes(created)))
-      reasons.push(`${at}: 'creates' entry '${created}' is not in 'touches'; a path the change creates is also one it touches`)
+    for (const parsed of entry.creates.map(parseCreatesEntry)) {
+      if (parsed.kind === 'refused')
+        reasons.push(`${at}: ${parsed.reason}`)
+      else if (!touches.includes(parsed.path))
+        reasons.push(`${at}: 'creates' entry '${parsed.path}' is not in 'touches'; a path the change creates is also one it touches`)
+    }
   }
   if (entry.unclear !== undefined && !(Array.isArray(entry.unclear) && entry.unclear.every(isUnclear)))
     reasons.push(`${at}: 'unclear' must be a list of { field, reason }`)
