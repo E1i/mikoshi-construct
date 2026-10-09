@@ -1,4 +1,4 @@
-import type { StateDeps, StatePlaces, View } from '../../state/index.js'
+import type { Projection, StateDeps, StatePlaces, View } from '../../state/index.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../../board/run.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { buildView, CONSTRUCT_HOME_VARIABLE, projectionPath, readView, renderViews, runState, SCHEMA_VERSION, stateFindings, statePlaces, storedProjection, VIEWS } from '../../state/index.js'
+import { buildView, CONSTRUCT_HOME_VARIABLE, projectionPath, readView, renderViews, runState, SCHEMA_VERSION, sealOf, stateFindings, statePlaces, storedProjection, VIEWS } from '../../state/index.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const STATE_SCRIPT = path.join(REPO_ROOT, 'scripts', 'state', 'index.ts')
@@ -110,9 +110,10 @@ describe('pnpm state views', () => {
       bumpMtime(places.decisions)
     }],
     ['a journal that grew', 'inflight', places => writeFileSync(places.journal, `${readFileSync(places.journal, 'utf8')}${JSON.stringify({ event: 'path', task: '14', path: 'cheap', started: '2026-10-10T07:00:00Z' })}\n`)],
-    ['another schema version', 'queue', (places) => {
+    ['another schema version, sealed as its own', 'queue', (places) => {
       const file = projectionPath('queue', places)
-      writeFileSync(file, readFileSync(file, 'utf8').replace(`"schema": ${SCHEMA_VERSION}`, `"schema": ${SCHEMA_VERSION + 1}`))
+      const other = { ...JSON.parse(readFileSync(file, 'utf8')) as Projection, schema: SCHEMA_VERSION + 1, lines: ['#99 from another schema'] }
+      writeFileSync(file, JSON.stringify({ ...other, seal: sealOf(other) }))
     }],
     ['a damaged fingerprint', 'decisions', (places) => {
       const file = projectionPath('decisions', places)

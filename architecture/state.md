@@ -6,7 +6,7 @@ file; everything else is a projection derived from them, and a projection is nev
 | Concern | Authoritative file |
 |---|---|
 | events | the journal, `~/.construct/handoff/ghosts.jsonl` |
-| decisions | `~/.construct/owner-decisions.md` |
+| decisions | `~/.construct/owner-decisions.md`, read with `pnpm decisions` or `pnpm state decisions` |
 | cards | the parking, `~/.construct/parking/**/<id>.md` |
 | the Operator's current state | the handoff |
 
