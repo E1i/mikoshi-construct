@@ -206,7 +206,11 @@ door: it takes a card only when `ghosts.jsonl` holds an `intake` line whose card
 intake` when it sliced and confirmed the card, or by `construct intake --admit <parking>/<id>.md` for a card parked
 before the door; a card with no such line, or one that changed since its line, is refused with nothing written. The one
 exception is `--without-intake "<reason>"`, which admits the card and records the flag and its reason on the start line
-as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: intake}` with its confirmation. The
+as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: intake}` with its confirmation.
+Waived or admitted, the entry line's `CONTRACT` takes the card's `touches` from `~/.construct/parking/<id>.md`, or
+from `<dir>/<id>.md` under `--parking <dir>`; a missing file is named in it (`touches not recorded on the card: no
+parking file for #<id>`), and a file whose card line is not the `--card` given is refused with nothing written. That
+entry line carries `"schema":2`; the entry line `ghosts:launch` writes carries no `schema` and stays version 1. The
 shift starts its tasks through the same `task:start`, so the door holds there too. It closes with `pnpm task:close <id> (--pr <N> | --report
 <path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
 whose start line carries no card. That `event:path` line carries `verification`, and a closing line without that word

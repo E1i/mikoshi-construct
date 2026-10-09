@@ -39,8 +39,8 @@ making it measure more — a Node manifest, a `src/` directory — reads names a
 
 - L3 tests: a Go repository attaches and `detach` returns it to what it was; the same repository with
   and without `services/` gets the same decision; an empty directory and a README-only directory are
-  refused as `nothing-to-attach`; a Go repository with `--yes` and no `--harness` is refused as
-  `no-harness`; and `doctor` gives no report on an attached Go repository, pinned so the test has to
+  refused as `nothing-to-attach`; a Go repository with `--yes` and no `--harness` attaches with
+  harness none (the `no-harness` refusal was retired by #667); and `doctor` gives no report on an attached Go repository, pinned so the test has to
   change when #247 lands (`tests/attach.test.ts`).
 - Lint: `src/commands/attach/**` may import nothing from `src/detect` but `isEmptyDir`
   (`eslint.config.mjs`).
