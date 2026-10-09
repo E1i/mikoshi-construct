@@ -45,6 +45,7 @@
     "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",
     "bus:report": "tsx scripts/bus/report.ts",
+    "bus:review": "tsx scripts/bus/review-worker.ts",
     "bus:run": "tsx scripts/bus/run.ts",
     "changeset": "changeset",
     "ci": "pnpm run quality",
