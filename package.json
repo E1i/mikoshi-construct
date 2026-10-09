@@ -85,6 +85,7 @@
     "miko": "tsx scripts/miko/loop.ts",
     "miko:exit": "tsx scripts/miko/exit.ts",
     "miko:watch": "tsx scripts/miko/watch.ts",
+    "morse:approve": "tsx scripts/ghosts/morse-approve.ts",
     "prepublishOnly": "pnpm build",
     "privacy:check": "tsx scripts/privacy/check.ts",
     "quality": "tsx scripts/quality/lock.ts pnpm run quality:steps",

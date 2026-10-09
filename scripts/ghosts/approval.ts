@@ -149,6 +149,7 @@ export interface ApprovalFields {
   reason: string
   forecast: object
   ts: string
+  carriedFrom?: string
 }
 
 export function approvalEvent(fields: ApprovalFields): JournalEvent {
@@ -163,6 +164,7 @@ export function approvalEvent(fields: ApprovalFields): JournalEvent {
     reason: fields.reason,
     forecast: fields.forecast,
     ts: fields.ts,
+    ...(fields.carriedFrom === undefined ? {} : { carriedFrom: fields.carriedFrom }),
   }
 }
 
@@ -172,6 +174,33 @@ export function approvalOf(events: JournalEvent[], sha256: string, card: number)
 
 export function morseApprovalOf(events: JournalEvent[], sha256: string, card: number): JournalEvent | undefined {
   return events.find(event => event.by === MORSE && approvalOf([event], sha256, card) !== undefined)
+}
+
+export type MorseCarry
+  = | { kind: 'fresh' }
+    | { kind: 'carry', from: string }
+    | { kind: 'refused', reason: string }
+
+function shortSketch(sketch: string): string {
+  return sketch === 'none' ? 'none' : sketch.slice(0, 7)
+}
+
+export function morseCarryOf(approvedContent: string | undefined, sha256: string, sketch: string, events: JournalEvent[], card: number): MorseCarry {
+  if (approvedContent === undefined || extractApprovedHash(approvedContent) !== sha256)
+    return { kind: 'fresh' }
+  const approver = approverOf(approvedContent)
+  if (approver?.toLowerCase() !== MORSE)
+    return { kind: 'refused', reason: `already holds this hash, approved by ${approver ?? 'an approver it does not name readably'}; it is left as it is` }
+  if (morseApprovalOf(events, sha256, card) === undefined)
+    return { kind: 'refused', reason: `is signed ${MORSE} and the journal holds no approval event by ${MORSE} for card #${card} and ${sha256}, so no approval carries` }
+  const from = extractApprovedSketch(approvedContent)
+  if (from === undefined || from === sketch)
+    return { kind: 'refused', reason: `already holds this hash approved by ${MORSE} at sketch ${shortSketch(sketch)}; nothing to carry` }
+  return { kind: 'carry', from }
+}
+
+export function carriedReason(from: string): string {
+  return `carried from sketch ${shortSketch(from)} with the same text`
 }
 
 export function revokeEvent(sha256: string, card: number, ts: string): JournalEvent {
