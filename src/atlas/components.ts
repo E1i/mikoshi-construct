@@ -1,4 +1,5 @@
 import type { ComponentReason, Contour, ContourKind, InterpretedComponent, Mechanics, Relation } from '../model/schema.js'
+import path from 'node:path'
 import { contourOf, ROOT_CONTOUR } from '../model/contours.js'
 
 export type MapMechanics = Pick<Mechanics, 'contours' | 'components' | 'relations'>
@@ -43,6 +44,14 @@ export interface MapContour {
   counts: StateCounts
 }
 
+export interface MapGroup {
+  id: string
+  name: string
+  contours: string[]
+  state: MapState
+  counts: StateCounts
+}
+
 export interface MapRelation {
   from: string
   to: string
@@ -59,6 +68,7 @@ export interface MapArrow {
 }
 
 export interface ComponentMap {
+  groups: MapGroup[]
   contours: MapContour[]
   relations: MapRelation[]
   arrows: MapArrow[]
@@ -67,6 +77,10 @@ export interface ComponentMap {
 
 function contourNode(id: string): string {
   return `c:${id}`
+}
+
+function groupNode(parent: string): string {
+  return `g:${parent}`
 }
 
 function componentNode(contour: string, id: string): string {
@@ -201,7 +215,14 @@ function crossingOf(relation: Relation & { to: string }, owner: (file: string) =
   return declared.has(relation.to) ? 'through' : 'bypass'
 }
 
-function arrowsOf(relations: MapRelation[], contourOfFile: (file: string) => string, componentOfFile: Map<string, string>): MapArrow[] {
+function sharedPrefix(left: string[], right: string[]): number {
+  let shared = 0
+  while (shared < left.length && shared < right.length && left[shared] === right[shared])
+    shared += 1
+  return shared
+}
+
+function arrowsOf(relations: MapRelation[], chainOf: (file: string) => string[]): MapArrow[] {
   const arrows = new Map<string, MapArrow>()
   const add = (from: string, to: string, relation: MapRelation): void => {
     const key = [from, to, relation.crossing].join('\u0000')
@@ -212,33 +233,55 @@ function arrowsOf(relations: MapRelation[], contourOfFile: (file: string) => str
     arrows.set(key, arrow)
   }
   for (const relation of relations) {
-    const fromContour = contourNode(contourOfFile(relation.from))
-    const toContour = contourNode(contourOfFile(relation.to))
-    const fromComponent = componentOfFile.get(relation.from)
-    const toComponent = componentOfFile.get(relation.to)
-    if (fromContour !== toContour) {
-      add(fromContour, toContour, relation)
-      if (toComponent !== undefined)
-        add(fromContour, toComponent, relation)
-      if (fromComponent !== undefined)
-        add(fromComponent, toContour, relation)
+    const fromChain = chainOf(relation.from)
+    const toChain = chainOf(relation.to)
+    const shared = sharedPrefix(fromChain, toChain)
+    for (const from of fromChain.slice(shared)) {
+      for (const to of toChain.slice(shared))
+        add(from, to, relation)
     }
-    if (fromComponent !== undefined && toComponent !== undefined && fromComponent !== toComponent)
-      add(fromComponent, toComponent, relation)
   }
   return [...arrows.values()].sort((left, right) => compare(left.from, right.from) || compare(left.to, right.to) || compare(left.crossing, right.crossing))
 }
 
-function defaultOpen(contours: MapContour[]): string[] {
-  const bySize = [...contours].sort((left, right) => right.components.reduce((total, entry) => total + entry.files.length, 0) - left.components.reduce((total, entry) => total + entry.files.length, 0) || compare(left.id, right.id))
-  let visible = contours.length
-  const open: string[] = []
-  for (const contour of bySize) {
-    if (contour.components.length < 2 || visible - 1 + contour.components.length > MAX_DEFAULT_NODES)
+function filesIn(contour: MapContour): number {
+  return contour.components.reduce((total, entry) => total + entry.files.length, 0)
+}
+
+function groupsOf(contours: MapContour[]): MapGroup[] {
+  if (contours.length <= MAX_DEFAULT_NODES)
+    return []
+  const byParent = new Map<string, MapContour[]>()
+  for (const contour of contours) {
+    const id = contour.id.slice(contourNode('').length)
+    if (id === ROOT_CONTOUR)
       continue
-    visible += contour.components.length - 1
-    open.push(contour.id)
+    const parent = path.posix.dirname(id)
+    byParent.set(parent, [...byParent.get(parent) ?? [], contour])
   }
+  return [...byParent.entries()].filter(([, members]) => members.length > 1).map(([parent, members]) => {
+    const counts = sum(members.map(member => member.counts))
+    return { id: groupNode(parent), name: parent === ROOT_CONTOUR ? '*' : `${parent}/*`, contours: members.map(member => member.id), state: stateOf(counts), counts }
+  }).sort((left, right) => compare(left.id, right.id))
+}
+
+function defaultOpen(groups: MapGroup[], contours: MapContour[]): string[] {
+  const groupOf = new Map(groups.flatMap(group => group.contours.map(contour => [contour, group.id] as const)))
+  const byId = new Map(contours.map(contour => [contour.id, contour]))
+  const size = (group: MapGroup): number => group.contours.reduce((total, id) => total + filesIn(byId.get(id)!), 0)
+  let visible = groups.length + contours.filter(contour => !groupOf.has(contour.id)).length
+  const open: string[] = []
+  const unfold = (id: string, members: number): void => {
+    if (members < 2 || visible - 1 + members > MAX_DEFAULT_NODES)
+      return
+    visible += members - 1
+    open.push(id)
+  }
+  for (const group of [...groups].sort((left, right) => size(right) - size(left) || compare(left.id, right.id)))
+    unfold(group.id, group.contours.length)
+  const shown = contours.filter(contour => !groupOf.has(contour.id) || open.includes(groupOf.get(contour.id)!))
+  for (const contour of shown.sort((left, right) => filesIn(right) - filesIn(left) || compare(left.id, right.id)))
+    unfold(contour.id, contour.components.length)
   return open.sort(compare)
 }
 
@@ -258,6 +301,8 @@ export function componentMap(mechanics: MapMechanics, interpreted: readonly Inte
     const counts = sum(components.map(entry => entry.counts))
     return { id: contourNode(contour.id), name: contour.name, kind: contour.kind, declaredBy: contour.declaredBy, entries: contour.entries, components, state: stateOf(counts), counts }
   })
+  const groups = groupsOf(mapContours)
+  const groupOfContour = new Map(groups.flatMap(group => group.contours.map(contour => [contour, group.id] as const)))
   const componentOfFile = new Map<string, string>()
   for (const contour of mapContours) {
     for (const entry of contour.components) {
@@ -267,16 +312,33 @@ export function componentMap(mechanics: MapMechanics, interpreted: readonly Inte
       }
     }
   }
+  const chainOf = (file: string): string[] => {
+    const contour = contourNode(owner(file))
+    const group = groupOfContour.get(contour)
+    const component = componentOfFile.get(file)
+    return [...group === undefined ? [] : [group], contour, ...component === undefined ? [] : [component]]
+  }
   const entries = new Map(contours.map(contour => [contour.id, new Set(contour.entries)]))
   const relations: MapRelation[] = mechanics.relations
     .filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null)
     .map(relation => ({ from: relation.from, to: relation.to, at: `${relation.source.path}:${relation.source.line}`, crossing: crossingOf(relation, owner, entries) }))
-  return { contours: mapContours, relations, arrows: arrowsOf(relations, owner, componentOfFile), open: defaultOpen(mapContours) }
+  return { groups, contours: mapContours, relations, arrows: arrowsOf(relations, chainOf), open: defaultOpen(groups, mapContours) }
 }
 
 export function visibleNodes(map: ComponentMap, open: readonly string[] = map.open): string[] {
   const opened = new Set(open)
-  return map.contours.flatMap(contour => opened.has(contour.id) ? contour.components.map(entry => entry.id) : [contour.id])
+  const groupOf = new Map(map.groups.flatMap(group => group.contours.map(contour => [contour, group.id] as const)))
+  const shownGroups = new Set<string>()
+  return map.contours.flatMap((contour) => {
+    const group = groupOf.get(contour.id)
+    if (group !== undefined && !opened.has(group)) {
+      if (shownGroups.has(group))
+        return []
+      shownGroups.add(group)
+      return [group]
+    }
+    return opened.has(contour.id) ? contour.components.map(entry => entry.id) : [contour.id]
+  })
 }
 
 export function visibleArrows(map: ComponentMap, open: readonly string[] = map.open): MapArrow[] {

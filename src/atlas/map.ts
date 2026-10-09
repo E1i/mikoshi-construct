@@ -43,6 +43,7 @@ function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanic
     files,
     states: files.map(file => stateOf.get(file)?.state ?? 'unknown'),
     reasons: Object.fromEntries(files.flatMap(file => stateOf.get(file)?.reason == null ? [] : [[file, stateOf.get(file)?.reason]])),
+    groups: map.groups.map(group => ({ ...group, counts: countsOf(group.counts) })),
     contours: map.contours.map(contour => ({
       id: contour.id,
       name: contour.name,

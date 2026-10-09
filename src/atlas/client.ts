@@ -21,6 +21,12 @@ export const ATLAS_SCRIPT = `
 
   const esc = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const file = (index) => DATA.files[index];
+  const groupOfContour = new Map();
+  for (const group of DATA.groups) group.contours.forEach((id) => groupOfContour.set(id, group));
+  const closedGroup = (contour) => {
+    const group = groupOfContour.get(contour.id);
+    return group && !open.has(group.id) ? group : null;
+  };
   const contourOfFile = new Map();
   const componentOfFile = new Map();
   for (const contour of DATA.contours) {
@@ -40,7 +46,9 @@ export const ATLAS_SCRIPT = `
   function visible() {
     const nodes = [];
     for (const contour of DATA.contours) {
-      if (open.has(contour.id)) contour.components.forEach((component) => nodes.push(component.id));
+      const group = closedGroup(contour);
+      if (group) { if (!nodes.includes(group.id)) nodes.push(group.id); }
+      else if (open.has(contour.id)) contour.components.forEach((component) => nodes.push(component.id));
       else nodes.push(contour.id);
     }
     return new Set(nodes);
@@ -53,8 +61,8 @@ export const ATLAS_SCRIPT = `
   function nodeMarkup(entry, x, y, kind) {
     const height = kind === 'component' ? componentHeight(entry) : H;
     boxes.set(entry.id, { x, y, w: W, h: height });
-    const isOpen = kind === 'contour' ? false : expanded.has(entry.id);
-    const sub = kind === 'contour' ? entry.kind + ' · ' + entry.components.length + ' parts' : (entry.purpose === null ? entry.files.length + ' files · not interpreted' : entry.purpose);
+    const isOpen = kind === 'component' && expanded.has(entry.id);
+    const sub = kind === 'group' ? entry.contours.length + ' contours' : kind === 'contour' ? entry.kind + ' · ' + entry.components.length + ' parts' : (entry.purpose === null ? entry.files.length + ' files · not interpreted' : entry.purpose);
     let markup = '<g class="box" data-node="' + esc(entry.id) + '" data-kind="' + kind + '" data-state="' + entry.state + '"' + (isOpen ? ' data-open=""' : '') + (selected === entry.id ? ' aria-current="true"' : '') + ' tabindex="0">'
       + '<title>' + esc(entry.name + ' — ' + counts(entry)) + '</title>'
       + '<rect x="' + x + '" y="' + y + '" width="' + W + '" height="' + height + '" rx="6"></rect>'
@@ -96,7 +104,16 @@ export const ATLAS_SCRIPT = `
       rowHeight = Math.max(rowHeight, height);
       return at;
     };
+    const drawnGroups = new Set();
     for (const contour of DATA.contours) {
+      const group = closedGroup(contour);
+      if (group) {
+        if (drawnGroups.has(group.id)) continue;
+        drawnGroups.add(group.id);
+        const at = place(W, H);
+        markup += nodeMarkup(group, at.x, at.y, 'group');
+        continue;
+      }
       if (!open.has(contour.id)) {
         const at = place(W, H);
         markup += nodeMarkup(contour, at.x, at.y, 'contour');
@@ -179,10 +196,15 @@ export const ATLAS_SCRIPT = `
 
   function show(id) {
     selected = id;
+    const group = DATA.groups.find((entry) => entry.id === id);
     const contour = DATA.contours.find((entry) => entry.id === id);
-    const component = contour ? null : DATA.contours.flatMap((entry) => entry.components).find((entry) => entry.id === id);
+    const component = contour || group ? null : DATA.contours.flatMap((entry) => entry.components).find((entry) => entry.id === id);
     let body;
-    if (contour) {
+    if (group) {
+      body = '<h2>' + esc(group.name) + '</h2><p data-state="' + group.state + '">' + esc(counts(group)) + '</p><ul>'
+        + group.contours.map((member) => '<li>' + esc(DATA.contours.find((entry) => entry.id === member).name) + '</li>').join('') + '</ul>';
+    }
+    else if (contour) {
       body = '<h2>' + esc(contour.name) + '</h2><p>' + esc(contour.kind + ', declared by ' + contour.declaredBy) + '</p><p data-state="' + contour.state + '">' + esc(counts(contour)) + '</p>'
         + (contour.entries.length === 0 ? '<p class="empty">Declares no public entry.</p>' : '<p>Public entry:</p><ul>' + contour.entries.map((entry) => '<li>' + esc(entry) + '</li>').join('') + '</ul>');
     }
@@ -215,6 +237,8 @@ export const ATLAS_SCRIPT = `
     const contour = contourOfFile.get(path);
     const component = componentOfFile.get(path);
     if (!contour || !component) return false;
+    const group = closedGroup(contour);
+    if (group) element('data-node', group.id).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     if (!open.has(contour.id)) element('data-node', contour.id).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     if (!expanded.has(component.id)) element('data-node', component.id).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     element('data-file', path).dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -227,7 +251,7 @@ export const ATLAS_SCRIPT = `
     const node = event.target.closest('[data-node]');
     if (!node) return;
     const id = node.getAttribute('data-node');
-    if (node.getAttribute('data-kind') === 'contour') {
+    if (node.getAttribute('data-kind') !== 'component') {
       if (open.has(id)) open.delete(id); else open.add(id);
     }
     else if (expanded.has(id)) expanded.delete(id);

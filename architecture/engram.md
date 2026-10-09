@@ -72,6 +72,17 @@ as a regular file inside the repository, a tracked symlink among them, is a comp
 are `unknown` with the `reason` `unreadable`. The component properties `relations` and `reason` are
 part of `modelVersion` 5; a component written before them reads as having its relations `found`.
 
+`contours` are the parts of the repository separated by a boundary the repository declares itself, and
+only by one: the root `package.json`, each workspace package, each directory a `tsconfig*.json` names in
+its `references`, and each directory holding a document that declares its own format — an OpenAPI,
+AsyncAPI or Swagger document by its top-level key, a JSON Schema by a `$schema` on json-schema.org.
+Discovery holds no list of directory names or frameworks ([decision 0055](decisions/0055-the-core-holds-no-list-of-frameworks.md)):
+a `contract/` directory whose documents declare no format is not a contour. A file belongs to the
+innermost contour whose directory holds it, and to the root contour otherwise. A contour's `entries`
+are the tracked files its declaration names as public — `exports`, `main`, `module`, `types` and `bin`
+of a manifest, or the documents of a contract — and a relation into a contour lands through one of
+them or past them. `contours` is part of `modelVersion` 6; a document without it reads as having none.
+
 | Property | Meaning |
 |----------|---------|
 | `identity` | The commit the observation was made at: `sha`, `status` and its command `source` |
@@ -90,11 +101,34 @@ part of `modelVersion` 5; a component written before them reads as having its re
 | `path` | The repository-relative path a component or a line source names |
 | `from` | The `id` of the component a relation leaves |
 | `to` | The `id` of the component a relation arrives at, or null when its specifier resolves to no tracked file |
-| `kind` | `imports` for an import or re-export of a relative specifier, `calls` for a call of a name it imported |
+| `kind` | On a relation, `imports` for an import or re-export of a relative specifier, `calls` for a call of a name it imported; on a contour, what declared it: `package`, `workspace`, `reference` or `contract` |
+| `contours` | In `mechanics`, every declared boundary, sorted by `id`; the root contour has the `id` `.` |
+| `name` | A contour's name: the `name` of its manifest, else its directory |
+| `declaredBy` | The tracked file that declares the contour, or `git ls-files -z` for a root no manifest names |
+| `entries` | The tracked files a contour's declaration names as its public entry or contract, sorted |
 | `specifier` | The module specifier exactly as the source wrote it |
 
 A relation whose relative specifier names no tracked file has `to: null` and `status: unknown`. A
 bare specifier (a package, `node:fs`) is outside the repository and is not recorded.
+
+## Interpretation — the components an agent names
+
+`interpretation` is a top-level key beside `mechanics`, and it is the agent's: discovery never writes
+it, and the CLI records it, checks its shape and draws it ([decision 0015](decisions/0015-interpretation-stays-with-the-agent.md)).
+It groups the files of a contour into components, each with a name and a one-line purpose. The facts
+do not depend on it: `mechanics` is byte for byte the same with and without it, and removing the key
+gives back the document as it was. A file belongs to at most one component; a file the interpretation
+names and the tree no longer holds is drawn `absent`, and a file it does not name is drawn in a group of
+its directory until discovery names it. The key is optional and part of `modelVersion` 6.
+
+| Property | Meaning |
+|----------|---------|
+| `interpretation` | The agent's layer: `authoredBy` and `components` |
+| `authoredBy` | Who wrote the layer, as on a fact |
+| `components` | In `interpretation`, the components the agent named, each with `id`, `contour`, `name`, `purpose` and `files` |
+| `contour` | The `id` of the contour an interpreted component lies in |
+| `purpose` | One line saying what the component is for |
+| `files` | The tracked paths the component holds; none is held by two components |
 
 ## Where an Engram is written
 
@@ -108,8 +142,8 @@ was (the owner, 2026-10-05, #532).
 ## Older documents
 
 A document that omits `stages`, `nodes` or `links` reads them as empty, whatever version it declares,
-and one that omits `mechanics` reads as having none. Versions 1 to 4 therefore still read. A build
-older than this one reads a version 5 document as ahead of it, as [decision 0028](decisions/0028-a-model-ahead-of-the-reader-is-a-state.md)
+and one that omits `mechanics`, `contours` or `interpretation` reads as having none. Versions 1 to 5
+therefore still read. A build older than this one reads a version 6 document as ahead of it, as [decision 0028](decisions/0028-a-model-ahead-of-the-reader-is-a-state.md)
 describes.
 
 ## The alternative that was rejected
