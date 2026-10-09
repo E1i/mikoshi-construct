@@ -19,6 +19,7 @@ export interface BgResult {
 }
 
 const ANSWERABLE_STOPS: readonly unknown[] = ['question', 'merge']
+const STATELESS_EVENTS: readonly unknown[] = ['intake', 'intake-move', 'answer-brief', 'note']
 
 interface JournalLine {
   event?: unknown
@@ -27,11 +28,11 @@ interface JournalLine {
   shift?: unknown
 }
 
-function lastLineInShift(journal: string, task: string, dir: string): JournalLine | undefined {
+function lastStateLine(journal: string, task: string): JournalLine | undefined {
   return journal.split('\n').flatMap((line) => {
     try {
       const entry = JSON.parse(line) as JournalLine | null
-      return entry?.task === task && typeof entry.shift === 'string' && path.resolve(entry.shift) === dir ? [entry] : []
+      return entry?.task === task && !STATELESS_EVENTS.includes(entry.event) ? [entry] : []
     }
     catch {
       return []
@@ -39,15 +40,21 @@ function lastLineInShift(journal: string, task: string, dir: string): JournalLin
   }).at(-1)
 }
 
+function describeLine(line: JournalLine): string {
+  return `event:${String(line.event)}${line.event === 'stop' ? ` at ${String(line.at)}` : ''}`
+}
+
 export function answerRefusal(journalFile: string, task: string | undefined, dir: string): string | null {
   if (task === undefined)
     return `${ANSWER_FLAG} names no card`
   const journal = existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : ''
-  const last = lastLineInShift(journal, task, path.resolve(dir))
+  const last = lastStateLine(journal, task)
   if (last === undefined)
-    return `#${task} has no journal line in ${journalFile} for the shift ${dir}, so it has no stop to answer`
+    return `#${task} has no journal line in ${journalFile}, so it has no stop to answer`
   if (last.event !== 'stop' || !ANSWERABLE_STOPS.includes(last.at))
-    return `the last journal line of #${task} in the shift ${dir} is event:${String(last.event)}${last.event === 'stop' ? ` at ${String(last.at)}` : ''}, not a question or review stop, so ${ANSWER_FLAG} has nothing to answer`
+    return `the last journal line of #${task} is ${describeLine(last)}, not a stop at question or merge, so ${ANSWER_FLAG} has nothing to answer`
+  if (typeof last.shift !== 'string' || path.resolve(last.shift) !== path.resolve(dir))
+    return `the last journal line of #${task} is ${describeLine(last)} of the shift ${String(last.shift)}, not of ${dir}, so ${ANSWER_FLAG} has nothing to answer here`
   return null
 }
 

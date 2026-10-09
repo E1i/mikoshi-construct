@@ -134,7 +134,8 @@ describe('pnpm shift:bg', () => {
       'no journal line': { lines: [], reason: 'no journal line' },
       'a path line after the stop': { lines: [{ event: 'stop', task: '758', at: 'question', shift: w.dir }, { event: 'path', task: '758', path: 'cheap', shift: w.dir }], reason: 'event:path' },
       'a stop at fault': { lines: [{ event: 'stop', task: '758', at: 'fault', shift: w.dir }], reason: 'event:stop at fault' },
-      'a stop in another shift': { lines: [{ event: 'stop', task: '758', at: 'question', shift: elsewhere }], reason: 'no journal line' },
+      'a stop in another shift': { lines: [{ event: 'stop', task: '758', at: 'question', shift: elsewhere }], reason: 'event:stop at question' },
+      'a non-stop line at question in this shift': { lines: [{ event: 'path', task: '758', at: 'question', shift: w.dir }], reason: 'event:path' },
     }
     for (const { lines, reason } of Object.values(cases)) {
       journal(w, ...lines)
@@ -144,6 +145,32 @@ describe('pnpm shift:bg', () => {
       expect(result.stderr[0]).toContain(reason)
     }
     expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+  })
+
+  it('shift:bg --answer refuses when a state line without shift follows the stop', async () => {
+    const w = world(false)
+    ranShift(w.dir)
+    const stop = { event: 'stop', task: '758', at: 'question', why: 'which way', shift: w.dir }
+    const cases: Record<string, { lines: object[], refused: string | null }> = {
+      'a hand task:start path line': { lines: [stop, { event: 'path', task: '758', path: 'cheap', started: '2026-10-09T10:00:00.000Z', worktree: w.root }], refused: 'event:path' },
+      'the task:close end line': { lines: [stop, { event: 'path', task: '758', path: 'cheap', verification: 'run', ended: '2026-10-09T11:00:00.000Z' }], refused: 'event:path' },
+      'the task:merged merge line': { lines: [stop, { event: 'merge', task: '758', pr: 703, by: 'E1i', commit: 'abc', merged: '2026-10-09T11:00:00Z' }], refused: 'event:merge' },
+      'only stateless lines after the stop': { lines: [stop, { event: 'note', task: '758' }, { event: 'intake', task: '758' }, { event: 'intake-move', task: '758' }, { event: 'answer-brief', task: '758', file: path.join(w.dir, 'answer-758.md') }], refused: null },
+    }
+    for (const { lines, refused } of Object.values(cases)) {
+      journal(w, ...lines)
+      const result = runBg(answerArgv(w.dir), w.env)
+      if (refused === null) {
+        expect(result.stderr).toEqual([])
+        expect(result.exitCode).toBe(0)
+        expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${answerArgv(w.dir).join(' ')}`)
+      }
+      else {
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr[0]).toContain('#758')
+        expect(result.stderr[0]).toContain(refused)
+      }
+    }
   })
 
   it('launches nohup pnpm shift with the shift arguments and no setsid', () => {
