@@ -110,16 +110,18 @@ describe('review queue', () => {
     tick()
     gitHub.open({ number: 924, review: 'success' })
     tick()
-    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'queued' }])
+    const merge = taskKey({ queue: 'merge', cardId: 1024, pr: 924, head: sha('a') })
+    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'queued' }, { task_key: merge, state: 'queued' }])
 
     gitHub.open({ number: 924, head: sha('e'), required: 'pending' })
     tick()
-    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'superseded' }])
+    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'superseded' }, { task_key: merge, state: 'superseded' }])
 
     gitHub.open({ number: 924, head: sha('e') })
     tick()
     expect(tasks(db)).toEqual([
       { task_key: review(924, sha('a')), state: 'superseded' },
+      { task_key: merge, state: 'superseded' },
       { task_key: review(924, sha('e')), state: 'queued' },
     ])
     db.close()

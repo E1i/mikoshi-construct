@@ -20,6 +20,14 @@ const REVIEW_CANDIDATES = `
   ORDER BY pr
 `
 
+const MERGE_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'open' AND ci = 'green' AND verdict_on_head = 'pass' AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  ORDER BY pr
+`
+
+const CANDIDATES: [Queue, string][] = [['review', REVIEW_CANDIDATES], ['merge', MERGE_CANDIDATES]]
+
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
@@ -106,10 +114,12 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const row of db.prepare(REVIEW_CANDIDATES).all() as unknown as { pr: number, card_id: number, head: string }[]) {
-    const task: TaskIdentity = { queue: 'review', cardId: row.card_id, pr: row.pr, head: row.head }
-    if (queueTask(db, ts, task))
-      derived.queued.push(taskKey(task))
+  for (const [queue, candidates] of CANDIDATES) {
+    for (const row of db.prepare(candidates).all() as unknown as { pr: number, card_id: number, head: string }[]) {
+      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr, head: row.head }
+      if (queueTask(db, ts, task))
+        derived.queued.push(taskKey(task))
+    }
   }
   return derived
 }

@@ -8,6 +8,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'build': 'produces the package rather than judging it',
   'bus:bg': 'starts bus:run as the one detached instance when run by hand; its own tests, on nohup and pnpm stubs, are its gate',
   'bus:import': 'imports the journal into bus.db once when run by hand; its own tests are its gate',
+  'bus:merge': 'the merge worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',
   'bus:reduce': 'rebuilds the prs, cards and tasks projections of bus.db when run by hand; its own tests are its gate',
   'bus:report': 'a read-only shadow report over bus.db and GitHub printed by hand; its own tests are its gate',
