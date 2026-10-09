@@ -192,7 +192,7 @@ The names are a tribute to Cyberpunk 2077 and mean exactly one thing each here.
 
 | Word | Here |
 |---|---|
-| Mikoshi | Where constructs are kept: `templates/`, one day a registry of presets. Also the interactive window the owner opens in a Terminal; it signs its messages `[mikoshi]` and hands itself on through `pnpm miko:handoff` |
+| Mikoshi | Where constructs are kept: `templates/`, one day a registry of presets. Also the interactive window the owner opens with `pnpm miko`, a loop in the current terminal; it signs its messages `[mikoshi]` and hands itself on by writing `mikoshi.md` and ending its process, and the loop starts the next one |
 | Operator | The window under `pnpm relaunch`: it starts the shift chains, repairs only what stopped and signs its messages `[operator]` |
 | Construct | What `init` materializes into a repository — policy, contract, harness, agent instructions |
 | Soulkiller | `construct soulkill`: extracts the facts about a repository and writes nothing |
