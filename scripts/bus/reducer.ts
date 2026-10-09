@@ -5,6 +5,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
+import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
 import { payloadOf, reject, Rejection, STORED_COLUMNS } from './stored.js'
 
@@ -142,6 +143,7 @@ const REDUCERS: Record<string, Fold> = {
   'main.advanced': mainAdvanced,
   'pr.opened': prOpened,
   ...TASK_FOLDS,
+  ...LEASE_FOLDS,
 }
 
 function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): void {

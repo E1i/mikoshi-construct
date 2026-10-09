@@ -15,8 +15,8 @@ export const HEADLESS_FLAGS = [
   '--session-id',
 ] as const
 
-export function sessionArgv(sessionId: string, prompt: string): string[] {
-  return [...HEADLESS_FLAGS, sessionId, prompt]
+export function sessionArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
+  return [...addDirs.flatMap(dir => ['--add-dir', dir]), ...HEADLESS_FLAGS, sessionId, prompt]
 }
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
@@ -38,6 +38,7 @@ export interface SpawnSessionParams {
   stdoutPath: string
   stderrPath: string
   env?: NodeJS.ProcessEnv
+  addDirs?: string[]
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
@@ -53,7 +54,7 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', sessionArgv(params.sessionId, params.prompt), {
+    const child = spawn('claude', sessionArgv(params.sessionId, params.prompt, params.addDirs), {
       cwd: params.cwd,
       env: sessionEnv(params.env),
       stdio: ['ignore', outFd, errFd],

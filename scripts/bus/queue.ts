@@ -10,7 +10,8 @@ export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const QUEUE_ACTOR = 'policy'
 
-const QUEUED = 'queued'
+export const QUEUED = 'queued'
+export const LEASED = 'leased'
 const SUPERSEDED = 'superseded'
 
 const REVIEW_CANDIDATES = `
@@ -21,7 +22,7 @@ const REVIEW_CANDIDATES = `
 
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.state != '${SUPERSEDED}' AND tasks.head IS NOT NULL AND tasks.head != prs.head
+  WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
   ORDER BY tasks.task_key
 `
 
@@ -38,7 +39,7 @@ export interface Derived {
   superseded: string[]
 }
 
-function identityOf(event: StoredEvent): { key: string, queue: Queue } {
+export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const payload = payloadOf(event)
   const queue = QUEUES.find(each => each === payload.queue) ?? reject(`queue is not one of ${QUEUES.join(' | ')}`)
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)

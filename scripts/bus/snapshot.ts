@@ -84,7 +84,7 @@ function cardOf(pull: Pull): number | null {
   return cardIdOf((pull.body ?? '').split('\n')[0] ?? '')
 }
 
-function ciOf(meter: Meter, sha: string): CiReading {
+export function ciOf(meter: Meter, sha: string): CiReading {
   const runs = (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
   const required = runs.find(run => run.name === REQUIRED_CHECK)
   if (required === undefined || required.status !== 'completed')
