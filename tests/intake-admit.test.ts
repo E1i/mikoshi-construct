@@ -340,6 +340,25 @@ describe('construct intake --admit and the creates line', () => {
     expect(readFileSync(file, 'utf8')).toContain('creates: src/board/fresh.ts')
   })
 
+  it('admit reads a creates entry with its kind as the path it creates', () => {
+    const w = world()
+    mkdirSync(w.parking, { recursive: true })
+    const file = path.join(w.parking, '80.md')
+    writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/fresh.ts\ncreates: src/board/fresh.ts (plain)\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    expect(admit(w, file).status).toBe('admitted')
+    expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
+    expect(readFileSync(file, 'utf8')).toContain('creates: src/board/fresh.ts (plain)')
+  })
+
+  it('admit marks a creates entry with a kind outside the list unclear', () => {
+    const w = world()
+    mkdirSync(w.parking, { recursive: true })
+    const file = path.join(w.parking, '80.md')
+    writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/fresh.ts\ncreates: src/board/fresh.ts (bogus)\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    admit(w, file)
+    expect(readFileSync(file, 'utf8')).toContain(`unclear: creates — creates entry 'src/board/fresh.ts (bogus)' names kind 'bogus', not one of ghosts, plain`)
+  })
+
   it('a parked card without a creates line parses as before', () => {
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/fresh.ts')

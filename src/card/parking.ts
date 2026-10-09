@@ -6,8 +6,30 @@ export const WINDOW_WHO = 'window'
 export const PRIORITIES = ['p0'] as const
 const PARKING_KEYS = ['who', 'priority'] as const
 const PARKING_LINE = /^(who|priority|creates):(.*)$/
+export const CREATES_KINDS = ['ghosts', 'plain'] as const
+const CREATES_ENTRY = /^(\S+)(?: \((\S+)\))?$/
 
 export type Priority = typeof PRIORITIES[number]
+export type CreatesKind = typeof CREATES_KINDS[number]
+
+export type ParsedCreatesEntry = { kind: 'created', path: string, fileKind: CreatesKind | null } | { kind: 'refused', reason: string }
+
+export function parseCreatesEntry(entry: string): ParsedCreatesEntry {
+  const found = CREATES_ENTRY.exec(entry.trim())
+  if (found === null)
+    return { kind: 'refused', reason: `creates entry '${entry.trim()}' is '<path>' or '<path> (<kind>)', the kind one of ${CREATES_KINDS.join(', ')}` }
+  const [, path, fileKind] = found as unknown as [string, string, string | undefined]
+  if (fileKind !== undefined && !(CREATES_KINDS as readonly string[]).includes(fileKind))
+    return { kind: 'refused', reason: `creates entry '${entry.trim()}' names kind '${fileKind}', not one of ${CREATES_KINDS.join(', ')}` }
+  return { kind: 'created', path, fileKind: (fileKind ?? null) as CreatesKind | null }
+}
+
+export function createdPaths(entries: readonly string[]): string[] {
+  return entries.flatMap((entry) => {
+    const parsed = parseCreatesEntry(entry)
+    return parsed.kind === 'created' ? [parsed.path] : []
+  })
+}
 
 export interface ParkedTask {
   task: ShiftTask
