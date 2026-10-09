@@ -273,6 +273,40 @@ describe('construct intake --admit takes a card parked before the intake door', 
   })
 })
 
+describe('construct intake --admit and package.json', () => {
+  it('adds the script companions to a card that touches package.json, with no person to confirm', () => {
+    const w = world()
+    mkdirSync(path.join(w.repo, 'tests'))
+    for (const existing of ['package.json', 'CONTRIBUTING.md', 'tests/harness-membership.test.ts'])
+      writeFileSync(path.join(w.repo, existing), '')
+    const file = park(w, 80, CLEAN, 'package.json, src/board/**')
+    expect(admit(w, file).status).toBe('admitted')
+    const text = readFileSync(file, 'utf8')
+    expect(text).toContain('touches: package.json, src/board/**, CONTRIBUTING.md, tests/harness-membership.test.ts\n')
+    expect(text).toContain('corrected: touches — (absent) → CONTRIBUTING.md')
+    expect(text).not.toContain('unclear:')
+    expect(journalLines(w).at(-1)).toMatchObject({ confirmation: 'none' })
+    expect(admit(w, file).status).toBe('alreadyAdmitted')
+  })
+
+  it('adds only the companion a card that touches package.json is missing', () => {
+    const w = world()
+    mkdirSync(path.join(w.repo, 'tests'))
+    for (const existing of ['package.json', 'CONTRIBUTING.md', 'tests/harness-membership.test.ts'])
+      writeFileSync(path.join(w.repo, existing), '')
+    const file = park(w, 80, CLEAN, 'package.json, CONTRIBUTING.md')
+    expect(admit(w, file).status).toBe('admitted')
+    expect(readFileSync(file, 'utf8')).toContain('touches: package.json, CONTRIBUTING.md, tests/harness-membership.test.ts\n')
+  })
+
+  it('adds no companion to a card that does not touch package.json', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    admit(w, file)
+    expect(readFileSync(file, 'utf8')).not.toContain('CONTRIBUTING.md')
+  })
+})
+
 describe('construct intake --admit and the creates line', () => {
   it('admit keeps the creates line and marks no created path unclear', () => {
     const w = world()

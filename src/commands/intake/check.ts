@@ -11,6 +11,11 @@ const BACKTICKED = /`([^`]+)`/g
 const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+))/g
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
+const SCRIPT_MANIFEST = 'package.json'
+const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
+const SCRIPT_COMPANIONS = ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST]
+export const SCRIPT_COMPANION_REASON = `a card touching ${SCRIPT_MANIFEST} also touches the scripts table and the harness membership test`
+
 export interface Correction {
   field: string
   was: string
@@ -105,6 +110,17 @@ function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   return touched
 }
 
+function withScriptCompanions(touched: Touched, repository: RepositoryFacts): Touched {
+  if (!touched.touches.includes(SCRIPT_MANIFEST) || !repository.exists(HARNESS_MEMBERSHIP_TEST))
+    return touched
+  const missing = SCRIPT_COMPANIONS.filter(companion => repository.exists(companion) && !touched.touches.includes(companion))
+  return {
+    ...touched,
+    touches: [...touched.touches, ...missing],
+    corrections: [...touched.corrections, ...missing.map(companion => ({ field: 'touches', was: '(absent)', now: companion, reason: SCRIPT_COMPANION_REASON }))],
+  }
+}
+
 interface Linked {
   kept: string[]
   corrections: Correction[]
@@ -161,7 +177,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = touchesChecked(card, facts.repository)
+  const touched = withScriptCompanions(touchesChecked(card, facts.repository), facts.repository)
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)

@@ -233,6 +233,22 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     expect(readFileSync(draftFile, 'utf8')).toBe(draftBefore)
   })
 
+  it('adds the script companions the repository has to a drafted card that touches package.json, and never twice', () => {
+    const [checked] = checkDraft([draftCard({ touches: ['package.json', 'tests/harness-membership.test.ts'] })], [2], facts())
+    expect(checked!.touches).toEqual(['package.json', 'tests/harness-membership.test.ts', 'CONTRIBUTING.md'])
+    expect(checked!.corrections).toMatchObject([{ field: 'touches', was: '(absent)', now: 'CONTRIBUTING.md' }])
+    expect(checkDraft([draftCard({ touches: ['packages/a/package.json'] })], [2], facts())[0]!.touches).toEqual(['packages/a/package.json'])
+    const elsewhere = repositoryFacts({ exists: relative => relative === 'package.json' })
+    expect(checkDraft([draftCard({ touches: ['package.json'] })], [2], facts({ repository: elsewhere }))[0]!.touches).toEqual(['package.json'])
+  })
+
+  it('adds no companion where the repository has no harness membership test', () => {
+    const foreign = repositoryFacts({ exists: relative => relative === 'package.json' || relative === 'CONTRIBUTING.md' })
+    const [checked] = checkDraft([draftCard({ touches: ['package.json'] })], [2], facts({ repository: foreign }))
+    expect(checked!.touches).toEqual(['package.json'])
+    expect(checked!.corrections).toEqual([])
+  })
+
   it('keeps who: shift on a corrected card with no unclear line', () => {
     const dir = repository(['src/commands/intake/index.ts'])
     const { result, parking } = intake([card({ who: 'shift', touches: ['src/command/intake/**'] })], { dir })
