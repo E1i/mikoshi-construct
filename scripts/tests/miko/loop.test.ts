@@ -98,11 +98,33 @@ describe('runMikoLoop decides from the mtime of mikoshi.md alone', () => {
       handoffMtime: () => mtimes.shift(),
       session: async (prompt) => {
         prompts.push(prompt)
+        return { code: 0, signal: null }
       },
       interrupted: () => false,
       err: () => {},
     })
     expect(code).toBe(0)
     expect(prompts).toEqual([undefined, CONTINUE_PROMPT, CONTINUE_PROMPT])
+  })
+
+  it.each([
+    { name: 'signal SIGINT', end: { code: null, signal: 'SIGINT' as const } },
+    { name: 'exit code 130', end: { code: 130, signal: null } },
+  ])('stops on a session that ended by $name before the SIGINT handler set the flag, though mikoshi.md changed', async ({ end }) => {
+    const mtimes = [1, 2]
+    const prompts: (string | undefined)[] = []
+    const lines: string[] = []
+    const code = await runMikoLoop({
+      handoffMtime: () => mtimes.shift(),
+      session: async (prompt) => {
+        prompts.push(prompt)
+        return end
+      },
+      interrupted: () => false,
+      err: line => lines.push(line),
+    })
+    expect(code).toBe(0)
+    expect(prompts).toEqual([undefined])
+    expect(lines.join('\n')).toContain('Ctrl+C')
   })
 })

@@ -10,9 +10,16 @@ export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const CONTINUE_PROMPT = 'прочитай mikoshi.md'
 
+const SIGINT_EXIT_CODE = 130
+
+export interface SessionEnd {
+  code: number | null
+  signal: NodeJS.Signals | null
+}
+
 export interface MikoLoopDeps {
   handoffMtime: () => number | undefined
-  session: (prompt: string | undefined) => Promise<void>
+  session: (prompt: string | undefined) => Promise<SessionEnd>
   interrupted: () => boolean
   err: (line: string) => void
 }
@@ -25,12 +32,16 @@ export function claudeArgv(command: string, prompt: string | undefined): string[
   return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
+export function endedByCtrlC(end: SessionEnd): boolean {
+  return end.signal === 'SIGINT' || end.code === SIGINT_EXIT_CODE
+}
+
 export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
   let prompt: string | undefined
   for (;;) {
     const before = deps.handoffMtime()
-    await deps.session(prompt)
-    if (deps.interrupted()) {
+    const end = await deps.session(prompt)
+    if (endedByCtrlC(end) || deps.interrupted()) {
       deps.err(`${PREFIX}Ctrl+C: no next session`)
       return 0
     }
@@ -53,11 +64,11 @@ function mtimeOf(file: string): number | undefined {
   }
 }
 
-function runSession(command: string, prompt: string | undefined): Promise<void> {
+function runSession(command: string, prompt: string | undefined): Promise<SessionEnd> {
   return new Promise((resolve) => {
     const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit' })
-    child.on('error', () => resolve())
-    child.on('close', () => resolve())
+    child.on('error', () => resolve({ code: null, signal: null }))
+    child.on('close', (code, signal) => resolve({ code, signal }))
   })
 }
 
