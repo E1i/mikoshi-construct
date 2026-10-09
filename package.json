@@ -37,6 +37,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "answer:record": "tsx scripts/shift/answer-record.ts",
     "approve": "tsx scripts/ghosts/approve.ts",
     "bench:architect": "tsx scripts/bench/run.ts",
     "board": "tsx scripts/board/board.ts",
