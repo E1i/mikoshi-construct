@@ -14,6 +14,7 @@ const NONE = '—'
 const DEPENDS = ' · depends '
 const BLOCKS = ' · blocks '
 const LEADING_IDS = /^#\d+(?:,? #\d+)*/
+const BODY_CARD_PREFIX = 'card: '
 
 export type Kind = typeof KINDS[number]
 export type Milestone = typeof MILESTONES[number]
@@ -123,4 +124,9 @@ export function parseCard(text: string): ParsedCard {
   if (blocks === null)
     return refused(`blocks '${blocksText}' must start with '#<id>' entries or '—'`)
   return { kind: 'card', card: { id: Number(id), name, kind, milestone, size, contour, decision, depends, blocks, line } }
+}
+
+export function readBodyCard(body: string): ParsedCard {
+  const first = body.split('\n')[0]!.trim()
+  return parseCard(first.startsWith(BODY_CARD_PREFIX) ? first.slice(BODY_CARD_PREFIX.length) : first)
 }
