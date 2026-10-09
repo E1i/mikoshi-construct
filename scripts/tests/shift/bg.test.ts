@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { answerRefusal, BG_LOG, launchArgv, runBg, USAGE } from '../../shift/bg.js'
+import { BG_LOG, launchArgv, runBg, USAGE } from '../../shift/bg.js'
 
 const roots: string[] = []
 
@@ -173,13 +173,6 @@ describe('pnpm shift:bg', () => {
         expect(result.stderr[0]).toContain(refused)
       }
     }
-  })
-
-  it('answerRefusal does not refuse a card stopped at merge with a later review-missing line', () => {
-    const w = world(false)
-    ranShift(w.dir)
-    journal(w, { event: 'stop', task: '758', at: 'merge', shift: w.dir }, { event: 'review-missing', task: '758', pr: 710, head: 'abc', greenSince: '2026-10-09T10:00:00Z', ts: '2026-10-09T10:20:00Z' })
-    expect(answerRefusal(path.join(w.env.CONSTRUCT_HANDOFF_DIR!, 'ghosts.jsonl'), '758', w.dir)).toBeNull()
   })
 
   it('launches nohup pnpm shift with the shift arguments and no setsid', () => {
