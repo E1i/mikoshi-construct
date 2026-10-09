@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { INSTANCE_FILE, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK } from '../../bus/bg.js'
+import { INSTANCE_FILE, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK } from '../../bus/bg.js'
 
 const roots: string[] = []
 const started: number[] = []
@@ -128,14 +128,16 @@ describe('pnpm bus:bg', () => {
     expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
   })
 
-  it('a start while another bus:bg holds the start lock is refused and leaves its lock', async () => {
+  it('a start while another start holds the lock is refused naming its pid', async () => {
     const w = world()
     const other = detachedSleep()
     mkdirSync(w.busDir, { recursive: true })
-    writeFileSync(path.join(w.busDir, START_LOCK), `${other}\n`)
+    const lock = path.join(w.busDir, START_LOCK)
+    writeFileSync(lock, `${other}\n`)
     const result = runBusBg(w.busDir, w.env, w.processes)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr.join('\n')).toContain(`pid ${other}`)
+    expect(result.stdout).toEqual([])
+    expect(result.stderr).toEqual([`${PREFIX}another start (pid ${other}) is starting bus:run (${lock}); nothing started`])
     expect(readFileSync(path.join(w.busDir, START_LOCK), 'utf8').trim()).toBe(String(other))
     await new Promise(resolve => setTimeout(resolve, 200))
     expect(existsSync(path.join(w.out, 'pid'))).toBe(false)

@@ -15,6 +15,13 @@ export interface Review {
 
 export type Reviewer = (lease: Lease) => Promise<Review>
 
+export interface ReviewerTools {
+  git: (cwd: string, args: string[]) => void
+  spawn: (params: SpawnSessionParams) => Promise<number>
+}
+
+export const PREFIX = '[bus:review] '
+
 const VERDICTS = new Set<string>(['pass', 'changes'])
 
 export function reviewOf(text: string, session: string): Review {
@@ -39,6 +46,17 @@ function git(cwd: string, args: string[]): void {
   execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
+const REAL_TOOLS: ReviewerTools = { git, spawn: spawnSession }
+
+function removeTree(tools: ReviewerTools, repo: string, tree: string): void {
+  try {
+    tools.git(repo, ['worktree', 'remove', '--force', tree])
+  }
+  catch (error) {
+    console.error(`${PREFIX}could not remove the review tree ${tree}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 export function reviewSession(repo: string, dir: string, session: string, lease: Lease): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
@@ -54,21 +72,21 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
   }
 }
 
-export function claudeReviewer(repo: string, dir: string): Reviewer {
+export function claudeReviewer(repo: string, dir: string, tools: ReviewerTools = REAL_TOOLS): Reviewer {
   return async (lease) => {
     const session = randomUUID()
     const { tree, verdictPath, ...params } = reviewSession(repo, dir, session, lease)
     mkdirSync(dir, { recursive: true })
-    git(repo, ['fetch', '--quiet', 'origin', `pull/${lease.pr}/head`])
-    git(repo, ['worktree', 'add', '--detach', tree, lease.head!])
+    tools.git(repo, ['fetch', '--quiet', 'origin', `pull/${lease.pr}/head`])
+    tools.git(repo, ['worktree', 'add', '--detach', tree, lease.head!])
     try {
-      const code = await spawnSession(params)
+      const code = await tools.spawn(params)
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
       return reviewOf(readFileSync(verdictPath, 'utf8'), session)
     }
     finally {
-      git(repo, ['worktree', 'remove', '--force', tree])
+      removeTree(tools, repo, tree)
     }
   }
 }

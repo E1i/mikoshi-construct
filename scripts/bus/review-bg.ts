@@ -1,6 +1,6 @@
 import type { DetachedLaunch } from './bg.js'
 import type { GitHub } from './github.js'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,12 +16,17 @@ export const REVIEW_SCRIPT = 'bus:review'
 export const REVIEW_LOG = 'review.log'
 export const REVIEW_INSTANCE_FILE = 'bus-review.pid'
 export const REVIEW_START_LOCK = 'bus-review-bg.lock'
-export const REVIEW_WORKER_MARKERS = ['scripts/bus/review-worker.ts', `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
+export const REVIEW_WORKER_MARKERS = [`scripts/bus/review-worker.ts ${SWITCH_FLAG}`, `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
 
 export function busShadowProblems(busPath: string, gitHub: GitHub): string[] {
+  if (!existsSync(busPath))
+    return [`there is no bus.db at ${busPath}; the shadow has not run there`]
   const db = openBus(busPath)
   try {
     return shadowProblems(db, gitHub, () => Date.now())
+  }
+  catch (error) {
+    return [`the shadow report could not be read: ${error instanceof Error ? error.message : String(error)}`]
   }
   finally {
     db.close()

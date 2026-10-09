@@ -19,17 +19,16 @@ import { cardIdOfDescription, isFullSha, prOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, expireLeases, failTask, leaseNext, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { recordVerdict } from './record-verdict.js'
+import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
-import { claudeReviewer } from './reviewer.js'
+import { claudeReviewer, PREFIX } from './reviewer.js'
 
-export const PREFIX = '[bus:review] '
 export const REVIEW_RECORDED = 'review.recorded'
 export const RENEW_MS = 10 * 60_000
 export const SWITCH_FLAG = '--on'
 export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
-export const REVIEWS_DIR = path.join(os.homedir(), '.construct', 'bus', 'reviews')
+const REVIEWS_DIR = path.join(os.homedir(), '.construct', 'bus', 'reviews')
 
 export type Step
   = | { kind: 'idle' }
@@ -69,12 +68,18 @@ export class ReviewWorker {
     const lease = leaseNext(db, this.ts(), 'review', this.actor)
     if (lease === null)
       return { kind: 'idle' }
+    const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime())
+    if (stale !== null)
+      return this.denied(lease, stale)
     const heartbeat = setInterval(() => {
       try {
         renewLease(db, this.ts(), lease)
       }
-      catch {
-        clearInterval(heartbeat)
+      catch (error) {
+        if (error instanceof StaleLease)
+          clearInterval(heartbeat)
+        else
+          console.error(`${PREFIX}${lease.taskKey}: the lease was not renewed this beat, the heartbeat keeps running: ${error instanceof Error ? error.message : String(error)}`)
       }
     }, RENEW_MS)
     try {
@@ -167,6 +172,8 @@ export type ReviewMode
     | { kind: 'dry-run', pr: number }
     | { kind: 'refused', reason: string }
 
+const DECIMAL = /^\d+$/
+
 export function reviewMode(argv: string[]): ReviewMode {
   const on = argv.includes(SWITCH_FLAG)
   const dry = argv.indexOf(DRY_RUN_FLAG)
@@ -174,7 +181,8 @@ export function reviewMode(argv: string[]): ReviewMode {
     return on ? { kind: 'on' } : { kind: 'off' }
   if (on)
     return { kind: 'refused', reason: `${DRY_RUN_FLAG} records nothing and ${SWITCH_FLAG} records verdicts; give one of them, not both` }
-  const pr = prOf(Number(argv[dry + 1]))
+  const given = argv[dry + 1] ?? ''
+  const pr = DECIMAL.test(given) ? prOf(Number(given)) : null
   return pr === null ? { kind: 'refused', reason: `${DRY_RUN_FLAG} needs a pull request number: ${DRY_RUN_FLAG} <pr>` } : { kind: 'dry-run', pr }
 }
 
@@ -206,8 +214,17 @@ export async function dryRun(gitHub: GitHub, reviewer: Reviewer, pr: number): Pr
   return dryRunLines(lease, await reviewer(lease))
 }
 
-async function main(): Promise<number> {
-  const mode = reviewMode(process.argv.slice(2))
+export interface ReviewRun {
+  busPath: string
+  gitHub: GitHub
+  publish: StatusPublisher
+  reviewer: Reviewer
+  session: string
+  pause: (ms: number) => Promise<unknown>
+}
+
+export async function runReview(argv: string[], run: ReviewRun): Promise<number> {
+  const mode = reviewMode(argv)
   if (mode.kind === 'refused') {
     console.error(`${PREFIX}${mode.reason}`)
     return 1
@@ -216,22 +233,20 @@ async function main(): Promise<number> {
     console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG} once pnpm bus:report is clean`)
     return 0
   }
-  const cwd = process.cwd()
-  const reviewer = claudeReviewer(cwd, REVIEWS_DIR)
   if (mode.kind === 'dry-run') {
-    for (const line of await dryRun(ghApi(cwd), reviewer, mode.pr))
+    for (const line of await dryRun(run.gitHub, run.reviewer, mode.pr))
       console.log(line)
     return 0
   }
-  const busPath = defaultBusPath()
+  const { busPath, pause } = run
   const db = openBus(busPath)
   const parts: WorkerParts = {
     db,
-    gitHub: ghApi(cwd),
-    publish: ghStatusPublisher(cwd),
-    reviewer,
+    gitHub: run.gitHub,
+    publish: run.publish,
+    reviewer: run.reviewer,
     clock: () => new Date(),
-    session: randomUUID(),
+    session: run.session,
   }
   try {
     const worker = startReviewWorker(parts)
@@ -242,9 +257,9 @@ async function main(): Promise<number> {
       if (line !== null)
         console.log(line)
       if (step.kind === 'idle')
-        await sleep(CHECK_MS)
+        await pause(CHECK_MS)
       else if (step.kind !== 'recorded')
-        await sleep(TICK_MS)
+        await pause(TICK_MS)
     }
   }
   catch (error) {
@@ -256,6 +271,18 @@ async function main(): Promise<number> {
   finally {
     db.close()
   }
+}
+
+async function main(): Promise<number> {
+  const cwd = process.cwd()
+  return runReview(process.argv.slice(2), {
+    busPath: defaultBusPath(),
+    gitHub: ghApi(cwd),
+    publish: ghStatusPublisher(cwd),
+    reviewer: claudeReviewer(cwd, REVIEWS_DIR),
+    session: randomUUID(),
+    pause: sleep,
+  })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
