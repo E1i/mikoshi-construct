@@ -11,8 +11,9 @@ interface FakePr {
   state?: string
   armed?: boolean
   decision?: 'auto' | 'owner'
-  review?: string
+  review?: string | null
   head?: string
+  ci?: { conclusion: string, completedAt: string }[]
 }
 
 function listed(pr: FakePr): Record<string, unknown> {
@@ -22,7 +23,10 @@ function listed(pr: FakePr): Record<string, unknown> {
     headRefOid: pr.head ?? `h${pr.number}`,
     mergeStateStatus: pr.state ?? 'BEHIND',
     autoMergeRequest: pr.armed === false ? null : {},
-    statusCheckRollup: [{ context: 'review', state: pr.review ?? 'SUCCESS' }],
+    statusCheckRollup: [
+      ...(pr.ci ?? []).map(check => ({ name: 'quality', status: 'COMPLETED', ...check })),
+      ...(pr.review === null ? [] : [{ context: 'review', state: pr.review ?? 'SUCCESS' }]),
+    ],
     body: `#${pr.number} task [implement/runner/S/cheap/${pr.decision ?? 'auto'}] · depends — · blocks —`,
     files: [{ path: 'scripts/board/derive.ts' }],
   }
@@ -103,5 +107,37 @@ describe('runCurrent', () => {
     runCurrent(again.deps)
     expect(again.appended).toEqual([])
     expect(armedCalls(first.calls)).toEqual([])
+  })
+  it('a pull request with a new head, no verdict and green CI gets a review-missing line after 15 minutes', () => {
+    const pr: FakePr = { number: 7, createdAt: '2026-10-01T00:00:00Z', state: 'CLEAN', review: null, head: 'new7', ci: [{ conclusion: 'SUCCESS', completedAt: '2026-10-08T23:40:00Z' }] }
+    const journal = `${JSON.stringify({ event: 'pr-review', task: '7', pr: 7, verdict: 'pass', commit: 'old7' })}\n`
+    const first = setup([pr], { journal })
+    const result = runCurrent(first.deps)
+    expect(first.appended).toHaveLength(1)
+    expect(JSON.parse(first.appended[0]!)).toMatchObject({ event: 'review-missing', task: '7', pr: 7, head: 'new7', greenSince: '2026-10-08T23:40:00.000Z' })
+    expect(result.stdout.join('\n')).toContain('PR #7 head new7 has been green for more than 15 minutes with no review verdict')
+    const again = setup([pr], { journal: journal + first.appended.join('') })
+    runCurrent(again.deps)
+    expect(again.appended).toEqual([])
+  })
+
+  it('a pull request green for less than 15 minutes, or with CI not green, stays silent', () => {
+    const fresh = setup([{ number: 7, createdAt: '2026-10-01T00:00:00Z', state: 'CLEAN', review: null, ci: [{ conclusion: 'SUCCESS', completedAt: '2026-10-08T23:50:00Z' }] }])
+    runCurrent(fresh.deps)
+    expect(fresh.appended).toEqual([])
+    const red = setup([{ number: 7, createdAt: '2026-10-01T00:00:00Z', state: 'CLEAN', review: null, ci: [{ conclusion: 'FAILURE', completedAt: '2026-10-08T23:00:00Z' }] }])
+    runCurrent(red.deps)
+    expect(red.appended).toEqual([])
+  })
+
+  it('a pull request with a verdict at its head stays silent', () => {
+    const ci = [{ conclusion: 'SUCCESS', completedAt: '2026-10-08T23:00:00Z' }]
+    const status = setup([{ number: 7, createdAt: '2026-10-01T00:00:00Z', state: 'CLEAN', review: 'FAILURE', head: 'h7', ci }])
+    runCurrent(status.deps)
+    expect(status.appended).toEqual([])
+    const journal = `${JSON.stringify({ event: 'pr-review', task: '7', pr: 7, verdict: 'pass', commit: 'h7' })}\n`
+    const recorded = setup([{ number: 7, createdAt: '2026-10-01T00:00:00Z', state: 'CLEAN', review: null, head: 'h7', ci }], { journal })
+    runCurrent(recorded.deps)
+    expect(recorded.appended).toEqual([])
   })
 })
