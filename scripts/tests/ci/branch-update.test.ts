@@ -10,7 +10,7 @@ import { nextToUpdate, TOKEN_SECRET } from '../../ci/branch-update.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
 function pr(number: number, createdAt: string, overrides: Partial<OpenPullRequest> = {}): OpenPullRequest {
-  return { number, createdAt, isDraft: false, isCrossRepository: false, autoMerge: true, mergeable: 'MERGEABLE', behindBy: 1, ...overrides }
+  return { number, createdAt, isDraft: false, isCrossRepository: false, autoMerge: true, mergeable: 'MERGEABLE', behindBy: 1, hasReviewStatus: false, ...overrides }
 }
 
 const DAY1 = '2026-09-01T10:00:00Z'
@@ -31,7 +31,9 @@ const CASES: { name: string, prs: OpenPullRequest[], chosen: number | undefined 
   { name: 'none when the only candidate is from a fork', prs: [pr(5, DAY1, { isCrossRepository: true })], chosen: undefined },
   { name: 'a younger one over an older one known to conflict', prs: [pr(5, DAY1, { mergeable: 'CONFLICTING' }), pr(6, DAY2)], chosen: 6 },
   { name: 'an older one whose mergeability is not computed yet', prs: [pr(5, DAY1, { mergeable: 'UNKNOWN' }), pr(6, DAY2)], chosen: 5 },
-  { name: 'none when every one is excluded for a different reason', prs: [pr(1, DAY1, { autoMerge: false }), pr(2, DAY1, { isDraft: true }), pr(3, DAY2, { isCrossRepository: true }), pr(4, DAY2, { mergeable: 'CONFLICTING' }), pr(5, DAY3, { behindBy: 0 })], chosen: undefined },
+  { name: 'none when the only behind one carries a review status at its head', prs: [pr(5, DAY1, { hasReviewStatus: true })], chosen: undefined },
+  { name: 'a younger one without a review status over an older one with one', prs: [pr(5, DAY1, { hasReviewStatus: true }), pr(6, DAY2)], chosen: 6 },
+  { name: 'none when every one is excluded for a different reason', prs: [pr(1, DAY1, { autoMerge: false }), pr(2, DAY1, { isDraft: true }), pr(3, DAY2, { isCrossRepository: true }), pr(4, DAY2, { mergeable: 'CONFLICTING' }), pr(5, DAY3, { behindBy: 0 }), pr(6, DAY3, { hasReviewStatus: true })], chosen: undefined },
 ]
 
 describe('the pull request a push to main updates', () => {

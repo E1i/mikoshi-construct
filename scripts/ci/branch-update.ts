@@ -10,10 +10,11 @@ export interface OpenPullRequest {
   autoMerge: boolean
   mergeable: Mergeable
   behindBy: number
+  hasReviewStatus: boolean
 }
 
 export function isWaitingForUpdate(pr: OpenPullRequest): boolean {
-  return pr.autoMerge && !pr.isDraft && !pr.isCrossRepository && pr.mergeable !== 'CONFLICTING' && pr.behindBy > 0
+  return pr.autoMerge && !pr.isDraft && !pr.isCrossRepository && pr.mergeable !== 'CONFLICTING' && pr.behindBy > 0 && !pr.hasReviewStatus
 }
 
 function oldestFirst(a: OpenPullRequest, b: OpenPullRequest): number {
