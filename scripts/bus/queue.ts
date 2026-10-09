@@ -4,6 +4,8 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { QUEUES, taskKey } from './identifiers.js'
+import { ownerInbox } from './inbox.js'
+import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
@@ -19,6 +21,38 @@ const REVIEW_CANDIDATES = `
   WHERE state = 'open' AND ci = 'green' AND verdict_on_head IS NULL AND card_id IS NOT NULL AND head IS NOT NULL
   ORDER BY pr
 `
+
+const MERGE_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND verdict_on_head = 'pass' AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  ORDER BY pr
+`
+
+const UPDATE_CANDIDATES = `
+  SELECT pr, card_id, head, verdict_on_head FROM prs
+  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND mergeable = 'behind' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  ORDER BY pr
+`
+
+interface Candidate {
+  pr: number
+  card_id: number
+  head: string
+  verdict_on_head?: string | null
+}
+
+type Admits = (row: Candidate) => boolean
+
+const everyRow: Admits = () => true
+
+function passOrWaitingForOwner(db: DatabaseSync): Admits {
+  const waiting = new Set(ownerInbox(db).map(line => line.card_id))
+  return row => row.verdict_on_head === 'pass' || waiting.has(row.card_id)
+}
+
+function candidates(db: DatabaseSync): [Queue, string, Admits][] {
+  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow]]
+}
 
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
@@ -106,10 +140,12 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const row of db.prepare(REVIEW_CANDIDATES).all() as unknown as { pr: number, card_id: number, head: string }[]) {
-    const task: TaskIdentity = { queue: 'review', cardId: row.card_id, pr: row.pr, head: row.head }
-    if (queueTask(db, ts, task))
-      derived.queued.push(taskKey(task))
+  for (const [queue, query, admits] of candidates(db)) {
+    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {
+      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr, head: row.head }
+      if (queueTask(db, ts, task))
+        derived.queued.push(taskKey(task))
+    }
   }
   return derived
 }

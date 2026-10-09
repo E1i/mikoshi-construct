@@ -3,6 +3,7 @@ import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
+import { CARD_STOPPED } from './inbox.js'
 import { identityOf, LEASED, QUEUE_ACTOR, QUEUED } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -11,7 +12,7 @@ export const TASK_RENEWED = 'task.renewed'
 export const TASK_COMPLETED = 'task.completed'
 export const TASK_FAILED = 'task.failed'
 export const TASK_EXPIRED = 'task.expired'
-export const CARD_STOPPED = 'card.stopped'
+export const TASK_RELEASED = 'task.released'
 export const BOARD_ALARM = 'board.alarm'
 
 export const LEASE_MS = 30 * 60_000
@@ -113,7 +114,13 @@ function foldFailed(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, failures = failures + 1, event_id = ? WHERE task_key = ?').run(next, event.id, row.task_key)
 }
 
+function foldReleased(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, row.task_key)
+}
+
 export const LEASE_FOLDS: Record<string, Fold> = {
+  [TASK_RELEASED]: foldReleased,
   [TASK_LEASED]: foldLeased,
   [TASK_RENEWED]: foldRenewed,
   [TASK_COMPLETED]: foldCompleted,
@@ -193,6 +200,15 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
 
 export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, context: BusEvent[] = []): AfterFailure {
   return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, context))
+}
+
+export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: string, context: BusEvent[] = []): void {
+  inTransaction(db, () => {
+    const row = held(db, lease)
+    for (const event of context)
+      appendEvent(db, event)
+    folded(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason }))
+  })
 }
 
 export function expireLeases(db: DatabaseSync, ts: string): string[] {

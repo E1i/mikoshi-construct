@@ -36,13 +36,21 @@ export function parseIncluded(output: string): GhResponse {
   return { status: Number(status[1]), headers, body }
 }
 
+export type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse
+
+function included(cwd: string, command: string, args: string[], endpoint: string): GhResponse {
+  const run = spawnSync(command, ['api', '--include', ...args], { cwd, encoding: 'utf8', timeout: GH_TIMEOUT_MS, killSignal: 'SIGKILL' })
+  if (run.error !== undefined)
+    throw run.error
+  if (run.stdout.trim() === '')
+    throw new Error(`gh api ${endpoint} printed nothing: ${run.stderr.trim()}`)
+  return parseIncluded(run.stdout)
+}
+
 export function ghApi(cwd: string, command = 'gh'): GitHub {
-  return (endpoint) => {
-    const run = spawnSync(command, ['api', '--include', '--method', 'GET', endpoint], { cwd, encoding: 'utf8', timeout: GH_TIMEOUT_MS, killSignal: 'SIGKILL' })
-    if (run.error !== undefined)
-      throw run.error
-    if (run.stdout.trim() === '')
-      throw new Error(`gh api ${endpoint} printed nothing: ${run.stderr.trim()}`)
-    return parseIncluded(run.stdout)
-  }
+  return endpoint => included(cwd, command, ['--method', 'GET', endpoint], endpoint)
+}
+
+export function ghApiPut(cwd: string, command = 'gh'): GitHubPut {
+  return (endpoint, fields) => included(cwd, command, ['--method', 'PUT', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
 }
