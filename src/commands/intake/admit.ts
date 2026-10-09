@@ -13,7 +13,7 @@ import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns } from './check.js'
 import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
-import { INTAKE_EXIT } from './index.js'
+import { defaultParking, INTAKE_EXIT } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
@@ -33,6 +33,7 @@ export interface AdmitOptions {
   dryRun: boolean
   confirm?: string
   autoConfirm: boolean
+  parkingRoot?: string
 }
 
 export type AdmitResult
@@ -137,9 +138,22 @@ function sameBody(recorded: unknown, text: string): boolean {
   return recorded === bodySha(text) || recorded === bodyShaWithoutTouches(text)
 }
 
-function siblings(file: string): string[] {
+function parkedFilesUnder(dir: string): string[] {
+  if (!existsSync(dir))
+    return []
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? parkedFilesUnder(path.join(dir, entry.name)) : [entry.name])
+}
+
+function isWithin(root: string, dir: string): boolean {
+  const relative = path.relative(root, dir)
+  return !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
+function parkedAcrossLanes(file: string, root: string): string[] {
   const parking = path.dirname(file)
-  return existsSync(parking) ? readdirSync(parking) : []
+  if (!isWithin(root, parking))
+    return existsSync(parking) ? readdirSync(parking) : []
+  return parkedFilesUnder(root)
 }
 
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
@@ -163,7 +177,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
-    parked: new Set(parkedNumbers(siblings(options.file))),
+    parked: new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking()))),
     done: new Set(closedTasks(journal).keys()),
     merged: mergedTasks(journal),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
