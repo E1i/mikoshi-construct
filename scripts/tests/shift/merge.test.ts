@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { isListed, prReviewLine, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
+const GHOSTS_FILES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/ghosts-files.md'), 'utf8')
 const HEAD = 'a1b2c3d'
 
 function cardLine(decision: 'owner' | 'auto'): string {
@@ -45,6 +46,20 @@ describe('runMerge', () => {
     expect(result.stdout).toEqual(['[shift:merge] owner path .claude/agents/implementer.md — merge is Eli\'s'])
   })
 
+  it('a PR touching .claude/settings.json, .claude/skills or .claude/commands is owner-merged and never armed', () => {
+    for (const file of ['.claude/settings.json', '.claude/skills/x/SKILL.md', '.claude/commands/x.md']) {
+      const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', file])
+      expect(armed(calls)).toBe(false)
+      expect(result.stdout).toEqual([`[shift:merge] owner path ${file} — merge is Eli's`])
+    }
+  })
+
+  it('a PR touching only architecture/ghosts-files.md is not listed', () => {
+    const { calls } = run(cardLine('auto'), ['architecture/ghosts-files.md'])
+    expect(isListed('architecture/ghosts-files.md', GHOSTS_FILES)).toBe(false)
+    expect(armed(calls)).toBe(true)
+  })
+
   it('arms nothing for a pull request that changes src/ with no matrix count line, and names the path', () => {
     const { calls, result } = run(cardLine('auto'), ['src/program.ts', 'scripts/board/derive.ts'])
     expect(armed(calls)).toBe(false)
@@ -81,10 +96,14 @@ describe('runMerge', () => {
 })
 
 describe('isListed', () => {
-  const text = '| kind | paths |\n|---|---|\n| ghosts | `scripts/ghosts/a.ts` |\n\n| plain | note |\n|---|---|\n| `scripts/ghosts/b.ts` | x |\n'
+  const text = '| file | kind |\n|---|---|\n| `scripts/ghosts/a.ts` | ghosts |\n| `scripts/ghosts/b.ts` | plain |\n'
 
-  it('finds a path in a kind list and in the plain list, and not an unlisted one', () => {
+  it('finds a path of either kind in ghosts-files.md, and not an unlisted one', () => {
     expect([isListed('scripts/ghosts/a.ts', text), isListed('scripts/ghosts/b.ts', text), isListed('scripts/ghosts/c.ts', text)]).toEqual([true, true, false])
+  })
+
+  it('reads a ghosts row and a plain row of the real ghosts-files.md as listed', () => {
+    expect(isListed('scripts/ghosts/launch.ts', GHOSTS_FILES) && isListed('scripts/ghosts/entry.ts', GHOSTS_FILES)).toBe(true)
   })
 })
 

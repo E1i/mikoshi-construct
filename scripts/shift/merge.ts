@@ -15,12 +15,13 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
 import { ghStatusPublisher, publishReasons, REVIEW_CARRY_EVENT, reviewStatus } from '../ghosts/verdict.js'
 import { matchGlob } from '../shredder/glob.js'
-import { readOwnerMergeKinds, readPlainPaths } from '../shredder/reader.js'
+import { GHOSTS_FILES, readGhostsFiles, readOwnerMergeKinds } from '../shredder/reader.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
 
 export const PREFIX = '[shift:merge] '
 export const USAGE = 'usage: pnpm shift:merge <pull request number>'
 export const OWNER_MERGES_ON_MAIN = 'origin/main:architecture/owner-merges.md'
+export const GHOSTS_FILES_ON_MAIN = `origin/main:${GHOSTS_FILES}`
 export const MATRIX_COUNT_LINE = /■ \d+ □ \d+ · \d+/
 const MATRIX_REQUIRED_UNDER = ['src/', 'templates/']
 
@@ -50,8 +51,8 @@ export function ownerPaths(files: string[], kinds: OwnerMergeKind[]): string[] {
   return files.filter(file => kinds.some(kind => kind.globs.some(glob => matchGlob(glob, file)))).sort()
 }
 
-export function isListed(file: string, ownerMergesText: string): boolean {
-  return ownerPaths([file], readOwnerMergeKinds(ownerMergesText)).length > 0 || readPlainPaths(ownerMergesText).includes(file)
+export function isListed(file: string, ghostsFilesText: string): boolean {
+  return readGhostsFiles(ghostsFilesText).some(row => row.file === file)
 }
 
 export function mergeVerdict(decision: Decision, files: string[], kinds: OwnerMergeKind[]): MergeVerdict {

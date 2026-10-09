@@ -1,6 +1,7 @@
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { SHIFT_WHO } from '../../src/card/parking.js'
+import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
 import { taskConflicts } from './overlap.js'
 
 export interface LeftCard {
@@ -55,9 +56,10 @@ function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: Reado
     return `${DEPENDS_FAILED}${failed.map(id => `#${id}`).join(', ')}`
   if (open.length > 0)
     return `depends ${open.map(id => `#${id}`).join(', ')} not merged`
-  const unclassified = parked.task.touches.find(file => file.startsWith(GHOSTS_DIR) && !file.includes('*') && created(file))
+  const declared = new Set(parked.creates.flatMap(entry => declaredGhostsFile(entry)?.file ?? []))
+  const unclassified = parked.task.touches.find(file => file.startsWith(GHOSTS_DIR) && !file.includes('*') && !declared.has(file) && created(file))
   if (unclassified !== undefined)
-    return `classify ${unclassified} in owner-merges.md`
+    return `classify ${unclassified} in ${GHOSTS_FILES}, or declare it in creates: with its kind`
   return null
 }
 

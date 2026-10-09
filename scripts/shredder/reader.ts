@@ -93,8 +93,34 @@ export function readOwnerMergeKinds(ownerMergesText: string): OwnerMergeKind[] {
   })
 }
 
-export function readPlainPaths(ownerMergesText: string): string[] {
-  return tableRows(ownerMergesText, '| plain |').flatMap(cells => [...(cells[0] ?? '').matchAll(/`([^`]+)`/g)].map(match => match[1]!))
+export const GHOSTS_FILES = 'architecture/ghosts-files.md'
+export const GHOSTS_FILE_KINDS = ['ghosts', 'plain'] as const
+
+export type GhostsFileKind = typeof GHOSTS_FILE_KINDS[number]
+
+export interface GhostsFile {
+  file: string
+  kind: GhostsFileKind
+}
+
+function ghostsFileKind(value: string): GhostsFileKind | null {
+  return (GHOSTS_FILE_KINDS as readonly string[]).includes(value) ? value as GhostsFileKind : null
+}
+
+export function readGhostsFiles(ghostsFilesText: string): GhostsFile[] {
+  return tableRows(ghostsFilesText, '| file |').flatMap((cells) => {
+    const file = /^`([^`]+)`$/.exec(cells[0] ?? '')?.[1]
+    const kind = ghostsFileKind(cells[1] ?? '')
+    return file === undefined || kind === null ? [] : [{ file, kind }]
+  })
+}
+
+const DECLARED_KIND = /^(\S+) \((\w+)\)$/
+
+export function declaredGhostsFile(createsEntry: string): GhostsFile | null {
+  const found = DECLARED_KIND.exec(createsEntry.trim())
+  const kind = found === null ? null : ghostsFileKind(found[2]!)
+  return found === null || kind === null ? null : { file: found[1]!, kind }
 }
 
 const TASK_FILE_NAME = /^\d+-(.+)\.(issue|brief)\.md$/

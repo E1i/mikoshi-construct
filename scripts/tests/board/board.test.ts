@@ -73,7 +73,7 @@ const GREEN = green('2026-09-28T07:20:00Z')
 const VIEWS: Record<string, { headRefOid?: string, statusCheckRollup: unknown[], files?: { path: string }[] }> = {
   21: { statusCheckRollup: green('2026-09-28T08:20:00Z') },
   30: { statusCheckRollup: [{ name: 'quality', status: 'COMPLETED', conclusion: 'FAILURE' }, { name: 'required', status: 'COMPLETED', conclusion: 'FAILURE' }], files: [{ path: 'src/cli.ts' }] },
-  31: { statusCheckRollup: GREEN, files: [{ path: 'src/cli.ts' }, { path: '.claude/agents/implementer.md' }] },
+  31: { statusCheckRollup: GREEN, files: [{ path: 'src/cli.ts' }, { path: '.claude/skills/implement/SKILL.md' }] },
   32: { statusCheckRollup: GREEN, files: [{ path: 'src/cli.ts' }] },
   33: { statusCheckRollup: GREEN },
   35: { statusCheckRollup: [{ name: 'quality', status: 'IN_PROGRESS' }, { name: 'required', status: 'QUEUED' }], files: [{ path: 'src/cli.ts' }] },
@@ -809,7 +809,7 @@ describe('board <task-id>: the expanded card of one task', () => {
 
   it('names why NEXT is Eli\'s merge', () => {
     const { stdout } = board(['--dir', NEXT, 'n-owner'])
-    expect(stdout).toContain('next Eli\'s merge (derived; owner-merges own-instructions: .claude/agents/implementer.md)')
+    expect(stdout).toContain('next Eli\'s merge (derived; owner-merges own-instructions: .claude/skills/implement/SKILL.md)')
   })
 })
 
