@@ -48,7 +48,7 @@ function append(file: string, event: object): string {
 }
 
 describe('pnpm miko:watch wakes the foreman on an event and on nothing else', () => {
-  it.each(['merge', 'failed', 'relaunch-stop', 'stop', 'STOP'])('wakes on an appended %s line with one line, and never on a line already in the journal', (event) => {
+  it.each(['merge', 'fall', 'relaunch-stop', 'stop', 'STOP'])('wakes on an appended %s line with one line, and never on a line already in the journal', (event) => {
     const file = journal()
     const deps = fileDeps(file)
     const state = watchState(deps, [])
@@ -72,7 +72,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const file = journal()
     const deps = fileDeps(file)
     const state = watchState(deps, [])
-    const line = JSON.stringify({ event: 'failed', task: '7' })
+    const line = JSON.stringify({ event: 'fall', task: '7' })
     appendFileSync(file, line.slice(0, 10))
     expect(tick(state, deps)).toEqual([])
     appendFileSync(file, `${line.slice(10)}\n`)

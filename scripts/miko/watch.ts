@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
 
-export const WAKING_EVENTS = ['merge', 'failed', 'relaunch-stop', 'stop']
+export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--pid <pid>…]'
 

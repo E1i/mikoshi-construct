@@ -52,7 +52,7 @@ ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop
 
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
 `pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
-line appended to `ghosts.jsonl` whose `event` is `merge`, `failed`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
+line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
 `scripts/miko/watch.ts`, any case), and `pid <pid> exited` once for each watched PID that dies. Lines already in the
 journal when it starts, lines of any other event and live PIDs print nothing.
 
