@@ -42,7 +42,7 @@ export interface Snapshot {
   main: MainHead | null
 }
 
-const MERGEABLE_OF_STATE: Record<string, Mergeable> = {
+export const MERGEABLE_OF_STATE: Record<string, Mergeable> = {
   clean: 'clean',
   unstable: 'clean',
   has_hooks: 'clean',
@@ -88,7 +88,7 @@ export function ciOf(meter: Meter, sha: string): CiReading {
   return required.conclusion === 'success' ? 'green' : 'red'
 }
 
-function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
+export function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
   const statuses = (meter.get(`${REPO}/commits/${sha}/status`) as { statuses?: CommitStatus[] }).statuses ?? []
   const review = statuses.find(status => status.context === REVIEW_STATUS_CONTEXT)
   return review?.state === undefined ? null : VERDICT_OF_STATE[review.state] ?? null
