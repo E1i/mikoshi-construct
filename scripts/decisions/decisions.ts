@@ -2,16 +2,18 @@ import { Buffer } from 'node:buffer'
 
 export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
-export const DECISION_FORMAT = '- D-N · <date> — <decision> [· superseded-by D-M]'
+export const DECISION_FORMAT = '- D-N · <date> — <decision> [· card #A #B] [· superseded-by D-M]'
+export const SPENDING_DECISION = 54
 
 const FIELD_PATTERNS: Record<string, string> = {
   'D-N': 'D-(?<number>[1-9]\\d*)',
   'D-M': 'D-(?<supersededBy>[1-9]\\d*)',
   '<date>': '\\d{4}-\\d{2}-\\d{2}(?: ~\\d{2}:\\d{2}Z)?',
   '<decision>': '(?<body>\\S.*?)',
+  '#A #B': '(?<cards>#[1-9]\\d*(?: #[1-9]\\d*)*)',
 }
 const FIELD = new RegExp(`(${Object.keys(FIELD_PATTERNS).join('|')})`)
-const OPTIONAL_TAIL = / \[(.+)\]$/
+const OPTIONAL_TAIL = / \[([^\]]+)\]/g
 const LIST_START = /^\s*(?:[-*+]|\d+[.)])\s|^\s*D-/
 const NUMBER_ATTEMPT = /^\s*(?:[-*+]\s+)?D-/
 const SUPERSEDED_MENTION = /superseded-by/i
@@ -25,10 +27,10 @@ function patternOf(part: string): string {
 }
 
 function lineShape(format: string): RegExp {
-  const optional = OPTIONAL_TAIL.exec(format)
-  const required = optional === null ? format : format.slice(0, optional.index)
-  const tail = optional === null ? '' : `(?: ${patternOf(optional[1]!)})?`
-  return new RegExp(`^${patternOf(required)}${tail}$`)
+  const optionals = [...format.matchAll(OPTIONAL_TAIL)]
+  const required = optionals.length === 0 ? format : format.slice(0, optionals[0]!.index)
+  const tails = optionals.map(optional => `(?: ${patternOf(optional[1]!)})?`).join('')
+  return new RegExp(`^${patternOf(required)}${tails}$`)
 }
 
 const DECISION_LINE = lineShape(DECISION_FORMAT)
@@ -38,6 +40,7 @@ export interface Decision {
   line: number
   text: string
   body: string
+  cards: number[]
   supersededBy: number | null
 }
 
@@ -60,6 +63,7 @@ function decisionOf(text: string, line: number): Decision | null {
     line,
     text,
     body: groups.body!,
+    cards: groups.cards === undefined ? [] : groups.cards.split(' ').map(card => Number(card.slice(1))),
     supersededBy: groups.supersededBy === undefined ? null : Number(groups.supersededBy),
   }
 }
@@ -87,6 +91,18 @@ export function inForce(decisions: readonly Decision[]): Decision[] {
 
 export function inForceBytes(decisions: readonly Decision[]): number {
   return inForce(decisions).reduce((bytes, decision) => bytes + Buffer.byteLength(`${decision.text}\n`, 'utf8'), 0)
+}
+
+export function spendDecisions(text: string, settled: (card: number) => boolean): string {
+  const { decisions } = parseDecisions(text)
+  if (!decisions.some(decision => decision.number === SPENDING_DECISION))
+    return text
+  const spent = new Set(inForce(decisions)
+    .filter(decision => decision.cards.length > 0 && decision.cards.every(settled))
+    .map(decision => decision.line))
+  if (spent.size === 0)
+    return text
+  return text.split('\n').map((raw, index) => spent.has(index + 1) ? `${raw.trimEnd()} · superseded-by D-${SPENDING_DECISION}` : raw).join('\n')
 }
 
 function offFormatRefusals(lines: readonly OffFormatLine[]): string[] {
@@ -128,7 +144,7 @@ function supersedingRefusals(decisions: readonly Decision[]): string[] {
       return []
     if (decision.supersededBy === decision.number)
       return [`${PREFIX}D-${decision.number}: superseded-by itself`]
-    if (decision.supersededBy < decision.number)
+    if (decision.supersededBy < decision.number && decision.supersededBy !== SPENDING_DECISION)
       return [`${PREFIX}D-${decision.number}: superseded-by D-${decision.supersededBy}, an earlier number; the replacement takes a new, later number`]
     return numbers.has(decision.supersededBy) ? [] : [`${PREFIX}D-${decision.number}: superseded-by D-${decision.supersededBy}, which is not in the file`]
   })
