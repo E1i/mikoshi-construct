@@ -1,7 +1,7 @@
 import type { PrList, PullRequest } from '../board/gh.js'
 import type { TasksFile } from './tasks.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -17,7 +17,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
 import { appendJournalEvent } from './journal.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
-import { ghostRowState } from './status.js'
+import { freeRow, ghostRowState, writeGhostRow } from './status.js'
 import { approvedSketchOf, lastRunSketch, patchPath, releaseTree, shortSketch, sketchSuperseded } from './supersede.js'
 import { readTasksFile, startedTree } from './tasks.js'
 import { DISPOSITION_EVENT, MERGE_FOLLOW_UP } from './verdict.js'
@@ -27,6 +27,10 @@ const DEFAULT_LOGS_DIR = '/tmp'
 const BLOCKED_OUTCOME = /; ladder blocked; report \S+;/
 const DONE_OUTCOME = /^exit 0; ladder done; report \S+;/
 const OUTCOME_COLUMN = 6
+const SHA_COLUMN = 4
+const START_COLUMN = 5
+const BUSY_STATES = new Set(['writing', 'reviewing'])
+const SUPERVISOR_NAMED = /, supervisor (\d+), /
 
 export interface Target {
   id: string
@@ -40,6 +44,7 @@ export interface Target {
 export interface CleanupContext {
   repo: string
   prs: PrList
+  statusPath: string
   statusText: string | undefined
   journalPath: string
   logsDir: string
@@ -205,6 +210,81 @@ async function releaseSuperseded(task: Target, ctx: CleanupContext): Promise<str
   return `${label(task)} released: superseded by sketch ${shortSketch(approved)}; work saved to ${patch}; tree ${task.worktree} clean for the next attempt`
 }
 
+interface BusyRow {
+  state: string
+  supervisor: number
+  sha: string
+  start: string
+}
+
+function busyRow(statusText: string | undefined, id: string): BusyRow | undefined {
+  if (statusText === undefined)
+    return undefined
+  const state = ghostRowState(statusText, id)
+  if (state === undefined || !BUSY_STATES.has(state))
+    return undefined
+  const cells = statusText.split('\n').find(line => line.startsWith(`| ghost-${id} |`))!.split('|').map(cell => cell.trim())
+  const named = SUPERVISOR_NAMED.exec(cells[OUTCOME_COLUMN] ?? '')
+  return named === null ? undefined : { state, supervisor: Number(named[1]), sha: cells[SHA_COLUMN]!, start: cells[START_COLUMN]! }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+function minuteStamp(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function stashKilledTree(worktree: string, message: string): string {
+  if (changedPaths(worktree) === 0)
+    return 'clean'
+  execFileSync('git', ['-C', worktree, 'stash', 'push', '--include-untracked', '-m', message], { stdio: 'pipe' })
+  const entry = execFileSync('git', ['-C', worktree, 'stash', 'list', '--format=%H %gs'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    .split('\n')
+    .find(line => line.endsWith(`: ${message}`))
+  return `clean, its changes stashed as ${entry?.slice(0, 7) ?? 'an entry'} "${message}"`
+}
+
+function setReportAside(report: string, aside: string): string {
+  if (!existsSync(report))
+    return `no report at ${report}`
+  if (existsSync(aside))
+    throw new Error(`${aside} already exists`)
+  renameSync(report, aside)
+  return `report moved to ${aside}`
+}
+
+export async function releaseKilled(task: Target, ctx: CleanupContext): Promise<string | undefined> {
+  const id = task.ghost ?? task.id
+  const row = busyRow(ctx.statusText, id)
+  if (row === undefined)
+    return undefined
+  if (processAlive(row.supervisor))
+    return kept(task, `status.md row ghost-${id} is ${row.state} and its supervisor ${row.supervisor} is alive`)
+  const out = path.dirname(ctx.journalPath)
+  const killed = `supervisor ${row.supervisor} dead`
+  let tree: string
+  let report: string
+  try {
+    tree = existsSync(task.worktree) ? `tree ${task.worktree} ${stashKilledTree(task.worktree, `ghosts:cleanup ghost-${id} ${killed}`)}` : `no tree at ${task.worktree}`
+    report = setReportAside(path.join(out, `ghost-${id}.jsonl`), path.join(out, `ghost-${id}.killed-${row.supervisor}.jsonl`))
+  }
+  catch (error) {
+    return kept(task, `${killed} with the row ${row.state}, but the run could not be set aside: ${firstLine(error)}`)
+  }
+  const headSha = existsSync(task.worktree) ? execFileSync('git', ['-C', task.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() : row.sha
+  await writeGhostRow(ctx.statusPath, id, freeRow({ id, worktree: task.worktree, headSha, start: row.start, end: minuteStamp(new Date()), outcome: `${killed}; freed by ghosts:cleanup` }))
+  return `${label(task)} released: ${killed} with the row ${row.state}; row ghost-${id} free; ${report}; ${tree}`
+}
+
 export async function cleanupMerged(task: Target, ctx: CleanupContext): Promise<string> {
   const handLadder = [task.ghost, task.id].find(id => id !== undefined && handLadderRows(ctx.statusText).has(id))
   if (handLadder !== undefined)
@@ -317,6 +397,7 @@ async function main(): Promise<void> {
   const ctx: CleanupContext = {
     repo: repoRoot,
     prs: repo === undefined ? { kind: 'failed' } : listPrs(execGh, repo),
+    statusPath,
     statusText: existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined,
     journalPath: path.join(tasksData?.out ?? handoffDir, 'ghosts.jsonl'),
     logsDir: values.logs ?? DEFAULT_LOGS_DIR,
@@ -324,7 +405,7 @@ async function main(): Promise<void> {
     stepCache,
   }
   for (const task of targets)
-    console.log(`${PREFIX}${await cleanupMerged(task, ctx)}`)
+    console.log(`${PREFIX}${await releaseKilled(task, ctx) ?? await cleanupMerged(task, ctx)}`)
   for (const line of untracked)
     console.log(`${PREFIX}${line}`)
 }

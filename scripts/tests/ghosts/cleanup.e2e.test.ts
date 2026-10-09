@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ghostRowState, upsertGhostRow, writingRow } from '../../ghosts/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const CLEANUP = path.join(REPO_ROOT, 'scripts/ghosts/cleanup.ts')
@@ -528,5 +529,104 @@ describe('superseded without --tasks', () => {
     const patch = path.join(w.handoff, `ghost-g1.done-${'a'.repeat(7)}.patch`)
     expect(cleanupFromHandoff(w)).toBe(`[ghosts:cleanup] ghost-g1 released: superseded by sketch ${'b'.repeat(7)}; work saved to ${patch}; tree ${w.worktree} clean for the next attempt\n`)
     expect(git(w.worktree, ['status', '--porcelain'])).toBe('')
+  })
+})
+
+const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
+const LAUNCH_WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
+const launchWorlds: string[] = []
+
+function launchWorld(...args: string[]): string {
+  const result = spawnSync('bash', [LAUNCH_WORLD, ...args], { encoding: 'utf8' })
+  if (result.status !== 0)
+    throw new Error(`world.sh ${args.join(' ')} exited ${result.status}: ${result.stderr}`)
+  return result.stdout.trim()
+}
+
+afterEach(() => {
+  for (const w of launchWorlds.splice(0))
+    launchWorld('clean', w)
+})
+
+interface KilledWorld {
+  w: string
+  tree: string
+  status: string
+  report: string
+  aside: string
+}
+
+function deadPid(): number {
+  return spawnSync('true').pid!
+}
+
+function killedGhostWorld(supervisor: number): KilledWorld {
+  const w = launchWorld('new', 'ok')
+  launchWorlds.push(w)
+  const tree = path.join(w, 'wt-g1')
+  const status = path.join(w, 'handoff', 'status.md')
+  const report = path.join(w, 'handoff', 'ghost-g1.jsonl')
+  const base = git(tree, ['rev-parse', 'HEAD']).trim()
+  const row = writingRow({ id: 'g1', worktree: tree, baseSha: base, start: '2026-10-09 21:00', briefFileName: 'brief-g1.md', supervisorPid: supervisor, sessionId: 's1' })
+  writeFileSync(status, upsertGhostRow(readFileSync(status, 'utf8'), 'g1', row))
+  writeFileSync(report, '{"type":"system"}\n')
+  for (const file of ['sketch-a.ts', 'sketch-b.ts'])
+    writeFileSync(path.join(tree, file), `${file}\n`)
+  git(tree, ['add', 'sketch-a.ts', 'sketch-b.ts'])
+  const stub = path.join(w, 'gh-stub')
+  mkdirSync(stub)
+  writeFileSync(path.join(stub, 'gh'), `#!/usr/bin/env bash\nif [ "$1" = repo ]; then echo '{"nameWithOwner":"world/repo"}'; else echo '[]'; fi\n`)
+  chmodSync(path.join(stub, 'gh'), 0o755)
+  return { w, tree, status, report, aside: path.join(w, 'handoff', `ghost-g1.killed-${supervisor}.jsonl`) }
+}
+
+function cleanupKilled(k: KilledWorld): string {
+  const result = spawnSync(process.execPath, [TSX_CLI, CLEANUP, '--tasks', path.join(k.w, 'tasks.json'), '--logs', path.join(k.w, 'handoff')], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${path.join(k.w, 'gh-stub')}${path.delimiter}${process.env.PATH}` },
+  })
+  expect(result.stderr).toBe('')
+  expect(result.status).toBe(0)
+  return result.stdout
+}
+
+function launchPreflight(k: KilledWorld): string {
+  const result = spawnSync(process.execPath, [TSX_CLI, LAUNCH, '--tasks', path.join(k.w, 'tasks.json')], {
+    input: 'no\n',
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${path.join(k.w, 'bin')}${path.delimiter}${process.env.PATH}` },
+  })
+  return `${result.stdout}${result.stderr}`
+}
+
+describe('k: ghosts:cleanup cleans up after a killed Ghost', () => {
+  it('a killed Ghost leaves a free row, its report set aside and a clean tree, and the launch preflight passes', () => {
+    const supervisor = deadPid()
+    const k = killedGhostWorld(supervisor)
+    const message = `ghosts:cleanup ghost-g1 supervisor ${supervisor} dead`
+    const out = cleanupKilled(k)
+    const stash = git(k.tree, ['stash', 'list', '--format=%H %gs']).split('\n').find(line => line.endsWith(`: ${message}`))
+    expect(stash).toBeDefined()
+    expect(out).toContain(`[ghosts:cleanup] ghost-g1 released: supervisor ${supervisor} dead with the row writing; row ghost-g1 free; report moved to ${k.aside}; tree ${k.tree} clean, its changes stashed as ${stash!.slice(0, 7)} "${message}"\n`)
+    expect(ghostRowState(readFileSync(k.status, 'utf8'), 'g1')).toBe('free')
+    expect(existsSync(k.report)).toBe(false)
+    expect(readFileSync(k.aside, 'utf8')).toBe('{"type":"system"}\n')
+    expect(git(k.tree, ['status', '--porcelain'])).toBe('')
+    expect(git(k.tree, ['stash', 'show', '--name-only', '--include-untracked', stash!.slice(0, 40)]).split('\n').filter(line => line !== '').sort()).toEqual(['sketch-a.ts', 'sketch-b.ts'])
+    const launched = launchPreflight(k)
+    expect(launched).not.toContain('task g1:')
+    expect(launched).toContain('DECISION: open 2 sessions')
+  })
+
+  it('a row whose supervisor is alive is refused and unchanged', () => {
+    const k = killedGhostWorld(process.pid)
+    const statusBefore = readFileSync(k.status, 'utf8')
+    const treeBefore = git(k.tree, ['status', '--porcelain'])
+    expect(cleanupKilled(k)).toContain(`[ghosts:cleanup] ghost-g1 kept: status.md row ghost-g1 is writing and its supervisor ${process.pid} is alive\n`)
+    expect(readFileSync(k.status, 'utf8')).toBe(statusBefore)
+    expect(existsSync(k.report)).toBe(true)
+    expect(existsSync(k.aside)).toBe(false)
+    expect(git(k.tree, ['status', '--porcelain'])).toBe(treeBefore)
+    expect(git(k.tree, ['stash', 'list'])).toBe('')
   })
 })
