@@ -40,9 +40,9 @@ describe('runMerge', () => {
   })
 
   it('arms nothing for decision auto when one path is owner-merged, and names that path', () => {
-    const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', 'scripts/shift/header.md'])
+    const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', '.claude/agents/implementer.md'])
     expect(armed(calls)).toBe(false)
-    expect(result.stdout).toEqual(['[shift:merge] owner path scripts/shift/header.md — merge is Eli\'s'])
+    expect(result.stdout).toEqual(['[shift:merge] owner path .claude/agents/implementer.md — merge is Eli\'s'])
   })
 
   it('arms nothing for a pull request that changes src/ with no matrix count line, and names the path', () => {
