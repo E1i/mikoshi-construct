@@ -2,6 +2,7 @@ import type { Kind } from '../../card/grammar.js'
 import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
+import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { commandWord } from './command-word.js'
 
@@ -113,12 +114,17 @@ interface Touched {
 
 function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   const touched: Touched = { touches: [], corrections: [], unclear: [] }
+  const creates = createdPaths(card.creates)
+  for (const parsed of card.creates.map(parseCreatesEntry)) {
+    if (parsed.kind === 'refused')
+      touched.unclear.push({ field: 'creates', reason: parsed.reason })
+  }
   for (const entry of card.touches) {
     if (touchError(entry) !== null) {
       touched.touches.push(entry)
       continue
     }
-    const created = card.creates.includes(entry)
+    const created = creates.includes(entry)
     const prefix = entry.endsWith(PREFIX_SUFFIX) ? PREFIX_SUFFIX : ''
     const scope = prefix === '' ? entry : entry.slice(0, -PREFIX_SUFFIX.length)
     if (repository.exists(scope)) {
