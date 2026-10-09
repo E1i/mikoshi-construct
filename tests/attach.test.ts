@@ -863,3 +863,46 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     expect(listing(dir)).toEqual(before)
   })
 })
+
+describe('interactive attach proposes the harness candidates it read from the repository', () => {
+  function choosing(chosen: (candidates: string[]) => string | null): { prompter: Prompter, offered: () => string[] | undefined } {
+    let offered: string[] | undefined
+    const prompter: Prompter = {
+      ...racingPrompter(() => {}),
+      harnessCommand: (candidates) => {
+        offered = candidates
+        return Promise.resolve(chosen(candidates ?? []))
+      },
+    }
+    return { prompter, offered: () => offered }
+  }
+
+  it('prints each candidate with its source, and the chosen one is the recorded harness', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.github/workflows'), { recursive: true })
+    writeFileSync(path.join(dir, '.github/workflows/test.yml'), 'jobs:\n  test:\n    steps:\n      - run: pnpm install\n      - run: pnpm lint\n      - run: pnpm test\n')
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(candidates => candidates[0])
+
+    const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+    expect(result.status).toBe('done')
+    expect(offered()).toEqual(['pnpm test', 'pnpm run quality', 'pnpm run typecheck'])
+    expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(1, 'pnpm test', '.github/workflows/test.yml:6'))
+    expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(2, 'pnpm run quality', 'package.json scripts.quality'))
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test' })
+  })
+
+  it('says so when the repository has no test to propose, and asks for a command', async () => {
+    const dir = fixture()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'no-tests', private: true }))
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(() => HARNESS)
+
+    const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+    expect(result.status).toBe('done')
+    expect(offered()).toEqual([])
+    expect(output()).toContain(PLAIN_LORE.attachNoHarnessCandidates)
+  })
+})

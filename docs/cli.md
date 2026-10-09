@@ -1061,7 +1061,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 
 | Option | Default | What it does |
 |---|---|---|
-| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: without a terminal it must be passed. |
+| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: without a terminal it must be passed; in a terminal attach first offers the [candidates](#harness-candidates) it read. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Needs `--harness`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
@@ -1091,9 +1091,31 @@ parts:
    out, and one question the owner answers yes or no. Yes runs
    `npx mikoshi-construct attach --yes --harness "<command>"`; no means attach is not run.
 
-attach reads none of this itself: which command mirrors a repository's CI is a reading of the
-repository, and that is the agent's ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md),
+Which command mirrors a repository's CI is a reading of the repository, and that is the agent's;
+attach itself only offers the [candidates](#harness-candidates) below for the owner to pick from ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md),
 [decision 0037](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0037-attach-entry-is-read-by-the-agent.md)).
+
+### Harness candidates
+
+Run in a terminal without `--harness`, attach reads two places in the repository and prints at most
+three candidates, each with where it was read:
+
+- every `run:` step of `.github/workflows/*.yml` and `*.yaml`, one candidate per command line of a
+  `run: |` block, its source the file and line (`.github/workflows/ci.yml:23`);
+- every script of the root `package.json`, as `<manager> run <name>`, its source the key
+  (`package.json scripts.test`). The manager is `packageManager`'s name, else the one whose lockfile
+  is present, else `npm`.
+
+A command, read together with the body of the script it calls, that says `test` is a test candidate;
+otherwise one that says `lint` is never proposed, one that says `typecheck` or `type-check` is a
+typecheck candidate, and anything else (an install, a build, an `echo`) is not a candidate. Test
+candidates come before typecheck ones, CI steps before scripts, and a script that repeats a CI step
+(`pnpm run test` beside `pnpm test`) is not offered twice. No list of frameworks or tools is consulted.
+
+attach then asks `Use 1 as the harness? yes / no / a number (1–3)`: yes takes the first, a number
+that one, and no — or a repository with nothing to propose, which attach says — asks for the command
+as before. The chosen command is checked like one passed with `--harness`. Under `--yes` nothing is
+proposed and `--harness` is still required.
 
 ### The twelve refusals
 

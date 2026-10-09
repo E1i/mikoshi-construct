@@ -1,6 +1,7 @@
 import type { Ui } from '../../ui/console.js'
 import type { Lore, Notice } from '../../ui/lore.js'
 import type { Prompter } from '../../ui/prompts.js'
+import type { HarnessCandidate } from './harness.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
 import { existsSync } from 'node:fs'
@@ -11,7 +12,7 @@ import { AI_TARGETS } from '../../presets/index.js'
 import { VERSION } from '../../version.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
-import { fileEditingMarks, throughPackageRunners } from './harness.js'
+import { fileEditingMarks, harnessCandidates, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
@@ -106,6 +107,23 @@ function aborted(): AttachResult {
   return { status: 'aborted', created: [], rolledBack: [] }
 }
 
+function printCandidates(ui: Ui, candidates: HarnessCandidate[]): void {
+  if (candidates.length === 0) {
+    ui.line(`  ${ui.lore.attachNoHarnessCandidates}`)
+    return
+  }
+  ui.line(`  ${ui.lore.attachHarnessCandidates}`)
+  candidates.forEach(({ command, source }, index) => ui.line(`    ${ui.lore.attachHarnessCandidate(index + 1, command, source)}`))
+}
+
+async function askHarness(ui: Ui, root: string, interactive: Prompter | undefined): Promise<string | null> {
+  if (interactive == null)
+    return null
+  const candidates = harnessCandidates(root)
+  printCandidates(ui, candidates)
+  return interactive.harnessCommand(candidates.map(candidate => candidate.command))
+}
+
 export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Prompter): Promise<AttachResult> {
   const root = path.resolve(options.dir)
   if (options.ai != null && !(AI_TARGETS as readonly string[]).includes(options.ai))
@@ -121,7 +139,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   }
   const interactive = options.yes ? undefined : prompter
 
-  const command = options.harness ?? await interactive?.harnessCommand() ?? null
+  const command = options.harness ?? await askHarness(ui, root, interactive)
   if (command == null)
     return aborted()
   const unresolved = harnessRefusal(command, (options.env ?? process.env).PATH ?? '')
