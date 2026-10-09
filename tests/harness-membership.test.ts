@@ -6,6 +6,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bench:architect': 'a benchmark run on demand, not a verdict on a change',
   'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',
+  'bus:bg': 'starts bus:run as the one detached instance when run by hand; its own tests, on nohup and pnpm stubs, are its gate',
   'bus:import': 'imports the journal into bus.db once when run by hand; its own tests are its gate',
   'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',
   'bus:reduce': 'rebuilds the prs, cards and tasks projections of bus.db when run by hand; its own tests are its gate',
