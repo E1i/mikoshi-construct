@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parseCard } from '../../src/card/grammar.js'
+import { readBodyCard } from '../../src/card/grammar.js'
 import { sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
 import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
@@ -207,7 +207,7 @@ function cardLineNote(deps: TaskCloseDeps, id: string, pr: number): string[] {
     return []
   try {
     const body = deps.prBody(pr)
-    if (body === null || parseCard(body.split('\n')[0]!).kind !== 'refused')
+    if (body === null || readBodyCard(body).kind !== 'refused')
       return []
     return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
   }

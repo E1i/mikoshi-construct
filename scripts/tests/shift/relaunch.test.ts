@@ -205,6 +205,11 @@ describe('runRelaunch', () => {
     expect(first).toContain(`you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}`)
   })
 
+  it('the operator role says the owner order is priority and not-before lives only in depends', () => {
+    expect(OPERATOR_ROLE).toContain('the order in the owner\'s messages is priority, never a dependency; a "not before" exists only as depends in a card, set with construct intake --admit')
+    expect(promptFirstLine('/h/handoff.md')).toContain('the order in the owner\'s messages is priority')
+  })
+
   it('every session prompt names the owner decisions file', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
