@@ -503,9 +503,8 @@ function stopAt(where: Where, kind: Stop['at'], why: string, pr?: number): StopR
   return { at: kind, why, ...where, ...(pr === undefined ? {} : { pr }) }
 }
 
-function askedStop(where: Where, finish: Pick<Finish, 'reason' | 'report' | 'closed' | 'merge'>): StopRecord | null {
-  const closedByItsReport = finish.closed && finish.merge === undefined
-  return finish.reason === 'owner-question' && !closedByItsReport ? stopAt(where, 'question', QUESTION_TEXT.exec(finish.report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[finish.reason]) : null
+function askedStop(where: Where, finish: Pick<Finish, 'reason' | 'report'>): StopRecord | null {
+  return finish.reason === 'owner-question' ? stopAt(where, 'question', QUESTION_TEXT.exec(finish.report ?? '')?.[1]?.trim() || EXIT_REASON_TEXT[finish.reason]) : null
 }
 
 function interruptedStop(where: Where, finish: Pick<Finish, 'reason' | 'halted' | 'exit'>): StopRecord | null {
@@ -521,7 +520,8 @@ function interruptedStop(where: Where, finish: Pick<Finish, 'reason' | 'halted' 
 
 function stopAfter(task: ShiftTask, where: Where, finish: Finish): StopRecord | null {
   const { report, merge } = finish
-  const asked = askedStop(where, finish)
+  const closedByItsReport = finish.closed && merge === undefined
+  const asked = closedByItsReport ? null : askedStop(where, finish)
   if (asked !== null)
     return asked
   if (merge?.lines.some(line => MERGE_ARMED.test(line) || AWAITS_REVIEW.test(line)))
