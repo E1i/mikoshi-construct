@@ -3,6 +3,7 @@ import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
+import { CARD_STOPPED } from './inbox.js'
 import { identityOf, LEASED, QUEUE_ACTOR, QUEUED } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -12,7 +13,6 @@ export const TASK_COMPLETED = 'task.completed'
 export const TASK_FAILED = 'task.failed'
 export const TASK_EXPIRED = 'task.expired'
 export const TASK_RELEASED = 'task.released'
-export const CARD_STOPPED = 'card.stopped'
 export const BOARD_ALARM = 'board.alarm'
 
 export const LEASE_MS = 30 * 60_000

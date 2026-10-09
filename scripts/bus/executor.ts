@@ -58,7 +58,7 @@ function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
 }
 
-function messageOf(error: unknown): string {
+export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 

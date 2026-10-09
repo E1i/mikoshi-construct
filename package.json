@@ -50,6 +50,7 @@
     "bus:review": "tsx scripts/bus/review-worker.ts",
     "bus:review:bg": "tsx scripts/bus/review-bg.ts",
     "bus:run": "tsx scripts/bus/run.ts",
+    "bus:update": "tsx scripts/bus/update-worker.ts",
     "changeset": "changeset",
     "ci": "pnpm run quality",
     "contract:bump": "tsx scripts/contract/bump.ts",

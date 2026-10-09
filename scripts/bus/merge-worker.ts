@@ -28,8 +28,8 @@ export interface MergeWorkerParts {
 }
 
 export class NoLiveVerdict extends Error {
-  constructor() {
-    super(`no ${REVIEW_RECORDED} written by ${LIVE_REVIEWER}<session> yet; the merge worker switches on after the review worker's first live verdict`)
+  constructor(worker = 'merge') {
+    super(`no ${REVIEW_RECORDED} written by ${LIVE_REVIEWER}<session> yet; the ${worker} worker switches on after the review worker's first live verdict`)
   }
 }
 

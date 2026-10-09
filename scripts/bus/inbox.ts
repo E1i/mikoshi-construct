@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { CARD_STOPPED } from './lease.js'
 
 export const POLICY_DENIED = 'policy.denied'
+export const CARD_STOPPED = 'card.stopped'
 
 const OWNER_INBOX = `
   SELECT id, type, card_id, pr, head, payload FROM events
