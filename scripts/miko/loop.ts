@@ -37,9 +37,9 @@ export function endedByCtrlC(end: SessionEnd): boolean {
 }
 
 export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
-  let prompt: string | undefined
+  let before = deps.handoffMtime()
+  let prompt = before === undefined ? undefined : CONTINUE_PROMPT
   for (;;) {
-    const before = deps.handoffMtime()
     const end = await deps.session(prompt)
     if (endedByCtrlC(end) || deps.interrupted()) {
       deps.err(`${PREFIX}Ctrl+C: no next session`)
@@ -51,6 +51,7 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
       return 0
     }
     deps.err(`${PREFIX}mikoshi.md written: next session`)
+    before = after
     prompt = CONTINUE_PROMPT
   }
 }

@@ -48,7 +48,8 @@ the limit Mikoshi writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
 process; how it ends it is not prescribed. When the mtime of `mikoshi.md` changed during the session, the loop at once
 starts a new session with the prompt `прочитай mikoshi.md`, whatever the exit code, which it never reads. A session that
-ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing.
+ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
+`pnpm miko` starts gets the prompt `прочитай mikoshi.md` when `mikoshi.md` exists, and no prompt when it does not.
 
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
 `pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
