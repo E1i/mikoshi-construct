@@ -102,6 +102,9 @@ export class MergeExecutor {
         return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
       if (checked.mergedCommit !== null)
         return this.finished(lease, checked.mergedCommit, verdict.rule)
+      const locked = this.versionLock(lease)
+      if (locked !== null)
+        return this.denied(lease, locked)
       return this.merged(lease, verdict.rule)
     }
     catch (error) {
@@ -121,9 +124,6 @@ export class MergeExecutor {
       if (mergedCommit === null) {
         if (pull.state !== 'open' || pull.head?.sha !== lease.head)
           return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
-        const versionPr = this.openVersionPull(meter, lease.pr!)
-        if (versionPr !== null)
-          return technical('version_pr_open', `#${versionPr} is an open version pull request and locks every merge`)
         const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
         if (mergeable !== 'clean')
           return technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`)
@@ -140,7 +140,7 @@ export class MergeExecutor {
         facts: {
           cardId: lease.cardId,
           description: pull.body ?? '',
-          headRef: pull.head.ref ?? '',
+          headRef: pull.head?.ref ?? '',
           title: pull.title ?? '',
           files: changedFiles(meter, lease.pr!),
           ownerMergesText: ownerMergesText(meter),
@@ -159,9 +159,16 @@ export class MergeExecutor {
     return null
   }
 
-  private openVersionPull(meter: Meter, pr: number): number | null {
-    const open = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
-    return open.find(candidate => candidate.number !== pr && VERSION_BRANCH.test(candidate.head?.ref ?? ''))?.number ?? null
+  private versionLock(lease: Lease): MergeDenial | null {
+    try {
+      const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
+      const open = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
+      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? ''))?.number
+      return versionPr === undefined ? null : { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr} is an open version pull request and locks every merge` }
+    }
+    catch (error) {
+      return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
+    }
   }
 
   private finished(lease: Lease, commit: string, rule: AllowedRule): MergeOutcome {
