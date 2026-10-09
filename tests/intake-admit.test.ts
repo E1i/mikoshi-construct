@@ -47,7 +47,7 @@ function journalLines(w: World): Record<string, unknown>[] {
 }
 
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
-  return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, ...options }, () => NOW)
+  return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, ...options }, () => NOW)
 }
 
 function printed(result: AdmitResult): { lines: string[], exit: number } {
@@ -345,5 +345,34 @@ describe('construct intake --admit and the creates line', () => {
     const file = park(w, 80, CLEAN, 'src/board/fresh.ts')
     expect(admit(w, file).status).toBe('admitted')
     expect(readFileSync(file, 'utf8')).toContain('unclear: touches')
+  })
+})
+
+describe('construct intake --admit across the lanes of the parking', () => {
+  function parkIn(w: World, lane: string, id: number, card: string): string {
+    const dir = path.join(w.parking, lane)
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, `${id}.md`)
+    writeFileSync(file, `card: ${card}\nbranch: feat/card-${id}\ntouches: src/board/**\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    return file
+  }
+
+  it('a depends on a card parked in another lane is not unclear', () => {
+    const w = world()
+    parkIn(w, 'lane-1', 53, '#53 first [implement/runner/S/cheap/owner] · depends — · blocks —')
+    parkIn(w, 'lane-1', 43, '#43 other [implement/runner/S/cheap/owner] · depends — · blocks —')
+    const line = '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks #43'
+    const file = parkIn(w, 'lane-2', 58, line)
+    const result = admit(w, file)
+    expect(result).toMatchObject({ status: 'admitted', card: { line, unclear: [] } })
+    expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
+  })
+
+  it('a depends on a card parked under another parking root stays unclear', () => {
+    const w = world()
+    parkIn(w, 'lane-1', 53, '#53 first [implement/runner/S/cheap/owner] · depends — · blocks —')
+    const file = parkIn(w, 'lane-2', 58, '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks —')
+    admit(w, file, { parkingRoot: path.join(w.root, 'elsewhere') })
+    expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
   })
 })
