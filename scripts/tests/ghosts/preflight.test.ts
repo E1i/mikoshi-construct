@@ -2,7 +2,7 @@ import type { BuildResult } from '../../ghosts/hash.js'
 import type { Shell } from '../../ghosts/preflight-trees.js'
 import type { PreflightEnv } from '../../ghosts/preflight.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -439,6 +439,34 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
     const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` }), { 'pnpm run quality': 1 })
 
     expect(refusal(run)).toMatch(/preflight P8: harness "pnpm run quality" exits 1 on the sketch/)
+  })
+
+  it('a red P8 harness keeps its output beside the brief and names the first failing step', () => {
+    const steps = 'pnpm composition:check && pnpm lint && pnpm typecheck && pnpm test'
+    const { repo } = world({ ...BASE_FILES, 'package.json': `${JSON.stringify({ name: 'demo', scripts: { 'quality:steps': steps } })}\n` })
+    const sha = sketchOn(repo, { 'added.txt': 'x\n' })
+    const early = Array.from({ length: 30 }, (_, index) => `early line ${index}`)
+    const output = ['> demo@1.0.0 quality:steps /t', '> demo@1.0.0 composition:check /t', ...early, '> demo@1.0.0 lint /t', '> eslint .', ...Array.from({ length: 18 }, (_, index) => `lint error ${index}`), ' ELIFECYCLE  Command failed with exit code 1.', ''].join('\n')
+    const shell: Shell = (command, cwd) => command === 'pnpm run quality' ? { status: 1, output } : command.startsWith('pnpm') ? { status: 0, output: '' } : realShell(command, cwd)
+    const brief = briefFile(briefText({ sketch: `Sketch: sketch/t @ ${sha}` }))
+    const log = brief.replace(/\.md$/, '.p8.log')
+    const env: PreflightEnv = { repo, shell, log: () => {}, clock: () => 0 }
+
+    expect(() => approvalLine(brief, NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, env))).toThrow(`first failing step of quality:steps: lint; log ${log}\n> eslint .\nlint error 0`)
+    expect(readFileSync(log, 'utf8')).toBe(output)
+    expect(() => approvalLine(brief, NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, env))).toThrow(/ELIFECYCLE {2}Command failed with exit code 1\.$/)
+  })
+
+  it('a green P8 harness leaves no log beside the brief, even where a red one was', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'added.txt': 'x\n' })
+    const brief = briefFile(briefText({ sketch: `Sketch: sketch/t @ ${sha}` }))
+    const log = brief.replace(/\.md$/, '.p8.log')
+    writeFileSync(log, 'an earlier red run\n')
+    const shell: Shell = (command, cwd) => command.startsWith('pnpm') ? { status: 0, output: '' } : realShell(command, cwd)
+
+    expect(approvalLine(brief, NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, { repo, shell, log: () => {}, clock: () => 0 }))).not.toBeNull()
+    expect(existsSync(log)).toBe(false)
   })
 
   it('checks the earlier carriers on a sketch that touches an attach carrier, and refuses when they drift', () => {
