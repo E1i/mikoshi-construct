@@ -21,6 +21,22 @@ steps and the witnesses, never the card's prose. The ladder does not read the ca
 in the `/implement` text; a line of the card above its `Witnesses:` copied verbatim makes `pnpm ghosts:hash --by morse --card <N>`
 refuse the brief; the owner's `pnpm ghosts:hash` without `--card` does not read the card and does not check it.
 
+Two sections of the brief are read by tools, and each tool takes one form and no other. Every item of `Design:` is a
+line starting `- D<n>. `: `pnpm done:check` counts a Design item only by that prefix, and an item written `- <n>.` is a
+requirement it never sees. Every line of `Mutations:` names its test as `<test file> › <describe> › <title>`, the
+whole describe chain down to the title, as `construct mutate judge` matches it against the test report; a bare title
+is a malformed line that `construct mutate apply` refuses. A mutation no test should catch writes `red: green`. The
+sections in the form the tools read:
+
+```text
+Design:
+- D1. <one decision: what changes, where, and the test or witness that holds it>
+- D2. <the next decision>
+
+Mutations:
+M1 | <file> | find: `<old>` → `<new>` | red: <test file> › <describe> › <title> | `<message>`
+```
+
 A positive control is PR-equivalent: it runs every check a pull request must pass, not only `pnpm run quality` — each
 job the `required` job in `.github/workflows/ci.yml` needs, the `contract-bump` self-check and the acceptance run among
 them, and `Secret scan` in `.github/workflows/security.yml`. No one command runs them all; read the list from those
