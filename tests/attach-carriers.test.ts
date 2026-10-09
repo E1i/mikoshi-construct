@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { planCarriers } from '../src/commands/attach/index.js'
+import { NO_HARNESS } from '../src/commands/attach/record.js'
 import { strategyFor } from '../src/materialize/strategies.js'
 import { ATTACH_CARRIERS } from '../src/presets/index.js'
 
@@ -81,12 +82,23 @@ describe('the carriers are complete and documented', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'attach-carriers-'))
     try {
       const targets: readonly string[] = ATTACH_CARRIERS.targets
-      const named = planCarriers(dir, 'pnpm test')
+      const named = planCarriers(dir, { command: 'pnpm test' })
         .filter(op => op.target.endsWith('.md'))
         .flatMap(op => op.content.match(CARRIED_SCRIPT) ?? [])
       expect(named).toContain('scripts/construct/check-acceptance.mjs')
       for (const script of new Set(named))
         expect(targets, script).toContain(script)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('renders the same carriers whether a harness is named or none, since no carrier spells the command out', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'attach-carriers-'))
+    try {
+      const contents = (ops: { target: string, content: string }[]) => ops.map(op => [op.target, op.content])
+      expect(contents(planCarriers(dir, NO_HARNESS))).toEqual(contents(planCarriers(dir, { command: 'pnpm test' })))
     }
     finally {
       rmSync(dir, { recursive: true, force: true })

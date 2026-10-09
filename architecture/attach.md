@@ -14,7 +14,7 @@ flowchart LR
     run["runAttach"]
   end
   subgraph b_refuse["Refuse · before any write"]
-    refusals["twelve refusals, in order"]
+    refusals["eleven refusals, in order"]
     detect["isEmptyDir(dir)"]
     carrierset["ATTACH_CARRIERS, ATTACH_GUARD"]
     earlier["templates/attach: entry protocol, known set, classifyCollisions by sha256"]

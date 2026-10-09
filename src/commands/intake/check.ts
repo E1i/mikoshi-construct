@@ -11,10 +11,41 @@ const BACKTICKED = /`([^`]+)`/g
 const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+))/g
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
-const SCRIPT_MANIFEST = 'package.json'
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
-const SCRIPT_COMPANIONS = ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST]
-export const SCRIPT_COMPANION_REASON = `a card touching ${SCRIPT_MANIFEST} also touches the scripts table and the harness membership test`
+const TESTS_ROOT = 'tests'
+const SOURCE_MODULE = /^src\/(.+)\.ts$/
+
+export interface CompanionRow {
+  kind: string
+  keptBy: string
+  touched: (entry: string) => boolean
+  companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]
+}
+
+function scopeOf(entry: string): string {
+  return entry.endsWith(PREFIX_SUFFIX) ? entry.slice(0, -PREFIX_SUFFIX.length) : entry
+}
+
+function under(entry: string, root: string): boolean {
+  const scope = scopeOf(entry)
+  return scope === root || scope.startsWith(`${root}/`)
+}
+
+function testBeside(entry: string, touches: readonly string[], repository: RepositoryFacts): string[] {
+  if (touches.some(touch => under(touch, TESTS_ROOT)))
+    return []
+  const module = SOURCE_MODULE.exec(entry)?.[1]
+  const mirrored = `${TESTS_ROOT}/${module}.test.ts`
+  return [module !== undefined && repository.exists(mirrored) ? mirrored : `${TESTS_ROOT}${PREFIX_SUFFIX}`]
+}
+
+export const COMPANION_TABLE: readonly CompanionRow[] = [
+  { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
+  { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
+  { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
+]
+export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
 
 export interface Correction {
   field: string
@@ -110,14 +141,27 @@ function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   return touched
 }
 
-function withScriptCompanions(touched: Touched, repository: RepositoryFacts): Touched {
-  if (!touched.touches.includes(SCRIPT_MANIFEST) || !repository.exists(HARNESS_MEMBERSHIP_TEST))
-    return touched
-  const missing = SCRIPT_COMPANIONS.filter(companion => repository.exists(companion) && !touched.touches.includes(companion))
+function covers(touch: string, companion: string): boolean {
+  return touch === companion || (touch.endsWith(PREFIX_SUFFIX) && under(companion, scopeOf(touch)))
+}
+
+function withCompanions(touched: Touched, repository: RepositoryFacts): Touched {
+  const missing: string[] = []
+  for (const row of COMPANION_TABLE) {
+    if (!repository.exists(row.keptBy))
+      continue
+    for (const entry of touched.touches.filter(row.touched)) {
+      const touches = [...touched.touches, ...missing]
+      for (const companion of row.companions(entry, touches, repository)) {
+        if (repository.exists(scopeOf(companion)) && !touches.some(touch => covers(touch, companion)))
+          missing.push(companion)
+      }
+    }
+  }
   return {
     ...touched,
     touches: [...touched.touches, ...missing],
-    corrections: [...touched.corrections, ...missing.map(companion => ({ field: 'touches', was: '(absent)', now: companion, reason: SCRIPT_COMPANION_REASON }))],
+    corrections: [...touched.corrections, ...missing.map(companion => ({ field: 'touches', was: '(absent)', now: companion, reason: COMPANION_REASON }))],
   }
 }
 
@@ -177,7 +221,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = withScriptCompanions(touchesChecked(card, facts.repository), facts.repository)
+  const touched = withCompanions(touchesChecked(card, facts.repository), facts.repository)
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)

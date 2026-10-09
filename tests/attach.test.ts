@@ -7,12 +7,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { writeExcludeBlock } from '../src/commands/attach/exclude.js'
-import { ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
+import { ATTACH_EXIT, ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, planCarriers, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { originalCopyPath } from '../src/commands/attach/original.js'
-import { ATTACH_LEDGER_DIR } from '../src/commands/attach/record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
+import { printDoctor } from '../src/commands/doctor/report.js'
 import { runInit } from '../src/commands/init.js'
 import { IGNORED_ENTRIES } from '../src/detect/ignored-entries.js'
 import { planMaterialize } from '../src/materialize/plan.js'
@@ -117,7 +118,7 @@ describe('a1: init plans merges and appends where attach plans only creates', ()
 
   it('attach plans only create ops, one per carrier, one for the guard and one for its parser', () => {
     const dir = fixture()
-    const ops = planCarriers(dir, HARNESS)
+    const ops = planCarriers(dir, { command: HARNESS })
     expect(ops.map(op => op.action)).toEqual(ops.map(() => 'create'))
     expect(ops.map(op => op.target).sort()).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser].sort())
   })
@@ -135,7 +136,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
 
     const record = readAttachRecord(dir)
     expect(record).not.toBeNull()
-    expect(record?.recordVersion).toBe(2)
+    expect(record?.recordVersion).toBe(ATTACH_RECORD_VERSION)
     expect(record?.construct).toBe(VERSION)
     expect(Date.parse(record?.attachedAt ?? '')).not.toBeNaN()
     expect(record?.harness).toEqual({ command: HARNESS })
@@ -208,7 +209,6 @@ const REFUSALS: RefusalCase[] = [
     mkdirSync(path.join(dir, 'scripts/construct'), { recursive: true })
     writeFileSync(path.join(dir, 'scripts/construct/check-acceptance.mjs'), 'export {}\n')
   } },
-  { name: '--yes without --harness', refusal: 'no-harness', reason: PLAIN_LORE.attachRefusedNoHarness, arrange: () => {}, options: { harness: undefined } },
   { name: '--ai cursor', refusal: 'cursor', reason: PLAIN_LORE.attachRefusedCursor, arrange: () => {}, options: { ai: 'cursor' } },
   { name: 'a harness that is a script name', refusal: 'not-a-command', reason: PLAIN_LORE.attachRefusedNotACommand('quality', ['npm run quality', 'npx quality']).what, arrange: () => {}, options: { harness: 'quality' } },
 ]
@@ -504,15 +504,13 @@ describe('attach decides without reading the stack (#232)', () => {
     expect(listing(dir)).toEqual(before)
   })
 
-  it('refuses a Go repository with --yes and no --harness as no-harness, and changes nothing', async () => {
+  it('attaches a Go repository with --yes and no --harness, exiting 0 with harness none', async () => {
     const dir = goRepository(false)
-    const before = listing(dir)
 
     const result = await runAttach(ui, { dir, harness: undefined, yes: true })
 
-    expect(result.status).toBe('refused')
-    expect(result.refusal).toBe('no-harness')
-    expect(listing(dir)).toEqual(before)
+    expect(ATTACH_EXIT[result.status]).toBe(0)
+    expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
   })
 
   it('reads an attached Go repository as attached, never checked, without a report', async () => {
@@ -743,7 +741,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
 
     expect(readAttachRecord(dir)?.browserHeld).toEqual(['20200101T000000000Z-1', 'notes.txt'])
-    expect(readAttachRecord(dir)?.recordVersion).toBe(2)
+    expect(readAttachRecord(dir)?.recordVersion).toBe(ATTACH_RECORD_VERSION)
   })
 
   it('attach refuses with original-pending when an earlier copy is still there, and leaves the copy byte-identical', async () => {
@@ -860,6 +858,96 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     expect(result.refusal).toBe('settings-original')
     expect(readFileSync(copy, 'utf8')).toBe('racing bytes')
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(HOST_SETTINGS)
+    expect(listing(dir)).toEqual(before)
+  })
+})
+
+describe('interactive attach proposes the harness candidates it read from the repository', () => {
+  function choosing(chosen: (candidates: string[]) => string | null | undefined): { prompter: Prompter, offered: () => string[] | undefined } {
+    let offered: string[] | undefined
+    const prompter: Prompter = {
+      ...racingPrompter(() => {}),
+      harnessCommand: (candidates) => {
+        offered = candidates
+        return Promise.resolve(chosen(candidates))
+      },
+    }
+    return { prompter, offered: () => offered }
+  }
+
+  it('prints each candidate with its source, and the chosen one is the recorded harness', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.github/workflows'), { recursive: true })
+    writeFileSync(path.join(dir, '.github/workflows/test.yml'), 'jobs:\n  test:\n    steps:\n      - run: pnpm install\n      - run: pnpm lint\n      - run: pnpm test\n')
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(candidates => candidates[0])
+
+    const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+    expect(result.status).toBe('done')
+    expect(offered()).toEqual(['pnpm test', 'pnpm run quality', 'pnpm run typecheck'])
+    expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(1, 'pnpm test', '.github/workflows/test.yml:6'))
+    expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(2, 'pnpm run quality', 'package.json scripts.quality'))
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test' })
+  })
+
+  it('says so when the repository has no test to propose, attaches without asking, records harness none, and doctor reports it as not covered', async () => {
+    const dir = fixture()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'no-tests', private: true }))
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(() => HARNESS)
+
+    const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+    expect(result.status).toBe('done')
+    expect(offered()).toBeUndefined()
+    expect(output()).toContain(PLAIN_LORE.attachNoHarnessCandidates)
+    expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
+    expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
+    const report = runDoctor(dir)
+    expect(report).toEqual({ state: 'attached', harness: { command: null, state: 'none' } })
+    const doctor = capturing()
+    printDoctor(doctor.ui, report)
+    expect(doctor.output()).toContain(PLAIN_LORE.doctorAttachedNoHarness)
+  })
+
+  it('records harness none when the owner answers no to the candidates', async () => {
+    const dir = fixture()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'declined', private: true, scripts: { test: 'vitest run' } }))
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(() => null)
+
+    const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+    expect(result.status).toBe('done')
+    expect(offered()).toEqual(['npm run test'])
+    expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
+    expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
+  })
+
+  it('with candidates in the repository, --yes and no --harness asks nothing, exits 0 and records harness none', async () => {
+    const dir = fixture()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'unattended', private: true, scripts: { test: 'vitest run' } }))
+    const { ui, output } = capturing()
+    const { prompter, offered } = choosing(candidates => candidates[0])
+
+    const result = await runAttach(ui, { dir, yes: true }, prompter)
+
+    expect(ATTACH_EXIT[result.status]).toBe(0)
+    expect(offered()).toBeUndefined()
+    expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
+    expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
+  })
+
+  it('aborts and writes nothing when the candidate question is cancelled', async () => {
+    const dir = fixture()
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'cancelled', private: true, scripts: { test: 'vitest run' } }))
+    const before = listing(dir)
+    const { prompter } = choosing(() => undefined)
+
+    const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+    expect(result.status).toBe('aborted')
     expect(listing(dir)).toEqual(before)
   })
 })

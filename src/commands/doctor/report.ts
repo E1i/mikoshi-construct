@@ -200,7 +200,10 @@ export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null
   }
   if ('state' in result) {
     ui.line(ui.theme.accent(ui.lore.doctorAttached))
-    ui.line(ui.theme.dim(`  ${ui.lore.doctorAttachedHarness(result.harness.command, result.harness.state)}`))
+    if (result.harness.command == null)
+      ui.glitch(ui.lore.doctorAttachedNoHarness)
+    else
+      ui.line(ui.theme.dim(`  ${ui.lore.doctorAttachedHarness(result.harness.command, result.harness.state)}`))
     return DOCTOR_EXIT.ok
   }
   if (result.harnessProblems.length > 0)

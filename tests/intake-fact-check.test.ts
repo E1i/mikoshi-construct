@@ -10,7 +10,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
-import { checkDraft, DEFAULT_CONTOUR, invalidTestPatterns } from '../src/commands/intake/check.js'
+import { checkDraft, COMPANION_REASON, COMPANION_TABLE, DEFAULT_CONTOUR, invalidTestPatterns } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -71,7 +71,7 @@ function printed(result: IntakeResult): string {
 }
 
 function draftCard(fields: Partial<DraftCard> = {}): DraftCard {
-  return { name: 'check-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: TASK, witnesses: ['`true` passes'], depends: [], blocks: [], creates: [], unclear: [], ...fields }
+  return { name: 'check-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['scripts/a.ts'], task: TASK, witnesses: ['`true` passes'], depends: [], blocks: [], creates: [], unclear: [], ...fields }
 }
 
 function facts(overrides: Partial<CheckFacts> = {}): CheckFacts {
@@ -248,6 +248,38 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     expect(checked!.touches).toEqual(['package.json'])
     expect(checked!.corrections).toEqual([])
   })
+
+  it('adds the test of a src/ module the card touches without its test, as a correction', () => {
+    const dir = repository(['src/commands/intake/check.ts', 'tests/commands/intake/check.test.ts', 'tests/other.test.ts'])
+    const [checked] = checkDraft([draftCard({ touches: ['src/commands/intake/check.ts'] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
+    expect(checked!.touches).toEqual(['src/commands/intake/check.ts', 'tests/commands/intake/check.test.ts'])
+    expect(checked!.corrections).toEqual([{ field: 'touches', was: '(absent)', now: 'tests/commands/intake/check.test.ts', reason: COMPANION_REASON }])
+  })
+
+  const companionCases: Record<string, { repository: string[], touches: string[], added: string[] }> = {
+    'the scripts manifest': { repository: ['package.json', 'CONTRIBUTING.md', 'tests/harness-membership.test.ts'], touches: ['package.json'], added: ['CONTRIBUTING.md', 'tests/harness-membership.test.ts'] },
+    'the command definitions': { repository: ['src/program.ts', 'README.md', 'docs/cli.md', 'docs/guide/getting-started.md', 'tests/readme-commands.test.ts'], touches: ['src/program.ts', 'tests/**'], added: ['README.md', 'docs/cli.md', 'docs/guide/**'] },
+    'published code': { repository: ['templates/base/a.md', '.changeset/config.json'], touches: ['templates/base/**'], added: ['.changeset/**'] },
+    'source code': { repository: ['src/model/**', 'src/model/write.ts', 'tests/a.test.ts'], touches: ['src/model/**'], added: ['tests/**'] },
+  }
+
+  it('has one case for every row of the companion table, and no case without a row', () => {
+    expect(Object.keys(companionCases).sort()).toEqual(COMPANION_TABLE.map(row => row.kind).sort())
+  })
+
+  for (const [kind, { repository: files, touches, added }] of Object.entries(companionCases)) {
+    it(`adds the companions of ${kind} the card lacks, once, and none where the repository does not keep them`, () => {
+      const dir = repository(files.filter(file => !file.endsWith('/**')))
+      const kept = facts({ repository: new DirectoryFacts(dir, '') })
+      const [checked] = checkDraft([draftCard({ touches })], [2], kept)
+      expect(checked!.touches).toEqual([...touches, ...added])
+      expect(checked!.corrections).toEqual(added.map(now => ({ field: 'touches', was: '(absent)', now, reason: COMPANION_REASON })))
+      expect(checkDraft([draftCard({ touches: checked!.touches })], [2], kept)[0]!.corrections).toEqual([])
+      const row = COMPANION_TABLE.find(entry => entry.kind === kind)!
+      rmSync(path.join(dir, row.keptBy), { recursive: true, force: true })
+      expect(checkDraft([draftCard({ touches })], [2], kept)[0]!.touches).toEqual(touches)
+    })
+  }
 
   it('keeps who: shift on a corrected card with no unclear line', () => {
     const dir = repository(['src/commands/intake/index.ts'])

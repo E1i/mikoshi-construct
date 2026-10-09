@@ -10,7 +10,7 @@ import { originalCopyPath } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE } from './record.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'no-harness' | 'cursor' | 'not-a-command'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'cursor' | 'not-a-command'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
@@ -81,8 +81,6 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
   const settings = settingsRefusal(root)
   if (settings != null)
     return settings
-  if (flags.yes && flags.harness == null)
-    return refusal('no-harness')
   if (flags.ai != null && AI_OUT_OF_SCOPE.includes(flags.ai))
     return refusal('cursor')
   return null

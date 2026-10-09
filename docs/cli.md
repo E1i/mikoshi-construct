@@ -1061,9 +1061,9 @@ did in `.construct/attach.json`. No `construct.json`, no
 
 | Option | Default | What it does |
 |---|---|---|
-| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: without a terminal it must be passed. |
+| `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
-| `--yes`, `-y` | `false` | Skip the confirmation. Needs `--harness`. |
+| `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
 
 ```bash
@@ -1091,11 +1091,37 @@ parts:
    out, and one question the owner answers yes or no. Yes runs
    `npx mikoshi-construct attach --yes --harness "<command>"`; no means attach is not run.
 
-attach reads none of this itself: which command mirrors a repository's CI is a reading of the
-repository, and that is the agent's ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md),
+Which command mirrors a repository's CI is a reading of the repository, and that is the agent's;
+attach itself only offers the [candidates](#harness-candidates) below for the owner to pick from ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md),
 [decision 0037](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0037-attach-entry-is-read-by-the-agent.md)).
 
-### The twelve refusals
+### Harness candidates
+
+Run in a terminal without `--harness`, attach reads two places in the repository and prints at most
+three candidates, each with where it was read:
+
+- every `run:` step of `.github/workflows/*.yml` and `*.yaml`, one candidate per command line of a
+  `run: |` block, its source the file and line (`.github/workflows/ci.yml:23`);
+- every script of the root `package.json`, as `<manager> run <name>`, its source the key
+  (`package.json scripts.test`). The manager is `packageManager`'s name, else the one whose lockfile
+  is present, else `npm`.
+
+A command, read together with the body of the script it calls, that says `test` is a test candidate;
+otherwise one that says `lint` is never proposed, one that says `typecheck` or `type-check` is a
+typecheck candidate, and anything else (an install, a build, an `echo`) is not a candidate. Test
+candidates come before typecheck ones, CI steps before scripts, and a script that repeats a CI step
+(`pnpm run test` beside `pnpm test`) is not offered twice. No list of frameworks or tools is consulted.
+
+attach then asks `Use 1 as the harness? yes / no / a number (1–3)`: yes takes the first and a number
+that one, and the chosen command is checked like one passed with `--harness`. No — or a repository
+with nothing to propose, which attach says without asking — is not a refusal: attach prints
+`Harness: none — attach goes on without a gate, and doctor reports the harness as not covered until one is named.`,
+goes on, and records `"harness": "none"` in [the record](#the-record). `construct doctor` in that
+repository then says `Harness: none — not covered.` and names the way to one: `construct detach`, then
+`construct attach --harness "<command>"`; its `--json` carries `"harness": { "command": null, "state": "none" }`.
+Under `--yes` without `--harness` nothing is proposed or asked: that is the answer no, and attach records `"harness": "none"` the same way, whether or not the repository offers candidates.
+
+### The eleven refusals
 
 Every check runs before anything is written, in this order, and a refusal creates nothing — not even
 `.construct/`:
@@ -1112,7 +1138,6 @@ Every check runs before anything is written, in this order, and a refusal create
 | `.claude/settings.local.json` is tracked by git | `Refused: .claude/settings.local.json is tracked by git.`, then why and next |
 | `.claude/settings.local.json` does not parse as a JSON object, its `hooks` is not an object, its `hooks.PreToolUse` is not a list, or it is not a regular file (a symlink) | `Refused: .claude/settings.local.json is not a settings file attach can edit.`, then why and next |
 | `.claude/settings.local.json` already carries an entry that runs `.construct/commit-guard.mjs` | `Refused: .claude/settings.local.json already carries an entry that runs .construct/commit-guard.mjs.`, then why, and next: keep the file; run `construct detach` first if the repository is still attached, or delete only that entry |
-| `--yes` without `--harness` | `Refused: --yes needs --harness <command>; nothing is assumed.`, then why, and the next step: `npx mikoshi-construct attach --entry` prints the entry protocol |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
 | the first word of the harness command (after any `VAR=value`) is not a path, a shell word such as `cd`, or an executable in an absolute `PATH` directory — a `package.json` script name such as `quality`, or a binary under `node_modules/.bin` such as `vitest` | `Refused: "quality" is not a command found on PATH.`, then why, and the next step with the rest of the command kept: `--harness "npm run quality"  or  --harness "npx quality"` |
 
@@ -1219,15 +1244,15 @@ takes the entry out again.
 ### The record
 
 `.construct/attach.json` is a public format: the carried commands read `harness.command` from it
-when there is no `construct.json`, and [`construct detach`](#construct-detach) removes exactly what it
+when there is no `construct.json`, and report that no harness command was named when it is `none`, and [`construct detach`](#construct-detach) removes exactly what it
 lists.
 
 | Field | What it holds |
 |---|---|
-| `recordVersion` | `2`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought. |
+| `recordVersion` | `3`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
-| `harness.command` | The command passed or answered. Never a default. |
+| `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
 | `files` | Every carrier path, `.construct/commit-guard.mjs` and `.construct/shell-parser.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
@@ -1325,8 +1350,8 @@ Two refusals are about the record itself, and both come before anything else is 
 `recordVersion` that is missing or not a positive integer means which build wrote the record cannot be
 told, so detach refuses and names the value it found. A `recordVersion` higher than this binary
 understands is refused the way a later `construct.json` is: the line names both versions and says to
-upgrade the CLI. That is what a CLI from before the commit guard says of a `recordVersion` 2 record
-this build wrote: upgrade the CLI (`npx mikoshi-construct@latest`) before running `detach` on a
+upgrade the CLI. That is what a CLI from before `harness: none` says of a `recordVersion` 3 record
+this build wrote, as one from before the commit guard says of a `2`: upgrade the CLI (`npx mikoshi-construct@latest`) before running `detach` on a
 repository this release attached. Nothing is removed in either case.
 
 Two more refusals are about the exclude block rather than the index. An `excludeSeparator` that is
@@ -1804,7 +1829,15 @@ journal, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
 card grammar becomes the grammar's default, a `depends` or `blocks` on a card a merge line names in the journal is
-removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path with no single
+removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
+which carries a companion gets each companion it lacks added to `touches`, from one table,
+`COMPANION_TABLE` in `src/commands/intake/check.ts`: `package.json` carries `CONTRIBUTING.md` and
+`tests/harness-membership.test.ts`, `src/program.ts` carries `README.md`, `docs/cli.md` and
+`docs/guide/**`, a path under `src/` or `templates/` carries `.changeset/**`, and a path under `src/`
+carries its test — `tests/<module>.test.ts` when that file exists, else `tests/**` — unless the card
+already touches a test. A row applies only in a repository that keeps the file the row names
+(`tests/harness-membership.test.ts`, `tests/readme-commands.test.ts`, `.changeset/config.json`,
+`tests/`), and a companion is added only where it exists. These corrections need no confirmation. A path with no single
 candidate, a `#<id>` that is neither parked, done nor merged, and a witness with no backticked command or a
 command that is not on `PATH` are marked `unclear:` and kept. A kind outside the grammar is still
 refused.
