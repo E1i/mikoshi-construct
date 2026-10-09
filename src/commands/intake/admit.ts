@@ -1,4 +1,4 @@
-import type { Card } from '../../card/grammar.js'
+import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
@@ -10,7 +10,7 @@ import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, NO_OWNER_PATH, OWNER_MERGES, ownerPathsOf, refusesOwnerDecision } from './check.js'
 import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { defaultParking, INTAKE_EXIT } from './index.js'
@@ -89,9 +89,10 @@ function blocksTail(line: string): string {
 function admittedLine(card: Card, checked: CheckedCard): string {
   const depends = ids(checked.depends)
   const blocks = ids(checked.blocks)
-  if (depends.length === card.depends.length && blocks.length === card.blocks.length)
+  const decision = checked.decision as Decision
+  if (depends.length === card.depends.length && blocks.length === card.blocks.length && decision === card.decision)
     return card.line
-  return `${cardLine({ ...card, depends, blocks })}${blocksTail(card.line)}`
+  return `${cardLine({ ...card, decision, depends, blocks })}${blocksTail(card.line)}`
 }
 
 function admittedText(text: string, line: string, checked: CheckedCard): string {
@@ -153,9 +154,12 @@ function parkedAcrossLanes(file: string, root: string): string[] {
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
   let text: string
   let journal: string | null
+  let ownerMerges: string | null
   try {
     text = readFileSync(options.file, 'utf8')
     journal = existsSync(options.journal) ? readFileSync(options.journal, 'utf8') : null
+    const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
+    ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
   }
   catch (error) {
     return { status: 'refused', why: error instanceof Error ? error.message : String(error) }
@@ -175,6 +179,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     done: new Set(closedTasks(journal).keys()),
     merged: mergedTasks(journal),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
   }) as [CheckedCard]
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
@@ -199,6 +204,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
+  if (!options.autoConfirm && refusesOwnerDecision(admitted.corrections) && options.confirm !== token)
+    return { status: 'refused', why: `${card.line}: decision owner, but ${NO_OWNER_PATH}; --confirm ${token} admits it as auto` }
   if (!options.autoConfirm && correctionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)

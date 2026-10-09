@@ -3,7 +3,9 @@ import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
+import { RISK_LEVELS, riskOf } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
+import { globToRegExp } from '../../model/glob.js'
 import { commandWord } from './command-word.js'
 
 export const DEFAULT_CONTOUR = 'ladder'
@@ -15,6 +17,14 @@ const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'dep
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
 const TESTS_ROOT = 'tests'
 const SOURCE_MODULE = /^src\/(.+)\.ts$/
+
+export const OWNER_MERGES = 'architecture/owner-merges.md'
+const OWNER_KINDS_HEADER = '| kind |'
+const OWNER_BY_RISK_HEADER = '| by risk |'
+const OWNER_DECISION = 'owner'
+const AUTO_DECISION = 'auto'
+export const NO_OWNER_PATH = `no touch meets an owner path of ${OWNER_MERGES}`
+const UNDER_PREFIX = 'x'
 
 export interface CompanionRow {
   kind: string
@@ -65,6 +75,72 @@ export interface CheckFacts {
   done: ReadonlySet<string>
   merged: ReadonlySet<string>
   repository: RepositoryFacts
+  ownerMerges?: OwnerPaths
+}
+
+export interface OwnerByRisk {
+  level: string
+  globs: string[]
+}
+
+export interface OwnerPaths {
+  globs: string[]
+  byRisk: OwnerByRisk[]
+}
+
+function tableCells(text: string, headerStart: string): string[][] {
+  const lines = text.split('\n').map(line => line.trim())
+  const header = lines.findIndex(line => line.startsWith(headerStart))
+  if (header === -1)
+    return []
+  const rows = lines.slice(header + 2)
+  const end = rows.findIndex(line => !line.startsWith('|'))
+  return (end === -1 ? rows : rows.slice(0, end)).map(row => row.split('|').slice(1, -1).map(cell => cell.trim()))
+}
+
+function globsIn(cell: string | undefined): string[] {
+  return [...(cell ?? '').matchAll(BACKTICKED)].map(match => match[1]!)
+}
+
+export function ownerPathsOf(ownerMergesText: string): OwnerPaths {
+  return {
+    globs: tableCells(ownerMergesText, OWNER_KINDS_HEADER).flatMap(cells => globsIn(cells[1])),
+    byRisk: tableCells(ownerMergesText, OWNER_BY_RISK_HEADER).map(cells => ({ level: cells[0] ?? '', globs: globsIn(cells[1]) })),
+  }
+}
+
+function reachesLevel(touches: readonly string[], level: string): boolean {
+  const at = RISK_LEVELS.findIndex(candidate => candidate === level)
+  return at !== -1 && touches.some(touch => RISK_LEVELS.indexOf(riskOf(touch).level) <= at)
+}
+
+function meets(touch: string, glob: string): boolean {
+  const pattern = globToRegExp(glob)
+  if (!touch.endsWith(PREFIX_SUFFIX))
+    return pattern.test(touch)
+  const scope = scopeOf(touch)
+  return glob.split('*')[0]!.startsWith(`${scope}/`) || pattern.test(`${scope}/${UNDER_PREFIX}`)
+}
+
+function heldBy(touches: readonly string[], globs: readonly string[]): { touch: string, glob: string } | undefined {
+  for (const touch of touches) {
+    const glob = globs.find(candidate => meets(touch, candidate))
+    if (glob !== undefined)
+      return { touch, glob }
+  }
+  return undefined
+}
+
+function ownerHold(touches: readonly string[], owner: OwnerPaths): { touch: string, glob: string, level?: string } | undefined {
+  const byKind = heldBy(touches, owner.globs)
+  if (byKind !== undefined)
+    return byKind
+  for (const row of owner.byRisk.filter(entry => reachesLevel(touches, entry.level))) {
+    const byRisk = heldBy(touches, row.globs)
+    if (byRisk !== undefined)
+      return { ...byRisk, level: row.level }
+  }
+  return undefined
 }
 
 export function correctionText(correction: Correction): string {
@@ -93,13 +169,32 @@ function contourCorrection(card: DraftCard): Correction[] {
   return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
 }
 
-function decisionCorrection(card: DraftCard): Correction[] {
+function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+  const hold = ownerHold(touches, owner)
+  if (hold === undefined)
+    return decision === AUTO_DECISION ? [] : [{ field: 'decision', was: decision, now: AUTO_DECISION, reason: NO_OWNER_PATH }]
+  return decision === OWNER_DECISION ? [] : [{ field: 'decision', was: decision, now: OWNER_DECISION, reason: `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}` }]
+}
+
+function unstatedDecision(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): string | undefined {
+  if (card.decision !== undefined || owner === undefined || !includes(KINDS, card.kind) || !includes(decisionsOf(card.kind as Kind), OWNER_DECISION))
+    return undefined
+  return ownerHold(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
+}
+
+function decisionCorrection(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): Correction[] {
   if (card.decision === undefined || !includes(KINDS, card.kind))
     return []
   const decisions: readonly string[] = decisionsOf(card.kind as Kind)
+  if (owner !== undefined && includes(decisions, OWNER_DECISION))
+    return derivedDecision(card.decision, touches, owner)
   if (includes(decisions, card.decision))
     return []
   return [{ field: 'decision', was: card.decision, now: decisions[0]!, reason: `kind ${card.kind} takes decision ${decisions.join(' or ')}, not ${card.decision}` }]
+}
+
+export function refusesOwnerDecision(corrections: readonly Correction[]): boolean {
+  return corrections.some(correction => correction.field === 'decision' && correction.was === OWNER_DECISION && correction.reason === NO_OWNER_PATH)
 }
 
 function candidatesText(candidates: readonly string[]): string {
@@ -231,11 +326,11 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)
-  const decision = decisionCorrection(card)
+  const decision = decisionCorrection(card, touched.touches, facts.ownerMerges)
   return {
     ...card,
     contour: contour[0]?.now ?? card.contour,
-    decision: decision[0]?.now ?? card.decision,
+    decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, touched.touches, facts.ownerMerges),
     touches: touched.touches,
     depends: depends.kept,
     blocks: blocks.kept,
