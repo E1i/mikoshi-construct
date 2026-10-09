@@ -95,7 +95,8 @@
     "typecheck": "tsc --noEmit",
     "version-packages": "changeset version && pnpm release-notes:render",
     "docs:anchors": "tsx scripts/docs/anchors.ts",
-    "test:weights": "tsx scripts/ci/test-weights.ts"
+    "test:weights": "tsx scripts/ci/test-weights.ts",
+    "worktrees:sweep": "tsx scripts/worktrees/sweep.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",

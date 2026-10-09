@@ -216,8 +216,13 @@ the four signal fields of [0046](decisions/0046-four-signal-fields-and-their-sou
 of its pull request description is the card.
 
 A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
-`../mc-<id>` from `origin/main` and writes the journal start line carrying the card; a task with no start line was not
-started on the cheap path, whatever its branch is called. Before it cuts anything, `task:start` passes the card through the intake
+`mc-<id>` from `origin/main` under the worktree home, `~/.construct/worktrees` (`CONSTRUCT_WORKTREE_HOME` moves it), not
+beside the repository, and writes the journal start line carrying the card; a task with no start line was not
+started on the cheap path, whatever its branch is called. `pnpm worktrees:sweep` prints the trees it would remove — a
+merged or closed card's, clean and with every commit pushed, a squash-merged branch at its pull request's head counting
+as pushed — and every other tree with the reason it is kept, a closed card whose pull request is still open among them;
+`--apply` removes those trees and their branches, and a shift runs it for its own card's tree alone once it records
+that card's merge. Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when `ghosts.jsonl` holds an `intake` line whose card is this one, written by `construct
 intake` when it sliced and confirmed the card, or by `construct intake --admit <parking>/<id>.md` for a card parked
 before the door; a card with no such line, or one that changed since its line, is refused with nothing written. The one

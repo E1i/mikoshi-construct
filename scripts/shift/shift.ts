@@ -3,6 +3,7 @@ import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
+import type { SweepResult } from '../worktrees/sweep.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { LadderFacts, LadderStep } from './ladder.js'
@@ -40,6 +41,7 @@ import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghos
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
+import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
 import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
@@ -148,6 +150,7 @@ export interface ShiftDeps {
   holdHangup?: () => () => void
   notify?: Notify
   current?: (journal: string) => MergeResult
+  sweep?: (card: string) => SweepResult
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -217,6 +220,31 @@ function keepCurrent(deps: ShiftDeps, journal: string): void {
   }
 }
 
+function startedByThisShift(journal: string | null, dir: string): Set<string> {
+  return new Set((journal ?? '').split('\n').flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, shift?: unknown, worktree?: unknown } | null
+      return entry?.event === 'path' && entry.shift === dir && typeof entry.task === 'string' && typeof entry.worktree === 'string' ? [entry.task] : []
+    }
+    catch {
+      return []
+    }
+  }))
+}
+
+function sweepOwnTrees(deps: ShiftDeps, journal: string, dir: string, merged: readonly { task: string }[]): void {
+  if (deps.sweep === undefined)
+    return
+  const own = startedByThisShift(deps.readJournal(journal), dir)
+  for (const task of new Set(merged.map(line => line.task).filter(task => own.has(task)))) {
+    const swept = deps.sweep(task)
+    for (const line of swept.stdout)
+      deps.out(line)
+    for (const line of swept.stderr)
+      deps.err(line)
+  }
+}
+
 function sweepMerges(deps: ShiftDeps, journal: string, dir: string): void {
   try {
     const result = recordMerges({ gh: deps.gh, journal, readJournal: deps.readJournal, append: deps.append, now: deps.now })
@@ -226,6 +254,7 @@ function sweepMerges(deps: ShiftDeps, journal: string, dir: string): void {
     deps.append(path.join(dir, MERGED_FILE), mergedDetails(result).map(line => `${line}\n`).join(''))
     deps.err(`${PREFIX}${summary}; details in ${path.join(dir, MERGED_FILE)}`)
     keepCurrent(deps, journal)
+    sweepOwnTrees(deps, journal, dir, result.written)
   }
   catch (error) {
     deps.err(`${PREFIX}merged: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
@@ -1195,6 +1224,7 @@ function realDeps(): ShiftDeps {
     holdHangup: holdThroughHangup,
     notify: osascriptNotify(),
     current: journal => runCurrent(realCurrentDeps(journal)),
+    sweep: card => runSweep(['--apply', '--card', card], realSweepDeps()),
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),

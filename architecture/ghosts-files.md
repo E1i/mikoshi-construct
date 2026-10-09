@@ -52,3 +52,4 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/watch-process.ts` | plain |
 | `scripts/ghosts/watch-report.ts` | plain |
 | `scripts/ghosts/watch.ts` | plain |
+| `scripts/ghosts/worktree-home.ts` | ghosts |
