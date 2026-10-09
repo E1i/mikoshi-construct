@@ -91,7 +91,7 @@ export const USAGE = [
   '--check parses the tasks and checks touches against each other and the open pull requests, records no merge line, and starts nothing.',
   'The shift is an autopilot by default: it takes the next ready card, follows a session into a new one at a boundary the card allows, arms auto-merge where the merge rules allow it,',
   'and stops only at a gate the owner holds, writing one event:stop line to ghosts.jsonl (at: hash, merge, question, boundary or fault, and why).',
-  'A ladder card (implement, contour ladder) with who: shift is taken like a cheap card and walked step by step: the brief in a session, the approval by MORSE (ghosts:hash --by morse; an R1 brief or a refusal stops at hash and waits for the owner),',
+  'A ladder card (implement, contour ladder) with who: shift is taken like a cheap card and walked step by step: the brief in a session, the approval by MORSE (ghosts:hash --by morse; a refusal, whatever its cause, stops at hash and waits for the owner),',
   'ghosts:launch with a yes on stdin and no session, then the review and the pull request in a session in the same tree. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
