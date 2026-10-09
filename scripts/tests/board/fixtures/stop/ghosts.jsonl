@@ -1,0 +1,13 @@
+{"event":"path","task":"s-hash","path":"cheap","started":"2026-09-28T07:00:00Z","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"stop","task":"s-hash","at":"hash","why":"the brief's hash is not approved","worktree":null,"shift":"/s","session":null,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"s-merge","path":"cheap","started":"2026-09-28T07:00:00Z","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"stop","task":"s-merge","at":"merge","why":"PR #101 not merged within 3 minutes","worktree":"/w/s-merge","shift":"/s","session":"x","pr":101,"ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"s-question","path":"cheap","started":"2026-09-28T07:00:00Z","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"stop","task":"s-question","at":"question","why":"the report asks the owner","worktree":"/w/s-question","shift":"/s","session":"x","ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"s-boundary","path":"cheap","started":"2026-09-28T07:00:00Z","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"stop","task":"s-boundary","at":"boundary","why":"boundary; the card says continue: stop","worktree":"/w/s-boundary","shift":"/s","session":"x","ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"s-fault","path":"cheap","started":"2026-09-28T07:00:00Z","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"stop","task":"s-fault","at":"fault","why":"exit 1","worktree":"/w/s-fault","shift":"/s","session":"x","ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"s-resumed","path":"cheap","started":"2026-09-28T07:00:00Z","ts":"2026-09-28T07:00:00.000Z"}
+{"event":"stop","task":"s-resumed","at":"merge","why":"PR #102 not merged within 3 minutes","worktree":"/w/s-resumed","shift":"/s","session":"x","ts":"2026-09-28T07:10:00.000Z"}
+{"event":"path","task":"s-resumed","path":"cheap","started":"2026-09-28T07:20:00Z","ts":"2026-09-28T07:20:00.000Z"}
