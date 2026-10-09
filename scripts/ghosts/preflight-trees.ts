@@ -8,6 +8,7 @@ export interface ShellResult { status: number | null, output: string }
 export type Shell = (command: string, cwd: string) => ShellResult
 
 const SHELL_BUFFER = 1 << 28
+const TAIL_LINES = 20
 
 export function realShell(command: string, cwd: string): ShellResult {
   const result = spawnSync('bash', ['-c', command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER })
@@ -21,6 +22,10 @@ export function gitIn(cwd: string, args: string[]): string {
 export function lastLine(output: string): string {
   const lines = output.split('\n').map(line => line.trim()).filter(line => line !== '')
   return lines.at(-1) ?? 'no output'
+}
+
+export function tailLines(output: string, count = TAIL_LINES): string {
+  return output.split('\n').filter(line => line.trim() !== '').slice(-count).join('\n')
 }
 
 export function withWorktree<T>(repo: string, base: string, run: (tree: string) => T): T {
