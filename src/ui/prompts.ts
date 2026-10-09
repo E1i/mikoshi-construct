@@ -10,7 +10,7 @@ export interface Prompter {
   projectName: (initial: string) => Promise<string | undefined>
   review: (initial: boolean) => Promise<boolean | undefined>
   confirm: (message: string) => Promise<boolean | undefined>
-  harnessCommand: () => Promise<string | null>
+  harnessCommand: (candidates: string[]) => Promise<string | null | undefined>
 }
 
 type SingleAiTarget = Exclude<AiTarget, 'both'>
@@ -29,6 +29,19 @@ export function toAiTarget(selected: SingleAiTarget[]): AiTarget {
 
 export function fromAiTarget(target: AiTarget): SingleAiTarget[] {
   return target === 'both' ? ['claude', 'cursor'] : [target]
+}
+
+const YES = /^y(?:es)?$/i
+const NO = /^no?$/i
+
+export function pickedCandidate(answer: string, count: number): number | null | undefined {
+  const trimmed = answer.trim()
+  if (YES.test(trimmed))
+    return 0
+  if (NO.test(trimmed))
+    return null
+  const number = /^\d+$/.test(trimmed) ? Number(trimmed) : 0
+  return number >= 1 && number <= count ? number - 1 : undefined
 }
 
 export type PromptStreams = Pick<CommonOptions, 'input' | 'output'>
@@ -87,14 +100,16 @@ export function createClackPrompter(lore: Lore, streams: PromptStreams = {}): Pr
     async confirm(message) {
       return settle(await confirm({ ...streams, message, initialValue: true }))
     },
-    async harnessCommand() {
-      const answer = await text({
+    async harnessCommand(candidates) {
+      const picked = settle(await text({
         ...streams,
-        message: lore.askHarness,
-        validate: value => ((value ?? '').trim() === '' ? lore.harnessEmpty : undefined),
-      })
-      const value = settle(answer)
-      return value == null ? null : value.trim()
+        message: lore.askHarnessCandidate(candidates.length),
+        validate: value => (pickedCandidate(value ?? '', candidates.length) === undefined ? lore.harnessCandidateInvalid(candidates.length) : undefined),
+      }))
+      if (picked == null)
+        return undefined
+      const index = pickedCandidate(picked, candidates.length)
+      return index == null ? null : candidates[index]
     },
   }
 }

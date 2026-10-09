@@ -1,4 +1,5 @@
 import type { Ui, Writer } from '../src/ui/console.js'
+import type { Prompter } from '../src/ui/prompts.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -7,6 +8,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
+import { ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -296,6 +298,24 @@ function rewriteRecordVersion(dir: string, value: unknown): void {
 }
 
 describe('the record version detach reads', () => {
+  it('detaches a record whose harness is none, restoring the repository as it was', async () => {
+    const dir = fixture()
+    const before = snapshot(dir)
+    const declining: Prompter = {
+      preset: () => Promise.resolve(undefined),
+      aiTarget: () => Promise.resolve(undefined),
+      projectName: () => Promise.resolve(undefined),
+      review: () => Promise.resolve(undefined),
+      harnessCommand: () => Promise.resolve(null),
+      confirm: () => Promise.resolve(true),
+    }
+    expect((await runAttach(ui, { dir, yes: false }, declining)).status).toBe('done')
+    expect(readAttachRecord(dir)).toMatchObject({ recordVersion: ATTACH_RECORD_VERSION, harness: NO_HARNESS })
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+    expectSameSnapshot(snapshot(dir), before)
+  })
+
   it('detaches from a frozen version-1 record written by an earlier build, keeping .construct/, which that record does not say it created', () => {
     const dir = fixture()
     const recorded = withFrozenRecordV1(dir)
@@ -310,7 +330,7 @@ describe('the record version detach reads', () => {
   it('refuses a record written by a newer construct, names both versions and removes nothing', async () => {
     const dir = fixture()
     await attached(dir)
-    rewriteRecordVersion(dir, 3)
+    rewriteRecordVersion(dir, ATTACH_RECORD_VERSION + 1)
     const before = listing(dir)
     const { ui: plain, output } = capturing()
 
@@ -319,7 +339,7 @@ describe('the record version detach reads', () => {
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('record-ahead')
     expect(listing(dir)).toEqual(before)
-    expect(output()).toContain(PLAIN_LORE.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', 3, 2))
+    expect(output()).toContain(PLAIN_LORE.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', ATTACH_RECORD_VERSION + 1, ATTACH_RECORD_VERSION))
   })
 
   for (const value of [undefined, '1', 1.5, null, 0]) {

@@ -26,7 +26,7 @@ nodes:
     path: src/commands/attach/index.ts
     boundary: entry
   - id: refusals
-    label: twelve refusals, in order
+    label: eleven refusals, in order
     path: src/commands/attach/refusals.ts
     boundary: refuse
   - id: detect
