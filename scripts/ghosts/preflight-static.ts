@@ -1,5 +1,4 @@
-import { matchGlob } from '../shredder/glob.js'
-import { readOwnerMergeKinds, readPlainPaths } from '../shredder/reader.js'
+import { GHOSTS_FILES, readGhostsFiles } from '../shredder/reader.js'
 
 export interface Witness { criterion: string, command: string }
 export type ShowAt = (file: string) => string | null
@@ -7,10 +6,8 @@ export type ShowAt = (file: string) => string | null
 const MOVING_REF = /\borigin\/main\b/
 const INVARIANT_WITNESS = /^(.*?) — witness: `([^`]+)`$/
 const GHOSTS_FILE = /^scripts\/ghosts\/[\w./-]+\.\w+$/
-const SHIFT_FILE = /scripts\/shift\/[\w.-]+\.\w+/g
 const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
 const GHOSTS_FILE_IN_TEXT = /scripts\/ghosts\/[\w.-]+\.\w+/g
-export const OWNER_MERGES = 'architecture/owner-merges.md'
 const GENERATORS = [
   { path: 'templates/attach/earlier-carriers.json', command: 'pnpm exec tsx scripts/attach/earlier-carriers.ts' },
   { path: 'contract/surface.json', command: 'pnpm contract:update' },
@@ -41,37 +38,27 @@ export function generatorRefusal(design: string, changed: string[]): string | nu
   return missing === undefined ? null : `the brief names ${missing.path}, a generated path, and its Design lacks the sentence: The implementer runs \`${missing.command}\` without asking.`
 }
 
-function classificationRefusals(ownerMergesText: string, ghostsFiles: string[]): string[] {
-  const kinds = readOwnerMergeKinds(ownerMergesText)
-  const plain = readPlainPaths(ownerMergesText)
-  const ownerGlobs = kinds.find(kind => kind.kind === 'ghosts')?.globs ?? []
+function classificationRefusals(ghostsFilesText: string, ghostsFiles: string[]): string[] {
+  const rows = readGhostsFiles(ghostsFilesText)
   return ghostsFiles.flatMap((file) => {
-    const owner = ownerGlobs.some(glob => matchGlob(glob, file))
-    const inPlain = plain.includes(file)
+    const owner = rows.some(row => row.file === file && row.kind === 'ghosts')
+    const inPlain = rows.some(row => row.file === file && row.kind === 'plain')
     if (owner && inPlain)
-      return [`${file} is both owner and plain in ${OWNER_MERGES}`]
+      return [`${file} is both ghosts and plain in ${GHOSTS_FILES}`]
     if (!owner && !inPlain)
-      return [`${file} is in no list of ${OWNER_MERGES}: add it to the kind ghosts or to the plain list (only Eli edits that file) before the hash`]
+      return [`${file} has no row in ${GHOSTS_FILES}: add its row with the kind ghosts or plain before the hash`]
     return []
   })
 }
 
-function shiftRefusals(ownerMergesText: string, shiftFiles: string[], show: ShowAt): string[] {
-  const ownInstructions = readOwnerMergeKinds(ownerMergesText).find(kind => kind.kind === 'own-instructions')?.globs ?? []
-  return shiftFiles
-    .filter(file => /merge/i.test(show(file) ?? '') && !ownInstructions.some(glob => matchGlob(glob, file)))
-    .map(file => `${file} names a merge and is not under own-instructions in ${OWNER_MERGES}: add it to the kind own-instructions (only Eli edits that file) before the hash`)
-}
-
-export function ownerMergesRefusal(show: ShowAt, design: string, changed: string[]): string | null {
-  const ownerMergesText = show(OWNER_MERGES)
-  if (ownerMergesText === null)
+export function ghostsFilesRefusal(show: ShowAt, design: string, changed: string[]): string | null {
+  const ghostsFilesText = show(GHOSTS_FILES)
+  if (ghostsFilesText === null)
     return null
-  const named = [...design.matchAll(GHOSTS_FILE_IN_TEXT), ...design.matchAll(SHIFT_FILE)].map(found => found[0])
+  const named = [...design.matchAll(GHOSTS_FILE_IN_TEXT)].map(found => found[0])
   const files = [...new Set([...named, ...changed])]
   const ghostsFiles = files.filter(file => GHOSTS_FILE.test(file) && (changed.includes(file) || show(file) === null))
-  const shiftFiles = files.filter(file => file.startsWith('scripts/shift/') && show(file) !== null)
-  return [...classificationRefusals(ownerMergesText, ghostsFiles), ...shiftRefusals(ownerMergesText, shiftFiles, show)][0] ?? null
+  return classificationRefusals(ghostsFilesText, ghostsFiles)[0] ?? null
 }
 
 export function immutableRefusal(changed: string[], immutable: string[]): string | null {

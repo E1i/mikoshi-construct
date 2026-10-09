@@ -46,8 +46,8 @@ and the entry in `.claude/settings.local.json` are the only places outside the f
 `.construct/` that it touches, and nothing there is committed.
 
 **The harness command is never guessed.** Pass the command your repository already uses to check a
-change, whatever its package manager: `npm test`, `yarn check`, `bun run ci`. Without a terminal,
-`--harness` is required. `/implement` reads it back from the record.
+change, whatever its package manager: `npm test`, `yarn check`, `bun run ci`. Under `--yes`
+without `--harness`, attach records the harness as `none`. `/implement` reads it back from the record.
 
 **Authorship is not hidden.** Nothing attach writes is committed, so the report ends with a trailer to
 copy into commits made during the work, `Attached-Construct: mikoshi-construct@<version>`, and one
@@ -56,7 +56,7 @@ sentence for the pull request.
 ## When attach refuses
 
 Every refusal happens before anything is written. The full list with the exact output is in the
-[CLI reference](/cli#the-twelve-refusals).
+[CLI reference](/cli#the-eleven-refusals).
 
 | Refusal | What to do |
 |---|---|
@@ -67,7 +67,6 @@ Every refusal happens before anything is written. The full list with the exact o
 | nothing to attach to | The directory holds only `.git` and files such as a README or a LICENSE. attach works on any stack; it needs something to attach to and a harness command. |
 | paths already exist | A file attach would create is already there, and it is yours. Move it aside or keep working without attach; attach never writes over it. |
 | `.claude/settings.local.json` is tracked, unreadable, or already carries a guard entry | attach will not edit it. Stop tracking it, fix it or move it aside, then attach again. |
-| `--yes` without `--harness` | Pass `--harness <command>`. |
 | `--ai cursor` or `both` | Not supported: a Cursor rule would apply to the whole tree. Use Claude Code. |
 
 ## Detaching

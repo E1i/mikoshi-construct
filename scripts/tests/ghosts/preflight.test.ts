@@ -15,20 +15,16 @@ import { runPreflight } from '../../ghosts/preflight.js'
 const NOW = new Date(2026, 9, 5, 12)
 const APPROVER = 'Approver One'
 const NONE_SKETCH = 'Sketch: none — independent implementation is the witness'
-const OWNER_MERGES_TEXT = [
-  '| kind | paths (globs) | what it covers | example |',
-  '|---|---|---|---|',
-  '| own-instructions | `.claude/**`, `scripts/shift/merge.ts` | instructions | — |',
-  '| ghosts | `scripts/ghosts/hash.ts` | the launcher | — |',
-  '',
-  '| plain | what it does |',
+const GHOSTS_FILES_TEXT = [
+  '| file | kind |',
   '|---|---|',
-  '| `scripts/ghosts/status.ts` | status |',
+  '| `scripts/ghosts/hash.ts` | ghosts |',
+  '| `scripts/ghosts/status.ts` | plain |',
   '',
 ].join('\n')
 const BASE_FILES: Record<string, string> = {
   'README.md': 'base\n',
-  'architecture/owner-merges.md': OWNER_MERGES_TEXT,
+  'architecture/ghosts-files.md': GHOSTS_FILES_TEXT,
   'scripts/ghosts/hash.ts': 'export {}\n',
   'scripts/ghosts/status.ts': 'export {}\n',
   'scripts/shift/parking.ts': 'export const pick = 1\n',
@@ -218,33 +214,39 @@ describe('the preflight before ghosts:hash prints a hash', () => {
     expect(hashIn(repo, briefText({ design })).line).not.toBeNull()
   })
 
-  it('refuses a Design that names a new file under scripts/ghosts that no list of owner-merges.md classifies', () => {
+  it('refuses a Design that names a new file under scripts/ghosts that has no row in ghosts-files.md', () => {
     const { repo } = world()
     const run = hashIn(repo, briefText({ design: 'Add scripts/ghosts/preflight.ts.' }))
 
-    expect(refusal(run)).toContain('preflight P4: scripts/ghosts/preflight.ts is in no list of architecture/owner-merges.md: add it to the kind ghosts or to the plain list')
+    expect(refusal(run)).toContain('preflight P4: scripts/ghosts/preflight.ts has no row in architecture/ghosts-files.md: add its row with the kind ghosts or plain')
   })
 
-  it('accepts a named file under scripts/ghosts that the plain list already classifies', () => {
+  it('accepts a named file under scripts/ghosts that ghosts-files.md already classifies plain', () => {
     const { repo } = world()
 
     expect(hashIn(repo, briefText({ design: 'Change scripts/ghosts/status.ts.' })).line).not.toBeNull()
   })
 
-  it('refuses a sketch that adds a scripts/ghosts file no list classifies', () => {
+  it('refuses a sketch that adds a scripts/ghosts file with no row in ghosts-files.md', () => {
     const { repo } = world()
     const sha = sketchOn(repo, { 'added.txt': 'x\n', 'scripts/ghosts/fresh.ts': 'export {}\n' })
     const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` }))
 
-    expect(refusal(run)).toContain('preflight P4: scripts/ghosts/fresh.ts is in no list')
+    expect(refusal(run)).toContain('preflight P4: scripts/ghosts/fresh.ts has no row in architecture/ghosts-files.md')
   })
 
-  it('refuses a sketch whose scripts/shift file now names a merge and is not own-instructions, naming the record to add', () => {
+  it('accepts a sketch that adds a scripts/ghosts file together with its row in ghosts-files.md', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'added.txt': 'x\n', 'scripts/ghosts/fresh.ts': 'export {}\n', 'architecture/ghosts-files.md': `${GHOSTS_FILES_TEXT.trimEnd()}\n| \`scripts/ghosts/fresh.ts\` | plain |\n` })
+
+    expect(hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` })).line).not.toBeNull()
+  })
+
+  it('accepts a sketch whose scripts/shift file now names a merge: scripts/shift is not owner-merged', () => {
     const { repo } = world()
     const sha = sketchOn(repo, { 'added.txt': 'x\n', 'scripts/shift/parking.ts': 'export const merged = 1\n' })
-    const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` }))
 
-    expect(refusal(run)).toContain('preflight P4: scripts/shift/parking.ts names a merge and is not under own-instructions in architecture/owner-merges.md: add it to the kind own-instructions')
+    expect(hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}` })).line).not.toBeNull()
   })
 
   it('refuses a sketch that changes a path the brief holds Immutable', () => {

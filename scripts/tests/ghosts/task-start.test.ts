@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runTaskStart } from '../../ghosts/task-start.js'
+import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
 
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')
@@ -247,7 +247,7 @@ describe('w2: task:start refuses a card of the wrong form, and the old call', ()
     const world = newWorld()
     const result = runTaskStart(['t1', 'feat/t1'], depsOf(world))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] a task starts from its card now: usage: pnpm task:start <branch> --card "<card>"; the id is the card's #<id>`])
+    expect(result.stderr).toEqual([`[task:start] a task starts from its card now: usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]; the id is the card's #<id>`])
     expect(existsSync(path.join(world.root, 'mc-t1'))).toBe(false)
   })
 })
@@ -305,5 +305,20 @@ describe('the path line carries the card who and risk read from the card file at
       expect(line).not.toHaveProperty('who')
       expect(line).not.toHaveProperty('risk')
     }
+  })
+
+  it('a parking path that exists but cannot be read names the read failure in the CONTRACT and starts', () => {
+    const world = newWorld()
+    const dir = path.join(world.root, 'parking')
+    const unreadable = path.join(dir, '31.md')
+    mkdirSync(unreadable, { recursive: true })
+    const result = runTaskStart(['feat/p6', '--card', card(31)], { ...depsOf(world), parking: { dir, read: readJournalFile } })
+    expect(result.exitCode).toBe(0)
+    const reason = `touches not recorded on the card: ${unreadable} could not be read: EISDIR`
+    expect(result.stdout.join('\n')).toContain(reason)
+    expect(result.stdout.join('\n')).not.toContain('no parking file')
+    const entry = lines(world).find(line => line.event === 'entry')!
+    expect(entry.CONTRACT).toContain(reason)
+    expect(entry.CONTRACT).not.toContain('no parking file')
   })
 })

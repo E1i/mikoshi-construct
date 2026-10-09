@@ -10,7 +10,7 @@ export function entryEvent(task: string, signal: Signal, at: string): object {
 }
 
 export function entryLine(task: string, signal: Signal, at: string): string {
-  return `${JSON.stringify({ ...entryEvent(task, signal, at), schema: ENTRY_SCHEMA })}\n`
+  return `${JSON.stringify({ event: ENTRY_EVENT, schema: ENTRY_SCHEMA, task, ...signal, ts: at })}\n`
 }
 
 function isSignal(entry: Record<string, unknown>): entry is Signal & Record<string, unknown> {

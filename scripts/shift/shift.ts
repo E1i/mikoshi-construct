@@ -1,4 +1,5 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
+import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
@@ -24,7 +25,8 @@ import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
-import { cheapClass, cheapForecastOf, claudeProjectsDir } from '../../src/commands/cost/index.js'
+import { cheapClass, cheapForecast, cheapForecastOf, cheapRows, claudeProjectsDir, formatTokens, readCheapTasks } from '../../src/commands/cost/index.js'
+import { quantile } from '../../src/commands/cost/sample.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh, prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
@@ -40,7 +42,7 @@ import { reviewOf } from '../ghosts/verdict.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { changedFiles, COMMIT_FLAG, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -69,6 +71,8 @@ export const USAGE = [
   `The shift takes every card with who: ${SHIFT_WHO} whose depends are merged in the journal and which is not closed itself,`,
   'p0 first, then by id, and leaves a card whose touches overlap one already taken; <dir> keeps the journal and the reports.',
   `It prints the cards it takes and one line counting the cards it leaves by reason; the full list goes to <dir>/${QUEUE_FILE}, and --queue prints it without the closed cards.`,
+  'Before a real run it prints a forecast table, one row per card it takes (contour, tokens and minutes from the journal of past runs of the card\'s class: median · p25–p75, — n=<count> below five runs),',
+  'and a total line: the sum of the medians, the cards it takes, the cards it leaves by reason, and incomplete: naming every card without journal data.',
   'A task file starts with a header and a blank line, then the prompt:',
   '  card: #<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>',
   '  branch: <branch>',
@@ -164,7 +168,7 @@ function createdFile(deps: ShiftDeps): (file: string) => boolean {
   return (file) => {
     try {
       const inTree = deps.git(deps.cwd, ['ls-tree', '--name-only', 'origin/main', '--', file]).trim() !== ''
-      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN]))
+      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', GHOSTS_FILES_ON_MAIN]))
     }
     catch {
       return false
@@ -208,6 +212,57 @@ function choiceLines(choice: Choice, queue: boolean): string[] {
   const taken = choice.chosen.length === 0 ? 'none' : choice.chosen.map(task => `#${task.id}`).join(', ')
   const listed = queue ? choice.left.filter(card => !isClosed(card)).map(card => `${PREFIX}parking: ${leftLine(card)}`) : []
   return [`${PREFIX}parking: takes ${taken}`, `${PREFIX}parking: ${leftSummary(choice.left)}`, ...listed]
+}
+
+const NO_DATA = '—'
+const FORECAST_HEADER = ['CARD', 'CONTOUR', 'TOKENS median · p25–p75', 'MINUTES median · p25–p75']
+
+interface CardForecast {
+  task: ShiftTask
+  forecast: CheapForecast
+  rows: CheapRow[]
+}
+
+function minutesText(value: number): string {
+  return String(Math.round(value * 10) / 10)
+}
+
+function bandText(forecast: CheapForecast, rows: CheapRow[], measure: 'tokens' | 'minutes', format: (value: number) => string): string {
+  if (forecast.kind === 'none')
+    return `${NO_DATA} n=${forecast.n}`
+  const values = rows.map(row => row[measure])
+  return `≈ ${format(forecast[measure])} · ${format(quantile(values, 0.25))}–${format(quantile(values, 0.75))}`
+}
+
+function cardForecasts(deps: ShiftDeps, dir: string, tasks: ShiftTask[]): CardForecast[] {
+  const sample = readCheapTasks(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL)).tasks
+  return tasks.map((task) => {
+    const taskClass = cheapClass(task.card)
+    const rows = cheapRows(sample, taskClass, deps.projectsDir)
+    return { task, forecast: cheapForecast(rows, taskClass), rows }
+  })
+}
+
+function forecastTotal(forecasts: CardForecast[], left: Choice['left']): string {
+  const known = forecasts.flatMap(({ forecast }) => forecast.kind === 'none' ? [] : [forecast])
+  const missing = forecasts.filter(({ forecast }) => forecast.kind === 'none').map(({ task }) => `#${task.id}`)
+  const tokens = known.reduce((sum, forecast) => sum + forecast.tokens, 0)
+  const minutes = known.reduce((sum, forecast) => sum + forecast.minutes, 0)
+  const sums = known.length === 0 ? `tokens ${NO_DATA}, minutes ${NO_DATA}` : `tokens ≈ ${formatTokens(tokens)}, minutes ≈ ${minutesText(minutes)}`
+  const completeness = missing.length === 0 ? '' : ` · incomplete: no journal data for ${missing.join(', ')}`
+  return `${PREFIX}total: ${sums} · takes ${forecasts.length} · ${leftSummary(left)}${completeness}`
+}
+
+function forecastLines(forecasts: CardForecast[], left: Choice['left']): string[] {
+  const rows = [FORECAST_HEADER, ...forecasts.map(({ task, forecast, rows: cardRows }) => [
+    `#${task.id} ${task.card.name}`,
+    task.card.contour,
+    bandText(forecast, cardRows, 'tokens', formatTokens),
+    bandText(forecast, cardRows, 'minutes', minutesText),
+  ])]
+  const widths = FORECAST_HEADER.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  const table = rows.map(row => `${PREFIX}${row.map((cell, column) => cell.padEnd(widths[column]!)).join('  ').trimEnd()}`)
+  return [...table, forecastTotal(forecasts, left)]
 }
 
 function openPrs(gh: GhRunner): OpenPr[] | string {
@@ -981,8 +1036,11 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     deps.append(ghostJournal, usedLine(shard, dir, deps.now()))
     deps.out(`${PREFIX}shard ${shard} used by this run: an owner pull request the guards and the checks pass is armed`)
   }
-  if (read.choice !== undefined)
+  if (read.choice !== undefined) {
+    for (const line of forecastLines(cardForecasts(deps, dir, tasks), read.choice.left))
+      deps.out(line)
     deps.append(path.join(dir, QUEUE_FILE), queueText(read.choice.left))
+  }
   deps.append(journal, `${JSON.stringify({ event: 'start', at: deps.now().toISOString(), tasks: tasks.map(task => task.file), ...parked })}\n`)
   deps.append(journal, autopilotLine(deps, dir, manual))
   let clean = true

@@ -10,7 +10,7 @@ import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
-import { CARD_REFERENCE, checkDraft, correctionText } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns } from './check.js'
 import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { INTAKE_EXIT } from './index.js'
@@ -37,6 +37,7 @@ export interface AdmitOptions {
 
 export type AdmitResult
   = | { status: 'refused', why: string }
+    | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
 
@@ -156,7 +157,11 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (parsed.kind === 'refused')
     return { status: 'refused', why: parsed.reason }
   const { card } = parsed.parked.task
-  const [checked] = checkDraft([draftOf(parsed.parked)], [card.id], {
+  const draft = draftOf(parsed.parked)
+  const invalidPatterns = invalidTestPatterns([draft])
+  if (invalidPatterns.length > 0)
+    return { status: 'invalidTestPattern', reasons: invalidPatterns }
+  const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
     parked: new Set(parkedNumbers(siblings(options.file))),
     done: new Set(closedTasks(journal).keys()),
@@ -198,6 +203,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
 export function printAdmit(ui: Ui, result: AdmitResult): number {
   if (result.status === 'refused') {
     ui.flatline(ui.lore.intakeRefusedUnreadable(result.why))
+    return INTAKE_EXIT.refused
+  }
+  if (result.status === 'invalidTestPattern') {
+    ui.flatline(ui.lore.intakeRefusedInvalidTestPattern)
+    for (const reason of result.reasons)
+      ui.line(`  - ${reason}`)
     return INTAKE_EXIT.refused
   }
   const { card } = result

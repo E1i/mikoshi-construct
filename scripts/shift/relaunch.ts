@@ -13,27 +13,32 @@ import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '.
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
+import { boundaryLine, transcriptContext } from './operator-boundary.js'
 import { GHOST_JOURNAL } from './places.js'
 
 export const PREFIX = '[relaunch] '
-export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live'
+export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
 export const CHAIN_COMMAND = 'pnpm shift:bg <dir> --parking <parking> --chain'
 export const WINDOW_BODY_NOTE = 'window took body #N'
-export const OPERATOR_ROLE = `[operator] You are the Operator, the window under relaunch; sign every message [operator]: start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them; you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}; read the journal and its failed notifications, repair only what stopped (restart the card, correct it with construct intake --admit, answer the session), and at the context limit write STOP so relaunch raises the next session.`
+export const OPERATOR_ROLE = `[operator] You are the Operator, the window under relaunch; sign every message [operator]: start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them; you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}; read the journal and its failed notifications, repair only what stopped (restart the card, correct it with construct intake --admit, answer the session), and at a task boundary past the context threshold write STOP with STATUS: CONTINUE and exit, so relaunch raises the next session from the handoff.`
 export function promptFirstLine(handoff: string): string {
   return `${OPERATOR_ROLE} ${CONTINUE_PROMPT}: ${handoff} — write it only with pnpm handoff:write ${handoff} <draft>`
 }
-export function relaunchPrompt(handoff: string, decisions: string | null): string {
+export function boundaryCommand(session: string): string {
+  return `pnpm relaunch --boundary ${session}`
+}
+export function relaunchPrompt(handoff: string, decisions: string | null, session: string): string {
   const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${decisions}, and never copy them into the handoff.`
-  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\n${LAUNCH_LINE}`
+  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
 export const ALREADY_RUNNING = 'already-running'
 
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
 const SYNTHETIC_MODEL = '<synthetic>'
+const PLAIN_SESSION = /^[\w-]{1,128}$/
 
 export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
 
@@ -164,6 +169,20 @@ export function transcriptModel(deps: RelaunchDeps): string | null {
   return deps.read(newest).split('\n').map(modelOfLine).filter(model => model !== null).at(-1) ?? null
 }
 
+function sessionTranscript(deps: RelaunchDeps, session: string): string | null {
+  return deps.listDir(deps.projectsDir)
+    .map(project => path.join(deps.projectsDir, project, `${session}.jsonl`))
+    .find(file => deps.exists(file)) ?? null
+}
+
+function printBoundary(deps: RelaunchDeps, session: string): number {
+  const transcript = sessionTranscript(deps, session)
+  const text = transcript === null ? null : readIfPresent(deps, transcript)
+  const context = text === null ? null : transcriptContext(text)
+  deps.out(`${PREFIX}${boundaryLine(context, transcript ?? path.join(deps.projectsDir, '*', `${session}.jsonl`))}`)
+  return 0
+}
+
 function parseArgs(args: string[]): RelaunchArgs | null {
   let handoff: string | undefined
   let max = MAX_RESTARTS
@@ -281,6 +300,8 @@ async function record(deps: RelaunchDeps, event: object): Promise<void> {
 export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<number> {
   if (args.length === 1 && args[0] === '--live')
     return printLive(deps)
+  if (args.length === 2 && args[0] === '--boundary' && PLAIN_SESSION.test(args[1]!))
+    return printBoundary(deps, args[1]!)
   const parsed = parseArgs(args)
   if (parsed === null) {
     deps.err(`${PREFIX}${USAGE}`)
@@ -333,7 +354,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home)), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
     await record(deps, {
       event: 'relaunch',
