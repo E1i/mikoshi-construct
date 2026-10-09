@@ -1909,6 +1909,13 @@ the witnesses, beside every entry of the draft's own `unclear` list. A card with
 written with `who: window`, so the shift does not take it until a person settles it. A missing field
 with no default refuses the draft.
 
+**Read back at the start.** `pnpm task:start <branch> --card "<card>" [--parking <dir>]` reads the
+card's `touches` from `<dir>/<id>.md`, `~/.construct/parking` by default, into the `CONTRACT` of the
+entry line it writes to `ghosts.jsonl`, under `--without-intake` too. A missing file is named in that
+value as `touches not recorded on the card: no parking file for #<id>`; a file whose card line is not
+the `--card` given is refused with nothing written. The entry line `task:start` writes carries
+`"schema":2`; the one `ghosts:launch` writes carries no `schema` and stays version 1.
+
 One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written
 or printed, `1` when the draft was refused, `2` when corrections wait for a person's confirmation.
 
