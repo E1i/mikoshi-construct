@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { applyMutation, runJudge } from '../../../src/commands/mutate/index.js'
 import { failing, MutateWorld, passing } from '../../../tests/mutate-world.js'
 import { doneCheck } from '../../done/check.js'
+import { realShell } from '../../ghosts/preflight-trees.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const BRIEF_AGENT = path.join(REPO_ROOT, '.claude/agents/brief.md')
@@ -103,7 +104,7 @@ function doneCheckOver(args: string, ids: string[]): { passed: boolean, lines: s
   const { root, base } = implementedTree()
   const map = path.join(temporary('brief-format-map-'), 'map.json')
   writeFileSync(map, JSON.stringify({ requirements: ids.map(id => ({ id, code: ['src/total.ts:6'], tests: [{ file: TEST_FILE, title: TITLE }] })) }))
-  return doneCheck(root, { args, map, base })
+  return doneCheck(root, { args, map, base, task: null }, { shell: realShell, journal: path.join(temporary('brief-format-handoff-'), 'ghosts.jsonl') })
 }
 
 function mutationWorld(): MutateWorld {
