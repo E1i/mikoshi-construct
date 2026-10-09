@@ -1,9 +1,10 @@
 import type { Decision } from '../../src/card/grammar.js'
 import type { GhRunner } from '../board/gh.js'
+import type { GitRunner } from '../ghosts/sketch.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { OwnerMergeKind } from '../shredder/reader.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -11,7 +12,8 @@ import { fileURLToPath } from 'node:url'
 import { parseCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { ghStatusPublisher, publishReasons, reviewStatus } from '../ghosts/verdict.js'
+import { reviewCarry } from '../ghosts/review-carry.js'
+import { ghStatusPublisher, publishReasons, REVIEW_CARRY_EVENT, reviewStatus } from '../ghosts/verdict.js'
 import { matchGlob } from '../shredder/glob.js'
 import { readOwnerMergeKinds, readPlainPaths } from '../shredder/reader.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
@@ -215,6 +217,76 @@ export function runVerdict(argv: string[], deps: VerdictDeps): MergeResult {
   return { stdout: [recorded], stderr: unposted.map(reason => `${VERDICT_PREFIX}${reason}`), exitCode: unposted.length > 0 ? 1 : 0 }
 }
 
+export const CARRY_FLAG = '--carry'
+export const CARRY_USAGE = `usage: pnpm shift:merge <pull request number> ${CARRY_FLAG}`
+const CARRY_PREFIX = '[shift:carry] '
+const ORIGIN_MAIN = 'origin/main'
+
+export interface CarryDeps {
+  gh: GhRunner
+  git: GitRunner
+  fetch: (number: string) => void
+  journal: () => string | null
+  main: string
+  publish: StatusPublisher
+}
+
+function carryRefused(message: string): MergeResult {
+  return { stdout: [], stderr: [`${CARRY_PREFIX}${message}; nothing published`], exitCode: 1 }
+}
+
+export function runCarry(argv: string[], deps: CarryDeps): MergeResult {
+  const number = argv.find(arg => arg !== CARRY_FLAG)
+  if (argv.length !== 2 || !argv.includes(CARRY_FLAG) || number === undefined || !/^\d+$/.test(number))
+    return carryRefused(CARRY_USAGE)
+  let view: PrView
+  try {
+    view = readPrView(deps.gh, number)
+  }
+  catch (error) {
+    return carryRefused(`PR #${number} not read: ${firstLine(error)}`)
+  }
+  const card = parseCard(view.body.split('\n')[0]!.trim())
+  if (card.kind === 'refused')
+    return carryRefused(`the first line of PR #${number} is not the task's card (${card.reason})`)
+  const task = String(card.card.id)
+  const review = latestPrReview(deps.journal(), task, Number(number))
+  if (review === undefined)
+    return carryRefused(`PR #${number} has no review verdict to carry: review it with pnpm shift:merge ${number} ${VERDICT_FLAG}`)
+  const head = view.headRefOid
+  if (review.commit === head)
+    return { stdout: [`${CARRY_PREFIX}PR #${number} review ${review.verdict} already stands at its head ${head}; nothing to carry`], stderr: [], exitCode: 0 }
+  try {
+    deps.fetch(number)
+  }
+  catch (error) {
+    return carryRefused(`main and the head of PR #${number} not fetched: ${firstLine(error)}`)
+  }
+  const carry = reviewCarry(deps.git, review.commit, head, deps.main)
+  if (!carry.ok)
+    return carryRefused(`PR #${number} needs a new review at ${head}: ${carry.reason}`)
+  const status = reviewStatus({ event: REVIEW_CARRY_EVENT, task, verdict: review.verdict, from: review.commit, to: head })
+  try {
+    deps.publish(status)
+  }
+  catch (error) {
+    return { stdout: [], stderr: [`${CARRY_PREFIX}the review of PR #${number} carries to ${head}, but the ${status.context} status was not posted: ${firstLine(error)}`], exitCode: 1 }
+  }
+  return { stdout: [`${CARRY_PREFIX}PR #${number} review ${review.verdict} carried from ${review.commit} to ${head} across ${carry.merges.length} clean update-branch merge(s)`], stderr: [], exitCode: 0 }
+}
+
+function realCarryDeps(journal: string): CarryDeps {
+  const git: GitRunner = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return {
+    gh: execGh,
+    git,
+    fetch: number => git(['fetch', '-q', 'origin', 'main', `pull/${number}/head`]),
+    journal: () => existsSync(journal) ? readFileSync(journal, 'utf8') : null,
+    main: ORIGIN_MAIN,
+    publish: ghStatusPublisher(process.cwd()),
+  }
+}
+
 function realDeps(): MergeDeps {
   return {
     gh: execGh,
@@ -228,7 +300,9 @@ function realDeps(): MergeDeps {
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2)
   const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
-  const result = argv.includes(VERDICT_FLAG) ? runVerdict(argv, { gh: execGh, journal, append: appendFileSync, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
+  const result = argv.includes(CARRY_FLAG)
+    ? runCarry(argv, realCarryDeps(journal))
+    : argv.includes(VERDICT_FLAG) ? runVerdict(argv, { gh: execGh, journal, append: appendFileSync, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)

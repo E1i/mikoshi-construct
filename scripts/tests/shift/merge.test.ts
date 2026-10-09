@@ -1,8 +1,10 @@
 import type { ReviewStatus } from '../../ghosts/verdict.js'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isListed, runMerge, runVerdict } from '../../shift/merge.js'
+import { isListed, prReviewLine, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const HEAD = 'a1b2c3d'
@@ -121,5 +123,73 @@ describe('runVerdict', () => {
     expect(appended).toHaveLength(1)
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[shift:verdict] the journal line is written, but the review status on ${HEAD} was not posted: gh: HTTP 403`])
+  })
+})
+
+describe('runCarry', () => {
+  function git(repo: string, ...args: string[]): string {
+    return execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  }
+
+  function commit(repo: string, files: Record<string, string>, message: string): string {
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
+      writeFileSync(path.join(repo, file), text)
+    }
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', message)
+    return git(repo, 'rev-parse', 'HEAD')
+  }
+
+  function reviewedPullRequest(own: Record<string, string>): { repo: string, reviewed: string } {
+    const repo = mkdtempSync(path.join(tmpdir(), 'shift-merge-carry-'))
+    git(repo, 'init', '-q', '-b', 'main')
+    commit(repo, { 'shared.txt': 'one\ntwo\nthree\n' }, 'base')
+    git(repo, 'checkout', '-q', '-b', 'pr')
+    return { repo, reviewed: commit(repo, own, 'own') }
+  }
+
+  function mainMoves(repo: string, files: Record<string, string>): void {
+    git(repo, 'checkout', '-q', 'main')
+    commit(repo, files, 'main moved')
+    git(repo, 'checkout', '-q', 'pr')
+  }
+
+  function carryRun(repo: string, reviewed: string, head: string): { posted: ReviewStatus[], result: ReturnType<typeof runCarry> } {
+    const posted: ReviewStatus[] = []
+    const journal = prReviewLine({ task: '7', pr: 42, verdict: 'pass', commit: reviewed }, new Date('2026-10-09T03:00:00.000Z'))
+    const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: head, files: [{ path: 'scripts/board/derive.ts' }] })
+    const result = runCarry(['42', '--carry'], { gh, git: args => git(repo, ...args), fetch: () => {}, journal: () => journal, main: 'main', publish: status => posted.push(status) })
+    return { posted, result }
+  }
+
+  it('carries a review success from head A to the head B a clean update-branch merge left', () => {
+    const { repo, reviewed } = reviewedPullRequest({ 'own.txt': 'the pull request\n' })
+    mainMoves(repo, { 'other.txt': 'main moved\n' })
+    git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main')
+    const head = git(repo, 'rev-parse', 'HEAD')
+    const { posted, result } = carryRun(repo, reviewed, head)
+    expect(posted).toEqual([{ commit: head, state: 'success', context: 'review', description: `carried from ${reviewed}` }])
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('publishes nothing on B when the update-branch merge resolved a conflict, and says a new review is needed', () => {
+    const { repo, reviewed } = reviewedPullRequest({ 'shared.txt': 'one\nTWO from the pull request\nthree\n' })
+    mainMoves(repo, { 'shared.txt': 'one\nTWO from main\nthree\n' })
+    expect(() => git(repo, 'merge', '-q', '--no-edit', 'main')).toThrow()
+    const head = commit(repo, { 'shared.txt': 'one\nTWO resolved\nthree\n' }, 'merge main')
+    const { posted, result } = carryRun(repo, reviewed, head)
+    expect(posted).toEqual([])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toHaveLength(1)
+    expect(result.stderr[0]).toContain(`[shift:carry] PR #42 needs a new review at ${head}`)
+    expect(result.stderr[0]).toContain('resolved a conflict')
+  })
+
+  it('publishes nothing for a pull request with no review verdict on record', () => {
+    const posted: ReviewStatus[] = []
+    const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: HEAD, files: [] })
+    const result = runCarry(['42', '--carry'], { gh, git: () => '', fetch: () => {}, journal: () => null, main: 'main', publish: status => posted.push(status) })
+    expect([posted, result.exitCode]).toEqual([[], 1])
   })
 })
