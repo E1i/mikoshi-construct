@@ -276,9 +276,8 @@ interface Supervised {
   starts: { name: string, head: string }[]
 }
 
-function supervised(r: Repo, busDir: string, running: RunningProcess[]): Supervised {
+function supervised(r: Repo, busDir: string, running: RunningProcess[], code: BusCode = gitCode(r.dir)): Supervised {
   const db = openBus(path.join(busDir, 'bus.db'))
-  const code: BusCode = gitCode(r.dir)
   const stopped: number[] = []
   const starts: { name: string, head: string }[] = []
   let alive = [...running]
@@ -358,5 +357,48 @@ describe('bus:bg --supervise', () => {
     s.advance(later)
     await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102, 103])
+  })
+
+  it('an unreadable switch file stops nothing, keeps the advance pending and the loop alive', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    mkdirSync(busDir, { recursive: true })
+    writeFileSync(path.join(busDir, WORKERS_FILE), '{"on":["merge",]}')
+    const s = supervised(r, busDir, RUNNING.slice(0, 2))
+    const next = r.commit('scripts/bus/queue.ts')
+    s.advance(next)
+    const failed = await s.supervisor.step()
+    expect(failed).toHaveLength(1)
+    expect(failed[0]).toContain('supervisor step failed')
+    expect(failed[0]).toContain(`main.advanced to ${next} stays pending`)
+    expect(s.stopped).toEqual([])
+    expect(s.starts).toEqual([])
+    writeFileSync(path.join(busDir, WORKERS_FILE), '{"on":["merge"]}\n')
+    await s.supervisor.step()
+    expect(s.stopped).toEqual([101, 102])
+    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:review --on', 'bus:run'])
+  })
+
+  it('a git failure keeps the advance pending and the next step retries it', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    const git = gitCode(r.dir)
+    let failures = 1
+    const flaky: BusCode = {
+      ...git,
+      busChangedSince: (sha) => {
+        if (failures-- > 0)
+          throw new Error('git diff exited 128')
+        return git.busChangedSince(sha)
+      },
+    }
+    const s = supervised(r, busDir, RUNNING.slice(0, 1), flaky)
+    const next = r.commit('scripts/bus/lease.ts')
+    s.advance(next)
+    expect(await s.supervisor.step()).toEqual([`${PREFIX}supervisor step failed: git diff exited 128; main.advanced to ${next} stays pending and is retried on the next tick`])
+    expect(s.stopped).toEqual([])
+    await s.supervisor.step()
+    expect(s.stopped).toEqual([101])
+    expect(s.starts).toEqual([{ name: 'bus:run', head: next }])
   })
 })

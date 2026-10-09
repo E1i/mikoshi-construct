@@ -110,6 +110,16 @@ export class BusSupervisor {
   }
 
   async step(): Promise<string[]> {
+    try {
+      return await this.advance()
+    }
+    catch (error) {
+      const waiting = this.pending === null ? '' : `; main.advanced to ${this.pending} stays pending and is retried on the next tick`
+      return [`${PREFIX}supervisor step failed: ${error instanceof Error ? error.message : String(error)}${waiting}`]
+    }
+  }
+
+  private async advance(): Promise<string[]> {
     const advanced = this.parts.mainSince(this.seen)
     const lines: string[] = []
     if (advanced.length > 0) {
@@ -124,15 +134,24 @@ export class BusSupervisor {
       return lines
     }
     const sha = this.pending
-    this.pending = null
     const changed = this.parts.code.busChangedSince(this.codeSha)
-    this.codeSha = this.parts.code.head()
-    if (!changed)
+    const head = this.parts.code.head()
+    if (!changed) {
+      this.settle(head)
       return [...lines, `${PREFIX}main advanced to ${sha} with no change under ${BUS_CODE_PATH}; nothing restarted`]
-    return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${this.codeSha}`, ...await this.restart()]
+    }
+    const wanted = this.parts.wanted()
+    const restarted = await this.restart(wanted)
+    this.settle(head)
+    return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}`, ...restarted]
   }
 
-  private async restart(): Promise<string[]> {
+  private settle(head: string): void {
+    this.pending = null
+    this.codeSha = head
+  }
+
+  private async restart(wanted: DetachedLaunch[]): Promise<string[]> {
     const processes = this.parts.processes()
     const running = this.parts.known.flatMap((launch) => {
       const instance = runningInstance(processes, launch.markers)
@@ -140,7 +159,6 @@ export class BusSupervisor {
     })
     for (const { launch, instance } of running)
       await this.parts.stop(instance, launch)
-    const wanted = this.parts.wanted()
     const again = [...wanted, ...running.map(({ launch }) => launch).filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
     return again.flatMap((launch) => {
       const started = this.parts.start(launch)
