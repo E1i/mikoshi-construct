@@ -19,6 +19,8 @@ export const MERGE_METHOD = 'squash'
 export const STALE_HEAD_STATUS = 409
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable'])
 const FILES_PAGE = 100
+const RUNS_PAGE = 100
+const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
 export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base'
@@ -83,6 +85,13 @@ function ownerMergesText(meter: Meter): string {
   if (typeof file.content !== 'string')
     throw new Error(`${OWNER_MERGES} on ${MAIN_BRANCH} came back with no content`)
   return Buffer.from(file.content, 'base64').toString('utf8')
+}
+
+function approvedRunsOn(meter: Meter, head: string | undefined): boolean {
+  if (head === undefined)
+    return false
+  const runs = (meter.get(`${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`) as { workflow_runs?: { conclusion?: string | null }[] }).workflow_runs ?? []
+  return runs.some(run => run.conclusion !== AWAITING_APPROVAL)
 }
 
 export class MergeExecutor {
@@ -164,8 +173,8 @@ export class MergeExecutor {
     try {
       const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
       const open = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
-      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? ''))?.number
-      return versionPr === undefined ? null : { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr} is an open version pull request and locks every merge` }
+      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? '') && approvedRunsOn(meter, candidate.head?.sha))
+      return versionPr === undefined ? null : { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr.number} is a version pull request with approved runs on ${versionPr.head?.sha} and locks every merge` }
     }
     catch (error) {
       return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
