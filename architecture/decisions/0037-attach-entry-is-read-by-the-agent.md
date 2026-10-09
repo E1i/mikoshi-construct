@@ -51,8 +51,8 @@ with no way to tell the construct's own earlier files from the owner's.
 
 ## Enforced by
 
-- L3 tests: the protocol printed whole, what it names, and the no-harness refusal in both themes
-  (`tests/attach-entry.test.ts`); the known set, the classification and the delete-and-rerun command
+- L3 tests: the protocol printed whole, what it names, and `--yes` without `--harness` recording
+  harness none in both themes since #667 retired the no-harness refusal (`tests/attach-entry.test.ts`); the known set, the classification and the delete-and-rerun command
   (`tests/attach-earlier-carriers.test.ts`); the generator's grow and drift
   (`scripts/tests/attach/earlier-carriers.test.ts`).
 - Lint: `src/commands/attach/**` may import nothing from `src/detect` but `isEmptyDir`

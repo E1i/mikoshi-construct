@@ -53,6 +53,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   stable: string
   doctorAttached: string
   doctorAttachedHarness: (command: string, state: string) => string
+  doctorAttachedNoHarness: string
   discoveryIncomplete: string
   provenance: string
   stillConstructAuthored: (count: number) => string
@@ -182,8 +183,12 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   notCarriedUnevaluable: (claimId: string, target: string) => string
   notCarriedEveryFactHolds: (claimId: string) => string
   notCarriedSourcesOmitted: (claimId: string) => string
-  askHarness: string
-  harnessEmpty: string
+  askHarnessCandidate: (count: number) => string
+  harnessCandidateInvalid: (count: number) => string
+  attachHarnessCandidates: string
+  attachHarnessCandidate: (index: number, command: string, source: string) => string
+  attachNoHarnessCandidates: string
+  attachHarnessNone: string
   attachNeedsTerminal: string
   attachConfirm: string
   attachRefusedNoGit: string
@@ -192,8 +197,6 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachRefusedAttached: string
   attachRefusedNothingToAttach: string
   attachRefusedCollision: (paths: string[]) => string
-  attachRefusedNoHarness: string
-  attachNoHarnessExplained: { why: string, next: string }
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => { why: string, next: string }
   attachCollisionEarlier: (date: string) => string
   attachCollisionForeign: string
@@ -369,6 +372,7 @@ export const LORE: Lore = {
   stable: 'CONSTRUCT STABLE',
   doctorAttached: 'ATTACHED // NO CONSTRUCT, NETRUN ONLY',
   doctorAttachedHarness: (command: string, state: string) => `Harness \`${command}\` reads ${state}.`,
+  doctorAttachedNoHarness: 'Harness: none \u2014 NOT COVERED. No gate verifies a change here; to name one, run construct detach, then construct attach --harness "<command>".',
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'AUTHORSHIP TRACE',
   stillConstructAuthored: (count: number) => `Still the construct's own words: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
@@ -516,8 +520,12 @@ export const LORE: Lore = {
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
   notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but the construct never wrote the sample sources it stands on into this repository, and it writes those only into an empty directory; no run here records it.`,
-  askHarness: 'Harness command \u2014 the gate every change must pass (nothing is assumed)?',
-  harnessEmpty: 'Name a command; nothing is assumed.',
+  askHarnessCandidate: (count: number) => `Jack the ladder into 1? yes / no / a number (1\u2013${count})`,
+  harnessCandidateInvalid: (count: number) => `Answer yes, no or a number from 1 to ${count}.`,
+  attachHarnessCandidates: 'Harness candidates the net read off this repository, tests first, lint never:',
+  attachHarnessCandidate: (index: number, command: string, source: string) => `${index}. ${command}  \u2190 ${source}`,
+  attachNoHarnessCandidates: 'The net read no CI step or package.json script here that runs tests.',
+  attachHarnessNone: 'Harness: none \u2014 jacking in without a gate; doctor flags the harness as not covered until one is named.',
   attachNeedsTerminal: 'No terminal for the interactive flow; pass --yes --harness <command> to run non-interactively.',
   attachConfirm: 'Jack in?',
   attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
@@ -526,11 +534,6 @@ export const LORE: Lore = {
   attachRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
   attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
-  attachRefusedNoHarness: 'BREACH FAILED // NO HARNESS NAMED: pass --harness',
-  attachNoHarnessExplained: {
-    why: 'The net never guesses the command the ladder verifies with; which command mirrors what this repository\'s CI runs is a reading of the repository, and that reading is the agent\'s.',
-    next: 'npx mikoshi-construct attach --entry prints the entry protocol: the agent reads CI, scripts, test configs and hooks, proposes one command, and you answer yes or no.',
-  },
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
     why: recognised === 0
       ? 'None of them is byte for byte a construct template of any version, so they are yours; the net writes over nothing.'
@@ -723,6 +726,7 @@ export const PLAIN_LORE: Lore = {
   stable: 'OK',
   doctorAttached: 'Attached (no construct.json).',
   doctorAttachedHarness: (command: string, state: string) => `Harness \`${command}\` reads ${state}.`,
+  doctorAttachedNoHarness: 'Harness: none \u2014 not covered. No command verifies a change here; to name one, run construct detach, then construct attach --harness "<command>".',
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'Discovery provenance',
   stillConstructAuthored: (count: number) => `Unchanged since discovery wrote them: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
@@ -870,8 +874,12 @@ export const PLAIN_LORE: Lore = {
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
   notCarriedEveryFactHolds: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds; \`construct init\` would record it.`,
   notCarriedSourcesOmitted: (claimId: string) => `  ${claimId} \u2014 every fact it would stand on holds, but the construct never wrote the sample sources it stands on into this repository, and it writes those only into an empty directory; no run here records it.`,
-  askHarness: 'Harness command \u2014 the gate every change must pass (nothing is assumed)?',
-  harnessEmpty: 'Name a command; nothing is assumed.',
+  askHarnessCandidate: (count: number) => `Use 1 as the harness? yes / no / a number (1\u2013${count})`,
+  harnessCandidateInvalid: (count: number) => `Answer yes, no or a number from 1 to ${count}.`,
+  attachHarnessCandidates: 'Harness candidates read from this repository (tests first; lint is never proposed):',
+  attachHarnessCandidate: (index: number, command: string, source: string) => `${index}. ${command}  (${source})`,
+  attachNoHarnessCandidates: 'No CI step or package.json script here runs tests.',
+  attachHarnessNone: 'Harness: none \u2014 attach goes on without a gate, and doctor reports the harness as not covered until one is named.',
   attachNeedsTerminal: 'No terminal for the interactive flow; pass --yes --harness <command> to run non-interactively.',
   attachConfirm: 'Attach these files?',
   attachRefusedNoGit: 'Refused: not a git repository.',
@@ -880,11 +888,6 @@ export const PLAIN_LORE: Lore = {
   attachRefusedAttached: 'Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.',
   attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
-  attachRefusedNoHarness: 'Refused: --yes needs --harness <command>; nothing is assumed.',
-  attachNoHarnessExplained: {
-    why: 'attach never guesses the command the ladder verifies with; which command mirrors what this repository\'s CI runs is a reading of the repository, and that reading is the agent\'s.',
-    next: 'npx mikoshi-construct attach --entry prints the entry protocol: the agent reads CI, scripts, test configs and hooks, proposes one command, and you answer yes or no.',
-  },
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
     why: recognised === 0
       ? 'None of them is byte for byte a construct template of any version, so they are yours; attach writes over nothing.'
