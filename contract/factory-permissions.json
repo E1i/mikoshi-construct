@@ -3,7 +3,8 @@
     "Bash(pnpm shift:bg:*)",
     "Bash(pnpm relaunch:bg:*)",
     "Bash(gh pr merge:*)",
-    "Bash(ps:*)"
+    "Bash(ps:*)",
+    "Bash(pnpm miko:exit:*)"
   ],
   "denyMergeOfHead": "changeset-release/"
 }

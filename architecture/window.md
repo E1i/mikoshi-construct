@@ -46,7 +46,10 @@ Mikoshi, the interactive window the owner opens, runs under `pnpm miko`: a loop 
 the one built into VS Code included) that starts `claude` (`$MIKO_CLAUDE`, default `claude --permission-mode auto`). At
 the limit Mikoshi writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff:write`, under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process; how it ends it is not prescribed. When the mtime of `mikoshi.md` changed during the session, the loop at once
+process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. `pnpm miko:exit`
+(`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors only when a `scripts/miko/loop.ts` process stands
+above that claude and `mikoshi.md` was written in the last two minutes (`FRESH_MS`); otherwise it refuses with the reason
+(the file's age, when that is the reason) and ends nothing. When the mtime of `mikoshi.md` changed during the session, the loop at once
 starts a new session with the prompt `прочитай mikoshi.md`, whatever the exit code, which it never reads. A session that
 ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
 `pnpm miko` starts gets the prompt `прочитай mikoshi.md` when `mikoshi.md` exists, and no prompt when it does not.
