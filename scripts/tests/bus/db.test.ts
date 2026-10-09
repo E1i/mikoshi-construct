@@ -72,6 +72,15 @@ describe('bus.db', () => {
     db.close()
   })
 
+  it('a null actor is stored only on a legacy event', () => {
+    const db = newBus()
+    const insert = db.prepare(`INSERT INTO events (ts, type, actor, dedupe_key, payload, legacy) VALUES ('2026-10-09T12:00:00.000Z', 'note', NULL, ?, '{}', ?)`)
+    expect(() => insert.run('live:1', 0)).toThrow(/CHECK/)
+    insert.run('legacy:1', 1)
+    expect(db.prepare('SELECT count(*) AS n FROM events').get()).toEqual({ n: 1 })
+    db.close()
+  })
+
   it('enforces task_key UNIQUE in tasks', () => {
     const db = newBus()
     appendEvent(db, observed())
