@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from 'vitest/config'
 import { BaseSequencer } from 'vitest/node'
+import { witnessGuard } from './scripts/ci/no-match-reporter.js'
 import { balanceShards } from './scripts/ci/shard.js'
 
 const weights = JSON.parse(readFileSync(path.join(import.meta.dirname, 'scripts/ci/test-weights.json'), 'utf8')) as TestWeights
@@ -17,6 +18,7 @@ class WeightedShardSequencer extends BaseSequencer {
 }
 
 export default defineConfig({
+  plugins: [witnessGuard()],
   test: {
     include: ['tests/**/*.test.ts', 'scripts/tests/**/*.test.ts'],
     exclude: ['**/node_modules/**', 'tests/fixtures/**'],
