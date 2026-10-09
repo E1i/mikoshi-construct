@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { taskKey } from '../../bus/identifiers.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { expireLeases, LEASE_MS } from '../../bus/lease.js'
+import { assertHeld, expireLeases, LEASE_MS, StaleLease } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -77,6 +77,51 @@ describe('the merge executor', () => {
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: merge(969), denial: { kind: 'technical', reason: 'version_pr_open' }, next: 'queued' })
     expect(bench.gitHub.puts).toEqual([])
     expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('the version pull request lock leaves the task queued however many ticks it lasts, and never stops the card', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 973, review: 'success' })
+    bench.gitHub.open({ number: 974, head: sha('c'), ref: 'changeset-release/main' })
+    bench.tick()
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'version_pr_open' }, next: 'queued' })
+      expect(taskState(bench.db, merge(973))).toEqual({ state: 'queued', lease_gen: attempt + 1, failures: 0 })
+      bench.tick()
+    }
+    expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
+    expect(eventsOf(bench.db, 'board.alarm')).toEqual([])
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a not_mergeable denial releases the task without counting a failure', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 975, review: 'success' })
+    bench.tick()
+    const lease = bench.lease()!
+    bench.gitHub.pulls.get(975)!.mergeable_state = 'behind'
+
+    expect(bench.merge(lease)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'not_mergeable' }, next: 'queued' })
+    expect(taskState(bench.db, merge(975))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a released task returns to the queue with its failure count unchanged and its lease_gen fenced', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 976, review: 'success' })
+    bench.gitHub.open({ number: 977, head: sha('c'), ref: 'changeset-release/main' })
+    bench.tick()
+    const old = bench.lease()!
+    bench.merge(old)
+
+    expect(taskState(bench.db, merge(976))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
+    expect(() => assertHeld(bench.db, old)).toThrow(StaleLease)
+    expect(bench.merge(old)).toEqual({ kind: 'fenced', taskKey: merge(976) })
+    expect(bench.lease()!.leaseGen).toBe(2)
     bench.close()
   })
 

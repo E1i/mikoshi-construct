@@ -7,7 +7,7 @@ import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
-import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
+import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { mergePolicy, VERSION_BRANCH } from './policy.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
@@ -17,6 +17,7 @@ export const SHARD_USED = 'shard.used'
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const MERGE_METHOD = 'squash'
 export const STALE_HEAD_STATUS = 409
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable'])
 const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 
@@ -200,6 +201,10 @@ export class MergeExecutor {
     const ts = this.ts()
     const reason = denial.kind === 'technical' ? denial.reason : denial.rule
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial }, legacy: false }
+    if (denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)) {
+      releaseTask(this.parts.db, ts, lease, reason, [event])
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
+    }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
