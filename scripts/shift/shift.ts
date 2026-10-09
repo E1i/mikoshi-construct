@@ -16,7 +16,7 @@ import type { TaskLine } from './places.js'
 import type { PromptPlaces } from './prompt.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -41,6 +41,7 @@ import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start
 import { startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
+import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as CURRENT_PREFIX, realCurrentDeps, runCurrent } from './current.js'
@@ -109,6 +110,10 @@ export const USAGE = [
   `At the end the run writes <dir>/${OUTCOMES_FILE}, one row per card it ran and per card skipped: card · result (done, failed, skipped, stop <at>, stop not-started, stop <chain end>) · reason · PR, and notifies once more.`,
   'A chain spawns its sessions detached, as the Ghost supervisor does, so a closed terminal stops neither the runner nor the session it is waiting on.',
   'Afterwards: pnpm shift:report <dir>.',
+  '',
+  `${ANSWER_COMMAND} runs exactly one session in the tree of the task's journal start line, through the shift's claude runner with ${CLAUDE_VARIABLE} (its pid is the claude process sh execs),`,
+  'the prompt file as its prompt: only an answer-<task>*.md inside <dir> whose sha256 is the one its event:answer-brief line journaled. It writes answer-<task>.pid and log-<task>-answer.txt into <dir>,',
+  'an event:note line when the session starts and when it ends, and takes no merge, verdict or arm decision. Started detached through pnpm shift:bg <dir> --answer <task> --prompt <file>.',
 ].join('\n')
 
 export interface PnpmResult {
@@ -1022,6 +1027,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const check = argv.includes('--check')
   if (deps.cloud === true && !check)
     return refuse(deps, [`${CLOUD_VARIABLE}=1 routes card bodies to cloud sessions the window launches; the shift spawns no local session`])
+  if (argv.includes(ANSWER_FLAG))
+    return runAnswer(argv, { ...deps, write: (file, text) => writeFileSync(file, text) })
   const queue = argv.includes('--queue')
   const manual = argv.includes('--manual')
   const parkingAt = argv.indexOf('--parking')

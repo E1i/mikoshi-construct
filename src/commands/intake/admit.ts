@@ -15,6 +15,7 @@ import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, corr
 import { DirectoryFacts } from './facts.js'
 import { defaultParking, INTAKE_EXIT } from './index.js'
 import { parkedNumbers } from './numbers.js'
+import { isWithin, parkingTree } from './parking-tree.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 const WITNESS_ITEM = /^- (.+)$/
@@ -138,15 +139,8 @@ function sameBody(recorded: unknown, text: string): boolean {
   return recorded === bodySha(text) || recorded === bodyShaWithoutTouches(text)
 }
 
-function parkedFilesUnder(dir: string): string[] {
-  if (!existsSync(dir))
-    return []
-  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? parkedFilesUnder(path.join(dir, entry.name)) : [entry.name])
-}
-
-function isWithin(root: string, dir: string): boolean {
-  const relative = path.relative(root, dir)
-  return !relative.startsWith('..') && !path.isAbsolute(relative)
+function parkedFilesUnder(root: string): string[] {
+  return parkingTree(root).flatMap(dir => readdirSync(dir, { withFileTypes: true }).filter(entry => !entry.isDirectory()).map(entry => entry.name))
 }
 
 function parkedAcrossLanes(file: string, root: string): string[] {

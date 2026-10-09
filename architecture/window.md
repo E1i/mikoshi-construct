@@ -110,6 +110,19 @@ spawns `nohup pnpm shift <dir> …` as a detached process, a session of its own,
 `<dir>/shift-bg.log`, prints the PID of the running shift on its first line and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
 chain waited for the owner.
 
+An answer session starts the same way, never with an inline `nohup claude -p`, which the classifier refuses as an
+unsafe agent: `pnpm shift --answer <task> --prompt <file>` (`scripts/shift/answer.ts`), detached through
+`pnpm shift:bg <dir> --answer <task> --prompt <file>`. It runs only a file `answer-<task>*.md` directly inside `<dir>`,
+whose sha256 is the one the latest `event:answer-brief` line for the task and that file journaled when the brief was
+written, and refuses a task with no `event:path` start line in `ghosts.jsonl`. It runs exactly one session in the start
+line's tree through the shift's claude runner with `SHIFT_CLAUDE`, so `gh` acts as E1i, writes `answer-<task>.pid` (the
+claude process, which a watcher's `kill -0` follows) and `log-<task>-answer.txt` into `<dir>`, and an `event:note` line
+when the session starts and when it ends. It takes no merge, verdict or arm decision. `shift:bg` lets `--answer` past
+its one-shift-per-directory guard (an existing `shift.jsonl`) only to answer a stopped card: the card's last
+`ghosts.jsonl` line, skipping only the lines that carry no state (`intake`, `intake-move`, `answer-brief`, `note`) and
+counting every other line with or without a `shift`, must be an `event:stop` at `question` or at `merge`, whatever the
+merge stop's why, whose `shift` is `<dir>`; anything else is refused with what that line is. Every invocation without `--answer` keeps the refusal.
+
 The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch arguments]`: it spawns
 `nohup pnpm relaunch <handoff.md> …` as a detached process, a session of its own, appends its output to
 `~/.construct/handoff/relaunch-day.log` and prints its PID. Before every relaunch it runs `pnpm doctor:factory`, which
