@@ -88,7 +88,19 @@ function expectReplayIdentical(db: DatabaseSync): void {
 }
 
 describe('review worker', () => {
-  it('a pass is recorded as a review status on the leased head and as review.recorded', async () => {
+  it('a pass is recorded as a success review status on the leased head', async () => {
+    const { db, gitHub, statuses, tick, worker } = setUp()
+    gitHub.open({ number: 939 })
+    tick()
+
+    expect(await worker(reviewing()).step()).toEqual({ kind: 'recorded', taskKey: review(939), verdict: 'pass' })
+    expect(statuses.map(status => status.state)).toEqual(['success'])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }])
+    expectReplayIdentical(db)
+    db.close()
+  })
+
+  it('a changes verdict is recorded as a review status on the leased head and as review.recorded', async () => {
     const { db, gitHub, statuses, tick, worker } = setUp()
     gitHub.open({ number: 940 })
     tick()
