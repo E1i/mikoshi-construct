@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { readHead, readTrackedFiles } from '../detect/git.js'
+import { discoverContours } from './contours.js'
 import { importReaderFor } from './imports/index.js'
 import { readPathAliases } from './imports/path-aliases.js'
 import { readWorkspaces } from './imports/workspaces.js'
@@ -136,6 +137,7 @@ export function discoverMechanics(root: string, readings: GitReadings = readGit(
   return {
     identity: { sha: shaFound ? sha : null, status: shaFound ? 'found' : 'unknown', source: sourceOf(readings.head) },
     tree: { status: treeFound ? 'found' : 'unknown', source: sourceOf(readings.tracked) },
+    contours: treeFound ? discoverContours(path.basename(path.resolve(root)), files, readFile, target => resolve([target], tracked)) : [],
     components,
     relations: [...unique.entries()].sort(([left], [right]) => compare(left, right)).map(([, relation]) => relation),
   }

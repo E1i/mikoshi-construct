@@ -3,7 +3,7 @@ import path from 'node:path'
 import { parseJsonc } from './jsonc.js'
 import { isRecord, strings } from './specifiers.js'
 
-interface WorkspacePackage {
+export interface WorkspacePackage {
   name: string
   directory: string
   manifest: Record<string, unknown>
@@ -58,7 +58,7 @@ export function globMatcher(glob: string): RegExp {
   return new RegExp(`^${source}$`)
 }
 
-function workspacePackages(tracked: string[], read: ReadFile): WorkspacePackage[] {
+export function workspacePackages(tracked: string[], read: ReadFile): WorkspacePackage[] {
   const patterns = [...pnpmWorkspacePatterns(read(PNPM_WORKSPACE) ?? ''), ...manifestPatterns(parseJsonc(read(PACKAGE_MANIFEST) ?? ''))]
   const included = patterns.filter(pattern => !pattern.startsWith('!')).map(globMatcher)
   const excluded = patterns.filter(pattern => pattern.startsWith('!')).map(pattern => globMatcher(pattern.slice(1)))
@@ -76,7 +76,7 @@ function workspacePackages(tracked: string[], read: ReadFile): WorkspacePackage[
   return packages
 }
 
-function leaves(value: unknown): string[] {
+export function leaves(value: unknown): string[] {
   if (typeof value === 'string')
     return [value]
   if (Array.isArray(value))
