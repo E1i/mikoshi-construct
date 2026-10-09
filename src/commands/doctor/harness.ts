@@ -31,6 +31,13 @@ export interface HarnessReading {
   state: HarnessState
 }
 
+export interface NoHarnessReading {
+  command: null
+  state: 'none'
+}
+
+export const NO_HARNESS_READING: NoHarnessReading = { command: null, state: 'none' }
+
 function packageScriptOf(command: string): string | null {
   return PACKAGE_SCRIPT_COMMAND.exec(command.trim())?.[1] ?? null
 }

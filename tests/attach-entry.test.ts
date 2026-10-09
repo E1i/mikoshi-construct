@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { runAttach } from '../src/commands/attach/index.js'
+import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
+import { NO_HARNESS } from '../src/commands/attach/record.js'
 import { createUi } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -172,19 +173,11 @@ describe('the attach entry protocol reads the conventions from the history', () 
 })
 
 describe('attach --yes without --harness', () => {
-  it.each(['plain', 'arasaka'] as const)('is refused in the %s theme with a next step that names attach --entry, and writes nothing', async (name) => {
+  it.each(['plain', 'arasaka'] as const)('is not refused in the %s theme: it attaches and records harness none', async (name) => {
     const root = repository()
-    const before = listing(root)
-    const { ui, output } = capturing(name)
-    const result = await runAttach(ui, { dir: root, yes: true })
-    expect(result.refusal).toBe('no-harness')
-    expect(output()).toContain('attach --entry')
-    if (name === 'plain') {
-      expect(output()).toContain(PLAIN_LORE.attachRefusedNoHarness)
-      expect(output()).toContain('Why:')
-      expect(output()).toContain('Next: npx mikoshi-construct attach --entry')
-    }
-    expect(listing(root)).toEqual(before)
+    const result = await runAttach(capturing(name).ui, { dir: root, yes: true })
+    expect(result.status).toBe('done')
+    expect(readAttachRecord(root)?.harness).toBe(NO_HARNESS)
   })
 
   it('attaches the same repository once a harness is named', async () => {
