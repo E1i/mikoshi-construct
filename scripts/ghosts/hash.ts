@@ -10,7 +10,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
-import { UNCLEAR_PREFIX } from '../../src/commands/intake/slice.js'
+import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { approvalEvent, approvalSha256, approvedHashPath, approverOf, canonicalImplementText, cardNumberOf, contourSuggestion, extractApprovedHash, fallsOf, journalEvents, MORSE, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
@@ -124,6 +124,19 @@ function parkedCard(parkingDir: string, card: number): { card: Card, touches: st
   return parsed.parked.task
 }
 
+export function cardProseIn(text: string, body: string): string[] {
+  const lines = body.split('\n')
+  const witnesses = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
+  const prose = (witnesses === -1 ? lines : lines.slice(0, witnesses)).map(line => line.trim()).filter(line => line !== '')
+  return prose.filter(line => text.includes(line))
+}
+
+function refuseCardProse(text: string, card: number, body: string): void {
+  const restated = cardProseIn(text, body)
+  if (restated.length > 0)
+    throw new Error(`the /implement text restates card #${card} verbatim (${restated.map(line => `'${line}'`).join(', ')}), so MORSE does not approve; reference the card as #${card} and keep the sketch and the steps`)
+}
+
 function bandedForecast(text: string): { forecast: Forecast, p75: number } {
   let expected: Expect | null
   try {
@@ -165,6 +178,7 @@ export async function morseApprove(briefPath: string, options: MorseOptions): Pr
     throw new Error(`the brief waits for the owner: card #${card} is R1 (${reading.why})`)
   if (parked.body.split('\n').some(line => line.startsWith(UNCLEAR_PREFIX.trimEnd())))
     throw new Error(`card #${card} has an unclear field, so MORSE does not approve; the brief waits for the owner`)
+  refuseCardProse(text, card, parked.body)
   const events = journalEvents(journalPath)
   const falls = fallsOf(events, card)
   if (falls.length >= 1)

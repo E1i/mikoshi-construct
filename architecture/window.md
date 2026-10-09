@@ -123,6 +123,11 @@ over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, 
 launcher names a Ghost's branch itself. A change under `templates/`, or one that changes what the published CLI does
 for a user, is a `minor` changeset.
 
+After the merge of the first card that adds a new user-facing command, the brain itself sets a probe of that command on
+the foreign repositories A–D, as `~/.construct/probes/atlas-foreign/mapping.md` maps them, without waiting to be
+asked. The repositories are named only as A–D, in the card, the report and every record; their paths stay in
+`mapping.md`, which never leaves that folder.
+
 ## The version pull request lock
 
 The lock is in force once the workflow runs of a `changeset-release/main` pull request have been approved. The
@@ -265,8 +270,8 @@ Approving a brief's hash is the permission to launch: the coordinating window th
 itself, after a dry run of `pnpm ghosts:launch` answered with anything but `yes`, which prints the
 decision and opens nothing.
 The owner approves an R1 brief; MORSE may approve an R2–R4 one with `pnpm ghosts:hash <brief> --by morse --card <N>`,
-which computes the risk from the card's touches, refuses a card with an `unclear:` field, a fall or a revoked hash and a
-forecast above its p75, and journals `event:approval` before it writes the line. The launcher accepts a morse line only
+which computes the risk from the card's touches, refuses a card with an `unclear:` field, a fall or a revoked hash, a
+brief that restates a line of the card's prose above its `Witnesses:` verbatim, and a forecast above its p75, and journals `event:approval` before it writes the line. The launcher accepts a morse line only
 with that event and prints `by morse`; the owner revokes any approval with `pnpm ghosts:launch --revoke <sha256> --card
 <N>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md)).
 A ladder started by hand in a session opened for it runs only on the owner's explicit decision,

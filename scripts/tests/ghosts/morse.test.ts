@@ -24,8 +24,8 @@ function directory(): string {
   return mkdtempSync(path.join(tmpdir(), 'ghosts-morse-'))
 }
 
-function briefText(expectLine: string): string {
-  return `/implement Print the name.\nSketch: none — independent implementation is the witness\n${expectLine}\n\nAcceptance: the name is printed — witness: \`echo name\``
+function briefText(expectLine: string, steps: string): string {
+  return `/implement ${steps}\nSketch: none — independent implementation is the witness\n${expectLine}\n\nAcceptance: the name is printed — witness: \`echo name\``
 }
 
 interface Scenario {
@@ -33,6 +33,7 @@ interface Scenario {
   touches?: string
   body?: string
   expectLine?: string
+  steps?: string
   events?: object[]
   parked?: boolean
 }
@@ -40,7 +41,7 @@ interface Scenario {
 function scenario(options: Scenario = {}): { brief: string, parkingDir: string, journalPath: string, runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>>, approvedPath: string } {
   const root = directory()
   const brief = path.join(root, 'brief-t.md')
-  writeFileSync(brief, `# head\n\n---\n\n${briefText(options.expectLine ?? IN_BAND)}\n`)
+  writeFileSync(brief, `# head\n\n---\n\n${briefText(options.expectLine ?? IN_BAND, options.steps ?? 'Print the name.')}\n`)
   const parkingDir = path.join(root, 'parking')
   mkdirSync(parkingDir)
   if (options.parked !== false)
@@ -162,6 +163,16 @@ describe('the MORSE gate in process', () => {
 
   it('morse refuses a card with no parking file', async () => {
     await expectRefusal(scenario({ parked: false }), new RegExp(`no parking file .*${CARD}\\.md for card #${CARD}`))
+  })
+
+  it('refuses a brief that restates its card, naming the line it copied', async () => {
+    const body = `Every run prints the name of the card.\n\nWitnesses:\nAcceptance: the name is printed — witness: \`echo name\``
+    await expectRefusal(scenario({ body, steps: 'Every run prints the name of the card.' }), new RegExp(`restates card #${CARD} verbatim \\('Every run prints the name of the card\\.'\\)`))
+  })
+
+  it('accepts a brief of a card reference, a sketch and steps, carrying the card\'s witnesses', async () => {
+    const body = `Every run prints the name of the card.\n\nWitnesses:\nAcceptance: the name is printed — witness: \`echo name\``
+    await expectApproved(scenario({ body, steps: `#${CARD}: add the print to the run, then witness it.` }), 'R3')
   })
 
   it('morse leaves no approval file when the journal cannot be written', async () => {
