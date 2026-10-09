@@ -92,7 +92,13 @@ It starts the `who: shift` cards as a shift chain (`pnpm shift:bg <dir> --parkin
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
 stopped — restarts the card, corrects it with `construct intake --admit`, answers the session; writes the handoff
-through `pnpm handoff:write`; and at the context limit writes its STOP so relaunch raises the next session. The first
+through `pnpm handoff:write`; and ends its session by size, not by the Eddies warning: at every task boundary it runs
+`pnpm relaunch --boundary <session>`, the session id its prompt names, which finds `<session>.jsonl` by that id in
+any project directory under `~/.claude/projects/`, whatever directory it runs from, reads the context of the last
+response in it (input, cache-write and cache-read tokens, the reading the Eddies warning takes) and prints `end` at or
+past `OPERATOR_CONTEXT_THRESHOLD` (`scripts/shift/operator-boundary.ts`) or when it found or read no context, `next`
+below it. On `end` the Operator writes its STOP with `STATUS: CONTINUE` and exits, and relaunch starts the next session
+from the handoff; on `next` it takes the next task. The first
 line of every relaunch prompt says so (`OPERATOR_ROLE` in `scripts/shift/relaunch.ts`), and it opens with the tag the Operator signs every message with: `[operator]`. Mikoshi signs
 its messages `[mikoshi]`.
 
