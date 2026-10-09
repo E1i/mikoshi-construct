@@ -12,11 +12,14 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
-import { mergeVerdict, OWNER_MERGES_ON_MAIN, runCarry } from './merge.js'
+import { latestPrReview, mergeVerdict, OWNER_MERGES_ON_MAIN, runCarry } from './merge.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
 
 export const PREFIX = '[shift:current] '
 export const READY_FOR_OWNER_EVENT = 'ready-for-owner'
+export const REVIEW_MISSING_EVENT = 'review-missing'
+export const REVIEW_MISSING_AFTER_MS = 15 * 60 * 1000
+const GREEN_CONCLUSIONS: readonly unknown[] = ['SUCCESS', 'SKIPPED', 'NEUTRAL']
 const PR_FIELDS = 'number,createdAt,headRefOid,mergeStateStatus,autoMergeRequest,statusCheckRollup,body,files'
 const REVIEW_CONTEXT = 'review'
 
@@ -29,13 +32,22 @@ export interface CurrentDeps {
   now: () => Date
 }
 
+interface Check {
+  context?: string
+  name?: string
+  state?: string
+  conclusion?: string
+  startedAt?: string
+  completedAt?: string
+}
+
 interface OpenPr {
   number: number
   createdAt: string
   headRefOid: string
   mergeStateStatus: string
   autoMergeRequest: object | null
-  statusCheckRollup: { context?: string, state?: string }[] | null
+  statusCheckRollup: Check[] | null
   body: string
   files: { path: string }[] | null
 }
@@ -67,11 +79,11 @@ function kept(pr: OpenPr, kinds: OwnerMergeKind[]): Kept | undefined {
   return { pr, task: String(card.card.id), ownerMerge: !armed }
 }
 
-function alreadyReady(journal: string | null, number: number, head: string): boolean {
+function alreadyWritten(journal: string | null, event: string, number: number, head: string): boolean {
   return (journal ?? '').split('\n').some((line) => {
     try {
       const entry = JSON.parse(line) as { event?: unknown, pr?: unknown, head?: unknown } | null
-      return entry?.event === READY_FOR_OWNER_EVENT && entry.pr === number && entry.head === head
+      return entry?.event === event && entry.pr === number && entry.head === head
     }
     catch {
       return false
@@ -83,6 +95,34 @@ function readyLine(item: Kept, now: Date): string {
   const { number, headRefOid } = item.pr
   const command = `gh pr merge ${number} --squash --match-head-commit ${headRefOid}`
   return `${JSON.stringify({ event: READY_FOR_OWNER_EVENT, task: item.task, pr: number, head: headRefOid, command, ts: now.toISOString() })}\n`
+}
+
+function greenSince(pr: OpenPr): number | undefined {
+  const ci = (pr.statusCheckRollup ?? []).filter(check => check.context !== REVIEW_CONTEXT)
+  if (ci.length === 0 || !ci.every(check => check.state === 'SUCCESS' || GREEN_CONCLUSIONS.includes(check.conclusion)))
+    return undefined
+  return Math.max(...ci.map(check => Date.parse(check.completedAt ?? check.startedAt ?? '')))
+}
+
+function reviewMissing(pr: OpenPr, journal: string | null, now: Date): string | undefined {
+  if ((pr.statusCheckRollup ?? []).some(check => check.context === REVIEW_CONTEXT))
+    return undefined
+  const card = parseCard(pr.body.split('\n')[0]!.trim())
+  if (card.kind === 'refused')
+    return undefined
+  const task = String(card.card.id)
+  if (latestPrReview(journal, task, pr.number)?.commit === pr.headRefOid)
+    return undefined
+  const since = greenSince(pr)
+  if (since === undefined || Number.isNaN(since) || now.getTime() - since <= REVIEW_MISSING_AFTER_MS)
+    return undefined
+  if (alreadyWritten(journal, REVIEW_MISSING_EVENT, pr.number, pr.headRefOid))
+    return undefined
+  return task
+}
+
+function reviewMissingLine(task: string, pr: OpenPr, now: Date): string {
+  return `${JSON.stringify({ event: REVIEW_MISSING_EVENT, task, pr: pr.number, head: pr.headRefOid, greenSince: new Date(greenSince(pr)!).toISOString(), ts: now.toISOString() })}\n`
 }
 
 function update(item: Kept, deps: CurrentDeps): string[] {
@@ -116,9 +156,17 @@ export function runCurrent(deps: CurrentDeps): MergeResult {
     .sort((a, b) => a.pr.createdAt.localeCompare(b.pr.createdAt))
   const stdout: string[] = []
   const journal = deps.journal()
-  for (const item of items.filter(entry => entry.ownerMerge && entry.pr.mergeStateStatus === 'CLEAN' && !alreadyReady(journal, entry.pr.number, entry.pr.headRefOid))) {
+  for (const item of items.filter(entry => entry.ownerMerge && entry.pr.mergeStateStatus === 'CLEAN' && !alreadyWritten(journal, READY_FOR_OWNER_EVENT, entry.pr.number, entry.pr.headRefOid))) {
     deps.append(readyLine(item, deps.now()))
     stdout.push(`${PREFIX}PR #${item.pr.number} is current and waits for the owner: gh pr merge ${item.pr.number} --squash --match-head-commit ${item.pr.headRefOid}`)
+  }
+  for (const pr of open) {
+    const now = deps.now()
+    const task = reviewMissing(pr, journal, now)
+    if (task === undefined)
+      continue
+    deps.append(reviewMissingLine(task, pr, now))
+    stdout.push(`${PREFIX}PR #${pr.number} head ${pr.headRefOid} has been green for more than 15 minutes with no review verdict: event:${REVIEW_MISSING_EVENT} written`)
   }
   const behind = items.find(item => item.pr.mergeStateStatus === 'BEHIND')
   if (behind === undefined)
