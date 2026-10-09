@@ -6,6 +6,7 @@ export type ShowAt = (file: string) => string | null
 const MOVING_REF = /\borigin\/main\b/
 const INVARIANT_WITNESS = /^(.*?) — witness: `([^`]+)`$/
 const GHOSTS_FILE = /^scripts\/ghosts\/[\w./-]+\.\w+$/
+const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
 const GHOSTS_FILE_IN_TEXT = /scripts\/ghosts\/[\w.-]+\.\w+/g
 const GENERATORS = [
   { path: 'templates/attach/earlier-carriers.json', command: 'pnpm exec tsx scripts/attach/earlier-carriers.ts' },
@@ -61,6 +62,9 @@ export function ghostsFilesRefusal(show: ShowAt, design: string, changed: string
 }
 
 export function immutableRefusal(changed: string[], immutable: string[]): string | null {
+  const unread = immutable.filter(item => !IMMUTABLE_PATH.test(item))
+  if (unread.length > 0)
+    return `the brief's Immutable line holds ${unread.map(item => `"${item}"`).join(', ')}, which the ladder does not understand and so guards nothing: name each exact file, or a directory ending in /`
   for (const file of changed) {
     const held = immutable.find(item => file === item || file.startsWith(item.endsWith('/') ? item : `${item}/`))
     if (held !== undefined)
