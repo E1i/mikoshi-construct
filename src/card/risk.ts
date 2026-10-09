@@ -73,7 +73,11 @@ const TWINS: readonly (readonly [string, string])[] = [
   ['scripts/construct', 'templates/ai/claude/scripts/construct'],
 ]
 const ACCOMPANYING = ['tests', '.changeset']
-const WITNESS_ROOT = 'tests'
+const WITNESS_ROOTS: readonly (readonly [string, string | null])[] = [
+  ['scripts/tests', 'scripts'],
+  ['tests', null],
+]
+const COMMANDS_CONTAINER = 'commands'
 const TEST_SUFFIX = /\.(?:test|spec)\.[cm]?[jt]sx?$/
 const EXTENSION = /\.[^.]+$/
 const DELIVERY = ['templates/attach', 'templates/ai', 'src/presets', 'scripts/attach']
@@ -187,18 +191,28 @@ function accompanies(touch: string): boolean {
   return ACCOMPANYING.some(root => under(scopeOf(touch).path, root))
 }
 
-function witnessedName(touch: string): string | null {
+function witnessRootOf(touch: string): readonly [string, string | null] | undefined {
   const scope = scopeOf(touch).path
-  if (!under(scope, WITNESS_ROOT) || scope === WITNESS_ROOT)
-    return null
-  return scope.split('/').at(-1)!.replace(TEST_SUFFIX, '')
+  return WITNESS_ROOTS.find(([root]) => under(scope, root) && scope !== root)
+}
+
+function witnessedNames(test: string, root: string): string[] {
+  return scopeOf(test).path.slice(root.length + 1).split('/').map(segment => segment.replace(TEST_SUFFIX, ''))
+}
+
+function codeNames(code: string): string[] {
+  return scopeOf(code).path.split('/').slice(1).map(segment => segment.replace(EXTENSION, '')).filter(segment => segment !== COMMANDS_CONTAINER)
 }
 
 function witnesses(test: string, code: string): boolean {
-  const name = witnessedName(test)
-  if (name === null || witnessedName(code) !== null)
+  const witnessRoot = witnessRootOf(test)
+  if (witnessRoot === undefined || witnessRootOf(code) !== undefined)
     return false
-  return scopeOf(code).path.split('/').map(segment => segment.replace(EXTENSION, '')).some(segment => name === segment || name.startsWith(`${segment}-`))
+  const [root, codeRoot] = witnessRoot
+  if (codeRoot !== null && !under(scopeOf(code).path, codeRoot))
+    return false
+  const segments = codeNames(code)
+  return witnessedNames(test, root).some(name => segments.some(segment => name === segment || name.startsWith(`${segment}-`)))
 }
 
 function withWitnesses(touches: readonly string[], critical: readonly boolean[]): boolean[] {

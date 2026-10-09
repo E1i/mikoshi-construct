@@ -104,7 +104,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const reading = riskReading(card.touches, split.slices.length > 0)
     const risk = riskLines(reading)
     const proposesSlices = split.slices.length > 0 || reading.slices.length > 0
-    if (proposesSlices && slicedByItsText(card))
+    if (proposesSlices && card.whole === undefined && slicedByItsText(card))
       reasons.push(`${card.name}: the task text names its own slices and the seam proposes others; a card has one source of slicing, so cut the draft into the cards its text names, or drop the '${SLICE_PREFIX.trim()}' lines from the task`)
     const heldForSlicing = card.whole === undefined && (split.split || reading.slices.length > 0)
     const who = unclear.length > 0 || heldForSlicing ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
