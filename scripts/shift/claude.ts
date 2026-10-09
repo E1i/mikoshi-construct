@@ -20,7 +20,7 @@ export interface ClaudeRun {
 export type ClaudeExit = { kind: 'exited', code: number | null, signal: string | null } | { kind: 'unspawnable', error: string }
 
 export function claudeArgv(command: string, sessionId: string, extraArgv: readonly string[] = []): string[] {
-  return ['-c', `${command} "$@"`, 'shift', '-p', '--session-id', sessionId, ...extraArgv]
+  return ['-c', `exec env ${command} "$@"`, 'shift', '-p', '--session-id', sessionId, ...extraArgv]
 }
 
 export async function runClaude(run: ClaudeRun): Promise<ClaudeExit> {
