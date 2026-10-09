@@ -1,4 +1,5 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
+import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
@@ -24,8 +25,8 @@ import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
-import { cheapClass, cheapForecastOf, cheapRows, claudeProjectsDir, formatTokens, MINIMUM_SAMPLE, readCheapTasks } from '../../src/commands/cost/index.js'
-import { median, quantile } from '../../src/commands/cost/sample.js'
+import { cheapClass, cheapForecast, cheapForecastOf, cheapRows, claudeProjectsDir, formatTokens, readCheapTasks } from '../../src/commands/cost/index.js'
+import { quantile } from '../../src/commands/cost/sample.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh, prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
@@ -218,44 +219,46 @@ const FORECAST_HEADER = ['CARD', 'CONTOUR', 'TOKENS median · p25–p75', 'MINUT
 
 interface CardForecast {
   task: ShiftTask
-  tokens: number[]
-  minutes: number[]
+  forecast: CheapForecast
+  rows: CheapRow[]
 }
 
-function tenthsOf(value: number): number {
-  return Math.round(value * 10) / 10
+function minutesText(value: number): string {
+  return String(Math.round(value * 10) / 10)
 }
 
-function bandText(values: number[], format: (value: number) => string): string {
-  if (values.length < MINIMUM_SAMPLE)
-    return `${NO_DATA} n=${values.length}`
-  return `≈ ${format(median(values))} · ${format(quantile(values, 0.25))}–${format(quantile(values, 0.75))}`
+function bandText(forecast: CheapForecast, rows: CheapRow[], measure: 'tokens' | 'minutes', format: (value: number) => string): string {
+  if (forecast.kind === 'none')
+    return `${NO_DATA} n=${forecast.n}`
+  const values = rows.map(row => row[measure])
+  return `≈ ${format(forecast[measure])} · ${format(quantile(values, 0.25))}–${format(quantile(values, 0.75))}`
 }
 
 function cardForecasts(deps: ShiftDeps, dir: string, tasks: ShiftTask[]): CardForecast[] {
   const sample = readCheapTasks(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL)).tasks
   return tasks.map((task) => {
-    const rows = cheapRows(sample, cheapClass(task.card), deps.projectsDir)
-    return { task, tokens: rows.map(row => row.tokens), minutes: rows.map(row => row.minutes) }
+    const taskClass = cheapClass(task.card)
+    const rows = cheapRows(sample, taskClass, deps.projectsDir)
+    return { task, forecast: cheapForecast(rows, taskClass), rows }
   })
 }
 
 function forecastTotal(forecasts: CardForecast[], left: Choice['left']): string {
-  const known = forecasts.filter(forecast => forecast.tokens.length >= MINIMUM_SAMPLE)
-  const missing = forecasts.filter(forecast => forecast.tokens.length < MINIMUM_SAMPLE).map(forecast => `#${forecast.task.id}`)
-  const tokens = known.reduce((sum, forecast) => sum + median(forecast.tokens), 0)
-  const minutes = known.reduce((sum, forecast) => sum + median(forecast.minutes), 0)
-  const sums = known.length === 0 ? `tokens ${NO_DATA}, minutes ${NO_DATA}` : `tokens ≈ ${formatTokens(tokens)}, minutes ≈ ${tenthsOf(minutes)}`
+  const known = forecasts.flatMap(({ forecast }) => forecast.kind === 'none' ? [] : [forecast])
+  const missing = forecasts.filter(({ forecast }) => forecast.kind === 'none').map(({ task }) => `#${task.id}`)
+  const tokens = known.reduce((sum, forecast) => sum + forecast.tokens, 0)
+  const minutes = known.reduce((sum, forecast) => sum + forecast.minutes, 0)
+  const sums = known.length === 0 ? `tokens ${NO_DATA}, minutes ${NO_DATA}` : `tokens ≈ ${formatTokens(tokens)}, minutes ≈ ${minutesText(minutes)}`
   const completeness = missing.length === 0 ? '' : ` · incomplete: no journal data for ${missing.join(', ')}`
   return `${PREFIX}total: ${sums} · takes ${forecasts.length} · ${leftSummary(left)}${completeness}`
 }
 
 function forecastLines(forecasts: CardForecast[], left: Choice['left']): string[] {
-  const rows = [FORECAST_HEADER, ...forecasts.map(({ task, tokens, minutes }) => [
+  const rows = [FORECAST_HEADER, ...forecasts.map(({ task, forecast, rows: cardRows }) => [
     `#${task.id} ${task.card.name}`,
     task.card.contour,
-    bandText(tokens, formatTokens),
-    bandText(minutes, value => String(tenthsOf(value))),
+    bandText(forecast, cardRows, 'tokens', formatTokens),
+    bandText(forecast, cardRows, 'minutes', minutesText),
   ])]
   const widths = FORECAST_HEADER.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
   const table = rows.map(row => `${PREFIX}${row.map((cell, column) => cell.padEnd(widths[column]!)).join('  ').trimEnd()}`)
