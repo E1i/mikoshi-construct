@@ -27,6 +27,7 @@ const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
 const LADDER_CONTOUR = 'ladder'
 const MS_PER_MINUTE = 60_000
+const OPEN_ISSUE_LIMIT = 1000
 const OUTCOME_OF_KIND: Record<Card['kind'], typeof FLAGS[number]> = { implement: '--pr', probe: '--report' }
 
 type Flag = typeof FLAGS[number]
@@ -63,6 +64,13 @@ export interface TaskCloseDeps {
   tokens?: (session: CheapSession) => number | null
   style?: SignalStyle
   prBody?: (pr: number) => string | null
+  openIssue?: (issue: number) => OpenIssue | null
+  closeIssue?: (issue: number, comment: string) => void
+}
+
+export interface OpenIssue {
+  title: string
+  body: string | null
 }
 
 export interface TaskCloseResult {
@@ -216,6 +224,39 @@ function cardLineNote(deps: TaskCloseDeps, id: string, pr: number): string[] {
   }
 }
 
+function namesCard(issue: OpenIssue, card: Card): boolean {
+  const slug = new RegExp(`(?<![a-z0-9-])${card.name}(?![a-z0-9-])`)
+  const cardNumber = new RegExp(`\\bcard #${card.id}(?!\\d)`, 'i')
+  return slug.test(issue.title) || cardNumber.test(issue.body ?? '')
+}
+
+function firstLine(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
+}
+
+function issueLines(deps: TaskCloseDeps, card: Card, closedBy: string): string[] {
+  if (deps.openIssue === undefined || deps.closeIssue === undefined)
+    return []
+  let issue: OpenIssue | null
+  try {
+    issue = deps.openIssue(card.id)
+  }
+  catch (error) {
+    return [`${PREFIX}issue #${card.id} not read, left as it is: ${firstLine(error)}`]
+  }
+  if (issue === null)
+    return []
+  if (!namesCard(issue, card))
+    return [`${PREFIX}issue #${card.id} '${issue.title}' is about another card, not ${card.name}; left open`]
+  try {
+    deps.closeIssue(card.id, `Closed by task:close #${card.id} ${card.name}: ${closedBy}.`)
+  }
+  catch (error) {
+    return [`${PREFIX}issue #${card.id} not closed: ${firstLine(error)}; re-run task:close #${card.id} to close it`]
+  }
+  return [`${PREFIX}issue #${card.id} closed with a comment naming ${closedBy}`]
+}
+
 function unplacedLine(deps: TaskCloseDeps, start: StartLine, sessions: TaskSession[]): string[] {
   const unplaced = sessions.filter(session => session.project === undefined).map(session => session.id)
   if (sessions.length === 0)
@@ -268,14 +309,15 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(`the closing line could not be written to ${journal}: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
   }
   const entry = entryOf(journalText, id)
-  const closed = `closed ${verification} · ${outcome === '--pr' ? `PR #${value}` : `report ${report}`} · line written to ${journal}`
+  const closedBy = outcome === '--pr' ? `PR #${value}` : `report ${report}`
+  const closed = `closed ${verification} · ${closedBy} · line written to ${journal}`
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {
     CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${journal}: no entry line for #${id}`,
     EXPECT: entry?.EXPECT ?? `expect not recorded in ${journal}: no entry line for #${id}`,
     ACTION: `task:close #${id} ${outcome} ${value} --verification ${verification}${override === undefined ? '' : ` --override-report ${override}`}`,
     RESULT: closed,
   }, deps.style ?? PLAIN_STYLE)
-  return { stdout: [...card, ...unplacedLine(deps, start, sessions)], stderr: outcome === '--pr' ? cardLineNote(deps, id, Number(value)) : [], exitCode: 0 }
+  return { stdout: [...card, ...unplacedLine(deps, start, sessions), ...issueLines(deps, start.card, closedBy)], stderr: outcome === '--pr' ? cardLineNote(deps, id, Number(value)) : [], exitCode: 0 }
 }
 
 function realDeps(): TaskCloseDeps {
@@ -293,6 +335,13 @@ function realDeps(): TaskCloseDeps {
     projectsDir: claudeProjectsDir(),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     prBody: pr => (JSON.parse(execGh(['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])) as { body: string | null }).body,
+    openIssue: (issue) => {
+      const open = JSON.parse(execGh(['issue', 'list', '-R', REPO, '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])) as (OpenIssue & { number: number })[]
+      return open.find(candidate => candidate.number === issue) ?? null
+    },
+    closeIssue: (issue, comment) => {
+      execGh(['issue', 'close', String(issue), '-R', REPO, '--comment', comment])
+    },
   }
 }
 
