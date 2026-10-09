@@ -133,8 +133,8 @@ describe('pnpm doctor:factory', () => {
 
   it('names a role command no rule allows and exits 1', async () => {
     const real = await doctor(world(EVERY_RULE), [], { commands: operatorCommands(REPO_ROOT) })
-    expect(real.exitCode).toBe(1)
-    expect(real.stdout).toEqual([`[doctor:factory] command \`pnpm shift <dir> --parking <parking> --chain\` is allowed by no rule in ${CONTRACT}`])
+    expect(real.exitCode).toBe(0)
+    expect(real.stdout.filter(line => line.includes('is allowed by no rule'))).toEqual([])
     const allowed = await doctor(world(EVERY_RULE), [], { commands: { role: ['gh -R E1i/x pr merge 1', 'gh --repo E1i/x pr merge 1 --squash', 'pnpm shift:bg x'] } })
     expect(allowed.exitCode).toBe(0)
     const named = await doctor(world(EVERY_RULE), [], { commands: { role: ['gh -R E1i/x pr view 1'] } })

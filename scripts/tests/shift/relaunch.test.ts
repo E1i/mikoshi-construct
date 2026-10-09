@@ -200,6 +200,7 @@ describe('runRelaunch', () => {
     expect(first.startsWith(OPERATOR_ROLE)).toBe(true)
     expect(promptFirstLine('/h/handoff.md')).toContain('[operator]')
     expect(first).toContain(`start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them`)
+    expect(CHAIN_COMMAND).toBe('pnpm shift:bg <dir> --parking <parking> --chain')
     expect(first).toContain(`you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}`)
   })
 
