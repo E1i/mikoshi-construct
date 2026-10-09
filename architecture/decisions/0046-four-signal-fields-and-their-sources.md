@@ -19,7 +19,7 @@ things in the same place.
 
    | Point | CONTRACT | EXPECT | ACTION | RESULT |
    |-------|----------|--------|--------|--------|
-   | `task:start` (entry) | the `--card` | not recorded: the session is the window's, shared by every task in the window, so none is this task's alone | the branch and the tree it cuts, and the start line it wrote | `accepted · not started` |
+   | `task:start` (entry) | the `--card`; called by hand, also the `touches` of its parking file, `~/.construct/parking/<id>.md` or `<dir>/<id>.md` under `--parking <dir>`, with or without `--without-intake`; a missing file says `touches not recorded on the card: no parking file for #<id>`, and a file whose card line is not the `--card` refuses the start with nothing written | not recorded: the session is the window's, shared by every task in the window, so none is this task's alone | the branch and the tree it cuts, and the start line it wrote | `accepted · not started` |
    | `task:close` (exit) | the entry line's `CONTRACT`, byte for byte, or `contract not recorded in <journal>` | the entry line's `EXPECT`, byte for byte, or `expect not recorded in <journal>` | the closing call: outcome, its value and the verification word | `closed <verification> · <PR or report> · line written to <journal>` |
    | `shift` (start of a task) | the task file's card and `touches:` | `formatCheapExpect`: the median tokens (input, cache writes and output; cache reads left out, the unit of the ladder's `expect:`) and minutes of the finished cheap tasks of its kind and size in the shift journals and the window journal, or none with n and the class below five | the branch and the session it starts | the outcome line that follows |
    | `shift:report` | the entry line's `CONTRACT` in `ghosts.jsonl`, or `contract not recorded in <journal>` | the entry line's `EXPECT` in `ghosts.jsonl`, or `expect not recorded in <journal>` | the session, branch and duration in `shift.jsonl` | exit, the PR from `gh`, whether `task:close` closed it (`closed <verification>` or `not closed`), the Eddies stop, the report's `result:` |
@@ -49,7 +49,9 @@ things in the same place.
    from the entry and never derived again from a source that may have moved. The entry card is written to
    `ghosts.jsonl` beside the start as one line `{"event":"entry","task","CONTRACT","EXPECT","ACTION","RESULT","ts"}`,
    written in the same append as the `task:start` line and by `ghosts:launch` after the yes, before any session; no
-   reader of the journal acts on an event it does not name, so the line is invisible to them.
+   reader of the journal acts on an event it does not name, so the line is invisible to them. The line `task:start`
+   writes carries `"schema":2`, its `CONTRACT` and `EXPECT` being the pair its caller printed; the line `ghosts:launch`
+   writes carries no `schema` and stays version 1, and `entryOf` reads both as they are.
 7. **One renderer holds in a generated repository too.** A generated repository has no `src/ui/signal.ts`; its
    `scripts/construct/check-acceptance.mjs card` prints the block in `renderSignal`'s plain form, and
    `tests/check-acceptance-card.test.ts` asserts byte equality with `renderSignal(…, PLAIN_STYLE)` for the same

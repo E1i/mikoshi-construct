@@ -56,7 +56,11 @@ flowchart LR
 The intake skill reads a person's retelling and decides what it means: how many cards, what each one
 touches, what was left unclear. `construct intake` does what a model must not guess: the numbers, the
 format and the check. Its output is the parking format `task:start` and the shift already read, and
-every file is parsed back with that same parser before it is written.
+every file is parsed back with that same parser before it is written. `task:start` reads the card's
+`touches` back from `~/.construct/parking/<id>.md`, or from `<dir>/<id>.md` under `--parking <dir>`,
+into the `CONTRACT` of its entry line, with or without `--without-intake`: a missing file is named
+there as `touches not recorded on the card: no parking file for #<id>`, and a file whose card line is
+not the `--card` given is refused with nothing written.
 
 ## Unclear is written down, not guessed
 
