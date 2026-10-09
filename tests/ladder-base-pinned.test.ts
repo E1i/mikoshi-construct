@@ -136,6 +136,15 @@ describe('the ladder holds the base pinned at preflight', () => {
     expect(agentTypes(calls)).toEqual(['harness', 'implementer', 'harness', ...Array.from({ length: BASE_MOVES_KEPT }, () => ['implementer', 'harness']).flat()])
   })
 
+  it('reads a move against the pinned base, not against the baseSha the verdict echoes', async () => {
+    const handle = builtHandle()
+
+    const { result } = await run(handle, MOVES_PAST_KEPT.map(sha => verdict(handle, { baseSha: sha, headSha: sha })))
+
+    expect(result.status).toBe('base moved')
+    expect(result.validationError).toBe(`HEAD ${STOPPING_HEAD} is not the base ${LAST_KEPT_BASE}`)
+  })
+
   it('stops at a later rung too, with no rung after it, once the moves go past BASE_MOVES_KEPT', async () => {
     const handle = builtHandle()
 
