@@ -4,6 +4,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { QUEUES, taskKey } from './identifiers.js'
+import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
@@ -22,7 +23,7 @@ const REVIEW_CANDIDATES = `
 
 const MERGE_CANDIDATES = `
   SELECT pr, card_id, head FROM prs
-  WHERE state = 'open' AND ci = 'green' AND verdict_on_head = 'pass' AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND verdict_on_head = 'pass' AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
   ORDER BY pr
 `
 

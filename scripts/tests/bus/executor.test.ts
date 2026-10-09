@@ -68,6 +68,45 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('an open version pull request locks every merge and requeues without reaching the inbox', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 969, review: 'success' })
+    bench.gitHub.open({ number: 970, head: sha('c'), ref: 'changeset-release/main' })
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: merge(969), denial: { kind: 'technical', reason: 'version_pr_open' }, next: 'queued' })
+    expect(bench.gitHub.puts).toEqual([])
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a pull request whose base is not main is never merged', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 971, review: 'success' })
+    bench.tick()
+    const lease = bench.lease()!
+    bench.gitHub.pulls.get(971)!.base = 'develop'
+
+    expect(bench.merge(lease)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'wrong_base' }, next: 'queued' })
+    expect(bench.gitHub.puts).toEqual([])
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a pull request already merged at the leased head finishes as merge.done, not as stale_head', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 972, review: 'success' })
+    bench.tick()
+    const lease = bench.lease()!
+    bench.gitHub.close(972, true)
+
+    expect(bench.merge(lease)).toEqual({ kind: 'merged', taskKey: merge(972), commit: MAIN_2, rule: 'auto' })
+    expect(bench.gitHub.puts).toEqual([])
+    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto' }])
+    expect(eventsOf(bench.db, 'policy.denied')).toEqual([])
+    bench.close()
+  })
+
   it('a command with a stale lease_gen is refused and writes nothing', () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 968, review: 'success' })

@@ -20,6 +20,7 @@ export interface FakePull {
   review?: 'success' | 'failure'
   body?: string
   ref?: string
+  base?: string
   title?: string
   files?: string[]
 }
@@ -69,7 +70,7 @@ export class FakeGitHub {
       merge_commit_sha: pull.merge_commit_sha ?? null,
       mergeable_state: pull.mergeable_state,
       auto_merge: null,
-      base: { ref: 'main' },
+      base: { ref: pull.base ?? 'main' },
       head: { sha: pull.head, ref: pull.ref ?? `feat/card-${pull.number + 100}` },
     }
   }

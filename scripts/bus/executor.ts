@@ -9,8 +9,8 @@ import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
-import { mergePolicy } from './policy.js'
-import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from './snapshot.js'
+import { mergePolicy, VERSION_BRANCH } from './policy.js'
+import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const MERGE_DONE = 'merge.done'
 export const SHARD_USED = 'shard.used'
@@ -20,7 +20,7 @@ export const STALE_HEAD_STATUS = 409
 const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head'
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base'
 
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string }
@@ -40,14 +40,18 @@ export interface ExecutorParts {
 }
 
 interface Pull {
+  number?: number
   state?: string
+  merged?: boolean
+  merge_commit_sha?: string | null
+  base?: { ref?: string }
   title?: string
   body?: string | null
   mergeable_state?: string
   head?: { sha?: string, ref?: string }
 }
 
-type Checked = { kind: 'ready', facts: MergeFacts } | { kind: 'denied', denial: MergeDenial }
+type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null } | { kind: 'denied', denial: MergeDenial }
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
@@ -96,6 +100,8 @@ export class MergeExecutor {
       const verdict = mergePolicy(checked.facts)
       if (verdict.kind === 'denied')
         return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
+      if (checked.mergedCommit !== null)
+        return this.finished(lease, checked.mergedCommit, verdict.rule)
       return this.merged(lease, verdict.rule)
     }
     catch (error) {
@@ -109,19 +115,28 @@ export class MergeExecutor {
     const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
     try {
       const pull = meter.get(`${REPO}/pulls/${lease.pr}`) as Pull
-      if (pull.state !== 'open' || pull.head?.sha !== lease.head)
-        return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
-      const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
-      if (mergeable !== 'clean')
-        return technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`)
-      const ci = ciOf(meter, lease.head!)
-      if (ci !== 'green')
-        return technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
-      const verdict = verdictOf(meter, lease.head!)
-      if (verdict !== 'pass')
-        return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
+      if (pull.base?.ref !== MAIN_BRANCH)
+        return technical('wrong_base', `#${lease.pr} targets ${pull.base?.ref ?? 'no base'}, not ${MAIN_BRANCH}`)
+      const mergedCommit = this.mergedAtLeasedHead(pull, lease)
+      if (mergedCommit === null) {
+        if (pull.state !== 'open' || pull.head?.sha !== lease.head)
+          return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
+        const versionPr = this.openVersionPull(meter, lease.pr!)
+        if (versionPr !== null)
+          return technical('version_pr_open', `#${versionPr} is an open version pull request and locks every merge`)
+        const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
+        if (mergeable !== 'clean')
+          return technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`)
+        const ci = ciOf(meter, lease.head!)
+        if (ci !== 'green')
+          return technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
+        const verdict = verdictOf(meter, lease.head!)
+        if (verdict !== 'pass')
+          return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
+      }
       return {
         kind: 'ready',
+        mergedCommit,
         facts: {
           cardId: lease.cardId,
           description: pull.body ?? '',
@@ -138,6 +153,22 @@ export class MergeExecutor {
     }
   }
 
+  private mergedAtLeasedHead(pull: Pull, lease: Lease): string | null {
+    if (pull.state === 'closed' && pull.merged === true && pull.head?.sha === lease.head && isFullSha(pull.merge_commit_sha))
+      return pull.merge_commit_sha
+    return null
+  }
+
+  private openVersionPull(meter: Meter, pr: number): number | null {
+    const open = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
+    return open.find(candidate => candidate.number !== pr && VERSION_BRANCH.test(candidate.head?.ref ?? ''))?.number ?? null
+  }
+
+  private finished(lease: Lease, commit: string, rule: AllowedRule): MergeOutcome {
+    completeTask(this.parts.db, this.ts(), lease, [this.done(lease, commit, rule)])
+    return { kind: 'merged', taskKey: lease.taskKey, commit, rule }
+  }
+
   private merged(lease: Lease, rule: AllowedRule): MergeOutcome {
     let response
     try {
@@ -151,8 +182,7 @@ export class MergeExecutor {
     const commit = (response.body as { sha?: unknown } | null)?.sha
     if (response.status !== 200 || !isFullSha(commit))
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}` })
-    completeTask(this.parts.db, this.ts(), lease, [this.done(lease, commit, rule)])
-    return { kind: 'merged', taskKey: lease.taskKey, commit, rule }
+    return this.finished(lease, commit, rule)
   }
 
   private done(lease: Lease, commit: string, rule: AllowedRule): BusEvent {
