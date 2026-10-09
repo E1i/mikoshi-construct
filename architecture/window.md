@@ -327,8 +327,8 @@ report, cleans the tree, and journals `event:superseded`; the tree and branch st
 `pnpm ghosts:hash` prints the approval line only after a preflight, run in the repository it is started in
 against `origin/main` fetched once and pinned: the build accepts the text; no witness names `origin/main`;
 a Design that names a generated path says the implementer runs its generator without asking; every file
-under `scripts/ghosts/**` the brief names or the sketch adds is classified in
-[owner-merges.md](owner-merges.md) and a `scripts/shift/` file that names a merge is `own-instructions`;
+under `scripts/ghosts/**` the brief names or the sketch adds has its row in
+[ghosts-files.md](ghosts-files.md);
 the sketch changes no Immutable path; then, in a clean worktree of the pinned base with nothing laid over
 it, every Acceptance witness runs verbatim and exits nonzero for a reason other than a missing command,
 and every Invariant exits 0, except that an Invariant with no witness the preflight can read is refused, and with a
@@ -371,9 +371,8 @@ skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
 
 ```text
 Register every file you add in every registry that lists its kind, in the same commit:
-- a new scripts/ghosts/** file: its path in architecture/owner-merges.md, in the `ghosts` cell or the plain list,
-  with the dated history sentence; the classification is Eli's, so name your choice in the final message;
-- a new scripts/shift/** file whose text names a merge: its path in the `own-instructions` cell, the same way;
+- a new scripts/ghosts/** file: its row in architecture/ghosts-files.md with the kind ghosts or plain, the kind
+  the card declares in creates:; name the kind in the final message;
 - a new package.json script: its row in CONTRIBUTING.md § Scripts, and, when the harness does not run it, its entry
   in OUTSIDE_THE_HARNESS in tests/harness-membership.test.ts.
 Push to the branch named above. Your final message is at most 1200 characters.

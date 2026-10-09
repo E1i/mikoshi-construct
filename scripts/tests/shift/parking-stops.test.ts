@@ -62,16 +62,20 @@ describe('the stop journal readers', () => {
 })
 
 describe('choose with a created scripts/ghosts file', () => {
-  const touching = (file: string): ParkedTask => {
-    const parsed = parseParkingFile('1.md', `card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: ${file}\nwho: shift\n\ndo 1\n`)
+  const touching = (file: string, creates?: string): ParkedTask => {
+    const parsed = parseParkingFile('1.md', `card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: ${file}\n${creates === undefined ? '' : `creates: ${creates}\n`}who: shift\n\ndo 1\n`)
     if (parsed.kind === 'refused')
       throw new Error(parsed.reason)
     return parsed.parked
   }
 
-  it('a card creating an unclassified scripts/ghosts file is left to classify', () => {
-    const choice = choose([touching('scripts/ghosts/new.ts')], new Set(), new Set(), new Map(), () => true)
-    expect(choice.left).toEqual([{ id: '1', reason: 'classify scripts/ghosts/new.ts in owner-merges.md' }])
+  it('an unclassified new file under scripts/ghosts makes the guard refuse', () => {
+    const refused = { id: '1', reason: 'classify scripts/ghosts/new.ts in architecture/ghosts-files.md, or declare it in creates: with its kind' }
+    expect(choose([touching('scripts/ghosts/new.ts')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
+    expect(choose([touching('scripts/ghosts/new.ts', 'scripts/ghosts/new.ts')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
+    expect(choose([touching('scripts/ghosts/new.ts', 'scripts/ghosts/new.ts (owner)')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
+    for (const kind of ['ghosts', 'plain'])
+      expect(choose([touching('scripts/ghosts/new.ts', `scripts/ghosts/new.ts (${kind})`)], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
   })
 
   it('a card whose scripts/ghosts file exists, or a file elsewhere, is taken', () => {

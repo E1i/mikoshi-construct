@@ -2,7 +2,7 @@ import type { Shell } from './preflight-trees.js'
 import type { Timer } from './preflight-witnesses.js'
 import type { Sketch } from './sketch.js'
 import process from 'node:process'
-import { generatorRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, ownerMergesRefusal, unreadInvariantRefusal } from './preflight-static.js'
+import { generatorRefusal, ghostsFilesRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, unreadInvariantRefusal } from './preflight-static.js'
 import { gitIn, lastLine, realShell, withWorktree } from './preflight-trees.js'
 import { runOnTree } from './preflight-witnesses.js'
 
@@ -106,7 +106,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     const sketchSha = input.sketch.kind === 'branch' ? input.sketch.sha : null
     refuseOn('P2', movingRefRefusal([...built.witnesses, ...invariants]))
     refuseOn('P3', generatorRefusal(design, changed ?? []))
-    refuseOn('P4', time('P4 owner-merges', () => ownerMergesRefusal(showAt(env.repo, sketchSha ?? base), design, changed ?? [])))
+    refuseOn('P4', time('P4 ghosts-files', () => ghostsFilesRefusal(showAt(env.repo, sketchSha ?? base), design, changed ?? [])))
     refuseOn('P5', immutableRefusal(changed ?? [], built.immutable))
     withWorktree(env.repo, base, tree => runOnTree(
       { tree, base, shell: env.shell, log: env.log, refuse: refuseOn, time },

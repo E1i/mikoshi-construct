@@ -42,7 +42,7 @@ import { reviewOf } from '../ghosts/verdict.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { changedFiles, COMMIT_FLAG, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -168,7 +168,7 @@ function createdFile(deps: ShiftDeps): (file: string) => boolean {
   return (file) => {
     try {
       const inTree = deps.git(deps.cwd, ['ls-tree', '--name-only', 'origin/main', '--', file]).trim() !== ''
-      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', OWNER_MERGES_ON_MAIN]))
+      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', GHOSTS_FILES_ON_MAIN]))
     }
     catch {
       return false
