@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions } from '../../decisions/decisions.js'
+import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions, spendDecisions } from '../../decisions/decisions.js'
 import { runDecisionsRead } from '../../decisions/read.js'
 
 const HEADER = '# Owner decisions\n\nOne line per decision, numbered D-N; a replaced one is marked superseded-by D-M.\n\n'
@@ -8,17 +8,33 @@ function file(...lines: string[]): string {
   return `${HEADER}${lines.join('\n')}\n`
 }
 
-function read(text: string, args: string[] = ['/d/owner-decisions.md']): { code: number, out: string[], err: string[] } {
+const JOURNAL = '/h/ghosts.jsonl'
+
+function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null): { code: number, out: string[], err: string[], written: Record<string, string> } {
   const out: string[] = []
   const err: string[] = []
+  const written: Record<string, string> = {}
   const code = runDecisionsRead(args, {
     home: '/home/x',
-    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md',
-    read: () => text,
+    journal: JOURNAL,
+    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null),
+    read: candidate => candidate === JOURNAL ? journal! : text,
+    write: (candidate, content) => {
+      written[candidate] = content
+    },
     out: line => out.push(line),
     err: line => err.push(line),
   })
-  return { code, out, err }
+  return { code, out, err, written }
+}
+
+function journal(...entries: object[]): string {
+  return entries.map(entry => `${JSON.stringify(entry)}\n`).join('')
+}
+
+function upToSpending(...lines: string[]): string {
+  const filler = Array.from({ length: 53 }, (_, index) => `- D-${index + 1} · 2026-10-08 — decision ${index + 1}.`)
+  return file(...filler, '- D-54 · 2026-10-09 — A decision bound to a card is spent once that card is merged or closed.', ...lines)
 }
 
 describe('owner decisions are a numbered record', () => {
@@ -28,7 +44,7 @@ describe('owner decisions are a numbered record', () => {
     expect(parseDecisions(numbered).decisions.map(decision => [decision.number, decision.body])).toEqual([[1, '#686 stays whole.'], [2, '#705 has priority p0.']])
 
     const unnumbered = file('- D-1 · 2026-10-08 — #686 stays whole.', '- 2026-10-08 — #685: variant A.')
-    expect(decisionsRefusals(unnumbered)).toEqual(['[decisions] line 6: a decision without D-N; every decision is - D-N · <date> — <decision> [· superseded-by D-M]'])
+    expect(decisionsRefusals(unnumbered)).toEqual([`[decisions] line 6: a decision without D-N; every decision is ${DECISION_FORMAT}`])
     expect(read(unnumbered).code).toBe(1)
     expect(read(unnumbered).out).toEqual([])
   })
@@ -45,7 +61,7 @@ describe('owner decisions are a numbered record', () => {
     )
     expect(inForce(parseDecisions(text).decisions).map(decision => decision.number)).toEqual([2, 3])
     const result = read(text)
-    expect(result).toEqual({ code: 0, out: ['- D-2 · 2026-10-08 — #686 stays whole.', '- D-3 · 2026-10-08 — #705 runs first, before #697.'], err: [] })
+    expect(result).toEqual({ code: 0, written: {}, out: ['- D-2 · 2026-10-08 — #686 stays whole.', '- D-3 · 2026-10-08 — #705 runs first, before #697.'], err: [] })
     expect(result.out.join('\n')).not.toContain('after #697')
   })
 
@@ -127,5 +143,59 @@ describe('owner decisions are a numbered record', () => {
   it('refuses a missing file and a flag', () => {
     expect(read('', ['/nowhere.md']).err).toEqual(['[decisions] no decisions at /nowhere.md'])
     expect(read('', ['--all']).code).toBe(2)
+  })
+})
+
+describe('a decision bound to a card is spent once the card is merged or closed', () => {
+  it('names the card tail in the format, before superseded-by', () => {
+    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· card #A #B] [· superseded-by D-M]')
+    const text = file('- D-1 · 2026-10-08 — one. · card #686 #687', '- D-2 · 2026-10-08 — two. · card #5 · superseded-by D-3', '- D-3 · 2026-10-08 — three.')
+    expect(decisionsRefusals(text)).toEqual([])
+    expect(parseDecisions(text).decisions.map(decision => [decision.body, decision.cards, decision.supersededBy])).toEqual([['one.', [686, 687], null], ['two.', [5], 3], ['three.', [], null]])
+  })
+
+  it('marks a decision whose card has a merge line superseded-by D-54, and writes the file', () => {
+    const text = upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730')
+    const result = read(text, undefined, journal({ event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }))
+    expect(result.code).toBe(0)
+    expect(result.out).not.toContain('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730')
+    expect(result.written['/d/owner-decisions.md']).toBe(text.replace('· card #730', '· card #730 · superseded-by D-54'))
+    expect(decisionsRefusals(result.written['/d/owner-decisions.md']!)).toEqual([])
+  })
+
+  it('marks a decision whose card is closed by a path line with a report or a verification', () => {
+    const text = upToSpending('- D-55 · 2026-10-09 — probe one. · card #728', '- D-56 · 2026-10-09 — fix two. · card #729')
+    const result = read(text, undefined, journal(
+      { event: 'path', task: '728', path: 'cheap', report: '/r/report.md', verification: 'run', ts: '2026-10-09T06:00:00Z' },
+      { event: 'path', task: '729', path: 'ladder', pr: 1, verification: 'review', ts: '2026-10-09T06:00:00Z' },
+    ))
+    expect(result.written['/d/owner-decisions.md']).toContain('probe one. · card #728 · superseded-by D-54')
+    expect(result.written['/d/owner-decisions.md']).toContain('fix two. · card #729 · superseded-by D-54')
+  })
+
+  it('keeps in force a line with no card tail that names a merged card, and one whose tail holds an unmerged card', () => {
+    const text = upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1.', '- D-56 · 2026-10-09 — two cards. · card #730 #731')
+    const result = read(text, undefined, journal(
+      { event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' },
+      { event: 'path', task: '731', path: 'cheap', started: '2026-10-09T05:00:00Z', ts: '2026-10-09T05:00:00Z' },
+    ))
+    expect(result.code).toBe(0)
+    expect(result.written).toEqual({})
+    expect(result.out).toContain('- D-55 · 2026-10-09 — #730 runs on lane-1.')
+    expect(result.out).toContain('- D-56 · 2026-10-09 — two cards. · card #730 #731')
+  })
+
+  it('spends before the size check, so a file over the limit only by spent decisions is read', () => {
+    const long = `${'decision '.repeat(1000)}`
+    const text = upToSpending(`- D-55 · 2026-10-09 — ${long} · card #730`)
+    expect(decisionsRefusals(text)).toHaveLength(1)
+    const result = read(text, undefined, journal({ event: 'merge', task: '730', by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }))
+    expect(result.err).toEqual([])
+    expect(result.code).toBe(0)
+  })
+
+  it('touches nothing without a journal or without D-54 in the file', () => {
+    expect(read(upToSpending('- D-55 · 2026-10-09 — x. · card #730')).written).toEqual({})
+    expect(spendDecisions(file('- D-1 · 2026-10-08 — x. · card #730'), () => true)).toBe(file('- D-1 · 2026-10-08 — x. · card #730'))
   })
 })
