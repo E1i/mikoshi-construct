@@ -356,9 +356,18 @@ describe('the preflight runs every witness verbatim on a clean tree of the pinne
 
   it('a grep witness on stdout the report is not written to is refused', () => {
     const { repo, base } = world()
-    const run = hashIn(repo, briefText({ acceptance: 'echo \'{"numPassedTests":1}\' > report.json | grep -q numPassedTests' }))
+    const sha = sketchOn(repo, { 'added.txt': 'ready\n' })
+    const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, acceptance: 'echo \'{"numPassedTests":1}\' > report.json | grep -q numPassedTests' }))
 
-    expect(refusal(run)).toContain(`preflight P7: grep witness "the file exists" matches its pattern on neither the base ${base.slice(0, 7)} nor a head`)
+    expect(refusal(run)).toContain(`preflight P8: grep witness "the file exists" matches its pattern on neither the base ${base.slice(0, 7)} nor the sketch ${sha.slice(0, 7)}`)
+  })
+
+  it('a positive grep with Sketch none passes the preflight marked not checked', () => {
+    const { repo } = world()
+    const run = hashIn(repo, briefText({ acceptance: 'cat added.txt | grep -q ready' }))
+
+    expect(run.line).not.toBeNull()
+    expect(run.log).toContain('grep witness "the file exists": not checked, Sketch: none leaves no head; red by absence until done:check probes it on the head')
   })
 
   it('a grep witness that matches on the head passes', () => {

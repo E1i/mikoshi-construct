@@ -54,7 +54,7 @@ function grepWitnesses(witnesses: Witness[]): GrepWitness[] {
   })
 }
 
-function grepRefusal(witness: Witness, sides: string): string {
+export function grepRefusal(witness: Witness, sides: string): string {
   return `grep witness "${witness.criterion}" matches its pattern on neither ${sides}: nothing it reads prints what it looks for, so its red on the base is not red for a reason; grep where the output is written (a reporter with an outputFile writes there, not to stdout)`
 }
 
@@ -122,7 +122,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
     unmatchedOnBase = grepWitnesses(task.acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
   })
   if (task.sketchSha === null || task.changed === null) {
-    refuse('P7', firstProblem(unmatchedOnBase, ({ witness }) => grepRefusal(witness, `the base ${baseShort} nor a head: Sketch: none leaves nothing to show it can match`)))
+    unmatchedOnBase.forEach(({ witness }) => run.log(`grep witness "${witness.criterion}": not checked, Sketch: none leaves no head; red by absence until done:check probes it on the head`))
     time('P6 lint', () => lint(run, lintTargets(tree, null, task.witnessesDir), 'lint of the ready witness files, no --fix,', 'a throwaway tree of the base'))
     run.log('positive control: none (Sketch: none)')
     return
@@ -131,8 +131,8 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const where = `the sketch ${sketchSha.slice(0, 7)} staged on the base ${baseShort}`
   time('P8 sketch', () => {
     stageSketch(tree, base, sketchSha)
-    refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
     refuse('P8', firstProblem(unmatchedOnBase, ({ witness, probe }) => shell(probe, tree).status === 0 ? null : grepRefusal(witness, `the base ${baseShort} nor ${where}`)))
+    refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
     refuse('P8', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))
   })
   time('P8 harness', () => refuse('P8', greenRefusal('harness', { criterion: task.harnessCommand, command: task.harnessCommand }, shell(task.harnessCommand, tree), where)))
