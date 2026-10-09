@@ -10,7 +10,18 @@ const RELEASE_PR = 812
 const SHARED_SETTINGS = '{ "permissions": { "allow": ["Bash(git status)"] } }\n'
 const EVERY_RULE = {
   permissions: {
-    allow: ['Bash(git log:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(gh pr merge:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)'],
+    allow: [
+      'Bash(git log:*)',
+      'Bash(pnpm shift:bg:*)',
+      'Bash(pnpm --silent shift:bg:*)',
+      'Bash(pnpm shift:merge:*)',
+      'Bash(pnpm --silent shift:merge:*)',
+      'Bash(gh pr update-branch:*)',
+      'Bash(pnpm relaunch:bg:*)',
+      'Bash(gh pr merge:*)',
+      'Bash(ps:*)',
+      'Bash(pnpm miko:exit:*)',
+    ],
     deny: [`Bash(gh pr merge ${RELEASE_PR}:*)`],
   },
   model: 'kept',
@@ -68,6 +79,24 @@ describe('pnpm doctor:factory', () => {
     expect(result.stdout).toEqual(['[doctor:factory] missing allow Bash(ps:*)'])
   })
 
+  it('names a settings.local.json without Bash(pnpm shift:merge:*) as missing it', async () => {
+    const result = await doctor(world(without('Bash(pnpm shift:merge:*)', 'allow')))
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual(['[doctor:factory] missing allow Bash(pnpm shift:merge:*)'])
+  })
+
+  it('names a settings.local.json without Bash(gh pr update-branch:*) as missing it', async () => {
+    const result = await doctor(world(without('Bash(gh pr update-branch:*)', 'allow')))
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual(['[doctor:factory] missing allow Bash(gh pr update-branch:*)'])
+  })
+
+  it('names the silent form a settings.local.json holding the bare Bash(pnpm shift:bg:*) lacks', async () => {
+    const result = await doctor(world(without('Bash(pnpm --silent shift:bg:*)', 'allow')))
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual(['[doctor:factory] missing allow Bash(pnpm --silent shift:bg:*)'])
+  })
+
   it('names the missing deny for the open version pull request and exits 1', async () => {
     const result = await doctor(world(without(`Bash(gh pr merge ${RELEASE_PR}:*)`, 'deny')))
     expect(result.exitCode).toBe(1)
@@ -78,7 +107,7 @@ describe('pnpm doctor:factory', () => {
   it('treats a missing settings.local.json as holding no rule', async () => {
     const result = await doctor(world(undefined))
     expect(result.exitCode).toBe(1)
-    expect(result.stdout).toHaveLength(6)
+    expect(result.stdout).toHaveLength(10)
   })
 
   it('with --apply and a yes appends exactly the missing rules and keeps every rule already there', async () => {
@@ -88,7 +117,18 @@ describe('pnpm doctor:factory', () => {
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(local(cwd))).toEqual({
       permissions: {
-        allow: ['Bash(git log:*)', 'Bash(gh pr merge:*)', 'Bash(pnpm shift:bg:*)', 'Bash(pnpm relaunch:bg:*)', 'Bash(ps:*)', 'Bash(pnpm miko:exit:*)'],
+        allow: [
+          'Bash(git log:*)',
+          'Bash(gh pr merge:*)',
+          'Bash(pnpm shift:bg:*)',
+          'Bash(pnpm --silent shift:bg:*)',
+          'Bash(pnpm shift:merge:*)',
+          'Bash(pnpm --silent shift:merge:*)',
+          'Bash(gh pr update-branch:*)',
+          'Bash(pnpm relaunch:bg:*)',
+          'Bash(ps:*)',
+          'Bash(pnpm miko:exit:*)',
+        ],
         deny: ['Bash(rm:*)', `Bash(gh pr merge ${RELEASE_PR}:*)`],
       },
       model: 'kept',

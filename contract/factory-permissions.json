@@ -1,6 +1,10 @@
 {
   "allow": [
     "Bash(pnpm shift:bg:*)",
+    "Bash(pnpm --silent shift:bg:*)",
+    "Bash(pnpm shift:merge:*)",
+    "Bash(pnpm --silent shift:merge:*)",
+    "Bash(gh pr update-branch:*)",
     "Bash(pnpm relaunch:bg:*)",
     "Bash(gh pr merge:*)",
     "Bash(ps:*)",
