@@ -94,6 +94,13 @@ describe('ghosts:launch refuses a third Ghost on a card that fell twice', () => 
     expect(journalOf(w).filter(line => line.event === 'fall').map(({ card, kind }) => ({ card, kind }))).toEqual([{ card: CARD, kind: 'ladder-not-done' }])
   })
 
+  it('a base-moved stop is never a fall', () => {
+    const w = cardedWorld('base-moved')
+    const { output } = launch(w)
+    expect(output).toContain('ladder base moved')
+    expect(journalOf(w).filter(line => line.event === 'fall')).toEqual([])
+  })
+
   it('refuses an unknown fall kind', () => {
     const w = cardedWorld('ok')
     const { status, output } = launch(w, ['--fall', 'tired', '--card', String(CARD)])

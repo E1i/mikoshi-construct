@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer'
+import type { RiskLevel } from '../../src/card/risk.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -7,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { riskReading } from '../../src/card/risk.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
@@ -22,6 +24,34 @@ const ISSUE_NUMBER = /^[1-9]\d*$/
 export const DISPOSITION_EVENT = 'disposition'
 export const MERGE_FOLLOW_UP = 'merge-follow-up'
 export const DISPOSITION_DECIDERS = ['owner', 'window'] as const
+export const REVIEW_STATUS_CONTEXT = 'review'
+const STATUS_STATE: Record<string, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
+
+export const REVIEW_DEPTHS = ['none', 'diff', 'full'] as const
+
+export type ReviewDepth = typeof REVIEW_DEPTHS[number]
+
+const DEPTH_OF_RISK: Record<RiskLevel, ReviewDepth> = { R1: 'full', R2: 'full', R3: 'diff', R4: 'none' }
+
+export function reviewDepth(level: RiskLevel): ReviewDepth {
+  return DEPTH_OF_RISK[level]
+}
+
+const UNREAD_RISK: RiskLevel = 'R1'
+
+export function reviewOf(...pathSets: readonly (readonly string[])[]): { risk: RiskLevel, depth: ReviewDepth } {
+  const risk = pathSets.length === 0 || pathSets.some(paths => paths.length === 0) ? UNREAD_RISK : riskReading(pathSets.flat(), false).level
+  return { risk, depth: reviewDepth(risk) }
+}
+
+export interface ReviewStatus {
+  commit: string
+  state: 'success' | 'failure'
+  context: typeof REVIEW_STATUS_CONTEXT
+  description: string
+}
+
+export type StatusPublisher = (status: ReviewStatus) => void
 
 interface Digest {
   path: string
@@ -252,11 +282,34 @@ export function checkVerdict(verdictPath: string, dir: string, target: ReviewTar
   return lineFaults.length > 0 ? { ok: false, reasons: lineFaults } : { ok: true, line }
 }
 
-export async function recordVerdict(verdictPath: string, dir: string, target: ReviewTarget): Promise<VerdictCheck> {
+export function reviewStatus(line: Record<string, unknown>): ReviewStatus {
+  const verdict = String(line.verdict)
+  return { commit: String(line.event === REVIEW_CARRY_EVENT ? line.to : line.commit), state: STATUS_STATE[verdict] ?? 'failure', context: REVIEW_STATUS_CONTEXT, description: `review verdict ${verdict} for task ${String(line.task)}` }
+}
+
+export function ghStatusPublisher(repo: string): StatusPublisher {
+  return (status) => {
+    execFileSync('gh', ['api', '--method', 'POST', `repos/{owner}/{repo}/statuses/${status.commit}`, '-f', `state=${status.state}`, '-f', `context=${status.context}`, '-f', `description=${status.description}`], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] })
+  }
+}
+
+function publishReasons(publish: StatusPublisher, status: ReviewStatus): string[] {
+  try {
+    publish(status)
+    return []
+  }
+  catch (error) {
+    return [`the journal line is written, but the ${status.context} status on ${status.commit} was not posted: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`]
+  }
+}
+
+export async function recordVerdict(verdictPath: string, dir: string, target: ReviewTarget, publish?: StatusPublisher): Promise<VerdictCheck> {
   const checked = checkVerdict(verdictPath, dir, target)
-  if (checked.ok)
-    await appendJournalEvent(path.join(dir, JOURNAL_FILE), checked.line)
-  return checked
+  if (!checked.ok)
+    return checked
+  await appendJournalEvent(path.join(dir, JOURNAL_FILE), checked.line)
+  const reasons = publish === undefined ? [] : publishReasons(publish, reviewStatus(checked.line))
+  return reasons.length > 0 ? { ok: false, reasons } : checked
 }
 
 export interface DispositionInput {
@@ -320,12 +373,12 @@ async function main(): Promise<void> {
   }
   const repo = values.repo ?? process.cwd()
   if (values.from === undefined) {
-    report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo }))
+    report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo }, ghStatusPublisher(repo)))
     return
   }
   const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   const fetched = fetchVerdictFromRef(values.from, repo, verdictPath, dir)
-  report(fetched.ok ? await recordVerdict(fetched.verdictPath, dir, { commit, repo }) : fetched)
+  report(fetched.ok ? await recordVerdict(fetched.verdictPath, dir, { commit, repo }, ghStatusPublisher(repo)) : fetched)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

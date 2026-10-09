@@ -1,4 +1,6 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { RiskLevel } from '../../src/card/risk.js'
+import type { ReviewDepth } from '../ghosts/verdict.js'
 import path from 'node:path'
 import { approvalOf, approvalSha256, canonicalImplementText, revocationOf } from '../ghosts/approval.js'
 
@@ -85,10 +87,16 @@ export function briefBody(card: Card, brief: string): string {
   ].join('\n')
 }
 
-export function reviewBody(card: Card, brief: string): string {
+const REVIEW_STEP: Record<ReviewDepth, string> = {
+  full: 'Run the blind Design scan (`.claude/agents/scan.md`), then the full review (`.claude/agents/review.md`: witnesses, mutations, the Design walk), then `pnpm ghosts:verdict` on its verdict file, and open the pull request.',
+  diff: 'Run the review (`.claude/agents/review.md`) at depth diff: it reads the diff only, with no Design scan, no mutations and no Design walk; then `pnpm ghosts:verdict` on its verdict file, and open the pull request.',
+  none: 'Launch no review agent and no Design scan: the witnesses and CI decide. Run the brief\'s witnesses and `pnpm run quality`, and open the pull request.',
+}
+
+export function reviewBody(card: Card, brief: string, review: { risk: RiskLevel, depth: ReviewDepth }): string {
   return [
     `Ladder route, step 3 of 3 for card #${card.id} ${card.name}: the Ghost ended with ladder done in your tree, on the brief \`${brief}\`.`,
-    'Run the blind Design scan (`.claude/agents/scan.md`), then the review (`.claude/agents/review.md`), then `pnpm ghosts:verdict` on its verdict file, and open the pull request.',
+    `Review depth ${review.depth}, from risk ${review.risk}. ${REVIEW_STEP[review.depth]}`,
     'The report carries the pull request on a line of its own, `PR #N`, and a `verification:` line.',
   ].join('\n')
 }

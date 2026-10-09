@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { ALREADY_RUNNING, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
@@ -101,6 +102,7 @@ describe('statusOf', () => {
     ['CONTINUE', 'STATUS: CONTINUE\n', 'CONTINUE'],
     ['OWNER', 'STATUS: OWNER — the merge waits\n', 'OWNER'],
     ['DONE', 'STATUS:DONE\n', 'DONE'],
+    ['STOP', 'STATUS: STOP\n', 'STOP'],
     ['the last line over an earlier one', 'STATUS: CONTINUE\nmore\nSTATUS: DONE\n', 'DONE'],
     ['the last known word over an unknown later one', 'STATUS: OWNER\nSTATUS: MAYBE\n', 'OWNER'],
     ['no line', 'nothing here\n', null],
@@ -207,8 +209,17 @@ describe('runRelaunch', () => {
     expect(result.runs).toHaveLength(2)
     for (const run of result.runs) {
       expect(run.prompt).toContain(DECISIONS)
-      expect(run.prompt).toContain('append each one there with its date, and never copy them into the handoff')
+      expect(run.prompt).toContain(`append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${DECISIONS}, and never copy them into the handoff`)
     }
+  })
+
+  it('starts nothing on a handoff ending in STATUS: STOP and stops with reason STATUS STOP', async () => {
+    const world = newWorld('STOP')
+    const result = await relaunch(world, ['--model', 'claude-test'])
+    expect(result.code).toBe(0)
+    expect(result.runs).toHaveLength(0)
+    expect(result.out.at(-1)).toBe('[relaunch] STATUS STOP')
+    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'STATUS STOP', sessions: 0 })
   })
 
   it('starts nothing on a handoff with no STATUS line', async () => {

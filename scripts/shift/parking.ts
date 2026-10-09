@@ -103,6 +103,31 @@ export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>,
   return { chosen, left }
 }
 
+export interface InReview {
+  task: ShiftTask
+  pr: number
+}
+
+export interface PipelineChoice {
+  next: ShiftTask | undefined
+  held: LeftCard[]
+}
+
+export function heldReason(review: InReview): string {
+  return `waits PR #${review.pr} of #${review.task.id} in review`
+}
+
+export function nextInPipeline(chosen: readonly ShiftTask[], taken: ReadonlySet<string>, inReview: readonly InReview[]): PipelineChoice {
+  const held: LeftCard[] = []
+  for (const card of chosen.filter(candidate => !taken.has(candidate.id))) {
+    const overlapping = inReview.find(review => taskConflicts([review.task, card]).length > 0)
+    if (overlapping === undefined)
+      return { next: card, held }
+    held.push({ id: card.id, reason: heldReason(overlapping) })
+  }
+  return { next: undefined, held }
+}
+
 export const QUEUE_FILE = 'queue.txt'
 
 function reasonGroup(reason: string): string {

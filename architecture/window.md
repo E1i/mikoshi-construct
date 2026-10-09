@@ -42,11 +42,28 @@ cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
 (`continues` in `scripts/shift/continuation.ts`).
 
-At the Eddies warn Mikoshi, the interactive window the owner opened in a Terminal, also hands itself on: it writes
-`~/.construct/handoff/mikoshi.md`, runs `pnpm miko:handoff`, which opens a new Terminal whose `claude` reads that file and
-continues as Mikoshi, and then stops.
+At the Eddies warn Mikoshi, the interactive window the owner opened in a Terminal (the foreman), also hands itself on: it
+writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff:write`, under the same contract as the Operator's handoff
+(the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), runs `pnpm miko:handoff`, which opens a new
+Terminal whose `claude` reads that file and continues as Mikoshi, and then stops. `pnpm miko:handoff` opens no Terminal
+for a file that fails the `handoff:check` refusals, so a hand-edited one, with no `prev:`, hands nothing on.
 
-Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), one dated line each, appended and never rewritten, and every relaunch prompt names that file.
+Owner decisions are not in the handoff: they live in the file its `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that file.
+It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
+[· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
+gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
+preamble. A session reads the decisions through `pnpm decisions`, which prints only the decisions in force, and refuses
+the whole file for any of these: after the first list item, a non-blank line that is not a decision line in that shape
+(a number other than `D-` and `[1-9][0-9]*`, no date, an empty decision, a line without the bullet, an ordered item, a
+heading); a `superseded-by` anywhere but as the exact trailing `· superseded-by D-M`; a `D-N` twice; numbers that do not
+run 1..n in file order; a `superseded-by` naming the decision itself, an earlier number or no decision in the file; two
+identical decisions in force; or decisions in force over `DECISIONS_IN_FORCE_LIMIT` bytes — so the record cannot grow
+into prose that a session has to reconcile, and no cycle of `superseded-by` can empty it.
+
+Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
+foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of
+substance; whatever a reference cannot carry is written into its record first (a decision into the decisions file, a
+card change through `construct intake --admit`), and the message names it.
 
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
 the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
@@ -372,6 +389,20 @@ prompt the window writes for a subagent that mutates carries the same line. The 
 those commands while a `.construct/mutations/<id>.json` is open is #162.
 
 ## Giving the verdict
+
+The depth of the review follows the card's risk level, and one function, `reviewDepth` in
+`scripts/ghosts/verdict.ts`, maps a level to a depth; the ladder's review step (the Ghost
+verdict) and the shift chain's step wait both read it, from the risk `riskReading` gives the card's
+touches. R4 gets no review agent: the witnesses and CI decide, and the chain arms the pull request
+with no verdict line, but only after `riskReading` over the pull request's changed files reads R4
+too; the deeper of the two decides, so a changed file above R4 sends it to the review wait. An empty
+set of touches or changed files, or files the chain could not read, is a full review, never none.
+R3 gets a short review of the diff only: no Design scan, no mutations, no
+Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict` as before.
+R1 and R2 get the full review: the witnesses, the mutations and the Design walk. The chain records
+the depth as `review` on its `event:chain` wait line. The baseline to compare against is the
+review-minutes-baseline probe (#707): on 2026-10-08 a median of 8.8 minutes from ready to verdict, R3
+3.0 and R2 8.7.
 
 The coordinating window gives the verdict. A small divergence from the brief is merged, with a
 follow-up issue that names it. Opening an issue is never forbidden, but once more than ten are open,
