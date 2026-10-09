@@ -66,6 +66,17 @@ describe('recordMerges', () => {
     expect(mergedSummary(again)).toBeNull()
   })
 
+  it('keys the merge line by the card of a body whose first line starts with card: ', () => {
+    let journal = CLOSING
+    const gh = (args: string[]): string => args[2] === '700'
+      ? JSON.stringify({ state: 'MERGED', mergedAt: '2026-10-05T08:30:00Z', mergedBy: { login: 'E1i' }, mergeCommit: { oid: 'c0ffee' }, body: `card: ${BODY(667)}` })
+      : view('OPEN', 574)
+    recordMerges({ gh, journal: '/j', readJournal: () => journal, append: (_file, text) => {
+      journal += text
+    }, now: () => NOW })
+    expect(mergeLines(journal).map(line => [line.task, line.pr])).toEqual([['667', 700]])
+  })
+
   it('notes a pull request whose lookup throws, and goes on', () => {
     let journal = CLOSING
     const gh = (args: string[]): string => {
