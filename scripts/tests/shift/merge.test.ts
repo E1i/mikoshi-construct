@@ -54,6 +54,20 @@ describe('runMerge', () => {
     }
   })
 
+  it('a PR touching .claude/hooks or .claude/eddies.json is owner-merged and never armed', () => {
+    for (const file of ['.claude/hooks/role-guard.mjs', '.claude/eddies.json']) {
+      const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', file])
+      expect(armed(calls)).toBe(false)
+      expect(result.stdout).toEqual([`[shift:merge] owner path ${file} — merge is Eli's`])
+    }
+  })
+
+  it('a PR touching only .claude/statusline.sh is not listed', () => {
+    const { calls, result } = run(cardLine('auto'), ['.claude/statusline.sh'])
+    expect(armed(calls)).toBe(true)
+    expect(result.stdout).toEqual([`[shift:merge] decision auto, no owner path — auto-merge armed on PR #42 at ${HEAD}`])
+  })
+
   it('a PR touching only architecture/ghosts-files.md is not listed', () => {
     const { calls } = run(cardLine('auto'), ['architecture/ghosts-files.md'])
     expect(isListed('architecture/ghosts-files.md', GHOSTS_FILES)).toBe(false)
