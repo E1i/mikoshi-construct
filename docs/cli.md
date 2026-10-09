@@ -1713,10 +1713,31 @@ npx mikoshi-construct atlas
 |---|---|---|
 | `--out <path>` | `.construct/atlas.html` | Write the page here instead. |
 
-Discovery reads only what git holds: `git rev-parse HEAD`, `git ls-files -z`, and each tracked
-TypeScript or JavaScript file, which becomes a component, with its relative imports and the calls of
-what it imports as relations. Where the Engram and the page go depends on what the repository already
-is, and the command never writes a tracked file of a repository it was not asked to own:
+Discovery reads only what git holds: `git rev-parse HEAD`, `git ls-files -z`, and the tracked files.
+Every tracked file becomes a component of the Engram and a node of the Atlas. A file whose type an
+import reader recognises is read, and its imports and the calls of what it imports become relations,
+each at its own line. Two readers exist:
+
+| Reader | Files | What it reads |
+|---|---|---|
+| TypeScript/JavaScript | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` | the whole file |
+| `sfc-script` | `.vue`, `.svelte`, `.astro` | each `<script>` block, and an Astro-style leading `---` fence |
+
+A file no reader recognises keeps its place with its relations `unknown` and the reason
+`type-not-scanned`; a file a reader recognises but discovery could not read gets `unreadable`. Each
+part on the page shows its status word and its reason beside its colour, so an unread file is not
+mistaken for a file with no links.
+
+A relative import resolves against the importing file. A non-relative one resolves through the
+repository's own configuration: the `paths` of the nearest `tsconfig.json` or `jsconfig.json` (with
+`baseUrl` and relative `extends`), then the workspace packages `pnpm-workspace.yaml` or the
+`workspaces` of `package.json` list, through their `exports`, `module`, `main`, then the package
+directory. A specifier no configuration names, such as an npm dependency, is left out. An import
+that resolves to no tracked file is an `unknown` relation; an import of a tracked file of a type
+discovery does not read resolves to that file.
+
+Where the Engram and the page go depends on what the repository already is, and the command never
+writes a tracked file of a repository it was not asked to own:
 
 | Repository | Engram | Page |
 |---|---|---|
