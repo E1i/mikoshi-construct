@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
+import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
 import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
@@ -139,8 +140,10 @@ describe('runRelaunch', () => {
     delete env.GH_TOKEN
     mkdirSync(path.join(world.root, '.construct'))
     writeFileSync(factoryPath(world.root), JSON.stringify({ ghAccount: 'owner-account' }))
+    const spawnedToken = path.join(world.root, 'spawned-token')
+    const stub = path.join(bin, 'claude-stub')
+    writeFileSync(stub, `#!/bin/sh\nprintf '%s' "$GH_TOKEN" > '${spawnedToken}'\ncat > /dev/null\n`, { mode: 0o755 })
     const seen: Seen = { runs: [], out: [], err: [] }
-    const tokensAtRun: Array<string | undefined> = []
     const deps = relaunchDeps(world, ['DONE'], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
       ...deps,
@@ -148,15 +151,15 @@ describe('runRelaunch', () => {
       env,
       ghToken: account => ghAccountToken(account, env),
       run: async (run) => {
-        tokensAtRun.push(env.GH_TOKEN)
+        await runClaude({ ...run, command: stub, log: path.join(world.root, 'operator.log'), onSpawn: undefined })
         return deps.run(run)
       },
     })
 
     expect(code).toBe(0)
     expect(ghAccountToken('someone-else', env).trim()).toBe('token-of-active-account')
-    expect(tokensAtRun).toEqual(['token-of-owner-account'])
-    expect(env.GH_TOKEN).toBe('token-of-owner-account')
+    expect(process.env.GH_TOKEN).not.toBe('token-of-owner-account')
+    expect(readFileSync(spawnedToken, 'utf8')).toBe('token-of-owner-account')
     expect(seen.runs.map(run => run.command)).toEqual([OPERATOR_CLAUDE])
   })
 

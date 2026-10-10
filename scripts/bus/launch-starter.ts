@@ -72,10 +72,20 @@ export class ShiftCardStarter implements CardStarter {
         input: renderPrompt(this.places.header, task, { worktree, report }),
         log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
       })
-      return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.ports.pgidOf(pid) } }
+      return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid) } }
     }
     catch (error) {
       return { kind: 'refused', denial: technical('start_failed', messageOf(error)) }
+    }
+  }
+
+  private groupOrKill(pid: number): number {
+    try {
+      return this.ports.pgidOf(pid)
+    }
+    catch (error) {
+      this.ports.kill(pid)
+      throw error
     }
   }
 

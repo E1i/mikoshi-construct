@@ -14,6 +14,10 @@ const CARD_LIFE = `
 
 const MERGED_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL`
 
+const LEGACY_START_OR_CLOSE = ['path', 'merge']
+
+const LEGACY_SETTLED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type IN (${LEGACY_START_OR_CLOSE.map(type => `'${type}'`).join(', ')})`
+
 const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
 
 interface LifeRow {
@@ -79,19 +83,28 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
   return lives
 }
 
-function isQueued(life: CardLife | undefined): boolean {
-  return life !== undefined && !life.started && !life.closed
+function cardSet(db: DatabaseSync, query: string): Set<number> {
+  return new Set((db.prepare(query).all() as { card_id: number }[]).map(row => row.card_id))
+}
+
+function settledCards(db: DatabaseSync, merged: Set<number>): Set<number> {
+  return new Set([...merged, ...cardSet(db, LEGACY_SETTLED_CARDS)])
+}
+
+function isQueued(life: CardLife | undefined, settled: Set<number>): boolean {
+  return life !== undefined && !life.started && !life.closed && !settled.has(life.cardId)
 }
 
 export function queuedLane(db: DatabaseSync, cardId: number): string | null {
   const life = cardLives(db).get(cardId)
-  return isQueued(life) ? life!.lane : null
+  return isQueued(life, settledCards(db, cardSet(db, MERGED_CARDS))) ? life!.lane : null
 }
 
 export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
   const lives = cardLives(db)
-  const merged = new Set((db.prepare(MERGED_CARDS).all() as { card_id: number }[]).map(row => row.card_id))
-  const launching = new Set((db.prepare(OPEN_LAUNCHES).all() as { card_id: number }[]).map(row => row.card_id))
+  const merged = cardSet(db, MERGED_CARDS)
+  const settled = settledCards(db, merged)
+  const launching = cardSet(db, OPEN_LAUNCHES)
   const busy = new Set<string>()
   for (const life of lives.values()) {
     const running = life.started && !life.closed && !merged.has(life.cardId)
@@ -100,7 +113,7 @@ export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
   }
   const chosen: LaunchCandidate[] = []
   for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
-    if (!isQueued(life) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)))
       continue
     busy.add(life.lane)
     chosen.push({ cardId: life.cardId, generation: life.generation })

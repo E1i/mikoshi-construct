@@ -177,6 +177,26 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a card whose pull request is merged or that a legacy shift started is not offered for launch', () => {
+    const bench = launchBench()
+    bench.mergedPr(815)
+    bench.admit(915, 'lane-a')
+    bench.admit(916, 'lane-b')
+    bench.admit(917, 'lane-c')
+    bench.admit(918, 'lane-d')
+    importJournal(bench.db, [
+      JSON.stringify({ event: 'path', task: '916', path: 'cheap', started: '2026-10-01T05:00:00Z', branch: 'feat/card-916', ts: '2026-10-01T05:00:00Z' }),
+      JSON.stringify({ event: 'merge', task: '917', pr: 817, by: 'eli', commit: 'abc', ts: '2026-10-01T06:00:00Z' }),
+    ].join('\n'))
+    bench.tick()
+
+    expect(taskState(bench.db, launch(915))).toBeUndefined()
+    expect(taskState(bench.db, launch(916))).toBeUndefined()
+    expect(taskState(bench.db, launch(917))).toBeUndefined()
+    expect(taskState(bench.db, launch(918))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   it('a launch is spawned detached as its own process group leader and records card.started', () => {
     const root = tempRoot()
     const stub = stubClaude(root)
@@ -220,6 +240,20 @@ describe('the launch queue', () => {
 
     const outcome = bench.launch(bench.leaseLaunch()!)
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'not_detached' }, next: 'queued' })
+    await waitForExit(groups.at(-1)!)
+    expect(alive(groups.at(-1)!)).toBe(false)
+    bench.close()
+  })
+
+  it('a session whose process group cannot be read is killed before start_failed', async () => {
+    const root = tempRoot()
+    const stub = stubClaude(root)
+    const bench = launchBench(realStarter(root, stub.command, 927, { pgidOf: () => { throw new Error('ps: no such process') } }))
+    bench.admit(927, 'lane-x')
+    bench.tick()
+
+    const outcome = bench.launch(bench.leaseLaunch()!)
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'start_failed' }, next: 'queued' })
     await waitForExit(groups.at(-1)!)
     expect(alive(groups.at(-1)!)).toBe(false)
     bench.close()

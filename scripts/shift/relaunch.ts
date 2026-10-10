@@ -405,7 +405,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: deps.env, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
     await record(deps, {
       event: 'relaunch',
