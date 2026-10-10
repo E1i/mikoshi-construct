@@ -73,13 +73,15 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(eventsOf(world, 'shard-used')).toEqual([])
   })
 
-  it('with a shard an owner PR is armed and journals the delegation', async () => {
+  it('with a shard an owner PR goes to the bus at the reviewed head and journals the delegation, with no gh pr merge', async () => {
     const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
     const shard = issue(world)
     const { gh, calls } = ownerGh()
-    const { code } = await shift(world, gh, shard)
+    const { code, io } = await shift(world, gh, shard)
     expect(code).toBe(0)
-    expect(merges(calls)).toEqual([['pr', 'merge', '101', '--auto', '--squash', '--match-head-commit', HEAD, '-R', 'E1i/mikoshi-construct']])
+    expect(merges(calls)).toEqual([])
+    expect(calls.flat()).not.toContain('--auto')
+    expect(io.out).toContain(`[shift:merge] owner decision delegated, shard ${shard} — PR #101 goes to the bus at ${HEAD}; the chain waits for its merge.done`)
     expect(eventsOf(world, 'delegated')).toMatchObject([{ task: '1', pr: 101, shard, why: `owner decision delegated, shard ${shard}` }])
     expect(eventsOf(world, 'stop')).toEqual([])
     const journal = lines(world.journal).map(line => line.event)

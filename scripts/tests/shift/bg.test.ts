@@ -5,6 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BG_LOG, launchArgv, runBg, USAGE } from '../../shift/bg.js'
+import { settled } from './fixtures/settled.js'
 
 const roots: string[] = []
 
@@ -61,12 +62,6 @@ function journal(w: { env: NodeJS.ProcessEnv }, ...lines: object[]): void {
 
 function answerArgv(dir: string): string[] {
   return [dir, '--answer', '758', '--prompt', path.join(dir, 'answer-758.md')]
-}
-
-async function settled(file: string): Promise<string> {
-  for (let attempt = 0; attempt < 200 && !existsSync(file); attempt++)
-    await new Promise(resolve => setTimeout(resolve, 25))
-  return readFileSync(file, 'utf8').trim()
 }
 
 describe('pnpm shift:bg', () => {
