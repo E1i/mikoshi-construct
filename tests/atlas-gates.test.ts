@@ -45,6 +45,17 @@ describe('the Atlas quality gates', () => {
       const spoiled = { ...map, html: map.html.replace('href="atlas-docs.html"', 'href="atlas-doc.html"') }
       expect(unresolvedLinks(spoiled)).toEqual([`${map.file}: atlas-doc.html resolves to nothing on disk`])
     })
+
+    it('a broken href in the page markup turns the gate red while the script body is skipped', () => {
+      const { map } = built()
+      const script = /<script>([\s\S]*?)<\/script>/.exec(map.html)![1]!
+      expect(script).toMatch(/href="/)
+      expect(unresolvedLinks(map)).toEqual([])
+      const before = { ...map, html: map.html.replace('href="#cellar"', 'href="#cellar-gone"') }
+      const after = { ...map, html: map.html.replace('</script>', '</script><a href="cellar-gone.html">gone</a>') }
+      expect(unresolvedLinks(before)).toEqual([`${map.file}: #cellar-gone points at no element on the page`])
+      expect(unresolvedLinks(after)).toEqual([`${map.file}: cellar-gone.html resolves to nothing on disk`])
+    })
   })
 
   describe('the docs view and the map do not diverge', () => {

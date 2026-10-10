@@ -174,6 +174,30 @@ Work in this order:
     }
     ```
 
+    Then name the components of each contour. Run `construct atlas`; the Engram it names holds
+    `mechanics.contours`, the parts the repository's own configuration separates, and
+    `mechanics.components`, every tracked file. Inside each contour, group its files into components —
+    each a part a reader would name, with an `id`, the `contour` it lies in, a `name` and a one-line
+    `purpose` — and write them under the top-level `interpretation` key of that same Engram, beside
+    `mechanics` and never inside it. A file belongs to at most one component; a file you cannot place
+    stays out, and the Atlas groups it by its directory. Name a component by what it does, not by the
+    directory it sits in, and write no fact, no claim and nothing under `mechanics`: discovery rewrites
+    `mechanics` on every run, and the facts must read the same with or without your layer. Then run `construct atlas` again and open
+    the page it names.
+
+    ```json
+    {
+      "facts": [],
+      "claims": [],
+      "interpretation": {
+        "authoredBy": "discovery",
+        "components": [
+          { "id": "billing-api", "contour": "apps/billing", "name": "Billing API", "purpose": "Takes a charge request, validates it against the contract and records the charge", "files": ["apps/billing/src/routes.ts", "apps/billing/src/charge.ts"] }
+        ]
+      }
+    }
+    ```
+
     Where the repository renders its model — a committed diagram or page generated from
     `construct.model.json`, the way the composition models are rendered in step 9 — regenerate it in
     the same step that changed the model, and confirm its check passes. Writing the source and leaving
