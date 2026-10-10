@@ -13,6 +13,7 @@ export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const CONTINUE_PROMPT = 'прочитай mikoshi.md'
 export const PAUSE_MS = 3000
+export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
 
@@ -28,6 +29,7 @@ export interface MikoLoopDeps {
   handoffMtime: () => number | undefined
   session: (prompt: string | undefined) => Promise<SessionEnd>
   pause: (ms: number) => Promise<PauseEnd>
+  doubleCtrlC: () => boolean
   err: (line: string) => void
 }
 
@@ -39,6 +41,19 @@ export function claudeArgv(command: string, prompt: string | undefined): string[
   return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
+export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean } {
+  let last = Number.NEGATIVE_INFINITY
+  let seen = false
+  return {
+    press: () => {
+      const at = now()
+      seen ||= at - last <= DOUBLE_CTRL_C_WINDOW_MS
+      last = at
+    },
+    seen: () => seen,
+  }
+}
+
 function didNotStart(end: SessionEnd): boolean {
   return (end.code === null && end.signal === null) || SHELL_COULD_NOT_RUN_THE_COMMAND.has(end.code ?? -1)
 }
@@ -48,6 +63,10 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
   for (;;) {
     const before = deps.handoffMtime()
     const end = await deps.session(prompt)
+    if (deps.doubleCtrlC()) {
+      deps.err(`${PREFIX}double Ctrl+C during the session: no next session`)
+      return 0
+    }
     if (didNotStart(end)) {
       deps.err(`${PREFIX}the session did not start: no next session`)
       return 1
@@ -103,7 +122,8 @@ function runSession(command: string, prompt: string | undefined): Promise<Sessio
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.on('SIGINT', () => {})
+  const ctrlC = doubleCtrlCWatcher()
+  process.on('SIGINT', ctrlC.press)
   const handoff = mikoshiHandoff(os.homedir())
   const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
   process.exitCode = await runMikoLoop({
@@ -111,6 +131,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     handoffMtime: () => mtimeOf(handoff),
     session: prompt => runSession(command, prompt),
     pause: pauseUntilCtrlC,
+    doubleCtrlC: ctrlC.seen,
     err: line => console.error(line),
   })
 }

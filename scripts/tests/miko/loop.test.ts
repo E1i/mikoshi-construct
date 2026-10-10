@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONTINUE_PROMPT, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../miko/loop.js'
+import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
@@ -20,6 +20,7 @@ set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
   continue|owner|stop) echo "STATUS: $(echo "$1" | tr a-z A-Z)" > "$HOME/.construct/handoff/mikoshi.md"; exit "$2" ;;
   quiet) exit "$2" ;;
+  deaf) trap '' INT; echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; : > "$STUB_DIR/ready"; exec sleep 2 ;;
   hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
 esac
 exit 0
@@ -138,6 +139,18 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
   }, 20_000)
 
+  it('a double Ctrl-C ends the loop', async () => {
+    const dir = home(['deaf', 'owner 0'])
+    const loop = startLoop(dir)
+    await until(() => existsSync(path.join(dir, 'ready')))
+    process.kill(-loop.pid, 'SIGINT')
+    await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
+    process.kill(-loop.pid, 'SIGINT')
+    const outcome = await endsWithin(loop, 2 * PAUSE_MS)
+    expect(lines(dir, 'calls')).toEqual(['0|'])
+    expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('double Ctrl+C during the session: no next session') })
+  }, 20_000)
+
   it('under pnpm miko, one Ctrl+C in the pause ends pnpm and the loop together, so no session starts orphaned from the terminal', async () => {
     const dir = home(['continue 0', 'owner 0'])
     const miko = startPnpmMiko(dir)
@@ -179,9 +192,10 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
 interface Script {
   statuses: (Status | null | undefined)[]
   pauseEnds?: PauseEnd[]
+  doubleCtrlCs?: boolean[]
 }
 
-async function drive({ statuses, pauseEnds = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
+async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
   const prompts: (string | undefined)[] = []
   const pauses: number[] = []
   const lines: string[] = []
@@ -196,6 +210,7 @@ async function drive({ statuses, pauseEnds = [] }: Script): Promise<{ code: numb
       pauses.push(ms)
       return pauseEnds.shift() ?? 'elapsed'
     },
+    doubleCtrlC: () => doubleCtrlCs.shift() ?? false,
     err: line => lines.push(line),
   })
   return { code, prompts, pauses, lines }
@@ -227,6 +242,14 @@ describe('runMikoLoop decides from STATUS in mikoshi.md and a Ctrl+C in the paus
     expect(run.lines.at(-1)).toContain('Ctrl+C in the pause: no next session')
   })
 
+  it('stops after a session in which a double Ctrl-C was seen, though STATUS says CONTINUE', async () => {
+    const run = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], doubleCtrlCs: [false, true] })
+    expect(run.code).toBe(0)
+    expect(run.prompts).toEqual([undefined, CONTINUE_PROMPT])
+    expect(run.pauses).toEqual([PAUSE_MS])
+    expect(run.lines.at(-1)).toContain('double Ctrl+C during the session: no next session')
+  })
+
   it('stops with exit code 1 when the session could not start, so a missing claude does not spin', async () => {
     const statuses: (Status | undefined)[] = ['CONTINUE', 'CONTINUE']
     const code = await runMikoLoop({
@@ -234,8 +257,23 @@ describe('runMikoLoop decides from STATUS in mikoshi.md and a Ctrl+C in the paus
       handoffMtime: () => 0,
       session: async () => ({ code: null, signal: null }),
       pause: async () => 'elapsed',
+      doubleCtrlC: () => false,
       err: () => {},
     })
     expect(code).toBe(1)
+  })
+})
+
+describe('doubleCtrlCWatcher sees two Ctrl-C within DOUBLE_CTRL_C_WINDOW_MS as a double Ctrl-C', () => {
+  it.each([
+    { name: 'one press', presses: [0], seen: false },
+    { name: 'two presses within the window', presses: [0, DOUBLE_CTRL_C_WINDOW_MS], seen: true },
+    { name: 'two presses further apart than the window', presses: [0, DOUBLE_CTRL_C_WINDOW_MS + 1], seen: false },
+    { name: 'a close pair after a lone press', presses: [0, 5000, 5300], seen: true },
+  ])('$name', ({ presses, seen }) => {
+    const times = [...presses]
+    const watcher = doubleCtrlCWatcher(() => times.shift()!)
+    presses.forEach(() => watcher.press())
+    expect(watcher.seen()).toBe(seen)
   })
 })
