@@ -21,6 +21,10 @@ export function defaultDecisions(home: string): string {
   return path.join(home, '.construct', 'owner-decisions.md')
 }
 
+export function archiveOf(file: string): string {
+  return file.replace(/(?:\.md)?$/, '.archive.md')
+}
+
 export function journalOf(home: string, handoffDir: string | undefined): string {
   return path.join(handoffDir ?? path.join(home, '.construct', 'handoff'), 'ghosts.jsonl')
 }
@@ -63,7 +67,8 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
   const text = spendDecisions(read, card => settled.has(card))
   if (text !== read)
     deps.write(file, text)
-  const refusals = decisionsRefusals(text)
+  const archive = archiveOf(file)
+  const refusals = decisionsRefusals(text, deps.exists(archive) ? deps.read(archive) : '')
   if (refusals.length > 0) {
     for (const line of refusals)
       deps.err(line)
