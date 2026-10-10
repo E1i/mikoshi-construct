@@ -1,5 +1,4 @@
 import type { CloseOutcome } from '../../bus/close-executor.js'
-import type { GitHubPut } from '../../bus/github.js'
 import type { Lease } from '../../bus/lease.js'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,19 +23,9 @@ const close = (pr: number, head = sha('a')): string => taskKey({ queue: 'close',
 
 function closeBench(reported: Record<number, string> = {}) {
   const bench = mergeBench()
-  const patched: { endpoint: string, fields: Record<string, string> }[] = []
-  let patchStatus = 200
-  const patch: GitHubPut = (endpoint, fields) => {
-    patched.push({ endpoint, fields })
-    return { status: patchStatus, headers: {}, body: {} }
-  }
-  const executor = new CloseExecutor({ db: bench.db, patch, reported: cardId => reported[cardId] ?? null, clock: bench.clock.now })
+  const executor = new CloseExecutor({ db: bench.db, reported: cardId => reported[cardId] ?? null, clock: bench.clock.now })
   return {
     ...bench,
-    patched,
-    failPatch: (status: number) => {
-      patchStatus = status
-    },
     merged: (pr: number) => {
       bench.gitHub.open({ number: pr })
       bench.tick()
@@ -83,8 +72,12 @@ describe('the close queue', () => {
     const bench = closeBench({ 1093: 'mutation' })
     bench.merged(993)
 
-    expect(bench.closeCard(bench.leaseClose()!)).toEqual({ kind: 'closed', taskKey: close(993), verification: 'mutation' })
-    expect(bench.patched).toEqual([{ endpoint: 'repos/{owner}/{repo}/issues/1093', fields: { state: 'closed', state_reason: 'completed' } }])
+    const lease = bench.leaseClose()!
+    const calls = bench.gitHub.calls.length
+
+    expect(bench.closeCard(lease)).toEqual({ kind: 'closed', taskKey: close(993), verification: 'mutation' })
+    expect(bench.gitHub.calls).toHaveLength(calls)
+    expect(bench.gitHub.puts).toEqual([])
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'mutation' }])
     expect(taskState(bench.db, close(993))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
 
@@ -102,7 +95,6 @@ describe('the close queue', () => {
       bench.merged(pr)
 
       expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'denied', taskKey: close(pr), denial: { kind: 'technical', reason: 'no_verification', detail: expect.stringContaining(named) }, next: 'queued' })
-      expect(bench.patched).toEqual([])
       expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
       expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'close', reason: 'no_verification' }])
       expect(ownerInbox(bench.db)).toEqual([])
@@ -110,14 +102,18 @@ describe('the close queue', () => {
     }
   })
 
-  it('an issue GitHub does not close is a github_error and records no card.closed', () => {
+  it('close makes no GitHub write, even for a card whose number is another pull request', () => {
     const bench = closeBench({ 1096: 'run' })
+    bench.gitHub.open({ number: 1096 })
     bench.merged(996)
-    bench.failPatch(403)
+    const lease = bench.leaseClose()!
+    const calls = bench.gitHub.calls.length
 
-    expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'denied', denial: { reason: 'github_error' }, next: 'queued' })
-    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
-    expect(taskState(bench.db, close(996))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
+    expect(bench.closeCard(lease)).toMatchObject({ kind: 'closed', verification: 'run' })
+    expect(bench.gitHub.calls).toHaveLength(calls)
+    expect(bench.gitHub.puts).toEqual([])
+    bench.tick()
+    expect(bench.db.prepare('SELECT pr, state FROM prs ORDER BY pr').all()).toEqual([{ pr: 996, state: 'merged' }, { pr: 1096, state: 'open' }])
     bench.close()
   })
 
@@ -128,7 +124,6 @@ describe('the close queue', () => {
     closedCard(bench, 1097)
 
     expect(bench.closeCard(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' }, next: 'withdrawn' })
-    expect(bench.patched).toEqual([])
     expect(eventsOf(bench.db, CARD_CLOSED)).toHaveLength(1)
     bench.close()
   })
@@ -145,7 +140,6 @@ describe('the close queue', () => {
 
     expect(bench.closeCard(stale)).toEqual({ kind: 'fenced', taskKey: close(998) })
     expect(eventCount(bench.db)).toBe(before)
-    expect(bench.patched).toEqual([])
     expect(taskState(bench.db, close(998))).toMatchObject({ state: 'leased', lease_gen: current.leaseGen })
     bench.close()
   })
@@ -171,10 +165,7 @@ describe('the close queue', () => {
 
   it('the close worker is switched off without --on', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const patch: GitHubPut = () => {
-      throw new Error('a switched-off worker calls GitHub')
-    }
-    expect(await runCloseWorker([], { busPath: '/nonexistent/bus.db', patch, reported: () => null, session: 's', pause: async () => {} })).toBe(0)
+    expect(await runCloseWorker([], { busPath: '/nonexistent/bus.db', reported: () => null, session: 's', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
   })
 })

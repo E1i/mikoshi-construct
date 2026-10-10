@@ -1,17 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
-import type { GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
-import { messageOf } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { CARD_CLOSED } from './queue.js'
 
-export const ISSUE_CLOSED_STATUS = 200
-const REPO = 'repos/{owner}/{repo}'
-
-export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'github_error'
+export type CloseTechnicalReason = 'card_closed' | 'no_verification'
 
 export interface CloseDenial {
   kind: 'technical'
@@ -28,7 +23,6 @@ export type ReportedVerification = (cardId: number) => string | null
 
 export interface CloseParts {
   db: DatabaseSync
-  patch: GitHubPut
   reported: ReportedVerification
   clock: () => Date
 }
@@ -62,9 +56,6 @@ export class CloseExecutor {
       const verification = this.parts.reported(lease.cardId)
       if (!isVerificationWord(verification))
         return this.denied(lease, technical('no_verification', `the run of card ${lease.cardId} reported ${verification === null ? 'no verification' : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
-      const refused = this.closeIssue(lease)
-      if (refused !== null)
-        return this.denied(lease, refused)
       return this.closed(lease, verification)
     }
     catch (error) {
@@ -76,22 +67,12 @@ export class CloseExecutor {
     }
   }
 
-  private closeIssue(lease: Lease): CloseDenial | null {
-    try {
-      const response = this.parts.patch(`${REPO}/issues/${lease.cardId}`, { state: 'closed', state_reason: 'completed' })
-      return response.status === ISSUE_CLOSED_STATUS ? null : technical('github_error', `GitHub answered ${response.status} to closing #${lease.cardId}`)
-    }
-    catch (error) {
-      return technical('github_error', messageOf(error))
-    }
-  }
-
   private closed(lease: Lease, verification: string): CloseOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_CLOSED}:${lease.cardId}`, payload: { verification }, legacy: false }
     completeTask(this.parts.db, ts, lease, [event], (db) => {
       if (cardClosed(db, lease.cardId))
-        throw new CardAlreadyClosed(`card ${lease.cardId} was closed while its issue was being closed`)
+        throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
     return { kind: 'closed', taskKey: lease.taskKey, verification }
   }

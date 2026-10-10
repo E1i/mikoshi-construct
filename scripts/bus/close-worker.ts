@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CloseOutcome, ReportedVerification } from './close-executor.js'
-import type { GitHubPut } from './github.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
@@ -11,7 +10,6 @@ import { fileURLToPath } from 'node:url'
 import { reportPath } from '../shift/places.js'
 import { CloseExecutor } from './close-executor.js'
 import { defaultBusPath, openBus } from './db.js'
-import { ghApiPatch } from './github.js'
 import { expireLeases, leaseNext } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { SWITCH_FLAG } from './review-worker.js'
@@ -23,7 +21,6 @@ export type CloseStep = { kind: 'idle' } | CloseOutcome
 
 export interface CloseWorkerParts {
   db: DatabaseSync
-  patch: GitHubPut
   reported: ReportedVerification
   clock: () => Date
   session: string
@@ -72,7 +69,6 @@ export function shiftReportVerification(shiftRoot: string): ReportedVerification
 
 export interface CloseRun {
   busPath: string
-  patch: GitHubPut
   reported: ReportedVerification
   session: string
   pause: (ms: number) => Promise<unknown>
@@ -85,7 +81,7 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
   }
   const db = openBus(run.busPath)
   try {
-    const worker = new CloseWorker({ db, patch: run.patch, reported: run.reported, clock: () => new Date(), session: run.session })
+    const worker = new CloseWorker({ db, reported: run.reported, clock: () => new Date(), session: run.session })
     console.log(`${PREFIX}${run.busPath}: the close worker ${worker.actor} takes the close queue`)
     for (;;) {
       const step = worker.step()
@@ -101,7 +97,7 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
 }
 
 async function main(): Promise<number> {
-  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), patch: ghApiPatch(process.cwd()), reported: shiftReportVerification(path.join(os.homedir(), '.construct', 'shift')), session: randomUUID(), pause: sleep })
+  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: shiftReportVerification(path.join(os.homedir(), '.construct', 'shift')), session: randomUUID(), pause: sleep })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
