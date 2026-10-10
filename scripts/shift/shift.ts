@@ -2,8 +2,10 @@ import type { ShiftTask } from '../../src/card/task-file.js'
 import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
+import type { ChainState } from '../bus/chain.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { SweepResult } from '../worktrees/sweep.js'
+import type { ChainMoment } from './chain-bus.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { LadderFacts, LadderStep } from './ladder.js'
@@ -43,6 +45,7 @@ import { startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
 import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
+import { realChainObserver } from './chain-bus.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as CURRENT_PREFIX, realCurrentDeps, runCurrent } from './current.js'
@@ -151,6 +154,7 @@ export interface ShiftDeps {
   notify?: Notify
   current?: (journal: string) => MergeResult
   sweep?: (card: string) => SweepResult
+  observeChain?: (moment: ChainMoment) => void
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -1165,10 +1169,16 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const taken = new Set<string>()
   const outcomes: Outcome[] = []
   const reviews: Review[] = []
+  const observe = (task: ShiftTask, state: ChainState, boundary: boolean): void => {
+    if (chain !== undefined)
+      deps.observeChain?.({ dir, parking: parking!, cardId: Number(task.id), state, boundary })
+  }
+  let last: { task: ShiftTask, stop: StopRecord | null } = { task: pending[0]!, stop: null }
   try {
     while (pending.length > 0) {
       const task = pending.shift()!
       taken.add(task.id)
+      observe(task, 'running', false)
       const forecast = cheapForecastOf(path.dirname(dir), path.join(deps.handoffDir, GHOST_JOURNAL), cheapClass(task.card), deps.projectsDir)
       const handed = { ...startContract(task, formatCheapExpect(forecast)), forecast }
       if (!(await takeAllowed(deps, task, manual))) {
@@ -1179,7 +1189,9 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
         deps.out(line)
       const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard, chain !== undefined)
       const ran = { line: finished.line, stop: failedStop(deps, dir, finished) }
+      last = { task, stop: ran.stop }
       deps.append(journal, `${JSON.stringify(ran.line)}\n`)
+      observe(task, 'running', true)
       deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)
       clean &&= succeeded(ran.line)
       outcomes.push(outcomeOf(task, ran.line, ran.stop))
@@ -1199,9 +1211,14 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       pending.push(next)
     }
   }
+  catch (error) {
+    observe(last.task, 'fault', true)
+    throw error
+  }
   finally {
     releaseHangup?.()
   }
+  observe(last.task, isFailure(last.stop) ? 'fault' : 'stopped', true)
   if (parking !== undefined)
     sweepMerges(deps, ghostJournal, dir)
   writeOutcomes(deps, dir, outcomes, parking, taken)
@@ -1274,6 +1291,7 @@ function realDeps(): ShiftDeps {
     notify: osascriptNotify(),
     current: journal => runCurrent(realCurrentDeps(journal)),
     sweep: card => runSweep(['--apply', '--card', card], realSweepDeps()),
+    observeChain: realChainObserver(process.cwd(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),

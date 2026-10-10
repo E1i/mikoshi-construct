@@ -199,10 +199,11 @@ describe('netwatch', () => {
     db.close()
   })
 
-  it('main touches the mechanics when a changed path is one the chains run', () => {
+  it('main touches the mechanics exactly when a changed path is under scripts/shift', () => {
     expect(touchesMechanics(['scripts/shift/shift.ts'])).toBe(true)
-    expect(touchesMechanics(['.claude/agents/review.md'])).toBe(true)
-    expect(touchesMechanics(['package.json'])).toBe(true)
+    expect(touchesMechanics(['README.md', 'scripts/shift/bg.ts'])).toBe(true)
+    expect(touchesMechanics(['.claude/agents/review.md'])).toBe(false)
+    expect(touchesMechanics(['package.json', 'scripts/bus/queue.ts', 'scripts/shifted.ts'])).toBe(false)
     expect(touchesMechanics(['src/program.ts', 'docs/package.json'])).toBe(false)
   })
 

@@ -1,9 +1,13 @@
+import type { RoleStop } from '../bus/role.js'
 import { execFileSync } from 'node:child_process'
-import { realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { RAISED_STATUS, raisedByTheBus } from '../bus/role.js'
+import { statusOf } from '../shift/relaunch.js'
+import { realRoleStopObserver } from '../shift/role-bus.js'
 import { mikoshiHandoff, PREFIX } from './loop.js'
 
 export const FRESH_MS = 2 * 60 * 1000
@@ -24,6 +28,10 @@ export interface MikoExitDeps {
   now: () => number
   kill: (pid: number) => void
   err: (line: string) => void
+  handoff?: string
+  status?: () => string | null
+  raised?: boolean
+  observeStop?: (stop: RoleStop) => void
 }
 
 export function parsePs(text: string): ProcessRow[] {
@@ -54,9 +62,13 @@ export function isMikoLoop(row: ProcessRow): boolean {
   return row.args.includes(LOOP_SCRIPT)
 }
 
-export type ExitDecision = { kill: number, line: string } | { refuse: string }
+export type ExitDecision = { kill: number, line: string, stopped?: true } | { refuse: string }
 
-export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefined, now: number): ExitDecision {
+function freshHandoff(handoffMtime: number | undefined, now: number): boolean {
+  return handoffMtime !== undefined && now - handoffMtime <= FRESH_MS
+}
+
+export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefined, now: number, status: string | null = null): ExitDecision {
   const at = chain.findIndex(isClaude)
   if (at === -1)
     return { refuse: 'no claude process among the ancestors of this command: nothing to end' }
@@ -64,6 +76,8 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const above = chain.slice(at + 1)
   const nextClaude = above.findIndex(isClaude)
   const underLoop = (nextClaude === -1 ? above : above.slice(0, nextClaude)).some(isMikoLoop)
+  if (!underLoop && status === RAISED_STATUS && freshHandoff(handoffMtime, now))
+    return { kill: claude.pid, line: `ending claude ${claude.pid}: no pnpm miko loop stands above it, so role.stopped goes to the bus for the restart queue`, stopped: true }
   if (!underLoop)
     return { refuse: `claude ${claude.pid} does not run under the pnpm miko loop (${LOOP_SCRIPT}): nothing ended` }
   if (handoffMtime === undefined)
@@ -75,11 +89,13 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
 }
 
 export function runMikoExit(deps: MikoExitDeps): number {
-  const decision = exitDecision(ancestors(deps.table(), deps.pid), deps.handoffMtime(), deps.now())
+  const decision = exitDecision(ancestors(deps.table(), deps.pid), deps.handoffMtime(), deps.now(), deps.status?.() ?? null)
   if ('refuse' in decision) {
     deps.err(`${PREFIX}${decision.refuse}`)
     return 1
   }
+  if (decision.stopped === true)
+    deps.observeStop?.({ role: 'miko', handoff: deps.handoff ?? '', status: RAISED_STATUS, reason: 'context', raised: deps.raised ?? false })
   deps.err(`${PREFIX}${decision.line}`)
   deps.kill(decision.kill)
   return 0
@@ -103,5 +119,9 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     now: () => Date.now(),
     kill: pid => process.kill(pid, 'SIGTERM'),
     err: line => console.error(line),
+    handoff,
+    status: () => existsSync(handoff) ? statusOf(readFileSync(handoff, 'utf8')) : null,
+    raised: raisedByTheBus(process.env),
+    observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
   })
 }

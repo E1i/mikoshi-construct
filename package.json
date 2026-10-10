@@ -52,6 +52,7 @@
     "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",
     "bus:report": "tsx scripts/bus/report.ts",
+    "bus:restart": "tsx scripts/bus/restart-worker.ts",
     "bus:review": "tsx scripts/bus/review-worker.ts",
     "bus:review:bg": "tsx scripts/bus/review-bg.ts",
     "bus:run": "tsx scripts/bus/run.ts",

@@ -36,6 +36,20 @@ const UPDATE_CANDIDATES = `
   ORDER BY pr
 `
 
+const LAST_MECHANICS = `SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1`
+
+const RESTART_TARGETS = `
+  WITH mechanics AS (${LAST_MECHANICS}), readings AS (
+    SELECT chains.dir, chains.card_id, chains.sha, chains.state, mechanics.sha AS mechanics_sha,
+      mechanics.sha IS NOT NULL AND chains.sha NOT IN (SELECT sha FROM mains WHERE event_id >= mechanics.event_id) AS behind
+    FROM chains LEFT JOIN mechanics ON 1
+  )
+  SELECT dir, card_id, CASE WHEN behind THEN mechanics_sha ELSE sha END AS head FROM readings
+  WHERE state != 'stopped' AND (behind OR state = 'fault')
+`
+
+const RESTART_CANDIDATES = `SELECT NULL AS pr, card_id, head FROM (${RESTART_TARGETS}) ORDER BY dir`
+
 const CLOSE_CANDIDATES = `
   SELECT pr, card_id, head FROM prs
   WHERE state = 'merged' AND card_id IS NOT NULL AND head IS NOT NULL
@@ -94,6 +108,7 @@ function candidates(db: DatabaseSync): [Queue, string, Admits][] {
     ['review', REVIEW_CANDIDATES, everyRow],
     ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
     ['merge', MERGE_CANDIDATES, everyRow],
+    ['restart', RESTART_CANDIDATES, everyRow],
     ['close', CLOSE_CANDIDATES, everyRow],
     ['answer', QUESTION_CANDIDATES, everyRow],
     ['answer', CHANGES_CANDIDATES, everyRow],
@@ -103,7 +118,11 @@ function candidates(db: DatabaseSync): [Queue, string, Admits][] {
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
-  ORDER BY tasks.task_key
+  UNION
+  SELECT task_key, queue, card_id, pr, head FROM tasks
+  WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}')
+    AND head NOT IN (SELECT targets.head FROM (${RESTART_TARGETS}) AS targets WHERE targets.card_id = tasks.card_id)
+  ORDER BY task_key
 `
 
 interface TaskRow {

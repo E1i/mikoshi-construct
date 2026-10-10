@@ -981,6 +981,17 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     expect(chainSteps(world)).toEqual(['wait 1', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
   })
 
+  it('the running observation follows the task\'s journal line', async () => {
+    const world = newChainWorld(A_AND_B)
+    const taskLinesAtBoundary: string[] = []
+    const observeChain: ShiftDeps['observeChain'] = (moment) => {
+      if (moment.state === 'running' && moment.boundary)
+        taskLinesAtBoundary.push(`${moment.cardId}: ${jsonl(path.join(world.shift, 'shift.jsonl')).filter(entry => entry.event === 'task').length}`)
+    }
+    await chainRun(world, chainGh(), [], { observeChain })
+    expect(taskLinesAtBoundary).toEqual(['1: 1', '2: 2'])
+  })
+
   it('a question stops the chain', async () => {
     const world = newChainWorld([{ id: 1, body: 'do 1 STUB-QUESTION STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
     const { gh, calls } = chainGh()

@@ -57,6 +57,35 @@ CREATE TABLE IF NOT EXISTS tasks (
   failures INTEGER NOT NULL DEFAULT 0,
   event_id INTEGER NOT NULL REFERENCES events(id)
 );
+CREATE TABLE IF NOT EXISTS mains (
+  sha TEXT PRIMARY KEY,
+  touches_mechanics INTEGER NOT NULL,
+  event_id INTEGER NOT NULL REFERENCES events(id)
+);
+CREATE TABLE IF NOT EXISTS chains (
+  dir TEXT PRIMARY KEY,
+  card_id INTEGER NOT NULL,
+  parking TEXT NOT NULL,
+  sha TEXT NOT NULL,
+  pid INTEGER NOT NULL,
+  leader INTEGER,
+  boundary INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  event_id INTEGER NOT NULL REFERENCES events(id)
+);
+CREATE TABLE IF NOT EXISTS roles (
+  role TEXT PRIMARY KEY,
+  handoff TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  state TEXT NOT NULL,
+  lease_gen INTEGER NOT NULL DEFAULT 0,
+  lease_until TEXT,
+  pid INTEGER,
+  raises INTEGER NOT NULL DEFAULT 0,
+  failures INTEGER NOT NULL DEFAULT 0,
+  event_id INTEGER NOT NULL REFERENCES events(id)
+);
 CREATE TABLE IF NOT EXISTS decisions (
   decision_id INTEGER PRIMARY KEY,
   text TEXT NOT NULL,

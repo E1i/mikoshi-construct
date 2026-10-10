@@ -1,4 +1,4 @@
-export const OPERATOR_CONTEXT_THRESHOLD = 150_000
+export const OPERATOR_CONTEXT_THRESHOLD = 180_000
 
 export type BoundaryMove = 'end' | 'next'
 
