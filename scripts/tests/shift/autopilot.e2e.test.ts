@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runShift } from '../../shift/shift.js'
-import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
+import { busMergesWhatIsHanded, captured, cardLine, depsOf, eventsOf, fakeGh, handedPrs, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 
 const LADDER = 'implement/runner/M/ladder/owner'
 const CHEAP_OWNER = 'implement/runner/S/cheap/owner'
@@ -15,24 +15,25 @@ const PR_CARDS = { 101: cardLine(1), 102: cardLine(2, CHEAP_OWNER), 103: cardLin
 
 async function threeCardShift(): Promise<{ world: ReturnType<typeof newWorld>, calls: string[][], io: ReturnType<typeof captured>, code: number }> {
   const world = newWorld(THREE)
-  const { gh, calls } = fakeGh(PR_CARDS)
+  const fake = fakeGh(PR_CARDS)
   const io = captured()
-  const code = await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, io))
-  return { world, calls, io, code }
+  const code = await runShift([world.shift, '--parking', world.parking], depsOf(world, fake.gh, io, busMergesWhatIsHanded(fake, io)))
+  return { world, calls: fake.calls, io, code }
 }
 
 describe('the autopilot on a parking of three cards', () => {
   it('the cheap auto card reaches its merge on its own', async () => {
-    const { world, calls, code } = await threeCardShift()
+    const { world, calls, io, code } = await threeCardShift()
     expect(code).toBe(0)
-    expect(calls.find(args => args[1] === 'merge')?.slice(0, 4)).toEqual(['pr', 'merge', '101', '--auto'])
+    expect(calls.filter(args => args[1] === 'merge')).toEqual([])
+    expect(handedPrs(io)).toEqual([101])
     expect(eventsOf(world, 'merge').map(line => [line.task, line.pr])).toEqual([['1', 101]])
     expect(eventsOf(world, 'stop').filter(line => line.task === '1')).toEqual([])
   })
 
   it('the cheap owner card opens its pull request and stops at merge', async () => {
-    const { world, calls } = await threeCardShift()
-    expect(calls.filter(args => args[1] === 'merge').map(args => args[2])).toEqual(['101'])
+    const { world, io } = await threeCardShift()
+    expect(handedPrs(io)).toEqual([101])
     expect(eventsOf(world, 'stop').find(line => line.task === '2')).toMatchObject({ at: 'merge', pr: 102, worktree: path.join(world.root, 'mc-2'), shift: world.shift, session: expect.stringMatching(/^[0-9a-f-]{36}$/) as unknown, ts: expect.stringMatching(/^2026-10-06T/) as unknown })
     expect(eventsOf(world, 'merge').map(line => line.task)).not.toContain('2')
   })
@@ -135,9 +136,10 @@ describe('--manual', () => {
 
   it('--manual does not change what the merge rules arm: a confirmed auto card is armed', async () => {
     const world = newWorld(THREE)
-    const { gh, calls } = fakeGh(PR_CARDS)
-    await runShift([world.shift, '--parking', world.parking, '--manual'], depsOf(world, gh, captured(), { confirm: async () => true }))
-    expect(calls.filter(args => args[1] === 'merge').map(args => args[2])).toEqual(['101'])
+    const { gh } = fakeGh(PR_CARDS)
+    const io = captured()
+    await runShift([world.shift, '--parking', world.parking, '--manual'], depsOf(world, gh, io, { confirm: async () => true }))
+    expect(handedPrs(io)).toEqual([101])
   })
 })
 

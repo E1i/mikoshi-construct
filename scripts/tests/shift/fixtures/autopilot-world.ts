@@ -1,3 +1,4 @@
+import type { BusMerge } from '../../../shift/merge.js'
 import type { ShiftDeps } from '../../../shift/shift.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -5,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach } from 'vitest'
 import { runClaude } from '../../../shift/claude.js'
+import { HANDED_TO_THE_BUS } from '../../../shift/merge.js'
 import './stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'claude-stub-pr.sh')
@@ -111,11 +113,37 @@ export function depsOf(world: World, gh: (args: string[]) => string, io: Capture
 export interface FakeGh {
   gh: (args: string[]) => string
   calls: string[][]
+  bus: (pr: number, head: string) => BusMerge
+  handed: [number, string][]
+}
+
+export function handedPrs(io: Captured): number[] {
+  return io.out.flatMap((line) => {
+    const handed = HANDED_TO_THE_BUS.exec(line)
+    return handed === null ? [] : [Number(handed[1])]
+  })
+}
+
+export function busMergesWhatIsHanded(fake: FakeGh, io: Captured): Pick<ShiftDeps, 'out'> {
+  return {
+    out: (line) => {
+      io.out.push(line)
+      const handed = HANDED_TO_THE_BUS.exec(line)
+      if (handed !== null)
+        fake.bus(Number(handed[1]), handed[2]!)
+    },
+  }
 }
 
 export function fakeGh(prCards: Record<number, string>): FakeGh {
   const calls: string[][] = []
   const armed = new Set<number>()
+  const handed: [number, string][] = []
+  const bus = (pr: number, head: string): BusMerge => {
+    handed.push([pr, head])
+    armed.add(pr)
+    return { kind: 'merged', commit: 'c0ffee', rule: 'auto' }
+  }
   const gh = (args: string[]): string => {
     calls.push(args)
     const head = args[1] === 'list' ? /(\d+)$/.exec(args[args.indexOf('--head') + 1] ?? '')?.[1] : undefined
@@ -135,7 +163,7 @@ export function fakeGh(prCards: Record<number, string>): FakeGh {
     const merged = armed.has(number)
     return JSON.stringify({ state: merged ? 'MERGED' : 'OPEN', mergedAt: merged ? '2026-10-06T00:30:00Z' : null, mergedBy: merged ? { login: 'E1i' } : null, mergeCommit: merged ? { oid: 'c0ffee' } : null, body: `${prCards[number]}\n\nbody` })
   }
-  return { gh, calls }
+  return { gh, calls, bus, handed }
 }
 
 export function captured(): Captured {

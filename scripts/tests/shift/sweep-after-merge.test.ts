@@ -6,7 +6,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runShift } from '../../shift/shift.js'
 import { runSweep } from '../../worktrees/sweep.js'
-import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
+import { busMergesWhatIsHanded, captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
 
 const OWNER = 'implement/runner/S/cheap/owner'
 
@@ -30,14 +30,15 @@ describe('a shift sweeps the tree of its own card once it records that card\'s m
       { id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' },
       { id: 2, kind: OWNER, body: 'do 2 STUB-VERIFIED-run STUB-PR-102' },
     ])
-    const { gh } = fakeGh({ 101: cardLine(1), 102: cardLine(2, OWNER) })
+    const fake = fakeGh({ 101: cardLine(1), 102: cardLine(2, OWNER) })
+    const { gh } = fake
     const io = captured()
     const swept: string[] = []
     const sweep = (card: string): ReturnType<typeof runSweep> => {
       swept.push(card)
       return runSweep(['--apply', '--card', card], sweepDeps(world, gh))
     }
-    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, io, { sweep }))
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, io, { sweep, ...busMergesWhatIsHanded(fake, io) }))
     expect(eventsOf(world, 'merge').map(line => line.task)).toEqual(['1'])
     expect(swept).toEqual(['1'])
     expect(existsSync(path.join(world.root, 'mc-1'))).toBe(false)
@@ -48,10 +49,13 @@ describe('a shift sweeps the tree of its own card once it records that card\'s m
 
   it('sweeps no tree a card of another shift holds, though its merge is recorded here', async () => {
     const world = newWorld([{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }])
-    const { gh } = fakeGh({ 101: cardLine(1) })
+    const fake = fakeGh({ 101: cardLine(1) })
+    const { gh } = fake
     const swept: string[] = []
     const other = path.join(world.root, 'other-shift')
-    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, captured(), {
+    const io = captured()
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, io, {
+      ...busMergesWhatIsHanded(fake, io),
       sweep: (card) => {
         swept.push(card)
         return { stdout: [], stderr: [], exitCode: 0 }
