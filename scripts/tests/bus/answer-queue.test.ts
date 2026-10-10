@@ -309,6 +309,20 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('a changes verdict outranks a red CI on the same head', () => {
+    const bench = answerBench()
+    bench.started(1104)
+    bench.gitHub.open({ number: 1004, review: 'failure', required: 'failure', failed: ['lint'] })
+    bench.reviewed(1004, ['the lease is not renewed while the session runs'])
+    bench.tick()
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer'`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(queued).toEqual([answer(1104, 1004, sha('a'))])
+    expect(answerSourceOf(bench.db, bench.leaseAnswer()!)).toMatchObject({ kind: 'changes', findings: ['the lease is not renewed while the session runs'] })
+    bench.close()
+  })
+
   it('a pending CI queues no answer', () => {
     const bench = answerBench()
     bench.started(1102)
