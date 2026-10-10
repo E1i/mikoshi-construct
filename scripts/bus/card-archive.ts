@@ -9,7 +9,7 @@ export function archivedCardFile(parking: string, cardId: number): string {
   return path.join(parking, ARCHIVE_DIR, `${cardId}.md`)
 }
 
-function parkedCardFile(parking: string, cardId: number): string | undefined {
+export function parkedCardFile(parking: string, cardId: number): string | undefined {
   if (!existsSync(parking))
     return undefined
   const lanes = readdirSync(parking, { withFileTypes: true })
