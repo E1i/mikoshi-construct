@@ -7,7 +7,6 @@ import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
-import { claudeArgv } from '../shift/claude.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { messageOf } from './executor.js'
 import { technical } from './launch-executor.js'
@@ -36,6 +35,7 @@ export interface StarterPlaces {
   launchDir: string
   header: string
   claude: string
+  treePr: string
   env: NodeJS.ProcessEnv
 }
 
@@ -43,6 +43,18 @@ export const CARD_PERMISSION_MODE = 'dontAsk'
 
 export function cardCommand(claude: string): string {
   return `${claude} --permission-mode ${CARD_PERMISSION_MODE}`
+}
+
+export function shellWord(text: string): string {
+  return `'${text.replaceAll('\'', `'\\''`)}'`
+}
+
+export function treePrCommand(repo: string): string {
+  return `pnpm --dir ${shellWord(repo)} --silent exec tsx scripts/shift/tree-pr-cli.ts`
+}
+
+export function launchArgv(session: { command: string, treePr: string, cardFile: string, worktree: string, id: string }): string[] {
+  return ['-c', `env ${session.command} "$@" && ${session.treePr} ${shellWord(session.cardFile)} ${shellWord(session.worktree)}`, 'shift', '-p', '--session-id', session.id]
 }
 
 export class ShiftCardStarter implements CardStarter {
@@ -65,7 +77,7 @@ export class ShiftCardStarter implements CardStarter {
       const report = path.join(this.places.launchDir, `report-${card.cardId}.md`)
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: claudeArgv(cardCommand(this.places.claude), session),
+        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, id: session }),
         cwd: worktree,
         env: sessionEnv(this.places.env, card.cardId),
         input: renderPrompt(this.places.header, task, { worktree, report }),

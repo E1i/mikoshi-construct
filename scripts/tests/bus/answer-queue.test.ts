@@ -37,6 +37,7 @@ interface Tools {
   available: boolean
   heads: (string | null)[]
   during: () => void
+  published: { branch: string, commitMessage: string }[]
 }
 
 function answerBench() {
@@ -44,7 +45,7 @@ function answerBench() {
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-trees-'))
   const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
   const answers = path.join(trees, 'answers')
-  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {} }
+  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [] }
   const answerer = claudeAnswerer(answers, {
     available: () => tools.available,
     remoteHead: () => tools.heads.shift() ?? null,
@@ -54,6 +55,9 @@ function answerBench() {
       return 0
     },
     newSession: () => 'new-session-1',
+    publish: (card, commitMessage) => {
+      tools.published.push({ branch: card.branch, commitMessage })
+    },
   })
   const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now })
   const ts = (): string => bench.clock.now().toISOString()
@@ -129,6 +133,20 @@ describe('the answer queue', () => {
     expect(run!.argv).not.toContain('--session-id')
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'changes', from: sha('a'), to: PUSHED }])
     expect(taskState(bench.db, answer(1093, 993, sha('a'))).state).toBe('completed')
+    bench.close()
+  })
+
+  it('an answer session asks for no commit or push, and the bus commits and pushes its tree after it ends', async () => {
+    const bench = answerBench()
+    bench.started(1098)
+    bench.gitHub.open({ number: 998, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', head: PUSHED })
+    const prompt = bench.tools.runs[0]!.argv.at(-1)!
+    expect(prompt).toContain('Do not commit and do not push')
+    expect(prompt).not.toContain('commit and push to')
+    expect(bench.tools.published).toEqual([{ branch: 'feat/card-1098', commitMessage: 'answer for #1098 on PR #998\n\nCommitted by the bus from the card\'s worktree after its answer session ended.' }])
     bench.close()
   })
 
@@ -366,6 +384,7 @@ describe('the answer executor', () => {
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain(ownerQuestion)
     expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([{ reason: 'question.owner', detail: reason }])
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([])
+    expect(bench.tools.published).toEqual([])
     const inbox = ownerInbox(bench.db)
     expect(inbox.map(line => line.card_id)).toEqual([1097])
     expect(inboxText(inbox[0]!)).toContain(reason)

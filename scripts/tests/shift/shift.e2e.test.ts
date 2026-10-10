@@ -870,7 +870,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(stopsOf(world).filter(stop => stop.at === 'question')).toEqual([])
   })
 
-  it('a launched card reaches an open PR with no hand commit', async () => {
+  it('a shift-run card reaches an open PR with no hand commit', async () => {
     const world = newWorld()
     ownerMergesOnMain(world)
     decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')

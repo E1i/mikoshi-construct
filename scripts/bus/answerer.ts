@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ghosts/session.js'
+import { commitAndPush } from '../shift/tree-pr.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
@@ -43,6 +44,15 @@ export interface AnswererTools {
   remoteHead: (card: CardSession) => string | null
   spawn: (run: AnswerRun) => Promise<number>
   newSession: () => string
+  publish: (card: CardSession, commitMessage: string) => void
+}
+
+export function answerCommitMessage(lease: Lease): string {
+  return `answer for #${lease.cardId}${lease.pr === null ? '' : ` on PR #${lease.pr}`}\n\nCommitted by the bus from the card's worktree after its answer session ended.`
+}
+
+function publishTree(card: CardSession, commitMessage: string): void {
+  commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
 }
 
 export function resumeArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
@@ -84,7 +94,7 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string): str
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
     ...source.events.map(event => JSON.stringify(event)),
-    `Run pnpm run quality, commit and push to ${card.branch}. If the card cannot go on without the owner, push nothing and write the question for the owner, one line, to ${ownerQuestion}.`,
+    `Run pnpm run quality and end the session when the tree is green. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
 }
 
@@ -133,6 +143,7 @@ export const REAL_TOOLS: AnswererTools = {
   remoteHead,
   spawn: spawnClaude,
   newSession: randomUUID,
+  publish: publishTree,
 }
 
 export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): Answerer {
@@ -156,6 +167,9 @@ export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): 
     })
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
-    return { session, resumed, before, after: tools.remoteHead(card), owner: ownerQuestionIn(ownerQuestion) }
+    const owner = ownerQuestionIn(ownerQuestion)
+    if (owner === null)
+      tools.publish(card, answerCommitMessage(request.lease))
+    return { session, resumed, before, after: tools.remoteHead(card), owner }
   }
 }

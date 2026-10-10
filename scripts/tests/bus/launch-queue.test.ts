@@ -138,7 +138,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     uuid: () => `session-${cardId}`,
     ...overrides,
   }
-  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env, claude: shiftClaude ?? 'claude', ...places }, ports)
+  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env, claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
 }
 
 describe('the launch queue', () => {
