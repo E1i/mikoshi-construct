@@ -36,7 +36,7 @@ turns every generated project red on the first `pnpm run quality`.
 ## Module map
 
 <!-- construct:discover:module-map -->
-The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map for the part of the tree it
+The table in [§ Layout](#layout) is the module map for the part of the tree it
 covers (`src/cli.ts`, `src/program.ts`, `src/detect`, `src/presets`, `src/materialize`, `src/manifest.ts`,
 `src/failure.ts`, `src/commands/doctor`, `src/ui`, `templates/*`, `tests`). It has not kept pace with
 the tree; these top-level modules exist and are not in it.
@@ -102,8 +102,9 @@ here. Before proposing an architecture, answer the questions and name the catego
 
 - *Composition roots.*
   <!-- construct:discover:composition-roots -->
-  `src/program.ts` wires the six citty commands — `init`, `sync`, `doctor`, `graph`, `cost`, `soulkill`
-  (aliases `inspect`, `capture`) — to `src/commands/*`, creates the `Ui` (theme, lore, writer) and the
+  `src/program.ts` wires the twelve commands and their aliases — `init`, `attach`/`jack-in`,
+  `detach`/`jack-out`, `soulkill`/`inspect`/`capture`, `doctor`, `sync`, `cost`, `board`, `graph`,
+  `atlas`, `intake`, `mutate` — to `src/commands/*` and `src/atlas`, creates the `Ui` (theme, lore, writer) and the
   clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
   picks `stderrWriter` over `stdoutWriter` so a `--json` run keeps stdout machine-readable.
 
@@ -134,16 +135,16 @@ here. Before proposing an architecture, answer the questions and name the catego
 - *Dependency policy.*
   <!-- construct:discover:dependency-policy -->
   Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
-  the declaration rather than a description of one: `detect` imports no other module (facts only);
-  `presets` imports `detect`; `record-ahead` imports nothing, and only the two readers of a versioned
-  record and the failure reader may import it; `model` imports `detect`, `presets` and `record-ahead`; `atlas` imports `detect`, `model` and `ui`;
-  `materialize` and `ui` import `presets`; `manifest` imports `detect`, `materialize`, `presets` and
-  `record-ahead`; `sync` imports `manifest`, `materialize` and `presets`; `failure` imports
-  `record-ahead` and `ui`; `commands` import everything but `cli`, `program` and `record-ahead`; `program` composes `atlas`, `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
-  `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
+  the declaration: `detect` (facts only), `card`, `known-flags` and `record-ahead` import no other
+  module, and only the two readers of a versioned record and `failure` import `record-ahead`;
+  `presets` imports `detect`; `model` `detect`, `presets`, `record-ahead`; `atlas` `detect`, `model`,
+  `ui`; `materialize` and `ui` `presets`; `manifest` `detect`, `materialize`, `presets`,
+  `record-ahead`; `sync` `manifest`, `materialize`, `presets`; `failure` `record-ahead`, `ui`;
+  `commands` `card`, `detect`, `manifest`, `materialize`, `model`, `presets`, `sync`, `ui`, `version`;
+  `program` `atlas`, `commands`, `detect`, `failure`, `known-flags`, `presets`, `ui`, `version`; `cli`
+  only `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
   and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
-  inspected repository goes through one reader that reports a path it could not read instead of dropping
-  it from the set it inspected. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
+  inspected repository goes through one reader that reports a path it could not read. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
   forbids `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
   spawns only `pnpm --version` and two `git` reads and runs only the code it ships; it also forbids reading `manifest.files`
   directly, because that branch is the frozen `init` record and `recordedShas()` is what overlays the
