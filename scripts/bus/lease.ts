@@ -24,6 +24,8 @@ export const STOPPED = 'stopped'
 
 const NEXT_STATES = new Set([QUEUED, WITHDRAWN, STOPPED])
 
+const REQUEUED_TO_THE_BACK: Queue = 'review'
+
 export class StaleLease extends Error {}
 
 export interface Lease {
@@ -59,7 +61,7 @@ interface LeaseRow {
 const NEXT_LEASABLE = `
   SELECT tasks.* FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
-  ORDER BY tasks.id LIMIT 1
+  ORDER BY CASE WHEN tasks.queue = '${REQUEUED_TO_THE_BACK}' THEN tasks.event_id ELSE tasks.id END LIMIT 1
 `
 
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`
