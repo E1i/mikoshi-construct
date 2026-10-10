@@ -92,6 +92,16 @@ describe('construct atlas: relations through files', () => {
     ])
   })
 
+  it('a write through a default fs import joins the channel as a namespace import does', () => {
+    const mechanics = discoverMechanics(repository({
+      'src/a.ts': 'import fs from \'node:fs\'\n\nfs.writeFileSync(\'state.json\', \'{}\')\n',
+      'src/b.ts': 'import * as fs from \'node:fs\'\n\nexport const text = fs.readFileSync(\'state.json\', \'utf8\')\n',
+    }))
+    expect(channelMap(mechanics.relations)).toEqual([
+      { file: 'state.json', writer: 'src/a.ts', writerAt: 'src/a.ts:3', reader: 'src/b.ts', readerAt: 'src/b.ts:3' },
+    ])
+  })
+
   it('the code arrows do not count a file channel', () => {
     const mechanics = discoverMechanics(repository(JOURNAL))
     expect(componentMap(mechanics, [], 'journal').relations).toEqual([])

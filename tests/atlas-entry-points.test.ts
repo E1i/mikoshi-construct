@@ -103,6 +103,44 @@ describe('construct atlas: entry points come from the repository\'s own configs'
     expect(runBy('scripts/lib.ts')).toEqual([])
   })
 
+  it('only a `- ` item of a job\'s steps list is a step: a matrix include is not, and a list nested in a step keeps the step\'s run', () => {
+    const mechanics = discoverMechanics(repository({
+      '.github/workflows/matrix.yml': [
+        'name: matrix',
+        'on: push',
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-latest',
+        '    strategy:',
+        '      matrix:',
+        '        include:',
+        '          - os: ubuntu-latest',
+        '          - os: macos-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - name: Check',
+        '        run: node scripts/check.mjs',
+        '      - run: tsx scripts/board.ts',
+        '  nested:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: Lists first',
+        '        with:',
+        '          list:',
+        '            - a: b',
+        '        run: node scripts/check.mjs',
+        '',
+      ].join('\n'),
+      'scripts/board.ts': 'export const board = 1\n',
+      'scripts/check.mjs': 'console.log(1)\n',
+    }))
+    expect(entryMap(mechanics.relations).entries.map(entry => [entry.name, entry.at, entry.runs])).toEqual([
+      ['build › Check', '.github/workflows/matrix.yml:14', ['scripts/check.mjs']],
+      ['build › step 3', '.github/workflows/matrix.yml:15', ['scripts/board.ts']],
+      ['nested › Lists first', '.github/workflows/matrix.yml:23', ['scripts/check.mjs']],
+    ])
+  })
+
   it('a workflow without a jobs block, a settings file without hooks and a manifest without scripts declare no entry', () => {
     const mechanics = discoverMechanics(repository({
       'package.json': '{ "name": "bare" }\n',

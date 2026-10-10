@@ -46,6 +46,16 @@ export function workflowSteps(_file: string, text: string): EntryCommand[] {
   let jobIndent = -1
   let job: string | null = null
   let step: Step | null = null
+  let jobKeyIndent = -1
+  let stepsIndent = -1
+  let itemIndent = -1
+  const enterJob = (name: string | null): void => {
+    job = name
+    step = null
+    jobKeyIndent = -1
+    stepsIndent = -1
+    itemIndent = -1
+  }
   lines.forEach((line, index) => {
     const match = KEY.exec(line)
     if (match == null)
@@ -55,22 +65,35 @@ export function workflowSteps(_file: string, text: string): EntryCommand[] {
     const indent = spaces.length
     if (indent === 0 && dash === undefined) {
       inJobs = key === 'jobs'
-      job = null
-      step = null
       jobIndent = -1
+      enterJob(null)
       return
     }
     if (!inJobs)
       return
     if (dash === undefined && (jobIndent === -1 || indent === jobIndent) && value === '') {
       jobIndent = indent
-      job = key
-      step = null
+      enterJob(key)
       return
     }
     if (job == null)
       return
-    if (dash !== undefined) {
+    if (jobKeyIndent === -1)
+      jobKeyIndent = indent
+    if (dash === undefined && indent <= stepsIndent) {
+      stepsIndent = -1
+      itemIndent = -1
+      step = null
+    }
+    if (dash === undefined && indent === jobKeyIndent && key === 'steps' && value === '') {
+      stepsIndent = indent
+      return
+    }
+    if (stepsIndent === -1)
+      return
+    if (dash !== undefined && itemIndent === -1 && indent >= stepsIndent)
+      itemIndent = indent
+    if (dash !== undefined && indent === itemIndent) {
       step = { job, index: steps.filter(entry => entry.job === job).length + 1, name: null, indent: indent + dash.length, runs: [] }
       steps.push(step)
     }
