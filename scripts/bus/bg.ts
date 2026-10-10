@@ -1,9 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 
 export const PREFIX = '[bus:bg] '
 export const SHADOW_LOG = 'shadow.log'
@@ -16,6 +14,7 @@ export interface BgResult {
   stdout: string[]
   stderr: string[]
   exitCode: number
+  alreadyRunning?: RunningProcess
 }
 
 export interface RunningProcess {
@@ -74,7 +73,7 @@ function recordedPid(file: string): number | null {
   return Number.isInteger(pid) && pid > 0 ? pid : null
 }
 
-function alive(pid: number): boolean {
+export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
@@ -114,7 +113,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   try {
     const running = runningInstance(processes(), launch.markers)
     if (running !== undefined)
-      return { stdout: [], stderr: [`${prefix}${script} is already running as pid ${running.pid} (${running.args}); nothing started`], exitCode: 1 }
+      return { stdout: [], stderr: [`${prefix}${script} is already running as pid ${running.pid} (${running.args}); nothing started`], exitCode: 1, alreadyRunning: running }
     const problems = launch.preflight?.() ?? []
     if (problems.length > 0)
       return { stdout: [], stderr: [`${prefix}refused to start ${script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
@@ -138,8 +137,23 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   }
 }
 
-export function runBusBg(busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
-  return startDetached(BUS_RUN_LAUNCH, busDir, env, processes)
+export function launchName(launch: DetachedLaunch): string {
+  return [launch.script, ...launch.args].join(' ')
+}
+
+export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
+  const result: BgResult = { stdout: [], stderr: [], exitCode: 0 }
+  for (const launch of launches) {
+    const started = startDetached(launch, busDir, env, processes)
+    if (started.alreadyRunning !== undefined) {
+      result.stdout.push(`${PREFIX}${launchName(launch)} is already running as pid ${started.alreadyRunning.pid}; left alone`)
+      continue
+    }
+    result.stdout.push(...started.stdout)
+    result.stderr.push(...started.stderr)
+    result.exitCode = Math.max(result.exitCode, started.exitCode)
+  }
+  return result
 }
 
 export function printBg(result: BgResult): void {
@@ -149,6 +163,3 @@ export function printBg(result: BgResult): void {
     console.error(line)
   process.exitCode = result.exitCode
 }
-
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  printBg(runBusBg(path.join(os.homedir(), '.construct', 'bus')))
