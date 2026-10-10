@@ -394,6 +394,7 @@ describe('review worker', () => {
     expect(events(db, 'policy.denied')).toHaveLength(3)
     expect(events(db, 'card.stopped')).toEqual([{ reason: 'fault', detail: `3 failures in a row on ${review(953)}, the last: ci_red` }])
     expect(events(db, 'board.alarm')).toMatchObject([{ task_key: review(953), reason: 'fault', failures: 3 }])
+    tick()
     expectReplayIdentical(db)
     db.close()
   })
