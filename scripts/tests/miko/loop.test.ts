@@ -1,23 +1,26 @@
+import type { Status } from '../../shift/relaunch.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONTINUE_PROMPT, mikoshiHandoff, runMikoLoop } from '../../miko/loop.js'
+import { CONTINUE_PROMPT, isDoubleCtrlC, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
+const KEY_PRESS_GAP_MS = 300
 const STUB_CLAUDE = `#!/bin/sh
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$STUB_DIR/count"
 printf '%s|%s\\n' "$#" "$*" >> "$STUB_DIR/calls"
+ps -o pgid= -p $$ | tr -d ' ' >> "$STUB_DIR/groups"
 set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
-  write) echo handoff > "$HOME/.construct/handoff/mikoshi.md"; exit "$2" ;;
+  continue|owner|stop) echo "STATUS: $(echo "$1" | tr a-z A-Z)" > "$HOME/.construct/handoff/mikoshi.md"; exit "$2" ;;
   quiet) exit "$2" ;;
-  hang) echo handoff > "$HOME/.construct/handoff/mikoshi.md"; touch "$STUB_DIR/ready"; sleep 30 ;;
+  hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; touch "$STUB_DIR/ready"; sleep 30 ;;
 esac
 exit 0
 `
@@ -38,8 +41,8 @@ function home(plan: string[]): string {
   return dir
 }
 
-function calls(dir: string): string[] {
-  return existsSync(path.join(dir, 'calls')) ? readFileSync(path.join(dir, 'calls'), 'utf8').split('\n').filter(Boolean) : []
+function lines(dir: string, name: string): string[] {
+  return existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name), 'utf8').split('\n').filter(Boolean) : []
 }
 
 function startLoop(dir: string): { done: Promise<{ code: number | null, stderr: string }>, pid: number } {
@@ -62,71 +65,124 @@ async function until(condition: () => boolean): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 50))
 }
 
-describe('pnpm miko restarts Miko in place when it wrote mikoshi.md', () => {
-  it('starts the first session without a prompt when mikoshi.md is absent, the next with the continue prompt after a write, whatever the exit code, and stops on an exit without a write', async () => {
-    const dir = home(['write 0', 'write 3', 'quiet 0'])
-    const { code } = await startLoop(dir).done
+describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STATUS: CONTINUE', () => {
+  it('a session that exits with STATUS: CONTINUE starts the next session in the same terminal after a pause', async () => {
+    const dir = home(['continue 3', 'owner 0'])
+    const started = Date.now()
+    const loop = startLoop(dir)
+    const { code, stderr } = await loop.done
     expect(code).toBe(0)
-    expect(calls(dir)).toEqual(['0|', `1|${CONTINUE_PROMPT}`, `1|${CONTINUE_PROMPT}`])
-  })
+    expect(Date.now() - started).toBeGreaterThanOrEqual(PAUSE_MS)
+    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
+    expect(lines(dir, 'groups')).toEqual([String(loop.pid), String(loop.pid)])
+    expect(stderr).toContain('STATUS: CONTINUE: next session')
+  }, 20_000)
 
-  it('starts the first session with the continue prompt when mikoshi.md is present, and stops after it when it exited without writing mikoshi.md and with a failing exit code', async () => {
-    const dir = home(['quiet 1', 'write 0'])
-    writeFileSync(mikoshiHandoff(dir), 'old handoff')
+  it.each(['owner', 'stop'])('a session that exits with STATUS: OWNER or STOP ends the loop, here %s', async (status) => {
+    const dir = home([`${status} 0`, 'continue 0'])
+    writeFileSync(mikoshiHandoff(dir), 'STATUS: CONTINUE\n')
     const { code, stderr } = await startLoop(dir).done
     expect(code).toBe(0)
-    expect(calls(dir)).toEqual([`1|${CONTINUE_PROMPT}`])
-    expect(stderr).toContain('without writing mikoshi.md')
-  })
+    expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
+    expect(stderr).toContain(`STATUS: ${status.toUpperCase()}: no next session`)
+  }, 20_000)
 
-  it('stops on Ctrl+C and starts nothing, even though the interrupted session wrote mikoshi.md, when mikoshi.md was absent at the start', async () => {
-    const dir = home(['hang', 'write 0'])
+  it('a double Ctrl-C ends the loop, though the interrupted session left STATUS: CONTINUE', async () => {
+    const dir = home(['hang', 'owner 0'])
     const loop = startLoop(dir)
     await until(() => existsSync(path.join(dir, 'ready')))
     process.kill(-loop.pid, 'SIGINT')
+    await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
+    process.kill(-loop.pid, 'SIGINT')
     const { stderr } = await loop.done
-    expect(calls(dir)).toEqual(['0|'])
-    expect(stderr).toContain('Ctrl+C')
+    expect(lines(dir, 'calls')).toEqual(['0|'])
+    expect(stderr).toContain('double Ctrl+C')
+  }, 20_000)
+
+  it('a single Ctrl-C ends only the session, and STATUS: CONTINUE starts the next one', async () => {
+    const dir = home(['hang', 'owner 0'])
+    const loop = startLoop(dir)
+    await until(() => existsSync(path.join(dir, 'ready')))
+    process.kill(-loop.pid, 'SIGINT')
+    const { code } = await loop.done
+    expect(code).toBe(0)
+    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
+  }, 20_000)
+})
+
+interface Script {
+  statuses: (Status | null | undefined)[]
+  doubles?: boolean[]
+}
+
+async function drive({ statuses, doubles = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
+  const prompts: (string | undefined)[] = []
+  const pauses: number[] = []
+  const lines: string[] = []
+  const code = await runMikoLoop({
+    status: () => statuses.shift(),
+    session: async (prompt) => {
+      prompts.push(prompt)
+      return { code: 0, signal: null }
+    },
+    pause: async (ms) => {
+      pauses.push(ms)
+    },
+    doubleCtrlC: () => doubles.shift() ?? false,
+    err: line => lines.push(line),
+  })
+  return { code, prompts, pauses, lines }
+}
+
+describe('runMikoLoop decides from STATUS in mikoshi.md and the Ctrl+C presses', () => {
+  it.each([
+    { name: 'absent', statuses: [undefined, 'CONTINUE', 'CONTINUE', 'OWNER'] as const, prompts: [undefined, CONTINUE_PROMPT, CONTINUE_PROMPT] },
+    { name: 'present', statuses: ['OWNER', 'CONTINUE', 'DONE'] as const, prompts: [CONTINUE_PROMPT, CONTINUE_PROMPT] },
+  ])('with mikoshi.md $name at the start, pauses and restarts on each CONTINUE and stops on the first other STATUS', async ({ statuses, prompts }) => {
+    const run = await drive({ statuses: [...statuses] })
+    expect(run.code).toBe(0)
+    expect(run.prompts).toEqual(prompts)
+    expect(run.pauses).toEqual(Array.from({ length: prompts.length - 1 }).fill(PAUSE_MS))
+  })
+
+  it('stops when mikoshi.md carries no STATUS line', async () => {
+    const run = await drive({ statuses: [undefined, null] })
+    expect(run.prompts).toEqual([undefined])
+    expect(run.lines.join('\n')).toContain('STATUS: none')
+  })
+
+  it.each([
+    { name: 'during the session', doubles: [true], pauses: [] },
+    { name: 'during the pause', doubles: [false, true], pauses: [PAUSE_MS] },
+  ])('stops on a double Ctrl+C $name, though STATUS says CONTINUE', async ({ doubles, pauses }) => {
+    const run = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], doubles: [...doubles] })
+    expect(run.code).toBe(0)
+    expect(run.prompts).toEqual([undefined])
+    expect(run.pauses).toEqual(pauses)
+    expect(run.lines.join('\n')).toContain('double Ctrl+C')
+  })
+
+  it('stops with exit code 1 when the session could not start, so a missing claude does not spin', async () => {
+    const statuses: (Status | undefined)[] = ['CONTINUE', 'CONTINUE']
+    const code = await runMikoLoop({
+      status: () => statuses.shift(),
+      session: async () => ({ code: null, signal: null }),
+      pause: async () => {},
+      doubleCtrlC: () => false,
+      err: () => {},
+    })
+    expect(code).toBe(1)
   })
 })
 
-describe('runMikoLoop decides from the mtime of mikoshi.md alone', () => {
+describe('isDoubleCtrlC', () => {
   it.each([
-    { name: 'absent', mtimes: [undefined, 1, 2, 2], prompts: [undefined, CONTINUE_PROMPT, CONTINUE_PROMPT] },
-    { name: 'present', mtimes: [1, 2, 3, 3], prompts: [CONTINUE_PROMPT, CONTINUE_PROMPT, CONTINUE_PROMPT] },
-  ])('with mikoshi.md $name at the start, restarts while each session changed the mtime, and stops on the first that did not', async ({ mtimes, prompts: expected }) => {
-    const prompts: (string | undefined)[] = []
-    const code = await runMikoLoop({
-      handoffMtime: () => mtimes.shift(),
-      session: async (prompt) => {
-        prompts.push(prompt)
-        return { code: 0, signal: null }
-      },
-      interrupted: () => false,
-      err: () => {},
-    })
-    expect(code).toBe(0)
-    expect(prompts).toEqual(expected)
-  })
-
-  it.each([
-    { name: 'signal SIGINT', end: { code: null, signal: 'SIGINT' as const } },
-    { name: 'exit code 130', end: { code: 130, signal: null } },
-  ])('stops on a session that ended by $name before the SIGINT handler set the flag, though mikoshi.md, present at the start, changed', async ({ end }) => {
-    const mtimes = [1, 2]
-    const prompts: (string | undefined)[] = []
-    const lines: string[] = []
-    const code = await runMikoLoop({
-      handoffMtime: () => mtimes.shift(),
-      session: async (prompt) => {
-        prompts.push(prompt)
-        return end
-      },
-      interrupted: () => false,
-      err: line => lines.push(line),
-    })
-    expect(code).toBe(0)
-    expect(prompts).toEqual([CONTINUE_PROMPT])
-    expect(lines.join('\n')).toContain('Ctrl+C')
+    { presses: [], double: false },
+    { presses: [1000], double: false },
+    { presses: [1000, 1000 + 2000], double: true },
+    { presses: [1000, 1000 + 2001], double: false },
+    { presses: [0, 10_000, 10_500], double: true },
+  ])('reads $presses as double: $double', ({ presses, double }) => {
+    expect(isDoubleCtrlC(presses)).toBe(double)
   })
 })

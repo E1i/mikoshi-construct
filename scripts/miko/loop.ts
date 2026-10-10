@@ -1,16 +1,19 @@
+import type { Status } from '../shift/relaunch.js'
 import { spawn } from 'node:child_process'
-import { realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { statusOf } from '../shift/relaunch.js'
 
 export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const CONTINUE_PROMPT = 'прочитай mikoshi.md'
-
-const SIGINT_EXIT_CODE = 130
+export const PAUSE_MS = 3000
+export const DOUBLE_CTRL_C_MS = 2000
 
 export interface SessionEnd {
   code: number | null
@@ -18,9 +21,10 @@ export interface SessionEnd {
 }
 
 export interface MikoLoopDeps {
-  handoffMtime: () => number | undefined
+  status: () => Status | null | undefined
   session: (prompt: string | undefined) => Promise<SessionEnd>
-  interrupted: () => boolean
+  pause: (ms: number) => Promise<void>
+  doubleCtrlC: () => boolean
   err: (line: string) => void
 }
 
@@ -32,37 +36,43 @@ export function claudeArgv(command: string, prompt: string | undefined): string[
   return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
-export function endedByCtrlC(end: SessionEnd): boolean {
-  return end.signal === 'SIGINT' || end.code === SIGINT_EXIT_CODE
+export function isDoubleCtrlC(presses: number[], windowMs = DOUBLE_CTRL_C_MS): boolean {
+  return presses.some((at, index) => index > 0 && at - presses[index - 1]! <= windowMs)
+}
+
+function didNotStart(end: SessionEnd): boolean {
+  return end.code === null && end.signal === null
 }
 
 export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
-  let before = deps.handoffMtime()
-  let prompt = before === undefined ? undefined : CONTINUE_PROMPT
+  let prompt = deps.status() === undefined ? undefined : CONTINUE_PROMPT
   for (;;) {
     const end = await deps.session(prompt)
-    if (endedByCtrlC(end) || deps.interrupted()) {
-      deps.err(`${PREFIX}Ctrl+C: no next session`)
+    if (deps.doubleCtrlC()) {
+      deps.err(`${PREFIX}double Ctrl+C: no next session`)
       return 0
     }
-    const after = deps.handoffMtime()
-    if (after === undefined || after === before) {
-      deps.err(`${PREFIX}the session ended without writing mikoshi.md: no next session`)
+    if (didNotStart(end)) {
+      deps.err(`${PREFIX}the session did not start: no next session`)
+      return 1
+    }
+    const status = deps.status()
+    if (status !== 'CONTINUE') {
+      deps.err(`${PREFIX}mikoshi.md says STATUS: ${status ?? 'none'}: no next session`)
       return 0
     }
-    deps.err(`${PREFIX}mikoshi.md written: next session`)
-    before = after
+    deps.err(`${PREFIX}STATUS: CONTINUE: next session in ${PAUSE_MS / 1000}s, double Ctrl+C stops the loop`)
+    await deps.pause(PAUSE_MS)
+    if (deps.doubleCtrlC()) {
+      deps.err(`${PREFIX}double Ctrl+C: no next session`)
+      return 0
+    }
     prompt = CONTINUE_PROMPT
   }
 }
 
-function mtimeOf(file: string): number | undefined {
-  try {
-    return statSync(file).mtimeMs
-  }
-  catch {
-    return undefined
-  }
+function statusOfFile(file: string): Status | null | undefined {
+  return existsSync(file) ? statusOf(readFileSync(file, 'utf8')) : undefined
 }
 
 function runSession(command: string, prompt: string | undefined): Promise<SessionEnd> {
@@ -74,16 +84,17 @@ function runSession(command: string, prompt: string | undefined): Promise<Sessio
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  let interrupted = false
+  const presses: number[] = []
   process.on('SIGINT', () => {
-    interrupted = true
+    presses.push(Date.now())
   })
   const handoff = mikoshiHandoff(os.homedir())
   const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
   process.exitCode = await runMikoLoop({
-    handoffMtime: () => mtimeOf(handoff),
+    status: () => statusOfFile(handoff),
     session: prompt => runSession(command, prompt),
-    interrupted: () => interrupted,
+    pause: async ms => sleep(ms),
+    doubleCtrlC: () => isDoubleCtrlC(presses),
     err: line => console.error(line),
   })
 }
