@@ -5,6 +5,7 @@ import type { AfterFailure, Lease } from './lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts } from './policy.js'
 import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
+import { inForceDecisions } from './decisions.js'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
@@ -157,6 +158,7 @@ export class MergeExecutor {
           files: changedFiles(meter, lease.pr!),
           ownerMergesText: ownerMergesText(meter),
           shardActive: shardActive(this.parts.db, this.parts.run),
+          decisions: inForceDecisions(this.parts.db),
         },
       }
     }

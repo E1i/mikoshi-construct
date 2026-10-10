@@ -1,11 +1,12 @@
 import type { BusEvent } from '../../bus/db.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { decisionsIntake } from '../../bus/decisions-import.js'
 import { recordDecision } from '../../bus/decisions.js'
-import { reduce, REJECTED } from '../../bus/reducer.js'
+import { projectionDump, reduce, REJECTED } from '../../bus/reducer.js'
 import { runDecisionsAdd } from '../../decisions/add.js'
 
 const FILE = '/d/owner-decisions.md'
@@ -13,6 +14,17 @@ const ARCHIVE = '/d/owner-decisions.archive.md'
 const NOW = new Date('2026-10-10T08:30:00Z')
 const TS = '2026-10-10T08:00:00.000Z'
 const BEFORE = '# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n'
+const OWNER_FILE = [
+  '# Owner decisions',
+  '',
+  'Append-only.',
+  '',
+  '- D-1 · 2026-10-08 — one. · superseded-by D-2',
+  '- D-2 · 2026-10-08 — #807 stays owner-merged. · card #807 · decisions:add',
+  'a line out of format',
+  '- D-77 · 2026-10-10 ~13:35Z — Owner-PR мержится шиной по pass ревью воркера и зелёному CI.',
+  '',
+].join('\n')
 const roots: string[] = []
 let sequence = 0
 
@@ -112,6 +124,59 @@ describe('owner decisions on the bus', () => {
     expect(closed.code).toBe(1)
     expect(closed.files).toEqual(archived)
     expect(closed.err[0]).toMatch(/^\[decisions\] D-3 not recorded in the bus: .+; \/d\/owner-decisions\.md restored as it was$/)
+  })
+
+  it('the decisions table equals owner-decisions.md and a replay gives the same', () => {
+    const db = newBus()
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
+    roots.push(path.dirname(file))
+    writeFileSync(file, OWNER_FILE)
+    decisionsIntake(db, file, () => NOW)()
+    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(rows(db, 'SELECT decision_id, text, scope, source FROM decisions ORDER BY decision_id')).toEqual([
+      { decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner-decisions.md' },
+      { decision_id: 77, text: 'Owner-PR мержится шиной по pass ревью воркера и зелёному CI.', scope: '[]', source: 'owner-decisions.md' },
+    ])
+    const projection = projectionDump(db)
+    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(projectionDump(db)).toBe(projection)
+  })
+
+  it('a change of owner-decisions.md is imported without writing the file', () => {
+    const db = newBus()
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
+    roots.push(path.dirname(file))
+    writeFileSync(file, OWNER_FILE)
+    const intake = decisionsIntake(db, file, () => NOW)
+    intake()
+    intake()
+    appendEvent(db, stopped(809, 'question.owner'))
+    expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 1 }])
+    reduce(db)
+    const before = statSync(file).mtimeMs
+
+    const changed = OWNER_FILE.replace('· decisions:add', '· decisions:add · superseded-by D-78').concat('- D-78 · 2026-10-10 — #809 goes to the bus. · card #809\n')
+    writeFileSync(file, changed)
+    const written = statSync(file).mtimeMs
+    intake()
+    expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 2 }])
+    expect(reduce(db)).toEqual({ applied: 3, rejected: 0 })
+    expect(rows(db, 'SELECT decision_id, scope FROM decisions ORDER BY decision_id')).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
+    expect(rows(db, 'SELECT card_id, state FROM cards')).toEqual([{ card_id: 809, state: 'queued' }])
+    expect(readFileSync(file, 'utf8')).toBe(changed)
+    expect(statSync(file).mtimeMs).toBe(written)
+    expect(written).toBeGreaterThanOrEqual(before)
+  })
+
+  it('decisions.imported is netwatch\'s and lists each decision once', () => {
+    const db = newBus()
+    appendEvent(db, event('decisions.imported', { actor: 'owner', payload: { decisions: [] } }))
+    appendEvent(db, event('decisions.imported', { actor: 'netwatch', payload: { decisions: [{ decision_id: 1, text: 'a', scope: [] }, { decision_id: 1, text: 'b', scope: [] }] } }))
+    expect(reduce(db)).toEqual({ applied: 0, rejected: 2 })
+    expect(rows(db, `SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}' ORDER BY id`).map(row => row.reason)).toEqual([
+      'decisions.imported is netwatch\'s, not owner\'s',
+      'a decision_id is listed twice',
+    ])
   })
 
   it('a decision naming a card stopped on question.owner returns it to queued', () => {
