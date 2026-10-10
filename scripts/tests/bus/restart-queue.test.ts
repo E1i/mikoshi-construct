@@ -5,11 +5,11 @@ import type { World } from '../shift/fixtures/autopilot-world.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { observeChain } from '../../bus/chain.js'
 import { taskKey } from '../../bus/identifiers.js'
-import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { expireLeases, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
-import { RestartWorker, runRestartWorker } from '../../bus/restart-worker.js'
-import { leaseRole, observeRoleStop } from '../../bus/role.js'
+import { MIKO_LAUNCH_OFF, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
+import { leaseRole, observeRoleStop, RAISES_PER_HANDOFF } from '../../bus/role.js'
 import { chainObserver } from '../../shift/chain-bus.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
@@ -58,10 +58,10 @@ function restartBench() {
       holds = false
     },
     observe: (chain: Partial<ChainObservation> = {}): void => {
-      observeChain(bench.db, bench.clock.now().toISOString(), 'worker:chain:shift-1', { dir: DIR, parking: '/parking/lane-1', cardId: CARD, sha: MAIN_1, pid: 4242, boundary: true, state: 'running', ...chain })
+      observeChain(bench.db, bench.clock.now().toISOString(), 'worker:chain:shift-1', { dir: DIR, parking: '/parking/lane-1', cardId: CARD, sha: MAIN_1, pid: 4242, leader: null, boundary: true, state: 'running', ...chain })
     },
-    stopRole: (stop: RoleStop): void => {
-      observeRoleStop(bench.db, bench.clock.now().toISOString(), `worker:${stop.role}:7`, stop)
+    stopRole: (stop: Omit<RoleStop, 'raised'>, raised = false): void => {
+      observeRoleStop(bench.db, bench.clock.now().toISOString(), `worker:${stop.role}:7`, { ...stop, raised })
     },
     relaunch: (lease: RoleLease) => executor.relaunch(lease),
     advanceMain: (files: string[]): void => {
@@ -160,6 +160,30 @@ describe('the restart queue', () => {
     bench.close()
   })
 
+  it('a chain that left its boundary after the projection was read is not restarted', () => {
+    const bench = restartBench()
+    bench.observe()
+    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.tick()
+    bench.launcher.holds = () => {
+      bench.observe({ boundary: false })
+      return true
+    }
+
+    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
+    expect(bench.launches).toEqual([])
+    expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
+    bench.close()
+  })
+
+  it('a chain.observed is folded into chains when it is appended, not on the next reducer tick', () => {
+    const bench = restartBench()
+    bench.observe({ boundary: true })
+    bench.observe({ boundary: false })
+    expect(bench.db.prepare('SELECT boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ boundary: 0 })
+    bench.close()
+  })
+
   it('a launch that fails is a technical denial and the task goes back to the queue', () => {
     const bench = restartBench()
     bench.observe()
@@ -179,7 +203,7 @@ describe('the restart queue', () => {
 describe('the chain producer', () => {
   async function chainOf(body: string, busPath: string, now: () => Date): Promise<World> {
     const world = newWorld([{ id: 1, body }])
-    const observeChain = chainObserver({ busPath, sha: () => MAIN_1, pid: 4242, now, err: () => {} })
+    const observeChain = chainObserver({ busPath, sha: () => MAIN_1, pid: 4242, leader: () => null, now, err: () => {} })
     await runShift([world.shift, '--parking', world.parking, '--chain'], depsOf(world, fakeGh({}).gh, captured(), { sleep: async () => {}, observeChain }))
     return world
   }
@@ -260,6 +284,61 @@ describe('relaunch(role)', () => {
     expect(bench.raises).toEqual([])
     expect(bench.relaunch(current)).toMatchObject({ kind: 'raised', role: 'operator' })
     bench.close()
+  })
+})
+
+describe('the ceiling on relaunch(role)', () => {
+  function inbox(bench: ReturnType<typeof restartBench>): unknown[] {
+    return eventsOf(bench.db, 'card.stopped').filter(payload => payload.reason === 'question.owner')
+  }
+
+  it(`a role the bus raised ${RAISES_PER_HANDOFF} times on one handoff goes to the owner as question.owner, not to another raise`, () => {
+    const bench = restartBench()
+    const worker = bench.worker()
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' })
+    bench.tick()
+    for (let raise = 0; raise < RAISES_PER_HANDOFF; raise += 1) {
+      expect(worker.step()).toMatchObject({ kind: 'raised', role: 'operator' })
+      bench.clock.advance(1000)
+      bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' }, true)
+      bench.tick()
+    }
+
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator', handoff: OPERATOR_HANDOFF })
+    expect(worker.step()).toEqual({ kind: 'idle' })
+    expect(bench.raises).toHaveLength(RAISES_PER_HANDOFF)
+    expect(inbox(bench)).toMatchObject([{ reason: 'question.owner', role: 'operator', handoff: OPERATOR_HANDOFF }])
+
+    bench.clock.advance(1000)
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' }, false)
+    bench.tick()
+    expect(worker.step()).toMatchObject({ kind: 'raised', role: 'operator' })
+    bench.close()
+  })
+
+  it(`a role whose raise fails ${FAILURES_TO_STOP} times in a row goes to the owner and is not retried`, () => {
+    const bench = restartBench()
+    bench.roles.raise = () => {
+      throw new Error('relaunch did not start')
+    }
+    const worker = bench.worker()
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
+    bench.tick()
+
+    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
+      expect(worker.step()).toMatchObject({ kind: 'raise_failed', role: 'operator', detail: 'relaunch did not start' })
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator' })
+    expect(worker.step()).toEqual({ kind: 'idle' })
+    expect(eventsOf(bench.db, 'role.raise_failed')).toHaveLength(FAILURES_TO_STOP)
+    expect(inbox(bench)).toHaveLength(1)
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('the real role launcher keeps the launch of pnpm miko switched off and names why', () => {
+    expect(() => roleLauncher({}).raise('miko', MIKO_HANDOFF)).toThrow(MIKO_LAUNCH_OFF)
   })
 })
 

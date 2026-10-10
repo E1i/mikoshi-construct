@@ -3,11 +3,12 @@ import type { ChainRow } from './chain.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { Role, RoleLease } from './role.js'
-import { CHAIN_RESTARTED, chainOfCard } from './chain.js'
+import { CHAIN_RESTARTED, chainOfCard, chainOfDir } from './chain.js'
+import { inTransaction } from './db.js'
 import { messageOf } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
-import { assertRoleHeld, raiseRole } from './role.js'
+import { assertRoleHeld, failRaise, raiseRole } from './role.js'
 
 export const SHORT_SHA = 7
 
@@ -32,6 +33,7 @@ export interface RoleLauncher {
 export type RelaunchOutcome
   = | { kind: 'raised', role: Role, handoff: string, pid: number }
     | { kind: 'raise_failed', role: Role, handoff: string, detail: string }
+    | { kind: 'to_owner', role: Role, handoff: string, detail: string }
     | { kind: 'fenced', taskKey: string }
 
 export interface RestartParts {
@@ -71,7 +73,6 @@ export class RestartExecutor {
         return this.waiting(lease, chain, 'not_at_boundary')
       if (!this.parts.launcher.holds(to))
         return this.waiting(lease, chain, 'checkout_behind')
-      assertHeld(this.parts.db, lease)
       return this.launched(lease, chain, to)
     }
     catch (error) {
@@ -89,7 +90,9 @@ export class RestartExecutor {
         pid = this.parts.roles.raise(lease.role, lease.handoff)
       }
       catch (error) {
-        return { kind: 'raise_failed', role: lease.role, handoff: lease.handoff, detail: messageOf(error) }
+        const detail = messageOf(error)
+        failRaise(this.parts.db, this.ts(), lease, detail)
+        return { kind: 'raise_failed', role: lease.role, handoff: lease.handoff, detail }
       }
       raiseRole(this.parts.db, this.ts(), lease, pid)
       return { kind: 'raised', role: lease.role, handoff: lease.handoff, pid }
@@ -101,15 +104,30 @@ export class RestartExecutor {
     }
   }
 
-  private launched(lease: Lease, chain: ChainRow, to: string): RestartOutcome {
-    const dir = restartDir(chain.dir, to)
-    let pid: number
+  private launchedAtTheBoundary(lease: Lease, seen: ChainRow, dir: string): { chain: ChainRow, pid: number } | null {
+    return inTransaction(this.parts.db, () => {
+      assertHeld(this.parts.db, lease)
+      const chain = chainOfDir(this.parts.db, seen.dir)
+      if (chain === undefined || chain.boundary === 0)
+        return null
+      return { chain, pid: this.parts.launcher.launch(chain, dir) }
+    })
+  }
+
+  private launched(lease: Lease, seen: ChainRow, to: string): RestartOutcome {
+    const dir = restartDir(seen.dir, to)
+    let started: { chain: ChainRow, pid: number } | null
     try {
-      pid = this.parts.launcher.launch(chain, dir)
+      started = this.launchedAtTheBoundary(lease, seen, dir)
     }
     catch (error) {
+      if (error instanceof StaleLease)
+        throw error
       return this.denied(lease, 'launch_failed', messageOf(error))
     }
+    if (started === null)
+      return this.waiting(lease, seen, 'not_at_boundary')
+    const { chain, pid } = started
     const event: BusEvent = { ts: this.ts(), type: CHAIN_RESTARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: to, dedupeKey: `${CHAIN_RESTARTED}:${lease.taskKey}`, payload: { from_dir: chain.dir, dir, from: chain.sha, to, pid }, legacy: false }
     completeTask(this.parts.db, this.ts(), lease, [event])
     return { kind: 'restarted', taskKey: lease.taskKey, fromDir: chain.dir, dir, from: chain.sha, to, pid }

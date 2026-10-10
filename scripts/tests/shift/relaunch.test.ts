@@ -6,11 +6,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
+import { operatorWork } from '../../shift/role-bus.js'
+import { MAIN_1 } from '../bus/github-fake.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
-import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, BOUNDARY_EVENT, boundaryCommand, CHAIN_COMMAND, createExclusive, endedAtThreshold, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -83,6 +86,7 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     out: line => seen.out.push(line),
     err: line => seen.err.push(line),
     observeStop: stop => seen.stops.push(stop),
+    work: { cursor: () => 0, wait: async () => {} },
   }
 }
 
@@ -245,15 +249,22 @@ describe('runRelaunch', () => {
     const world = newWorld()
     const result = await relaunch(world, ['--max', '2', '--model', 'claude-test'])
     expect(result.code).toBe(0)
-    expect(result.runs).toHaveLength(2)
+    expect(result.runs).toHaveLength(1 + 2)
     expect(result.out.at(-1)).toBe('[relaunch] max 2 reached')
-    expect(result.stops).toEqual([{ role: 'operator', handoff: world.handoff, status: 'CONTINUE', reason: 'spend' }])
+    expect(result.stops).toEqual([{ role: 'operator', handoff: world.handoff, status: 'CONTINUE', reason: 'spend', raised: false }])
+  })
+
+  it('a relaunch the bus raised says so in its spend stop', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    expect(await runRelaunch([world.handoff, '--max', '1', '--model', 'claude-test'], { ...relaunchDeps(world, [], seen), raised: true })).toBe(0)
+    expect(seen.stops).toMatchObject([{ reason: 'spend', raised: true }])
   })
 
   it('defaults --max to the shift\'s restart ceiling', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'])
-    expect(result.runs).toHaveLength(MAX_RESTARTS)
+    expect(result.runs).toHaveLength(1 + MAX_RESTARTS)
   })
 
   it('refuses with no --model and no transcript, before any session', async () => {
@@ -501,6 +512,69 @@ describe('the Operator at a task boundary', () => {
     expect(result.taken).toEqual([2])
     expect(result.runs[1]!.prompt.split('\n')[0]).toBe(promptFirstLine(world.handoff))
     expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => line.status)).toEqual(['CONTINUE', 'DONE'])
+  })
+
+  function idleOrThreshold(world: World, seen: Seen, plan: Array<'idle' | 'threshold' | 'done'>): RelaunchDeps['run'] {
+    return async (run) => {
+      seen.runs.push(run)
+      const step = plan[seen.runs.length - 1] ?? 'idle'
+      if (step === 'threshold') {
+        writeTranscript(world, `${run.sessionId}.jsonl`, [usageLine(OPERATOR_CONTEXT_THRESHOLD + 1)], 1_000_000)
+        await boundaryOf(world, run.sessionId!)
+      }
+      setStatus(world, step === 'done' ? 'DONE' : 'CONTINUE')
+      return { kind: 'exited', code: 0, signal: null }
+    }
+  }
+
+  it('a session that exits on idle is not followed until a bus event gives the Operator work', async () => {
+    const world = newWorld()
+    const bus = path.join(world.root, 'bus.db')
+    const db = openBus(bus)
+    const event = (type: string, n: number, head: string | null = null): void => {
+      appendEvent(db, { ts: `2026-10-10T00:00:0${n}.000Z`, type, actor: 'worker:test:1', cardId: 809, pr: 732, head, dedupeKey: `${type}:${n}`, payload: {}, legacy: false })
+    }
+    event('pr.observed', 0, MAIN_1)
+    const startsSeen: number[] = []
+    const pauses: Array<() => void> = [
+      () => event('pr.observed', 1, MAIN_1),
+      () => event('task.renewed', 2),
+      () => event('review.recorded', 3),
+    ]
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const deps = relaunchDeps(world, [], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
+      ...deps,
+      run: idleOrThreshold(world, seen, ['idle', 'done']),
+      work: operatorWork(bus, async () => {
+        startsSeen.push(seen.runs.length)
+        pauses.shift()?.()
+      }),
+    })
+    db.close()
+
+    expect(code).toBe(0)
+    expect(seen.runs).toHaveLength(2)
+    expect(startsSeen).toEqual([1, 1, 1])
+    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.idle])).toEqual([['start', true], ['event', false]])
+  })
+
+  it('an idle exit does not count toward --max', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const code = await runRelaunch([world.handoff, '--max', '1', '--model', 'claude-test'], { ...relaunchDeps(world, [], seen), run: idleOrThreshold(world, seen, ['idle', 'threshold', 'idle']) })
+
+    expect(code).toBe(0)
+    expect(seen.runs).toHaveLength(2)
+    expect(seen.out.at(-1)).toBe('[relaunch] max 1 reached')
+    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.counted, line.idle])).toEqual([['start', 0, true], ['event', 1, false]])
+    expect(seen.stops).toMatchObject([{ reason: 'spend' }])
+  })
+
+  it('tells an idle exit from a threshold exit by the relaunch-boundary line the session wrote', () => {
+    const line = (session: string, move: string): string => JSON.stringify({ event: BOUNDARY_EVENT, session, move })
+    const journal = [line('s-1', 'end'), line('s-2', 'next'), line('s-3', 'end'), line('s-3', 'next')].join('\n')
+    expect(['s-1', 's-2', 's-3', 's-4'].map(session => endedAtThreshold(journal, session))).toEqual([true, false, false, false])
   })
 
   it('names the boundary command with the session\'s own id in every session prompt', async () => {

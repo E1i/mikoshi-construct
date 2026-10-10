@@ -1,6 +1,7 @@
 import type { RoleStop } from '../bus/role.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
+import type { OperatorWork } from './role-bus.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -9,14 +10,15 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { raisedByTheBus } from '../bus/role.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
-import { boundaryLine, transcriptContext } from './operator-boundary.js'
+import { boundaryLine, boundaryMove, transcriptContext } from './operator-boundary.js'
 import { GHOST_JOURNAL } from './places.js'
-import { realRoleStopObserver } from './role-bus.js'
+import { realOperatorWork, realRoleStopObserver } from './role-bus.js'
 
 export const PREFIX = '[relaunch] '
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
@@ -66,7 +68,13 @@ export interface RelaunchDeps {
   out: (line: string) => void
   err: (line: string) => void
   observeStop?: (stop: RoleStop) => void
+  raised?: boolean
+  work?: OperatorWork
 }
+
+export const BOUNDARY_EVENT = 'relaunch-boundary'
+
+type Trigger = 'start' | 'threshold' | 'event'
 
 interface RelaunchArgs {
   handoff: string
@@ -87,6 +95,7 @@ interface JournalLine {
   pid?: unknown
   n?: unknown
   handoff?: unknown
+  move?: unknown
 }
 
 function journalEntries(text: string): JournalLine[] {
@@ -178,12 +187,18 @@ function sessionTranscript(deps: RelaunchDeps, session: string): string | null {
     .find(file => deps.exists(file)) ?? null
 }
 
-function printBoundary(deps: RelaunchDeps, session: string): number {
+async function printBoundary(deps: RelaunchDeps, session: string): Promise<number> {
   const transcript = sessionTranscript(deps, session)
   const text = transcript === null ? null : readIfPresent(deps, transcript)
   const context = text === null ? null : transcriptContext(text)
+  await record(deps, { event: BOUNDARY_EVENT, session, move: boundaryMove(context), context, ts: deps.now().toISOString() })
   deps.out(`${PREFIX}${boundaryLine(context, transcript ?? path.join(deps.projectsDir, '*', `${session}.jsonl`))}`)
   return 0
+}
+
+export function endedAtThreshold(journal: string, session: string): boolean {
+  const last = journalEntries(journal).filter(entry => entry.event === BOUNDARY_EVENT && entry.session === session).at(-1)
+  return last?.move === 'end'
 }
 
 function parseArgs(args: string[]): RelaunchArgs | null {
@@ -313,6 +328,8 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   const handoff = path.resolve(deps.cwd, expandHome(parsed.handoff, deps.home))
   await record(deps, { event: 'relaunch-start', handoff, max: parsed.max, ts: deps.now().toISOString() })
   let sessions = 0
+  let counted = 0
+  let trigger: Trigger = 'start'
   const stop = async (reason: string, code: number, refusals?: string[]): Promise<number> => {
     await record(deps, { event: 'relaunch-stop', handoff, reason, sessions, ...(refusals === undefined ? {} : { refusals }), ts: deps.now().toISOString() })
     if (code === 0)
@@ -345,13 +362,16 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       return stop('no STATUS line', 1)
     if (status !== 'CONTINUE')
       return stop(`STATUS ${status}`, 0)
-    if (sessions >= parsed.max) {
-      deps.observeStop?.({ role: 'operator', handoff, status, reason: 'spend' })
-      return stop(`max ${parsed.max} reached`, 0)
+    if (trigger !== 'start') {
+      if (counted >= parsed.max) {
+        deps.observeStop?.({ role: 'operator', handoff, status, reason: 'spend', raised: deps.raised ?? false })
+        return stop(`max ${parsed.max} reached`, 0)
+      }
+      counted += 1
     }
     sessions += 1
     const session = deps.uuid()
-    deps.out(`${PREFIX}session ${sessions}/${parsed.max} ${session} on ${model}`)
+    deps.out(`${PREFIX}session ${sessions} ${session} on ${model}, started by ${trigger}, ${counted}/${parsed.max} toward --max`)
     let pid: number | null = null
     let started: Promise<void> = Promise.resolve()
     const n = sessions
@@ -361,6 +381,8 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     }
     const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
+    const after = statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none'
+    const idle = after === 'CONTINUE' && !endedAtThreshold(readIfPresent(deps, deps.journal) ?? '', session)
     await record(deps, {
       event: 'relaunch',
       handoff,
@@ -368,13 +390,26 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid,
       model,
       n: sessions,
+      trigger,
+      counted,
+      idle,
       exit: exit.kind === 'exited' ? exit.code : null,
-      status: statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none',
+      status: after,
       ts: deps.now().toISOString(),
     })
     const failure = sessionFailure(exit)
     if (failure !== null)
       return stop(`session ${sessions} ${failure}`, 1)
+    if (!idle) {
+      trigger = 'threshold'
+      continue
+    }
+    if (deps.work === undefined)
+      return stop(`session ${sessions} exited idle and no bus is read for work`, 0)
+    const cursor = deps.work.cursor()
+    deps.out(`${PREFIX}session ${sessions} exited idle: the next session waits for a bus event that gives the Operator work`)
+    await deps.work.wait(cursor)
+    trigger = 'event'
   }
 }
 
@@ -401,6 +436,8 @@ function realDeps(): RelaunchDeps {
     out: line => console.log(line),
     err: line => console.error(line),
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
+    raised: raisedByTheBus(process.env),
+    work: realOperatorWork(),
   }
 }
 
