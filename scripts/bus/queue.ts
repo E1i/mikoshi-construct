@@ -4,7 +4,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { QUEUES, taskKey } from './identifiers.js'
-import { ownerInbox } from './inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -34,10 +34,39 @@ const UPDATE_CANDIDATES = `
   ORDER BY pr
 `
 
+export const QUESTION_AGENT = 'question.agent'
+export const QUESTION_OWNER = 'question.owner'
+const CARD_TURNS = `'${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}'`
+
+export function latestTurnOf(card: string): string {
+  return `(SELECT id FROM events AS turn WHERE turn.card_id = ${card} AND turn.legacy = 0 AND turn.type IN (${CARD_TURNS}) ORDER BY turn.id DESC LIMIT 1)`
+}
+
+const QUESTION_CANDIDATES = `
+  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(stop.head, prs.head) AS head FROM events AS stop
+  LEFT JOIN cards ON cards.card_id = stop.card_id
+  LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
+  WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
+    AND json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
+    AND stop.id = ${latestTurnOf('stop.card_id')}
+    AND (prs.pr IS NULL OR prs.state = 'open')
+  ORDER BY stop.card_id
+`
+
+const CHANGES_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'open' AND verdict_on_head = 'changes' AND card_id IS NOT NULL AND head IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
+        AND stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}'
+    )
+  ORDER BY pr
+`
+
 interface Candidate {
-  pr: number
+  pr: number | null
   card_id: number
-  head: string
+  head: string | null
   verdict_on_head?: string | null
 }
 
@@ -51,7 +80,13 @@ function passOrWaitingForOwner(db: DatabaseSync): Admits {
 }
 
 function candidates(db: DatabaseSync): [Queue, string, Admits][] {
-  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow]]
+  return [
+    ['review', REVIEW_CANDIDATES, everyRow],
+    ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
+    ['merge', MERGE_CANDIDATES, everyRow],
+    ['answer', QUESTION_CANDIDATES, everyRow],
+    ['answer', CHANGES_CANDIDATES, everyRow],
+  ]
 }
 
 const TASKS_OF_AN_OLD_HEAD = `
@@ -142,7 +177,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const [queue, query, admits] of candidates(db)) {
     for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {
-      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr, head: row.head }
+      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
       if (queueTask(db, ts, task))
         derived.queued.push(taskKey(task))
     }

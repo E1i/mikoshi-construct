@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 
 export const POLICY_DENIED = 'policy.denied'
 export const CARD_STOPPED = 'card.stopped'
+export const CARD_STARTED = 'card.started'
+export const CARD_ANSWERED = 'card.answered'
 
 const OWNER_INBOX = `
   SELECT id, type, card_id, pr, head, payload FROM events

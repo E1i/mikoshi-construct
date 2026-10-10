@@ -57,8 +57,8 @@ interface LeaseRow {
 }
 
 const NEXT_LEASABLE = `
-  SELECT tasks.* FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND prs.state = 'open' AND prs.head = tasks.head
+  SELECT tasks.* FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
   ORDER BY tasks.id LIMIT 1
 `
 
