@@ -1,8 +1,11 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import type { Preflight } from '../../ghosts/preflight.js'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { approvalOf, approvalSha256, approvedHashPath, canonicalImplementText, checkApproval, extractApprovedHash, extractApprovedSketch, extractImplementText, implementLineNumbers, morseApprovalOf, sha256Hex, withoutSketchLine } from '../../ghosts/approval.js'
+import { describe, expect, it, vi } from 'vitest'
+import { parkingFileText } from '../../../src/card/parking.js'
+import { approvalOf, approvalSha256, approvedHashPath, canonicalImplementText, checkApproval, extractApprovedHash, extractApprovedSketch, extractImplementText, implementLineNumbers, journalEvents, morseApprovalOf, morseCarryOf, sha256Hex, withoutSketchLine } from '../../ghosts/approval.js'
+import { morseApprove } from '../../ghosts/hash.js'
 
 function worldDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'ghosts-approval-'))
@@ -223,5 +226,95 @@ describe('approvalOf', () => {
   it('is what morseApprovalOf narrows to the approvals by morse', () => {
     expect(morseApprovalOf(events, 'a', 7)).toBeUndefined()
     expect(morseApprovalOf(events, 'b', 7)).toBe(events[1])
+  })
+})
+
+const CARRY_CARD = 902
+const APPROVED_SKETCH = 'a'.repeat(40)
+const REBASED_SKETCH = 'b'.repeat(40)
+
+function sketchedText(sketch: string, steps = 'Print the name.'): string {
+  return `/implement ${steps}\nSketch: sketch/t @ ${sketch}\nexpect: tokens ≈ 166k, minutes ≈ 12 — effort medium, n=61, median, p25–p75 100k–200k\n\nAcceptance: the name is printed — witness: \`echo name\``
+}
+
+function carryWorld(): { brief: string, approvedPath: string, journalPath: string, approve: (preflight?: Preflight) => Promise<string> } {
+  const dir = worldDir()
+  const brief = path.join(dir, 'brief-t.md')
+  writeFileSync(brief, `# head\n\n---\n\n${sketchedText(APPROVED_SKETCH)}\n`)
+  const parkingDir = path.join(dir, 'parking')
+  mkdirSync(parkingDir)
+  writeFileSync(path.join(parkingDir, `${CARRY_CARD}.md`), parkingFileText({ card: `#${CARRY_CARD} task-${CARRY_CARD} [implement/ghosts/S/cheap/owner] · depends — · blocks —`, branch: `feat/${CARRY_CARD}`, touches: ['src/thing/**'], continue: 'stop', who: 'shift', body: 'Do the thing.' }))
+  const journalPath = path.join(dir, 'ghosts.jsonl')
+  writeFileSync(journalPath, '')
+  const approve = async (preflight: Preflight = () => {}): Promise<string> => (await morseApprove(brief, { card: CARRY_CARD, parkingDir, journalPath, now: new Date(2026, 9, 9, 12), runBuild: () => ({ status: 0, stderr: '' }), preflight })).line
+  return { brief, approvedPath: approvedHashPath(brief), journalPath, approve }
+}
+
+function approvalsIn(journalPath: string): Record<string, unknown>[] {
+  return journalEvents(journalPath).filter(event => event.event === 'approval')
+}
+
+describe('a MORSE approval after a rebase of its sketch', () => {
+  it('a MORSE approval carries to a cleanly rebased sketch with the same text and a green preflight', async () => {
+    const world = carryWorld()
+    await world.approve()
+    const sha256 = approvalSha256(sketchedText(APPROVED_SKETCH))
+    writeFileSync(world.brief, `# head\n\n---\n\n${sketchedText(REBASED_SKETCH)}\n`)
+    const preflight = vi.fn<Preflight>()
+
+    const line = await world.approve(preflight)
+
+    expect(preflight).toHaveBeenCalledTimes(1)
+    expect(line).toBe(`approved /implement text sha256: ${sha256} sketch: ${REBASED_SKETCH} (2026-10-09, morse)`)
+    expect(readFileSync(world.approvedPath, 'utf8')).toBe(`${line}\n`)
+    expect(checkApproval(world.brief)).toMatchObject({ ok: true, sha256, approvedSketch: REBASED_SKETCH })
+    const approvals = approvalsIn(world.journalPath)
+    expect(approvals).toHaveLength(2)
+    expect(approvals[1]).toMatchObject({ by: 'morse', card: CARRY_CARD, sha256, sketch: REBASED_SKETCH, carriedFrom: APPROVED_SKETCH })
+    expect(approvals[1]!.reason).toContain('carried from sketch aaaaaaa with the same text')
+  })
+
+  it('a red preflight on the rebased sketch carries nothing and writes nothing', async () => {
+    const world = carryWorld()
+    await world.approve()
+    const approvedBefore = readFileSync(world.approvedPath, 'utf8')
+    const journalBefore = readFileSync(world.journalPath, 'utf8')
+    writeFileSync(world.brief, `# head\n\n---\n\n${sketchedText(REBASED_SKETCH)}\n`)
+
+    await expect(world.approve(() => {
+      throw new Error('preflight P7: the witness is green on the base')
+    })).rejects.toThrow('preflight P7')
+
+    expect(readFileSync(world.approvedPath, 'utf8')).toBe(approvedBefore)
+    expect(readFileSync(world.journalPath, 'utf8')).toBe(journalBefore)
+  })
+
+  it('the same sketch has nothing to carry and is left as it is', async () => {
+    const world = carryWorld()
+    const line = await world.approve()
+
+    await expect(world.approve()).rejects.toThrow(/nothing to carry/)
+    expect(readFileSync(world.approvedPath, 'utf8')).toBe(`${line}\n`)
+    expect(approvalsIn(world.journalPath)).toHaveLength(1)
+  })
+})
+
+describe('morseCarryOf', () => {
+  const sha256 = approvalSha256(sketchedText(APPROVED_SKETCH))
+  const morseLine = `approved /implement text sha256: ${sha256} sketch: ${APPROVED_SKETCH} (2026-10-09, morse)\n`
+  const events = [{ event: 'approval', by: 'morse', card: CARRY_CARD, sha256 }]
+
+  it('a changed implement text carries no approval', () => {
+    const changed = approvalSha256(sketchedText(REBASED_SKETCH, 'Print the name twice.'))
+
+    expect(changed).not.toBe(sha256)
+    expect(morseCarryOf(morseLine, changed, REBASED_SKETCH, events, CARRY_CARD)).toEqual({ kind: 'fresh' })
+  })
+
+  it('carries a morse approval of the same text to another sketch, and nothing else', () => {
+    expect(morseCarryOf(morseLine, sha256, REBASED_SKETCH, events, CARRY_CARD)).toEqual({ kind: 'carry', from: APPROVED_SKETCH })
+    expect(morseCarryOf(undefined, sha256, REBASED_SKETCH, events, CARRY_CARD)).toEqual({ kind: 'fresh' })
+    expect(morseCarryOf(morseLine, sha256, REBASED_SKETCH, [], CARRY_CARD)).toMatchObject({ kind: 'refused', reason: expect.stringContaining('holds no approval event by morse') })
+    expect(morseCarryOf(morseLine.replace('morse', 'Eli'), sha256, REBASED_SKETCH, events, CARRY_CARD)).toMatchObject({ kind: 'refused', reason: expect.stringContaining('approved by Eli') })
   })
 })

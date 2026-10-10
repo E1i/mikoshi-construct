@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { JournalEvent } from './approval.js'
 import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
@@ -12,7 +13,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { approvalEvent, approvalSha256, approvedHashPath, approverOf, canonicalImplementText, cardNumberOf, contourSuggestion, extractApprovedHash, fallsOf, journalEvents, MORSE, revocationOf, suggestionEvent } from './approval.js'
+import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
 import { appendJournalEvent } from './journal.js'
 import { runPreflight } from './preflight.js'
@@ -156,15 +157,12 @@ function bandedForecast(text: string): { forecast: Forecast, p75: number } {
   return { forecast: expected, p75: expected.band.p75 }
 }
 
-function refuseOwnerApproval(briefPath: string, sha256: string): void {
+function carriedSketch(briefPath: string, sha256: string, sketch: string, events: JournalEvent[], card: number): string | undefined {
   const approvedPath = approvedHashPath(briefPath)
-  if (!existsSync(approvedPath))
-    return
-  const content = readFileSync(approvedPath, 'utf8')
-  if (extractApprovedHash(content) !== sha256)
-    return
-  const approver = approverOf(content)
-  throw new Error(`${approvedPath} already holds this hash, approved by ${approver ?? 'an approver it does not name readably'}; it is left as it is`)
+  const carry = morseCarryOf(existsSync(approvedPath) ? readFileSync(approvedPath, 'utf8') : undefined, sha256, sketch, events, card)
+  if (carry.kind === 'refused')
+    throw new Error(`${approvedPath} ${carry.reason}`)
+  return carry.kind === 'carry' ? carry.from : undefined
 }
 
 export async function morseApprove(briefPath: string, options: MorseOptions): Promise<MorseApproval> {
@@ -184,18 +182,20 @@ export async function morseApprove(briefPath: string, options: MorseOptions): Pr
   if (revocationOf(events, sha256, card) !== undefined)
     throw new Error(`the approval ${sha256} of card #${card} was revoked, so MORSE does not approve it; change the brief text to approve it again`)
   const { forecast, p75 } = bandedForecast(text)
-  refuseOwnerApproval(briefPath, sha256)
+  const sketch = approvedSketchOf(parseSketch(text))
+  const carriedFrom = carriedSketch(briefPath, sha256, sketch, events, card)
 
   const line = lineOf(briefPath, text, now, MORSE, runBuild, preflight)
   const event = approvalEvent({
     card,
     brief: path.resolve(briefPath),
     sha256,
-    sketch: approvedSketchOf(parseSketch(text)),
+    sketch,
     risk: reading.level,
-    reason: `risk ${reading.level} (${reading.why}), forecast ${forecast.tokens} tokens within p75 ${p75}, 0 falls, no unclear field`,
+    reason: `risk ${reading.level} (${reading.why}), forecast ${forecast.tokens} tokens within p75 ${p75}, 0 falls, no unclear field${carriedFrom === undefined ? '' : `, ${carriedReason(carriedFrom)}`}`,
     forecast,
     ts: now.toISOString(),
+    carriedFrom,
   })
   const suggestion = contourSuggestion(parked.card, forecast)
   try {
@@ -248,8 +248,12 @@ function hashArgs(argv: string[]): HashArgs | string {
   return { briefPath: positional[0]!, by, card, parking }
 }
 
-function handoffJournalPath(): string {
+export function handoffJournalPath(): string {
   return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'ghosts.jsonl')
+}
+
+export function parkingDirOf(parking: string | undefined): string {
+  return parking === undefined ? path.join(os.homedir(), '.construct', 'parking') : path.resolve(parking)
 }
 
 async function main(): Promise<void> {
@@ -262,8 +266,7 @@ async function main(): Promise<void> {
 
   try {
     if (args.card !== undefined) {
-      const parkingDir = args.parking === undefined ? path.join(os.homedir(), '.construct', 'parking') : path.resolve(args.parking)
-      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir, journalPath: handoffJournalPath(), now: new Date() })
+      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date() })
       console.log(approval.line)
       if (approval.suggestion !== undefined)
         console.log(approval.suggestion)

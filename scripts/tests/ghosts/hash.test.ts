@@ -1,15 +1,17 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { parkingFileText } from '../../../src/card/parking.js'
 import { approvedHashPath, checkApproval } from '../../ghosts/approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, resolveApprover } from '../../ghosts/hash.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
+const MORSE_APPROVE = path.join(REPO_ROOT, 'scripts/ghosts/morse-approve.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date(2026, 9, 4, 12)
 const APPROVER = 'Approver One'
@@ -170,6 +172,40 @@ describe('ghosts:hash from the command line', () => {
     expect(result.status).toBe(1)
     expect(result.stdout).toBe('')
     expect(result.stderr).toContain('preflight P0: run ghosts:hash inside the repository')
+  })
+
+  it('morse:approve writes only a morse approval and refuses an owner one', () => {
+    const card = 903
+    const brief = briefWith(RED_ON_BASE_TEXT.replace(/^(Sketch: .*)$/m, '$1\nexpect: tokens ≈ 166k, minutes ≈ 12 — effort medium, n=61, median, p25–p75 100k–200k'))
+    const parking = worldDir()
+    writeFileSync(path.join(parking, `${card}.md`), parkingFileText({ card: `#${card} task-${card} [implement/ghosts/S/cheap/owner] · depends — · blocks —`, branch: `feat/${card}`, touches: ['src/thing/**'], continue: 'stop', who: 'shift', body: 'Do the thing.' }))
+    const handoff = worldDir()
+    const morseApprove = (args: string[]): ReturnType<typeof runHash> => {
+      const result = spawnSync(process.execPath, [TSX_CLI, MORSE_APPROVE, brief, String(card), '--parking', parking, ...args], { encoding: 'utf8', cwd: cliRepository(), env: { ...gitHome('Git Name'), CONSTRUCT_HANDOFF_DIR: handoff } })
+      return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+    }
+
+    for (const owner of [['--by', APPROVER], ['--by', 'morse']]) {
+      const refused = morseApprove(owner)
+      expect(refused.status).toBe(1)
+      expect(refused.stdout).toBe('')
+      expect(refused.stderr).toContain('usage: morse-approve.ts')
+      expect(existsSync(approvedHashPath(brief))).toBe(false)
+    }
+
+    const approved = morseApprove([])
+    expect(approved.stderr).not.toContain('usage')
+    expect(approved.status).toBe(0)
+    expect(approved.stdout.trim()).toMatch(new RegExp(`^approved /implement text sha256: ${hashBrief(brief)} sketch: none \\(\\d{4}-\\d{2}-\\d{2}, morse\\)$`))
+    expect(readFileSync(approvedHashPath(brief), 'utf8')).toBe(approved.stdout)
+    expect(readFileSync(path.join(handoff, 'ghosts.jsonl'), 'utf8')).toContain(`"by":"morse","card":${card}`)
+
+    const ownerLine = `approved /implement text sha256: ${hashBrief(brief)} sketch: none (2026-10-09, ${APPROVER})\n`
+    writeFileSync(approvedHashPath(brief), ownerLine)
+    const overOwner = morseApprove([])
+    expect(overOwner.status).toBe(1)
+    expect(overOwner.stderr).toContain(`approved by ${APPROVER}; it is left as it is`)
+    expect(readFileSync(approvedHashPath(brief), 'utf8')).toBe(ownerLine)
   })
 
   it('refuses, printing no hash, when neither --by nor git config user.name names the approver', () => {
