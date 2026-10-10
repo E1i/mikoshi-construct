@@ -1,4 +1,7 @@
-export const QUEUES = ['review', 'update', 'merge', 'answer', 'launch', 'restart', 'close'] as const
+export const HEAVY_RUNS = ['quality', 'vitest'] as const
+export type HeavyRun = typeof HEAVY_RUNS[number]
+
+export const QUEUES = ['review', 'update', 'merge', 'answer', 'launch', 'restart', 'close', ...HEAVY_RUNS] as const
 export type Queue = typeof QUEUES[number]
 
 const FIXED_ACTORS = new Set(['netwatch', 'reducer', 'owner', 'policy'])
@@ -60,10 +63,10 @@ export function taskKey(task: TaskIdentity): string {
   return task.generation === undefined ? `${task.queue}:${task.cardId}:${task.pr ?? '-'}:${task.head ?? '-'}` : `${task.queue}:${task.cardId}:${task.generation}`
 }
 
-const GENERATION_QUEUE: Queue = 'launch'
+const GENERATION_QUEUES: readonly Queue[] = ['launch', ...HEAVY_RUNS]
 
 export function generationOfKey(key: string, task: Omit<TaskIdentity, 'generation'>): string | undefined {
   const plain = taskKey(task)
   const prefix = `${task.queue}:${task.cardId}:`
-  return task.queue !== GENERATION_QUEUE || key === plain || !key.startsWith(prefix) || task.pr !== undefined || task.head !== undefined ? undefined : key.slice(prefix.length)
+  return !GENERATION_QUEUES.includes(task.queue) || key === plain || !key.startsWith(prefix) || task.pr !== undefined || task.head !== undefined ? undefined : key.slice(prefix.length)
 }

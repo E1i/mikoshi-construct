@@ -17,14 +17,14 @@ import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
-import { completeTask, expireLeases, failTask, leaseNext, releaseTask, renewLease, StaleLease } from './lease.js'
+import { completeTask, expireLeases, failTask, leaseNext, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
 import { claudeReviewer, PREFIX } from './reviewer.js'
+import { slotsOf } from './scheduler.js'
 
 export const REVIEW_RECORDED = 'review.recorded'
-export const RENEW_MS = 10 * 60_000
 export const SWITCH_FLAG = '--on'
 export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
@@ -157,11 +157,24 @@ export class ReviewWorker {
   }
 }
 
-export function startReviewWorker(parts: WorkerParts): ReviewWorker {
+export function startReviewWorkers(parts: WorkerParts, slots: number): ReviewWorker[] {
   const problems = shadowProblems(parts.db, parts.gitHub, () => parts.clock().getTime())
   if (problems.length > 0)
     throw new ShadowNotClean(problems)
-  return new ReviewWorker(parts)
+  return Array.from({ length: slots }, (_, slot) => new ReviewWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))
+}
+
+async function keepReviewing(worker: ReviewWorker, pause: (ms: number) => Promise<unknown>): Promise<never> {
+  for (;;) {
+    const step = await worker.step()
+    const line = stepLine(step)
+    if (line !== null)
+      console.log(line)
+    if (step.kind === 'idle')
+      await pause(CHECK_MS)
+    else if (step.kind !== 'recorded')
+      await pause(TICK_MS)
+  }
 }
 
 export function stepLine(step: Step): string | null {
@@ -231,6 +244,7 @@ export interface ReviewRun {
   publish: StatusPublisher
   reviewer: Reviewer
   session: string
+  slots: number
   pause: (ms: number) => Promise<unknown>
 }
 
@@ -260,18 +274,10 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     session: run.session,
   }
   try {
-    const worker = startReviewWorker(parts)
-    console.log(`${PREFIX}${busPath}: the review worker ${worker.actor} takes the review queue`)
-    for (;;) {
-      const step = await worker.step()
-      const line = stepLine(step)
-      if (line !== null)
-        console.log(line)
-      if (step.kind === 'idle')
-        await pause(CHECK_MS)
-      else if (step.kind !== 'recorded')
-        await pause(TICK_MS)
-    }
+    const workers = startReviewWorkers(parts, run.slots)
+    for (const worker of workers)
+      console.log(`${PREFIX}${busPath}: the review worker ${worker.actor} takes the review queue`)
+    return await Promise.race(workers.map(worker => keepReviewing(worker, pause)))
   }
   catch (error) {
     if (!(error instanceof ShadowNotClean))
@@ -292,6 +298,7 @@ async function main(): Promise<number> {
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(cwd, REVIEWS_DIR),
     session: randomUUID(),
+    slots: slotsOf('review', process.env),
     pause: sleep,
   })
 }

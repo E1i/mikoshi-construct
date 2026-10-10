@@ -56,6 +56,7 @@
     "bus:review": "tsx scripts/bus/review-worker.ts",
     "bus:review:bg": "tsx scripts/bus/review-bg.ts",
     "bus:run": "tsx scripts/bus/run.ts",
+    "bus:slot": "tsx scripts/bus/slot.ts",
     "bus:update": "tsx scripts/bus/update-worker.ts",
     "changeset": "changeset",
     "ci": "pnpm run quality",
