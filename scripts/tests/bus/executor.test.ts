@@ -110,6 +110,35 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('a red CI on the leased head is a technical ci_red denial that counts a failure, a pending one is ci_not_ready', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 978, review: 'success' })
+    bench.tick()
+    bench.gitHub.pulls.get(978)!.required = 'failure'
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'ci_red', detail: `CI is red on ${sha('a')}` }, next: 'queued' })
+    expect(taskState(bench.db, merge(978))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
+
+    bench.gitHub.pulls.get(978)!.required = 'pending'
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'ci_not_ready' }, next: 'queued' })
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a released merge task keeps its place: the merge queue leases first in, first out by arrival', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 979, review: 'success' })
+    bench.gitHub.open({ number: 980, review: 'success', head: sha('c') })
+    bench.tick()
+    const first = bench.lease()!
+    expect(first.taskKey).toBe(merge(979))
+    bench.gitHub.pulls.get(979)!.mergeable_state = 'behind'
+    bench.merge(first)
+
+    expect(bench.lease()!.taskKey).toBe(merge(979))
+    bench.close()
+  })
+
   it('a released task returns to the queue with its failure count unchanged and its lease_gen fenced', () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 976, review: 'success' })

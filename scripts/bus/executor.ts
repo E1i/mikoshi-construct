@@ -129,6 +129,8 @@ export class MergeExecutor {
         if (mergeable !== 'clean')
           return technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`)
         const ci = ciOf(meter, lease.head!)
+        if (ci === 'red')
+          return technical('ci_red', `CI is red on ${lease.head}`)
         if (ci !== 'green')
           return technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
         const verdict = verdictOf(meter, lease.head!)
