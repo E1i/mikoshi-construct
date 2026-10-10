@@ -52,7 +52,7 @@ function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanic
       entries: contour.entries,
       state: contour.state,
       counts: countsOf(contour.counts),
-      components: contour.components.map(component => ({ id: component.id, name: component.name, purpose: component.purpose, state: component.state, counts: countsOf(component.counts), files: component.files.map(file => index.get(file.path)) })),
+      components: contour.components.map(component => ({ id: component.id, name: component.name, purpose: component.purpose, undeclaredContour: component.undeclaredContour, state: component.state, counts: countsOf(component.counts), files: component.files.map(file => index.get(file.path)) })),
     })),
     relations: map.relations.map(relation => [index.get(relation.from), index.get(relation.to), Number(relation.at.slice(relation.at.lastIndexOf(':') + 1)), CROSSINGS.indexOf(relation.crossing)]),
     unresolved: mechanics.relations.filter(relation => relation.to == null).map(relation => [index.get(relation.from), relation.source.line, relation.specifier]),

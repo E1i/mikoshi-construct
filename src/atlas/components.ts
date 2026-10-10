@@ -28,6 +28,7 @@ export interface MapComponent {
   contour: string
   name: string
   purpose: string | null
+  undeclaredContour: string | null
   files: MapFile[]
   state: MapState
   counts: StateCounts
@@ -177,9 +178,9 @@ function fileOf(file: string, read: Map<string, MapFile>): MapFile {
   return read.get(file) ?? { path: file, state: 'absent', reason: null }
 }
 
-function component(contour: string, id: string, name: string, purpose: string | null, files: MapFile[]): MapComponent {
+function component(contour: string, id: string, name: string, purpose: string | null, files: MapFile[], undeclaredContour: string | null = null): MapComponent {
   const counts = countsOf(files.map(file => file.state))
-  return { id: componentNode(contour, id), contour, name, purpose, files, state: stateOf(counts), counts }
+  return { id: componentNode(contour, id), contour, name, purpose, undeclaredContour, files, state: stateOf(counts), counts }
 }
 
 function interpretedFor(contour: Contour, interpreted: readonly InterpretedComponent[], filesOf: Map<string, string[]>): InterpretedComponent[] {
@@ -187,19 +188,24 @@ function interpretedFor(contour: Contour, interpreted: readonly InterpretedCompo
   return interpreted.filter(entry => entry.contour === contour.id || (contour.id === ROOT_CONTOUR && !declared.has(entry.contour)))
 }
 
-function componentsOf(contour: Contour, interpreted: readonly InterpretedComponent[], filesOf: Map<string, string[]>, read: Map<string, MapFile>): MapComponent[] {
+function adoptedByRoot(interpreted: readonly InterpretedComponent[], filesOf: Map<string, string[]>, read: Map<string, MapFile>): Set<string> {
+  return new Set(interpreted.filter(entry => !filesOf.has(entry.contour)).flatMap(entry => entry.files).filter(file => read.has(file)))
+}
+
+function componentsOf(contour: Contour, interpreted: readonly InterpretedComponent[], filesOf: Map<string, string[]>, read: Map<string, MapFile>, adopted: Set<string>): MapComponent[] {
   const own = new Set(filesOf.get(contour.id) ?? [])
   const claimed = new Set<string>()
   const named = interpretedFor(contour, interpreted, filesOf).map((entry) => {
+    const declared = entry.contour === contour.id
     const files = entry.files.map((file) => {
-      const inContour = entry.contour === contour.id && own.has(file)
-      if (inContour)
+      const drawn = declared ? own.has(file) : adopted.has(file)
+      if (drawn)
         claimed.add(file)
-      return inContour ? fileOf(file, read) : { path: file, state: 'absent' as const, reason: null }
+      return drawn ? fileOf(file, read) : { path: file, state: 'absent' as const, reason: null }
     })
-    return component(contour.id, entry.id, entry.name, entry.purpose, files)
+    return component(contour.id, entry.id, entry.name, entry.purpose, files, declared ? null : entry.contour)
   })
-  const rest = [...own].filter(file => !claimed.has(file)).sort(compare)
+  const rest = [...own].filter(file => !claimed.has(file) && !adopted.has(file)).sort(compare)
   const groups = directoryGroups(contour.id, rest, file => read.get(file)?.state === 'held' ? 1 : 0).map(group => component(contour.id, `${group.rest ? 'rest' : 'dir'}:${group.key}`, groupName(group, contour), null, group.files.map(file => fileOf(file, read))))
   return [...named, ...groups]
 }
@@ -248,21 +254,39 @@ function filesIn(contour: MapContour): number {
   return contour.components.reduce((total, entry) => total + entry.files.length, 0)
 }
 
-function groupsOf(contours: MapContour[]): MapGroup[] {
-  if (contours.length <= MAX_DEFAULT_NODES)
-    return []
+function parentSegments(contour: MapContour): string[] {
+  const parent = path.posix.dirname(contour.id.slice(contourNode('').length))
+  return parent === ROOT_CONTOUR ? [] : parent.split('/')
+}
+
+function foldedAt(contours: MapContour[], depth: number): MapGroup[] {
   const byParent = new Map<string, MapContour[]>()
   for (const contour of contours) {
-    const id = contour.id.slice(contourNode('').length)
-    if (id === ROOT_CONTOUR)
+    if (contour.id === contourNode(ROOT_CONTOUR))
       continue
-    const parent = path.posix.dirname(id)
+    const parent = parentSegments(contour).slice(0, depth).join('/') || ROOT_CONTOUR
     byParent.set(parent, [...byParent.get(parent) ?? [], contour])
   }
   return [...byParent.entries()].filter(([, members]) => members.length > 1).map(([parent, members]) => {
     const counts = sum(members.map(member => member.counts))
     return { id: groupNode(parent), name: parent === ROOT_CONTOUR ? '*' : `${parent}/*`, contours: members.map(member => member.id), state: stateOf(counts), counts }
   }).sort((left, right) => compare(left.id, right.id))
+}
+
+function topLevelCount(groups: MapGroup[], contours: MapContour[]): number {
+  return contours.length - groups.reduce((total, group) => total + group.contours.length - 1, 0)
+}
+
+function groupsOf(contours: MapContour[]): MapGroup[] {
+  if (contours.length <= MAX_DEFAULT_NODES)
+    return []
+  const deepest = Math.max(...contours.map(contour => parentSegments(contour).length))
+  for (let depth = deepest; depth > 0; depth -= 1) {
+    const groups = foldedAt(contours, depth)
+    if (topLevelCount(groups, contours) <= MAX_DEFAULT_NODES)
+      return groups
+  }
+  return foldedAt(contours, 0)
 }
 
 function defaultOpen(groups: MapGroup[], contours: MapContour[]): string[] {
@@ -291,13 +315,15 @@ function declaredContours(mechanics: MapMechanics, projectName: string): Contour
 
 export function componentMap(mechanics: MapMechanics, interpreted: readonly InterpretedComponent[], projectName: string): ComponentMap {
   const contours = declaredContours(mechanics, projectName)
-  const owner = (file: string): string => contourOf(file, contours)
+  const declaredOwner = (file: string): string => contourOf(file, contours)
   const read = new Map(mechanics.components.map(entry => [entry.path, { path: entry.path, state: entry.relations === 'found' ? 'held' as const : 'unknown' as const, reason: entry.relations === 'found' ? null : entry.reason }]))
   const filesOf = new Map<string, string[]>(contours.map(contour => [contour.id, []]))
   for (const entry of mechanics.components)
-    filesOf.get(owner(entry.path))?.push(entry.path)
+    filesOf.get(declaredOwner(entry.path))?.push(entry.path)
+  const adopted = adoptedByRoot(interpreted, filesOf, read)
+  const owner = (file: string): string => adopted.has(file) ? ROOT_CONTOUR : declaredOwner(file)
   const mapContours: MapContour[] = contours.map((contour) => {
-    const components = componentsOf(contour, interpreted, filesOf, read)
+    const components = componentsOf(contour, interpreted, filesOf, read, adopted)
     const counts = sum(components.map(entry => entry.counts))
     return { id: contourNode(contour.id), name: contour.name, kind: contour.kind, declaredBy: contour.declaredBy, entries: contour.entries, components, state: stateOf(counts), counts }
   })

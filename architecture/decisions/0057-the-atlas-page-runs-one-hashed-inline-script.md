@@ -28,7 +28,8 @@ This replaces the first item of point 2 of 0054 and nothing else.
    document that declares its own format (OpenAPI, AsyncAPI, Swagger, a json-schema.org JSON Schema).
    No directory name makes a contour. Discovery writes them as `mechanics.contours`, which takes
    `modelVersion` 6 because 5 is published ([0056](0056-a-model-field-added-before-its-version-is-published-joins-that-version.md) §2).
-   More than 30 contours fold by their parent directory, so the first sight holds at most 30 nodes.
+   More than 30 contours fold by their parent directory, and by a shorter shared prefix of it until
+   the count is within 30, so the first sight holds at most 30 nodes.
 3. **The components inside a contour are the agent's.** The discovery protocol groups files into
    components, each with a name and a one-line purpose, under the Engram's top-level
    `interpretation` key, never inside `mechanics`. The CLI checks the shape (closed properties, one

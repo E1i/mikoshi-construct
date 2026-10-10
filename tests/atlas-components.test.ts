@@ -121,6 +121,38 @@ describe('the view of a repository', () => {
     expect(componentMap(workspaces(20), [], 'few').groups).toEqual([])
   })
 
+  it.each([
+    ['contours under distinct parents fold into one group at the root', (index: number) => `p${index}/pkg`, [['g:.', 40]], ['c:.', 'g:.']],
+    ['service apis fold by their shared prefix', (index: number) => `services/s${index}/api`, [['g:services', 40]], ['c:.', 'g:services']],
+  ])('folds by a shorter shared prefix when no two of more than 30 contours share a parent: %s', (_, at, groups, shown) => {
+    const many: MapMechanics = { contours: [{ id: '.', name: 'many', kind: 'package', declaredBy: 'package.json', entries: [] }], components: [], relations: [] }
+    for (let index = 0; index < 40; index += 1) {
+      many.contours.push({ id: at(index), name: at(index), kind: 'workspace', declaredBy: `${at(index)}/package.json`, entries: [] })
+      many.components.push({ id: `${at(index)}/a.ts`, path: `${at(index)}/a.ts`, relations: 'found' })
+    }
+    const map = componentMap(many, [], 'many')
+    expect(map.groups.map(group => [group.id, group.contours.length])).toEqual(groups)
+    expect(visibleNodes(map)).toEqual(shown)
+    expect(visibleNodes(map).length).toBeLessThanOrEqual(MAX_DEFAULT_NODES)
+  })
+
+  it('draws a tracked file of a component whose contour is not declared by its real state, under the root, and names the contour', () => {
+    const mechanics: MapMechanics = {
+      contours: [{ id: '.', name: 'r', kind: 'package', declaredBy: 'package.json', entries: [] }, { id: 'p1/pkg', name: 'p1/pkg', kind: 'workspace', declaredBy: 'p1/pkg/package.json', entries: [] }],
+      components: [{ id: 'p1/pkg/a.ts', path: 'p1/pkg/a.ts', relations: 'found' }, { id: 'p1/pkg/b.ts', path: 'p1/pkg/b.ts', relations: 'found' }],
+      relations: [],
+    }
+    const map = componentMap(mechanics, [{ id: 'x', contour: 'nope', name: 'X', purpose: 'Names a contour nobody declares', files: ['p1/pkg/a.ts', 'p1/pkg/gone.ts'] }], 'r')
+    const root = map.contours.find(contour => contour.id === 'c:.')!
+    const named = root.components.find(component => component.name === 'X')!
+    expect(named.undeclaredContour).toBe('nope')
+    expect(named.files.map(file => [file.path, file.state])).toEqual([['p1/pkg/a.ts', 'held'], ['p1/pkg/gone.ts', 'absent']])
+    const pkg = map.contours.find(contour => contour.id === 'c:p1/pkg')!
+    expect(pkg.components.flatMap(component => component.files.map(file => file.path))).toEqual(['p1/pkg/b.ts'])
+    expect(pkg.state).toBe('held')
+    expect(map.contours.flatMap(contour => contour.components.flatMap(component => component.files.filter(file => file.state !== 'absent').map(file => file.path))).sort()).toEqual(['p1/pkg/a.ts', 'p1/pkg/b.ts'])
+  })
+
   it('unfolds the contours at first sight while the view stays within 30 nodes, and no further', () => {
     const map = componentMap(workspaces(20), [], 'few')
     expect(map.open.length).toBeGreaterThan(0)

@@ -209,7 +209,8 @@ export const ATLAS_SCRIPT = `
         + (contour.entries.length === 0 ? '<p class="empty">Declares no public entry.</p>' : '<p>Public entry:</p><ul>' + contour.entries.map((entry) => '<li>' + esc(entry) + '</li>').join('') + '</ul>');
     }
     else if (component) {
-      body = '<h2>' + esc(component.name) + '</h2><p>' + esc(component.purpose === null ? 'Not interpreted yet: grouped by directory until discovery names it.' : component.purpose) + '</p><p data-state="' + component.state + '">' + esc(counts(component)) + '</p>';
+      body = '<h2>' + esc(component.name) + '</h2><p>' + esc(component.purpose === null ? 'Not interpreted yet: grouped by directory until discovery names it.' : component.purpose) + '</p><p data-state="' + component.state + '">' + esc(counts(component)) + '</p>'
+        + (component.undeclaredContour === null ? '' : '<p data-undeclared="">' + esc('Named under the contour "' + component.undeclaredContour + '", which the repository does not declare: drawn under the root.') + '</p>');
     }
     else {
       panel.setAttribute('data-file', id);
