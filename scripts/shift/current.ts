@@ -10,9 +10,12 @@ import { fileURLToPath } from 'node:url'
 import { parseCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { pollHead } from '../bus/head-poll.js'
+import { HEAD_READS } from '../bus/update-executor.js'
+import { blockFor, SETTLE_MS } from '../bus/update-worker.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
-import { latestPrReview, mergeVerdict, OWNER_MERGES_ON_MAIN, runCarry } from './merge.js'
+import { latestPrReview, mergeVerdict, OWNER_MERGES_ON_MAIN, readPrView, runCarry } from './merge.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
 
 export const PREFIX = '[shift:current] '
@@ -30,6 +33,7 @@ export interface CurrentDeps {
   journal: () => string | null
   append: (text: string) => void
   now: () => Date
+  settle: () => void
 }
 
 interface Check {
@@ -133,11 +137,17 @@ function update(item: Kept, deps: CurrentDeps): string[] {
   catch (error) {
     return [`${PREFIX}PR #${number} not updated, left alone: ${firstLine(error)}`]
   }
-  const carried = runCarry([number, '--carry'], deps.carry)
+  const poll = pollHead({ from: item.pr.headRefOid, read: () => readPrView(deps.gh, number).headRefOid, settle: deps.settle, reads: HEAD_READS })
+  if (poll.kind === 'still')
+    return [`${PREFIX}PR #${number} updated, its review not carried: its head did not move from ${item.pr.headRefOid} after ${HEAD_READS} reads`]
+  if (poll.kind === 'unread')
+    return [`${PREFIX}PR #${number} updated, its review not carried: its head was not read after ${HEAD_READS} reads: ${poll.error}`]
+  const head = poll.head
+  const carried = runCarry([number, '--carry'], deps.carry, head)
   if (carried.exitCode !== 0)
     return [`${PREFIX}PR #${number} updated, its review not carried: ${carried.stderr.join(' ')}`]
   const kind = item.ownerMerge ? 'owner-merge, not armed' : 'armed'
-  return [`${PREFIX}PR #${number} updated with its review carried (${kind})`, ...carried.stdout]
+  return [`${PREFIX}PR #${number} updated to ${head} with its review carried (${kind})`, ...carried.stdout]
 }
 
 export function runCurrent(deps: CurrentDeps): MergeResult {
@@ -195,6 +205,7 @@ export function realCurrentDeps(journalFile: string): CurrentDeps {
     journal: () => existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : null,
     append: text => appendFileSync(journalFile, text),
     now: () => new Date(),
+    settle: () => blockFor(SETTLE_MS),
   }
 }
 
