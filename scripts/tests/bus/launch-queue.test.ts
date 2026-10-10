@@ -248,7 +248,10 @@ describe('the launch queue', () => {
   it('a session whose process group cannot be read is killed before start_failed', async () => {
     const root = tempRoot()
     const stub = stubClaude(root)
-    const bench = launchBench(realStarter(root, stub.command, 927, { pgidOf: () => { throw new Error('ps: no such process') } }))
+    const unreadableGroup = (): never => {
+      throw new Error('ps: no such process')
+    }
+    const bench = launchBench(realStarter(root, stub.command, 927, { pgidOf: unreadableGroup }))
     bench.admit(927, 'lane-x')
     bench.tick()
 
