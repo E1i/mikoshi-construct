@@ -1,4 +1,5 @@
 import type { PrList, PullRequest } from '../board/gh.js'
+import type { GhostRowSupervisor } from './status.js'
 import type { TasksFile } from './tasks.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs'
@@ -17,7 +18,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
 import { appendJournalEvent } from './journal.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
-import { freeRow, ghostRowState, writeGhostRow } from './status.js'
+import { freeRow, ghostRowState, ghostRowSupervisor, rowTimestamp, writeGhostRow } from './status.js'
 import { approvedSketchOf, lastRunSketch, patchPath, releaseTree, shortSketch, sketchSuperseded } from './supersede.js'
 import { readTasksFile, startedTree } from './tasks.js'
 import { DISPOSITION_EVENT, MERGE_FOLLOW_UP } from './verdict.js'
@@ -27,10 +28,7 @@ const DEFAULT_LOGS_DIR = '/tmp'
 const BLOCKED_OUTCOME = /; ladder blocked; report \S+;/
 const DONE_OUTCOME = /^exit 0; ladder done; report \S+;/
 const OUTCOME_COLUMN = 6
-const SHA_COLUMN = 4
-const START_COLUMN = 5
 const BUSY_STATES = new Set(['writing', 'reviewing'])
-const SUPERVISOR_NAMED = /, supervisor (\d+), /
 
 export interface Target {
   id: string
@@ -210,11 +208,8 @@ async function releaseSuperseded(task: Target, ctx: CleanupContext): Promise<str
   return `${label(task)} released: superseded by sketch ${shortSketch(approved)}; work saved to ${patch}; tree ${task.worktree} clean for the next attempt`
 }
 
-interface BusyRow {
+interface BusyRow extends GhostRowSupervisor {
   state: string
-  supervisor: number
-  sha: string
-  start: string
 }
 
 function busyRow(statusText: string | undefined, id: string): BusyRow | undefined {
@@ -223,9 +218,8 @@ function busyRow(statusText: string | undefined, id: string): BusyRow | undefine
   const state = ghostRowState(statusText, id)
   if (state === undefined || !BUSY_STATES.has(state))
     return undefined
-  const cells = statusText.split('\n').find(line => line.startsWith(`| ghost-${id} |`))!.split('|').map(cell => cell.trim())
-  const named = SUPERVISOR_NAMED.exec(cells[OUTCOME_COLUMN] ?? '')
-  return named === null ? undefined : { state, supervisor: Number(named[1]), sha: cells[SHA_COLUMN]!, start: cells[START_COLUMN]! }
+  const named = ghostRowSupervisor(statusText, id)
+  return named === undefined ? undefined : { state, ...named }
 }
 
 function processAlive(pid: number): boolean {
@@ -236,11 +230,6 @@ function processAlive(pid: number): boolean {
   catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
-}
-
-function minuteStamp(date: Date): string {
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function stashKilledTree(worktree: string, message: string): string {
@@ -256,8 +245,6 @@ function stashKilledTree(worktree: string, message: string): string {
 function setReportAside(report: string, aside: string): string {
   if (!existsSync(report))
     return `no report at ${report}`
-  if (existsSync(aside))
-    throw new Error(`${aside} already exists`)
   renameSync(report, aside)
   return `report moved to ${aside}`
 }
@@ -271,17 +258,22 @@ export async function releaseKilled(task: Target, ctx: CleanupContext): Promise<
     return kept(task, `status.md row ghost-${id} is ${row.state} and its supervisor ${row.supervisor} is alive`)
   const out = path.dirname(ctx.journalPath)
   const killed = `supervisor ${row.supervisor} dead`
+  const reportPath = path.join(out, `ghost-${id}.jsonl`)
+  const aside = path.join(out, `ghost-${id}.killed-${row.supervisor}.jsonl`)
+  const notSetAside = `${killed} with the row ${row.state}, but the run could not be set aside`
+  if (existsSync(reportPath) && existsSync(aside))
+    return kept(task, `${notSetAside}: ${aside} already exists`)
   let tree: string
   let report: string
   try {
     tree = existsSync(task.worktree) ? `tree ${task.worktree} ${stashKilledTree(task.worktree, `ghosts:cleanup ghost-${id} ${killed}`)}` : `no tree at ${task.worktree}`
-    report = setReportAside(path.join(out, `ghost-${id}.jsonl`), path.join(out, `ghost-${id}.killed-${row.supervisor}.jsonl`))
+    report = setReportAside(reportPath, aside)
   }
   catch (error) {
-    return kept(task, `${killed} with the row ${row.state}, but the run could not be set aside: ${firstLine(error)}`)
+    return kept(task, `${notSetAside}: ${firstLine(error)}`)
   }
   const headSha = existsSync(task.worktree) ? execFileSync('git', ['-C', task.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() : row.sha
-  await writeGhostRow(ctx.statusPath, id, freeRow({ id, worktree: task.worktree, headSha, start: row.start, end: minuteStamp(new Date()), outcome: `${killed}; freed by ghosts:cleanup` }))
+  await writeGhostRow(ctx.statusPath, id, freeRow({ id, worktree: task.worktree, headSha, start: row.start, end: rowTimestamp(), outcome: `${killed}; freed by ghosts:cleanup` }))
   return `${label(task)} released: ${killed} with the row ${row.state}; row ghost-${id} free; ${report}; ${tree}`
 }
 

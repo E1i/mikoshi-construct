@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { freeRow, ghostRowSessionId, ghostRowState, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
+import { freeRow, ghostRowSessionId, ghostRowState, ghostRowSupervisor, installFailedOutcome, installUnspawnableOutcome, rowTimestamp, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
 
 const STATUS = `# Ghosts — window status
 
@@ -58,6 +58,25 @@ describe('ghostRowState', () => {
 
   it('is undefined when there is no row for the id', () => {
     expect(ghostRowState(STATUS, 'g1')).toBeUndefined()
+  })
+})
+
+describe('ghostRowSupervisor', () => {
+  it('reads the supervisor pid, the sha and the start cells of a writing row', () => {
+    const row = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'abc1234', start: '2026-09-27 20:00', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
+    expect(ghostRowSupervisor(upsertGhostRow(STATUS, 'g1', row), 'g1')).toEqual({ supervisor: 4242, sha: 'abc1234', start: '2026-09-27 20:00' })
+  })
+
+  it('is undefined for a row that names no supervisor, and for no row', () => {
+    const row = '| ghost-g1 | /w/wt-g1 | writing | abc1234 | 2026-09-27 20:00 | /implement b, session s | 2026-09-27 20:00 |'
+    expect(ghostRowSupervisor(upsertGhostRow(STATUS, 'g1', row), 'g1')).toBeUndefined()
+    expect(ghostRowSupervisor(STATUS, 'g1')).toBeUndefined()
+  })
+})
+
+describe('rowTimestamp', () => {
+  it('writes the local date and minute with zero padding', () => {
+    expect(rowTimestamp(new Date(2026, 0, 2, 3, 4, 59))).toBe('2026-01-02 03:04')
   })
 })
 
