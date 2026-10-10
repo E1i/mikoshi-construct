@@ -1,6 +1,6 @@
 import type { TreePr, TreePrPorts } from './tree-pr.js'
 import { execFileSync } from 'node:child_process'
-import { readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +28,10 @@ export function runTreePr(argv: string[], ports: TreePrPorts = REAL_PORTS, out: 
   if (cardFile === undefined || worktree === undefined) {
     out(`${PREFIX}usage: tree-pr <parking card file> <worktree>`)
     return 2
+  }
+  if (!existsSync(cardFile)) {
+    out(`${PREFIX}${path.basename(cardFile)}: the card file ${cardFile} is gone (moved to another lane or archived while the session ran); the tree is left uncommitted`)
+    return 1
   }
   const parsed = parseParkingFile(path.basename(cardFile), readFileSync(cardFile, 'utf8'))
   if (parsed.kind === 'refused') {

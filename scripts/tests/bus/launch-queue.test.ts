@@ -447,6 +447,26 @@ describe('card.admitted from the intake journal', () => {
     bench.close()
   })
 
+  it('a replay of the whole journal queues no launch for a card parked in dropped, sliced or a topic directory', () => {
+    const bench = journalBench()
+    const parked = [[987, 'dropped'], [988, 'sliced'], [989, 'architecture'], [990, 'self-learning'], [991, '2026-10-10-b'], [992, 'night-4'], [993, 'lane-bus-5']] as const
+    for (const [cardId, lane] of parked)
+      bench.park(cardId, lane)
+    parked.forEach(([cardId], index) => bench.append(intakeLine(cardId, 'admit', index + 1)))
+    bench.park(994, 'dropped')
+    bench.append(intakeLine(994, 'admit', 10))
+    bench.append(moveLine(994, path.join(bench.parking, 'lane-q'), path.join(bench.parking, 'dropped'), 11))
+    bench.tick()
+
+    expect(admittedRows(bench.db).map(row => [row.card_id, JSON.parse(String(row.payload)).lane])).toEqual([
+      [991, '2026-10-10-b'],
+      [992, 'night-4'],
+      [993, 'lane-bus-5'],
+    ])
+    expect(launchTasks(bench.db).map(task => String(task.task_key).split(':')[1])).toEqual(['991', '992', '993'])
+    bench.close()
+  })
+
   it('a second admit after the card fell enqueues a new launch', () => {
     const starter = new FakeStarter()
     const bench = journalBench(starter)

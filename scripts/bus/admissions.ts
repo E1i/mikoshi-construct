@@ -6,7 +6,6 @@ import { parseCard } from '../../src/card/grammar.js'
 import { ADMIT_SOURCE } from '../../src/commands/intake/admit.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
-import { ARCHIVE_DIR } from './card-archive.js'
 import { appendEvent } from './db.js'
 import { cardIdOf } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
@@ -56,6 +55,12 @@ function cardOf(line: Record<string, unknown>): Omit<Admission, 'lane'> | null {
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : null
 }
 
+const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
+
+export function isLaneName(name: string): boolean {
+  return LANE_NAME.test(name)
+}
+
 export function parkingLane(parking: string): LaneOnDisk {
   return (cardId) => {
     if (!existsSync(parking))
@@ -92,9 +97,11 @@ export function admitFromJournal(db: DatabaseSync, ts: string, laneOnDisk: LaneO
     if (known !== undefined)
       continue
     const present = laneOnDisk(cardId)
-    if (present === null || present === ARCHIVE_DIR)
+    if (present === null || !isLaneName(present))
       continue
     const lane = isMove ? moved : movedTo.get(cardId) ?? present
+    if (lane === null || !isLaneName(lane))
+      continue
     if (appendEvent(db, admittedEvent(row, cardId, { lane, ...card }, ts)))
       admitted += 1
   }
