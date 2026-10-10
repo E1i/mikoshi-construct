@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
-import type { Queue } from './identifiers.js'
+import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
-import { generationOfKey } from './identifiers.js'
+import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED } from './inbox.js'
-import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED } from './queue.js'
+import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_LEASED = 'task.leased'
@@ -17,6 +17,7 @@ export const TASK_RELEASED = 'task.released'
 export const BOARD_ALARM = 'board.alarm'
 
 export const LEASE_MS = 30 * 60_000
+export const RENEW_MS = 10 * 60_000
 export const FAILURES_TO_STOP = 3
 
 export const COMPLETED = 'completed'
@@ -161,11 +162,27 @@ export function assertHeld(db: DatabaseSync, lease: Lease): void {
 export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string): Lease | null {
   return inTransaction(db, () => {
     const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open') as LeaseRow | undefined
-    if (row === undefined)
+    return row === undefined ? null : leased(db, ts, row, actor)
+  })
+}
+
+function leased(db: DatabaseSync, ts: string, row: LeaseRow, actor: string): Lease {
+  const leaseGen = row.lease_gen + 1
+  folded(db, taskEvent(ts, TASK_LEASED, actor, row, leaseGen, `${TASK_LEASED}:${row.task_key}:${leaseGen}`))
+  return leaseOf(rowOf(db, row.task_key)!, actor)
+}
+
+export function leasedCount(db: DatabaseSync, queue: Queue): number {
+  return Number((db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = ? AND state = '${LEASED}'`).get(queue) as { n: number }).n)
+}
+
+export function leaseWhileFree(db: DatabaseSync, ts: string, task: TaskIdentity, actor: string, slots: number): Lease | null {
+  return inTransaction(db, () => {
+    if (leasedCount(db, task.queue) >= slots)
       return null
-    const leaseGen = row.lease_gen + 1
-    folded(db, taskEvent(ts, TASK_LEASED, actor, row, leaseGen, `${TASK_LEASED}:${row.task_key}:${leaseGen}`))
-    return leaseOf(rowOf(db, row.task_key)!, actor)
+    queueTaskWithin(db, ts, task)
+    const row = rowOf(db, taskKey(task)) ?? reject(`task ${taskKey(task)} was never queued`)
+    return row.state === QUEUED ? leased(db, ts, row, actor) : null
   })
 }
 

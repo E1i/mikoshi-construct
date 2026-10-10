@@ -200,13 +200,19 @@ function taskEvent(ts: string, type: string, task: QueuedTask): BusEvent {
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${type}:${key}`, payload: { task_key: key, queue: task.queue, ...generationField(task.generation) }, legacy: false }
 }
 
+function appended(db: DatabaseSync, event: BusEvent): boolean {
+  if (!appendEvent(db, event))
+    return false
+  TASK_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
+  return true
+}
+
 function written(db: DatabaseSync, event: BusEvent): boolean {
-  return inTransaction(db, () => {
-    if (!appendEvent(db, event))
-      return false
-    TASK_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
-    return true
-  })
+  return inTransaction(db, () => appended(db, event))
+}
+
+export function queueTaskWithin(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
+  return appended(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
 export function queueTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {

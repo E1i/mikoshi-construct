@@ -12,9 +12,9 @@ import { AnswerExecutor } from './answer-executor.js'
 import { claudeAnswerer, PREFIX } from './answerer.js'
 import { defaultBusPath, openBus } from './db.js'
 import { messageOf, OWNER_MERGES } from './executor.js'
-import { expireLeases, leaseNext, renewLease, StaleLease } from './lease.js'
+import { expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { RENEW_MS, SWITCH_FLAG } from './review-worker.js'
+import { SWITCH_FLAG } from './review-worker.js'
 
 const ANSWERS_DIR = path.join(os.homedir(), '.construct', 'bus', 'answers')
 
