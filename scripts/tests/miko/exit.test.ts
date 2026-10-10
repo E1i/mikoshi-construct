@@ -18,7 +18,8 @@ echo "$n" > "$STUB_DIR/count"
 echo "$n" >> "$STUB_DIR/calls"
 set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
-  write) echo handoff > "$HOME/.construct/handoff/mikoshi.md" ;;
+  write) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md" ;;
+  owner) echo 'STATUS: OWNER' > "$HOME/.construct/handoff/mikoshi.md" ;;
 esac
 case "$2" in
   exit)
@@ -65,13 +66,13 @@ function run(dir: string, command: string, args: string[]): Promise<{ code: numb
 
 describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
   it('ends a stub session under the loop and the loop starts the next one', async () => {
-    const dir = home(['write exit', 'quiet'])
+    const dir = home(['write exit', 'owner'])
     const { code, stderr } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
     expect(read(dir, 'calls').split('\n').filter(Boolean)).toEqual(['1', '2'])
     expect(read(dir, 'exit.err')).toContain('ending claude')
     expect(read(dir, 'survived')).toBe('')
-    expect(stderr).toContain('mikoshi.md written: next session')
+    expect(stderr).toContain('STATUS: CONTINUE: next session')
   }, 20_000)
 
   it('refuses when mikoshi.md is older than two minutes', async () => {
@@ -88,7 +89,7 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
   }, 20_000)
 
   it('refuses outside the miko loop', async () => {
-    const dir = home(['write exit 1'])
+    const dir = home(['owner exit 1'])
     const { code, signal } = await run(dir, path.join(dir, 'claude'), [])
     expect({ code, signal }).toEqual({ code: 0, signal: null })
     expect(read(dir, 'exit.code').trim()).toBe('1')
