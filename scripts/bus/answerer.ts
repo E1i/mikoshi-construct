@@ -2,7 +2,7 @@ import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Lease } from './lease.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -25,6 +25,7 @@ export interface Answered {
   resumed: boolean
   before: string | null
   after: string | null
+  owner: string | null
 }
 
 export type Answerer = (request: AnswerRequest) => Promise<Answered>
@@ -63,7 +64,18 @@ function sourceLines(source: AnswerSource): string[] {
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 
-export function answerPrompt(request: AnswerRequest): string {
+export function ownerQuestionPath(dir: string, session: string, leaseGen: number): string {
+  return path.join(dir, `${session}.${leaseGen}.owner.txt`)
+}
+
+function ownerQuestionIn(file: string): string | null {
+  if (!existsSync(file))
+    return null
+  const reason = readFileSync(file, 'utf8').trim()
+  return reason === '' ? null : reason
+}
+
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
@@ -72,7 +84,7 @@ export function answerPrompt(request: AnswerRequest): string {
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
     ...source.events.map(event => JSON.stringify(event)),
-    `Run pnpm run quality, commit and push to ${card.branch}. If the card cannot go on without the owner, push nothing.`,
+    `Run pnpm run quality, commit and push to ${card.branch}. If the card cannot go on without the owner, push nothing and write the question for the owner, one line, to ${ownerQuestion}.`,
   ].join('\n')
 }
 
@@ -130,8 +142,10 @@ export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): 
       throw new CardTreeGone(card)
     const resumed = tools.available(card)
     const session = resumed ? card.session : tools.newSession()
-    const prompt = answerPrompt(request)
+    const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
+    const prompt = answerPrompt(request, ownerQuestion)
     mkdirSync(dir, { recursive: true })
+    rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
     const code = await tools.spawn({
       cwd: card.worktree,
@@ -142,6 +156,6 @@ export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): 
     })
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
-    return { session, resumed, before, after: tools.remoteHead(card) }
+    return { session, resumed, before, after: tools.remoteHead(card), owner: ownerQuestionIn(ownerQuestion) }
   }
 }

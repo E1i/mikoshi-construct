@@ -92,17 +92,18 @@ export class AnswerExecutor {
   private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: Answered): AnswerOutcome {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
+      if (answered.owner !== null)
+        return this.stopped(lease, QUESTION_OWNER, answered.owner, scope)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
-      completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason: 'fault', detail })])
-      return { kind: 'stopped', taskKey: lease.taskKey, reason: 'fault', detail }
+      return this.stopped(lease, 'fault', detail, scope)
     }
     const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
 
-  private stopped(lease: Lease, reason: string, detail: string): AnswerOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [this.event(lease, CARD_STOPPED, { reason, detail })])
+  private stopped(lease: Lease, reason: string, detail: string, scope: BusEvent[] = []): AnswerOutcome {
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail })])
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }
 

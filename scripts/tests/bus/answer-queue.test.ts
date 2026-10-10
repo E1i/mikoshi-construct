@@ -3,17 +3,17 @@ import type { AnswerRun } from '../../bus/answerer.js'
 import type { Queue } from '../../bus/identifiers.js'
 import type { Lease } from '../../bus/lease.js'
 import type { StoredEvent } from '../../bus/stored.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnswerExecutor, SCOPE_WIDENED } from '../../bus/answer-executor.js'
 import { answerSourceOf } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
-import { claudeAnswerer, projectDirOf } from '../../bus/answerer.js'
+import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
@@ -43,8 +43,9 @@ function answerBench() {
   const bench = mergeBench()
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-trees-'))
   const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
+  const answers = path.join(trees, 'answers')
   const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {} }
-  const answerer = claudeAnswerer('/tmp/answers', {
+  const answerer = claudeAnswerer(answers, {
     available: () => tools.available,
     remoteHead: () => tools.heads.shift() ?? null,
     spawn: async (run) => {
@@ -60,6 +61,7 @@ function answerBench() {
     ...bench,
     tools,
     treeOf,
+    answers,
     question: (cardId: number, pr?: number, head?: string): string => {
       const { stop } = bench.db.prepare(`SELECT max(id) AS stop FROM events WHERE type = '${CARD_STOPPED}' AND card_id = ?`).get(cardId) as { stop: number }
       return `${answer(cardId, pr, head)}:stop-${stop}`
@@ -348,6 +350,27 @@ describe('the answer executor', () => {
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([])
     bench.close()
   })
+
+  it('a session that asks for the owner stops the card with question.owner and its reason, and the owner inbox shows it', async () => {
+    const bench = answerBench()
+    const reason = 'the finding asks for a change to architecture/owner-merges.md'
+    bench.tools.heads = [sha('a'), sha('a')]
+    bench.started(1097)
+    bench.gitHub.open({ number: 997, review: 'failure' })
+    bench.tick()
+    const lease = bench.leaseAnswer()!
+    const ownerQuestion = ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen)
+    bench.tools.during = () => writeFileSync(ownerQuestion, `${reason}\n`)
+
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: reason })
+    expect(bench.tools.runs[0]!.argv.at(-1)).toContain(ownerQuestion)
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([{ reason: 'question.owner', detail: reason }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([])
+    const inbox = ownerInbox(bench.db)
+    expect(inbox.map(line => line.card_id)).toEqual([1097])
+    expect(inboxText(inbox[0]!)).toContain(reason)
+    bench.close()
+  })
 })
 
 describe('the widening rule', () => {
@@ -370,7 +393,7 @@ describe('the widening rule', () => {
 describe('the answer worker', () => {
   it('ships switched off: without --on it opens nothing and exits 0', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    expect(await runAnswerWorker([], { busPath: '/nonexistent/bus.db', answerer: async () => ({ session: 's', resumed: true, before: null, after: null }), ownerMerges: () => OWNER_MERGES, session: 'worker-1', pause: async () => {} })).toBe(0)
+    expect(await runAnswerWorker([], { busPath: '/nonexistent/bus.db', answerer: async () => ({ session: 's', resumed: true, before: null, after: null, owner: null }), ownerMerges: () => OWNER_MERGES, session: 'worker-1', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
   })
 })
