@@ -42,6 +42,7 @@
     "bench:architect": "tsx scripts/bench/run.ts",
     "board": "tsx scripts/board/board.ts",
     "build": "tsup",
+    "bus:answer": "tsx scripts/bus/answer-worker.ts",
     "bus:bg": "tsx scripts/bus/supervisor.ts",
     "bus:close": "tsx scripts/bus/close-worker.ts",
     "bus:import": "tsx scripts/bus/import.ts",
