@@ -56,6 +56,10 @@ function answerBench() {
     ...bench,
     tools,
     treeOf,
+    question: (cardId: number, pr?: number, head?: string): string => {
+      const { stop } = bench.db.prepare(`SELECT max(id) AS stop FROM events WHERE type = '${CARD_STOPPED}' AND card_id = ?`).get(cardId) as { stop: number }
+      return `${answer(cardId, pr, head)}:stop-${stop}`
+    },
     leaseAnswer: (actor = 'worker:answer:worker-1'): Lease | null => leaseNext(bench.db, ts(), 'answer', actor),
     answer: (lease: Lease): Promise<AnswerOutcome> => executor.answer(lease),
     started: (cardId: number, session = CARD_SESSION): void => {
@@ -90,12 +94,12 @@ describe('the answer queue', () => {
     bench.stopped(1092, { reason: 'question.owner', detail: 'the owner decides' }, 992, sha('c'))
     bench.tick()
 
-    expect(taskState(bench.db, answer(900))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
+    expect(taskState(bench.db, bench.question(900))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(taskState(bench.db, answer(1090, 990, sha('a')))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     const keys = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
-    expect(keys).toEqual([answer(1090, 990, sha('a')), answer(900)])
+    expect(keys).toEqual([answer(1090, 990, sha('a')), bench.question(900)])
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([901, 1092])
-    expect(bench.leaseAnswer()).toMatchObject({ taskKey: answer(900), queue: 'answer', pr: null, head: null, leaseGen: 1 })
+    expect(bench.leaseAnswer()).toMatchObject({ taskKey: bench.question(900), queue: 'answer', pr: null, head: null, leaseGen: 1 })
     expect(bench.leaseAnswer()).toMatchObject({ taskKey: answer(1090, 990, sha('a')), leaseGen: 1 })
 
     const live = projectionDump(bench.db)
@@ -163,14 +167,16 @@ describe('the answer queue', () => {
     bench.tick()
 
     const same = await bench.answer(bench.leaseAnswer()!)
-    expect(same).toMatchObject({ kind: 'answered', taskKey: answer(910), session: CARD_SESSION })
+    expect(same).toMatchObject({ kind: 'answered', taskKey: bench.question(910), session: CARD_SESSION })
     const [widened] = eventsOf(bench.db, SCOPE_WIDENED)
     expect(widened).toMatchObject({ paths: ['scripts/bus/lease.ts', 'scripts/tests/bus/lease.test.ts'], detail: 'the lease query must admit a card with no pull request' })
     expect(widened!.reason).toContain('scripts/bus')
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The touches are widened')
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: answer(911), reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: answer(912), reason: 'question.owner', detail: expect.stringContaining('outside the module') })
+    const owner = bench.question(911)
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: owner, reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
+    const outside = bench.question(912)
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: outside, reason: 'question.owner', detail: expect.stringContaining('outside the module') })
     expect(bench.tools.runs).toHaveLength(1)
     expect(eventsOf(bench.db, SCOPE_WIDENED)).toHaveLength(1)
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([911, 912])
@@ -187,15 +193,63 @@ describe('the answer queue', () => {
     bench.stopped(1090, { reason: 'question.agent', detail: 'pushed and stopped before the poll' }, 990, sha('b'))
     bench.tick()
     bench.tick()
-    expect(taskState(bench.db, answer(1090, 990, sha('a'))).state).toBe('queued')
+    expect(taskState(bench.db, bench.question(1090, 990, sha('a'))).state).toBe('queued')
 
     bench.gitHub.open({ number: 990, head: sha('b') })
     bench.tick()
     bench.tick()
 
-    expect(taskState(bench.db, answer(1090, 990, sha('a'))).state).toBe('superseded')
-    expect(taskState(bench.db, answer(1090, 990, sha('b'))).state).toBe('queued')
-    expect(bench.leaseAnswer()).toMatchObject({ taskKey: answer(1090, 990, sha('b')), head: sha('b') })
+    expect(taskState(bench.db, bench.question(1090, 990, sha('a'))).state).toBe('superseded')
+    expect(taskState(bench.db, bench.question(1090, 990, sha('b'))).state).toBe('queued')
+    expect(bench.leaseAnswer()).toMatchObject({ taskKey: bench.question(1090, 990, sha('b')), head: sha('b') })
+    bench.close()
+  })
+
+  it('a second question on the same card and head is answered', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), PUSHED, PUSHED, sha('f')]
+    bench.started(920)
+    bench.stopped(920, { reason: 'question.agent', detail: 'which reader owns the session id?' })
+    bench.tick()
+    const first = bench.question(920)
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: first })
+
+    bench.stopped(920, { reason: 'question.agent', detail: 'and which one owns the lease?' })
+    bench.tick()
+    const second = bench.question(920)
+    expect(second).not.toBe(first)
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: second })
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toHaveLength(2)
+
+    bench.stopped(920, { reason: 'question.agent', detail: 'and which one owns the lease?' })
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
+    bench.close()
+  })
+
+  it('a second question on the same card and head is answered when the card has a pull request', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a'), sha('a'), PUSHED]
+    bench.started(1080)
+    bench.gitHub.open({ number: 980 })
+    bench.tick()
+    bench.stopped(1080, { reason: 'question.agent', detail: 'the first question' }, 980, sha('a'))
+    bench.tick()
+    const first = bench.question(1080, 980, sha('a'))
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: first, reason: 'fault' })
+
+    bench.started(1080, 'card-session-2')
+    bench.stopped(1080, { reason: 'question.agent', detail: 'the second question' }, 980, sha('a'))
+    bench.tick()
+    const second = bench.question(1080, 980, sha('a'))
+    expect(second).not.toBe(first)
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: second, session: 'card-session-2', head: PUSHED })
+
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
 
