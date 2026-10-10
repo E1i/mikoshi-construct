@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Decision } from '../../src/card/grammar.js'
 import type { GhRunner } from '../board/gh.js'
 import type { GitRunner } from '../ghosts/sketch.js'
@@ -12,6 +13,8 @@ import { fileURLToPath } from 'node:url'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { MERGE_DONE } from '../bus/executor.js'
+import { POLICY_DENIED } from '../bus/inbox.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
 import { ghStatusPublisher, publishReasons, REVIEW_CARRY_EVENT, reviewStatus } from '../ghosts/verdict.js'
 import { matchGlob } from '../shredder/glob.js'
@@ -67,7 +70,7 @@ export function pathWithoutMatrix(body: string, files: string[]): string | undef
 }
 
 function refuse(message: string): MergeResult {
-  return { stdout: [], stderr: [`${PREFIX}${message}; auto-merge not armed`], exitCode: 1 }
+  return { stdout: [], stderr: [`${PREFIX}${message}; not handed to the bus`], exitCode: 1 }
 }
 
 function firstLine(error: unknown): string {
@@ -118,13 +121,30 @@ export function runMerge(argv: string[], deps: MergeDeps, reviewed?: string): Me
   if (verdict.kind === 'owner-paths')
     return { stdout: verdict.paths.map(file => `${PREFIX}owner path ${file} — merge is Eli's`), stderr: [], exitCode: 0 }
   const head = reviewed ?? view.headRefOid
-  try {
-    deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', head, '-R', REPO])
-  }
-  catch (error) {
-    return refuse(`gh pr merge failed: ${firstLine(error)}`)
-  }
-  return { stdout: [`${PREFIX}decision auto, no owner path — auto-merge armed on PR #${number} at ${head}`], stderr: [], exitCode: 0 }
+  return { stdout: [`${PREFIX}decision auto, no owner path — PR #${number} goes to the bus at ${head}; the chain waits for its ${MERGE_DONE}`], stderr: [], exitCode: 0 }
+}
+
+export const HANDED_TO_THE_BUS = /PR #(\d+) goes to the bus at ([0-9a-f]+)/
+
+export type BusMerge
+  = | { kind: 'merged', commit: string, rule: string }
+    | { kind: 'denied', rule: string, detail: string }
+    | { kind: 'waiting' }
+
+const BUS_MERGE_RECORD = `
+  SELECT type, payload FROM events
+  WHERE pr = ? AND head = ? AND (type = '${MERGE_DONE}' OR (type = '${POLICY_DENIED}' AND json_extract(payload, '$.command') = 'merge' AND json_extract(payload, '$.kind') = 'authority'))
+  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id DESC LIMIT 1
+`
+
+export function busMerge(db: DatabaseSync, pr: number, head: string): BusMerge {
+  const row = db.prepare(BUS_MERGE_RECORD).get(pr, head) as { type: string, payload: string } | undefined
+  if (row === undefined)
+    return { kind: 'waiting' }
+  const payload = JSON.parse(row.payload) as Record<string, unknown>
+  if (row.type === MERGE_DONE)
+    return { kind: 'merged', commit: String(payload.commit), rule: String(payload.rule) }
+  return { kind: 'denied', rule: String(payload.rule), detail: String(payload.detail) }
 }
 
 export const PR_REVIEW_EVENT = 'pr-review'

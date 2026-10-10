@@ -10,6 +10,7 @@ import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBu
 import { appendEvent, openBus } from '../../bus/db.js'
 import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
+import { settled } from '../shift/fixtures/settled.js'
 
 const roots: string[] = []
 const started: number[] = []
@@ -73,12 +74,6 @@ function detachedSleep(): number {
   child.unref()
   started.push(child.pid!)
   return child.pid!
-}
-
-async function settled(file: string): Promise<string> {
-  for (let attempt = 0; attempt < 200 && !existsSync(file); attempt++)
-    await new Promise(resolve => setTimeout(resolve, 25))
-  return readFileSync(file, 'utf8').trim()
 }
 
 async function argvLines(w: World, count: number): Promise<string[]> {
