@@ -1141,8 +1141,8 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
       const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard, chain !== undefined)
       const ran = { line: finished.line, stop: failedStop(deps, dir, finished) }
       last = { task, stop: ran.stop }
-      observe(task, 'running', true)
       deps.append(journal, `${JSON.stringify(ran.line)}\n`)
+      observe(task, 'running', true)
       deps.out(`${PREFIX}${task.file} ${task.id}: ${outcome(ran.line)}`)
       clean &&= succeeded(ran.line)
       outcomes.push(outcomeOf(task, ran.line, ran.stop))
