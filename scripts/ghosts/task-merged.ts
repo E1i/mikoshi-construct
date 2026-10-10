@@ -49,6 +49,15 @@ interface PrView {
   body: string | null
 }
 
+export function journalLine(entry: MergeEvent | MergeSkip): string {
+  return `${JSON.stringify(entry)}\n`
+}
+
+export function appendToJournal(file: string, text: string): void {
+  mkdirSync(path.dirname(file), { recursive: true })
+  appendFileSync(file, text)
+}
+
 function journalEntries(text: string | null): Record<string, unknown>[] {
   return (text ?? '').split('\n').flatMap((line) => {
     try {
@@ -59,6 +68,10 @@ function journalEntries(text: string | null): Record<string, unknown>[] {
       return []
     }
   })
+}
+
+export function hasMergeLine(text: string | null, pr: number): boolean {
+  return journalEntries(text).some(entry => entry.event === 'merge' && entry.pr === pr)
 }
 
 function pullRequestsToLookUp(text: string | null): number[] {
@@ -90,11 +103,11 @@ export function recordMerges(deps: MergedDeps): MergedResult {
       }
       else if (outcome.kind === 'skip') {
         const skip: MergeSkip = { event: 'merge-skip', pr, skip: outcome.skip, ts: deps.now().toISOString() }
-        deps.append(deps.journal, `${JSON.stringify(skip)}\n`)
+        deps.append(deps.journal, journalLine(skip))
         result.skipped.push({ ...skip, detail: outcome.detail })
       }
       else {
-        deps.append(deps.journal, `${JSON.stringify(outcome.line)}\n`)
+        deps.append(deps.journal, journalLine(outcome.line))
         result.written.push(outcome.line)
       }
     }
@@ -107,19 +120,19 @@ export function recordMerges(deps: MergedDeps): MergedResult {
 
 export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
   const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
-  const entries = journalEntries(deps.readJournal(deps.journal)).filter(entry => entry.pr === pr)
-  if (entries.some(entry => entry.event === 'merge')) {
+  const text = deps.readJournal(deps.journal)
+  if (hasMergeLine(text, pr)) {
     result.notes.push(`PR #${pr} already has a merge line; nothing written`)
     return result
   }
-  if (!entries.some(entry => entry.event === 'merge-skip' && entry.skip === 'no-card')) {
+  if (!journalEntries(text).some(entry => entry.pr === pr && entry.event === 'merge-skip' && entry.skip === 'no-card')) {
     result.notes.push(`PR #${pr} has no merge-skip line with skip no-card in ${deps.journal}; nothing written`)
     return result
   }
   try {
     const outcome = lookUp(deps, pr)
     if (outcome.kind === 'merge') {
-      deps.append(deps.journal, `${JSON.stringify(outcome.line)}\n`)
+      deps.append(deps.journal, journalLine(outcome.line))
       result.written.push(outcome.line)
     }
     else if (outcome.kind === 'skip') {
@@ -174,8 +187,12 @@ export function mergedDetails(result: MergedResult): string[] {
   ]
 }
 
+export function defaultGhostJournal(): string {
+  return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
+  const journal = defaultGhostJournal()
   if (!existsSync(journal)) {
     console.error(`${PREFIX}${journal} cannot be read`)
     process.exitCode = 1
@@ -185,10 +202,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
       gh: execGh,
       journal,
       readJournal: file => readFileSync(file, 'utf8'),
-      append: (file, text) => {
-        mkdirSync(path.dirname(file), { recursive: true })
-        appendFileSync(file, text)
-      },
+      append: appendToJournal,
       now: () => new Date(),
     }
     const recheck = recheckArgument(process.argv)

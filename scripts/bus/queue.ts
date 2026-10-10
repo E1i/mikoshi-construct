@@ -11,6 +11,7 @@ import { payloadOf, reject, storedByKey } from './stored.js'
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const QUEUE_ACTOR = 'policy'
+export const CARD_CLOSED = 'card.closed'
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
@@ -47,6 +48,13 @@ const RESTART_TARGETS = `
 `
 
 const RESTART_CANDIDATES = `SELECT NULL AS pr, card_id, head FROM (${RESTART_TARGETS}) ORDER BY dir`
+
+const CLOSE_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'merged' AND card_id IS NOT NULL AND head IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = prs.card_id)
+  ORDER BY pr
+`
 
 export const QUESTION_AGENT = 'question.agent'
 export const QUESTION_OWNER = 'question.owner'
@@ -100,6 +108,7 @@ function candidates(db: DatabaseSync): [Queue, string, Admits][] {
     ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
     ['merge', MERGE_CANDIDATES, everyRow],
     ['restart', RESTART_CANDIDATES, everyRow],
+    ['close', CLOSE_CANDIDATES, everyRow],
     ['answer', QUESTION_CANDIDATES, everyRow],
     ['answer', CHANGES_CANDIDATES, everyRow],
   ]
