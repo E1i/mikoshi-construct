@@ -268,6 +268,7 @@ export function mergeModel(existing: RepositoryModel | null, fresh: RepositoryMo
       stages: existing.stages,
       nodes: existing.nodes,
       links: existing.links,
+      ...existing.interpretation == null ? {} : { interpretation: existing.interpretation },
     },
     retained,
   }

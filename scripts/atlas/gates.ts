@@ -30,9 +30,14 @@ function attributes(html: string, name: string): string[] {
   return [...html.matchAll(new RegExp(`\\s${name}="([^"]*)"`, 'g'))].map(match => unescaped(match[1]!))
 }
 
+function markupOf(html: string): string {
+  return html.replaceAll(/(<script[^>]*>)[\s\S]*?(<\/script>)/g, '$1$2')
+}
+
 export function unresolvedLinks(page: AtlasPage): string[] {
-  const ids = new Set(attributes(page.html, 'id'))
-  return attributes(page.html, 'href').flatMap((href) => {
+  const markup = markupOf(page.html)
+  const ids = new Set(attributes(markup, 'id'))
+  return attributes(markup, 'href').flatMap((href) => {
     if (href.startsWith('#'))
       return ids.has(href.slice(1)) ? [] : [`${page.file}: ${href} points at no element on the page`]
     return existsSync(path.resolve(path.dirname(page.file), decodeURIComponent(href))) ? [] : [`${page.file}: ${href} resolves to nothing on disk`]

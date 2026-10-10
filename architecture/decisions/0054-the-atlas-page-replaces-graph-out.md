@@ -1,6 +1,6 @@
 # 0054 — The Atlas page replaces `graph --out`
 
-Status: accepted · 2026-10-08 · supersedes [0023](0023-the-picture-is-a-file-you-can-open.md)
+Status: accepted · 2026-10-08 · supersedes [0023](0023-the-picture-is-a-file-you-can-open.md) · the first item of point 2 replaced by 0057
 
 ## Context
 
