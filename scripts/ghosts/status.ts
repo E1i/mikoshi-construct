@@ -20,6 +20,19 @@ export interface FreeRowParams {
   outcome: string
 }
 
+export interface GhostRowSupervisor {
+  supervisor: number
+  sha: string
+  start: string
+}
+
+const SUPERVISOR_NAMED = /, supervisor (\d+), /
+
+export function rowTimestamp(date: Date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 export function writingRow(params: WritingRowParams): string {
   return `| ghost-${params.id} | ${params.worktree} | writing | ${params.baseSha} | ${params.start} | /implement ${params.briefFileName}, supervisor ${params.supervisorPid}, session ${params.sessionId} | ${params.start} |`
 }
@@ -92,6 +105,16 @@ export function ghostRowSessionId(statusText: string, id: string): string | unde
   const cells = row.split('|').map(cell => cell.trim())
   const match = /(?:, |; )session (\S+)$/.exec(cells[6] ?? '')
   return match?.[1]
+}
+
+export function ghostRowSupervisor(statusText: string, id: string): GhostRowSupervisor | undefined {
+  const marker = ghostRowMarker(id)
+  const row = statusText.split('\n').find(line => line.startsWith(marker))
+  if (row === undefined)
+    return undefined
+  const cells = row.split('|').map(cell => cell.trim())
+  const named = SUPERVISOR_NAMED.exec(cells[6] ?? '')
+  return named === null ? undefined : { supervisor: Number(named[1]), sha: cells[4], start: cells[5] }
 }
 
 let queue: Promise<void> = Promise.resolve()

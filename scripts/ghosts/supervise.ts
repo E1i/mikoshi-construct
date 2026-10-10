@@ -20,7 +20,7 @@ import { lookupMatrixRow } from './matrix.js'
 import { approvalCarryEvent, regeneratedCheckFailedOutcome, regeneratedCheckFailures } from './regenerated.js'
 import { readResultFields } from './result.js'
 import { sessionEnv, spawnSession } from './session.js'
-import { freeRow, installFailedOutcome, installUnspawnableOutcome, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
+import { freeRow, installFailedOutcome, installUnspawnableOutcome, rowTimestamp, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
 
 export interface PreparedTask extends Task, StartedTree {
   approvedText: string
@@ -50,11 +50,6 @@ export interface TaskOutcome {
   id: string
   line: string
   ok: boolean
-}
-
-function timestamp(date: Date = new Date()): string {
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export function git(repo: string, args: string[]): string {
@@ -135,13 +130,13 @@ function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: M
 
 async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, outcome: string, journalEntry: JournalEntry): Promise<void> {
   const headSha = git(task.worktree, ['rev-parse', 'HEAD'])
-  const end = timestamp()
+  const end = rowTimestamp()
   await writeGhostRow(ctx.statusPath, task.id, freeRow({ id: task.id, worktree: task.worktree, headSha, start, end, outcome }))
   await appendJournalLine(ctx.journalPath, journalEntry)
 }
 
 async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
-  const start = timestamp()
+  const start = rowTimestamp()
 
   prepareTree(ctx, task)
   writeAgreedText(task.worktree, task.approvedText)
