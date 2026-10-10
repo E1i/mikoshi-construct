@@ -7,6 +7,7 @@ import type { TechnicalReason } from './record-verdict.js'
 import type { VerdictOnHead } from './snapshot.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { messageOf } from './executor.js'
+import { pollHead } from './head-poll.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
@@ -170,17 +171,13 @@ export class UpdateExecutor {
   }
 
   private newHead(lease: Lease): string | null {
-    for (let read = 0; read < HEAD_READS; read += 1) {
-      if (read > 0)
-        this.parts.settle()
-      try {
-        const head = (this.meter().get(`${REPO}/pulls/${lease.pr}`) as Pull).head?.sha
-        if (head !== undefined && head !== lease.head)
-          return head
-      }
-      catch {}
-    }
-    return null
+    const poll = pollHead({
+      from: lease.head!,
+      read: () => (this.meter().get(`${REPO}/pulls/${lease.pr}`) as Pull).head?.sha,
+      settle: () => this.parts.settle(),
+      reads: HEAD_READS,
+    })
+    return poll.kind === 'moved' ? poll.head : null
   }
 
   private carry(lease: Lease, before: Before, to: string | null): Carry {

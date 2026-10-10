@@ -32,7 +32,7 @@ function listed(pr: FakePr): Record<string, unknown> {
   }
 }
 
-function setup(prs: FakePr[], options: { conflict?: number[], journal?: string, heads?: string[] } = {}) {
+function setup(prs: FakePr[], options: { conflict?: number[], journal?: string, heads?: string[], viewError?: string } = {}) {
   const calls: string[][] = []
   const appended: string[] = []
   const heads = [...(options.heads ?? ['new-head'])]
@@ -42,6 +42,8 @@ function setup(prs: FakePr[], options: { conflict?: number[], journal?: string, 
       return JSON.stringify(prs.map(listed))
     if (args[1] === 'update-branch' && options.conflict?.includes(Number(args[2])))
       throw new Error('merge conflict')
+    if (args[1] === 'view' && options.viewError !== undefined)
+      throw new Error(options.viewError)
     if (args[1] === 'view')
       return JSON.stringify({ body: listed(prs.find(pr => String(pr.number) === args[2])!).body, headRefOid: heads.length > 1 ? heads.shift() : heads[0], files: [] })
     return ''
@@ -93,6 +95,25 @@ describe('runCurrent', () => {
     expect(result.stderr).toEqual(['[shift:current] PR #1 updated, its review not carried: its head did not move from before after 5 reads'])
     expect(result.stdout.join('\n')).not.toContain('[shift:carry]')
     expect(calls.filter(args => args[1] === 'view')).toHaveLength(5)
+  })
+
+  it('names the read error when no head read succeeds after update-branch', () => {
+    const { calls, deps } = setup([{ number: 1, createdAt: '2026-10-01T00:00:00Z', head: 'before' }], { viewError: 'gh: rate limit\nretry later' })
+    const result = runCurrent(deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[shift:current] PR #1 updated, its review not carried: its head was not read after 5 reads: gh: rate limit'])
+    expect(result.stderr.join('\n')).not.toContain('did not move')
+    expect(result.stdout.join('\n')).not.toContain('[shift:carry]')
+    expect(calls.filter(args => args[1] === 'view')).toHaveLength(5)
+  })
+
+  it('reports no carry when the PR head moved again before the carry', () => {
+    const { deps } = setup([{ number: 1, createdAt: '2026-10-01T00:00:00Z', head: 'before' }], { heads: ['before', 'after', 'later'] })
+    const result = runCurrent(deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[shift:current] PR #1 updated, its review not carried: [shift:carry] PR #1 head is later, not the updated head after; nothing published'])
+    expect(result.stdout.join('\n')).not.toContain('[shift:carry]')
+    expect([...result.stdout, ...result.stderr].join('\n')).not.toContain('updated to after')
   })
 
   it('says none is behind when every kept PR is current', () => {
