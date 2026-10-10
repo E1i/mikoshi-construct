@@ -13,7 +13,7 @@ function decisionsFile(...lines: string[]): string {
   return `${HEADER}${lines.join('\n')}\n`
 }
 
-function add(files: Record<string, string>, args: string[]): { code: number, out: string[], err: string[], files: Record<string, string>, writes: number, recorded: OwnerDecision[] } {
+function add(files: Record<string, string>, args: string[], failingWrite = 0): { code: number, out: string[], err: string[], files: Record<string, string>, writes: number, recorded: OwnerDecision[] } {
   const state = { ...files }
   const out: string[] = []
   const err: string[] = []
@@ -26,6 +26,8 @@ function add(files: Record<string, string>, args: string[]): { code: number, out
     read: file => state[file]!,
     write: (file, text) => {
       writes += 1
+      if (writes === failingWrite)
+        throw new Error(`EACCES: ${file}`)
       state[file] = text
     },
     remove: (file) => {
@@ -106,6 +108,16 @@ describe('pnpm decisions:add appends one owner decision', () => {
     const next = add(result.files, ['[owner] five.'])
     expect(next.out[0]).toBe('- D-5 · 2026-10-09 ~09:12Z — [owner] five. · decisions:add')
     expect(decisionsRead(next.files).code).toBe(0)
+  })
+
+  it('a decisions file write that throws after the archive write restores both and records nothing', () => {
+    const before = decisionsFile('- D-1 · 2026-10-08 — one. · superseded-by D-2', '- D-2 · 2026-10-08 — two.')
+    const result = add({ [FILE]: before }, ['[owner] three.'], 2)
+    expect(result.code).toBe(1)
+    expect(result.err).toEqual([`[decisions] D-3 not written: EACCES: ${FILE}; ${FILE} restored as it was`])
+    expect(result.files).toEqual({ [FILE]: before })
+    expect(result.recorded).toEqual([])
+    expect(decisionsRead(result.files).code).toBe(0)
   })
 
   it('archives a decision --supersedes names that is already superseded, and refuses one not in the file', () => {

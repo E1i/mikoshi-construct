@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { runInbox } from '../../bus/inbox.js'
+import { reduce } from '../../bus/reducer.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const TS = '2026-10-10T08:00:00.000Z'
@@ -35,14 +36,15 @@ function stopped(cardId: number, reason: string): BusEvent {
   return event('card.stopped', { actor: 'worker:answer:s1', cardId, payload: { reason, detail: `which way for #${cardId}` } })
 }
 
-function answered(scope: number[], actor = 'owner'): BusEvent {
-  return event('decision.recorded', { actor, payload: { decision_id: sequence, text: 'the answer', scope, source: 'owner' } })
+function answered(scope: number[], actor = 'owner', source = 'owner'): BusEvent {
+  return event('decision.recorded', { actor, payload: { decision_id: sequence + 1, text: 'the answer', scope, source } })
 }
 
 function inbox(...events: BusEvent[]): string[] {
   const db = newBus()
   for (const each of events)
     appendEvent(db, each)
+  reduce(db)
   const out: string[] = []
   expect(runInbox(db, line => out.push(line))).toBe(0)
   return out
@@ -74,5 +76,9 @@ describe('pnpm bus:inbox, the owner inbox', () => {
     expect(inbox(stopped(807, 'question.owner'), answered([807], 'policy'), answered([808]))).toEqual([question])
     expect(inbox(answered([807]), stopped(807, 'question.owner'))).toEqual([question])
     expect(inbox(stopped(807, 'question.owner'), answered([806, 807]))).toEqual(['[bus:inbox] the owner inbox is empty'])
+  })
+
+  it('an owner question stays in the inbox when the reducer rejects its answer', () => {
+    expect(inbox(stopped(807, 'question.owner'), answered([807], 'owner', 'agent'))).toEqual(['[bus:inbox] card.stopped question.owner · card #807 · which way for #807'])
   })
 })

@@ -159,9 +159,16 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     else if (deps.exists(archiveFile))
       deps.remove(archiveFile)
   }
-  if (plan.archive !== originalArchive)
-    deps.write(archiveFile, plan.archive)
-  deps.write(file, plan.file)
+  try {
+    if (plan.archive !== originalArchive)
+      deps.write(archiveFile, plan.archive)
+    deps.write(file, plan.file)
+  }
+  catch (error) {
+    restore()
+    deps.err(`${PREFIX}D-${plan.number} not written: ${recordFailure(error)}; ${file} restored as it was`)
+    return 1
+  }
   const refusals = decisionsRefusals(deps.read(file), deps.exists(archiveFile) ? deps.read(archiveFile) : '')
   if (refusals.length > 0) {
     restore()

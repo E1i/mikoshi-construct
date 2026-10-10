@@ -16,9 +16,8 @@ const OWNER_INBOX = `
   WHERE item.legacy = 0 AND (
     (item.type = '${POLICY_DENIED}' AND json_extract(item.payload, '$.kind') = 'authority')
     OR (item.type = '${CARD_STOPPED}' AND json_extract(item.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT EXISTS (
-      SELECT 1 FROM events AS answer, json_each(answer.payload, '$.scope') AS named
-      WHERE answer.legacy = 0 AND answer.type = '${DECISION_RECORDED}' AND answer.actor = '${OWNER}'
-        AND answer.id > item.id AND named.value = item.card_id
+      SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
+      WHERE answer.event_id > item.id AND named.value = item.card_id
     ))
   )
   ORDER BY id
