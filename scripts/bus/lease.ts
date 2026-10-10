@@ -57,8 +57,8 @@ interface LeaseRow {
 }
 
 const NEXT_LEASABLE = `
-  SELECT tasks.* FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND prs.state = 'open' AND prs.head = tasks.head
+  SELECT tasks.* FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
   ORDER BY tasks.id LIMIT 1
 `
 
@@ -170,9 +170,11 @@ export function renewLease(db: DatabaseSync, ts: string, lease: Lease): void {
   })
 }
 
-export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome: BusEvent[]): void {
+export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome: BusEvent[], stillDue: () => boolean = () => true): void {
   inTransaction(db, () => {
     const row = held(db, lease)
+    if (!stillDue())
+      throw new StaleLease(`task ${lease.taskKey} is no longer due`)
     for (const event of outcome)
       appendEvent(db, event)
     folded(db, taskEvent(ts, TASK_COMPLETED, lease.actor, row, lease.leaseGen, `${TASK_COMPLETED}:${row.task_key}:${lease.leaseGen}`))

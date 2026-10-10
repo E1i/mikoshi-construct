@@ -44,6 +44,7 @@
     "build": "tsup",
     "bus:bg": "tsx scripts/bus/supervisor.ts",
     "bus:import": "tsx scripts/bus/import.ts",
+    "bus:launch": "tsx scripts/bus/launch-worker.ts",
     "bus:merge": "tsx scripts/bus/merge-worker.ts",
     "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",

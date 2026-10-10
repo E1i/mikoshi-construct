@@ -5,6 +5,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { QUEUES, taskKey } from './identifiers.js'
 import { ownerInbox } from './inbox.js'
+import { launchCandidates } from './launch-candidates.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -146,6 +147,11 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       if (queueTask(db, ts, task))
         derived.queued.push(taskKey(task))
     }
+  }
+  for (const cardId of launchCandidates(db)) {
+    const task: TaskIdentity = { queue: 'launch', cardId }
+    if (queueTask(db, ts, task))
+      derived.queued.push(taskKey(task))
   }
   return derived
 }

@@ -11,14 +11,14 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
-import { CLAUDE_VARIABLE, runClaude } from './claude.js'
+import { runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
 import { boundaryLine, transcriptContext } from './operator-boundary.js'
 import { GHOST_JOURNAL } from './places.js'
 
 export const PREFIX = '[relaunch] '
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
-export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
+export const OPERATOR_CLAUDE = 'claude --permission-mode dontAsk'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
 export const CHAIN_COMMAND = 'pnpm shift:bg <dir> --parking <parking> --chain'
 export const WINDOW_BODY_NOTE = 'window took body #N'
@@ -46,7 +46,7 @@ export interface RelaunchDeps {
   cwd: string
   home: string
   pid: number
-  claude: string | undefined
+  claude: string
   journal: string
   projectsDir: string
   read: (file: string) => string
@@ -326,7 +326,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   const model = parsed.model ?? transcriptModel(deps)
   if (model === null)
     return stop(NO_MODEL, 1)
-  const command = deps.claude ?? DEFAULT_CLAUDE
+  const command = deps.claude
   for (;;) {
     const text = readIfPresent(deps, handoff)
     if (text === null)
@@ -373,13 +373,13 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   }
 }
 
-function realDeps(): RelaunchDeps {
+export function realDeps(env: NodeJS.ProcessEnv = process.env): RelaunchDeps {
   return {
     cwd: process.cwd(),
     home: os.homedir(),
     pid: process.pid,
-    claude: process.env[CLAUDE_VARIABLE],
-    journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
+    claude: OPERATOR_CLAUDE,
+    journal: path.join(env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),

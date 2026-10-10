@@ -3,6 +3,7 @@ import type { ReviewStatus, StatusPublisher } from '../ghosts/verdict.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
+import { CARD_STARTED } from './launch-candidates.js'
 import { assertHeld } from './lease.js'
 import { Meter } from './meter.js'
 import { ciOf } from './snapshot.js'
@@ -24,7 +25,6 @@ export interface VerdictRequest {
 
 const REPO = 'repos/{owner}/{repo}'
 const STATUS_STATE: Record<VerdictWord, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
-export const CARD_STARTED = 'card.started'
 
 interface Pull {
   state?: string
