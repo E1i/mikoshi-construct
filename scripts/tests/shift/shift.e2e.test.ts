@@ -774,7 +774,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     }
   }
 
-  it('w11: a report with PR #N makes the runner call merge with N after the session exited', async () => {
+  it('w11: a report with PR #N makes the runner hand N to the bus after the session exited', async () => {
     const world = newWorld()
     ownerMergesOnMain(world)
     decisionTask(world, '01.md', '1', 'auto', 'do a')
@@ -783,8 +783,8 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: recordingGh(world, '1', calls, 'auto') })).toBe(0)
     const view = calls.find(call => call.args[1] === 'view')
     expect(view).toMatchObject({ args: ['pr', 'view', '1', '-R', 'E1i/mikoshi-construct', '--json', 'body,headRefOid,files'], stubRuns: 1, report: true })
-    expect(calls.find(call => call.args[1] === 'merge')?.args).toEqual(['pr', 'merge', '1', '--auto', '--squash', '--match-head-commit', 'a1b2c3d', '-R', 'E1i/mikoshi-construct'])
-    const armed = '[shift:merge] decision auto, no owner path — auto-merge armed on PR #1 at a1b2c3d'
+    expect(calls.filter(call => call.args[1] === 'merge')).toEqual([])
+    const armed = '[shift:merge] decision auto, no owner path — PR #1 goes to the bus at a1b2c3d; the chain waits for its merge.done'
     expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toContain(armed)
     expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ merge: [armed] })
   })
@@ -825,8 +825,8 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(create.slice(0, 6)).toEqual(['pr', 'create', '--head', 'feat/1', '--base', 'main'])
     expect(create.at(-1)!.split('\n')[0]).toBe('#1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —')
     expect(git(path.join(world.root, 'origin.git'), ['log', '--format=%s', 'feat/1', '-1']).trim()).toBe('session commit')
-    expect(calls.find(args => args[1] === 'merge')?.slice(0, 3)).toEqual(['pr', 'merge', '41'])
-    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41 })
+    expect(calls.filter(args => args[1] === 'merge')).toEqual([])
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41, merge: [expect.stringContaining('PR #41 goes to the bus at a1b2c3d') as unknown] })
     expect(stopsOf(world)).toEqual([])
   })
 
@@ -931,6 +931,7 @@ const CHAIN_HEAD = 'a1b2c3d'
 interface ChainGh {
   gh: (args: string[]) => string
   calls: string[][]
+  bus: NonNullable<ShiftDeps['busMerge']>
 }
 
 function chainGh(options: { ownerMergedAfterViews?: number, checks?: { name: string, status: string, conclusion: string }[], owner?: number[], state?: string, unreadable?: string } = {}): ChainGh {
@@ -958,7 +959,7 @@ function chainGh(options: { ownerMergedAfterViews?: number, checks?: { name: str
     }
     return inner.gh(args)
   }
-  return { gh, calls }
+  return { gh, calls, bus: inner.bus }
 }
 
 function chainRun(world: ReturnType<typeof newChainWorld>, gh: ChainGh, extra: string[] = [], deps: Partial<ShiftDeps> = {}): Promise<{ code: number, io: ReturnType<typeof capturedIo>, slept: number[] }> {
@@ -970,7 +971,7 @@ function chainRun(world: ReturnType<typeof newChainWorld>, gh: ChainGh, extra: s
   }
   for (const pr of [101, 102, 103])
     writeFileSync(world.journal, `${JSON.stringify({ event: 'pr-review', task: String(pr - 100), pr, verdict: 'pass', commit: CHAIN_HEAD })}\n`, { flag: 'a' })
-  return runShift([world.shift, '--parking', world.parking, '--chain', ...extra], chainDepsOf(world, gh.gh, io, { sleep, ...deps })).then(code => ({ code, io, slept }))
+  return runShift([world.shift, '--parking', world.parking, '--chain', ...extra], chainDepsOf(world, gh.gh, io, { sleep, busMerge: gh.bus, ...deps })).then(code => ({ code, io, slept }))
 }
 
 function chainSteps(world: ReturnType<typeof newChainWorld>): string[] {
@@ -1031,8 +1032,7 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
 
   it('a question stops the chain', async () => {
     const world = newChainWorld([{ id: 1, body: 'do 1 STUB-QUESTION STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
-    const { gh, calls } = chainGh()
-    await chainRun(world, { gh, calls })
+    await chainRun(world, chainGh())
     expect(chainSteps(world)).toEqual(['end question'])
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'question' }])
     expect(existsSync(path.join(world.stubOut, 'mc-2.runs'))).toBe(false)

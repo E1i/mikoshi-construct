@@ -1,8 +1,11 @@
 import type { ChainObservation } from '../bus/chain.js'
+import type { BusMerge } from './merge.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
 import { observeChain } from '../bus/chain.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
+import { MERGE_DONE } from '../bus/executor.js'
+import { busMerge } from './merge.js'
 
 export type ChainMoment = Omit<ChainObservation, 'sha' | 'pid' | 'leader'>
 
@@ -32,6 +35,24 @@ export function chainObserver(bus: ChainBus): (moment: ChainMoment) => void {
     }
     catch (error) {
       bus.err(`chain.observed not written to ${bus.busPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
+export function chainBusMerge(busPath: string, err: (line: string) => void): (pr: number, head: string) => BusMerge {
+  return (pr, head) => {
+    try {
+      const db = openBus(busPath)
+      try {
+        return busMerge(db, pr, head)
+      }
+      finally {
+        db.close()
+      }
+    }
+    catch (error) {
+      err(`${MERGE_DONE} of PR #${pr} not read from ${busPath}: ${error instanceof Error ? error.message : String(error)}`)
+      return { kind: 'waiting' }
     }
   }
 }

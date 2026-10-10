@@ -1,4 +1,5 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
+import type { ShiftDeps } from '../../shift/shift.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -90,17 +91,21 @@ function mergeOnOrigin(world: World, pr: number): void {
   git(clone, ['push', '-q', 'origin', 'HEAD:main'])
 }
 
-function pipelineGh(world: World): (args: string[]) => string {
-  const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) }).gh
-  return (args) => {
-    const fields = args.at(-1)
-    if (args[1] === 'view' && fields === 'headRefName,headRefOid,state')
-      return JSON.stringify({ headRefName: `feat/${Number(args[2]) - 100}`, headRefOid: HEAD, state: 'OPEN' })
-    if (args[1] === 'view' && fields === 'headRefOid,statusCheckRollup,files')
-      return JSON.stringify({ headRefOid: HEAD, statusCheckRollup: [], files: [] })
-    if (args[1] === 'merge')
-      mergeOnOrigin(world, Number(args[2]))
-    return inner(args)
+function pipelineGh(world: World): Pick<ShiftDeps, 'gh' | 'busMerge'> {
+  const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
+  return {
+    gh: (args) => {
+      const fields = args.at(-1)
+      if (args[1] === 'view' && fields === 'headRefName,headRefOid,state')
+        return JSON.stringify({ headRefName: `feat/${Number(args[2]) - 100}`, headRefOid: HEAD, state: 'OPEN' })
+      if (args[1] === 'view' && fields === 'headRefOid,statusCheckRollup,files')
+        return JSON.stringify({ headRefOid: HEAD, statusCheckRollup: [], files: [] })
+      return inner.gh(args)
+    },
+    busMerge: (pr, head) => {
+      mergeOnOrigin(world, pr)
+      return inner.bus(pr, head)
+    },
   }
 }
 
@@ -118,7 +123,8 @@ async function pipelineRun(world: World, onSleep: (slept: number) => void): Prom
     onSleep(++slept)
     return Promise.resolve()
   }
-  return runShift([world.shift, '--parking', world.parking, '--chain'], depsOf(world, pipelineGh(world), captured(), { sleep }))
+  const { gh, busMerge } = pipelineGh(world)
+  return runShift([world.shift, '--parking', world.parking, '--chain'], depsOf(world, gh, captured(), { sleep, busMerge }))
 }
 
 const TWO = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102', touches: 'src/2/**' }]

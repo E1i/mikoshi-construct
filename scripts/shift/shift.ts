@@ -9,7 +9,7 @@ import type { ChainMoment } from './chain-bus.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
 import type { LadderFacts, LadderStep } from './ladder.js'
-import type { MergeResult } from './merge.js'
+import type { BusMerge, MergeResult } from './merge.js'
 import type { Notify } from './notify.js'
 import type { Outcome } from './outcomes.js'
 import type { OpenPr } from './overlap.js'
@@ -35,6 +35,9 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh, prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { defaultBusPath } from '../bus/db.js'
+import { MERGE_DONE } from '../bus/executor.js'
+import { POLICY_DENIED } from '../bus/inbox.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
@@ -46,12 +49,12 @@ import { startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
 import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
-import { realChainObserver } from './chain-bus.js'
+import { chainBusMerge, realChainObserver } from './chain-bus.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as CURRENT_PREFIX, realCurrentDeps, runCurrent } from './current.js'
 import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, HANDED_TO_THE_BUS, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
@@ -98,7 +101,7 @@ export const USAGE = [
   `A real shift records merged pull requests as merge lines before it chooses and once after its last task, prints one merged line each time and the details to <dir>/${MERGED_FILE};`,
   'a pull request without a card, or closed without merge, is recorded as a merge-skip line and not looked up again.',
   '--check parses the tasks and checks touches against each other and the open pull requests, records no merge line, and starts nothing.',
-  'The shift is an autopilot by default: it takes the next ready card, follows a session into a new one at a boundary the card allows, arms auto-merge where the merge rules allow it,',
+  'The shift is an autopilot by default: it takes the next ready card, follows a session into a new one at a boundary the card allows, hands a pull request to the bus where the merge rules allow it and waits for the bus to merge it,',
   'and stops only at a gate the owner holds, writing one event:stop line to ghosts.jsonl (at: hash, merge, question, boundary or fault, and why).',
   'A ladder card (implement, contour ladder) with who: shift is taken like a cheap card and walked step by step: the brief in a session, the approval by MORSE (ghosts:hash --by morse; a refusal, whatever its cause, stops at hash and waits for the owner),',
   'ghosts:launch with a yes on stdin and no session, then the review and the pull request in a session in the same tree. A card whose latest stop still stands (its tree exists) is left as waits <at>.',
@@ -109,7 +112,7 @@ export const USAGE = [
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a pipeline: once a card closes with a pull request, that pull request is in review and the chain takes the next card whose depends are merged and whose touches overlap no card in review;',
   'a card that overlaps one waits until that one merges and is then cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
-  `The chain arms auto-merge on a pull request only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain arms after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
+  `The chain hands a pull request to the bus only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The chain calls no gh pr merge and arms no auto-merge: the bus is the one merger, and the chain waits for its ${MERGE_DONE} at the head it handed over, or stops on its ${POLICY_DENIED} with the denial's rule. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain hands over after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
   'An owner pull request is merged by the owner (or armed under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
   `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary>.`,
   'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run on its first fault (no second attempt): its stop carries failed: true and the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
@@ -157,6 +160,7 @@ export interface ShiftDeps {
   current?: (journal: string) => MergeResult
   sweep?: (card: string) => SweepResult
   observeChain?: (moment: ChainMoment) => void
+  busMerge?: (pr: number, head: string) => BusMerge
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -490,6 +494,14 @@ interface StopRecord {
 }
 
 const MERGE_ARMED = /auto-merge armed on PR #\d+/
+
+function goesToMerge(line: string): boolean {
+  return MERGE_ARMED.test(line) || HANDED_TO_THE_BUS.test(line)
+}
+
+function handedHead(lines: string[] | undefined): string | undefined {
+  return lines?.map(line => HANDED_TO_THE_BUS.exec(line)?.[2]).find(head => head !== undefined)
+}
 const AWAITS_REVIEW = /PR #\d+ waits for its review verdict/
 const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/m
 
@@ -570,7 +582,7 @@ function stopAfter(task: ShiftTask, where: Where, finish: Finish): StopRecord | 
   const asked = askedStop(where, finish)
   if (asked !== null)
     return asked
-  if (merge?.lines.some(line => MERGE_ARMED.test(line) || AWAITS_REVIEW.test(line)))
+  if (merge?.lines.some(line => goesToMerge(line) || AWAITS_REVIEW.test(line)))
     return null
   const interrupted = interruptedStop(where, finish)
   if (interrupted !== null)
@@ -845,7 +857,7 @@ interface Chain {
   started: number
 }
 
-type ReviewEnd = 'merge-timeout' | 'red-check' | 'pr-closed' | 'time-limit'
+type ReviewEnd = 'merge-timeout' | 'red-check' | 'pr-closed' | 'policy-denied' | 'time-limit'
 type ChainEnd = ReviewEnd | 'no-eligible' | 'card-budget' | 'eddies-budget' | 'question' | 'guard-refusal' | `stop-${Stop['at']}`
 type PrWatch = { state: 'red' | 'closed' | 'merged' } | { state: 'open', head: string } | { error: string }
 
@@ -929,10 +941,25 @@ interface Review extends InReview {
   outcome: Outcome
   since: number
   decided: boolean
+  handed?: string
+  busMerged?: boolean
+  denial?: string
   ghError?: string
 }
 
-const NO_PASS_AT_HEAD = '; no review verdict pass at its head, so the chain never armed it'
+function readBus(deps: ShiftDeps, review: Review): ReviewEnd | undefined {
+  if (review.handed === undefined || deps.busMerge === undefined)
+    return undefined
+  const bus = deps.busMerge(review.pr, review.handed)
+  if (bus.kind === 'denied') {
+    review.denial = `${POLICY_DENIED} ${bus.rule}: ${bus.detail}`
+    return 'policy-denied'
+  }
+  review.busMerged = bus.kind === 'merged'
+  return undefined
+}
+
+const NO_PASS_AT_HEAD = '; no review verdict pass at its head, so the chain never handed it to the bus'
 
 function waitWhy(result: ReviewEnd, review: Review, chain: Chain): string {
   const { pr, ghError } = review
@@ -940,6 +967,8 @@ function waitWhy(result: ReviewEnd, review: Review, chain: Chain): string {
     return `PR #${pr} required check turned red while waiting for the merge`
   if (result === 'pr-closed')
     return `PR #${pr} was closed without a merge`
+  if (result === 'policy-denied')
+    return `PR #${pr} at ${review.handed} not merged by the bus: ${review.denial}`
   const within = result === 'time-limit' ? 'the chain time limit' : `${chain.waitMs / MINUTE_MS} minutes`
   const unreviewed = !review.decided && review.task.card.decision === 'auto' ? NO_PASS_AT_HEAD : ''
   return `PR #${pr} not merged within ${within}${unreviewed}${ghError === undefined ? '' : `; gh could not read it: ${ghError}`}`
@@ -955,7 +984,8 @@ function decideAfterReview(deps: ShiftDeps, dir: string, review: Review, head: s
   for (const line of lines)
     deps.out(line)
   review.decided = true
-  chainLine(deps, dir, { step: 'reviewed', task: review.task.id, pr: review.pr, armed: lines.some(line => MERGE_ARMED.test(line)) })
+  review.handed = handedHead(lines)
+  chainLine(deps, dir, { step: 'reviewed', task: review.task.id, pr: review.pr, armed: lines.some(goesToMerge) })
 }
 
 function endReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review[], reason: ChainEnd, culprit?: Review): ChainEnd {
@@ -971,6 +1001,9 @@ function endReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review[
 
 function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review[], shard: string | undefined): ChainEnd | undefined {
   for (const review of reviews) {
+    const denied = readBus(deps, review)
+    if (denied !== undefined)
+      return endReviews(deps, dir, chain, reviews, denied, review)
     const watched = watchPr(deps, review.pr)
     if ('error' in watched) {
       review.ghError = watched.error
@@ -987,7 +1020,7 @@ function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   sweepMerges(deps, ghostJournal, dir)
   const merged = mergedTasks(readIfThere(deps, ghostJournal))
-  for (const review of reviews.filter(open => merged.has(open.task.id))) {
+  for (const review of reviews.filter(open => merged.has(open.task.id) || open.busMerged === true)) {
     reviews.splice(reviews.indexOf(review), 1)
     chainLine(deps, dir, { step: 'merged', task: review.task.id, pr: review.pr })
   }
@@ -1039,7 +1072,7 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
     Object.assign(pipeline.outcome, { result: `stop ${ending}`, reason: latestStops(readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL))).get(task.id)?.why ?? ending })
   if (ending === undefined && line.pr !== undefined) {
     chainLine(deps, dir, { step: 'wait', task: task.id, pr: line.pr, review: chainReview(deps, task, String(line.pr)).depth })
-    pipeline.reviews.push({ task, pr: line.pr, line, outcome: pipeline.outcome, since: deps.now().getTime(), decided: !line.merge?.some(merge => AWAITS_REVIEW.test(merge)) })
+    pipeline.reviews.push({ task, pr: line.pr, line, outcome: pipeline.outcome, since: deps.now().getTime(), decided: !line.merge?.some(merge => AWAITS_REVIEW.test(merge)), handed: handedHead(line.merge) })
   }
   return advance(deps, dir, parking, chain, pipeline.reviews, taken, pipeline.shard, ending)
 }
@@ -1254,6 +1287,7 @@ function realDeps(): ShiftDeps {
     current: journal => runCurrent(realCurrentDeps(journal)),
     sweep: card => runSweep(['--apply', '--card', card], realSweepDeps()),
     observeChain: realChainObserver(process.cwd(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
+    busMerge: chainBusMerge(defaultBusPath(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),
