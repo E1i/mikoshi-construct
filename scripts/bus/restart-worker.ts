@@ -8,7 +8,6 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { runBg } from '../shift/bg.js'
-import { CLAUDE_VARIABLE } from '../shift/claude.js'
 import { runRelaunchBg } from '../shift/relaunch-bg.js'
 import { REAL_PROCESSES, stopChain } from './chain-process.js'
 import { defaultBusPath, openBus } from './db.js'
@@ -19,7 +18,6 @@ import { SWITCH_FLAG } from './review-worker.js'
 import { leaseRole, RAISED_VARIABLE, roleToOwner } from './role.js'
 
 export const PREFIX = '[bus:restart] '
-export const OPERATOR_CLAUDE = 'claude --permission-mode dontAsk'
 export const MIKO_LAUNCH_OFF = 'the launch of pnpm miko is switched off: whether nohup pnpm miko can start a claude window without a terminal is not settled; start pnpm miko in a terminal'
 
 export type RestartStep = { kind: 'idle' } | RestartOutcome | RelaunchOutcome
@@ -96,7 +94,7 @@ export function checkoutLauncher(cwd: string, processes: ProcessTable = REAL_PRO
 }
 
 function raiseOperator(handoff: string, env: NodeJS.ProcessEnv): number {
-  const started = runRelaunchBg([handoff], { ...env, [CLAUDE_VARIABLE]: OPERATOR_CLAUDE, [RAISED_VARIABLE]: '1' })
+  const started = runRelaunchBg([handoff], { ...env, [RAISED_VARIABLE]: '1' })
   const pid = Number(started.stdout[0])
   if (started.exitCode !== 0 || !Number.isSafeInteger(pid) || pid <= 0)
     throw new Error(started.stderr.join('; ') || `pnpm relaunch ${handoff} did not start`)

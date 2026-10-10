@@ -9,12 +9,18 @@ import { expireLeases, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/l
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
 import { MIKO_LAUNCH_OFF, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
-import { leaseRole, observeRoleStop, RAISES_PER_HANDOFF } from '../../bus/role.js'
+import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
 import { chainObserver } from '../../shift/chain-bus.js'
+import { CLAUDE_VARIABLE } from '../../shift/claude.js'
+import { runRelaunchBg } from '../../shift/relaunch-bg.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { MAIN_1, MAIN_2 } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+
+vi.mock('../../shift/relaunch-bg.js', () => ({
+  runRelaunchBg: vi.fn(() => ({ stdout: ['6161'], stderr: [], exitCode: 0 })),
+}))
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -339,6 +345,12 @@ describe('the ceiling on relaunch(role)', () => {
 
   it('the real role launcher keeps the launch of pnpm miko switched off and names why', () => {
     expect(() => roleLauncher({}).raise('miko', MIKO_HANDOFF)).toThrow(MIKO_LAUNCH_OFF)
+  })
+
+  it('a raised Operator keeps the worker\'s SHIFT_CLAUDE unchanged', () => {
+    const ownerMode = 'claude --permission-mode auto'
+    expect(roleLauncher({ [CLAUDE_VARIABLE]: ownerMode }).raise('operator', OPERATOR_HANDOFF)).toBe(ROLE_PIDS.operator)
+    expect(vi.mocked(runRelaunchBg)).toHaveBeenLastCalledWith([OPERATOR_HANDOFF], { [CLAUDE_VARIABLE]: ownerMode, [RAISED_VARIABLE]: '1' })
   })
 })
 
