@@ -18,6 +18,7 @@ const EVERY_RULE = {
       'Bash(pnpm --silent shift:merge:*)',
       'Bash(gh pr update-branch:*)',
       'Bash(pnpm relaunch:bg:*)',
+      'Bash(pnpm --silent relaunch:bg:*)',
       'Bash(gh pr merge:*)',
       'Bash(ps:*)',
       'Bash(pnpm miko:exit:*)',
@@ -97,6 +98,12 @@ describe('pnpm doctor:factory', () => {
     expect(result.stdout).toEqual(['[doctor:factory] missing allow Bash(pnpm --silent shift:bg:*)'])
   })
 
+  it('names the silent form a settings.local.json holding the bare Bash(pnpm relaunch:bg:*) lacks', async () => {
+    const result = await doctor(world(without('Bash(pnpm --silent relaunch:bg:*)', 'allow')))
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual(['[doctor:factory] missing allow Bash(pnpm --silent relaunch:bg:*)'])
+  })
+
   it('names the missing deny for the open version pull request and exits 1', async () => {
     const result = await doctor(world(without(`Bash(gh pr merge ${RELEASE_PR}:*)`, 'deny')))
     expect(result.exitCode).toBe(1)
@@ -107,7 +114,7 @@ describe('pnpm doctor:factory', () => {
   it('treats a missing settings.local.json as holding no rule', async () => {
     const result = await doctor(world(undefined))
     expect(result.exitCode).toBe(1)
-    expect(result.stdout).toHaveLength(10)
+    expect(result.stdout).toHaveLength(11)
   })
 
   it('with --apply and a yes appends exactly the missing rules and keeps every rule already there', async () => {
@@ -126,6 +133,7 @@ describe('pnpm doctor:factory', () => {
           'Bash(pnpm --silent shift:merge:*)',
           'Bash(gh pr update-branch:*)',
           'Bash(pnpm relaunch:bg:*)',
+          'Bash(pnpm --silent relaunch:bg:*)',
           'Bash(ps:*)',
           'Bash(pnpm miko:exit:*)',
         ],

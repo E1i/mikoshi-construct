@@ -6,6 +6,7 @@
     "Bash(pnpm --silent shift:merge:*)",
     "Bash(gh pr update-branch:*)",
     "Bash(pnpm relaunch:bg:*)",
+    "Bash(pnpm --silent relaunch:bg:*)",
     "Bash(gh pr merge:*)",
     "Bash(ps:*)",
     "Bash(pnpm miko:exit:*)"
