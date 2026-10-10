@@ -1,3 +1,4 @@
+import type { PauseEnd } from '../../miko/loop.js'
 import type { Status } from '../../shift/relaunch.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONTINUE_PROMPT, isDoubleCtrlC, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../miko/loop.js'
+import { CONTINUE_PROMPT, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
@@ -45,7 +46,7 @@ function lines(dir: string, name: string): string[] {
   return existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name), 'utf8').split('\n').filter(Boolean) : []
 }
 
-function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number } {
+function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number, stderr: NodeJS.ReadableStream } {
   const child = spawn(TSX, [LOOP], {
     env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: claude },
     stdio: ['ignore', 'ignore', 'pipe'],
@@ -57,7 +58,24 @@ function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Prom
     stderr += chunk
   })
   const done = new Promise<{ code: number | null, stderr: string }>(resolve => child.on('close', code => resolve({ code, stderr })))
-  return { done, pid: child.pid! }
+  return { done, pid: child.pid!, stderr: child.stderr }
+}
+
+function startPnpmMiko(dir: string): { exited: Promise<number | null>, done: Promise<string>, pid: number, stderr: () => string } {
+  const child = spawn('pnpm', ['--silent', 'miko'], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: path.join(dir, 'claude') },
+    stdio: ['ignore', 'ignore', 'pipe'],
+    detached: true,
+  })
+  let stderr = ''
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+  const exited = new Promise<number | null>(resolve => child.on('exit', code => resolve(code)))
+  const done = new Promise<string>(resolve => child.stderr.on('close', () => resolve(stderr)))
+  return { exited, done, pid: child.pid!, stderr: () => stderr }
 }
 
 async function until(condition: () => boolean): Promise<void> {
@@ -95,19 +113,24 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     expect(stderr).toContain(`STATUS: ${status.toUpperCase()}: no next session`)
   }, 20_000)
 
-  it('a double Ctrl-C ends the loop, though the interrupted session left STATUS: CONTINUE', async () => {
+  it('a Ctrl-C that ends the session leaves the loop in its pause, and a Ctrl+C in the pause ends the loop', async () => {
     const dir = home(['hang', 'owner 0'])
     const loop = startLoop(dir)
+    let stderr = ''
+    loop.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+    })
     await until(() => existsSync(path.join(dir, 'ready')))
     process.kill(-loop.pid, 'SIGINT')
-    await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
+    await until(() => stderr.includes('next session in'))
     process.kill(-loop.pid, 'SIGINT')
-    const { stderr } = await loop.done
+    const { code } = await loop.done
+    expect(code).toBe(0)
     expect(lines(dir, 'calls')).toEqual(['0|'])
-    expect(stderr).toContain('double Ctrl+C')
+    expect(stderr).toContain('Ctrl+C in the pause: no next session')
   }, 20_000)
 
-  it('a single Ctrl-C ends only the session, and STATUS: CONTINUE starts the next one', async () => {
+  it('a Ctrl-C that ends the session leaves the loop running, and STATUS: CONTINUE starts the next one', async () => {
     const dir = home(['hang', 'owner 0'])
     const loop = startLoop(dir)
     await until(() => existsSync(path.join(dir, 'ready')))
@@ -116,6 +139,26 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     expect(code).toBe(0)
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
   }, 20_000)
+
+  it('under pnpm miko, one Ctrl+C in the pause ends pnpm and the loop together, so no session starts orphaned from the terminal', async () => {
+    const dir = home(['continue 0', 'owner 0'])
+    const miko = startPnpmMiko(dir)
+    try {
+      await until(() => miko.stderr().includes('next session in'))
+      await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
+      process.kill(-miko.pid, 'SIGINT')
+      await miko.exited
+      const stderr = await Promise.race([miko.done, new Promise<string>(resolve => setTimeout(resolve, 4 * PAUSE_MS, 'still running'))])
+      expect(lines(dir, 'calls')).toEqual(['0|'])
+      expect(stderr).toContain('Ctrl+C in the pause: no next session')
+    }
+    finally {
+      try {
+        process.kill(-miko.pid, 'SIGKILL')
+      }
+      catch {}
+    }
+  }, 30_000)
 
   it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though mikoshi.md says STATUS: CONTINUE', async () => {
     const dir = home([])
@@ -137,10 +180,10 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
 
 interface Script {
   statuses: (Status | null | undefined)[]
-  doubles?: boolean[]
+  pauseEnds?: PauseEnd[]
 }
 
-async function drive({ statuses, doubles = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
+async function drive({ statuses, pauseEnds = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
   const prompts: (string | undefined)[] = []
   const pauses: number[] = []
   const lines: string[] = []
@@ -153,14 +196,14 @@ async function drive({ statuses, doubles = [] }: Script): Promise<{ code: number
     },
     pause: async (ms) => {
       pauses.push(ms)
+      return pauseEnds.shift() ?? 'elapsed'
     },
-    doubleCtrlC: () => doubles.shift() ?? false,
     err: line => lines.push(line),
   })
   return { code, prompts, pauses, lines }
 }
 
-describe('runMikoLoop decides from STATUS in mikoshi.md and the Ctrl+C presses', () => {
+describe('runMikoLoop decides from STATUS in mikoshi.md and a Ctrl+C in the pause', () => {
   it.each([
     { name: 'absent', statuses: [undefined, 'CONTINUE', 'CONTINUE', 'OWNER'] as const, prompts: [undefined, CONTINUE_PROMPT, CONTINUE_PROMPT] },
     { name: 'present', statuses: ['OWNER', 'CONTINUE', 'DONE'] as const, prompts: [CONTINUE_PROMPT, CONTINUE_PROMPT] },
@@ -177,15 +220,13 @@ describe('runMikoLoop decides from STATUS in mikoshi.md and the Ctrl+C presses',
     expect(run.lines.join('\n')).toContain('STATUS: none')
   })
 
-  it.each([
-    { name: 'during the session', doubles: [true], pauses: [] },
-    { name: 'during the pause', doubles: [false, true], pauses: [PAUSE_MS] },
-  ])('stops on a double Ctrl+C $name, though STATUS says CONTINUE', async ({ doubles, pauses }) => {
-    const run = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], doubles: [...doubles] })
+  it('stops on a Ctrl+C in the pause, though STATUS says CONTINUE', async () => {
+    const run = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], pauseEnds: ['elapsed', 'ctrl-c'] })
     expect(run.code).toBe(0)
-    expect(run.prompts).toEqual([undefined])
-    expect(run.pauses).toEqual(pauses)
-    expect(run.lines.join('\n')).toContain('double Ctrl+C')
+    expect(run.prompts).toEqual([undefined, CONTINUE_PROMPT])
+    expect(run.pauses).toEqual([PAUSE_MS, PAUSE_MS])
+    expect(run.lines.at(-2)).toContain('Ctrl+C now stops the loop')
+    expect(run.lines.at(-1)).toContain('Ctrl+C in the pause: no next session')
   })
 
   it('stops with exit code 1 when the session could not start, so a missing claude does not spin', async () => {
@@ -194,22 +235,9 @@ describe('runMikoLoop decides from STATUS in mikoshi.md and the Ctrl+C presses',
       status: () => statuses.shift(),
       handoffMtime: () => 0,
       session: async () => ({ code: null, signal: null }),
-      pause: async () => {},
-      doubleCtrlC: () => false,
+      pause: async () => 'elapsed',
       err: () => {},
     })
     expect(code).toBe(1)
-  })
-})
-
-describe('isDoubleCtrlC', () => {
-  it.each([
-    { presses: [], double: false },
-    { presses: [1000], double: false },
-    { presses: [1000, 1000 + 2000], double: true },
-    { presses: [1000, 1000 + 2001], double: false },
-    { presses: [0, 10_000, 10_500], double: true },
-  ])('reads $presses as double: $double', ({ presses, double }) => {
-    expect(isDoubleCtrlC(presses)).toBe(double)
   })
 })

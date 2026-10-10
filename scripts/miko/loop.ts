@@ -13,7 +13,6 @@ export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const CONTINUE_PROMPT = 'прочитай mikoshi.md'
 export const PAUSE_MS = 3000
-export const DOUBLE_CTRL_C_MS = 2000
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
 
@@ -22,12 +21,13 @@ export interface SessionEnd {
   signal: NodeJS.Signals | null
 }
 
+export type PauseEnd = 'elapsed' | 'ctrl-c'
+
 export interface MikoLoopDeps {
   status: () => Status | null | undefined
   handoffMtime: () => number | undefined
   session: (prompt: string | undefined) => Promise<SessionEnd>
-  pause: (ms: number) => Promise<void>
-  doubleCtrlC: () => boolean
+  pause: (ms: number) => Promise<PauseEnd>
   err: (line: string) => void
 }
 
@@ -39,10 +39,6 @@ export function claudeArgv(command: string, prompt: string | undefined): string[
   return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
-export function isDoubleCtrlC(presses: number[], windowMs = DOUBLE_CTRL_C_MS): boolean {
-  return presses.some((at, index) => index > 0 && at - presses[index - 1]! <= windowMs)
-}
-
 function didNotStart(end: SessionEnd): boolean {
   return (end.code === null && end.signal === null) || SHELL_COULD_NOT_RUN_THE_COMMAND.has(end.code ?? -1)
 }
@@ -52,10 +48,6 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
   for (;;) {
     const before = deps.handoffMtime()
     const end = await deps.session(prompt)
-    if (deps.doubleCtrlC()) {
-      deps.err(`${PREFIX}double Ctrl+C: no next session`)
-      return 0
-    }
     if (didNotStart(end)) {
       deps.err(`${PREFIX}the session did not start: no next session`)
       return 1
@@ -69,10 +61,9 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
       deps.err(`${PREFIX}mikoshi.md says STATUS: ${status ?? 'none'}: no next session`)
       return 0
     }
-    deps.err(`${PREFIX}STATUS: CONTINUE: next session in ${PAUSE_MS / 1000}s, double Ctrl+C stops the loop`)
-    await deps.pause(PAUSE_MS)
-    if (deps.doubleCtrlC()) {
-      deps.err(`${PREFIX}double Ctrl+C: no next session`)
+    deps.err(`${PREFIX}STATUS: CONTINUE: next session in ${PAUSE_MS / 1000}s, Ctrl+C now stops the loop`)
+    if (await deps.pause(PAUSE_MS) === 'ctrl-c') {
+      deps.err(`${PREFIX}Ctrl+C in the pause: no next session`)
       return 0
     }
     prompt = CONTINUE_PROMPT
@@ -87,6 +78,22 @@ function mtimeOf(file: string): number | undefined {
   return existsSync(file) ? statSync(file).mtimeMs : undefined
 }
 
+async function pauseUntilCtrlC(ms: number): Promise<PauseEnd> {
+  const ctrlC = new AbortController()
+  const abort = (): void => ctrlC.abort()
+  process.once('SIGINT', abort)
+  try {
+    await sleep(ms, undefined, { signal: ctrlC.signal })
+    return 'elapsed'
+  }
+  catch {
+    return 'ctrl-c'
+  }
+  finally {
+    process.off('SIGINT', abort)
+  }
+}
+
 function runSession(command: string, prompt: string | undefined): Promise<SessionEnd> {
   return new Promise((resolve) => {
     const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit' })
@@ -96,18 +103,14 @@ function runSession(command: string, prompt: string | undefined): Promise<Sessio
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const presses: number[] = []
-  process.on('SIGINT', () => {
-    presses.push(Date.now())
-  })
+  process.on('SIGINT', () => {})
   const handoff = mikoshiHandoff(os.homedir())
   const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),
     handoffMtime: () => mtimeOf(handoff),
     session: prompt => runSession(command, prompt),
-    pause: async ms => sleep(ms),
-    doubleCtrlC: () => isDoubleCtrlC(presses),
+    pause: pauseUntilCtrlC,
     err: line => console.error(line),
   })
 }
