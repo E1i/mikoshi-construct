@@ -1,4 +1,5 @@
 import type { AtlasMechanics } from '../src/atlas/view.js'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -37,6 +38,22 @@ const MECHANICS: AtlasMechanics = {
     { from: 'press/main.ts', to: 'press/squeeze.ts', kind: 'imports', specifier: './squeeze.js', status: 'found', source: { path: 'press/main.ts', line: 1 } },
     { from: 'press/main.ts', to: null, kind: 'imports', specifier: './gone.js', status: 'unknown', source: { path: 'press/main.ts', line: 2 } },
   ],
+}
+
+interface PageData {
+  files: string[]
+  states: string[]
+  reasons: Record<string, string>
+  contours: { components: { name: string, files: number[] }[] }[]
+  unresolved: [number, number, string][]
+}
+
+function scriptsOf(html: string): string[] {
+  return [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].map(match => `${match[1]}|${match[2]}`)
+}
+
+function pageData(html: string): PageData {
+  return JSON.parse(/const DATA = (.*);\n/.exec(html)![1]!) as PageData
 }
 
 function render(mechanics?: AtlasMechanics): string {
@@ -84,33 +101,38 @@ describe('the atlas page is built from the document alone', () => {
     expect(html).toContain('.node:not(:target) .panel { display: none; }')
   })
 
-  it('fetches nothing, runs no script and follows the light and the dark scheme on a narrow screen', () => {
+  it('fetches nothing, runs only the one script written into it, whose hash the policy names, and follows the light and the dark scheme on a narrow screen', () => {
     for (const html of [render(), render(MECHANICS)]) {
-      expect(html).not.toMatch(/<script|https?:\/\/|<link|@import|url\(/)
+      const scripts = scriptsOf(html)
+      const markup = html.replace(/<script>[\s\S]*?<\/script>/g, '')
+      expect(markup).not.toMatch(/<script|https?:\/\/|<link|@import|url\(/)
+      expect(scripts.every(script => script.startsWith('|'))).toBe(true)
+      for (const script of scripts) {
+        expect(script).not.toMatch(/https?:\/\/|fetch\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|import\(|eval\(|new Function/)
+        expect(html).toContain(`script-src 'sha256-${createHash('sha256').update(script.slice(1)).digest('base64')}'`)
+      }
+      expect(html).toContain(`default-src 'none'`)
       expect(html).toContain('color-scheme: light dark')
       expect(html).toContain('name="viewport"')
       expect(html).not.toMatch(/@media[^{]*(width|height)/)
     }
+    expect(scriptsOf(render())).toEqual([])
+    expect(scriptsOf(render(MECHANICS))).toHaveLength(1)
   })
 })
 
 describe('mechanics are drawn when the document carries them and nothing otherwise', () => {
-  it('draws the code under the node whose source holds it and names the rest as unclaimed', () => {
-    const html = render(MECHANICS)
-    expect(html).toContain('Code under it (2)')
-    expect(html).toContain('press/squeeze.ts')
-    expect(html).toContain('unknown: ./gone.js')
-    expect(html).toMatch(/<path [^>]*data-state="unknown"><title>press\/main\.ts:2 imports \.\/gone\.js<\/title>/)
-    expect(html).toMatch(/<g data-state="unknown"><rect [^>]*\/><text [^>]*>unknown: \.\/gone\.js<\/text>/)
-    expect(html).toContain('[data-state=\'unknown\'] { --_c: var(--unknown); --_fill: var(--unknown-fill); --_line: dashed; --_dash: 4 3; }')
-    expect(html).toContain('Code no part claims (1)')
-    expect(html).toContain('data-layer="mechanics"')
+  it('carries every file into a component of the map and every unresolved relation with its line', () => {
+    const data = pageData(render(MECHANICS))
+    expect(data.files).toEqual(['press/main.ts', 'press/squeeze.ts', 'tools/clock.ts'])
+    expect(data.contours.flatMap(contour => contour.components.flatMap(component => component.files)).sort()).toEqual([0, 1, 2])
+    expect(data.unresolved).toEqual([[0, 2, './gone.js']])
   })
 
   it('draws a file whose relations are unknown as unknown, with the reason', () => {
-    const html = render({ ...MECHANICS, components: [...MECHANICS.components, { id: 'tools/logo.blend', path: 'tools/logo.blend', relations: 'unknown', reason: 'type-not-scanned' }] })
-    expect(html).toContain('Code no part claims (2)')
-    expect(html).toMatch(/<g data-state="unknown"><title>tools\/logo\.blend: relations unknown — discovery reads no file of this type<\/title><rect [^>]*\/><text [^>]*>tools\/logo\.blend<\/text>/)
+    const data = pageData(render({ ...MECHANICS, components: [...MECHANICS.components, { id: 'tools/logo.blend', path: 'tools/logo.blend', relations: 'unknown', reason: 'type-not-scanned' }] }))
+    expect(data.states[data.files.indexOf('tools/logo.blend')]).toBe('unknown')
+    expect(data.reasons).toEqual({ 'tools/logo.blend': 'type-not-scanned' })
   })
 
   it('draws nothing for mechanics when there are none', () => {
@@ -164,10 +186,10 @@ describe('what the review of the renderer found', () => {
     expect(route).not.toContain('Code under it')
   })
 
-  it('does not hand pressure/x to the node whose source is press', () => {
-    const html = render(sibling)
-    expect(html).toContain('Code under it (2)')
-    expect(html).toContain('Code no part claims (2)')
+  it('does not hand pressure/x to the component of press', () => {
+    const data = pageData(render(sibling))
+    const press = data.contours[0]!.components.find(component => component.name === 'press')!
+    expect(press.files.map(file => data.files[file])).toEqual(['press/main.ts', 'press/squeeze.ts'])
   })
 
   it('gives two ids that clean up to one anchor two different anchors', () => {

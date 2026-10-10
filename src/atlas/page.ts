@@ -4,7 +4,7 @@ import type { Atlas, AtlasInput, AtlasLink, AtlasNode } from './view.js'
 import { PICTURE_CLASSES } from '../model/graph.js'
 import { escaped } from '../model/page.js'
 import { STATE_LEGEND } from '../model/svg.js'
-import { schemeOfMechanics } from './scheme.js'
+import { atlasScript, contentPolicy, mapSection } from './map.js'
 import { ATLAS_STYLE } from './style.js'
 import { switchHtml } from './switch.js'
 import { atlasOf } from './view.js'
@@ -19,10 +19,8 @@ const WORDS = {
   here: 'you are here',
   leadsFrom: '← comes from',
   leadsTo: 'leads to →',
-  code: 'Code under it',
   source: 'Open the source',
-  unclaimed: (count: number) => `Code no part claims (${count})`,
-  footer: (name: string) => `Every state is derived on read, never stored. Rendered from ${name}; nothing here is fetched when you open it.`,
+  footer: (name: string) => `Every state is derived on read, never stored. Rendered from ${name}; nothing here is fetched when you open it, and the page runs only the script written into it.`,
 }
 
 export function sourceHref(sourcePath: string, rootFromPage: string): string {
@@ -45,17 +43,7 @@ function evidence(node: AtlasNode): string {
   return `<details><summary>${escaped(WORDS.evidence)}</summary>${items}</details>`
 }
 
-function code(node: AtlasNode, input: AtlasInput): string {
-  if (input.mechanics == null || node.components.length === 0)
-    return ''
-  return `<details><summary>${escaped(WORDS.code)} (${node.components.length})</summary>${scheme(input, node.components)}</details>`
-}
-
-function scheme(input: AtlasInput, paths: string[]): string {
-  return `<div class="scheme">${schemeOfMechanics(input.mechanics ?? { components: [], relations: [] }, paths)}</div>`
-}
-
-function nodeHtml(node: AtlasNode, input: AtlasInput, rootFromPage: string): string {
+function nodeHtml(node: AtlasNode, rootFromPage: string): string {
   return [
     `<li><article class="node" id="${escaped(node.anchor)}" data-state="${node.state}">`,
     `  <h3><a class="name" href="#${escaped(node.anchor)}">${escaped(node.label)}</a></h3>`,
@@ -63,27 +51,21 @@ function nodeHtml(node: AtlasNode, input: AtlasInput, rootFromPage: string): str
     `  <p class="status">${escaped(abilityWords(node.ability))}</p>`,
     `  <div class="panel">`,
     `    <p class="here">${escaped(WORDS.here)}</p>`,
-    indent([evidence(node), links(WORDS.leadsFrom, node.leadsFrom), links(WORDS.leadsTo, node.leadsTo), code(node, input), `<a href="${sourceHref(node.sourcePath, rootFromPage)}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a>`].filter(part => part !== '').join('\n'), 4),
+    indent([evidence(node), links(WORDS.leadsFrom, node.leadsFrom), links(WORDS.leadsTo, node.leadsTo), `<a href="${sourceHref(node.sourcePath, rootFromPage)}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a>`].filter(part => part !== '').join('\n'), 4),
     `  </div>`,
     `</article></li>`,
   ].join('\n')
 }
 
-function stagesHtml(atlas: Atlas, input: AtlasInput, rootFromPage: string): string {
+function stagesHtml(atlas: Atlas, rootFromPage: string): string {
   return atlas.stages.map(stage => [
     `<section class="stage" data-stage="${escaped(stage.id)}">`,
     `  <h2>${escaped(stage.label)}</h2>`,
     stage.nodes.length === 0
       ? `  <p class="empty">${escaped(WORDS.emptyStage)}</p>`
-      : `  <ul>\n${indent(stage.nodes.map(node => nodeHtml(node, input, rootFromPage)).join('\n'), 4)}\n  </ul>`,
+      : `  <ul>\n${indent(stage.nodes.map(node => nodeHtml(node, rootFromPage)).join('\n'), 4)}\n  </ul>`,
     `</section>`,
   ].join('\n')).join('\n')
-}
-
-function mechanicsLayer(atlas: Atlas, input: AtlasInput): string {
-  if (input.mechanics == null || atlas.unclaimed.length === 0)
-    return ''
-  return `<section data-layer="mechanics"><details><summary>${escaped(WORDS.unclaimed(atlas.unclaimed.length))}</summary>${scheme(input, atlas.unclaimed)}</details></section>`
 }
 
 function legend(atlas: Atlas): string {
@@ -93,11 +75,13 @@ function legend(atlas: Atlas): string {
 
 export function renderAtlas(input: AtlasInput, generatedFrom: string, rootFromPage = '', modeFiles?: Record<AtlasMode, string>): string {
   const atlas = atlasOf(input)
+  const script = atlasScript(input, rootFromPage)
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${contentPolicy(script, ATLAS_STYLE)}">
 <title>${escaped(WORDS.title(input.projectName))}</title>
 <style>${ATLAS_STYLE}</style>
 </head>
@@ -105,15 +89,15 @@ export function renderAtlas(input: AtlasInput, generatedFrom: string, rootFromPa
 <main>
 ${modeFiles == null ? '' : switchHtml('map', modeFiles)}
 <h1>${escaped(WORDS.title(input.projectName))}</h1>
+${mapSection(script)}
 <p class="prose">${escaped(WORDS.prose)}</p>
 <div class="map">
-${indent(stagesHtml(atlas, input, rootFromPage), 2)}
+${indent(stagesHtml(atlas, rootFromPage), 2)}
 </div>
-${mechanicsLayer(atlas, input)}
 <ul class="legend">${legend(atlas)}</ul>
 <footer>${escaped(WORDS.footer(generatedFrom))}</footer>
 </main>
-</body>
+${script == null ? '' : `<script>${script}</script>\n`}</body>
 </html>
 `
 }

@@ -1,7 +1,7 @@
 import { RecordAheadOfReader } from '../record-ahead.js'
 
 export const MODEL_FILE = 'construct.model.json'
-export const MODEL_VERSION = 5
+export const MODEL_VERSION = 6
 const OLDEST_READABLE_MODEL_VERSION = 1
 
 export const FACT_KINDS = ['file-exists', 'file-contains', 'file-lacks', 'report-covers', 'report-misses'] as const
@@ -122,11 +122,36 @@ export interface Relation {
   source: LineSource
 }
 
+export const CONTOUR_KINDS = ['package', 'workspace', 'reference', 'contract'] as const
+export type ContourKind = (typeof CONTOUR_KINDS)[number]
+
+export interface Contour {
+  id: string
+  name: string
+  kind: ContourKind
+  declaredBy: string
+  entries: string[]
+}
+
 export interface Mechanics {
   identity: Identity
   tree: Tree
+  contours: Contour[]
   components: Component[]
   relations: Relation[]
+}
+
+export interface InterpretedComponent {
+  id: string
+  contour: string
+  name: string
+  purpose: string
+  files: string[]
+}
+
+export interface Interpretation {
+  authoredBy: EntryAuthor
+  components: InterpretedComponent[]
 }
 
 export interface RepositoryModel {
@@ -138,6 +163,7 @@ export interface RepositoryModel {
   nodes: AbilityNode[]
   links: Link[]
   mechanics?: Mechanics
+  interpretation?: Interpretation
 }
 
 const FACT_PROPERTIES = ['id', 'kind', 'path', 'authoredBy', 'needle', 'surface', 'format']
@@ -149,7 +175,10 @@ export const STAGE_PROPERTIES = ['id', 'label']
 export const NODE_PROPERTIES = ['id', 'label', 'stage', 'source', 'supportedBy']
 export const NODE_SOURCE_PROPERTIES = ['path', 'fact']
 export const LINK_PROPERTIES = ['from', 'to']
-export const MECHANICS_PROPERTIES = ['identity', 'tree', 'components', 'relations']
+export const MECHANICS_PROPERTIES = ['identity', 'tree', 'contours', 'components', 'relations']
+export const CONTOUR_PROPERTIES = ['id', 'name', 'kind', 'declaredBy', 'entries']
+export const INTERPRETATION_PROPERTIES = ['authoredBy', 'components']
+export const INTERPRETED_COMPONENT_PROPERTIES = ['id', 'contour', 'name', 'purpose', 'files']
 export const IDENTITY_PROPERTIES = ['sha', 'status', 'source']
 export const TREE_PROPERTIES = ['status', 'source']
 export const COMMAND_SOURCE_PROPERTIES = ['command', 'exit', 'effects']
@@ -157,7 +186,7 @@ export const LINE_SOURCE_PROPERTIES = ['path', 'line']
 export const COMPONENT_PROPERTIES = ['id', 'path', 'relations', 'reason']
 export const RELATION_PROPERTIES = ['from', 'to', 'kind', 'specifier', 'status', 'source']
 const OPTIONAL_LISTS = ['stages', 'nodes', 'links']
-const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links', 'mechanics']
+const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links', 'mechanics', 'interpretation']
 
 export class DanglingFactReference extends Error {
   readonly factId: string
@@ -457,6 +486,51 @@ function parseComponent(name: string, entry: Record<string, unknown>, where: str
   return { id, path: componentPath, relations, reason: member(name, text(name, entry, 'reason', where), COMPONENT_REASONS, 'reason', where) }
 }
 
+function parseContours(name: string, mechanics: Record<string, unknown>, componentIds: Set<string>): Contour[] {
+  const contours = mechanics.contours === undefined
+    ? []
+    : list(name, mechanics, 'contours').map((entry, index) => {
+        const where = `mechanics.contours[${index}]`
+        closed(name, entry, CONTOUR_PROPERTIES, where)
+        return {
+          id: text(name, entry, 'id', where),
+          name: text(name, entry, 'name', where),
+          kind: member(name, text(name, entry, 'kind', where), CONTOUR_KINDS, 'kind', where),
+          declaredBy: text(name, entry, 'declaredBy', where),
+          entries: textList(name, entry, 'entries', where).map(file => declared(name, file, componentIds, 'entries', 'component', where)),
+        }
+      })
+  uniqueIds(name, contours.map(contour => contour.id), 'contour')
+  return contours
+}
+
+function parseInterpretation(name: string, raw: Record<string, unknown>): Interpretation {
+  const interpretation = raw.interpretation
+  if (!isRecord(interpretation))
+    fail(name, 'the document needs an "interpretation" object')
+  closed(name, interpretation, INTERPRETATION_PROPERTIES, 'interpretation')
+  const claimed = new Set<string>()
+  const components = list(name, interpretation, 'components').map((entry, index) => {
+    const where = `interpretation.components[${index}]`
+    closed(name, entry, INTERPRETED_COMPONENT_PROPERTIES, where)
+    const files = textList(name, entry, 'files', where)
+    for (const file of files) {
+      if (claimed.has(file))
+        fail(name, `${where} names "${file}", which an earlier component already holds: a file belongs to one component`)
+      claimed.add(file)
+    }
+    return {
+      id: text(name, entry, 'id', where),
+      contour: text(name, entry, 'contour', where),
+      name: text(name, entry, 'name', where),
+      purpose: text(name, entry, 'purpose', where),
+      files,
+    }
+  })
+  uniqueIds(name, components.map(component => component.id), 'interpretation component')
+  return { authoredBy: member(name, text(name, interpretation, 'authoredBy', 'interpretation'), ENTRY_AUTHORS, 'authoredBy', 'interpretation'), components }
+}
+
 function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
   const mechanics = child(name, raw, 'mechanics', MECHANICS_PROPERTIES, 'the document')
   const identityEntry = child(name, mechanics, 'identity', IDENTITY_PROPERTIES, 'mechanics')
@@ -467,6 +541,7 @@ function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
     return parseComponent(name, entry, where)
   })
   const componentIds = uniqueIds(name, components.map(component => component.id), 'component')
+  const contours = parseContours(name, mechanics, componentIds)
   const relations = list(name, mechanics, 'relations').map((entry, index) => {
     const where = `mechanics.relations[${index}]`
     closed(name, entry, RELATION_PROPERTIES, where)
@@ -495,6 +570,7 @@ function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
   return {
     identity: { sha: sha as string | null, status: identityStatus, source: parseCommandSource(name, identityEntry, 'mechanics.identity') },
     tree: { status: treeStatus, source: parseCommandSource(name, treeEntry, 'mechanics.tree') },
+    contours,
     components,
     relations,
   }
@@ -531,5 +607,7 @@ export function parseModel(source: string, name: string): RepositoryModel {
   const model: RepositoryModel = { modelVersion: MODEL_VERSION, facts, claims, hypotheses, stages, nodes, links }
   if (raw.mechanics !== undefined)
     model.mechanics = parseMechanics(name, raw)
+  if (raw.interpretation !== undefined)
+    model.interpretation = parseInterpretation(name, raw)
   return model
 }

@@ -61,8 +61,24 @@ function atlasOf(dir: string, out?: string): ReturnType<typeof runAtlas> {
   return runAtlas({ dir, home: home(), attached: readAttachRecord(dir) != null, out })
 }
 
+interface PageData {
+  files: string[]
+  states: string[]
+  reasons: Record<string, string>
+  contours: { id: string, name: string, components: { name: string, files: number[] }[] }[]
+  relations: [number, number, number, number][]
+}
+
+function pageData(html: string): PageData {
+  return JSON.parse(/const DATA = (.*);\n/.exec(html)![1]!) as PageData
+}
+
+function markupOf(html: string): string {
+  return html.replace(/<script>[\s\S]*?<\/script>/g, '')
+}
+
 function sourceTargets(page: string): string[] {
-  const html = readFileSync(page, 'utf8')
+  const html = markupOf(readFileSync(page, 'utf8'))
   return [...html.matchAll(/href="([^"#][^"]*)" data-source/g)].map(match => path.resolve(path.dirname(page), decodeURIComponent(match[1]!)))
 }
 
@@ -75,7 +91,7 @@ describe('construct atlas in a repository construct init made', () => {
     expect(model.mechanics?.components.some(component => component.path === 'src/app.ts')).toBe(true)
     const html = readFileSync(written.page, 'utf8')
     expect(html).toContain('<h2>Take an order</h2>')
-    expect(html).toMatch(/Code under it \(\d+\)/)
+    expect(pageData(html).files).toContain('src/app.ts')
     expect(git(dir, 'status', '--porcelain')).toBe(` M ${MODEL_FILE}\n`)
   })
 
@@ -136,9 +152,9 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
     expect(git(dir, 'status', '--porcelain')).toBe('')
     const html = readFileSync(written.page, 'utf8')
-    expect(html).toContain('Code no part claims (4)')
-    expect(html).toContain('src/orders/api.ts')
-    expect(html).toContain('README.md: relations unknown — discovery reads no file of this type')
+    const data = pageData(html)
+    expect(data.files).toEqual(['README.md', 'package.json', 'src/orders/api.ts', 'src/orders/store.ts'])
+    expect(data.reasons).toEqual({ 'README.md': 'type-not-scanned', 'package.json': 'type-not-scanned' })
   })
 
   it('writes no documentation view into an attached repository and draws no switch on its map', async () => {
@@ -161,7 +177,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(readFileSync(first.page).equals(before[1]!)).toBe(true)
   })
 
-  it('keeps the parts the engram already names and draws their code under them', async () => {
+  it('keeps the parts the engram already names and maps their code under the contour the package declares', async () => {
     const dir = foreignRepository()
     await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
     const engram = atlasOf(dir).engram
@@ -169,8 +185,9 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     writeFileSync(engram, `${JSON.stringify({ ...model, ...STAGED_NODES }, null, 2)}\n`)
     const html = readFileSync(atlasOf(dir).page, 'utf8')
     expect(html).toContain('<h2>Take an order</h2>')
-    expect(html).toContain('Code under it (2)')
-    expect(html).toContain('Code no part claims (2)')
+    const data = pageData(html)
+    expect(data.contours.map(contour => contour.name)).toEqual(['shop'])
+    expect(data.contours[0]!.components.find(component => component.name === 'src')!.files.map(file => data.files[file])).toEqual(['src/orders/api.ts', 'src/orders/store.ts'])
     expect(git(dir, 'status', '--porcelain')).toBe('')
   })
 })
@@ -229,13 +246,11 @@ describe('construct atlas over a repository whose files discovery mostly cannot 
     const written = atlasOf(dir)
     const tracked = git(dir, 'ls-files').split('\n').filter(file => file !== '')
     const html = readFileSync(written.page, 'utf8')
-    expect(html).toContain(`Code no part claims (${tracked.length})`)
-    for (const file of tracked)
-      expect(html).toContain(`>${file}</text>`)
-    for (const file of ['README.md', 'assets/hall.blend', 'notes.xyz', 'src/shader.glsl'])
-      expect(html).toContain(`<title>${file}: relations unknown — discovery reads no file of this type</title>`)
-    expect(html).not.toContain('<title>src/main.ts: relations unknown')
-    expect(html).toMatch(/<path [^>]*data-state="held"><title>src\/main\.ts:1 imports \.\/shader\.glsl<\/title>/)
+    const data = pageData(html)
+    expect(data.files).toEqual([...tracked].sort())
+    expect(data.reasons).toEqual(Object.fromEntries(['README.md', 'assets/hall.blend', 'notes.xyz', 'src/shader.glsl'].map(file => [file, 'type-not-scanned'])))
+    expect(data.states[data.files.indexOf('src/main.ts')]).toBe('held')
+    expect(data.relations.map(([from, to, line]) => `${data.files[from]}:${line} → ${data.files[to]}`)).toContain('src/main.ts:1 → src/shader.glsl')
   })
 })
 
