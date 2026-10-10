@@ -29,6 +29,10 @@ function brainWorld(): { deps: RelaunchDeps, handoff: string, stubOut: string } 
     home: root,
     pid: process.pid,
     claude: `STUB_OUT=${stubOut} PATH=${PNPM_SHIM_DIR}:$PATH ${STUB}`,
+    env: {},
+    ghToken: (account) => {
+      throw new Error(`gh is not asked for ${account}`)
+    },
     journal: path.join(root, 'handoff-dir', 'ghosts.jsonl'),
     projectsDir: path.join(root, 'projects'),
     read: file => readFileSync(file, 'utf8'),

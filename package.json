@@ -47,6 +47,7 @@
     "bus:close": "tsx scripts/bus/close-worker.ts",
     "bus:import": "tsx scripts/bus/import.ts",
     "bus:inbox": "tsx scripts/bus/inbox.ts",
+    "bus:launch": "tsx scripts/bus/launch-worker.ts",
     "bus:merge": "tsx scripts/bus/merge-worker.ts",
     "bus:netwatch": "tsx scripts/bus/netwatch.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",

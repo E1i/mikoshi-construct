@@ -35,10 +35,10 @@ function rows(db: ReturnType<typeof openBus>): Record<string, unknown>[] {
 describe('the one-time journal import', () => {
   it('the journal imports once as legacy events and a second import adds nothing', () => {
     const db = openBus(path.join(newRoot(), 'bus.db'))
-    expect(importJournal(db, JOURNAL)).toEqual({ imported: 6, present: 0, unreadable: [7] })
+    expect(importJournal(db, JOURNAL)).toEqual({ imported: 6, present: 0, unreadable: [7], admitted: 0 })
     const first = db.prepare('SELECT * FROM events ORDER BY id').all()
     expect(first.every(row => row.legacy === 1 && row.actor === null)).toBe(true)
-    expect(importJournal(db, JOURNAL)).toEqual({ imported: 0, present: 6, unreadable: [7] })
+    expect(importJournal(db, JOURNAL)).toEqual({ imported: 0, present: 6, unreadable: [7], admitted: 0 })
     expect(db.prepare('SELECT * FROM events ORDER BY id').all()).toEqual(first)
     db.close()
   })
@@ -47,7 +47,7 @@ describe('the one-time journal import', () => {
     const db = openBus(path.join(newRoot(), 'bus.db'))
     importJournal(db, JOURNAL)
     const grown = `${JOURNAL}${JSON.stringify({ event: 'note', text: 'prose' })}\n`
-    expect(importJournal(db, grown)).toEqual({ imported: 1, present: 6, unreadable: [7] })
+    expect(importJournal(db, grown)).toEqual({ imported: 1, present: 6, unreadable: [7], admitted: 0 })
     db.close()
   })
 
