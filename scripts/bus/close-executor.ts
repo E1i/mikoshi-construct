@@ -1,12 +1,25 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { MergeEvent } from '../board/handoff.js'
+import type { CardFileStep } from './card-archive.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { existsSync, readFileSync } from 'node:fs'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
+import { archiveCardFile } from './card-archive.js'
+import { MERGE_DONE } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { CARD_CLOSED } from './queue.js'
 
-export type CloseTechnicalReason = 'card_closed' | 'no_verification'
+export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit'
+
+export type MergeLineStep = 'written' | 'present'
+
+export interface CloseCycle {
+  mergeLine: MergeLineStep
+  cardFile: CardFileStep
+}
 
 export interface CloseDenial {
   kind: 'technical'
@@ -15,7 +28,7 @@ export interface CloseDenial {
 }
 
 export type CloseOutcome
-  = | { kind: 'closed', taskKey: string, verification: string }
+  = | { kind: 'closed', taskKey: string, verification: string, cycle: CloseCycle }
     | { kind: 'denied', taskKey: string, denial: CloseDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
@@ -25,7 +38,21 @@ export interface CloseParts {
   db: DatabaseSync
   reported: ReportedVerification
   clock: () => Date
+  journal: string
+  parking: string
 }
+
+interface MergeRecord {
+  actor: string
+  ts: string
+  payload: string
+}
+
+const MERGE_RECORD = `
+  SELECT actor, ts, payload FROM events
+  WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = 'pr.closed' AND json_extract(payload, '$.merged') = 1))
+  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
+`
 
 class CardAlreadyClosed extends Error {}
 
@@ -56,7 +83,10 @@ export class CloseExecutor {
       const verification = this.parts.reported(lease.cardId)
       if (!isVerificationWord(verification))
         return this.denied(lease, technical('no_verification', `the run of card ${lease.cardId} reported ${verification === null ? 'no verification' : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
-      return this.closed(lease, verification)
+      const merge = this.mergeLine(lease)
+      if (merge === null)
+        return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
+      return this.closed(lease, verification, merge)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -67,14 +97,32 @@ export class CloseExecutor {
     }
   }
 
-  private closed(lease: Lease, verification: string): CloseOutcome {
+  private mergeLine(lease: Lease): MergeEvent | null {
+    const record = lease.pr === null ? undefined : this.parts.db.prepare(MERGE_RECORD).get(lease.pr) as MergeRecord | undefined
+    const commit = record === undefined ? undefined : (JSON.parse(record.payload) as { commit?: unknown }).commit
+    if (record === undefined || typeof commit !== 'string')
+      return null
+    return { event: 'merge', task: String(lease.cardId), pr: lease.pr!, by: record.actor, commit, merged: record.ts, ts: this.ts() }
+  }
+
+  private appendMergeLine(line: MergeEvent): MergeLineStep {
+    const { journal } = this.parts
+    if (hasMergeLine(existsSync(journal) ? readFileSync(journal, 'utf8') : null, line.pr!))
+      return 'present'
+    appendToJournal(journal, journalLine(line))
+    return 'written'
+  }
+
+  private closed(lease: Lease, verification: string, merge: MergeEvent): CloseOutcome {
+    const mergeLine = this.appendMergeLine(merge)
+    const cardFile = archiveCardFile(this.parts.parking, lease.cardId)
     const ts = this.ts()
     const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_CLOSED}:${lease.cardId}`, payload: { verification }, legacy: false }
     completeTask(this.parts.db, ts, lease, [event], (db) => {
       if (cardClosed(db, lease.cardId))
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
-    return { kind: 'closed', taskKey: lease.taskKey, verification }
+    return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { mergeLine, cardFile } }
   }
 
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {

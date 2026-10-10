@@ -7,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { reportPath } from '../shift/places.js'
 import { CloseExecutor } from './close-executor.js'
 import { defaultBusPath, openBus } from './db.js'
@@ -24,6 +25,8 @@ export interface CloseWorkerParts {
   reported: ReportedVerification
   clock: () => Date
   session: string
+  journal: string
+  parking: string
 }
 
 export class CloseWorker {
@@ -47,7 +50,7 @@ export function closeStepLine(step: CloseStep): string | null {
   if (step.kind === 'idle')
     return null
   if (step.kind === 'closed')
-    return `${PREFIX}${step.taskKey}: closed, verification ${step.verification}`
+    return `${PREFIX}${step.taskKey}: closed, verification ${step.verification}; merge line ${step.cycle.mergeLine}, card file ${step.cycle.cardFile}`
   if (step.kind === 'fenced')
     return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
   return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
@@ -71,6 +74,8 @@ export interface CloseRun {
   busPath: string
   reported: ReportedVerification
   session: string
+  journal: string
+  parking: string
   pause: (ms: number) => Promise<unknown>
 }
 
@@ -81,7 +86,7 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
   }
   const db = openBus(run.busPath)
   try {
-    const worker = new CloseWorker({ db, reported: run.reported, clock: () => new Date(), session: run.session })
+    const worker = new CloseWorker({ db, reported: run.reported, clock: () => new Date(), session: run.session, journal: run.journal, parking: run.parking })
     console.log(`${PREFIX}${run.busPath}: the close worker ${worker.actor} takes the close queue`)
     for (;;) {
       const step = worker.step()
@@ -97,7 +102,8 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
 }
 
 async function main(): Promise<number> {
-  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: shiftReportVerification(path.join(os.homedir(), '.construct', 'shift')), session: randomUUID(), pause: sleep })
+  const construct = path.join(os.homedir(), '.construct')
+  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: shiftReportVerification(path.join(construct, 'shift')), session: randomUUID(), journal: defaultGhostJournal(), parking: path.join(construct, 'parking'), pause: sleep })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
