@@ -343,6 +343,77 @@ describe('bus:bg --supervise', () => {
     expect(s.starts).toEqual([{ name: 'bus:run', head: next }])
   })
 
+  it('a main.advanced pulls the main checkout fast-forward and restarts the touched workers on the new sha', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    switchWorker(busDir, 'review', true)
+    const remote = 'b'.repeat(40)
+    let head = 'a'.repeat(40)
+    let pulls = 0
+    const code: BusCode = {
+      head: () => head,
+      holds: sha => sha === head,
+      busChangedSince: () => true,
+      pull: () => {
+        pulls += 1
+        head = remote
+      },
+    }
+    const s = supervised(r, busDir, RUNNING.slice(0, 2), code)
+    expect(await s.supervisor.step()).toEqual([])
+    expect(pulls).toBe(0)
+    s.advance(remote)
+    const lines = await s.supervisor.step()
+    expect(pulls).toBe(1)
+    expect(s.stopped).toEqual([101, 102])
+    expect(s.starts).toEqual([{ name: 'bus:run', head: remote }, { name: 'bus:review --on', head: remote }])
+    expect(lines[0]).toContain(`main advanced to ${remote} with a change under scripts/bus`)
+    expect(await s.supervisor.step()).toEqual([])
+    expect(pulls).toBe(1)
+  })
+
+  it('a pull that fails keeps the advance pending and names the failure', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    const remote = 'c'.repeat(40)
+    const head = 'a'.repeat(40)
+    let pulls = 0
+    const code: BusCode = {
+      head: () => head,
+      holds: sha => sha === head,
+      busChangedSince: () => true,
+      pull: () => {
+        pulls += 1
+        throw new Error('git pull --ff-only exited 128')
+      },
+    }
+    const s = supervised(r, busDir, RUNNING.slice(0, 1), code)
+    s.advance(remote)
+    const lines = await s.supervisor.step()
+    expect(lines.join('\n')).toContain('git pull --ff-only exited 128')
+    expect(lines.join('\n')).toContain('the restart waits')
+    expect(s.stopped).toEqual([])
+    expect(await s.supervisor.step()).toEqual([])
+    expect(pulls).toBe(2)
+  })
+
+  it('a merge that changes answer-worker.ts restarts answer on the new sha', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    switchWorker(busDir, 'answer', true)
+    switchWorker(busDir, 'close', true)
+    const running = [...RUNNING.slice(0, 1), { pid: 104, args: 'node pnpm.cjs --silent bus:answer --on' }, { pid: 105, args: 'node pnpm.cjs --silent bus:close --on' }]
+    const s = supervised(r, busDir, running)
+    const next = r.commit('scripts/bus/answer-worker.ts')
+    s.advance(next)
+    await s.supervisor.step()
+    expect(s.stopped).toEqual([101, 104, 105])
+    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:answer --on', 'bus:close --on', 'bus:run'])
+    expect(s.starts.every(start => start.head === next)).toBe(true)
+    expect(switchCommand(busDir, 'answer', true).exitCode).toBe(0)
+    expect(switchCommand(busDir, 'close', false).exitCode).toBe(0)
+  })
+
   it('main advancing with no change under scripts/bus restarts nothing', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')

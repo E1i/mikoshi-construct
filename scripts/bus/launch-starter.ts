@@ -7,7 +7,7 @@ import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
-import { CLAUDE_VARIABLE, claudeArgv } from '../shift/claude.js'
+import { claudeArgv } from '../shift/claude.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { messageOf } from './executor.js'
 import { technical } from './launch-executor.js'
@@ -35,21 +35,20 @@ export interface StarterPlaces {
   parking: string
   launchDir: string
   header: string
+  claude: string
   env: NodeJS.ProcessEnv
 }
 
-export function shiftMode(env: NodeJS.ProcessEnv): string | null {
-  const mode = env[CLAUDE_VARIABLE]
-  return mode === undefined || mode.trim() === '' ? null : mode
+export const CARD_PERMISSION_MODE = 'dontAsk'
+
+export function cardCommand(claude: string): string {
+  return `${claude} --permission-mode ${CARD_PERMISSION_MODE}`
 }
 
 export class ShiftCardStarter implements CardStarter {
   constructor(private readonly places: StarterPlaces, private readonly ports: StarterPorts) {}
 
   start(card: QueuedCard): CardStart {
-    const mode = shiftMode(this.places.env)
-    if (mode === null)
-      return { kind: 'refused', denial: technical('no_shift_mode', `${CLAUDE_VARIABLE} is not set; a card starts only in the shift mode the owner sets there`) }
     const laneDir = path.join(this.places.parking, card.lane)
     const file = `${card.cardId}.md`
     const text = this.ports.read(path.join(laneDir, file))
@@ -66,7 +65,7 @@ export class ShiftCardStarter implements CardStarter {
       const report = path.join(this.places.launchDir, `report-${card.cardId}.md`)
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: claudeArgv(mode, session),
+        args: claudeArgv(cardCommand(this.places.claude), session),
         cwd: worktree,
         env: sessionEnv(this.places.env, card.cardId),
         input: renderPrompt(this.places.header, task, { worktree, report }),

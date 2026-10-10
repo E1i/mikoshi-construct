@@ -90,6 +90,7 @@ async function main(): Promise<number> {
     parking: defaultParking(os.homedir()),
     launchDir: path.join(os.homedir(), '.construct', 'bus', LAUNCH_DIR),
     header: readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8'),
+    claude: 'claude',
     env,
   }
   const starter = new ShiftCardStarter(places, realStarterPorts(process.cwd(), env, randomUUID))

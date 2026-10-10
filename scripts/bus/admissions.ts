@@ -6,6 +6,7 @@ import { parseCard } from '../../src/card/grammar.js'
 import { ADMIT_SOURCE } from '../../src/commands/intake/admit.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
+import { ARCHIVE_DIR } from './card-archive.js'
 import { appendEvent } from './db.js'
 import { cardIdOf } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
@@ -90,7 +91,10 @@ export function admitFromJournal(db: DatabaseSync, ts: string, laneOnDisk: LaneO
     const known = db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${row.dedupe_key}`)
     if (known !== undefined)
       continue
-    const lane = isMove ? moved : movedTo.get(cardId) ?? laneOnDisk(cardId)
+    const present = laneOnDisk(cardId)
+    if (present === null || present === ARCHIVE_DIR)
+      continue
+    const lane = isMove ? moved : movedTo.get(cardId) ?? present
     if (appendEvent(db, admittedEvent(row, cardId, { lane, ...card }, ts)))
       admitted += 1
   }

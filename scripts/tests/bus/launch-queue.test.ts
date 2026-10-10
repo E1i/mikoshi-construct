@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
-import type { StarterPorts } from '../../bus/launch-starter.js'
+import type { StarterPlaces, StarterPorts } from '../../bus/launch-starter.js'
 import type { Lease } from '../../bus/lease.js'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,13 +10,14 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { parkingLane } from '../../bus/admissions.js'
+import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { LaunchWorker } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { journalIntake } from '../../bus/run.js'
@@ -114,7 +115,7 @@ async function waitForExit(pid: number): Promise<void> {
     await sleep(50)
 }
 
-function realStarter(root: string, shiftClaude: string | undefined, cardId: number, overrides: Partial<StarterPorts> = {}): ShiftCardStarter {
+function realStarter(root: string, shiftClaude: string | undefined, cardId: number, overrides: Partial<StarterPorts> = {}, places: Partial<StarterPlaces> = {}): ShiftCardStarter {
   const parking = path.join(root, 'parking')
   mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
   writeFileSync(path.join(parking, 'lane-x', `${cardId}.md`), parkingFileText({ card: `#${cardId} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
@@ -137,7 +138,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     uuid: () => `session-${cardId}`,
     ...overrides,
   }
-  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env }, ports)
+  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env, claude: shiftClaude ?? 'claude', ...places }, ports)
 }
 
 describe('the launch queue', () => {
@@ -286,27 +287,22 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('a launch starts the card in the shift mode, not the mode it inherited', () => {
+  it('a launch pins the card mode the way relaunch pins the Operator mode', () => {
+    expect(cardCommand('claude')).toBe(OPERATOR_CLAUDE)
+  })
+
+  it('a launch worker started from an auto window starts the card session in dontAsk', () => {
     const root = tempRoot()
     const stub = stubClaude(root)
-    const bench = launchBench(realStarter(root, `${stub.command} --permission-mode auto`, 930))
-    bench.admit(930, 'lane-x')
+    const bench = launchBench(realStarter(root, `${stub.command} --permission-mode auto`, 934, {}, { claude: stub.command }))
+    bench.admit(934, 'lane-x')
     bench.tick()
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
     const [args, card] = waitFor(stub.argsFile).trim().split('\n')
-    expect(args).toMatch(/^--permission-mode auto -p --session-id session-930$/)
-    expect(OPERATOR_CLAUDE).toContain('dontAsk')
-    expect(args).not.toContain('dontAsk')
-    expect(card).toBe('card=930')
+    expect(args).toBe('--permission-mode dontAsk -p --session-id session-934')
+    expect(card).toBe('card=934')
     bench.close()
-
-    const unset = launchBench(realStarter(tempRoot(), undefined, 931))
-    unset.admit(931, 'lane-x')
-    unset.tick()
-    expect(unset.launch(unset.leaseLaunch()!)).toMatchObject({ kind: 'denied', denial: { reason: 'no_shift_mode' } })
-    expect(eventsOf(unset.db, CARD_STARTED)).toEqual([])
-    unset.close()
   })
 
   it('a launch with a stale lease_gen is refused and writes nothing', () => {
@@ -421,6 +417,33 @@ describe('card.admitted from the intake journal', () => {
     expect(line).toMatch(/^legacy:1:[0-9a-f]{64}$/)
     expect(launchTasks(bench.db)).toEqual([{ task_key: `launch:970:${line}`, state: 'queued' }])
     expect(bench.leaseLaunch()).toMatchObject({ taskKey: `launch:970:${line}`, cardId: 970, pr: null, head: null, leaseGen: 1 })
+    bench.close()
+  })
+
+  it('a card queued in its lane now gets exactly one launch task', () => {
+    const bench = journalBench()
+    bench.park(983, 'lane-q')
+    const line = bench.append(intakeLine(983, 'admit', 1))
+    bench.tick()
+    bench.tick()
+
+    expect(launchTasks(bench.db)).toEqual([{ task_key: `launch:983:${line}`, state: 'queued' }])
+    bench.close()
+  })
+
+  it('a replay of the whole journal queues no launch for a closed or archived card', () => {
+    const bench = journalBench()
+    bench.park(984, 'lane-q')
+    bench.park(985, ARCHIVE_DIR)
+    bench.append(intakeLine(984, 'admit', 1))
+    bench.append(intakeLine(985, 'admit', 2))
+    bench.append(intakeLine(986, 'admit', 3))
+    rmSync(path.join(bench.parking, 'lane-q', '984.md'))
+    bench.tick()
+    bench.tick()
+
+    expect(launchTasks(bench.db)).toEqual([])
+    expect(bench.leaseLaunch()).toBeNull()
     bench.close()
   })
 

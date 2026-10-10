@@ -2,13 +2,15 @@ import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
 
+export const REVIEW_PERMISSION_MODE = 'auto'
+
 export const HEADLESS_FLAGS = [
   '-p',
   '--output-format',
   'stream-json',
   '--verbose',
   '--permission-mode',
-  'auto',
+  REVIEW_PERMISSION_MODE,
   '--permission-prompts',
   'none',
   '--strict-mcp-config',

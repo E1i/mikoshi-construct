@@ -50,6 +50,7 @@ export function mainAdvancedSince(db: DatabaseSync, afterId: number): MainAdvanc
 export interface BusCode {
   head: () => string
   holds: (sha: string) => boolean
+  pull: () => void
   busChangedSince: (sha: string) => boolean
 }
 
@@ -58,6 +59,9 @@ export function gitCode(cwd: string): BusCode {
   return {
     head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
     holds: sha => git(['merge-base', '--is-ancestor', sha, 'HEAD']) === 0,
+    pull: () => {
+      execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe' })
+    },
     busChangedSince: (sha) => {
       const status = git(['diff', '--quiet', sha, 'HEAD', '--', BUS_CODE_PATH])
       if (status !== 0 && status !== 1)
@@ -129,9 +133,12 @@ export class BusSupervisor {
     if (this.pending === null)
       return lines
     if (!this.parts.code.holds(this.pending)) {
-      if (advanced.length > 0)
-        lines.push(`${PREFIX}main advanced to ${this.pending}; the checkout does not hold it yet, the restart waits for it`)
-      return lines
+      const failure = this.pullFailure()
+      if (!this.parts.code.holds(this.pending)) {
+        if (advanced.length > 0)
+          lines.push(`${PREFIX}main advanced to ${this.pending}; the checkout does not hold it yet${failure === null ? '' : ` (git pull --ff-only failed: ${failure})`}, the restart waits for it`)
+        return lines
+      }
     }
     const sha = this.pending
     const changed = this.parts.code.busChangedSince(this.codeSha)
@@ -144,6 +151,16 @@ export class BusSupervisor {
     const restarted = await this.restart(wanted)
     this.settle(head)
     return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}`, ...restarted]
+  }
+
+  private pullFailure(): string | null {
+    try {
+      this.parts.code.pull()
+      return null
+    }
+    catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
 
   private settle(head: string): void {
