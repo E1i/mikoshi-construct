@@ -1,3 +1,4 @@
+import type { InForceDecision } from './decisions.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { ownerPathsOf } from '../../src/commands/intake/check.js'
@@ -7,6 +8,8 @@ import { readOwnerMergeKinds } from '../shredder/reader.js'
 export const VERSION_BRANCH = /^changeset-release\//
 export const RELEASE_KIND = 'release'
 const KINDS_NO_SHARD_MERGES = ['security-invariants']
+export const OWNER_PR_MERGED_BY_THE_BUS = 77
+const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
 
 export type AuthorityRule
   = | 'version_pr'
@@ -15,8 +18,9 @@ export type AuthorityRule
     | 'reserved'
     | 'decision_unread'
     | 'owner_without_shard'
+    | 'r1'
 
-export type AllowedRule = 'auto' | 'owner_under_shard'
+export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision'
 
 export type MergeVerdict
   = | { kind: 'allowed', rule: AllowedRule, detail: string }
@@ -30,6 +34,7 @@ export interface MergeFacts {
   files: readonly string[]
   ownerMergesText: string
   shardActive: boolean
+  decisions: readonly InForceDecision[]
 }
 
 function meetsAny(file: string, globs: readonly string[]): boolean {
@@ -66,6 +71,9 @@ function reserved(facts: MergeFacts): MergeVerdict | null {
   }
   if (reservationOf(facts.cardId, facts.description))
     return denied('reserved', `card #${facts.cardId} is reserved for the owner`)
+  const reserving = facts.decisions.find(decision => reservationOf(facts.cardId, decision.text))
+  if (reserving !== undefined)
+    return denied('reserved', `D-${reserving.decisionId} reserves card #${facts.cardId} for the owner`)
   return null
 }
 
@@ -90,7 +98,12 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
   if (decision === 'auto' && ownerPath === undefined)
     return { kind: 'allowed', rule: 'auto', detail: `card #${facts.cardId} is auto and no file meets an owner path` }
   const why = ownerPath === undefined ? `card #${facts.cardId} is ${decision}` : `changes ${ownerPath}, an owner path`
-  return facts.shardActive
-    ? { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; this run's shard is active` }
-    : denied('owner_without_shard', `${why} and no shard of this run is active`)
+  if (facts.shardActive)
+    return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; this run's shard is active` }
+  if (!facts.decisions.some(entry => entry.decisionId === OWNER_PR_MERGED_BY_THE_BUS))
+    return denied('owner_without_shard', `${why}, no shard of this run is active and D-${OWNER_PR_MERGED_BY_THE_BUS} is not in force`)
+  const r1 = facts.files.find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
+  if (r1 !== undefined)
+    return denied('r1', `${why}; ${r1} is ${OWNER_EVEN_UNDER_THE_DECISION} and stays the owner's under D-${OWNER_PR_MERGED_BY_THE_BUS}`)
+  return { kind: 'allowed', rule: 'owner_by_decision', detail: `${why}; under D-${OWNER_PR_MERGED_BY_THE_BUS} a pass and green CI merge it without a shard` }
 }
