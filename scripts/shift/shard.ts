@@ -10,6 +10,7 @@ import { ATTACH_RECORD_FILE, readAttachRecord } from '../../src/commands/attach/
 import { MANIFEST_FILE, readManifest } from '../../src/manifest.js'
 import { prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { MERGE_DONE } from '../bus/executor.js'
 import { PREFIX as MERGE_PREFIX } from './merge.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
 
@@ -110,15 +111,9 @@ export function delegatedMerge(deps: DelegationDeps, task: string, number: strin
   if (STOPPING_CI.has(ci.state))
     return notApplied(number, shard, `required checks ${ci.text}`)
   const head = reviewed ?? view.headRefOid
-  try {
-    deps.gh(['pr', 'merge', number, '--auto', '--squash', '--match-head-commit', head, '-R', REPO])
-  }
-  catch (error) {
-    return notApplied(number, shard, `gh pr merge failed: ${firstLine(error)}`)
-  }
   const why = `owner decision delegated, shard ${shard}`
   deps.append(deps.journal, `${JSON.stringify({ event: DELEGATED_EVENT, task, pr: Number(number), shard, why, ts: deps.now().toISOString() })}\n`)
-  return [`${MERGE_PREFIX}${why} — auto-merge armed on PR #${number} at ${head}`]
+  return [`${MERGE_PREFIX}${why} — PR #${number} goes to the bus at ${head}; the chain waits for its ${MERGE_DONE}`]
 }
 
 export function runShard(argv: string[], deps: ShardDeps): number {
