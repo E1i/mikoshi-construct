@@ -5,6 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { launchArgv, RELAUNCH_LOG, runRelaunchBg, USAGE } from '../../shift/relaunch-bg.js'
+import { settled } from './fixtures/settled.js'
 
 const roots: string[] = []
 
@@ -46,12 +47,6 @@ function world(): { home: string, out: string, env: NodeJS.ProcessEnv } {
   stub(bin, 'nohup', `echo nohup >> "$STUB_OUT/chain"\nexec "$@"`)
   stub(bin, 'pnpm', `echo "pnpm relaunch output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\nps -o pgid= -p $$ | tr -d ' ' > "$STUB_OUT/pgid"\necho $$ > "$STUB_OUT/pid"`)
   return { home, out, env: { PATH: bin, STUB_OUT: out, HOME: home } }
-}
-
-async function settled(file: string): Promise<string> {
-  for (let attempt = 0; attempt < 800 && !existsSync(file); attempt++)
-    await new Promise(resolve => setTimeout(resolve, 25))
-  return readFileSync(file, 'utf8').trim()
 }
 
 describe('pnpm relaunch:bg', () => {
