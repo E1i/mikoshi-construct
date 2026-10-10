@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ChainLauncher, RelaunchOutcome, RestartOutcome, RoleLauncher } from './restart-executor.js'
 import type { ProcessTable } from './chain-process.js'
+import type { ChainLauncher, RelaunchOutcome, RestartOutcome, RoleLauncher } from './restart-executor.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'

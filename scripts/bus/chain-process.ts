@@ -29,10 +29,11 @@ export function stopChain(chain: ChainRow, table: ProcessTable): void {
   const found = chainProcess(chain, table)
   if (found === 'gone')
     return
-  if (found === 'foreign')
+  if (found === 'foreign') {
     throw new Error(chain.leader === null
       ? `the chain in ${chain.dir} recorded no process group (it was not started by pnpm shift:bg): stop it by hand`
       : `PID ${chain.leader} is not the chain in ${chain.dir} (its command line does not name shift and ${chain.dir}): nothing signalled`)
+  }
   table.signalGroup(chain.leader!)
 }
 

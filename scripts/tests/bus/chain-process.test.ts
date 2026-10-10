@@ -1,5 +1,5 @@
-import type { ChainRow } from '../../bus/chain.js'
 import type { ProcessTable } from '../../bus/chain-process.js'
+import type { ChainRow } from '../../bus/chain.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
