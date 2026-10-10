@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
 import { runBacktest } from './backtest.js'
-import { getChangedFiles, gitTopLevel, resolveRevision } from './diff.js'
-import { appendJournalLine, refuseJournalInside } from './journal.js'
+import { predict } from './predict.js'
 import { classify } from './rules.js'
 
 function flag(argv: string[], name: string): string | undefined {
@@ -25,29 +24,14 @@ function runClassify(argv: string[]): void {
 }
 
 function runPredict(argv: string[]): void {
-  const task = requireFlag(argv, '--task')
-  const base = requireFlag(argv, '--base')
-  const head = requireFlag(argv, '--head')
-  const journal = requireFlag(argv, '--journal')
-  const repo = flag(argv, '--repo') ?? process.cwd()
-  refuseJournalInside(journal, [repo, process.cwd()].map(gitTopLevel).filter(top => top !== null))
-
-  const baseSha = resolveRevision(repo, base)
-  const headSha = resolveRevision(repo, head)
-  const files = getChangedFiles(repo, baseSha, headSha)
-  const prediction = classify(files)
-
-  const line = JSON.stringify({
-    task,
-    base: baseSha,
-    head: headSha,
-    verdict: prediction.verdict,
-    rule: prediction.rule,
-    why: prediction.why,
+  const { line } = predict({
+    task: requireFlag(argv, '--task'),
+    base: requireFlag(argv, '--base'),
+    head: requireFlag(argv, '--head'),
+    journal: requireFlag(argv, '--journal'),
+    repo: flag(argv, '--repo') ?? process.cwd(),
   })
-
-  appendJournalLine(journal, line)
-  process.stdout.write(`${line}\n`)
+  process.stdout.write(`${JSON.stringify(line)}\n`)
 }
 
 function runBacktestCommand(argv: string[]): void {
