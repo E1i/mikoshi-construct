@@ -6,6 +6,8 @@ import { defaultBusPath, openBus } from './db.js'
 
 export const POLICY_DENIED = 'policy.denied'
 export const CARD_STOPPED = 'card.stopped'
+export const CARD_STARTED = 'card.started'
+export const CARD_ANSWERED = 'card.answered'
 export const DECISION_RECORDED = 'decision.recorded'
 export const QUESTION_OWNER = 'question.owner'
 export const OWNER = 'owner'
