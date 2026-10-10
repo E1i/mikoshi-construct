@@ -1,6 +1,8 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerRun } from '../../bus/answerer.js'
+import type { Queue } from '../../bus/identifiers.js'
 import type { Lease } from '../../bus/lease.js'
+import type { StoredEvent } from '../../bus/stored.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -13,8 +15,10 @@ import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
+import { Rejection } from '../../bus/stored.js'
 import { moduleOf, wideningOf } from '../../bus/widening.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -251,6 +255,28 @@ describe('the answer queue', () => {
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
+  })
+
+  it('a card with changes on its head and a question.agent stop gets one answer task, not two', () => {
+    const bench = answerBench()
+    bench.gitHub.open({ number: 990, review: 'failure' })
+    bench.started(1090)
+    bench.stopped(1090, { reason: 'question.agent', detail: 'which reader owns the session id?' }, 990, sha('a'))
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state = 'queued'`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(queued).toEqual([bench.question(1090, 990, sha('a'))])
+    bench.close()
+  })
+
+  it('a stop suffix on a review, merge or update task key fails the identity check', () => {
+    const stored = (queue: string, suffix: string): StoredEvent => {
+      const key = `${taskKey({ queue: queue as Queue, cardId: 1090, pr: 990, head: sha('a') })}${suffix}`
+      return { id: 1, ts: '2026-10-10T00:00:00.000Z', type: TASK_ENQUEUED, card_id: 1090, pr: 990, head: sha('a'), dedupe_key: `${TASK_ENQUEUED}:${key}`, payload: JSON.stringify({ task_key: key, queue }) }
+    }
+    for (const queue of ['review', 'merge', 'update'])
+      expect(() => identityOf(stored(queue, ':stop-9'))).toThrow(Rejection)
+    expect(identityOf(stored('answer', ':stop-9')).key).toBe(`${answer(1090, 990, sha('a'))}:stop-9`)
   })
 
   it('an answer with a stale lease_gen is refused and writes nothing', async () => {

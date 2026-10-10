@@ -58,7 +58,7 @@ const CHANGES_CANDIDATES = `
   WHERE state = 'open' AND verdict_on_head = 'changes' AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
-        AND stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}'
+        AND stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') IN ('${QUESTION_OWNER}', '${QUESTION_AGENT}')
     )
   ORDER BY pr
 `
@@ -129,7 +129,8 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const payload = payloadOf(event)
   const queue = QUEUES.find(each => each === payload.queue) ?? reject(`queue is not one of ${QUEUES.join(' | ')}`)
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, stop: stopIn(payload.task_key) })
+  const stop = queue === 'answer' ? stopIn(payload.task_key) : undefined
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, stop })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
