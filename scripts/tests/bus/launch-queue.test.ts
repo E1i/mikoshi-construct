@@ -471,6 +471,19 @@ describe('card.admitted from the intake journal', () => {
     bench.close()
   })
 
+  it('an admit line and its task:start path line imported in one tick offer no launch', () => {
+    const bench = journalBench()
+    bench.park(979, 'lane-q')
+    bench.append(intakeLine(979, 'admit', 1))
+    bench.append(JSON.stringify({ event: 'path', task: '979', path: 'cheap', started: '2026-10-10T13:01:30.000Z', worktree: '/tmp/mc-979', branch: 'feat/card-979', card: cardText(979), ts: '2026-10-10T13:01:30.000Z' }))
+    bench.tick()
+
+    expect(admittedRows(bench.db)).toHaveLength(1)
+    expect(launchTasks(bench.db)).toEqual([])
+    expect(bench.leaseLaunch()).toBeNull()
+    bench.close()
+  })
+
   it('a redelivered admit line enqueues no second launch task', () => {
     const bench = journalBench()
     bench.park(972, 'lane-q')

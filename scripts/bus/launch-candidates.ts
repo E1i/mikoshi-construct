@@ -17,6 +17,8 @@ const LEGACY_MERGED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 
 
 const LEGACY_LATEST_START_OR_CLOSE = `SELECT card_id, MAX(id) AS id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'path' GROUP BY card_id`
 
+const ADMISSION_SOURCE = `SELECT id FROM events WHERE legacy = 1 AND dedupe_key = ?`
+
 const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
 
 interface LifeRow {
@@ -65,6 +67,13 @@ function dependsOf(payload: Record<string, unknown>): number[] {
   return Array.isArray(payload.depends) ? payload.depends.map(prOf).filter(each => each !== null) : []
 }
 
+function admittedAtOf(db: DatabaseSync, row: LifeRow, payload: Record<string, unknown>): number {
+  if (typeof payload.admission !== 'string')
+    return row.id
+  const source = db.prepare(ADMISSION_SOURCE).get(payload.admission) as { id: number } | undefined
+  return source?.id ?? row.id
+}
+
 function cardLives(db: DatabaseSync): Map<number, CardLife> {
   const lives = new Map<number, CardLife>()
   for (const row of db.prepare(CARD_LIFE).all() as unknown as LifeRow[]) {
@@ -72,7 +81,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
     if (row.type === CARD_ADMITTED) {
       const payload = payloadOf(row)
       const running = life !== undefined && life.started && !life.closed
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: row.id, lane: laneOf(payload), depends: dependsOf(payload), started: running, closed: false })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admittedAtOf(db, row, payload), lane: laneOf(payload), depends: dependsOf(payload), started: running, closed: false })
       continue
     }
     if (life !== undefined && row.type === CARD_STARTED)
