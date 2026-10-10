@@ -22,6 +22,7 @@ const EVERY_RULE = {
       'Bash(gh pr merge:*)',
       'Bash(ps:*)',
       'Bash(pnpm miko:exit:*)',
+      'Bash(pnpm decisions:add:*)',
     ],
     deny: [`Bash(gh pr merge ${RELEASE_PR}:*)`],
   },
@@ -114,7 +115,7 @@ describe('pnpm doctor:factory', () => {
   it('treats a missing settings.local.json as holding no rule', async () => {
     const result = await doctor(world(undefined))
     expect(result.exitCode).toBe(1)
-    expect(result.stdout).toHaveLength(11)
+    expect(result.stdout).toHaveLength(12)
   })
 
   it('with --apply and a yes appends exactly the missing rules and keeps every rule already there', async () => {
@@ -136,6 +137,7 @@ describe('pnpm doctor:factory', () => {
           'Bash(pnpm --silent relaunch:bg:*)',
           'Bash(ps:*)',
           'Bash(pnpm miko:exit:*)',
+          'Bash(pnpm decisions:add:*)',
         ],
         deny: ['Bash(rm:*)', `Bash(gh pr merge ${RELEASE_PR}:*)`],
       },
