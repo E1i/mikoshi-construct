@@ -44,6 +44,7 @@
     "build": "tsup",
     "bus:answer": "tsx scripts/bus/answer-worker.ts",
     "bus:bg": "tsx scripts/bus/supervisor.ts",
+    "bus:close": "tsx scripts/bus/close-worker.ts",
     "bus:import": "tsx scripts/bus/import.ts",
     "bus:inbox": "tsx scripts/bus/inbox.ts",
     "bus:launch": "tsx scripts/bus/launch-worker.ts",

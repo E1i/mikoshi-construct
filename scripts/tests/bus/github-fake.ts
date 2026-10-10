@@ -8,6 +8,12 @@ export const sha = (digit: string): string => digit.repeat(40)
 export const MAIN_1 = sha('1')
 export const MAIN_2 = sha('2')
 export const MAIN_3 = sha('3')
+export const MERGER = { login: 'the-owner', at: '2026-10-09T11:30:00Z' }
+
+export interface FakeMerger {
+  login: string
+  at: string
+}
 
 export interface FakeRun {
   status: 'queued' | 'in_progress' | 'completed'
@@ -21,6 +27,7 @@ export interface FakePull {
   mergeable_state: string
   merged?: boolean
   merge_commit_sha?: string
+  merger?: FakeMerger
   draft?: boolean
   required?: 'pending' | 'success' | 'failure'
   review?: 'success' | 'failure'
@@ -74,8 +81,8 @@ export class FakeGitHub {
     this.pulls.set(pull.number, { state: 'open', head: sha('a'), mergeable_state: 'clean', required: 'success', ...pull })
   }
 
-  close(pr: number, merged: boolean): void {
-    this.pulls.set(pr, { ...this.pulls.get(pr)!, state: 'closed', merged, ...(merged ? { merge_commit_sha: MAIN_2 } : {}) })
+  close(pr: number, merged: boolean, merger: FakeMerger | null = merged ? MERGER : null): void {
+    this.pulls.set(pr, { ...this.pulls.get(pr)!, state: 'closed', merged, ...(merged ? { merge_commit_sha: MAIN_2 } : {}), ...(merger === null ? {} : { merger }) })
   }
 
   private pullBody(pull: FakePull): object {
@@ -87,6 +94,8 @@ export class FakeGitHub {
       body: pull.body ?? cardBody(pull.number),
       merged: pull.merged ?? false,
       merge_commit_sha: pull.merge_commit_sha ?? null,
+      merged_by: pull.merger === undefined ? null : { login: pull.merger.login },
+      merged_at: pull.merger?.at ?? null,
       mergeable_state: pull.mergeable_state,
       auto_merge: null,
       base: { ref: pull.base ?? 'main' },

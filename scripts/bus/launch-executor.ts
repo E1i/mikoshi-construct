@@ -83,7 +83,10 @@ export class LaunchExecutor {
   private started(lease: Lease, card: StartedCard): LaunchOutcome {
     const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card }, legacy: false }
     try {
-      completeTask(this.parts.db, this.ts(), lease, [event], () => queuedLane(this.parts.db, lease.cardId) !== null)
+      completeTask(this.parts.db, this.ts(), lease, [event], (db) => {
+        if (queuedLane(db, lease.cardId) === null)
+          throw new StaleLease(`task ${lease.taskKey} is no longer due`)
+      })
     }
     catch (error) {
       this.parts.starter.stop(card)

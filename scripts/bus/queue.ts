@@ -12,6 +12,7 @@ import { payloadOf, reject, storedByKey } from './stored.js'
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const QUEUE_ACTOR = 'policy'
+export const CARD_CLOSED = 'card.closed'
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
@@ -32,6 +33,13 @@ const MERGE_CANDIDATES = `
 const UPDATE_CANDIDATES = `
   SELECT pr, card_id, head, verdict_on_head FROM prs
   WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND mergeable = 'behind' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  ORDER BY pr
+`
+
+const CLOSE_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'merged' AND card_id IS NOT NULL AND head IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = prs.card_id)
   ORDER BY pr
 `
 
@@ -86,6 +94,7 @@ function candidates(db: DatabaseSync): [Queue, string, Admits][] {
     ['review', REVIEW_CANDIDATES, everyRow],
     ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
     ['merge', MERGE_CANDIDATES, everyRow],
+    ['close', CLOSE_CANDIDATES, everyRow],
     ['answer', QUESTION_CANDIDATES, everyRow],
     ['answer', CHANGES_CANDIDATES, everyRow],
   ]

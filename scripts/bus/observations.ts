@@ -37,7 +37,12 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
 }
 
 export function prClosed(ts: string, closed: ClosedPr): BusEvent {
-  const payload = { merged: closed.merged, ...(closed.commit === null ? {} : { commit: closed.commit }) }
+  const payload = {
+    merged: closed.merged,
+    ...(closed.commit === null ? {} : { commit: closed.commit }),
+    ...(closed.mergedBy === null ? {} : { merged_by: closed.mergedBy }),
+    ...(closed.mergedAt === null ? {} : { merged_at: closed.mergedAt }),
+  }
   return observation(ts, 'pr.closed', { cardId: closed.cardId, pr: closed.pr, head: null, dedupeKey: `pr:${closed.pr}:closed`, payload })
 }
 
