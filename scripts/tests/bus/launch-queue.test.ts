@@ -447,6 +447,22 @@ describe('card.admitted from the intake journal', () => {
     bench.close()
   })
 
+  it('a card moved into a lane and admitted, then closed into the archive with no journal line, queues no launch', () => {
+    const bench = journalBench()
+    bench.park(995, 'lane-q')
+    bench.append(moveLine(995, bench.parking, path.join(bench.parking, 'lane-q'), 1))
+    bench.append(intakeLine(995, 'admit', 2))
+    mkdirSync(path.join(bench.parking, ARCHIVE_DIR), { recursive: true })
+    renameSync(path.join(bench.parking, 'lane-q', '995.md'), path.join(bench.parking, ARCHIVE_DIR, '995.md'))
+    bench.tick()
+    bench.tick()
+
+    expect(admittedRows(bench.db)).toEqual([])
+    expect(launchTasks(bench.db)).toEqual([])
+    expect(bench.leaseLaunch()).toBeNull()
+    bench.close()
+  })
+
   it('a replay of the whole journal queues no launch for a card parked in dropped, sliced or a topic directory', () => {
     const bench = journalBench()
     const parked = [[987, 'dropped'], [988, 'sliced'], [989, 'architecture'], [990, 'self-learning'], [991, '2026-10-10-b'], [992, 'night-4'], [993, 'lane-bus-5']] as const
