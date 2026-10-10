@@ -4,6 +4,7 @@ import type { Answered, Answerer } from './answerer.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import { answerSourceOf, cardSessionOf } from './answer-source.js'
+import { CardTreeGone } from './answerer.js'
 import { messageOf } from './executor.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
@@ -12,7 +13,7 @@ import { wideningOf } from './widening.js'
 
 export const SCOPE_WIDENED = 'scope.widened'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'answer_failed'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed'
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -38,7 +39,7 @@ interface Widened {
   reason: string
 }
 
-const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer'])
+const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
 
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
@@ -84,7 +85,7 @@ export class AnswerExecutor {
       return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card })
     }
     catch (error) {
-      return { kind: 'technical', reason: 'answer_failed', detail: messageOf(error) }
+      return { kind: 'technical', reason: error instanceof CardTreeGone ? 'card_tree_gone' : 'answer_failed', detail: messageOf(error) }
     }
   }
 

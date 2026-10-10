@@ -1,7 +1,9 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerRun } from '../../bus/answerer.js'
 import type { Lease } from '../../bus/lease.js'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnswerExecutor, SCOPE_WIDENED } from '../../bus/answer-executor.js'
 import { answerSourceOf } from '../../bus/answer-source.js'
@@ -13,7 +15,7 @@ import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, POLICY_DENIED } 
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
-import { wideningOf } from '../../bus/widening.js'
+import { moduleOf, wideningOf } from '../../bus/widening.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -35,6 +37,8 @@ interface Tools {
 
 function answerBench() {
   const bench = mergeBench()
+  const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-trees-'))
+  const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
   const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {} }
   const answerer = claudeAnswerer('/tmp/answers', {
     available: () => tools.available,
@@ -51,16 +55,22 @@ function answerBench() {
   return {
     ...bench,
     tools,
+    treeOf,
     leaseAnswer: (actor = 'worker:answer:worker-1'): Lease | null => leaseNext(bench.db, ts(), 'answer', actor),
     answer: (lease: Lease): Promise<AnswerOutcome> => executor.answer(lease),
     started: (cardId: number, session = CARD_SESSION): void => {
-      appendEvent(bench.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}:${session}`, payload: { session, worktree: `/trees/mc-${cardId}`, branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
+      mkdirSync(treeOf(cardId), { recursive: true })
+      appendEvent(bench.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}:${session}`, payload: { session, worktree: treeOf(cardId), branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
     },
     stopped: (cardId: number, payload: object, pr: number | null = null, head: string | null = null): void => {
       appendEvent(bench.db, { ts: ts(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId, pr, head, dedupeKey: `${CARD_STOPPED}:${cardId}:${JSON.stringify(payload)}`, payload, legacy: false })
     },
     reviewed: (pr: number, findings: string[]): void => {
       appendEvent(bench.db, { ts: ts(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:${pr}`, payload: { head: sha('a'), verdict: 'changes', reviewer_session: 'reviewer-1', findings }, legacy: false })
+    },
+    close: (): void => {
+      bench.close()
+      rmSync(trees, { recursive: true, force: true })
     },
   }
 }
@@ -104,7 +114,7 @@ describe('the answer queue', () => {
 
     expect(outcome).toEqual({ kind: 'answered', taskKey: answer(1093, 993, sha('a')), session: CARD_SESSION, resumed: true, head: PUSHED })
     const [run] = bench.tools.runs
-    expect(run!.cwd).toBe('/trees/mc-1093')
+    expect(run!.cwd).toBe(bench.treeOf(1093))
     expect(run!.argv.slice(-3, -1)).toEqual(['--resume', CARD_SESSION])
     expect(run!.argv).not.toContain('--session-id')
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'changes', from: sha('a'), to: PUSHED }])
@@ -170,6 +180,25 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('a question stopped at a head the poller has not seen yet is queued again once the pull request reaches it', () => {
+    const bench = answerBench()
+    bench.gitHub.open({ number: 990 })
+    bench.tick()
+    bench.stopped(1090, { reason: 'question.agent', detail: 'pushed and stopped before the poll' }, 990, sha('b'))
+    bench.tick()
+    bench.tick()
+    expect(taskState(bench.db, answer(1090, 990, sha('a'))).state).toBe('queued')
+
+    bench.gitHub.open({ number: 990, head: sha('b') })
+    bench.tick()
+    bench.tick()
+
+    expect(taskState(bench.db, answer(1090, 990, sha('a'))).state).toBe('superseded')
+    expect(taskState(bench.db, answer(1090, 990, sha('b'))).state).toBe('queued')
+    expect(bench.leaseAnswer()).toMatchObject({ taskKey: answer(1090, 990, sha('b')), head: sha('b') })
+    bench.close()
+  })
+
   it('an answer with a stale lease_gen is refused and writes nothing', async () => {
     const bench = answerBench()
     bench.started(1096)
@@ -211,6 +240,23 @@ describe('the answer executor', () => {
     bench.close()
   })
 
+  it('a card whose tree is gone is withdrawn with its own denial, spawns nothing and is not counted toward the third failure', async () => {
+    const bench = answerBench()
+    bench.started(1099)
+    rmSync(bench.treeOf(1099), { recursive: true })
+    bench.gitHub.open({ number: 999, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'card_tree_gone', detail: expect.stringContaining(bench.treeOf(1099)) }, next: 'withdrawn' })
+    expect(bench.tools.runs).toEqual([])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ command: 'answer', kind: 'technical', reason: 'card_tree_gone' }])
+    expect(taskState(bench.db, answer(1099, 999, sha('a'))).state).toBe('withdrawn')
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
+    bench.close()
+  })
+
   it('a session that pushes no new head stops the card with fault', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]
@@ -229,6 +275,15 @@ describe('the widening rule', () => {
     expect(wideningOf(['src/detect/git.ts', 'tests/detect/git.test.ts'], ['src/detect/layout.ts'], OWNER_MERGES).kind).toBe('module')
     expect(wideningOf(['scripts/ghosts/hash.ts'], ['scripts/ghosts/launch.ts'], OWNER_MERGES)).toMatchObject({ kind: 'owner', reason: 'scripts/ghosts/hash.ts is an owner path' })
     expect(wideningOf(['README.md'], ['scripts/bus/queue.ts'], OWNER_MERGES).kind).toBe('owner')
+  })
+
+  it('reads a directory or glob touch as its own directory, not its parent', () => {
+    for (const touch of ['scripts/bus', 'scripts/bus/', 'scripts/bus/**', 'scripts/bus/*.ts', 'scripts/tests/bus/']) {
+      expect(moduleOf(touch)).toBe('scripts/bus')
+      expect(wideningOf(['scripts/bus/lease.ts'], [touch], OWNER_MERGES).kind).toBe('module')
+      expect(wideningOf(['scripts/board/x.ts'], [touch], OWNER_MERGES)).toMatchObject({ kind: 'owner', reason: expect.stringContaining('outside the module') })
+      expect(wideningOf(['scripts/x.ts'], [touch], OWNER_MERGES)).toMatchObject({ kind: 'owner', reason: expect.stringContaining('outside the module') })
+    }
   })
 })
 

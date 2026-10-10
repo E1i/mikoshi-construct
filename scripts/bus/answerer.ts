@@ -110,8 +110,14 @@ function spawnClaude(run: AnswerRun): Promise<number> {
   })
 }
 
+export class CardTreeGone extends Error {
+  constructor(card: CardSession) {
+    super(`the card tree ${card.worktree} is gone`)
+  }
+}
+
 export const REAL_TOOLS: AnswererTools = {
-  available: card => existsSync(card.worktree) && existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
+  available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
   remoteHead,
   spawn: spawnClaude,
   newSession: randomUUID,
@@ -120,6 +126,8 @@ export const REAL_TOOLS: AnswererTools = {
 export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): Answerer {
   return async (request) => {
     const { card } = request
+    if (!existsSync(card.worktree))
+      throw new CardTreeGone(card)
     const resumed = tools.available(card)
     const session = resumed ? card.session : tools.newSession()
     const prompt = answerPrompt(request)

@@ -7,13 +7,23 @@ export type Widening
     | { kind: 'owner', paths: string[], reason: string }
 
 const MIRRORS: [string, string][] = [['scripts/tests/', 'scripts/'], ['tests/', 'src/'], ['scripts/', 'scripts/'], ['src/', 'src/']]
+const GLOB_SEGMENT = /[*?[{]/
+
+function directoryOf(entry: string): string {
+  const segments = entry.split('/').filter(segment => segment !== '')
+  const firstGlob = segments.findIndex(segment => GLOB_SEGMENT.test(segment))
+  if (firstGlob !== -1)
+    return segments.slice(0, firstGlob).join('/')
+  const namesADirectory = entry.endsWith('/') || path.posix.extname(segments.at(-1) ?? '') === ''
+  return namesADirectory ? segments.join('/') : segments.slice(0, -1).join('/')
+}
 
 export function moduleOf(file: string): string | null {
   const mirror = MIRRORS.find(([prefix]) => file.startsWith(prefix))
   if (mirror === undefined)
     return null
   const [prefix, home] = mirror
-  return path.posix.dirname(`${home}${file.slice(prefix.length)}`)
+  return directoryOf(`${home}${file.slice(prefix.length)}`)
 }
 
 function ownerGlobs(ownerMergesText: string): string[] {

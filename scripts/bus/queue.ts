@@ -43,7 +43,7 @@ export function latestTurnOf(card: string): string {
 }
 
 const QUESTION_CANDIDATES = `
-  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(stop.head, prs.head) AS head FROM events AS stop
+  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head FROM events AS stop
   LEFT JOIN cards ON cards.card_id = stop.card_id
   LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
   WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
