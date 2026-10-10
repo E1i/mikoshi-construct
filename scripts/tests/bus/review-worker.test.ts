@@ -1,7 +1,7 @@
 import type { Lease } from '../../bus/lease.js'
-import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewRun } from '../../bus/review-worker.js'
 import type { Reviewer } from '../../bus/reviewer.js'
+import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

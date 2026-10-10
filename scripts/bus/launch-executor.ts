@@ -5,7 +5,7 @@ import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
 import { queuedLane } from './launch-candidates.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 
-export type LaunchTechnicalReason = 'card_not_queued' |'card_unreadable' | 'start_failed' | 'not_detached'
+export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached'
 
 export interface LaunchDenial {
   kind: 'technical'
