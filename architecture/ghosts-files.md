@@ -29,6 +29,7 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/launch.ts` | ghosts |
 | `scripts/ghosts/ledger.ts` | plain |
 | `scripts/ghosts/matrix.ts` | plain |
+| `scripts/ghosts/morse-approve.ts` | ghosts |
 | `scripts/ghosts/preflight-static.ts` | ghosts |
 | `scripts/ghosts/preflight-trees.ts` | ghosts |
 | `scripts/ghosts/preflight-witnesses.ts` | ghosts |

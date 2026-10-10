@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { onTheHarnessRoute, packageScripts, reachedByHarness } from './package-scripts.js'
 
 const OUTSIDE_THE_HARNESS: Record<string, string> = {
+  'answer:record': 'appends the answer-brief line of an answer brief to the journal when run by hand; its own tests, through shift --answer, are its gate',
   'approve': 'lists the owner\'s approval queue and writes or revokes an approval when run by hand; its own tests are its gate',
   'bench:architect': 'a benchmark run on demand, not a verdict on a change',
   'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',
-  'bus:bg': 'starts bus:run as the one detached instance when run by hand; its own tests, on nohup and pnpm stubs, are its gate',
+  'bus:bg': 'starts bus:run, the switched-on workers and their supervisor as one detached instance each when run by hand; its own tests, on nohup and pnpm stubs and a scratch git repository, are its gate',
   'bus:import': 'imports the journal into bus.db once when run by hand; its own tests are its gate',
   'bus:merge': 'the merge worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',
@@ -39,6 +40,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'handoff:check': 'a hand-run check of a handoff file; its own tests are its gate',
   'handoff:write': 'the only writer of a handoff file, run by hand or by a session; its own tests are its gate',
   'ghosts:hash': 'a hand-run tool for computing an approval hash; its own tests are its gate',
+  'morse:approve': 'writes a MORSE approval, and only that, when run by hand; its own tests are its gate',
   'ghosts:role': 'prints which route, local or cloud, a role takes; its own tests are its gate',
   'ghosts:launch': 'opens headless sessions after a human confirmation; its own tests are its gate',
   'ghosts:verdict': 'appends one journal line after a review verdict file holds its schema and its digests; its own tests are its gate',
