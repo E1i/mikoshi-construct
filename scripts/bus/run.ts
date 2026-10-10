@@ -8,9 +8,11 @@ import os from 'node:os'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultDecisions } from '../decisions/read.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { parkingLane } from './admissions.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { decisionsIntake } from './decisions-import.js'
 import { ghApi } from './github.js'
 import { importJournal, journalPath } from './import.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
@@ -68,8 +70,13 @@ async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   const clock = (): Date => new Date()
-  const busTick = new BusTick(db, new NetWatch(db, ghApi(process.cwd()), clock), clock, journalIntake(db, journalPath(), parkingLane(defaultParking(os.homedir())), clock))
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the journal import, the reducer and the queues every ${TICK_MS / 1000} s; no workers`)
+  const journal = journalIntake(db, journalPath(), parkingLane(defaultParking(os.homedir())), clock)
+  const decisions = decisionsIntake(db, defaultDecisions(os.homedir()), clock)
+  const busTick = new BusTick(db, new NetWatch(db, ghApi(process.cwd()), clock), clock, () => {
+    journal()
+    decisions()
+  })
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the journal and owner decisions import, the reducer and the queues every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
       const tick = busTick.run()
