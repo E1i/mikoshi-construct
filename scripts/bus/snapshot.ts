@@ -5,7 +5,7 @@ import { cardIdOfDescription, isFullSha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
-export const MECHANICS_PATHS = ['.claude/', 'scripts/', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']
+export const MECHANICS_PATHS = ['scripts/shift/']
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
 export type CiReading = 'pending' | 'green' | 'red'

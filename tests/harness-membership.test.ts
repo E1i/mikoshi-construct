@@ -13,6 +13,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',
   'bus:reduce': 'rebuilds the prs, cards and tasks projections of bus.db when run by hand; its own tests are its gate',
   'bus:report': 'a read-only shadow report over bus.db and GitHub printed by hand; its own tests are its gate',
+  'bus:restart': 'the restart worker over bus.db, switched off unless started by hand with --on; it restarts a shift chain only at a task boundary, through pnpm shift:bg; its own tests are its gate',
   'bus:review': 'the live review worker over bus.db, switched off unless started by hand with --on or run once with --dry-run; its own tests are its gate',
   'bus:review:bg': 'starts bus:review --on as the one detached instance when run by hand, after a clean shadow report; its own tests, on nohup and pnpm stubs, are its gate',
   'bus:run': 'a long-running shadow process of NetWatch, the reducer and the review queue over bus.db; its own tests are its gate',

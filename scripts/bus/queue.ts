@@ -34,8 +34,17 @@ const UPDATE_CANDIDATES = `
   ORDER BY pr
 `
 
+const LAST_MECHANICS = `SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1`
+
+const RESTART_CANDIDATES = `
+  WITH mechanics AS (${LAST_MECHANICS})
+  SELECT NULL AS pr, chains.card_id, mechanics.sha AS head FROM chains JOIN mechanics
+  WHERE chains.sha NOT IN (SELECT sha FROM mains WHERE event_id >= mechanics.event_id)
+  ORDER BY chains.dir
+`
+
 interface Candidate {
-  pr: number
+  pr: number | null
   card_id: number
   head: string
   verdict_on_head?: string | null
@@ -51,13 +60,16 @@ function passOrWaitingForOwner(db: DatabaseSync): Admits {
 }
 
 function candidates(db: DatabaseSync): [Queue, string, Admits][] {
-  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow]]
+  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow], ['restart', RESTART_CANDIDATES, everyRow]]
 }
 
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
-  ORDER BY tasks.task_key
+  UNION
+  SELECT task_key, queue, card_id, pr, head FROM tasks
+  WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}') AND head != (SELECT sha FROM (${LAST_MECHANICS}))
+  ORDER BY task_key
 `
 
 interface TaskRow {
@@ -142,7 +154,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const [queue, query, admits] of candidates(db)) {
     for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {
-      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr, head: row.head }
+      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head }
       if (queueTask(db, ts, task))
         derived.queued.push(taskKey(task))
     }

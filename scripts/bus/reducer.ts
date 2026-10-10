@@ -3,6 +3,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { CHAIN_FOLDS } from './chain.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { LEASE_FOLDS } from './lease.js'
@@ -122,7 +123,8 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOf(event)
   if (!isFullSha(payload.sha))
     reject('sha is not a full sha')
-  boolean(payload, 'touches_mechanics')
+  const touches = boolean(payload, 'touches_mechanics')
+  db.prepare('INSERT INTO mains (sha, touches_mechanics, event_id) VALUES (?, ?, ?)').run(payload.sha, touches ? 1 : 0, event.id)
   db.prepare(`UPDATE prs SET mergeable = NULL, event_id = ? WHERE state = 'open' AND base = 'main'`).run(event.id)
 }
 
@@ -144,6 +146,7 @@ const REDUCERS: Record<string, Fold> = {
   'pr.opened': prOpened,
   ...TASK_FOLDS,
   ...LEASE_FOLDS,
+  ...CHAIN_FOLDS,
 }
 
 function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): void {
@@ -179,7 +182,7 @@ function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
 
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
-    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
     const count: ReduceCount = { applied: 0, rejected: 0 }
     for (const event of events) {
@@ -200,6 +203,8 @@ export function projectionDump(db: DatabaseSync): string {
     prs: db.prepare('SELECT * FROM prs ORDER BY pr').all(),
     cards: db.prepare('SELECT * FROM cards ORDER BY card_id').all(),
     tasks: db.prepare('SELECT * FROM tasks ORDER BY task_key').all(),
+    mains: db.prepare('SELECT * FROM mains ORDER BY sha').all(),
+    chains: db.prepare('SELECT * FROM chains ORDER BY dir').all(),
   })
 }
 
