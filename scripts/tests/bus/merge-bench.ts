@@ -25,13 +25,13 @@ export interface MergeBench {
   close: () => void
 }
 
-export function mergeBench(): MergeBench {
+export function mergeBench(intake: (db: DatabaseSync, clock: Clock) => () => void = () => () => {}): MergeBench {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-merge-'))
   const busPath = path.join(root, 'bus.db')
   const db = openBus(busPath)
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, intake(db, clock))
   const executor = new MergeExecutor({ db, gitHub: gitHub.client, put: gitHub.put, clock: clock.now, run: RUN })
   const tick = (): void => {
     busTick.run()

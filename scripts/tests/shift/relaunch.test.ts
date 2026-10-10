@@ -10,7 +10,7 @@ import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
-import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -61,6 +61,10 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     home: world.root,
     pid: RELAUNCH_PID,
     claude: 'true',
+    env: {},
+    ghToken: (account) => {
+      throw new Error(`gh is not asked for ${account}`)
+    },
     journal: world.journal,
     projectsDir: world.projects,
     read: file => readFileSync(file, 'utf8'),
@@ -124,6 +128,55 @@ describe('runRelaunch', () => {
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), claude: fromAuto.claude })
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.command)).toEqual(['claude --permission-mode dontAsk'])
+  })
+
+  it('relaunch puts the configured account token in the Operator environment even when gh has another active account', async () => {
+    const world = newWorld()
+    const bin = path.join(world.root, 'bin')
+    mkdirSync(bin)
+    writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nif [ "$1 $2 $3 $4" = "auth token --user owner-account" ]; then echo token-of-owner-account; else echo token-of-active-account; fi\n', { mode: 0o755 })
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, SHIFT_CLAUDE: 'GH_TOKEN=from-shift-claude claude --permission-mode auto' }
+    delete env.GH_TOKEN
+    mkdirSync(path.join(world.root, '.construct'))
+    writeFileSync(factoryPath(world.root), JSON.stringify({ ghAccount: 'owner-account' }))
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const tokensAtRun: Array<string | undefined> = []
+    const deps = relaunchDeps(world, ['DONE'], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
+      ...deps,
+      claude: realDeps(env).claude,
+      env,
+      ghToken: account => ghAccountToken(account, env),
+      run: async (run) => {
+        tokensAtRun.push(env.GH_TOKEN)
+        return deps.run(run)
+      },
+    })
+
+    expect(code).toBe(0)
+    expect(ghAccountToken('someone-else', env).trim()).toBe('token-of-active-account')
+    expect(tokensAtRun).toEqual(['token-of-owner-account'])
+    expect(env.GH_TOKEN).toBe('token-of-owner-account')
+    expect(seen.runs.map(run => run.command)).toEqual([OPERATOR_CLAUDE])
+  })
+
+  it('relaunch with no factory config keeps the environment and names the file and the key', async () => {
+    const world = newWorld()
+    const env: NodeJS.ProcessEnv = { GH_TOKEN: 'already-here' }
+    const seen: Seen = { runs: [], out: [], err: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), env })
+
+    expect(code).toBe(0)
+    expect(env).toEqual({ GH_TOKEN: 'already-here' })
+    expect(seen.out.filter(line => line.includes(factoryPath(world.root)))).toEqual([`[relaunch] no ${GH_ACCOUNT_KEY} in ${factoryPath(world.root)}: the Operator keeps this environment's GitHub credentials`])
+
+    const keylessWorld = newWorld()
+    mkdirSync(path.join(keylessWorld.root, '.construct'))
+    writeFileSync(factoryPath(keylessWorld.root), JSON.stringify({ other: 'x' }))
+    const keyless: Seen = { runs: [], out: [], err: [] }
+    expect(await runRelaunch([keylessWorld.handoff, '--model', 'claude-test'], { ...relaunchDeps(keylessWorld, ['DONE'], keyless), env })).toBe(0)
+    expect(env).toEqual({ GH_TOKEN: 'already-here' })
+    expect(keyless.out.filter(line => line.includes(GH_ACCOUNT_KEY))).toHaveLength(1)
   })
 
   it('runs a session per CONTINUE and stops at DONE', async () => {

@@ -449,22 +449,66 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
   return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
 }
 
-function mergeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation): { pr: string, lines: string[] } | undefined {
-  const text = deps.read(report)
+type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
+
+const PR_URL_NUMBER = /\/pull\/(\d+)\s*$/
+
+function shiftCommitMessage(task: ShiftTask): string {
+  return `${task.card.name} (#${task.id})\n\nCommitted by the shift from the card's worktree after its session ended.`
+}
+
+function shiftPrBody(task: ShiftTask): string {
+  return `${task.card.line}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
+}
+
+function openPrOf(deps: ShiftDeps, branch: string): string | null {
+  const open = JSON.parse(deps.gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'])) as { number: number }[]
+  return open.length === 0 ? null : String(open[0]!.number)
+}
+
+function treePr(deps: ShiftDeps, task: ShiftTask, worktree: string): TreePr {
+  try {
+    const uncommitted = deps.git(worktree, ['status', '--porcelain']).trim() !== ''
+    const ahead = Number(deps.git(worktree, ['rev-list', '--count', 'origin/main..HEAD']).trim())
+    if (!uncommitted && ahead === 0)
+      return { kind: 'clean' }
+    if (uncommitted) {
+      deps.git(worktree, ['add', '-A'])
+      deps.git(worktree, ['commit', '-q', '-m', shiftCommitMessage(task)])
+    }
+    deps.git(worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${task.branch}`])
+    const open = openPrOf(deps, task.branch)
+    if (open !== null)
+      return { kind: 'pr', number: open }
+    const created = deps.gh(['pr', 'create', '--head', task.branch, '--base', 'main', '--title', `${task.card.name} (#${task.id})`, '--body', shiftPrBody(task)])
+    const number = PR_URL_NUMBER.exec(created.trim())?.[1]
+    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }
+  }
+  catch (error) {
+    return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${task.branch}: ${firstLine(error instanceof Error ? error.message : String(error))}` }
+  }
+}
+
+function prAfterSession(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation, endedWhole: boolean): { pr: string, lines: string[] } | { problem: string } | undefined {
+  const text = deps.exists(report) ? deps.read(report) : null
   if (task.card.kind === 'probe') {
-    closeProbeFromReport(deps, task, session, text)
+    if (text !== null)
+      closeProbeFromReport(deps, task, session, text)
     return undefined
   }
-  const pr = REPORT_PR_LINE.exec(text)
-  if (pr === null)
+  const fromTree: TreePr = endedWhole ? treePr(deps, task, session.worktree) : { kind: 'clean' }
+  if (fromTree.kind === 'problem')
+    return { problem: fromTree.why }
+  const pr = fromTree.kind === 'pr' ? fromTree.number : text === null ? undefined : REPORT_PR_LINE.exec(text)?.[1]
+  if (pr === undefined)
     return undefined
-  for (const line of closeFromReport(deps, task, session, text, ['--pr', pr[1]!]))
+  for (const line of closeFromReport(deps, task, session, text ?? '', ['--pr', pr]))
     deps.out(line)
-  const lines = mergeLines(deps, task, pr[1]!, text, delegation)
+  const lines = mergeLines(deps, task, pr, text ?? '', delegation)
   deps.append(report, `\n${lines.join('\n')}\n`)
   for (const line of lines)
     deps.out(line)
-  return { pr: pr[1]!, lines }
+  return { pr, lines }
 }
 
 interface StopRecord {
@@ -626,11 +670,16 @@ function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Pl
   if (exit.kind === 'unspawnable')
     return { line: { ...base, worktree, ended, exit: null, signal: null, continuations, error: exit.error }, stop: { at: 'fault', why: `claude not spawned: ${exit.error}`, worktree, session: current } }
   const report = deps.exists(places.report)
-  const merge = report ? mergeFromReport(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped, afterReview }) : undefined
+  const reportText = report ? deps.read(places.report) : null
+  const endedWhole = exit.code === 0 && exit.signal === null && halted === null
+  const after = prAfterSession(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped, afterReview }, endedWhole)
+  const merge = after === undefined || 'problem' in after ? undefined : after
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
   const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...heldBy({ refused, stopped }), ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
-  return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: report ? deps.read(places.report) : null, merge, closed }) }
+  if (after !== undefined && 'problem' in after)
+    return { line, stop: stopAt({ worktree, session: current }, 'fault', after.problem) }
+  return { line, stop: stopAfter(task, { worktree, session: current }, { reason: lastExit, halted, exit, report: reportText, merge, closed }) }
 }
 
 function startedTask(deps: ShiftDeps, task: ShiftTask, session: string): TaskBase {

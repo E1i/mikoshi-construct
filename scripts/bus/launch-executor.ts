@@ -31,6 +31,7 @@ export interface QueuedCard {
 
 export interface CardStarter {
   start: (card: QueuedCard) => CardStart
+  stop: (card: StartedCard) => void
 }
 
 export type LaunchOutcome
@@ -66,8 +67,10 @@ export class LaunchExecutor {
       const start = this.parts.starter.start({ cardId: lease.cardId, lane })
       if (start.kind === 'refused')
         return this.denied(lease, start.denial)
-      if (start.card.pgid !== start.card.pid)
-        return this.denied(lease, technical('not_detached', `card #${lease.cardId} runs as pid ${start.card.pid} in process group ${start.card.pgid}, not as its own group leader`))
+      if (start.card.pgid !== start.card.pid) {
+        this.parts.starter.stop(start.card)
+        return this.denied(lease, technical('not_detached', `card #${lease.cardId} runs as pid ${start.card.pid} in process group ${start.card.pgid}, not as its own group leader; it was stopped`))
+      }
       return this.started(lease, start.card)
     }
     catch (error) {
@@ -79,7 +82,13 @@ export class LaunchExecutor {
 
   private started(lease: Lease, card: StartedCard): LaunchOutcome {
     const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [event], () => queuedLane(this.parts.db, lease.cardId) !== null)
+    try {
+      completeTask(this.parts.db, this.ts(), lease, [event], () => queuedLane(this.parts.db, lease.cardId) !== null)
+    }
+    catch (error) {
+      this.parts.starter.stop(card)
+      throw error
+    }
     return { kind: 'started', taskKey: lease.taskKey, card }
   }
 

@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { prOf } from './identifiers.js'
+import { CARD_STOPPED } from './inbox.js'
 
 export const CARD_STARTED = 'card.started'
 export const CARD_ADMITTED = 'card.admitted'
 export const CARD_CLOSED = 'card.closed'
 
 const CARD_LIFE = `
-  SELECT id, type, card_id, payload FROM events
-  WHERE legacy = 0 AND card_id IS NOT NULL AND type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}')
+  SELECT id, type, card_id, dedupe_key, payload FROM events
+  WHERE legacy = 0 AND card_id IS NOT NULL AND type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}')
   ORDER BY id
 `
 
@@ -19,11 +20,18 @@ interface LifeRow {
   id: number
   type: string
   card_id: number
+  dedupe_key: string
   payload: string
+}
+
+export interface LaunchCandidate {
+  cardId: number
+  generation: string
 }
 
 interface CardLife {
   cardId: number
+  generation: string
   lane: string | null
   depends: number[]
   started: boolean
@@ -45,6 +53,10 @@ function laneOf(payload: Record<string, unknown>): string | null {
   return typeof lane === 'string' && lane !== '' ? lane : null
 }
 
+function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
+  return typeof payload.admission === 'string' && payload.admission !== '' ? payload.admission : row.dedupe_key
+}
+
 function dependsOf(payload: Record<string, unknown>): number[] {
   return Array.isArray(payload.depends) ? payload.depends.map(prOf).filter(each => each !== null) : []
 }
@@ -52,15 +64,16 @@ function dependsOf(payload: Record<string, unknown>): number[] {
 function cardLives(db: DatabaseSync): Map<number, CardLife> {
   const lives = new Map<number, CardLife>()
   for (const row of db.prepare(CARD_LIFE).all() as unknown as LifeRow[]) {
+    const life = lives.get(row.card_id)
     if (row.type === CARD_ADMITTED) {
       const payload = payloadOf(row)
-      lives.set(row.card_id, { cardId: row.card_id, lane: laneOf(payload), depends: dependsOf(payload), started: false, closed: false })
+      const running = life !== undefined && life.started && !life.closed
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), lane: laneOf(payload), depends: dependsOf(payload), started: running, closed: false })
       continue
     }
-    const life = lives.get(row.card_id)
     if (life !== undefined && row.type === CARD_STARTED)
       life.started = true
-    if (life !== undefined && row.type === CARD_CLOSED)
+    if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED))
       life.closed = true
   }
   return lives
@@ -75,7 +88,7 @@ export function queuedLane(db: DatabaseSync, cardId: number): string | null {
   return isQueued(life) ? life!.lane : null
 }
 
-export function launchCandidates(db: DatabaseSync): number[] {
+export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
   const lives = cardLives(db)
   const merged = new Set((db.prepare(MERGED_CARDS).all() as { card_id: number }[]).map(row => row.card_id))
   const launching = new Set((db.prepare(OPEN_LAUNCHES).all() as { card_id: number }[]).map(row => row.card_id))
@@ -85,12 +98,12 @@ export function launchCandidates(db: DatabaseSync): number[] {
     if (life.lane !== null && (running || launching.has(life.cardId)))
       busy.add(life.lane)
   }
-  const chosen: number[] = []
+  const chosen: LaunchCandidate[] = []
   for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
     if (!isQueued(life) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)))
       continue
     busy.add(life.lane)
-    chosen.push(life.cardId)
+    chosen.push({ cardId: life.cardId, generation: life.generation })
   }
   return chosen
 }

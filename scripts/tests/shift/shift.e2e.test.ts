@@ -54,6 +54,7 @@ function newWorld(): World {
   git(origin, ['init', '-q', '--bare', '-b', 'main'])
   git(root, ['clone', '-q', origin, repo])
   writeFileSync(path.join(repo, 'README.md'), 'world\n')
+  writeFileSync(path.join(repo, '.gitignore'), '.construct/\n')
   git(repo, ['checkout', '-q', '-b', 'main'])
   git(repo, ['add', '.'])
   git(repo, ['commit', '-q', '-m', 'world'])
@@ -782,6 +783,65 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     const armed = '[shift:merge] decision auto, no owner path — auto-merge armed on PR #1 at a1b2c3d'
     expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toContain(armed)
     expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ merge: [armed] })
+  })
+
+  function sessionThatLeaves(world: World, change: string): ShiftDeps['claude'] {
+    const wrapper = path.join(world.root, 'session-leaves.sh')
+    writeFileSync(wrapper, `#!/bin/sh\n${change}\nexec sh ${STUB} "$@"\n`)
+    return `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${wrapper}`
+  }
+
+  function prOpeningGh(id: string, calls: string[][]): (args: string[]) => string {
+    return (args) => {
+      calls.push(args)
+      if (args[0] === 'pr' && args[1] === 'create')
+        return 'https://github.com/E1i/mikoshi-construct/pull/41\n'
+      if (args.includes('open'))
+        return '[]'
+      if (args[1] === 'view')
+        return JSON.stringify({ body: `#${id} task-${id} [implement/runner/S/cheap/auto] · depends — · blocks —\n\nbody`, headRefOid: 'a1b2c3d', files: [{ path: `scripts/${id}/x.ts` }] })
+      return ''
+    }
+  }
+
+  function committingGit(cwd: string, args: string[]): string {
+    return git(cwd, args)
+  }
+
+  it('a card session whose last message is not its report still gets its pull request from the worktree and branch', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
+    const calls: string[][] = []
+    const claude = sessionThatLeaves(world, `mkdir -p scripts/1 && echo done > scripts/1/x.ts && git add -A && git -c user.name=world -c user.email=world@example.invalid commit -q -m 'session commit'`)
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+
+    expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toMatch(/^result: did mc-1\nno PR\n/)
+    const create = calls.find(args => args[1] === 'create')!
+    expect(create.slice(0, 6)).toEqual(['pr', 'create', '--head', 'feat/1', '--base', 'main'])
+    expect(create.at(-1)!.split('\n')[0]).toBe('#1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —')
+    expect(git(path.join(world.root, 'origin.git'), ['log', '--format=%s', 'feat/1', '-1']).trim()).toBe('session commit')
+    expect(calls.find(args => args[1] === 'merge')?.slice(0, 3)).toEqual(['pr', 'merge', '41'])
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41 })
+    expect(eventsOf(world, 'stop')).toEqual([])
+  })
+
+  it('a card session refused git add leaves an uncommitted tree, and the shift commits, pushes and opens its pull request', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
+    const calls: string[][] = []
+    const claude = sessionThatLeaves(world, 'mkdir -p scripts/1 && echo green > scripts/1/x.ts')
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+
+    const tree = path.join(world.root, 'mc-1')
+    expect(git(tree, ['status', '--porcelain'])).toBe('')
+    expect(git(path.join(world.root, 'origin.git'), ['show', 'feat/1:scripts/1/x.ts'])).toBe('green\n')
+    expect(git(path.join(world.root, 'origin.git'), ['log', '--format=%s', 'feat/1', '-1']).trim()).toBe('task-1 (#1)')
+    expect(calls.filter(args => args[1] === 'create')).toHaveLength(1)
+    expect(calls.find(args => args[1] === 'create')!.at(-1)!.split('\n')[0]).toBe('#1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —')
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41 })
+    expect(eventsOf(world, 'stop')).toEqual([])
   })
 
   it('w11: a probe, and an implement report with no PR, call no merge and leave the report as the session wrote it', async () => {

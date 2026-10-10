@@ -1,5 +1,6 @@
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -34,6 +35,11 @@ export function relaunchPrompt(handoff: string, decisions: string | null, sessio
   return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
+export const FACTORY_FILE = 'factory.json'
+export const GH_ACCOUNT_KEY = 'ghAccount'
+export const GH_TOKEN_VARIABLE = 'GH_TOKEN'
+
+export type OperatorToken = { kind: 'token', token: string } | { kind: 'unset', reason: string } | { kind: 'failed', reason: string }
 export const ALREADY_RUNNING = 'already-running'
 
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
@@ -47,6 +53,8 @@ export interface RelaunchDeps {
   home: string
   pid: number
   claude: string
+  env: NodeJS.ProcessEnv
+  ghToken: (account: string) => string
   journal: string
   projectsDir: string
   read: (file: string) => string
@@ -292,6 +300,42 @@ export function createExclusive(file: string, text: string): boolean {
   }
 }
 
+export function factoryPath(home: string): string {
+  return path.join(home, '.construct', FACTORY_FILE)
+}
+
+function configuredAccount(deps: RelaunchDeps, file: string): string | null {
+  const text = readIfPresent(deps, file)
+  if (text === null)
+    return null
+  try {
+    const config = JSON.parse(text) as unknown
+    const account = config !== null && typeof config === 'object' ? (config as Record<string, unknown>)[GH_ACCOUNT_KEY] : undefined
+    return typeof account === 'string' && account.trim() !== '' ? account.trim() : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function operatorToken(deps: RelaunchDeps): OperatorToken {
+  const file = factoryPath(deps.home)
+  const account = configuredAccount(deps, file)
+  if (account === null)
+    return { kind: 'unset', reason: `no ${GH_ACCOUNT_KEY} in ${file}: the Operator keeps this environment's GitHub credentials` }
+  try {
+    const token = deps.ghToken(account).trim()
+    return token === '' ? { kind: 'failed', reason: `gh auth token --user ${account} printed no token` } : { kind: 'token', token }
+  }
+  catch (error) {
+    return { kind: 'failed', reason: `gh auth token --user ${account} failed: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+export function ghAccountToken(account: string, env: NodeJS.ProcessEnv = process.env): string {
+  return execFileSync('gh', ['auth', 'token', '--user', account], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
 async function record(deps: RelaunchDeps, event: object): Promise<void> {
   mkdirSync(path.dirname(deps.journal), { recursive: true })
   await appendJournalEvent(deps.journal, event)
@@ -326,6 +370,13 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   const model = parsed.model ?? transcriptModel(deps)
   if (model === null)
     return stop(NO_MODEL, 1)
+  const token = operatorToken(deps)
+  if (token.kind === 'failed')
+    return stop(token.reason, 1)
+  if (token.kind === 'unset')
+    deps.out(`${PREFIX}${token.reason}`)
+  else
+    deps.env[GH_TOKEN_VARIABLE] = token.token
   const command = deps.claude
   for (;;) {
     const text = readIfPresent(deps, handoff)
@@ -379,6 +430,8 @@ export function realDeps(env: NodeJS.ProcessEnv = process.env): RelaunchDeps {
     home: os.homedir(),
     pid: process.pid,
     claude: OPERATOR_CLAUDE,
+    env,
+    ghToken: account => ghAccountToken(account, env),
     journal: path.join(env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),

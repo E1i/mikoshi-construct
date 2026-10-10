@@ -1,8 +1,9 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
-import type { CardStart, CardStarter, QueuedCard } from './launch-executor.js'
+import type { CardStart, CardStarter, QueuedCard, StartedCard } from './launch-executor.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
@@ -26,6 +27,7 @@ export interface StarterPorts {
   base: (worktree: string) => string
   spawnDetached: (spawn: DetachedSpawn) => number
   pgidOf: (pid: number) => number
+  kill: (target: number) => void
   uuid: () => string
 }
 
@@ -76,6 +78,17 @@ export class ShiftCardStarter implements CardStarter {
       return { kind: 'refused', denial: technical('start_failed', messageOf(error)) }
     }
   }
+
+  stop(card: StartedCard): void {
+    this.ports.kill(card.pgid === card.pid ? -card.pid : card.pid)
+  }
+}
+
+export function killQuietly(target: number): void {
+  try {
+    process.kill(target, 'SIGKILL')
+  }
+  catch {}
 }
 
 export function spawnDetached(run: DetachedSpawn): number {
@@ -110,6 +123,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, uuid: () 
     base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     spawnDetached,
     pgidOf: psPgid,
+    kill: killQuietly,
     uuid,
   }
 }

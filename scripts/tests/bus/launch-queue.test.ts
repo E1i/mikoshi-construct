@@ -1,19 +1,25 @@
-import type { CardStart, CardStarter, LaunchOutcome, QueuedCard } from '../../bus/launch-executor.js'
+import type { DatabaseSync } from 'node:sqlite'
+import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
 import type { StarterPorts } from '../../bus/launch-starter.js'
 import type { Lease } from '../../bus/lease.js'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { appendEvent } from '../../bus/db.js'
+import { parkingLane } from '../../bus/admissions.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
+import { importJournal, legacyEventOf } from '../../bus/import.js'
+import { CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { LaunchWorker } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
+import { journalIntake } from '../../bus/run.js'
 import { blockFor } from '../../bus/update-worker.js'
 import { busLaunches } from '../../bus/workers.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
@@ -33,25 +39,31 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-const launch = (cardId: number): string => taskKey({ queue: 'launch', cardId })
+const admission = (cardId: number): string => `admission-${cardId}`
+const launch = (cardId: number, generation = admission(cardId)): string => taskKey({ queue: 'launch', cardId, generation })
 
 class FakeStarter implements CardStarter {
   starts: QueuedCard[] = []
+  stops: StartedCard[] = []
   constructor(private readonly answer: (card: QueuedCard) => CardStart = card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } })) {}
   start(card: QueuedCard): CardStart {
     this.starts.push(card)
     return this.answer(card)
   }
+
+  stop(card: StartedCard): void {
+    this.stops.push(card)
+  }
 }
 
-function launchBench(starter: CardStarter = new FakeStarter()) {
-  const bench = mergeBench()
+function launchBench(starter: CardStarter = new FakeStarter(), intake?: Parameters<typeof mergeBench>[0]) {
+  const bench = mergeBench(intake)
   const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
     admit: (cardId: number, lane: string, depends: number[] = []): void => {
-      appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends }, legacy: false })
+      appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends, admission: admission(cardId) }, legacy: false })
     },
     started: (cardId: number): void => {
       appendEvent(bench.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: 'earlier' }, legacy: false })
@@ -87,7 +99,22 @@ function waitFor(file: string): string {
   return readFileSync(file, 'utf8')
 }
 
-function realStarter(root: string, shiftClaude: string | undefined, cardId: number): ShiftCardStarter {
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+async function waitForExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100 && alive(pid); attempt += 1)
+    await sleep(50)
+}
+
+function realStarter(root: string, shiftClaude: string | undefined, cardId: number, overrides: Partial<StarterPorts> = {}): ShiftCardStarter {
   const parking = path.join(root, 'parking')
   mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
   writeFileSync(path.join(parking, 'lane-x', `${cardId}.md`), parkingFileText({ card: `#${cardId} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
@@ -106,7 +133,9 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
       return pid
     },
     pgidOf: psPgid,
+    kill: killQuietly,
     uuid: () => `session-${cardId}`,
+    ...overrides,
   }
   return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env }, ports)
 }
@@ -171,12 +200,52 @@ describe('the launch queue', () => {
   })
 
   it('a process that is not its own group leader is denied and records no card.started', () => {
-    const bench = launchBench(new FakeStarter(card => ({ kind: 'started', card: { session: 's', worktree: '/t', branch: 'b', base: 'f'.repeat(40), pid: 5000 + card.cardId, pgid: 1 } })))
+    const starter = new FakeStarter(card => ({ kind: 'started', card: { session: 's', worktree: '/t', branch: 'b', base: 'f'.repeat(40), pid: 5000 + card.cardId, pgid: 1 } }))
+    const bench = launchBench(starter)
     bench.admit(925, 'lane-x')
     bench.tick()
 
     expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'denied', denial: { reason: 'not_detached' }, next: 'queued' })
     expect(eventsOf(bench.db, CARD_STARTED)).toEqual([])
+    expect(starter.stops.map(card => card.pid)).toEqual([5925])
+    bench.close()
+  })
+
+  it('a session denied as not detached is killed, so it does not run untracked in its worktree', async () => {
+    const root = tempRoot()
+    const stub = stubClaude(root)
+    const bench = launchBench(realStarter(root, stub.command, 926, { pgidOf: () => 1 }))
+    bench.admit(926, 'lane-x')
+    bench.tick()
+
+    const outcome = bench.launch(bench.leaseLaunch()!)
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'not_detached' }, next: 'queued' })
+    await waitForExit(groups.at(-1)!)
+    expect(alive(groups.at(-1)!)).toBe(false)
+    bench.close()
+  })
+
+  it('a session started while its card was started elsewhere is killed with its process group', async () => {
+    const root = tempRoot()
+    const stub = stubClaude(root)
+    let bench: ReturnType<typeof launchBench> | undefined
+    const real = realStarter(root, stub.command, 946)
+    const starter: CardStarter = {
+      start: (card) => {
+        const start = real.start(card)
+        bench!.started(card.cardId)
+        return start
+      },
+      stop: card => real.stop(card),
+    }
+    bench = launchBench(starter)
+    bench.admit(946, 'lane-x')
+    bench.tick()
+
+    expect(bench.launch(bench.leaseLaunch()!)).toEqual({ kind: 'fenced', taskKey: launch(946) })
+    await waitForExit(groups.at(-1)!)
+    expect(alive(groups.at(-1)!)).toBe(false)
+    expect(eventsOf(bench.db, CARD_STARTED)).toEqual([{ session: 'earlier' }])
     bench.close()
   })
 
@@ -230,6 +299,7 @@ describe('the launch queue', () => {
 
     expect(executor.launch(bench.leaseLaunch()!)).toEqual({ kind: 'fenced', taskKey: launch(945) })
     expect(eventsOf(bench.db, CARD_STARTED)).toEqual([{ session: 'earlier' }])
+    expect(starter.stops.map(card => card.pid)).toEqual([7])
     expect(taskState(bench.db, launch(945))).toMatchObject({ state: 'leased' })
     bench.close()
   })
@@ -257,6 +327,157 @@ describe('the launch queue', () => {
     expect(worker.step()).toMatchObject({ kind: 'started', taskKey: launch(960) })
     expect(worker.step()).toEqual({ kind: 'idle' })
     expect(busLaunches(() => []).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
+    bench.close()
+  })
+})
+
+function cardText(cardId: number, depends = '—'): string {
+  return `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends ${depends} · blocks —`
+}
+
+function intakeLine(cardId: number, source: string, minute: number, depends?: string): string {
+  return JSON.stringify({ event: 'intake', task: String(cardId), card: cardText(cardId, depends), confirmation: 'auto', corrections: [], bodySha: `body${minute}`, source, ts: `2026-10-10T13:${String(minute).padStart(2, '0')}:00.000Z` })
+}
+
+function moveLine(cardId: number, from: string, to: string, minute: number): string {
+  return JSON.stringify({ event: 'intake-move', task: String(cardId), from, to, bodySha: `body${minute}`, ts: `2026-10-10T13:${String(minute).padStart(2, '0')}:00.000Z` })
+}
+
+function journalBench(starter: CardStarter = new FakeStarter()) {
+  const root = tempRoot()
+  const parking = path.join(root, 'parking')
+  const journal = path.join(root, 'ghosts.jsonl')
+  writeFileSync(journal, '')
+  const lines: string[] = []
+  const bench = launchBench(starter, (db, clock) => journalIntake(db, journal, parkingLane(parking), clock.now))
+  return {
+    ...bench,
+    parking,
+    park: (cardId: number, lane: string): void => {
+      mkdirSync(path.join(parking, lane), { recursive: true })
+      writeFileSync(path.join(parking, lane, `${cardId}.md`), cardText(cardId))
+    },
+    append: (line: string): string => {
+      lines.push(line)
+      appendFileSync(journal, `${line}\n`)
+      return legacyEventOf(line, lines.length)!.dedupeKey
+    },
+  }
+}
+
+function admittedRows(db: DatabaseSync): Record<string, unknown>[] {
+  return db.prepare(`SELECT ts, actor, card_id, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' ORDER BY id`).all() as Record<string, unknown>[]
+}
+
+function launchTasks(db: DatabaseSync): Record<string, unknown>[] {
+  return db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'launch' ORDER BY id`).all() as Record<string, unknown>[]
+}
+
+describe('card.admitted from the intake journal', () => {
+  it('an intake admit line in the journal enqueues a launch task with no manual step', () => {
+    const bench = journalBench()
+    bench.park(970, 'lane-q')
+    const line = bench.append(intakeLine(970, 'admit', 1))
+    bench.tick()
+
+    expect(eventsOf(bench.db, CARD_ADMITTED)).toEqual([{ lane: 'lane-q', depends: [], decision: 'auto', contour: 'cheap', admission: line }])
+    expect(line).toMatch(/^legacy:1:[0-9a-f]{64}$/)
+    expect(launchTasks(bench.db)).toEqual([{ task_key: `launch:970:${line}`, state: 'queued' }])
+    expect(bench.leaseLaunch()).toMatchObject({ taskKey: `launch:970:${line}`, cardId: 970, pr: null, head: null, leaseGen: 1 })
+    bench.close()
+  })
+
+  it('a second admit after the card fell enqueues a new launch', () => {
+    const starter = new FakeStarter()
+    const bench = journalBench(starter)
+    bench.park(971, 'lane-q')
+    const first = bench.append(intakeLine(971, 'admit', 1))
+    bench.tick()
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: `launch:971:${first}` })
+
+    const again = bench.append(intakeLine(971, 'admit', 2))
+    bench.tick()
+    expect(launchTasks(bench.db)).toEqual([{ task_key: `launch:971:${first}`, state: 'completed' }])
+
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'policy', cardId: 971, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:971`, payload: { reason: 'fault' }, legacy: false })
+    const third = bench.append(intakeLine(971, 'admit', 3))
+    bench.tick()
+    expect(launchTasks(bench.db)).toEqual([
+      { task_key: `launch:971:${first}`, state: 'completed' },
+      { task_key: `launch:971:${third}`, state: 'queued' },
+    ])
+    expect(third).not.toBe(again)
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: `launch:971:${third}` })
+    expect(starter.starts).toEqual([{ cardId: 971, lane: 'lane-q' }, { cardId: 971, lane: 'lane-q' }])
+    bench.close()
+  })
+
+  it('a redelivered admit line enqueues no second launch task', () => {
+    const bench = journalBench()
+    bench.park(972, 'lane-q')
+    const line = bench.append(intakeLine(972, 'admit', 1))
+    bench.tick()
+    bench.tick()
+    expect(importJournal(bench.db, readFileSync(path.join(path.dirname(bench.parking), 'ghosts.jsonl'), 'utf8'), parkingLane(bench.parking), bench.clock.now)).toMatchObject({ imported: 0, admitted: 0 })
+    bench.tick()
+
+    expect(admittedRows(bench.db)).toHaveLength(1)
+    expect(launchTasks(bench.db)).toEqual([{ task_key: `launch:972:${line}`, state: 'queued' }])
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started' })
+    bench.tick()
+    expect(launchTasks(bench.db)).toEqual([{ task_key: `launch:972:${line}`, state: 'completed' }])
+    bench.close()
+  })
+
+  it('a replay of the journal yields the same card.admitted events', () => {
+    const root = tempRoot()
+    const parking = path.join(root, 'parking')
+    for (const [cardId, lane] of [[973, 'lane-a'], [974, 'lane-b']] as const) {
+      mkdirSync(path.join(parking, lane), { recursive: true })
+      writeFileSync(path.join(parking, lane, `${cardId}.md`), cardText(cardId))
+    }
+    const journal = [
+      intakeLine(973, 'admit', 1, '#900'),
+      moveLine(973, path.join(parking, 'lane-a'), path.join(parking, 'lane-c'), 2),
+      intakeLine(973, 'admit', 3, '#900'),
+      intakeLine(974, 'admit', 4),
+      intakeLine(974, 'amend', 5),
+    ].join('\n')
+    const clock = () => new Date('2026-10-10T15:00:00.000Z')
+    const first = openBus(path.join(root, 'first.db'))
+    const second = openBus(path.join(root, 'second.db'))
+    importJournal(first, journal, parkingLane(parking), clock)
+    importJournal(second, journal, parkingLane(parking), clock)
+    const recorded = admittedRows(first)
+
+    expect(recorded.map(row => [row.card_id, JSON.parse(String(row.payload)).lane, JSON.parse(String(row.payload)).depends])).toEqual([
+      [973, 'lane-a', [900]],
+      [973, 'lane-c', [900]],
+      [973, 'lane-c', [900]],
+      [974, 'lane-b', []],
+    ])
+    expect(recorded.every(row => row.actor === 'reducer')).toBe(true)
+    expect(admittedRows(second)).toEqual(recorded)
+
+    renameSync(path.join(parking, 'lane-b'), path.join(parking, 'lane-z'))
+    importJournal(first, journal, parkingLane(parking), () => new Date('2026-10-11T00:00:00.000Z'))
+    expect(admittedRows(first)).toEqual(recorded)
+    first.close()
+    second.close()
+  })
+
+  it('an intake amend line produces no card.admitted and no launch', () => {
+    const bench = journalBench()
+    bench.park(975, 'lane-q')
+    bench.append(intakeLine(975, 'amend', 1))
+    bench.append(JSON.stringify({ event: 'intake', task: '975', card: cardText(975), source: 'retell', ts: '2026-10-10T13:02:00.000Z' }))
+    bench.append(JSON.stringify({ event: 'intake', task: '975', card: cardText(975), ts: '2026-10-10T13:03:00.000Z' }))
+    bench.tick()
+    bench.tick()
+
+    expect(admittedRows(bench.db)).toEqual([])
+    expect(launchTasks(bench.db)).toEqual([])
+    expect(bench.leaseLaunch()).toBeNull()
     bench.close()
   })
 })

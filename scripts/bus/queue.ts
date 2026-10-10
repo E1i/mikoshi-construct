@@ -3,7 +3,7 @@ import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
-import { QUEUES, taskKey } from './identifiers.js'
+import { generationOfKey, QUEUES, taskKey } from './identifiers.js'
 import { ownerInbox } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -78,7 +78,8 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const payload = payloadOf(event)
   const queue = QUEUES.find(each => each === payload.queue) ?? reject(`queue is not one of ${QUEUES.join(' | ')}`)
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
-  const key = taskKey({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined })
+  const generation = typeof payload.generation === 'string' ? payload.generation : undefined
+  const key = taskKey({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -109,9 +110,13 @@ export const TASK_FOLDS: Record<string, Fold> = {
   [TASK_SUPERSEDED]: foldSuperseded,
 }
 
+export function generationField(generation: string | undefined): { generation?: string } {
+  return generation === undefined ? {} : { generation }
+}
+
 function taskEvent(ts: string, type: string, task: TaskIdentity): BusEvent {
   const key = taskKey(task)
-  return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${type}:${key}`, payload: { task_key: key, queue: task.queue }, legacy: false }
+  return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${type}:${key}`, payload: { task_key: key, queue: task.queue, ...generationField(task.generation) }, legacy: false }
 }
 
 function written(db: DatabaseSync, event: BusEvent): boolean {
@@ -132,7 +137,8 @@ export function supersedeTask(db: DatabaseSync, ts: string, task: TaskIdentity):
 }
 
 function identity(row: TaskRow): TaskIdentity {
-  return { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
+  const plain = { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
+  return { ...plain, generation: generationOfKey(row.task_key, plain) }
 }
 
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
@@ -148,8 +154,8 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
         derived.queued.push(taskKey(task))
     }
   }
-  for (const cardId of launchCandidates(db)) {
-    const task: TaskIdentity = { queue: 'launch', cardId }
+  for (const { cardId, generation } of launchCandidates(db)) {
+    const task: TaskIdentity = { queue: 'launch', cardId, generation }
     if (queueTask(db, ts, task))
       derived.queued.push(taskKey(task))
   }
