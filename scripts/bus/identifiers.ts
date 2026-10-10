@@ -60,8 +60,10 @@ export function taskKey(task: TaskIdentity): string {
   return task.generation === undefined ? `${task.queue}:${task.cardId}:${task.pr ?? '-'}:${task.head ?? '-'}` : `${task.queue}:${task.cardId}:${task.generation}`
 }
 
+const GENERATION_QUEUE: Queue = 'launch'
+
 export function generationOfKey(key: string, task: Omit<TaskIdentity, 'generation'>): string | undefined {
   const plain = taskKey(task)
   const prefix = `${task.queue}:${task.cardId}:`
-  return key === plain || !key.startsWith(prefix) || task.pr !== undefined || task.head !== undefined ? undefined : key.slice(prefix.length)
+  return task.queue !== GENERATION_QUEUE || key === plain || !key.startsWith(prefix) || task.pr !== undefined || task.head !== undefined ? undefined : key.slice(prefix.length)
 }

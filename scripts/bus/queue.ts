@@ -4,7 +4,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, taskKey } from './identifiers.js'
-import { ownerInbox } from './inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
@@ -35,11 +35,41 @@ const UPDATE_CANDIDATES = `
   ORDER BY pr
 `
 
+export const QUESTION_AGENT = 'question.agent'
+export const QUESTION_OWNER = 'question.owner'
+const CARD_TURNS = `'${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}'`
+
+export function latestTurnOf(card: string): string {
+  return `(SELECT id FROM events AS turn WHERE turn.card_id = ${card} AND turn.legacy = 0 AND turn.type IN (${CARD_TURNS}) ORDER BY turn.id DESC LIMIT 1)`
+}
+
+const QUESTION_CANDIDATES = `
+  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop FROM events AS stop
+  LEFT JOIN cards ON cards.card_id = stop.card_id
+  LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
+  WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
+    AND json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
+    AND stop.id = ${latestTurnOf('stop.card_id')}
+    AND (prs.pr IS NULL OR prs.state = 'open')
+  ORDER BY stop.card_id
+`
+
+const CHANGES_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'open' AND verdict_on_head = 'changes' AND card_id IS NOT NULL AND head IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
+        AND stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') IN ('${QUESTION_OWNER}', '${QUESTION_AGENT}')
+    )
+  ORDER BY pr
+`
+
 interface Candidate {
-  pr: number
+  pr: number | null
   card_id: number
-  head: string
+  head: string | null
   verdict_on_head?: string | null
+  stop?: number | null
 }
 
 type Admits = (row: Candidate) => boolean
@@ -52,7 +82,13 @@ function passOrWaitingForOwner(db: DatabaseSync): Admits {
 }
 
 function candidates(db: DatabaseSync): [Queue, string, Admits][] {
-  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow]]
+  return [
+    ['review', REVIEW_CANDIDATES, everyRow],
+    ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
+    ['merge', MERGE_CANDIDATES, everyRow],
+    ['answer', QUESTION_CANDIDATES, everyRow],
+    ['answer', CHANGES_CANDIDATES, everyRow],
+  ]
 }
 
 const TASKS_OF_AN_OLD_HEAD = `
@@ -69,6 +105,22 @@ interface TaskRow {
   head: string | null
 }
 
+interface QueuedTask extends TaskIdentity {
+  stop?: number
+}
+
+const STOP_SUFFIX = /:stop-([1-9]\d*)$/
+
+function keyOf(task: QueuedTask): string {
+  const key = taskKey(task)
+  return task.stop === undefined ? key : `${key}:stop-${task.stop}`
+}
+
+function stopIn(key: unknown): number | undefined {
+  const match = typeof key === 'string' ? STOP_SUFFIX.exec(key) : null
+  return match === null ? undefined : Number(match[1])
+}
+
 export interface Derived {
   queued: string[]
   superseded: string[]
@@ -79,7 +131,8 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const queue = QUEUES.find(each => each === payload.queue) ?? reject(`queue is not one of ${QUEUES.join(' | ')}`)
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
   const generation = typeof payload.generation === 'string' ? payload.generation : undefined
-  const key = taskKey({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation })
+  const stop = queue === 'answer' ? stopIn(payload.task_key) : undefined
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -114,8 +167,8 @@ export function generationField(generation: string | undefined): { generation?: 
   return generation === undefined ? {} : { generation }
 }
 
-function taskEvent(ts: string, type: string, task: TaskIdentity): BusEvent {
-  const key = taskKey(task)
+function taskEvent(ts: string, type: string, task: QueuedTask): BusEvent {
+  const key = keyOf(task)
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${type}:${key}`, payload: { task_key: key, queue: task.queue, ...generationField(task.generation) }, legacy: false }
 }
 
@@ -128,17 +181,17 @@ function written(db: DatabaseSync, event: BusEvent): boolean {
   })
 }
 
-export function queueTask(db: DatabaseSync, ts: string, task: TaskIdentity): boolean {
+export function queueTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
   return written(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
-export function supersedeTask(db: DatabaseSync, ts: string, task: TaskIdentity): boolean {
+export function supersedeTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
   return written(db, taskEvent(ts, TASK_SUPERSEDED, task))
 }
 
-function identity(row: TaskRow): TaskIdentity {
+function identity(row: TaskRow): QueuedTask {
   const plain = { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
-  return { ...plain, generation: generationOfKey(row.task_key, plain) }
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key) }
 }
 
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
@@ -149,15 +202,15 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const [queue, query, admits] of candidates(db)) {
     for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {
-      const task: TaskIdentity = { queue, cardId: row.card_id, pr: row.pr, head: row.head }
+      const task: QueuedTask = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined }
       if (queueTask(db, ts, task))
-        derived.queued.push(taskKey(task))
+        derived.queued.push(keyOf(task))
     }
   }
   for (const { cardId, generation } of launchCandidates(db)) {
-    const task: TaskIdentity = { queue: 'launch', cardId, generation }
+    const task: QueuedTask = { queue: 'launch', cardId, generation }
     if (queueTask(db, ts, task))
-      derived.queued.push(taskKey(task))
+      derived.queued.push(keyOf(task))
   }
   return derived
 }

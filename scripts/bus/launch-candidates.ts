@@ -1,8 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { prOf } from './identifiers.js'
-import { CARD_STOPPED } from './inbox.js'
+import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 
-export const CARD_STARTED = 'card.started'
 export const CARD_ADMITTED = 'card.admitted'
 export const CARD_CLOSED = 'card.closed'
 

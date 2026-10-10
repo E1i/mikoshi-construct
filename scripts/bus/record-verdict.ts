@@ -3,7 +3,7 @@ import type { ReviewStatus, StatusPublisher } from '../ghosts/verdict.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
-import { CARD_STARTED } from './launch-candidates.js'
+import { CARD_ANSWERED, CARD_STARTED } from './inbox.js'
 import { assertHeld } from './lease.js'
 import { Meter } from './meter.js'
 import { ciOf } from './snapshot.js'
@@ -37,7 +37,7 @@ function sessionsIn(payload: Record<string, unknown>): string[] {
 }
 
 export function authorSessions(db: DatabaseSync, cardId: number): Set<string> {
-  const rows = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND (type = '${CARD_STARTED}' OR legacy = 1) ORDER BY id`).all(cardId)
+  const rows = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND (type IN ('${CARD_STARTED}', '${CARD_ANSWERED}') OR legacy = 1) ORDER BY id`).all(cardId)
   const sessions = new Set<string>()
   for (const row of rows) {
     try {

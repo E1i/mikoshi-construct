@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
-import { POLICY_DENIED } from './inbox.js'
-import { CARD_STARTED, queuedLane } from './launch-candidates.js'
+import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
+import { queuedLane } from './launch-candidates.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 
 export type LaunchTechnicalReason = 'card_not_queued' | 'no_shift_mode' | 'card_unreadable' | 'start_failed' | 'not_detached'
