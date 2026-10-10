@@ -140,6 +140,22 @@ describe('owner decisions are a numbered record', () => {
     expect(read(file('- D-1 · 2026-10-08 — one.', '- D-3 · 2026-10-08 — three.')).code).toBe(1)
   })
 
+  it('a decision line without the decisions:add marker is refused', () => {
+    const written = '- D-2 · 2026-10-09 ~09:12Z — [owner] two. · decisions:add'
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one, before the writer.', written))).toEqual([])
+    const handAppended = file('- D-1 · 2026-10-08 — one.', written, '- D-3 · 2026-10-09 — three, by hand.')
+    expect(decisionsRefusals(handAppended)).toEqual(['[decisions] D-3 on line 7: no decisions:add marker after D-2, which has one; append a decision with pnpm decisions:add'])
+    expect(read(handAppended)).toMatchObject({ code: 1, out: [] })
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one. · card #7 · decisions:add · superseded-by D-2', '- D-2 · 2026-10-09 — two. · decisions:add'))).toEqual([])
+  })
+
+  it('takes the numbers the archive holds as taken, and refuses one in both', () => {
+    const archive = file('- D-1 · 2026-10-08 — one. · superseded-by D-3')
+    expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two.', '- D-3 · 2026-10-08 — three.'), archive)).toEqual([])
+    expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two.', '- D-3 · 2026-10-08 — three.'))).toEqual(['[decisions] D-2 on line 5: expected D-1; numbers run 1..n in file order'])
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two.'), archive)).toEqual(['[decisions] D-1: on line 5 and in the archive; a number names one decision'])
+  })
+
   it('refuses a missing file and a flag', () => {
     expect(read('', ['/nowhere.md']).err).toEqual(['[decisions] no decisions at /nowhere.md'])
     expect(read('', ['--all']).code).toBe(2)
@@ -148,7 +164,7 @@ describe('owner decisions are a numbered record', () => {
 
 describe('a decision bound to a card is spent once the card is merged or closed', () => {
   it('names the card tail in the format, before superseded-by', () => {
-    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· card #A #B] [· superseded-by D-M]')
+    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· card #A #B] [· decisions:add] [· superseded-by D-M]')
     const text = file('- D-1 · 2026-10-08 — one. · card #686 #687', '- D-2 · 2026-10-08 — two. · card #5 · superseded-by D-3', '- D-3 · 2026-10-08 — three.')
     expect(decisionsRefusals(text)).toEqual([])
     expect(parseDecisions(text).decisions.map(decision => [decision.body, decision.cards, decision.supersededBy])).toEqual([['one.', [686, 687], null], ['two.', [5], 3], ['three.', [], null]])

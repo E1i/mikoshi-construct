@@ -17,7 +17,7 @@ import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
-import { completeTask, expireLeases, failTask, leaseNext, renewLease, StaleLease } from './lease.js'
+import { completeTask, expireLeases, failTask, leaseNext, releaseTask, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
@@ -28,6 +28,7 @@ export const RENEW_MS = 10 * 60_000
 export const SWITCH_FLAG = '--on'
 export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
+const CI_NOT_READY = 'ci_not_ready'
 const REVIEWS_DIR = path.join(os.homedir(), '.construct', 'bus', 'reviews')
 
 export type Step
@@ -35,6 +36,7 @@ export type Step
     | { kind: 'recorded', taskKey: string, verdict: VerdictWord }
     | { kind: 'denied', taskKey: string, denial: Denial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
+    | { kind: 'waiting', taskKey: string, detail: string }
 
 export interface WorkerParts {
   db: DatabaseSync
@@ -69,6 +71,8 @@ export class ReviewWorker {
     if (lease === null)
       return { kind: 'idle' }
     const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime())
+    if (stale?.kind === 'technical' && stale.reason === CI_NOT_READY)
+      return this.waiting(lease, stale.detail)
     if (stale !== null)
       return this.denied(lease, stale)
     const heartbeat = setInterval(() => {
@@ -129,6 +133,11 @@ export class ReviewWorker {
     }
   }
 
+  private waiting(lease: Lease, detail: string): Step {
+    releaseTask(this.parts.db, this.ts(), lease, CI_NOT_READY)
+    return { kind: 'waiting', taskKey: lease.taskKey, detail }
+  }
+
   private denied(lease: Lease, denial: Denial): Step {
     const ts = this.ts()
     const reason = denial.kind === 'technical' ? denial.reason : denial.rule
@@ -162,6 +171,8 @@ export function stepLine(step: Step): string | null {
     return `${PREFIX}${step.taskKey}: ${step.verdict} recorded`
   if (step.kind === 'fenced')
     return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
+  if (step.kind === 'waiting')
+    return `${PREFIX}${step.taskKey}: not reviewed yet, ${step.detail}; the task is queued again with no failure counted`
   const reason = step.denial.kind === 'technical' ? step.denial.reason : step.denial.rule
   return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${reason}): ${step.denial.detail}; the task is ${step.next}`
 }
