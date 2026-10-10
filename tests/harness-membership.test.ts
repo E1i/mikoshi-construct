@@ -21,6 +21,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bus:review': 'the live review worker over bus.db, switched off unless started by hand with --on or run once with --dry-run; its own tests are its gate',
   'bus:review:bg': 'starts bus:review --on as the one detached instance when run by hand, after a clean shadow report; its own tests, on nohup and pnpm stubs, are its gate',
   'bus:run': 'a long-running shadow process of NetWatch, the reducer and the review queue over bus.db; its own tests are its gate',
+  'bus:slot': 'runs one heavy command under a slot of bus.db when run by hand or by a caller; its own tests are its gate',
   'bus:update': 'the update worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'changeset': 'an authoring tool',
   'composition:render': 'a writer; composition:check is its gate',

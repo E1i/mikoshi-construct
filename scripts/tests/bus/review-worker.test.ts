@@ -11,11 +11,11 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, renewLease, StaleLease } from '../../bus/lease.js'
+import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { DRY_RUN_ACTOR, dryRun, RENEW_MS, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorker, stepLine } from '../../bus/review-worker.js'
+import { DRY_RUN_ACTOR, dryRun, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -255,23 +255,23 @@ describe('review worker', () => {
     tick()
     gitHub.open({ number: 947, head: sha('c') })
 
-    expect(() => startReviewWorker(parts)).toThrow(ShadowNotClean)
+    expect(() => startReviewWorkers(parts, 1)).toThrow(ShadowNotClean)
     try {
-      startReviewWorker(parts)
+      startReviewWorkers(parts, 1)
     }
     catch (error) {
       expect((error as ShadowNotClean).problems).toEqual([`prs vs GitHub: #947 at ${sha('a')} here, ${sha('c')} on GitHub`])
     }
 
     gitHub.open({ number: 948 })
-    expect(() => startReviewWorker(parts)).toThrow(/#948 open on GitHub, missing here/)
+    expect(() => startReviewWorkers(parts, 1)).toThrow(/#948 open on GitHub, missing here/)
 
     tick()
-    expect(startReviewWorker(parts)).toBeInstanceOf(ReviewWorker)
+    expect(startReviewWorkers(parts, 3).map(worker => worker.actor)).toEqual(['worker:review:worker-1-1', 'worker:review:worker-1-2', 'worker:review:worker-1-3'])
 
     db.prepare(`INSERT INTO events (ts, type, actor, pr, head, dedupe_key, payload) VALUES (?, 'pr.observed', 'netwatch', 947, ?, 'pr:947:unreduced', ?)`)
       .run(clock.now().toISOString(), sha('d'), JSON.stringify({ base: 'main', head: sha('d'), mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }))
-    expect(() => startReviewWorker(parts)).toThrow(/replay byte-diff: differs/)
+    expect(() => startReviewWorkers(parts, 1)).toThrow(/replay byte-diff: differs/)
     db.close()
   })
 
@@ -462,6 +462,7 @@ describe('review worker', () => {
         return { verdict: 'pass', findings: [], session: 'reviewer-main' }
       },
       session: 'main-1',
+      slots: 1,
       pause: async () => {
         throw new Stopped()
       },
@@ -481,7 +482,7 @@ describe('review worker', () => {
 
     gitHub.pulls.clear()
     await expect(runReview(['--on'], run)).rejects.toThrow(Stopped)
-    expect(output()).toContain(`${busPath}: the review worker worker:review:main-1 takes the review queue`)
+    expect(output()).toContain(`${busPath}: the review worker worker:review:main-1-1 takes the review queue`)
     expect(existsSync(busPath)).toBe(true)
   })
 
