@@ -45,9 +45,9 @@ function lines(dir: string, name: string): string[] {
   return existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name), 'utf8').split('\n').filter(Boolean) : []
 }
 
-function startLoop(dir: string): { done: Promise<{ code: number | null, stderr: string }>, pid: number } {
+function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number } {
   const child = spawn(TSX, [LOOP], {
-    env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: path.join(dir, 'claude') },
+    env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: claude },
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
   })
@@ -63,6 +63,14 @@ function startLoop(dir: string): { done: Promise<{ code: number | null, stderr: 
 async function until(condition: () => boolean): Promise<void> {
   for (let tries = 0; tries < 200 && !condition(); tries++)
     await new Promise(resolve => setTimeout(resolve, 50))
+}
+
+async function endsWithin(loop: ReturnType<typeof startLoop>, ms: number): Promise<{ code: number | null, stderr: string } | 'still running'> {
+  const timeout = new Promise<'still running'>(resolve => setTimeout(resolve, ms, 'still running'))
+  const outcome = await Promise.race([loop.done, timeout])
+  if (outcome === 'still running')
+    process.kill(-loop.pid, 'SIGKILL')
+  return outcome
 }
 
 describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STATUS: CONTINUE', () => {
@@ -108,6 +116,23 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     expect(code).toBe(0)
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
   }, 20_000)
+
+  it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though mikoshi.md says STATUS: CONTINUE', async () => {
+    const dir = home([])
+    writeFileSync(mikoshiHandoff(dir), 'STATUS: CONTINUE\n')
+    const outcome = await endsWithin(startLoop(dir, path.join(dir, 'no-such-claude')), 2 * PAUSE_MS)
+    expect(outcome).not.toBe('still running')
+    expect(outcome).toMatchObject({ code: 1, stderr: expect.stringContaining('the session did not start') })
+  }, 20_000)
+
+  it('a session that exits without rewriting mikoshi.md ends the loop, though the previous STATUS: CONTINUE is still there', async () => {
+    const dir = home(['quiet 0', 'quiet 0'])
+    writeFileSync(mikoshiHandoff(dir), 'STATUS: CONTINUE\n')
+    const outcome = await endsWithin(startLoop(dir), 2 * PAUSE_MS)
+    expect(outcome).not.toBe('still running')
+    expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
+    expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('without rewriting mikoshi.md') })
+  }, 20_000)
 })
 
 interface Script {
@@ -121,6 +146,7 @@ async function drive({ statuses, doubles = [] }: Script): Promise<{ code: number
   const lines: string[] = []
   const code = await runMikoLoop({
     status: () => statuses.shift(),
+    handoffMtime: () => prompts.length,
     session: async (prompt) => {
       prompts.push(prompt)
       return { code: 0, signal: null }
@@ -166,6 +192,7 @@ describe('runMikoLoop decides from STATUS in mikoshi.md and the Ctrl+C presses',
     const statuses: (Status | undefined)[] = ['CONTINUE', 'CONTINUE']
     const code = await runMikoLoop({
       status: () => statuses.shift(),
+      handoffMtime: () => 0,
       session: async () => ({ code: null, signal: null }),
       pause: async () => {},
       doubleCtrlC: () => false,

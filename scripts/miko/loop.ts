@@ -1,6 +1,6 @@
 import type { Status } from '../shift/relaunch.js'
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,6 +15,8 @@ export const CONTINUE_PROMPT = 'прочитай mikoshi.md'
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_MS = 2000
 
+const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
+
 export interface SessionEnd {
   code: number | null
   signal: NodeJS.Signals | null
@@ -22,6 +24,7 @@ export interface SessionEnd {
 
 export interface MikoLoopDeps {
   status: () => Status | null | undefined
+  handoffMtime: () => number | undefined
   session: (prompt: string | undefined) => Promise<SessionEnd>
   pause: (ms: number) => Promise<void>
   doubleCtrlC: () => boolean
@@ -41,12 +44,13 @@ export function isDoubleCtrlC(presses: number[], windowMs = DOUBLE_CTRL_C_MS): b
 }
 
 function didNotStart(end: SessionEnd): boolean {
-  return end.code === null && end.signal === null
+  return (end.code === null && end.signal === null) || SHELL_COULD_NOT_RUN_THE_COMMAND.has(end.code ?? -1)
 }
 
 export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
   let prompt = deps.status() === undefined ? undefined : CONTINUE_PROMPT
   for (;;) {
+    const before = deps.handoffMtime()
     const end = await deps.session(prompt)
     if (deps.doubleCtrlC()) {
       deps.err(`${PREFIX}double Ctrl+C: no next session`)
@@ -55,6 +59,10 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
     if (didNotStart(end)) {
       deps.err(`${PREFIX}the session did not start: no next session`)
       return 1
+    }
+    if (deps.handoffMtime() === before) {
+      deps.err(`${PREFIX}the session ended without rewriting mikoshi.md: no next session`)
+      return 0
     }
     const status = deps.status()
     if (status !== 'CONTINUE') {
@@ -75,6 +83,10 @@ function statusOfFile(file: string): Status | null | undefined {
   return existsSync(file) ? statusOf(readFileSync(file, 'utf8')) : undefined
 }
 
+function mtimeOf(file: string): number | undefined {
+  return existsSync(file) ? statSync(file).mtimeMs : undefined
+}
+
 function runSession(command: string, prompt: string | undefined): Promise<SessionEnd> {
   return new Promise((resolve) => {
     const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit' })
@@ -92,6 +104,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),
+    handoffMtime: () => mtimeOf(handoff),
     session: prompt => runSession(command, prompt),
     pause: async ms => sleep(ms),
     doubleCtrlC: () => isDoubleCtrlC(presses),
