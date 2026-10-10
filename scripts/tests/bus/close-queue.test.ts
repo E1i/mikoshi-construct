@@ -13,7 +13,7 @@ import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { CARD_CLOSED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
-import { MAIN_2, sha } from './github-fake.js'
+import { MAIN_2, MERGER, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 afterEach(() => {
@@ -176,8 +176,28 @@ describe('the close queue', () => {
     expect(bench.gitHub.puts).toEqual([])
     expect(existsSync(parked)).toBe(false)
     expect(readFileSync(path.join(bench.parking, 'archive', '1100.md'), 'utf8')).toBe('card: #1100\n')
-    const pullClosed = bench.db.prepare(`SELECT ts FROM events WHERE type = 'pr.closed' AND pr = 1000`).get() as { ts: string }
-    expect(bench.mergeLines()).toEqual([{ event: 'merge', task: '1100', pr: 1000, by: 'netwatch', commit: MAIN_2, merged: pullClosed.ts, ts: bench.clock.now().toISOString() }])
+    const pullClosed = bench.db.prepare(`SELECT actor, ts FROM events WHERE type = 'pr.closed' AND pr = 1000`).get() as { actor: string, ts: string }
+    expect(MERGER.login).not.toBe(pullClosed.actor)
+    expect(MERGER.at).not.toBe(pullClosed.ts)
+    expect(bench.mergeLines()).toEqual([{ event: 'merge', task: '1100', pr: 1000, by: MERGER.login, commit: MAIN_2, merged: MERGER.at, ts: bench.clock.now().toISOString() }])
+    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'run' }])
+    bench.close()
+  })
+
+  it('a merged PR with no recorded merger gets no merge line from close and is still archived', () => {
+    const bench = closeBench({ 1103: 'run' })
+    const parked = bench.park(1103)
+    bench.gitHub.open({ number: 1003 })
+    bench.tick()
+    bench.gitHub.close(1003, true, null)
+    bench.tick()
+    const calls = bench.gitHub.calls.length
+
+    expect(bench.closeCard(bench.leaseClose()!)).toEqual({ kind: 'closed', taskKey: close(1003), verification: 'run', cycle: { mergeLine: 'no-merger', cardFile: 'moved' } })
+    expect(bench.gitHub.calls).toHaveLength(calls)
+    expect(bench.mergeLines()).toEqual([])
+    expect(existsSync(parked)).toBe(false)
+    expect(existsSync(path.join(bench.parking, 'archive', '1103.md'))).toBe(true)
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'run' }])
     bench.close()
   })

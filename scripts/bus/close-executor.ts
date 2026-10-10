@@ -14,7 +14,7 @@ import { CARD_CLOSED } from './queue.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit'
 
-export type MergeLineStep = 'written' | 'present'
+export type MergeLineStep = 'written' | 'present' | 'no-merger'
 
 export interface CloseCycle {
   mergeLine: MergeLineStep
@@ -43,15 +43,24 @@ export interface CloseParts {
 }
 
 interface MergeRecord {
-  actor: string
-  ts: string
   payload: string
 }
 
+interface Merger {
+  by: unknown
+  merged: unknown
+}
+
 const MERGE_RECORD = `
-  SELECT actor, ts, payload FROM events
+  SELECT payload FROM events
   WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = 'pr.closed' AND json_extract(payload, '$.merged') = 1))
   ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
+`
+
+const OBSERVED_MERGER = `
+  SELECT json_extract(payload, '$.merged_by') AS by, json_extract(payload, '$.merged_at') AS merged FROM events
+  WHERE pr = ? AND type = 'pr.closed' AND json_extract(payload, '$.merged') = 1
+  ORDER BY id LIMIT 1
 `
 
 class CardAlreadyClosed extends Error {}
@@ -83,10 +92,10 @@ export class CloseExecutor {
       const verification = this.parts.reported(lease.cardId)
       if (!isVerificationWord(verification))
         return this.denied(lease, technical('no_verification', `the run of card ${lease.cardId} reported ${verification === null ? 'no verification' : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
-      const merge = this.mergeLine(lease)
-      if (merge === null)
+      const commit = this.mergeCommit(lease)
+      if (commit === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
-      return this.closed(lease, verification, merge)
+      return this.closed(lease, verification, this.mergeLine(lease, commit))
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -97,24 +106,31 @@ export class CloseExecutor {
     }
   }
 
-  private mergeLine(lease: Lease): MergeEvent | null {
+  private mergeCommit(lease: Lease): string | null {
     const record = lease.pr === null ? undefined : this.parts.db.prepare(MERGE_RECORD).get(lease.pr) as MergeRecord | undefined
     const commit = record === undefined ? undefined : (JSON.parse(record.payload) as { commit?: unknown }).commit
-    if (record === undefined || typeof commit !== 'string')
-      return null
-    return { event: 'merge', task: String(lease.cardId), pr: lease.pr!, by: record.actor, commit, merged: record.ts, ts: this.ts() }
+    return typeof commit === 'string' ? commit : null
   }
 
-  private appendMergeLine(line: MergeEvent): MergeLineStep {
+  private mergeLine(lease: Lease, commit: string): MergeEvent | null {
+    const merger = this.parts.db.prepare(OBSERVED_MERGER).get(lease.pr) as Merger | undefined
+    if (typeof merger?.by !== 'string' || typeof merger.merged !== 'string')
+      return null
+    return { event: 'merge', task: String(lease.cardId), pr: lease.pr!, by: merger.by, commit, merged: merger.merged, ts: this.ts() }
+  }
+
+  private appendMergeLine(pr: number, line: MergeEvent | null): MergeLineStep {
     const { journal } = this.parts
-    if (hasMergeLine(existsSync(journal) ? readFileSync(journal, 'utf8') : null, line.pr!))
+    if (hasMergeLine(existsSync(journal) ? readFileSync(journal, 'utf8') : null, pr))
       return 'present'
+    if (line === null)
+      return 'no-merger'
     appendToJournal(journal, journalLine(line))
     return 'written'
   }
 
-  private closed(lease: Lease, verification: string, merge: MergeEvent): CloseOutcome {
-    const mergeLine = this.appendMergeLine(merge)
+  private closed(lease: Lease, verification: string, merge: MergeEvent | null): CloseOutcome {
+    const mergeLine = this.appendMergeLine(lease.pr!, merge)
     const cardFile = archiveCardFile(this.parts.parking, lease.cardId)
     const ts = this.ts()
     const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_CLOSED}:${lease.cardId}`, payload: { verification }, legacy: false }
