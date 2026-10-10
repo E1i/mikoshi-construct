@@ -2,8 +2,10 @@ import type { ComponentMap } from './components.js'
 import type { AtlasInput } from './view.js'
 import { createHash } from 'node:crypto'
 import { escaped } from '../model/page.js'
+import { channelMap } from './channels.js'
 import { ATLAS_DATA_MARK, ATLAS_SCRIPT } from './client.js'
-import { componentMap, CROSSINGS, MAP_STATES } from './components.js'
+import { componentMap, CROSSINGS, isCodeRelation, MAP_STATES } from './components.js'
+import { entryMap } from './entries.js'
 
 const WORDS = {
   label: 'The map of contours, their parts and the arrows between them',
@@ -19,6 +21,10 @@ const WORDS = {
     through: 'through the contour’s declared entry or contract',
     bypass: 'past the declared entry: a finding',
     direct: 'into a contour that declares no entry',
+  },
+  layers: {
+    runs: 'an entry point — a package.json script, a workflow step or a hook — and the files its command names',
+    file: 'a file one module writes and another reads, named in both',
   },
 }
 
@@ -38,6 +44,7 @@ function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanic
   const index = new Map(files.map((file, at) => [file, at]))
   const stateOf = new Map(map.contours.flatMap(contour => contour.components.flatMap(component => component.files.map(file => [file.path, file] as const))))
   const countsOf = (counts: { held: number, unknown: number, absent: number }): number[] => MAP_STATES.map(state => counts[state])
+  const entries = entryMap(mechanics.relations)
   return {
     root: rootFromPage,
     files,
@@ -54,11 +61,18 @@ function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanic
       counts: countsOf(contour.counts),
       components: contour.components.map(component => ({ id: component.id, name: component.name, purpose: component.purpose, undeclaredContour: component.undeclaredContour, state: component.state, counts: countsOf(component.counts), files: component.files.map(file => index.get(file.path)), misplaced: component.misplaced.map(file => index.get(file)) })),
     })),
-    relations: map.relations.map(relation => [index.get(relation.from), index.get(relation.to), Number(relation.at.slice(relation.at.lastIndexOf(':') + 1)), CROSSINGS.indexOf(relation.crossing)]),
-    unresolved: mechanics.relations.filter(relation => relation.to == null).map(relation => [index.get(relation.from), relation.source.line, relation.specifier]),
+    relations: map.relations.map(relation => [index.get(relation.from), index.get(relation.to), lineOf(relation.at), CROSSINGS.indexOf(relation.crossing)]),
+    unresolved: mechanics.relations.filter(relation => relation.to == null && isCodeRelation(relation)).map(relation => [index.get(relation.from), relation.source.line, relation.specifier]),
     arrows: map.arrows,
     open: map.open,
+    entrySources: entries.sources,
+    entries: entries.entries.map(entry => ({ id: entry.id, kind: entry.kind, name: entry.name, source: index.get(entry.source), line: lineOf(entry.at), runs: entry.runs.map(file => index.get(file)) })),
+    channels: channelMap(mechanics.relations).map(channel => [index.get(channel.writer), lineOf(channel.writerAt), index.get(channel.reader), lineOf(channel.readerAt), channel.file]),
   }
+}
+
+function lineOf(at: string): number {
+  return Number(at.slice(at.lastIndexOf(':') + 1))
 }
 
 export function atlasScript(input: AtlasInput, rootFromPage: string): string | null {
@@ -79,7 +93,8 @@ export function contentPolicy(script: string | null, style: string): string {
 function legend(): string {
   const states = MAP_STATES.map(state => `<li data-state="${state}"><b>${state}</b> — ${escaped(WORDS.states[state])}</li>`).join('')
   const crossings = CROSSINGS.map(crossing => `<li data-crossing="${crossing}"><b>${crossing}</b> — ${escaped(WORDS.crossings[crossing])}</li>`).join('')
-  return `<ul class="legend">${states}${crossings}</ul>`
+  const layers = Object.entries(WORDS.layers).map(([layer, meaning]) => `<li data-layer="${layer}"><b>${layer}</b> — ${escaped(meaning)}</li>`).join('')
+  return `<ul class="legend">${states}${crossings}${layers}</ul>`
 }
 
 export function mapSection(script: string | null): string {

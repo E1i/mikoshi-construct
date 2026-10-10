@@ -58,6 +58,11 @@ main { container-type: inline-size; }
 [data-crossing='through'] { --_edge: var(--runtime-report); }
 [data-crossing='bypass'] { --_edge: var(--unsupported); }
 #atlas-svg .edge[data-crossing='through'] path:first-of-type { stroke-dasharray: 8 4; }
+[data-layer] { --_edge: var(--held); --_c: var(--held); --_fill: var(--surface); --_dash: none; }
+[data-layer='file'] { --_edge: var(--runtime-report); }
+#atlas-svg .edge[data-layer='file'] path:first-of-type { stroke-dasharray: 3 3; }
+#atlas-svg .frame[data-layer] > rect { stroke: var(--_c); }
+ul.legend li[data-layer] b { color: var(--_edge); }
 #atlas-tip { position: absolute; inset-block-start: 0.5rem; inset-inline-start: 0.5rem; max-inline-size: 28rem; background: var(--surface); border: 1px solid var(--_edge); border-radius: 0.4rem; padding: 0.4rem 0.6rem; font-size: 0.8rem; pointer-events: none; }
 #atlas-tip ul, #atlas-panel ul { list-style: none; margin: 0.2rem 0 0; padding: 0; display: grid; gap: 0.15rem; font-size: 0.8rem; }
 #atlas-panel { background: var(--surface-raised); border: 1px solid var(--line); border-radius: 0.6rem; padding: 0.6rem 0.75rem; max-block-size: 70vh; overflow: auto; font-size: 0.85rem; }

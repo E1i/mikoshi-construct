@@ -11,6 +11,7 @@ import { discoverMechanics, writeEngram } from '../src/model/discovery.js'
 import { readModel } from '../src/model/write.js'
 
 const MIKOSHI = path.resolve(import.meta.dirname, '..')
+const CODE_KINDS: ReadonlySet<Relation['kind']> = new Set(['imports', 'calls'])
 
 function repository(tree: Record<string, string>): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'atlas-components-'))
@@ -68,7 +69,7 @@ function crossing(relation: Relation & { to: string }, contours: Contour[]): str
 
 function unproven(mechanics: MapMechanics, map: ComponentMap): string[] {
   const contours = mechanics.contours
-  const found = mechanics.relations.filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null)
+  const found = mechanics.relations.filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null && CODE_KINDS.has(relation.kind))
   return map.arrows.flatMap((arrow) => {
     const leaves = filesUnder(map, contours, arrow.from)
     const lands = filesUnder(map, contours, arrow.to)
@@ -85,7 +86,7 @@ function unproven(mechanics: MapMechanics, map: ComponentMap): string[] {
 
 function unshown(mechanics: MapMechanics, map: ComponentMap): string[] {
   return mechanics.relations
-    .filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null)
+    .filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null && CODE_KINDS.has(relation.kind))
     .filter(relation => contourOf(relation.from, mechanics.contours) !== contourOf(relation.to, mechanics.contours))
     .filter(relation => !map.arrows.some(arrow => arrow.from === `c:${contourOf(relation.from, mechanics.contours)}` && arrow.to === `c:${contourOf(relation.to, mechanics.contours)}` && arrow.examples.length > 0))
     .map(relation => `${relation.source.path}:${relation.source.line}`)
