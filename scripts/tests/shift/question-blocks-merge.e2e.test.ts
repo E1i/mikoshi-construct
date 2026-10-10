@@ -4,7 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
-import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
+import { captured, cardLine, depsOf, eventsOf, fakeGh, handedPrs, newWorld } from './fixtures/autopilot-world.js'
 
 const WAITS = 'the merge waits for the owner\'s answer'
 
@@ -46,12 +46,12 @@ describe('a report that asks the owner holds the merge', () => {
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101 }])
   })
 
-  it('an auto card with a plain report is armed', async () => {
+  it('an auto card with a plain report goes to the bus', async () => {
     const world = newWorld([{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }])
-    const { gh, calls } = fakeGh({ 101: cardLine(1) })
+    const { gh } = fakeGh({ 101: cardLine(1) })
     const io = captured()
     await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, io))
-    expect(calls).toContainEqual(expect.arrayContaining(['pr', 'merge', '101']))
+    expect(handedPrs(io)).toEqual([101])
     expect(readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')).not.toContain(WAITS)
     expect(eventsOf(world, 'stop')).toEqual([])
   })

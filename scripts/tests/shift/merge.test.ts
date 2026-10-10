@@ -1,10 +1,18 @@
+import type { BusEvent } from '../../bus/db.js'
 import type { ReviewStatus } from '../../ghosts/verdict.js'
+import type { World } from './fixtures/autopilot-world.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isListed, prReviewLine, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { MERGE_DONE } from '../../bus/executor.js'
+import { POLICY_DENIED } from '../../bus/inbox.js'
+import { chainBusMerge } from '../../shift/chain-bus.js'
+import { busMerge, HANDED_TO_THE_BUS, isListed, prReviewLine, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
+import { runShift } from '../../shift/shift.js'
+import { captured, depsOf, eventsOf, fakeGh, newWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const GHOSTS_FILES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/ghosts-files.md'), 'utf8')
@@ -23,89 +31,166 @@ function run(body: string, files: string[]): { calls: string[][], result: Return
   return { calls, result: runMerge(['42'], { gh, ownerMergesText: () => OWNER_MERGES }) }
 }
 
-function armed(calls: string[][]): boolean {
-  return calls.some(args => args[0] === 'pr' && args[1] === 'merge')
+function armed(calls: string[][], result: ReturnType<typeof runMerge>): boolean {
+  expect(calls.filter(args => args[1] !== 'view')).toEqual([])
+  return result.stdout.some(line => HANDED_TO_THE_BUS.test(line))
 }
 
 describe('runMerge', () => {
-  it('arms nothing for a card whose decision is owner, even when every path is plain', () => {
+  it('the merge step calls no gh pr merge and arms no auto-merge', () => {
+    const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts'])
+    expect(calls).toEqual([['pr', 'view', '42', '-R', 'E1i/mikoshi-construct', '--json', 'body,headRefOid,files']])
+    expect(calls.flat()).not.toContain('--auto')
+    expect(result).toEqual({ stdout: [`[shift:merge] decision auto, no owner path — PR #42 goes to the bus at ${HEAD}; the chain waits for its merge.done`], stderr: [], exitCode: 0 })
+  })
+
+  it('hands nothing to the bus for a card whose decision is owner, even when every path is plain', () => {
     const { calls, result } = run(`${cardLine('owner')}\n\nbody`, ['scripts/board/derive.ts'])
-    expect(armed(calls)).toBe(false)
+    expect(armed(calls, result)).toBe(false)
     expect(result.stdout).toEqual(['[shift:merge] decision owner — PR #42 and the report, merge is Eli\'s'])
   })
 
-  it('arms auto-merge at the head sha for decision auto when every path is plain', () => {
+  it('hands the head sha to the bus for decision auto when every path is plain', () => {
     const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', 'scripts/ghosts/entry.ts'])
-    expect(calls).toContainEqual(['pr', 'merge', '42', '--auto', '--squash', '--match-head-commit', HEAD, '-R', 'E1i/mikoshi-construct'])
+    expect(armed(calls, result)).toBe(true)
+    expect(result.stdout[0]).toContain(`PR #42 goes to the bus at ${HEAD}`)
     expect(result.exitCode).toBe(0)
   })
 
-  it('arms nothing for decision auto when one path is owner-merged, and names that path', () => {
+  it('hands nothing to the bus for decision auto when one path is owner-merged, and names that path', () => {
     const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', '.claude/agents/implementer.md'])
-    expect(armed(calls)).toBe(false)
+    expect(armed(calls, result)).toBe(false)
     expect(result.stdout).toEqual(['[shift:merge] owner path .claude/agents/implementer.md — merge is Eli\'s'])
   })
 
-  it('a PR touching .claude/settings.json, .claude/skills or .claude/commands is owner-merged and never armed', () => {
+  it('a PR touching .claude/settings.json, .claude/skills or .claude/commands is owner-merged and never handed to the bus', () => {
     for (const file of ['.claude/settings.json', '.claude/skills/x/SKILL.md', '.claude/commands/x.md']) {
       const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', file])
-      expect(armed(calls)).toBe(false)
+      expect(armed(calls, result)).toBe(false)
       expect(result.stdout).toEqual([`[shift:merge] owner path ${file} — merge is Eli's`])
     }
   })
 
-  it('a PR touching .claude/hooks or .claude/eddies.json is owner-merged and never armed', () => {
+  it('a PR touching .claude/hooks or .claude/eddies.json is owner-merged and never handed to the bus', () => {
     for (const file of ['.claude/hooks/role-guard.mjs', '.claude/eddies.json']) {
       const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts', file])
-      expect(armed(calls)).toBe(false)
+      expect(armed(calls, result)).toBe(false)
       expect(result.stdout).toEqual([`[shift:merge] owner path ${file} — merge is Eli's`])
     }
   })
 
   it('a PR touching only .claude/statusline.sh is not listed', () => {
     const { calls, result } = run(cardLine('auto'), ['.claude/statusline.sh'])
-    expect(armed(calls)).toBe(true)
-    expect(result.stdout).toEqual([`[shift:merge] decision auto, no owner path — auto-merge armed on PR #42 at ${HEAD}`])
+    expect(armed(calls, result)).toBe(true)
   })
 
   it('a PR touching only architecture/ghosts-files.md is not listed', () => {
-    const { calls } = run(cardLine('auto'), ['architecture/ghosts-files.md'])
+    const { calls, result } = run(cardLine('auto'), ['architecture/ghosts-files.md'])
     expect(isListed('architecture/ghosts-files.md', GHOSTS_FILES)).toBe(false)
-    expect(armed(calls)).toBe(true)
+    expect(armed(calls, result)).toBe(true)
   })
 
-  it('arms nothing for a pull request that changes src/ with no matrix count line, and names the path', () => {
+  it('hands nothing to the bus for a pull request that changes src/ with no matrix count line, and names the path', () => {
     const { calls, result } = run(cardLine('auto'), ['src/program.ts', 'scripts/board/derive.ts'])
-    expect(armed(calls)).toBe(false)
+    expect(armed(calls, result)).toBe(false)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual(['[shift:merge] PR #42 changes src/program.ts and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md); auto-merge not armed'])
+    expect(result.stderr).toEqual(['[shift:merge] PR #42 changes src/program.ts and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md); not handed to the bus'])
   })
 
-  it('arms nothing for a pull request that changes templates/ with no matrix count line', () => {
+  it('hands nothing to the bus for a pull request that changes templates/ with no matrix count line', () => {
     const { calls, result } = run(cardLine('auto'), ['templates/base/architecture/principles.md'])
-    expect(armed(calls)).toBe(false)
+    expect(armed(calls, result)).toBe(false)
     expect(result.exitCode).toBe(1)
   })
 
-  it('arms auto-merge for a pull request that changes src/ and ends with the matrix count line', () => {
+  it('hands to the bus a pull request that changes src/ and ends with the matrix count line', () => {
     const { calls, result } = run(`${cardLine('auto')}\n\n|    | BD | E9 | FF |\n| 7A | ■ | · | · |\n\n■ 1 □ 0 · 5`, ['src/program.ts'])
-    expect(armed(calls)).toBe(true)
+    expect(armed(calls, result)).toBe(true)
     expect(result.exitCode).toBe(0)
   })
 
-  it('arms auto-merge for a pull request that changes only scripts/ with no matrix', () => {
-    const { calls } = run(cardLine('auto'), ['scripts/board/derive.ts'])
-    expect(armed(calls)).toBe(true)
+  it('hands to the bus a pull request that changes only scripts/ with no matrix', () => {
+    const { calls, result } = run(cardLine('auto'), ['scripts/board/derive.ts'])
+    expect(armed(calls, result)).toBe(true)
   })
 
   it('refuses a pull request whose first line is not a card', () => {
     const { calls, result } = run('Some description', ['scripts/board/derive.ts'])
-    expect(armed(calls)).toBe(false)
+    expect(armed(calls, result)).toBe(false)
     expect(result.exitCode).toBe(1)
   })
 
   it('refuses an argument that is not a pull request number', () => {
     expect(runMerge(['#42'], { gh: () => '', ownerMergesText: () => OWNER_MERGES }).exitCode).toBe(1)
+  })
+})
+
+describe('the chain waits for the bus', () => {
+  const FULL_HEAD = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+  const MERGE_COMMIT = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00'
+
+  function busWith(event: Pick<BusEvent, 'type' | 'actor' | 'payload'>): string {
+    const busPath = path.join(mkdtempSync(path.join(tmpdir(), 'shift-merge-bus-')), 'bus.db')
+    const db = openBus(busPath)
+    appendEvent(db, { ts: '2026-10-06T01:30:00.000Z', cardId: 1, pr: 101, head: FULL_HEAD, dedupeKey: `${event.type}:merge:101`, legacy: false, ...event })
+    db.close()
+    return busPath
+  }
+
+  function chainGh(): { gh: (args: string[]) => string, calls: string[][] } {
+    const inner = fakeGh({ 101: parkedCardLine(1) })
+    const calls: string[][] = []
+    const gh = (args: string[]): string => {
+      calls.push(args)
+      const fields = args.at(-1)
+      if (args[1] === 'view' && fields === 'headRefName,headRefOid,state')
+        return JSON.stringify({ headRefName: 'feat/1', headRefOid: FULL_HEAD, state: 'OPEN' })
+      if (args[1] === 'view' && fields === 'headRefOid,statusCheckRollup,files')
+        return JSON.stringify({ headRefOid: FULL_HEAD, statusCheckRollup: [], files: [] })
+      if (args[1] === 'view' && fields === 'body,headRefOid,files')
+        return JSON.stringify({ ...JSON.parse(inner.gh(args)) as object, headRefOid: FULL_HEAD })
+      return inner.gh(args)
+    }
+    return { gh, calls }
+  }
+
+  async function chainOnBus(busPath: string): Promise<{ world: World, calls: string[][], errors: string[] }> {
+    const world = newWorld([{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }])
+    appendFileSync(world.journal, prReviewLine({ task: '1', pr: 101, verdict: 'pass', commit: FULL_HEAD }, new Date('2026-10-06T01:10:00.000Z')))
+    const { gh, calls } = chainGh()
+    const errors: string[] = []
+    await runShift([world.shift, '--parking', world.parking, '--chain', '--chain-wait', '30'], depsOf(world, gh, captured(), { sleep: async () => {}, busMerge: chainBusMerge(busPath, line => errors.push(line)) }))
+    return { world, calls, errors }
+  }
+
+  function steps(world: World): string[] {
+    return eventsOf(world, 'chain').map(line => `${String(line.step)} ${String(line.reason ?? line.task)}`)
+  }
+
+  it('the chain sees merge.done from the bus for its PR head and closes', async () => {
+    const busPath = busWith({ type: MERGE_DONE, actor: 'worker:merge:s1', payload: { commit: MERGE_COMMIT, rule: 'auto' } })
+    const { world, calls, errors } = await chainOnBus(busPath)
+    expect(calls.filter(args => args[1] === 'merge')).toEqual([])
+    expect(steps(world)).toEqual(['wait 1', 'reviewed 1', 'merged 1', 'end no-eligible'])
+    expect(eventsOf(world, 'stop')).toEqual([])
+    expect(errors).toEqual([])
+    const db = openBus(busPath)
+    expect([busMerge(db, 101, FULL_HEAD), busMerge(db, 101, MERGE_COMMIT)]).toEqual([{ kind: 'merged', commit: MERGE_COMMIT, rule: 'auto' }, { kind: 'waiting' }])
+    db.close()
+  })
+
+  it('a policy.denied from the bus stops the chain with the denial reason, not a timeout', async () => {
+    const detail = 'scripts/shift/** reads R2 and the card is cheap'
+    const busPath = busWith({ type: POLICY_DENIED, actor: 'policy', payload: { command: 'merge', kind: 'authority', rule: 'owner_by_risk', detail } })
+    const { world, calls } = await chainOnBus(busPath)
+    expect(calls.filter(args => args[1] === 'merge')).toEqual([])
+    expect(steps(world)).toEqual(['wait 1', 'reviewed 1', 'end policy-denied'])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: `PR #101 at ${FULL_HEAD} not merged by the bus: policy.denied owner_by_risk: ${detail}` }])
+  })
+
+  it('a technical policy.denied leaves the chain waiting for the bus to retry', () => {
+    const busPath = busWith({ type: POLICY_DENIED, actor: 'policy', payload: { command: 'merge', kind: 'technical', reason: 'ci_not_ready', detail: 'CI is pending' } })
+    expect(chainBusMerge(busPath, () => {})(101, FULL_HEAD)).toEqual({ kind: 'waiting' })
   })
 })
 

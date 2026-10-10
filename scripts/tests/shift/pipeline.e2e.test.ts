@@ -1,4 +1,4 @@
-import type { World } from './fixtures/autopilot-world.js'
+import type { FakeGh, World } from './fixtures/autopilot-world.js'
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,7 +9,7 @@ import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld } from '.
 const HEAD = 'a1b2c3d'
 const STALE = 'f00dfee'
 
-function chainGh(heads: { watched: () => string, armed: () => string } = { watched: () => HEAD, armed: () => HEAD }, files?: string[]): { gh: (args: string[]) => string, calls: string[][] } {
+function chainGh(heads: { watched: () => string, armed: () => string } = { watched: () => HEAD, armed: () => HEAD }, files?: string[]): FakeGh {
   const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
   const calls: string[][] = []
   const gh = (args: string[]): string => {
@@ -23,28 +23,29 @@ function chainGh(heads: { watched: () => string, armed: () => string } = { watch
       return JSON.stringify({ ...JSON.parse(inner.gh(args)) as object, headRefOid: heads.armed(), ...(files === undefined ? {} : { files: files.map(file => ({ path: file })) }) })
     return inner.gh(args)
   }
-  return { gh, calls }
+  return { gh, calls, bus: inner.bus, handed: inner.handed }
 }
 
 function review(world: World, pr: number, verdict: 'pass' | 'changes', commit = HEAD): void {
   appendFileSync(world.journal, prReviewLine({ task: String(pr - 100), pr, verdict, commit }, new Date('2026-10-06T02:00:00.000Z')))
 }
 
-async function chainRun(world: World, gh: (args: string[]) => string, onSleep: (slept: number) => void, extra: string[] = []): Promise<number> {
+async function chainRun(world: World, chain: FakeGh, onSleep: (slept: number) => void, extra: string[] = []): Promise<number> {
   let slept = 0
   const sleep = (): Promise<void> => {
     onSleep(++slept)
     return Promise.resolve()
   }
-  return runShift([world.shift, '--parking', world.parking, '--chain', ...extra], depsOf(world, gh, captured(), { sleep }))
+  return runShift([world.shift, '--parking', world.parking, '--chain', ...extra], depsOf(world, chain.gh, captured(), { sleep, busMerge: chain.bus }))
 }
 
-function merges(calls: string[][]): string[] {
-  return calls.filter(args => args[1] === 'merge').map(args => args[2]!)
+function merges(chain: FakeGh): string[] {
+  expect(chain.calls.filter(args => args[1] === 'merge')).toEqual([])
+  return chain.handed.map(([pr]) => String(pr))
 }
 
-function armedAt(calls: string[][]): string[] {
-  return calls.filter(args => args[1] === 'merge').map(args => args[args.indexOf('--match-head-commit') + 1]!)
+function armedAt(chain: FakeGh): string[] {
+  return chain.handed.map(([, head]) => head)
 }
 
 const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }]
@@ -53,10 +54,10 @@ const TWO = [...ONE, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102', touche
 describe('the chain arms a pull request after its review', () => {
   it('arms auto-merge only after the review verdict', async () => {
     const world = newWorld(ONE)
-    const { gh, calls } = chainGh()
+    const chain = chainGh()
     const armedBy: string[][] = []
-    expect(await chainRun(world, gh, (slept) => {
-      armedBy.push(merges(calls))
+    expect(await chainRun(world, chain, (slept) => {
+      armedBy.push(merges(chain))
       if (slept === 2)
         review(world, 101, 'changes')
       if (slept === 3)
@@ -64,22 +65,22 @@ describe('the chain arms a pull request after its review', () => {
       if (slept === 4)
         review(world, 101, 'pass')
     })).toBe(0)
-    expect(armedBy).toEqual([[], [], [], []])
-    expect(merges(calls)).toEqual(['101'])
+    expect(armedBy).toEqual([[], [], [], [], []])
+    expect(merges(chain)).toEqual(['101'])
     expect(eventsOf(world, 'chain').map(line => line.step)).toEqual(['wait', 'reviewed', 'merged', 'end'])
     expect(eventsOf(world, 'chain')[1]).toMatchObject({ task: '1', pr: 101, armed: true })
     const report = readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')
-    expect(report.indexOf('PR #101 waits for its review verdict')).toBeLessThan(report.indexOf('auto-merge armed on PR #101'))
+    expect(report.indexOf('PR #101 waits for its review verdict')).toBeLessThan(report.indexOf('PR #101 goes to the bus'))
     expect(readFileSync(path.join(world.shift, 'shift-report.md'), 'utf8')).toContain('| #1 task-1 | done | — | PR #101 |')
   })
 
   it('never arms a pull request with no pass verdict at its head, and says so when the wait runs out', async () => {
     const world = newWorld(ONE)
-    const { gh, calls } = chainGh()
-    await chainRun(world, gh, () => review(world, 101, 'pass', STALE), ['--chain-wait', '3'])
-    expect(merges(calls)).toEqual([])
+    const chain = chainGh()
+    await chainRun(world, chain, () => review(world, 101, 'pass', STALE), ['--chain-wait', '3'])
+    expect(merges(chain)).toEqual([])
     expect(eventsOf(world, 'chain').map(line => `${String(line.step)} ${String(line.reason ?? line.task)}`)).toEqual(['wait 1', 'end merge-timeout'])
-    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: 'PR #101 not merged within 3 minutes; no review verdict pass at its head, so the chain never armed it' }])
+    expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: 'PR #101 not merged within 3 minutes; no review verdict pass at its head, so the chain never handed it to the bus' }])
     expect(readFileSync(path.join(world.shift, 'shift-report.md'), 'utf8')).toContain('| #1 task-1 | stop merge-timeout |')
   })
 })
@@ -89,18 +90,18 @@ describe('the chain arms only the reviewed commit', () => {
     const pushed = newWorld(ONE)
     let head = HEAD
     const moved = chainGh({ watched: () => head, armed: () => head })
-    await chainRun(pushed, moved.gh, (slept) => {
+    await chainRun(pushed, moved, (slept) => {
       if (slept === 1) {
         review(pushed, 101, 'pass')
         head = STALE
       }
     }, ['--chain-wait', '3'])
-    expect(merges(moved.calls)).toEqual([])
+    expect(merges(moved)).toEqual([])
 
     const raced = newWorld(ONE)
     const racing = chainGh({ watched: () => HEAD, armed: () => STALE })
-    expect(await chainRun(raced, racing.gh, () => review(raced, 101, 'pass'))).toBe(0)
-    expect(armedAt(racing.calls)).toEqual([HEAD])
+    expect(await chainRun(raced, racing, () => review(raced, 101, 'pass'))).toBe(0)
+    expect(armedAt(racing)).toEqual([HEAD])
   })
 
   it('arms only the reviewed commit: --verdict without --commit, or with a commit that is not the head, is refused and writes nothing', () => {
@@ -120,14 +121,14 @@ describe('the chain arms only the reviewed commit', () => {
 describe('a pipeline of two cards', () => {
   it('merges each pull request only after its review', async () => {
     const world = newWorld(TWO)
-    const { gh, calls } = chainGh()
-    expect(await chainRun(world, gh, (slept) => {
+    const chain = chainGh()
+    expect(await chainRun(world, chain, (slept) => {
       if (slept === 1)
         review(world, 102, 'pass')
       if (slept === 3)
         review(world, 101, 'pass')
     })).toBe(0)
-    expect(merges(calls)).toEqual(['102', '101'])
+    expect(merges(chain)).toEqual(['102', '101'])
     const journal = lines(world.journal)
     for (const task of ['1', '2']) {
       const reviewed = journal.findIndex(line => line.event === PR_REVIEW_EVENT && line.task === task)
@@ -181,16 +182,16 @@ describe('review depth follows risk', () => {
 
   it.each(BY_RISK)('the chain in step wait reads $risk as review $depth', async ({ touches, risk, depth }) => {
     const world = newWorld([{ ...ONE[0]!, touches }])
-    const { gh, calls } = chainGh()
-    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
+    const chain = chainGh()
+    await chainRun(world, chain, () => {}, ['--chain-wait', '3'])
     expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: depth })
     const report = readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')
     if (depth === 'none') {
-      expect(merges(calls)).toEqual(['101'])
+      expect(merges(chain)).toEqual(['101'])
       expect(report).not.toContain('waits for its review verdict')
       return
     }
-    expect(merges(calls)).toEqual([])
+    expect(merges(chain)).toEqual([])
     expect(report).toContain(`PR #101 waits for its review verdict, a ${depth} review at risk ${risk}`)
   })
 })
@@ -205,18 +206,19 @@ describe('review depth follows the changed files', () => {
     { files: [], risk: 'R1', depth: 'full' },
   ])('a card of R4 touches whose changed files are $files waits for a $depth review verdict', async ({ files, risk, depth }) => {
     const world = newWorld([R4_CARD])
-    const { gh, calls } = chainGh(BOTH_HEADS, files)
-    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
-    expect(merges(calls)).toEqual([])
+    const chain = chainGh(BOTH_HEADS, files)
+    await chainRun(world, chain, () => {}, ['--chain-wait', '3'])
+    expect(merges(chain)).toEqual([])
     expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: depth })
     expect(readFileSync(path.join(world.shift, 'report-1.md'), 'utf8')).toContain(`PR #101 waits for its review verdict, a ${depth} review at risk ${risk}`)
   })
 
-  it('the R4 arm calls gh pr merge with --auto and --match-head-commit at the head', async () => {
+  it('the R4 card goes to the bus at the head, with no gh pr merge', async () => {
     const world = newWorld([R4_CARD])
-    const { gh, calls } = chainGh(BOTH_HEADS, ['docs/1.md', 'tests/x.test.ts'])
-    await chainRun(world, gh, () => {}, ['--chain-wait', '3'])
-    expect(calls.filter(args => args[1] === 'merge')).toEqual([['pr', 'merge', '101', '--auto', '--squash', '--match-head-commit', HEAD, '-R', 'E1i/mikoshi-construct']])
+    const chain = chainGh(BOTH_HEADS, ['docs/1.md', 'tests/x.test.ts'])
+    await chainRun(world, chain, () => {}, ['--chain-wait', '3'])
+    expect(merges(chain)).toEqual(['101'])
+    expect(armedAt(chain)).toEqual([HEAD])
     expect(eventsOf(world, 'chain')[0]).toMatchObject({ step: 'wait', task: '1', pr: 101, review: 'none' })
   })
 })
