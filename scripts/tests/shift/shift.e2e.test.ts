@@ -848,6 +848,43 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(stopsOf(world)).toEqual([])
   })
 
+  function sessionDeniedGitWhenAskedToCommit(world: World): ShiftDeps['claude'] {
+    const wrapper = path.join(world.root, 'session-denied-git.sh')
+    writeFileSync(wrapper, `#!/bin/sh\nprompt=$(cat)\nmkdir -p scripts/1 && echo green > scripts/1/x.ts\ncase "$prompt" in *"commit, push"*|*"you push"*) prompt="$prompt STUB-QUESTION" ;; esac\nprintf '%s' "$prompt" | sh ${STUB} "$@"\n`)
+    return `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${wrapper}`
+  }
+
+  it('the card session prompt asks for no commit or push, and a git denial in the session is not a question', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
+    const calls: string[][] = []
+    await runShift([world.shift], { ...shiftDeps(world, captured()), claude: sessionDeniedGitWhenAskedToCommit(world), git: committingGit, gh: prOpeningGh('1', calls) })
+
+    const prompt = stubSaw(world, '1', 'prompt')
+    expect(prompt).not.toContain('commit, push')
+    expect(prompt).not.toContain('commit you push')
+    expect(prompt).toContain('Do not commit and do not push')
+    expect(prompt).toContain('A refused git command is not a question')
+    expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).not.toContain('question:')
+    expect(stopsOf(world).filter(stop => stop.at === 'question')).toEqual([])
+  })
+
+  it('a shift-run card reaches an open PR with no hand commit', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
+    const calls: string[][] = []
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude: sessionDeniedGitWhenAskedToCommit(world), git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+
+    const tree = path.join(world.root, 'mc-1')
+    expect(git(tree, ['status', '--porcelain'])).toBe('')
+    expect(git(path.join(world.root, 'origin.git'), ['show', 'feat/1:scripts/1/x.ts'])).toBe('green\n')
+    expect(calls.filter(args => args[1] === 'create')).toHaveLength(1)
+    expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41 })
+    expect(stopsOf(world)).toEqual([])
+  })
+
   it('w11: a probe, and an implement report with no PR, call no merge and leave the report as the session wrote it', async () => {
     const world = newWorld()
     ownerMergesOnMain(world)

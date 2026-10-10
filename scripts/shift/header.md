@@ -18,11 +18,14 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Run no background command, no monitor and no wait for a notification: nobody wakes a headless
   session, and a session that waits ends there. Run everything in the foreground and read its result
   in the same call.
-- Run `pnpm run quality` as its own command and read its result before every commit you push.
-- On an Eddies warn: finish the step you are in, commit, push, write the handoff and the report, exit.
+- Do not commit and do not push: leave your changes in the tree and end the session; the shift commits,
+  pushes and opens the pull request from `{{worktree}}`. A refused git command is not a question: do not
+  write a `question:` line for it.
+- Run `pnpm run quality` as its own command and read its result before you end the session.
+- On an Eddies warn: finish the step you are in, write the handoff and the report, exit.
   On an Eddies stop: write the report and exit.
 - At a boundary — the session's context reached `contextLimit`, or an owner-merged pull request just
-  merged — finish the step you are in, commit, push, write the handoff and the report with a
+  merged — finish the step you are in, write the handoff and the report with a
   `boundary: <which boundary>` line in it, and exit.
 - At an Eddies warn or a boundary, the shift report also carries the handoff contract: every field
   `HANDOFF_FIELDS` in `scripts/ghosts/handoff-check.ts` lists, as a `<label>: <value>` line or a

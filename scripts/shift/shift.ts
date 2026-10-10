@@ -16,6 +16,7 @@ import type { OpenPr } from './overlap.js'
 import type { Choice, InReview, Stop } from './parking.js'
 import type { TaskLine } from './places.js'
 import type { PromptPlaces } from './prompt.js'
+import type { TreePr } from './tree-pr.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -61,6 +62,7 @@ import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, l
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
+import { shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift] '
 export const CHAIN_WAIT_MINUTES = 120
@@ -457,46 +459,6 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
   return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
 }
 
-type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
-
-const PR_URL_NUMBER = /\/pull\/(\d+)\s*$/
-
-function shiftCommitMessage(task: ShiftTask): string {
-  return `${task.card.name} (#${task.id})\n\nCommitted by the shift from the card's worktree after its session ended.`
-}
-
-function shiftPrBody(task: ShiftTask): string {
-  return `${task.card.line}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
-}
-
-function openPrOf(deps: ShiftDeps, branch: string): string | null {
-  const open = JSON.parse(deps.gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'])) as { number: number }[]
-  return open.length === 0 ? null : String(open[0]!.number)
-}
-
-function treePr(deps: ShiftDeps, task: ShiftTask, worktree: string): TreePr {
-  try {
-    const uncommitted = deps.git(worktree, ['status', '--porcelain']).trim() !== ''
-    const ahead = Number(deps.git(worktree, ['rev-list', '--count', 'origin/main..HEAD']).trim())
-    if (!uncommitted && ahead === 0)
-      return { kind: 'clean' }
-    if (uncommitted) {
-      deps.git(worktree, ['add', '-A'])
-      deps.git(worktree, ['commit', '-q', '-m', shiftCommitMessage(task)])
-    }
-    deps.git(worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${task.branch}`])
-    const open = openPrOf(deps, task.branch)
-    if (open !== null)
-      return { kind: 'pr', number: open }
-    const created = deps.gh(['pr', 'create', '--head', task.branch, '--base', 'main', '--title', `${task.card.name} (#${task.id})`, '--body', shiftPrBody(task)])
-    const number = PR_URL_NUMBER.exec(created.trim())?.[1]
-    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }
-  }
-  catch (error) {
-    return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${task.branch}: ${firstLine(error instanceof Error ? error.message : String(error))}` }
-  }
-}
-
 function prAfterSession(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation, endedWhole: boolean): { pr: string, lines: string[] } | { problem: string } | undefined {
   const text = deps.exists(report) ? deps.read(report) : null
   if (task.card.kind === 'probe') {
@@ -504,7 +466,7 @@ function prAfterSession(deps: ShiftDeps, task: ShiftTask, session: { worktree: s
       closeProbeFromReport(deps, task, session, text)
     return undefined
   }
-  const fromTree: TreePr = endedWhole ? treePr(deps, task, session.worktree) : { kind: 'clean' }
+  const fromTree: TreePr = endedWhole ? treePr(deps, shiftTreeCard(task), session.worktree) : { kind: 'clean' }
   if (fromTree.kind === 'problem')
     return { problem: fromTree.why }
   const pr = fromTree.kind === 'pr' ? fromTree.number : text === null ? undefined : REPORT_PR_LINE.exec(text)?.[1]

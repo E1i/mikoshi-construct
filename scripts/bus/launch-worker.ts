@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { defaultBusPath, openBus } from './db.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { realStarterPorts, ShiftCardStarter } from './launch-starter.js'
+import { realStarterPorts, ShiftCardStarter, treePrCommand } from './launch-starter.js'
 import { expireLeases, leaseNext } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { SWITCH_FLAG } from './review-worker.js'
@@ -90,6 +90,8 @@ async function main(): Promise<number> {
     parking: defaultParking(os.homedir()),
     launchDir: path.join(os.homedir(), '.construct', 'bus', LAUNCH_DIR),
     header: readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8'),
+    claude: 'claude',
+    treePr: treePrCommand(process.cwd()),
     env,
   }
   const starter = new ShiftCardStarter(places, realStarterPorts(process.cwd(), env, randomUUID))

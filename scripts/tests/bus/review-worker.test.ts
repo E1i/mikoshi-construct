@@ -1,6 +1,7 @@
 import type { Lease } from '../../bus/lease.js'
 import type { ReviewRun } from '../../bus/review-worker.js'
 import type { Reviewer } from '../../bus/reviewer.js'
+import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +17,9 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { DRY_RUN_ACTOR, dryRun, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine } from '../../bus/review-worker.js'
+import { claudeReviewer } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
+import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -484,6 +487,25 @@ describe('review worker', () => {
     await expect(runReview(['--on'], run)).rejects.toThrow(Stopped)
     expect(output()).toContain(`${busPath}: the review worker worker:review:main-1-1 takes the review queue`)
     expect(existsSync(busPath)).toBe(true)
+  })
+
+  it('the review session runs in the mode the contract names, not the window SHIFT_CLAUDE', async () => {
+    vi.stubEnv('SHIFT_CLAUDE', 'claude --permission-mode bypassPermissions')
+    const spawned: SpawnSessionParams[] = []
+    const reviewer = claudeReviewer('/repo', path.join(tmpdir(), 'bus-review-mode'), {
+      git: () => {},
+      spawn: async (params) => {
+        spawned.push(params)
+        throw new Error('stop after the spawn')
+      },
+    })
+
+    await expect(reviewer({ taskKey: review(960), queue: 'review', cardId: 1060, pr: 960, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' })).rejects.toThrow('stop after the spawn')
+    const argv = sessionArgv(spawned[0]!.sessionId, spawned[0]!.prompt)
+    expect(REVIEW_PERMISSION_MODE).toBe('auto')
+    expect(argv[argv.indexOf('--permission-mode') + 1]).toBe(REVIEW_PERMISSION_MODE)
+    expect(argv.join(' ')).not.toContain('bypassPermissions')
+    vi.unstubAllEnvs()
   })
 
   it('a dry run takes only a decimal pull request number', () => {

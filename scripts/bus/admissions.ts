@@ -55,6 +55,12 @@ function cardOf(line: Record<string, unknown>): Omit<Admission, 'lane'> | null {
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : null
 }
 
+const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
+
+export function isLaneName(name: string): boolean {
+  return LANE_NAME.test(name)
+}
+
 export function parkingLane(parking: string): LaneOnDisk {
   return (cardId) => {
     if (!existsSync(parking))
@@ -90,7 +96,12 @@ export function admitFromJournal(db: DatabaseSync, ts: string, laneOnDisk: LaneO
     const known = db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${row.dedupe_key}`)
     if (known !== undefined)
       continue
-    const lane = isMove ? moved : movedTo.get(cardId) ?? laneOnDisk(cardId)
+    const present = laneOnDisk(cardId)
+    if (present === null || !isLaneName(present))
+      continue
+    const lane = isMove ? moved : movedTo.get(cardId) ?? present
+    if (lane === null || !isLaneName(lane))
+      continue
     if (appendEvent(db, admittedEvent(row, cardId, { lane, ...card }, ts)))
       admitted += 1
   }
