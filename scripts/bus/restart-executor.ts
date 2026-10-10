@@ -2,10 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ChainRow } from './chain.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import type { Role, RoleLease } from './role.js'
 import { CHAIN_RESTARTED, chainOfCard } from './chain.js'
 import { messageOf } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { assertRoleHeld, raiseRole } from './role.js'
 
 export const SHORT_SHA = 7
 
@@ -23,10 +25,24 @@ export type RestartOutcome
     | { kind: 'denied', taskKey: string, reason: RestartReason, detail: string, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
+export interface RoleLauncher {
+  raise: (role: Role, handoff: string) => number
+}
+
+export type RelaunchOutcome
+  = | { kind: 'raised', role: Role, handoff: string, pid: number }
+    | { kind: 'raise_failed', role: Role, handoff: string, detail: string }
+    | { kind: 'fenced', taskKey: string }
+
 export interface RestartParts {
   db: DatabaseSync
   launcher: ChainLauncher
+  roles: RoleLauncher
   clock: () => Date
+}
+
+export function relaunchKey(role: Role): string {
+  return `relaunch:${role}`
 }
 
 const WITHDRAWN_REASONS: ReadonlySet<RestartReason> = new Set(['no_chain', 'chain_current'])
@@ -49,7 +65,7 @@ export class RestartExecutor {
       const chain = chainOfCard(this.parts.db, lease.cardId)
       if (chain === undefined)
         return this.denied(lease, 'no_chain', `no chain of card #${lease.cardId} is on the bus`)
-      if (chain.sha === to)
+      if (chain.sha === to && chain.state !== 'fault')
         return this.denied(lease, 'chain_current', `the chain in ${chain.dir} already runs on ${to}`)
       if (chain.boundary === 0)
         return this.waiting(lease, chain, 'not_at_boundary')
@@ -61,6 +77,26 @@ export class RestartExecutor {
     catch (error) {
       if (error instanceof StaleLease)
         return { kind: 'fenced', taskKey: lease.taskKey }
+      throw error
+    }
+  }
+
+  relaunch(lease: RoleLease): RelaunchOutcome {
+    try {
+      assertRoleHeld(this.parts.db, lease)
+      let pid: number
+      try {
+        pid = this.parts.roles.raise(lease.role, lease.handoff)
+      }
+      catch (error) {
+        return { kind: 'raise_failed', role: lease.role, handoff: lease.handoff, detail: messageOf(error) }
+      }
+      raiseRole(this.parts.db, this.ts(), lease, pid)
+      return { kind: 'raised', role: lease.role, handoff: lease.handoff, pid }
+    }
+    catch (error) {
+      if (error instanceof StaleLease)
+        return { kind: 'fenced', taskKey: relaunchKey(lease.role) }
       throw error
     }
   }

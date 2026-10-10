@@ -36,12 +36,17 @@ const UPDATE_CANDIDATES = `
 
 const LAST_MECHANICS = `SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1`
 
-const RESTART_CANDIDATES = `
-  WITH mechanics AS (${LAST_MECHANICS})
-  SELECT NULL AS pr, chains.card_id, mechanics.sha AS head FROM chains JOIN mechanics
-  WHERE chains.sha NOT IN (SELECT sha FROM mains WHERE event_id >= mechanics.event_id)
-  ORDER BY chains.dir
+const RESTART_TARGETS = `
+  WITH mechanics AS (${LAST_MECHANICS}), readings AS (
+    SELECT chains.dir, chains.card_id, chains.sha, chains.state, mechanics.sha AS mechanics_sha,
+      mechanics.sha IS NOT NULL AND chains.sha NOT IN (SELECT sha FROM mains WHERE event_id >= mechanics.event_id) AS behind
+    FROM chains LEFT JOIN mechanics ON 1
+  )
+  SELECT dir, card_id, CASE WHEN behind THEN mechanics_sha ELSE sha END AS head FROM readings
+  WHERE state != 'stopped' AND (behind OR state = 'fault')
 `
+
+const RESTART_CANDIDATES = `SELECT NULL AS pr, card_id, head FROM (${RESTART_TARGETS}) ORDER BY dir`
 
 interface Candidate {
   pr: number | null
@@ -68,7 +73,8 @@ const TASKS_OF_AN_OLD_HEAD = `
   WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
   UNION
   SELECT task_key, queue, card_id, pr, head FROM tasks
-  WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}') AND head != (SELECT sha FROM (${LAST_MECHANICS}))
+  WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}')
+    AND head NOT IN (SELECT targets.head FROM (${RESTART_TARGETS}) AS targets WHERE targets.card_id = tasks.card_id)
   ORDER BY task_key
 `
 

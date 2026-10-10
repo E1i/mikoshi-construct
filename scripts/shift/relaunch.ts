@@ -1,3 +1,4 @@
+import type { RoleStop } from '../bus/role.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import { randomUUID } from 'node:crypto'
@@ -15,6 +16,7 @@ import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
 import { boundaryLine, transcriptContext } from './operator-boundary.js'
 import { GHOST_JOURNAL } from './places.js'
+import { realRoleStopObserver } from './role-bus.js'
 
 export const PREFIX = '[relaunch] '
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
@@ -63,6 +65,7 @@ export interface RelaunchDeps {
   alive: (pid: number) => boolean
   out: (line: string) => void
   err: (line: string) => void
+  observeStop?: (stop: RoleStop) => void
 }
 
 interface RelaunchArgs {
@@ -342,8 +345,10 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       return stop('no STATUS line', 1)
     if (status !== 'CONTINUE')
       return stop(`STATUS ${status}`, 0)
-    if (sessions >= parsed.max)
+    if (sessions >= parsed.max) {
+      deps.observeStop?.({ role: 'operator', handoff, status, reason: 'spend' })
       return stop(`max ${parsed.max} reached`, 0)
+    }
     sessions += 1
     const session = deps.uuid()
     deps.out(`${PREFIX}session ${sessions}/${parsed.max} ${session} on ${model}`)
@@ -395,6 +400,7 @@ function realDeps(): RelaunchDeps {
     alive: pidAlive,
     out: line => console.log(line),
     err: line => console.error(line),
+    observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
   }
 }
 

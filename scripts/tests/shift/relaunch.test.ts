@@ -1,3 +1,4 @@
+import type { RoleStop } from '../../bus/role.js'
 import type { ClaudeRun } from '../../shift/claude.js'
 import type { RelaunchDeps } from '../../shift/relaunch.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
@@ -50,6 +51,7 @@ interface Seen {
   runs: ClaudeRun[]
   out: string[]
   err: string[]
+  stops: RoleStop[]
 }
 
 function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDeps {
@@ -80,6 +82,7 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     alive: () => false,
     out: line => seen.out.push(line),
     err: line => seen.err.push(line),
+    observeStop: stop => seen.stops.push(stop),
   }
 }
 
@@ -88,7 +91,7 @@ function journalLines(world: World): Array<Record<string, unknown>> {
 }
 
 async function relaunch(world: World, args: string[], statuses: string[] = []): Promise<Seen & { code: number }> {
-  const seen: Seen = { runs: [], out: [], err: [] }
+  const seen: Seen = { runs: [], out: [], err: [], stops: [] }
   const code = await runRelaunch([world.handoff, ...args], relaunchDeps(world, statuses, seen))
   return { ...seen, code }
 }
@@ -140,7 +143,7 @@ describe('runRelaunch', () => {
 
   it('reads, journals and names a handoff given as a literal ~ path under the home directory', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch(['~/handoff.md', '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
@@ -149,7 +152,7 @@ describe('runRelaunch', () => {
 
   it('resolves a relative handoff path against the current directory before it reads, journals or names it', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([path.relative(world.repo, world.handoff), '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
@@ -226,6 +229,7 @@ describe('runRelaunch', () => {
     expect(result.code).toBe(0)
     expect(result.runs).toHaveLength(0)
     expect(result.out.at(-1)).toBe('[relaunch] STATUS STOP')
+    expect(result.stops).toEqual([])
     expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'STATUS STOP', sessions: 0 })
   })
 
@@ -237,12 +241,13 @@ describe('runRelaunch', () => {
     expect(result.err.at(-1)).toBe('[relaunch] no STATUS line')
   })
 
-  it('stops at --max with CONTINUE forever', async () => {
+  it('stops at --max with CONTINUE forever and writes the Operator\'s spend stop to the bus', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--max', '2', '--model', 'claude-test'])
     expect(result.code).toBe(0)
     expect(result.runs).toHaveLength(2)
     expect(result.out.at(-1)).toBe('[relaunch] max 2 reached')
+    expect(result.stops).toEqual([{ role: 'operator', handoff: world.handoff, status: 'CONTINUE', reason: 'spend' }])
   })
 
   it('defaults --max to the shift\'s restart ceiling', async () => {
@@ -295,7 +300,7 @@ describe('runRelaunch', () => {
 
   it('stops after a session that exits nonzero, though the handoff still says CONTINUE', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const deps = relaunchDeps(world, [], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
       seen.runs.push(run)
@@ -308,7 +313,7 @@ describe('runRelaunch', () => {
 
   it('stops after a session that could not start', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const deps = relaunchDeps(world, [], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
       seen.runs.push(run)
@@ -328,7 +333,7 @@ describe('runRelaunch', () => {
 
   it('the relaunch line carries the session pid', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const deps = relaunchDeps(world, ['DONE'], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
       run.onSpawn?.(4242)
@@ -345,7 +350,7 @@ describe('runRelaunch', () => {
   it('a second relaunch on the same handoff refuses with already-running and the live pid', async () => {
     const world = newWorld()
     writeFileSync(lockPath(world.handoff), '7777\n')
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 7777 })
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(0)
@@ -376,7 +381,7 @@ describe('runRelaunch', () => {
   it('a handoff whose directory is missing refuses with no handoff and creates nothing', async () => {
     const world = newWorld()
     const handoff = path.join(world.root, 'nodir', 'h.md')
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([handoff, '--model', 'claude-test'], relaunchDeps(world, [], seen))
     expect(code).toBe(1)
     expect(seen.err.at(-1)).toBe(`[relaunch] no handoff at ${handoff}`)
@@ -387,7 +392,7 @@ describe('runRelaunch', () => {
     const world = newWorld()
     writeFileSync(lockPath(world.handoff), '8888\n')
     writeFileSync(`${lockPath(world.handoff)}.takeover`, '6666\n')
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 6666 })
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(0)
@@ -408,8 +413,8 @@ describe('runRelaunch', () => {
   it('of two starts that both find a dead lock, the second refuses with the first\'s pid', async () => {
     const world = newWorld()
     writeFileSync(lockPath(world.handoff), '8888\n')
-    const first: Seen = { runs: [], out: [], err: [] }
-    const second: Seen = { runs: [], out: [], err: [] }
+    const first: Seen = { runs: [], out: [], err: [], stops: [] }
+    const second: Seen = { runs: [], out: [], err: [], stops: [] }
     const alive = (pid: number): boolean => pid === RELAUNCH_PID || pid === 9999
     const [a, b] = await Promise.all([
       runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], first), alive }),
@@ -448,7 +453,7 @@ describe('runRelaunch', () => {
     const world = newWorld()
     mkdirSync(path.dirname(world.journal), { recursive: true })
     writeFileSync(world.journal, `${journal}\n`)
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     expect(await runRelaunch(['--live'], { ...relaunchDeps(world, [], seen), alive: pid => pid === 111 })).toBe(0)
     expect(seen.out).toEqual(['[relaunch] live: session 1 running pid 111 on /h.md'])
     expect(seen.runs).toEqual([])
@@ -461,14 +466,14 @@ describe('the Operator at a task boundary', () => {
   }
 
   async function boundaryOf(world: World, session: string): Promise<string> {
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch(['--boundary', session], relaunchDeps(world, [], seen))
     expect(code).toBe(0)
     return seen.out.join('\n')
   }
 
   async function operatorShift(world: World, contexts: number[]): Promise<{ code: number, runs: ClaudeRun[], taken: number[] }> {
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const taken: number[] = []
     const deps = relaunchDeps(world, [], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
@@ -544,7 +549,7 @@ describe('the Operator at a task boundary', () => {
 
   it('refuses a session id that is not a plain id', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     expect(await runRelaunch(['--boundary', '../x'], relaunchDeps(world, [], seen))).toBe(1)
     expect(seen.out).toEqual([])
   })

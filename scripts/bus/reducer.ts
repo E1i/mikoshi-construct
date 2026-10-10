@@ -8,6 +8,7 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
+import { ROLE_FOLDS } from './role.js'
 import { payloadOf, reject, Rejection, STORED_COLUMNS } from './stored.js'
 
 export const PREFIX = '[bus:reduce] '
@@ -147,6 +148,7 @@ const REDUCERS: Record<string, Fold> = {
   ...TASK_FOLDS,
   ...LEASE_FOLDS,
   ...CHAIN_FOLDS,
+  ...ROLE_FOLDS,
 }
 
 function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): void {
@@ -182,7 +184,7 @@ function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
 
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
-    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
     const count: ReduceCount = { applied: 0, rejected: 0 }
     for (const event of events) {
@@ -205,6 +207,7 @@ export function projectionDump(db: DatabaseSync): string {
     tasks: db.prepare('SELECT * FROM tasks ORDER BY task_key').all(),
     mains: db.prepare('SELECT * FROM mains ORDER BY sha').all(),
     chains: db.prepare('SELECT * FROM chains ORDER BY dir').all(),
+    roles: db.prepare('SELECT * FROM roles ORDER BY role').all(),
   })
 }
 
