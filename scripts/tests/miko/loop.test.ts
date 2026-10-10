@@ -10,7 +10,6 @@ import { CONTINUE_PROMPT, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../mi
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
-const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const KEY_PRESS_GAP_MS = 300
 const STUB_CLAUDE = `#!/bin/sh
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))
@@ -21,7 +20,7 @@ set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
   continue|owner|stop) echo "STATUS: $(echo "$1" | tr a-z A-Z)" > "$HOME/.construct/handoff/mikoshi.md"; exit "$2" ;;
   quiet) exit "$2" ;;
-  hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; touch "$STUB_DIR/ready"; sleep 30 ;;
+  hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
 esac
 exit 0
 `
@@ -47,7 +46,8 @@ function lines(dir: string, name: string): string[] {
 }
 
 function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number, stderr: NodeJS.ReadableStream } {
-  const child = spawn(TSX, [LOOP], {
+  const child = spawn(process.execPath, ['--import', 'tsx', LOOP], {
+    cwd: REPO_ROOT,
     env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: claude },
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
@@ -125,9 +125,7 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     await until(() => stderr.includes('next session in'))
     process.kill(-loop.pid, 'SIGINT')
     const { code } = await loop.done
-    expect(code).toBe(0)
-    expect(lines(dir, 'calls')).toEqual(['0|'])
-    expect(stderr).toContain('Ctrl+C in the pause: no next session')
+    expect({ code, calls: lines(dir, 'calls'), stderr }).toMatchObject({ code: 0, calls: ['0|'], stderr: expect.stringContaining('Ctrl+C in the pause: no next session') })
   }, 20_000)
 
   it('a Ctrl-C that ends the session leaves the loop running, and STATUS: CONTINUE starts the next one', async () => {
