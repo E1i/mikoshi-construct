@@ -32,9 +32,10 @@ function listed(pr: FakePr): Record<string, unknown> {
   }
 }
 
-function setup(prs: FakePr[], options: { conflict?: number[], journal?: string } = {}) {
+function setup(prs: FakePr[], options: { conflict?: number[], journal?: string, heads?: string[] } = {}) {
   const calls: string[][] = []
   const appended: string[] = []
+  const heads = [...(options.heads ?? ['new-head'])]
   const gh = (args: string[]): string => {
     calls.push(args)
     if (args[1] === 'list')
@@ -42,7 +43,7 @@ function setup(prs: FakePr[], options: { conflict?: number[], journal?: string }
     if (args[1] === 'update-branch' && options.conflict?.includes(Number(args[2])))
       throw new Error('merge conflict')
     if (args[1] === 'view')
-      return JSON.stringify({ body: listed(prs.find(pr => String(pr.number) === args[2])!).body, headRefOid: 'new-head', files: [] })
+      return JSON.stringify({ body: listed(prs.find(pr => String(pr.number) === args[2])!).body, headRefOid: heads.length > 1 ? heads.shift() : heads[0], files: [] })
     return ''
   }
   const carry = {
@@ -53,8 +54,9 @@ function setup(prs: FakePr[], options: { conflict?: number[], journal?: string }
     main: 'origin/main',
     publish: () => {},
   }
-  const deps = { gh, carry, ownerMergesText: () => OWNER_MERGES, journal: () => options.journal ?? null, append: (text: string) => appended.push(text), now: () => new Date('2026-10-09T00:00:00Z') }
-  return { calls, appended, deps }
+  const settles: number[] = []
+  const deps = { gh, carry, ownerMergesText: () => OWNER_MERGES, journal: () => options.journal ?? null, append: (text: string) => appended.push(text), now: () => new Date('2026-10-09T00:00:00Z'), settle: () => settles.push(1) }
+  return { calls, appended, deps, settles }
 }
 
 const updated = (calls: string[][]): string[] => calls.filter(args => args[1] === 'update-branch').map(args => args[2]!)
@@ -70,8 +72,27 @@ describe('runCurrent', () => {
     const result = runCurrent(deps)
     expect(updated(calls)).toEqual(['1'])
     expect(result.exitCode).toBe(0)
-    expect(result.stdout.join('\n')).toContain('PR #1 updated with its review carried')
+    expect(result.stdout.join('\n')).toContain('PR #1 updated to new-head with its review carried')
     expect(result.stdout.join('\n')).toContain('[shift:carry] PR #1 review pass carried from old to new-head')
+  })
+
+  it('carries the review to the head update-branch produced', () => {
+    const { deps, settles } = setup([{ number: 1, createdAt: '2026-10-01T00:00:00Z', head: 'before' }], { heads: ['before', 'before', 'after'] })
+    const result = runCurrent(deps)
+    expect(result.exitCode).toBe(0)
+    expect(settles).toHaveLength(2)
+    expect(result.stdout.join('\n')).toContain('PR #1 updated to after with its review carried')
+    expect(result.stdout.join('\n')).toContain('carried from old to after')
+    expect(result.stdout.join('\n')).not.toContain('to before')
+  })
+
+  it('reports no carry when the head does not move after update-branch', () => {
+    const { calls, deps } = setup([{ number: 1, createdAt: '2026-10-01T00:00:00Z', head: 'before' }], { heads: ['before'] })
+    const result = runCurrent(deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[shift:current] PR #1 updated, its review not carried: its head did not move from before after 5 reads'])
+    expect(result.stdout.join('\n')).not.toContain('[shift:carry]')
+    expect(calls.filter(args => args[1] === 'view')).toHaveLength(5)
   })
 
   it('says none is behind when every kept PR is current', () => {

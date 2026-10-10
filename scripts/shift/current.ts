@@ -10,9 +10,11 @@ import { fileURLToPath } from 'node:url'
 import { parseCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { HEAD_READS } from '../bus/update-executor.js'
+import { blockFor, SETTLE_MS } from '../bus/update-worker.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
-import { latestPrReview, mergeVerdict, OWNER_MERGES_ON_MAIN, runCarry } from './merge.js'
+import { latestPrReview, mergeVerdict, OWNER_MERGES_ON_MAIN, readPrView, runCarry } from './merge.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
 
 export const PREFIX = '[shift:current] '
@@ -30,6 +32,7 @@ export interface CurrentDeps {
   journal: () => string | null
   append: (text: string) => void
   now: () => Date
+  settle: () => void
 }
 
 interface Check {
@@ -125,6 +128,20 @@ function reviewMissingLine(task: string, pr: OpenPr, now: Date): string {
   return `${JSON.stringify({ event: REVIEW_MISSING_EVENT, task, pr: pr.number, head: pr.headRefOid, greenSince: new Date(greenSince(pr)!).toISOString(), ts: now.toISOString() })}\n`
 }
 
+function movedHead(pr: OpenPr, deps: CurrentDeps): string | undefined {
+  for (let read = 0; read < HEAD_READS; read += 1) {
+    if (read > 0)
+      deps.settle()
+    try {
+      const head = readPrView(deps.gh, String(pr.number)).headRefOid
+      if (head !== pr.headRefOid)
+        return head
+    }
+    catch {}
+  }
+  return undefined
+}
+
 function update(item: Kept, deps: CurrentDeps): string[] {
   const number = String(item.pr.number)
   try {
@@ -133,11 +150,14 @@ function update(item: Kept, deps: CurrentDeps): string[] {
   catch (error) {
     return [`${PREFIX}PR #${number} not updated, left alone: ${firstLine(error)}`]
   }
+  const head = movedHead(item.pr, deps)
+  if (head === undefined)
+    return [`${PREFIX}PR #${number} updated, its review not carried: its head did not move from ${item.pr.headRefOid} after ${HEAD_READS} reads`]
   const carried = runCarry([number, '--carry'], deps.carry)
   if (carried.exitCode !== 0)
     return [`${PREFIX}PR #${number} updated, its review not carried: ${carried.stderr.join(' ')}`]
   const kind = item.ownerMerge ? 'owner-merge, not armed' : 'armed'
-  return [`${PREFIX}PR #${number} updated with its review carried (${kind})`, ...carried.stdout]
+  return [`${PREFIX}PR #${number} updated to ${head} with its review carried (${kind})`, ...carried.stdout]
 }
 
 export function runCurrent(deps: CurrentDeps): MergeResult {
@@ -195,6 +215,7 @@ export function realCurrentDeps(journalFile: string): CurrentDeps {
     journal: () => existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : null,
     append: text => appendFileSync(journalFile, text),
     now: () => new Date(),
+    settle: () => blockFor(SETTLE_MS),
   }
 }
 
