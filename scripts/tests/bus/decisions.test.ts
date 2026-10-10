@@ -147,12 +147,15 @@ describe('owner decisions on the bus', () => {
     const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
     roots.push(path.dirname(file))
     writeFileSync(file, OWNER_FILE)
-    const intake = decisionsIntake(db, file, () => NOW)
+    let now = NOW
+    const intake = decisionsIntake(db, file, () => now)
     intake()
+    now = new Date(NOW.getTime() + 60_000)
     intake()
     appendEvent(db, stopped(809, 'question.owner'))
     expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 1 }])
     reduce(db)
+    const [firstImport] = rows(db, `SELECT id FROM events WHERE type = 'decisions.imported'`)
     const before = statSync(file).mtimeMs
 
     const changed = OWNER_FILE.replace('· decisions:add', '· decisions:add · superseded-by D-78').concat('- D-78 · 2026-10-10 — #809 goes to the bus. · card #809\n')
@@ -162,6 +165,7 @@ describe('owner decisions on the bus', () => {
     expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 2 }])
     expect(reduce(db)).toEqual({ applied: 3, rejected: 0 })
     expect(rows(db, 'SELECT decision_id, scope FROM decisions ORDER BY decision_id')).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
+    expect(rows(db, 'SELECT event_id FROM decisions WHERE decision_id = 77')).toEqual([{ event_id: firstImport!.id }])
     expect(rows(db, 'SELECT card_id, state FROM cards')).toEqual([{ card_id: 809, state: 'queued' }])
     expect(readFileSync(file, 'utf8')).toBe(changed)
     expect(statSync(file).mtimeMs).toBe(written)
