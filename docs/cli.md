@@ -1727,8 +1727,9 @@ construction.
 Builds the Atlas of the repository in one call: discovery reads the code, writes what it found into
 the Engram, and the page is rendered from that Engram. Where `graph` prints the claims and the
 evidence under them as Mermaid text and writes nothing, `atlas` writes the Engram's `mechanics` and
-one self-contained HTML page: the stages the repository names for itself as columns, a panel per part
-with its evidence, its links and its source, and the code under each part as a scheme.
+one self-contained HTML page: a map of the repository's contours and the arrows between them, then the
+stages the repository names for itself as columns, with a panel per part holding its evidence, its
+links and its source.
 
 ```bash
 npx mikoshi-construct atlas
@@ -1761,6 +1762,21 @@ directory. A specifier no configuration names, such as an npm dependency, is lef
 that resolves to no tracked file is an `unknown` relation; an import of a tracked file of a type
 discovery does not read resolves to that file.
 
+The map's top level is the repository's contours: the parts separated by a boundary the repository
+declares itself — the root `package.json`, each workspace package, each directory a `tsconfig*.json`
+names in its `references`, and each directory holding a document that declares its own format (an
+OpenAPI, AsyncAPI or Swagger document, or a JSON Schema whose `$schema` names one of the published JSON Schema dialects). No
+directory name makes a contour. A click unfolds a contour into its components, a component into its
+files, and a file into the relations it leaves and receives, each with its `path:line`; at first sight
+the map shows at most 30 nodes. The components are the ones discovery named in the Engram's
+`interpretation`, each with a name and a one-line purpose; files no component names are grouped by
+directory until it does. An arrow aggregates the found relations between two nodes: its count, up to
+three `path:line` examples on hover, and its crossing — `inside` one contour, `through` the target
+contour's declared entry or contract, `bypass` past that entry, which is drawn as a finding, or
+`direct` into a contour that declares no entry. Every node carries the count of its files that are
+held, unknown and absent. Drag pans, the wheel zooms, a search by file name finds a file, and
+`atlas.html#<path>` opens the page on that file.
+
 Where the Engram and the page go depends on what the repository already is, and the command never
 writes a tracked file of a repository it was not asked to own:
 
@@ -1781,7 +1797,8 @@ with neither get the map alone, since the Atlas writes no documentation into a t
 After `atlas` in an attached repository `git status` is as clean as before. Running it again on the
 same commit writes the same Engram and the same page, byte for byte. Every "Open the source" link is
 relative to the file the page was written to, so it opens the repository path from the default place
-and from `--out` alike. Nothing is fetched when the page is opened.
+and from `--out` alike. Nothing is fetched when the page is opened: the page runs only the one script
+written into it, whose hash its content security policy names, and loads nothing else.
 
 | Reading | Where it goes | Exit |
 |---|---|---|

@@ -1,13 +1,10 @@
 import type { AbilityFinding } from '../model/ability.js'
 import type { PictureClass } from '../model/graph.js'
-import type { AbilityNode, Component, Fact, RepositoryModel } from '../model/schema.js'
+import type { AbilityNode, Fact, Mechanics, RepositoryModel } from '../model/schema.js'
 import type { EngramStateReport } from '../model/state.js'
 import { factClass, factLines, reportBackedIn, RUNTIME_REPORT } from '../model/graph.js'
 
-export interface AtlasMechanics {
-  components: Component[]
-  relations: { from: string, to: string | null, kind: string, specifier: string, status: string, source: { path: string, line: number } }[]
-}
+export type AtlasMechanics = Pick<Mechanics, 'components' | 'relations'> & Partial<Pick<Mechanics, 'contours'>>
 
 export interface AtlasInput {
   projectName: string
