@@ -10,6 +10,7 @@ export interface ClaudeRun {
   cwd: string
   sessionId: string
   card?: number
+  env?: NodeJS.ProcessEnv
   prompt: string
   log: string
   extraArgv?: readonly string[]
@@ -27,7 +28,7 @@ export async function runClaude(run: ClaudeRun): Promise<ClaudeExit> {
   const fd = openSync(run.log, 'w')
   try {
     return await new Promise((resolve) => {
-      const child = spawn('sh', claudeArgv(run.command, run.sessionId, run.extraArgv), { cwd: run.cwd, env: sessionEnv(process.env, run.card), stdio: ['pipe', fd, fd], detached: run.detached === true })
+      const child = spawn('sh', claudeArgv(run.command, run.sessionId, run.extraArgv), { cwd: run.cwd, env: sessionEnv(run.env ?? process.env, run.card), stdio: ['pipe', fd, fd], detached: run.detached === true })
       if (child.pid !== undefined)
         run.onSpawn?.(child.pid)
       child.on('error', error => resolve({ kind: 'unspawnable', error: error.message }))

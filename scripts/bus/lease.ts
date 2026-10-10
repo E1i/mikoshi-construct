@@ -3,8 +3,9 @@ import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
+import { generationOfKey } from './identifiers.js'
 import { CARD_STOPPED } from './inbox.js'
-import { identityOf, LEASED, QUEUE_ACTOR, QUEUED } from './queue.js'
+import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_LEASED = 'task.leased'
@@ -137,7 +138,8 @@ function leaseOf(row: LeaseRow, actor: string): Lease {
 }
 
 function taskEvent(ts: string, type: string, actor: string, row: LeaseRow, leaseGen: number, dedupeKey: string, fields: object = {}): BusEvent {
-  return { ts, type, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey, payload: { task_key: row.task_key, queue: row.queue, lease_gen: leaseGen, ...fields }, legacy: false }
+  const generation = generationOfKey(row.task_key, { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined })
+  return { ts, type, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey, payload: { task_key: row.task_key, queue: row.queue, ...generationField(generation), lease_gen: leaseGen, ...fields }, legacy: false }
 }
 
 function folded(db: DatabaseSync, event: BusEvent): void {

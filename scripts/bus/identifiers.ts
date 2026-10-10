@@ -11,6 +11,7 @@ export interface TaskIdentity {
   cardId: number
   pr?: number
   head?: string
+  generation?: string
 }
 
 export function isActor(value: string): boolean {
@@ -54,5 +55,15 @@ export function taskKey(task: TaskIdentity): string {
     throw new Error(`pr is not a positive integer: ${task.pr}`)
   if (task.head !== undefined && !isFullSha(task.head))
     throw new Error(`head is not a full sha: ${task.head}`)
-  return `${task.queue}:${task.cardId}:${task.pr ?? '-'}:${task.head ?? '-'}`
+  if (task.generation !== undefined && (task.generation === '' || task.pr !== undefined || task.head !== undefined))
+    throw new Error(`a generation names a task with no pr and no head: ${task.generation}`)
+  return task.generation === undefined ? `${task.queue}:${task.cardId}:${task.pr ?? '-'}:${task.head ?? '-'}` : `${task.queue}:${task.cardId}:${task.generation}`
+}
+
+const GENERATION_QUEUE: Queue = 'launch'
+
+export function generationOfKey(key: string, task: Omit<TaskIdentity, 'generation'>): string | undefined {
+  const plain = taskKey(task)
+  const prefix = `${task.queue}:${task.cardId}:`
+  return task.queue !== GENERATION_QUEUE || key === plain || !key.startsWith(prefix) || task.pr !== undefined || task.head !== undefined ? undefined : key.slice(prefix.length)
 }
