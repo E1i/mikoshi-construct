@@ -21,6 +21,7 @@ export interface WideningRequest {
 export type AnswerSource
   = | { kind: 'question', detail: string, widen: WideningRequest | null, events: CardEvent[] }
     | { kind: 'changes', findings: string[], events: CardEvent[] }
+    | { kind: 'ci', failedChecks: string[], events: CardEvent[] }
 
 export interface CardSession {
   session: string
@@ -81,13 +82,26 @@ function changesOn(db: DatabaseSync, lease: Lease): string[] | null {
   return review === undefined ? [] : strings(parsed(review.payload).findings)
 }
 
+function failedChecksOn(db: DatabaseSync, lease: Lease): string[] | null {
+  if (lease.pr === null || lease.head === null)
+    return null
+  const red = db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND ci = 'red'`).get(lease.pr, lease.head)
+  if (red === undefined)
+    return null
+  const observed = db.prepare(`SELECT payload FROM events WHERE type = 'pr.observed' AND pr = ? AND head = ? AND json_extract(payload, '$.ci') = 'red' ORDER BY id DESC LIMIT 1`).get(lease.pr, lease.head) as { payload: string } | undefined
+  return observed === undefined ? [] : strings(parsed(observed.payload).failed_checks)
+}
+
 export function answerSourceOf(db: DatabaseSync, lease: Lease): AnswerSource | null {
   const events = latestEvents(db, lease.cardId)
   const question = openQuestion(db, lease.cardId)
   if (question !== null)
     return { kind: 'question', detail: text(question.detail) ?? '', widen: widenOf(question), events }
   const findings = changesOn(db, lease)
-  return findings === null ? null : { kind: 'changes', findings, events }
+  if (findings !== null)
+    return { kind: 'changes', findings, events }
+  const failedChecks = failedChecksOn(db, lease)
+  return failedChecks === null ? null : { kind: 'ci', failedChecks, events }
 }
 
 export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | null {

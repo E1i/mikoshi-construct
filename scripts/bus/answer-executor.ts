@@ -57,7 +57,7 @@ export class AnswerExecutor {
       assertHeld(this.parts.db, lease)
       const source = answerSourceOf(this.parts.db, lease)
       if (source === null)
-        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop and no changes verdict on ${lease.head ?? 'its head'}` })
+        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict and no red CI on ${lease.head ?? 'its head'}` })
       let widened: Widened | null = null
       if (source.kind === 'question' && source.widen !== null) {
         const widening = wideningOf(source.widen.paths, source.widen.touches, this.parts.ownerMerges())
