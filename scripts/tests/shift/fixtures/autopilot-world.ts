@@ -89,7 +89,7 @@ export function depsOf(world: World, gh: (args: string[]) => string, io: Capture
     handoffDir: world.handoff,
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     projectsDir: path.join(world.root, 'projects'),
-    git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
+    git,
     install: () => {},
     gh,
     listDir: dir => readdirSync(dir),

@@ -143,6 +143,10 @@ function jsonl(file: string): Record<string, unknown>[] {
   return readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
+function stopsOf(world: World): Record<string, unknown>[] {
+  return jsonl(path.join(world.handoff, 'ghosts.jsonl')).filter(line => line.event === 'stop')
+}
+
 function stubRuns(world: World, id: string): number {
   const file = path.join(world.stubOut, `mc-${id}.runs`)
   return existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) : 0
@@ -823,7 +827,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(git(path.join(world.root, 'origin.git'), ['log', '--format=%s', 'feat/1', '-1']).trim()).toBe('session commit')
     expect(calls.find(args => args[1] === 'merge')?.slice(0, 3)).toEqual(['pr', 'merge', '41'])
     expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41 })
-    expect(eventsOf(world, 'stop')).toEqual([])
+    expect(stopsOf(world)).toEqual([])
   })
 
   it('a card session refused git add leaves an uncommitted tree, and the shift commits, pushes and opens its pull request', async () => {
@@ -841,7 +845,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(calls.filter(args => args[1] === 'create')).toHaveLength(1)
     expect(calls.find(args => args[1] === 'create')!.at(-1)!.split('\n')[0]).toBe('#1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —')
     expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ pr: 41 })
-    expect(eventsOf(world, 'stop')).toEqual([])
+    expect(stopsOf(world)).toEqual([])
   })
 
   it('w11: a probe, and an implement report with no PR, call no merge and leave the report as the session wrote it', async () => {
