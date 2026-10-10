@@ -153,6 +153,20 @@ describe('the view of a repository', () => {
     expect(map.contours.flatMap(contour => contour.components.flatMap(component => component.files.filter(file => file.state !== 'absent').map(file => file.path))).sort()).toEqual(['p1/pkg/a.ts', 'p1/pkg/b.ts'])
   })
 
+  it('marks a read file named under a declared contour that does not hold it as misplaced, drawn once by its real state', () => {
+    const mechanics: MapMechanics = {
+      contours: ['.', 'packages/a', 'packages/b'].map(id => ({ id, name: id, kind: 'workspace' as const, declaredBy: `${id}/package.json`, entries: [] })),
+      components: [{ id: 'packages/a/x.ts', path: 'packages/a/x.ts', relations: 'found' }],
+      relations: [],
+    }
+    const map = componentMap(mechanics, [{ id: 'wrong', contour: 'packages/b', name: 'Wrong', purpose: 'Names a file another contour holds', files: ['packages/a/x.ts', 'packages/b/gone.ts'] }], 'r')
+    const drawn = map.contours.flatMap(contour => contour.components.flatMap(component => component.files.map(file => [contour.id, file.path, file.state])))
+    expect(drawn).toEqual([['c:packages/a', 'packages/a/x.ts', 'held'], ['c:packages/b', 'packages/b/gone.ts', 'absent']])
+    const named = map.contours.find(contour => contour.id === 'c:packages/b')!.components.find(component => component.name === 'Wrong')!
+    expect(named.misplaced).toEqual(['packages/a/x.ts'])
+    expect(named.counts).toEqual({ held: 0, unknown: 0, absent: 1 })
+  })
+
   it('unfolds the contours at first sight while the view stays within 30 nodes, and no further', () => {
     const map = componentMap(workspaces(20), [], 'few')
     expect(map.open.length).toBeGreaterThan(0)

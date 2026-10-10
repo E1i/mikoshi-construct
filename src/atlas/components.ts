@@ -30,6 +30,7 @@ export interface MapComponent {
   purpose: string | null
   undeclaredContour: string | null
   files: MapFile[]
+  misplaced: string[]
   state: MapState
   counts: StateCounts
 }
@@ -178,9 +179,9 @@ function fileOf(file: string, read: Map<string, MapFile>): MapFile {
   return read.get(file) ?? { path: file, state: 'absent', reason: null }
 }
 
-function component(contour: string, id: string, name: string, purpose: string | null, files: MapFile[], undeclaredContour: string | null = null): MapComponent {
+function component(contour: string, id: string, name: string, purpose: string | null, files: MapFile[], undeclaredContour: string | null = null, misplaced: string[] = []): MapComponent {
   const counts = countsOf(files.map(file => file.state))
-  return { id: componentNode(contour, id), contour, name, purpose, undeclaredContour, files, state: stateOf(counts), counts }
+  return { id: componentNode(contour, id), contour, name, purpose, undeclaredContour, files, misplaced, state: stateOf(counts), counts }
 }
 
 function interpretedFor(contour: Contour, interpreted: readonly InterpretedComponent[], filesOf: Map<string, string[]>): InterpretedComponent[] {
@@ -197,13 +198,15 @@ function componentsOf(contour: Contour, interpreted: readonly InterpretedCompone
   const claimed = new Set<string>()
   const named = interpretedFor(contour, interpreted, filesOf).map((entry) => {
     const declared = entry.contour === contour.id
-    const files = entry.files.map((file) => {
-      const drawn = declared ? own.has(file) : adopted.has(file)
-      if (drawn)
-        claimed.add(file)
-      return drawn ? fileOf(file, read) : { path: file, state: 'absent' as const, reason: null }
+    const drawn = (file: string): boolean => declared ? own.has(file) : adopted.has(file)
+    const misplaced = entry.files.filter(file => !drawn(file) && read.has(file))
+    const files = entry.files.filter(file => !misplaced.includes(file)).map((file) => {
+      if (!drawn(file))
+        return { path: file, state: 'absent' as const, reason: null }
+      claimed.add(file)
+      return fileOf(file, read)
     })
-    return component(contour.id, entry.id, entry.name, entry.purpose, files, declared ? null : entry.contour)
+    return component(contour.id, entry.id, entry.name, entry.purpose, files, declared ? null : entry.contour, misplaced)
   })
   const rest = [...own].filter(file => !claimed.has(file) && !adopted.has(file)).sort(compare)
   const groups = directoryGroups(contour.id, rest, file => read.get(file)?.state === 'held' ? 1 : 0).map(group => component(contour.id, `${group.rest ? 'rest' : 'dir'}:${group.key}`, groupName(group, contour), null, group.files.map(file => fileOf(file, read))))

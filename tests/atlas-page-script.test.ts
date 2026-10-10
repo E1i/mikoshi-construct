@@ -90,6 +90,8 @@ class FakeElement {
 interface Run {
   page: Record<string, FakeElement>
   delivered: string[]
+  window: FakeElement
+  location: { hash: string }
 }
 
 const IDS = ['atlas-svg', 'atlas-viewport', 'atlas-panel', 'atlas-tip', 'atlas-search', 'atlas-results']
@@ -112,7 +114,7 @@ function run(script: string, hash: string): Run {
     MouseEvent: FakeEvent,
   }
   vm.runInNewContext(script, context)
-  return { page, delivered }
+  return { page, delivered, window: context.window, location: context.location }
 }
 
 function click(target: Run, attribute: string, value: string): void {
@@ -168,6 +170,27 @@ describe('the page script reaches a file by the same handler a reader\'s click r
       expect(panel.innerHTML).toContain('data-at="packages/core/src/price.ts:1"')
     }
     expect(navigated.page['atlas-panel']!.innerHTML).toBe(clicked.page['atlas-panel']!.innerHTML)
+  })
+
+  it('reaches the file a changed hash names by the same handler the load runs', () => {
+    const script = scriptOf(pageOf())
+    const changed = run(script, '')
+    changed.location.hash = `#${TARGET}`
+    changed.window.dispatchEvent(new FakeEvent('hashchange'))
+    expect(changed.delivered).toEqual(run(script, `#${TARGET}`).delivered)
+    expect(changed.page['atlas-panel']!.getAttribute('data-file')).toBe(TARGET)
+  })
+
+  it('opens a file another contour\'s component names by its real state, in the contour that holds it', () => {
+    const misplaced = 'packages/app/src/main.ts'
+    const html = pageOf({ authoredBy: 'discovery', components: [{ id: 'wrong', contour: 'packages/core', name: 'Wrong', purpose: 'Names a file the root holds', files: [misplaced] }] })
+    const navigated = run(scriptOf(html), `#${misplaced}`)
+    const panel = navigated.page['atlas-panel']!
+    expect(panel.getAttribute('data-file')).toBe(misplaced)
+    expect(panel.innerHTML).toContain('<p data-state="held">held</p>')
+    expect(navigated.delivered).toEqual(['c:.', 'k:.:dir:packages', misplaced])
+    click(navigated, 'data-node', 'k:packages/core:wrong')
+    expect(panel.innerHTML).toContain(`data-misplaced="${misplaced}"`)
   })
 
   it('reaches no file and draws no panel for a hash that names none', () => {

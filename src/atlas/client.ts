@@ -18,6 +18,7 @@ export const ATLAS_SCRIPT = `
   let selected = null;
   let view = { x: 0, y: 0, k: 1 };
   const boxes = new Map();
+  let arrows = [];
 
   const esc = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const file = (index) => DATA.files[index];
@@ -140,7 +141,7 @@ export const ATLAS_SCRIPT = `
       });
     }
     const shown = visible();
-    const arrows = DATA.arrows.filter((arrow) => shown.has(arrow.from) && shown.has(arrow.to));
+    arrows = DATA.arrows.filter((arrow) => shown.has(arrow.from) && shown.has(arrow.to));
     const edges = arrows.map((arrow, index) => edgeMarkup(arrow, index)).join('');
     viewport.innerHTML = '<g class="edges">' + edges + '</g>' + markup;
     viewport.setAttribute('data-arrows', String(arrows.length));
@@ -210,7 +211,8 @@ export const ATLAS_SCRIPT = `
     }
     else if (component) {
       body = '<h2>' + esc(component.name) + '</h2><p>' + esc(component.purpose === null ? 'Not interpreted yet: grouped by directory until discovery names it.' : component.purpose) + '</p><p data-state="' + component.state + '">' + esc(counts(component)) + '</p>'
-        + (component.undeclaredContour === null ? '' : '<p data-undeclared="">' + esc('Named under the contour "' + component.undeclaredContour + '", which the repository does not declare: drawn under the root.') + '</p>');
+        + (component.undeclaredContour === null ? '' : '<p data-undeclared="">' + esc('Named under the contour "' + component.undeclaredContour + '", which the repository does not declare: drawn under the root.') + '</p>')
+        + (component.misplaced.length === 0 ? '' : '<p>' + esc('Named here, but held by another contour: drawn where it is held.') + '</p><ul>' + component.misplaced.map((index) => '<li data-misplaced="' + esc(file(index)) + '">' + esc(file(index) + (contourOfFile.has(file(index)) ? ' — ' + contourOfFile.get(file(index)).name : '')) + '</li>').join('') + '</ul>');
     }
     else {
       panel.setAttribute('data-file', id);
@@ -263,7 +265,7 @@ export const ATLAS_SCRIPT = `
   viewport.addEventListener('pointerover', (event) => {
     const edge = event.target.closest('[data-arrow]');
     if (!edge) return;
-    const arrow = DATA.arrows.filter((entry) => visible().has(entry.from) && visible().has(entry.to))[Number(edge.getAttribute('data-arrow'))];
+    const arrow = arrows[Number(edge.getAttribute('data-arrow'))];
     if (!arrow) return;
     tip.hidden = false;
     tip.setAttribute('data-crossing', arrow.crossing);
@@ -315,6 +317,8 @@ export const ATLAS_SCRIPT = `
     view.y = 20;
     transform();
   }
-  if (location.hash.length > 1) reveal(decodeURIComponent(location.hash.slice(1)));
+  const revealHash = () => { if (location.hash.length > 1) reveal(decodeURIComponent(location.hash.slice(1))); };
+  window.addEventListener('hashchange', revealHash);
+  revealHash();
 })();
 `
