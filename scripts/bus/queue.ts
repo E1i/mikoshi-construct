@@ -11,6 +11,7 @@ import { payloadOf, reject, storedByKey } from './stored.js'
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const QUEUE_ACTOR = 'policy'
+export const CARD_CLOSED = 'card.closed'
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
@@ -34,6 +35,13 @@ const UPDATE_CANDIDATES = `
   ORDER BY pr
 `
 
+const CLOSE_CANDIDATES = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'merged' AND card_id IS NOT NULL AND head IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = prs.card_id)
+  ORDER BY pr
+`
+
 interface Candidate {
   pr: number
   card_id: number
@@ -51,7 +59,7 @@ function passOrWaitingForOwner(db: DatabaseSync): Admits {
 }
 
 function candidates(db: DatabaseSync): [Queue, string, Admits][] {
-  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow]]
+  return [['review', REVIEW_CANDIDATES, everyRow], ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)], ['merge', MERGE_CANDIDATES, everyRow], ['close', CLOSE_CANDIDATES, everyRow]]
 }
 
 const TASKS_OF_AN_OLD_HEAD = `

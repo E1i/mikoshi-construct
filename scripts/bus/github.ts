@@ -51,6 +51,14 @@ export function ghApi(cwd: string, command = 'gh'): GitHub {
   return endpoint => included(cwd, command, ['--method', 'GET', endpoint], endpoint)
 }
 
+function ghApiWrite(method: 'PUT' | 'PATCH', cwd: string, command: string): GitHubPut {
+  return (endpoint, fields) => included(cwd, command, ['--method', method, endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
+}
+
 export function ghApiPut(cwd: string, command = 'gh'): GitHubPut {
-  return (endpoint, fields) => included(cwd, command, ['--method', 'PUT', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
+  return ghApiWrite('PUT', cwd, command)
+}
+
+export function ghApiPatch(cwd: string, command = 'gh'): GitHubPut {
+  return ghApiWrite('PATCH', cwd, command)
 }

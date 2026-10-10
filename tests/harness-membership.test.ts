@@ -8,6 +8,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'board': 'a read-only view of the Ghost tasks from the handoff records, not a verdict on a change',
   'build': 'produces the package rather than judging it',
   'bus:bg': 'starts bus:run, the switched-on workers and their supervisor as one detached instance each when run by hand; its own tests, on nohup and pnpm stubs and a scratch git repository, are its gate',
+  'bus:close': 'the close worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',
   'bus:import': 'imports the journal into bus.db once when run by hand; its own tests are its gate',
   'bus:merge': 'the merge worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',

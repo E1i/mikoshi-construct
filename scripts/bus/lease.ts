@@ -58,9 +58,11 @@ interface LeaseRow {
 
 const NEXT_LEASABLE = `
   SELECT tasks.* FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND prs.state = 'open' AND prs.head = tasks.head
+  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND prs.state = ? AND prs.head = tasks.head
   ORDER BY tasks.id LIMIT 1
 `
+
+const PR_STATE_OF_QUEUE: Partial<Record<Queue, string>> = { close: 'merged' }
 
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`
 
@@ -154,7 +156,7 @@ export function assertHeld(db: DatabaseSync, lease: Lease): void {
 
 export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string): Lease | null {
   return inTransaction(db, () => {
-    const row = db.prepare(NEXT_LEASABLE).get(queue) as LeaseRow | undefined
+    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open') as LeaseRow | undefined
     if (row === undefined)
       return null
     const leaseGen = row.lease_gen + 1
@@ -170,9 +172,10 @@ export function renewLease(db: DatabaseSync, ts: string, lease: Lease): void {
   })
 }
 
-export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome: BusEvent[]): void {
+export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome: BusEvent[], stillDue: (db: DatabaseSync) => void = () => {}): void {
   inTransaction(db, () => {
     const row = held(db, lease)
+    stillDue(db)
     for (const event of outcome)
       appendEvent(db, event)
     folded(db, taskEvent(ts, TASK_COMPLETED, lease.actor, row, lease.leaseGen, `${TASK_COMPLETED}:${row.task_key}:${lease.leaseGen}`))
