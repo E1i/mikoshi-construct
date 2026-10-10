@@ -134,9 +134,8 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     const loop = startLoop(dir)
     await until(() => existsSync(path.join(dir, 'ready')))
     process.kill(-loop.pid, 'SIGINT')
-    const { code } = await loop.done
-    expect(code).toBe(0)
-    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
+    const { code, stderr } = await loop.done
+    expect({ code, calls: lines(dir, 'calls'), stderr }).toMatchObject({ code: 0, calls: ['0|', `1|${CONTINUE_PROMPT}`], stderr: expect.stringContaining('STATUS: OWNER: no next session') })
   }, 20_000)
 
   it('a double Ctrl-C ends the loop', async () => {
@@ -274,6 +273,6 @@ describe('doubleCtrlCWatcher sees two Ctrl-C within DOUBLE_CTRL_C_WINDOW_MS as a
     const times = [...presses]
     const watcher = doubleCtrlCWatcher(() => times.shift()!)
     presses.forEach(() => watcher.press())
-    expect(watcher.seen()).toBe(seen)
+    expect({ seen: watcher.seen(), presses: watcher.presses() }).toEqual({ seen, presses: presses.length })
   })
 })
