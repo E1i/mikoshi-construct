@@ -118,6 +118,25 @@ describe('the discovery protocol writes hypotheses the schema accepts', () => {
   })
 })
 
+describe('the discovery protocol names the components of each contour as an interpretation layer', () => {
+  it('carries a worked layer the parser accepts beside the mechanics, authored by discovery', () => {
+    const layers = jsonBlocks(protocol()).filter(block => block.includes('"interpretation"'))
+    expect(layers).toHaveLength(1)
+    const layer = JSON.parse(layers[0]!) as Record<string, unknown>
+    expect(layer).toMatchObject({ facts: [], claims: [] })
+    expect(Object.keys(layer)).toEqual(['facts', 'claims', 'interpretation'])
+    const model = parseModel(JSON.stringify({ modelVersion: 6, facts: [], claims: [], hypotheses: [], ...layer }), MODEL_FILE)
+    expect(model.interpretation?.authoredBy).toBe('discovery')
+    expect(model.interpretation?.components.every(component => component.purpose.trim() !== '' && component.files.length > 0)).toBe(true)
+  })
+
+  it('tells the run to write the layer outside mechanics and to rebuild the Atlas afterwards', () => {
+    const step = protocol().slice(protocol().indexOf('Then name the components of each contour.'), protocol().indexOf('Where the repository renders its model'))
+    expect(step).toContain('never inside it')
+    expect(step).toMatch(/run `construct atlas` again/)
+  })
+})
+
 describe('a hypothesis discovery wrote survives the next init', () => {
   it('rewrites the construct-authored half byte for byte and carries the discovery half over unchanged', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-protocol-'))
