@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { psList, runningBus, runningInstance, startDetached } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
 import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../bus/review-bg.js'
+import { settled } from '../shift/fixtures/settled.js'
 import { FakeGitHub } from './github-fake.js'
 
 const roots: string[] = []
@@ -62,12 +63,6 @@ function world(): World {
 }
 
 const clean = (): string[] => []
-
-async function settled(file: string): Promise<string> {
-  for (let attempt = 0; attempt < 200 && !existsSync(file); attempt++)
-    await new Promise(resolve => setTimeout(resolve, 25))
-  return readFileSync(file, 'utf8').trim()
-}
 
 function deadPid(): number {
   return spawnSync('/usr/bin/true').pid!
