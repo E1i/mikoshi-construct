@@ -1,5 +1,8 @@
+import type { RoleStop } from '../bus/role.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
+import type { OperatorWork } from './role-bus.js'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -8,17 +11,19 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { raisedByTheBus } from '../bus/role.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
-import { CLAUDE_VARIABLE, runClaude } from './claude.js'
+import { runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
-import { boundaryLine, transcriptContext } from './operator-boundary.js'
+import { boundaryLine, boundaryMove, transcriptContext } from './operator-boundary.js'
 import { GHOST_JOURNAL } from './places.js'
+import { realOperatorWork, realRoleStopObserver } from './role-bus.js'
 
 export const PREFIX = '[relaunch] '
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
-export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
+export const OPERATOR_CLAUDE = 'claude --permission-mode dontAsk'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
 export const CHAIN_COMMAND = 'pnpm shift:bg <dir> --parking <parking> --chain'
 export const WINDOW_BODY_NOTE = 'window took body #N'
@@ -34,6 +39,11 @@ export function relaunchPrompt(handoff: string, decisions: string | null, sessio
   return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
+export const FACTORY_FILE = 'factory.json'
+export const GH_ACCOUNT_KEY = 'ghAccount'
+export const GH_TOKEN_VARIABLE = 'GH_TOKEN'
+
+export type OperatorToken = { kind: 'token', token: string } | { kind: 'unset', reason: string } | { kind: 'failed', reason: string }
 export const ALREADY_RUNNING = 'already-running'
 
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
@@ -46,7 +56,9 @@ export interface RelaunchDeps {
   cwd: string
   home: string
   pid: number
-  claude: string | undefined
+  claude: string
+  env: NodeJS.ProcessEnv
+  ghToken: (account: string) => string
   journal: string
   projectsDir: string
   read: (file: string) => string
@@ -63,7 +75,14 @@ export interface RelaunchDeps {
   alive: (pid: number) => boolean
   out: (line: string) => void
   err: (line: string) => void
+  observeStop?: (stop: RoleStop) => void
+  raised?: boolean
+  work?: OperatorWork
 }
+
+export const BOUNDARY_EVENT = 'relaunch-boundary'
+
+type Trigger = 'start' | 'threshold' | 'event'
 
 interface RelaunchArgs {
   handoff: string
@@ -84,6 +103,7 @@ interface JournalLine {
   pid?: unknown
   n?: unknown
   handoff?: unknown
+  move?: unknown
 }
 
 function journalEntries(text: string): JournalLine[] {
@@ -175,12 +195,18 @@ function sessionTranscript(deps: RelaunchDeps, session: string): string | null {
     .find(file => deps.exists(file)) ?? null
 }
 
-function printBoundary(deps: RelaunchDeps, session: string): number {
+async function printBoundary(deps: RelaunchDeps, session: string): Promise<number> {
   const transcript = sessionTranscript(deps, session)
   const text = transcript === null ? null : readIfPresent(deps, transcript)
   const context = text === null ? null : transcriptContext(text)
+  await record(deps, { event: BOUNDARY_EVENT, session, move: boundaryMove(context), context, ts: deps.now().toISOString() })
   deps.out(`${PREFIX}${boundaryLine(context, transcript ?? path.join(deps.projectsDir, '*', `${session}.jsonl`))}`)
   return 0
+}
+
+export function endedAtThreshold(journal: string, session: string): boolean {
+  const last = journalEntries(journal).filter(entry => entry.event === BOUNDARY_EVENT && entry.session === session).at(-1)
+  return last?.move === 'end'
 }
 
 function parseArgs(args: string[]): RelaunchArgs | null {
@@ -292,6 +318,42 @@ export function createExclusive(file: string, text: string): boolean {
   }
 }
 
+export function factoryPath(home: string): string {
+  return path.join(home, '.construct', FACTORY_FILE)
+}
+
+function configuredAccount(deps: RelaunchDeps, file: string): string | null {
+  const text = readIfPresent(deps, file)
+  if (text === null)
+    return null
+  try {
+    const config = JSON.parse(text) as unknown
+    const account = config !== null && typeof config === 'object' ? (config as Record<string, unknown>)[GH_ACCOUNT_KEY] : undefined
+    return typeof account === 'string' && account.trim() !== '' ? account.trim() : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function operatorToken(deps: RelaunchDeps): OperatorToken {
+  const file = factoryPath(deps.home)
+  const account = configuredAccount(deps, file)
+  if (account === null)
+    return { kind: 'unset', reason: `no ${GH_ACCOUNT_KEY} in ${file}: the Operator keeps this environment's GitHub credentials` }
+  try {
+    const token = deps.ghToken(account).trim()
+    return token === '' ? { kind: 'failed', reason: `gh auth token --user ${account} printed no token` } : { kind: 'token', token }
+  }
+  catch (error) {
+    return { kind: 'failed', reason: `gh auth token --user ${account} failed: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+export function ghAccountToken(account: string, env: NodeJS.ProcessEnv = process.env): string {
+  return execFileSync('gh', ['auth', 'token', '--user', account], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
 async function record(deps: RelaunchDeps, event: object): Promise<void> {
   mkdirSync(path.dirname(deps.journal), { recursive: true })
   await appendJournalEvent(deps.journal, event)
@@ -310,6 +372,8 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   const handoff = path.resolve(deps.cwd, expandHome(parsed.handoff, deps.home))
   await record(deps, { event: 'relaunch-start', handoff, max: parsed.max, ts: deps.now().toISOString() })
   let sessions = 0
+  let counted = 0
+  let trigger: Trigger = 'start'
   const stop = async (reason: string, code: number, refusals?: string[]): Promise<number> => {
     await record(deps, { event: 'relaunch-stop', handoff, reason, sessions, ...(refusals === undefined ? {} : { refusals }), ts: deps.now().toISOString() })
     if (code === 0)
@@ -326,7 +390,14 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
   const model = parsed.model ?? transcriptModel(deps)
   if (model === null)
     return stop(NO_MODEL, 1)
-  const command = deps.claude ?? DEFAULT_CLAUDE
+  const token = operatorToken(deps)
+  if (token.kind === 'failed')
+    return stop(token.reason, 1)
+  if (token.kind === 'unset')
+    deps.out(`${PREFIX}${token.reason}`)
+  else
+    deps.env[GH_TOKEN_VARIABLE] = token.token
+  const command = deps.claude
   for (;;) {
     const text = readIfPresent(deps, handoff)
     if (text === null)
@@ -342,20 +413,28 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       return stop('no STATUS line', 1)
     if (status !== 'CONTINUE')
       return stop(`STATUS ${status}`, 0)
-    if (sessions >= parsed.max)
-      return stop(`max ${parsed.max} reached`, 0)
+    if (trigger !== 'start') {
+      if (counted >= parsed.max) {
+        deps.observeStop?.({ role: 'operator', handoff, status, reason: 'spend', raised: deps.raised ?? false })
+        return stop(`max ${parsed.max} reached`, 0)
+      }
+      counted += 1
+    }
     sessions += 1
     const session = deps.uuid()
-    deps.out(`${PREFIX}session ${sessions}/${parsed.max} ${session} on ${model}`)
+    deps.out(`${PREFIX}session ${sessions} ${session} on ${model}, started by ${trigger}, ${counted}/${parsed.max} toward --max`)
     let pid: number | null = null
     let started: Promise<void> = Promise.resolve()
     const n = sessions
+    const cursor = deps.work?.cursor()
     const onSpawn = (spawned: number): void => {
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: deps.env, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
+    const after = statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none'
+    const idle = after === 'CONTINUE' && !endedAtThreshold(readIfPresent(deps, deps.journal) ?? '', session)
     await record(deps, {
       event: 'relaunch',
       handoff,
@@ -363,23 +442,37 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid,
       model,
       n: sessions,
+      trigger,
+      counted,
+      idle,
       exit: exit.kind === 'exited' ? exit.code : null,
-      status: statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none',
+      status: after,
       ts: deps.now().toISOString(),
     })
     const failure = sessionFailure(exit)
     if (failure !== null)
       return stop(`session ${sessions} ${failure}`, 1)
+    if (!idle) {
+      trigger = 'threshold'
+      continue
+    }
+    if (deps.work === undefined || cursor === undefined)
+      return stop(`session ${sessions} exited idle and no bus is read for work`, 0)
+    deps.out(`${PREFIX}session ${sessions} exited idle: the next session waits for a bus event that gives the Operator work`)
+    await deps.work.wait(cursor)
+    trigger = 'event'
   }
 }
 
-function realDeps(): RelaunchDeps {
+export function realDeps(env: NodeJS.ProcessEnv = process.env): RelaunchDeps {
   return {
     cwd: process.cwd(),
     home: os.homedir(),
     pid: process.pid,
-    claude: process.env[CLAUDE_VARIABLE],
-    journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
+    claude: OPERATOR_CLAUDE,
+    env,
+    ghToken: account => ghAccountToken(account, env),
+    journal: path.join(env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),
@@ -395,6 +488,9 @@ function realDeps(): RelaunchDeps {
     alive: pidAlive,
     out: line => console.log(line),
     err: line => console.error(line),
+    observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
+    raised: raisedByTheBus(process.env),
+    work: realOperatorWork(),
   }
 }
 

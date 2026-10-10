@@ -5,7 +5,7 @@ import { cardIdOfDescription, isFullSha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
-export const MECHANICS_PATHS = ['.claude/', 'scripts/', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']
+export const MECHANICS_PATHS = ['scripts/shift/']
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
 export type CiReading = 'pending' | 'green' | 'red'
@@ -28,6 +28,8 @@ export interface ClosedPr {
   cardId: number | null
   merged: boolean
   commit: string | null
+  mergedBy: string | null
+  mergedAt: string | null
 }
 
 export interface MainHead {
@@ -61,6 +63,8 @@ interface Pull {
   body?: string | null
   merged?: boolean
   merge_commit_sha?: string | null
+  merged_by?: { login?: string } | null
+  merged_at?: string | null
   mergeable_state?: string
   auto_merge?: unknown
   base: { ref: string }
@@ -113,7 +117,14 @@ function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
 
 function closedPrOf(pull: Pull): ClosedPr {
   const merged = pull.merged === true
-  return { pr: pull.number, cardId: cardIdOfDescription(pull.body), merged, commit: merged && isFullSha(pull.merge_commit_sha) ? pull.merge_commit_sha : null }
+  return {
+    pr: pull.number,
+    cardId: cardIdOfDescription(pull.body),
+    merged,
+    commit: merged && isFullSha(pull.merge_commit_sha) ? pull.merge_commit_sha : null,
+    mergedBy: merged ? pull.merged_by?.login ?? null : null,
+    mergedAt: merged ? pull.merged_at ?? null : null,
+  }
 }
 
 export function touchesMechanics(files: string[]): boolean {

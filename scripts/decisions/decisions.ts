@@ -2,7 +2,8 @@ import { Buffer } from 'node:buffer'
 
 export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
-export const DECISION_FORMAT = '- D-N · <date> — <decision> [· card #A #B] [· superseded-by D-M]'
+export const WRITER_MARKER = 'decisions:add'
+export const DECISION_FORMAT = `- D-N · <date> — <decision> [· card #A #B] [· ${WRITER_MARKER}] [· superseded-by D-M]`
 export const SPENDING_DECISION = 54
 
 const FIELD_PATTERNS: Record<string, string> = {
@@ -11,6 +12,7 @@ const FIELD_PATTERNS: Record<string, string> = {
   '<date>': '\\d{4}-\\d{2}-\\d{2}(?: ~\\d{2}:\\d{2}Z)?',
   '<decision>': '(?<body>\\S.*?)',
   '#A #B': '(?<cards>#[1-9]\\d*(?: #[1-9]\\d*)*)',
+  [WRITER_MARKER]: `(?<written>${WRITER_MARKER})`,
 }
 const FIELD = new RegExp(`(${Object.keys(FIELD_PATTERNS).join('|')})`)
 const OPTIONAL_TAIL = / \[([^\]]+)\]/g
@@ -41,6 +43,7 @@ export interface Decision {
   text: string
   body: string
   cards: number[]
+  written: boolean
   supersededBy: number | null
 }
 
@@ -64,6 +67,7 @@ function decisionOf(text: string, line: number): Decision | null {
     text,
     body: groups.body!,
     cards: groups.cards === undefined ? [] : groups.cards.split(' ').map(card => Number(card.slice(1))),
+    written: groups.written !== undefined,
     supersededBy: groups.supersededBy === undefined ? null : Number(groups.supersededBy),
   }
 }
@@ -109,12 +113,14 @@ function offFormatRefusals(lines: readonly OffFormatLine[]): string[] {
   return lines.map(({ line, numbered }) => `${PREFIX}line ${line}: ${numbered ? 'a decision off the format' : 'a decision without D-N'}; every decision is ${DECISION_FORMAT}`)
 }
 
-function repeatedNumberRefusals(decisions: readonly Decision[]): string[] {
+function repeatedNumberRefusals(decisions: readonly Decision[], archived: ReadonlySet<number>): string[] {
   const seen = new Map<number, number>()
   const refusals: string[] = []
   for (const decision of decisions) {
     const first = seen.get(decision.number)
-    if (first === undefined)
+    if (archived.has(decision.number))
+      refusals.push(`${PREFIX}D-${decision.number}: on line ${decision.line} and in the archive; a number names one decision`)
+    else if (first === undefined)
       seen.set(decision.number, decision.line)
     else
       refusals.push(`${PREFIX}D-${decision.number}: on line ${first} and line ${decision.line}; a number names one decision`)
@@ -122,23 +128,40 @@ function repeatedNumberRefusals(decisions: readonly Decision[]): string[] {
   return refusals
 }
 
-function orderRefusals(decisions: readonly Decision[]): string[] {
+function nextUnarchived(previous: number, archived: ReadonlySet<number>): number {
+  let next = previous + 1
+  while (archived.has(next))
+    next += 1
+  return next
+}
+
+function orderRefusals(decisions: readonly Decision[], archived: ReadonlySet<number>): string[] {
   const seen = new Set<number>()
   const refusals: string[] = []
   let previous = 0
   for (const decision of decisions) {
-    if (seen.has(decision.number))
+    if (seen.has(decision.number) || archived.has(decision.number))
       continue
     seen.add(decision.number)
-    if (decision.number !== previous + 1)
-      refusals.push(`${PREFIX}D-${decision.number} on line ${decision.line}: expected D-${previous + 1}; numbers run 1..n in file order`)
+    const expected = nextUnarchived(previous, archived)
+    if (decision.number !== expected)
+      refusals.push(`${PREFIX}D-${decision.number} on line ${decision.line}: expected D-${expected}; numbers run 1..n in file order`)
     previous = decision.number
   }
   return refusals
 }
 
-function supersedingRefusals(decisions: readonly Decision[]): string[] {
-  const numbers = new Set(decisions.map(decision => decision.number))
+function unmarkedRefusals(decisions: readonly Decision[]): string[] {
+  const firstWritten = decisions.find(decision => decision.written)
+  if (firstWritten === undefined)
+    return []
+  return decisions
+    .filter(decision => decision.line > firstWritten.line && !decision.written)
+    .map(decision => `${PREFIX}D-${decision.number} on line ${decision.line}: no ${WRITER_MARKER} marker after D-${firstWritten.number}, which has one; append a decision with pnpm ${WRITER_MARKER}`)
+}
+
+function supersedingRefusals(decisions: readonly Decision[], archived: ReadonlySet<number>): string[] {
+  const numbers = new Set([...decisions.map(decision => decision.number), ...archived])
   return decisions.flatMap((decision) => {
     if (decision.supersededBy === null)
       return []
@@ -169,13 +192,15 @@ function sizeRefusals(decisions: readonly Decision[]): string[] {
   return bytes <= DECISIONS_IN_FORCE_LIMIT ? [] : [`${PREFIX}decisions in force: ${bytes} bytes over the limit of ${DECISIONS_IN_FORCE_LIMIT}; mark the replaced ones superseded-by D-M`]
 }
 
-export function decisionsRefusals(text: string): string[] {
+export function decisionsRefusals(text: string, archive = ''): string[] {
   const { decisions, offFormat } = parseDecisions(text)
+  const archived = new Set(parseDecisions(archive).decisions.map(decision => decision.number))
   return [
     ...offFormatRefusals(offFormat),
-    ...repeatedNumberRefusals(decisions),
-    ...orderRefusals(decisions),
-    ...supersedingRefusals(decisions),
+    ...repeatedNumberRefusals(decisions, archived),
+    ...orderRefusals(decisions, archived),
+    ...unmarkedRefusals(decisions),
+    ...supersedingRefusals(decisions, archived),
     ...duplicateInForceRefusals(decisions),
     ...sizeRefusals(decisions),
   ]

@@ -1,15 +1,21 @@
+import type { RoleStop } from '../../bus/role.js'
 import type { ClaudeRun } from '../../shift/claude.js'
 import type { RelaunchDeps } from '../../shift/relaunch.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
+import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
-import { ALREADY_RUNNING, boundaryCommand, CHAIN_COMMAND, createExclusive, expandHome, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_ROLE, projectDirOf, promptFirstLine, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, BOUNDARY_EVENT, boundaryCommand, CHAIN_COMMAND, createExclusive, endedAtThreshold, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { operatorWork } from '../../shift/role-bus.js'
+import { MAIN_1 } from '../bus/github-fake.js'
 
 const DECISIONS = fileURLToPath(import.meta.url)
 const FIELDS = `## STOP — window 1\nprev: none\nin-flight: none\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? 'none' : field.id === 'decisions' ? DECISIONS : 'x'}`).join('\n')}`
@@ -50,6 +56,7 @@ interface Seen {
   runs: ClaudeRun[]
   out: string[]
   err: string[]
+  stops: RoleStop[]
 }
 
 function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDeps {
@@ -60,6 +67,10 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     home: world.root,
     pid: RELAUNCH_PID,
     claude: 'true',
+    env: {},
+    ghToken: (account) => {
+      throw new Error(`gh is not asked for ${account}`)
+    },
     journal: world.journal,
     projectsDir: world.projects,
     read: file => readFileSync(file, 'utf8'),
@@ -80,6 +91,8 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     alive: () => false,
     out: line => seen.out.push(line),
     err: line => seen.err.push(line),
+    observeStop: stop => seen.stops.push(stop),
+    work: { cursor: () => 0, wait: async () => {} },
   }
 }
 
@@ -88,7 +101,7 @@ function journalLines(world: World): Array<Record<string, unknown>> {
 }
 
 async function relaunch(world: World, args: string[], statuses: string[] = []): Promise<Seen & { code: number }> {
-  const seen: Seen = { runs: [], out: [], err: [] }
+  const seen: Seen = { runs: [], out: [], err: [], stops: [] }
   const code = await runRelaunch([world.handoff, ...args], relaunchDeps(world, statuses, seen))
   return { ...seen, code }
 }
@@ -115,6 +128,67 @@ describe('statusOf', () => {
 })
 
 describe('runRelaunch', () => {
+  it('a relaunch started from an auto session raises the Operator in dontAsk', async () => {
+    const world = newWorld()
+    const fromAuto = realDeps({ ...process.env, SHIFT_CLAUDE: 'GH_TOKEN=x claude --permission-mode auto' })
+    expect(fromAuto.claude).toBe(OPERATOR_CLAUDE)
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), claude: fromAuto.claude })
+    expect(code).toBe(0)
+    expect(seen.runs.map(run => run.command)).toEqual(['claude --permission-mode dontAsk'])
+  })
+
+  it('relaunch puts the configured account token in the Operator environment even when gh has another active account', async () => {
+    const world = newWorld()
+    const bin = path.join(world.root, 'bin')
+    mkdirSync(bin)
+    writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nif [ "$1 $2 $3 $4" = "auth token --user owner-account" ]; then echo token-of-owner-account; else echo token-of-active-account; fi\n', { mode: 0o755 })
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, SHIFT_CLAUDE: 'GH_TOKEN=from-shift-claude claude --permission-mode auto' }
+    delete env.GH_TOKEN
+    mkdirSync(path.join(world.root, '.construct'))
+    writeFileSync(factoryPath(world.root), JSON.stringify({ ghAccount: 'owner-account' }))
+    const spawnedToken = path.join(world.root, 'spawned-token')
+    const stub = path.join(bin, 'claude-stub')
+    writeFileSync(stub, `#!/bin/sh\nprintf '%s' "$GH_TOKEN" > '${spawnedToken}'\ncat > /dev/null\n`, { mode: 0o755 })
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const deps = relaunchDeps(world, ['DONE'], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
+      ...deps,
+      claude: realDeps(env).claude,
+      env,
+      ghToken: account => ghAccountToken(account, env),
+      run: async (run) => {
+        await runClaude({ ...run, command: stub, log: path.join(world.root, 'operator.log'), onSpawn: undefined })
+        return deps.run(run)
+      },
+    })
+
+    expect(code).toBe(0)
+    expect(ghAccountToken('someone-else', env).trim()).toBe('token-of-active-account')
+    expect(process.env.GH_TOKEN).not.toBe('token-of-owner-account')
+    expect(readFileSync(spawnedToken, 'utf8')).toBe('token-of-owner-account')
+    expect(seen.runs.map(run => run.command)).toEqual([OPERATOR_CLAUDE])
+  })
+
+  it('relaunch with no factory config keeps the environment and names the file and the key', async () => {
+    const world = newWorld()
+    const env: NodeJS.ProcessEnv = { GH_TOKEN: 'already-here' }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), env })
+
+    expect(code).toBe(0)
+    expect(env).toEqual({ GH_TOKEN: 'already-here' })
+    expect(seen.out.filter(line => line.includes(factoryPath(world.root)))).toEqual([`[relaunch] no ${GH_ACCOUNT_KEY} in ${factoryPath(world.root)}: the Operator keeps this environment's GitHub credentials`])
+
+    const keylessWorld = newWorld()
+    mkdirSync(path.join(keylessWorld.root, '.construct'))
+    writeFileSync(factoryPath(keylessWorld.root), JSON.stringify({ other: 'x' }))
+    const keyless: Seen = { runs: [], out: [], err: [], stops: [] }
+    expect(await runRelaunch([keylessWorld.handoff, '--model', 'claude-test'], { ...relaunchDeps(keylessWorld, ['DONE'], keyless), env })).toBe(0)
+    expect(env).toEqual({ GH_TOKEN: 'already-here' })
+    expect(keyless.out.filter(line => line.includes(GH_ACCOUNT_KEY))).toHaveLength(1)
+  })
+
   it('runs a session per CONTINUE and stops at DONE', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'CONTINUE', 'DONE'])
@@ -140,7 +214,7 @@ describe('runRelaunch', () => {
 
   it('reads, journals and names a handoff given as a literal ~ path under the home directory', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch(['~/handoff.md', '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
@@ -149,7 +223,7 @@ describe('runRelaunch', () => {
 
   it('resolves a relative handoff path against the current directory before it reads, journals or names it', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([path.relative(world.repo, world.handoff), '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
@@ -226,6 +300,7 @@ describe('runRelaunch', () => {
     expect(result.code).toBe(0)
     expect(result.runs).toHaveLength(0)
     expect(result.out.at(-1)).toBe('[relaunch] STATUS STOP')
+    expect(result.stops).toEqual([])
     expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'STATUS STOP', sessions: 0 })
   })
 
@@ -237,18 +312,26 @@ describe('runRelaunch', () => {
     expect(result.err.at(-1)).toBe('[relaunch] no STATUS line')
   })
 
-  it('stops at --max with CONTINUE forever', async () => {
+  it('stops at --max with CONTINUE forever and writes the Operator\'s spend stop to the bus', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--max', '2', '--model', 'claude-test'])
     expect(result.code).toBe(0)
-    expect(result.runs).toHaveLength(2)
+    expect(result.runs).toHaveLength(1 + 2)
     expect(result.out.at(-1)).toBe('[relaunch] max 2 reached')
+    expect(result.stops).toEqual([{ role: 'operator', handoff: world.handoff, status: 'CONTINUE', reason: 'spend', raised: false }])
+  })
+
+  it('a relaunch the bus raised says so in its spend stop', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    expect(await runRelaunch([world.handoff, '--max', '1', '--model', 'claude-test'], { ...relaunchDeps(world, [], seen), raised: true })).toBe(0)
+    expect(seen.stops).toMatchObject([{ reason: 'spend', raised: true }])
   })
 
   it('defaults --max to the shift\'s restart ceiling', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'])
-    expect(result.runs).toHaveLength(MAX_RESTARTS)
+    expect(result.runs).toHaveLength(1 + MAX_RESTARTS)
   })
 
   it('refuses with no --model and no transcript, before any session', async () => {
@@ -295,7 +378,7 @@ describe('runRelaunch', () => {
 
   it('stops after a session that exits nonzero, though the handoff still says CONTINUE', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const deps = relaunchDeps(world, [], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
       seen.runs.push(run)
@@ -308,7 +391,7 @@ describe('runRelaunch', () => {
 
   it('stops after a session that could not start', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const deps = relaunchDeps(world, [], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
       seen.runs.push(run)
@@ -328,7 +411,7 @@ describe('runRelaunch', () => {
 
   it('the relaunch line carries the session pid', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const deps = relaunchDeps(world, ['DONE'], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
       run.onSpawn?.(4242)
@@ -345,7 +428,7 @@ describe('runRelaunch', () => {
   it('a second relaunch on the same handoff refuses with already-running and the live pid', async () => {
     const world = newWorld()
     writeFileSync(lockPath(world.handoff), '7777\n')
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 7777 })
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(0)
@@ -376,7 +459,7 @@ describe('runRelaunch', () => {
   it('a handoff whose directory is missing refuses with no handoff and creates nothing', async () => {
     const world = newWorld()
     const handoff = path.join(world.root, 'nodir', 'h.md')
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([handoff, '--model', 'claude-test'], relaunchDeps(world, [], seen))
     expect(code).toBe(1)
     expect(seen.err.at(-1)).toBe(`[relaunch] no handoff at ${handoff}`)
@@ -387,7 +470,7 @@ describe('runRelaunch', () => {
     const world = newWorld()
     writeFileSync(lockPath(world.handoff), '8888\n')
     writeFileSync(`${lockPath(world.handoff)}.takeover`, '6666\n')
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], seen), alive: pid => pid === 6666 })
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(0)
@@ -408,8 +491,8 @@ describe('runRelaunch', () => {
   it('of two starts that both find a dead lock, the second refuses with the first\'s pid', async () => {
     const world = newWorld()
     writeFileSync(lockPath(world.handoff), '8888\n')
-    const first: Seen = { runs: [], out: [], err: [] }
-    const second: Seen = { runs: [], out: [], err: [] }
+    const first: Seen = { runs: [], out: [], err: [], stops: [] }
+    const second: Seen = { runs: [], out: [], err: [], stops: [] }
     const alive = (pid: number): boolean => pid === RELAUNCH_PID || pid === 9999
     const [a, b] = await Promise.all([
       runRelaunch([world.handoff, '--model', 'claude-test'], { ...relaunchDeps(world, ['DONE'], first), alive }),
@@ -448,7 +531,7 @@ describe('runRelaunch', () => {
     const world = newWorld()
     mkdirSync(path.dirname(world.journal), { recursive: true })
     writeFileSync(world.journal, `${journal}\n`)
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     expect(await runRelaunch(['--live'], { ...relaunchDeps(world, [], seen), alive: pid => pid === 111 })).toBe(0)
     expect(seen.out).toEqual(['[relaunch] live: session 1 running pid 111 on /h.md'])
     expect(seen.runs).toEqual([])
@@ -461,14 +544,14 @@ describe('the Operator at a task boundary', () => {
   }
 
   async function boundaryOf(world: World, session: string): Promise<string> {
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const code = await runRelaunch(['--boundary', session], relaunchDeps(world, [], seen))
     expect(code).toBe(0)
     return seen.out.join('\n')
   }
 
   async function operatorShift(world: World, contexts: number[]): Promise<{ code: number, runs: ClaudeRun[], taken: number[] }> {
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     const taken: number[] = []
     const deps = relaunchDeps(world, [], seen)
     const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
@@ -496,6 +579,97 @@ describe('the Operator at a task boundary', () => {
     expect(result.taken).toEqual([2])
     expect(result.runs[1]!.prompt.split('\n')[0]).toBe(promptFirstLine(world.handoff))
     expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => line.status)).toEqual(['CONTINUE', 'DONE'])
+  })
+
+  function idleOrThreshold(world: World, seen: Seen, plan: Array<'idle' | 'threshold' | 'done'>): RelaunchDeps['run'] {
+    return async (run) => {
+      seen.runs.push(run)
+      const step = plan[seen.runs.length - 1] ?? 'idle'
+      if (step === 'threshold') {
+        writeTranscript(world, `${run.sessionId}.jsonl`, [usageLine(OPERATOR_CONTEXT_THRESHOLD + 1)], 1_000_000)
+        await boundaryOf(world, run.sessionId!)
+      }
+      setStatus(world, step === 'done' ? 'DONE' : 'CONTINUE')
+      return { kind: 'exited', code: 0, signal: null }
+    }
+  }
+
+  it('a session that exits on idle is not followed until a bus event gives the Operator work', async () => {
+    const world = newWorld()
+    const bus = path.join(world.root, 'bus.db')
+    const db = openBus(bus)
+    const event = (type: string, n: number, head: string | null = null): void => {
+      appendEvent(db, { ts: `2026-10-10T00:00:0${n}.000Z`, type, actor: 'worker:test:1', cardId: 809, pr: 732, head, dedupeKey: `${type}:${n}`, payload: {}, legacy: false })
+    }
+    event('pr.observed', 0, MAIN_1)
+    const startsSeen: number[] = []
+    const pauses: Array<() => void> = [
+      () => event('pr.observed', 1, MAIN_1),
+      () => event('task.renewed', 2),
+      () => event('review.recorded', 3),
+    ]
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const deps = relaunchDeps(world, [], seen)
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
+      ...deps,
+      run: idleOrThreshold(world, seen, ['idle', 'done']),
+      work: operatorWork(bus, async () => {
+        startsSeen.push(seen.runs.length)
+        pauses.shift()?.()
+      }),
+    })
+    db.close()
+
+    expect(code).toBe(0)
+    expect(seen.runs).toHaveLength(2)
+    expect(startsSeen).toEqual([1, 1, 1])
+    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.idle])).toEqual([['start', true], ['event', false]])
+  })
+
+  it('a work event that arrives while the session is still running wakes the next session', async () => {
+    const world = newWorld()
+    const bus = path.join(world.root, 'bus.db')
+    const db = openBus(bus)
+    appendEvent(db, { ts: '2026-10-10T00:00:00.000Z', type: 'pr.observed', actor: 'worker:test:1', cardId: 809, pr: 732, head: MAIN_1, dedupeKey: 'pr.observed:0', payload: {}, legacy: false })
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const idleThenDone = idleOrThreshold(world, seen, ['idle', 'done'])
+    const pauses: number[] = []
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
+      ...relaunchDeps(world, [], seen),
+      run: async (run) => {
+        const exit = await idleThenDone(run)
+        if (seen.runs.length === 1)
+          appendEvent(db, { ts: '2026-10-10T00:00:01.000Z', type: 'review.recorded', actor: 'worker:test:1', cardId: 809, pr: 732, head: null, dedupeKey: 'review.recorded:1', payload: {}, legacy: false })
+        return exit
+      },
+      work: operatorWork(bus, async () => {
+        pauses.push(seen.runs.length)
+        throw new Error('the relaunch waited for an event the bus already holds')
+      }),
+    })
+    db.close()
+
+    expect(code).toBe(0)
+    expect(seen.runs).toHaveLength(2)
+    expect(pauses).toEqual([])
+  })
+
+  it('an idle exit does not count toward --max', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const code = await runRelaunch([world.handoff, '--max', '1', '--model', 'claude-test'], { ...relaunchDeps(world, [], seen), run: idleOrThreshold(world, seen, ['idle', 'threshold', 'idle']) })
+
+    expect(code).toBe(0)
+    expect(seen.runs).toHaveLength(2)
+    expect(seen.out.at(-1)).toBe('[relaunch] max 1 reached')
+    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.counted, line.idle])).toEqual([['start', 0, true], ['event', 1, false]])
+    expect(seen.stops).toMatchObject([{ reason: 'spend' }])
+  })
+
+  it('tells an idle exit from a threshold exit by the relaunch-boundary line the session wrote', () => {
+    const line = (session: string, move: string): string => JSON.stringify({ event: BOUNDARY_EVENT, session, move })
+    const journal = [line('s-1', 'end'), line('s-2', 'next'), line('s-3', 'end'), line('s-3', 'next')].join('\n')
+    expect(['s-1', 's-2', 's-3', 's-4'].map(session => endedAtThreshold(journal, session))).toEqual([true, false, false, false])
   })
 
   it('names the boundary command with the session\'s own id in every session prompt', async () => {
@@ -544,7 +718,7 @@ describe('the Operator at a task boundary', () => {
 
   it('refuses a session id that is not a plain id', async () => {
     const world = newWorld()
-    const seen: Seen = { runs: [], out: [], err: [] }
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     expect(await runRelaunch(['--boundary', '../x'], relaunchDeps(world, [], seen))).toBe(1)
     expect(seen.out).toEqual([])
   })

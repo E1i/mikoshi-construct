@@ -57,6 +57,7 @@ export function newWorld(cards: ParkedCard[]): World {
   git(root, ['clone', '-q', origin, repo])
   mkdirSync(path.join(repo, 'architecture'))
   writeFileSync(path.join(repo, 'README.md'), 'world\n')
+  writeFileSync(path.join(repo, '.gitignore'), '.construct/\n')
   writeFileSync(path.join(repo, 'architecture', 'owner-merges.md'), OWNER_MERGES)
   git(repo, ['checkout', '-q', '-b', 'main'])
   git(repo, ['add', '.'])
@@ -88,7 +89,7 @@ export function depsOf(world: World, gh: (args: string[]) => string, io: Capture
     handoffDir: world.handoff,
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     projectsDir: path.join(world.root, 'projects'),
-    git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
+    git,
     install: () => {},
     gh,
     listDir: dir => readdirSync(dir),
@@ -117,6 +118,9 @@ export function fakeGh(prCards: Record<number, string>): FakeGh {
   const armed = new Set<number>()
   const gh = (args: string[]): string => {
     calls.push(args)
+    const head = args[1] === 'list' ? /(\d+)$/.exec(args[args.indexOf('--head') + 1] ?? '')?.[1] : undefined
+    if (head !== undefined)
+      return JSON.stringify(prCards[100 + Number(head)] === undefined ? [] : [{ number: 100 + Number(head) }])
     if (args.includes('open'))
       return '[]'
     const number = Number(args[2])

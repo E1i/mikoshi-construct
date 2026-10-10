@@ -3,12 +3,13 @@ import type { ReviewStatus, StatusPublisher } from '../ghosts/verdict.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
+import { CARD_ANSWERED, CARD_STARTED } from './inbox.js'
 import { assertHeld } from './lease.js'
 import { Meter } from './meter.js'
 import { ciOf } from './snapshot.js'
 
 export type VerdictWord = 'pass' | 'changes'
-export type TechnicalReason = 'stale_head' | 'github_error' | 'ci_not_ready' | 'review_failed'
+export type TechnicalReason = 'stale_head' | 'github_error' | 'ci_not_ready' | 'ci_red' | 'review_failed'
 
 export type Denial
   = | { kind: 'technical', reason: TechnicalReason, detail: string }
@@ -24,7 +25,6 @@ export interface VerdictRequest {
 
 const REPO = 'repos/{owner}/{repo}'
 const STATUS_STATE: Record<VerdictWord, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
-export const CARD_STARTED = 'card.started'
 
 interface Pull {
   state?: string
@@ -37,7 +37,7 @@ function sessionsIn(payload: Record<string, unknown>): string[] {
 }
 
 export function authorSessions(db: DatabaseSync, cardId: number): Set<string> {
-  const rows = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND (type = '${CARD_STARTED}' OR legacy = 1) ORDER BY id`).all(cardId)
+  const rows = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND (type IN ('${CARD_STARTED}', '${CARD_ANSWERED}') OR legacy = 1) ORDER BY id`).all(cardId)
   const sessions = new Set<string>()
   for (const row of rows) {
     try {
@@ -61,6 +61,8 @@ export function freshDenial(gitHub: GitHub, lease: Lease, nowMs: () => number): 
     if (pull.state !== 'open' || pull.head?.sha !== lease.head)
       return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
     const ci = ciOf(meter, lease.head!)
+    if (ci === 'red')
+      return technical('ci_red', `CI is red on ${lease.head}`)
     return ci === 'green' ? null : technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
   }
   catch (error) {

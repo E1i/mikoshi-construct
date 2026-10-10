@@ -7,7 +7,7 @@ import { parseIncluded } from '../../bus/github.js'
 import { NetWatch, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { touchesMechanics } from '../../bus/snapshot.js'
-import { Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, REPO, sha } from './github-fake.js'
+import { Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
 
 const roots: string[] = []
 
@@ -85,12 +85,12 @@ describe('netwatch', () => {
     const { db, gitHub, clock, netWatch } = setUp()
     gitHub.open({ number: 901 })
     netWatch.poll()
-    gitHub.pulls.set(901, { ...gitHub.pulls.get(901)!, state: 'closed', merged: true, merge_commit_sha: MAIN_2 })
+    gitHub.close(901, true)
     clock.advance(TICK_MS)
     gitHub.calls = []
     netWatch.poll()
     expect(gitHub.calls).toContain(`${REPO}/pulls/901`)
-    expect(events(db, 'pr.closed')).toEqual([{ pr: 901, card_id: 1001, head: null, dedupe_key: 'pr:901:closed', payload: { merged: true, commit: MAIN_2 } }])
+    expect(events(db, 'pr.closed')).toEqual([{ pr: 901, card_id: 1001, head: null, dedupe_key: 'pr:901:closed', payload: { merged: true, commit: MAIN_2, merged_by: MERGER.login, merged_at: MERGER.at } }])
 
     clock.advance(TICK_MS)
     gitHub.calls = []
@@ -199,10 +199,11 @@ describe('netwatch', () => {
     db.close()
   })
 
-  it('main touches the mechanics when a changed path is one the chains run', () => {
+  it('main touches the mechanics exactly when a changed path is under scripts/shift', () => {
     expect(touchesMechanics(['scripts/shift/shift.ts'])).toBe(true)
-    expect(touchesMechanics(['.claude/agents/review.md'])).toBe(true)
-    expect(touchesMechanics(['package.json'])).toBe(true)
+    expect(touchesMechanics(['README.md', 'scripts/shift/bg.ts'])).toBe(true)
+    expect(touchesMechanics(['.claude/agents/review.md'])).toBe(false)
+    expect(touchesMechanics(['package.json', 'scripts/bus/queue.ts', 'scripts/shifted.ts'])).toBe(false)
     expect(touchesMechanics(['src/program.ts', 'docs/package.json'])).toBe(false)
   })
 

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { LaneOnDisk } from './admissions.js'
 import type { BusEvent } from './db.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -7,6 +8,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { defaultParking } from '../ghosts/handoff-check.js'
+import { admitFromJournal, parkingLane } from './admissions.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 
@@ -16,6 +19,7 @@ export interface ImportCount {
   imported: number
   present: number
   unreadable: number[]
+  admitted: number
 }
 
 function entryOf(line: string): Record<string, unknown> | null {
@@ -45,8 +49,8 @@ export function legacyEventOf(line: string, lineNumber: number): BusEvent | null
   }
 }
 
-export function importJournal(db: DatabaseSync, journal: string): ImportCount {
-  const count: ImportCount = { imported: 0, present: 0, unreadable: [] }
+export function importJournal(db: DatabaseSync, journal: string, laneOnDisk: LaneOnDisk = () => null, now: () => Date = () => new Date()): ImportCount {
+  const count: ImportCount = { imported: 0, present: 0, unreadable: [], admitted: 0 }
   inTransaction(db, () => {
     journal.split('\n').forEach((line, index) => {
       if (line.trim() === '')
@@ -59,6 +63,7 @@ export function importJournal(db: DatabaseSync, journal: string): ImportCount {
       else
         count.present += 1
     })
+    count.admitted = admitFromJournal(db, now().toISOString(), laneOnDisk)
   })
   return count
 }
@@ -76,8 +81,8 @@ function main(): number {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   try {
-    const count = importJournal(db, readFileSync(journal, 'utf8'))
-    console.log(`${PREFIX}${journal} → ${busPath}: imported ${count.imported}, already present ${count.present}, unreadable ${count.unreadable.length}${count.unreadable.length === 0 ? '' : ` (lines ${count.unreadable.join(', ')})`}`)
+    const count = importJournal(db, readFileSync(journal, 'utf8'), parkingLane(defaultParking(os.homedir())))
+    console.log(`${PREFIX}${journal} → ${busPath}: imported ${count.imported}, already present ${count.present}, unreadable ${count.unreadable.length}${count.unreadable.length === 0 ? '' : ` (lines ${count.unreadable.join(', ')})`}, cards admitted ${count.admitted}`)
     return 0
   }
   finally {

@@ -1,3 +1,4 @@
+import type { RoleStop } from '../../bus/role.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -126,6 +127,31 @@ describe('exitDecision reads the process chain and the age of mikoshi.md', () =>
     { name: 'older than two minutes', mtime: now - FRESH_MS - 1000, says: 'written 121s ago' },
   ])('refuses when mikoshi.md is $name', ({ mtime, says }) => {
     expect(exitDecision([zsh, claude, shell, loop], mtime, now)).toMatchObject({ refuse: expect.stringContaining(says) })
+  })
+})
+
+describe('a Miko window outside the pnpm miko loop that stops at a threshold', () => {
+  const now = 1_000_000_000
+  const claude = { pid: 12, ppid: 1, args: 'claude --permission-mode auto' }
+  const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval pnpm miko:exit' }
+  const table = parsePs('  1     0 /sbin/launchd\n 12     1 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
+
+  it('with STATUS: CONTINUE in a fresh mikoshi.md writes role.stopped for miko and ends its claude', () => {
+    const kills: number[] = []
+    const stops: RoleStop[] = []
+    const lines: string[] = []
+    expect(runMikoExit({ pid: 14, table: () => table, handoffMtime: () => 0, now: () => 0, kill: pid => kills.push(pid), err: line => lines.push(line), handoff: '/h/mikoshi.md', status: () => 'CONTINUE', raised: false, observeStop: stop => stops.push(stop) })).toBe(0)
+    expect(stops).toEqual([{ role: 'miko', handoff: '/h/mikoshi.md', status: 'CONTINUE', reason: 'context', raised: false }])
+    expect(kills).toEqual([12])
+    expect(lines[0]).toContain('role.stopped goes to the bus')
+  })
+
+  it.each([
+    { name: 'another STATUS', status: 'OWNER', mtime: now },
+    { name: 'no STATUS', status: null, mtime: now },
+    { name: 'a stale mikoshi.md', status: 'CONTINUE', mtime: now - FRESH_MS - 1000 },
+  ])('with $name refuses as before and writes nothing', ({ status, mtime }) => {
+    expect(exitDecision([zsh, claude], mtime, now, status)).toMatchObject({ refuse: expect.stringContaining('does not run under the pnpm miko loop') })
   })
 })
 
