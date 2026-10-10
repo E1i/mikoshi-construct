@@ -559,6 +559,34 @@ describe('the Operator at a task boundary', () => {
     expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.idle])).toEqual([['start', true], ['event', false]])
   })
 
+  it('a work event that arrives while the session is still running wakes the next session', async () => {
+    const world = newWorld()
+    const bus = path.join(world.root, 'bus.db')
+    const db = openBus(bus)
+    appendEvent(db, { ts: '2026-10-10T00:00:00.000Z', type: 'pr.observed', actor: 'worker:test:1', cardId: 809, pr: 732, head: MAIN_1, dedupeKey: 'pr.observed:0', payload: {}, legacy: false })
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const idleThenDone = idleOrThreshold(world, seen, ['idle', 'done'])
+    const pauses: number[] = []
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], {
+      ...relaunchDeps(world, [], seen),
+      run: async (run) => {
+        const exit = await idleThenDone(run)
+        if (seen.runs.length === 1)
+          appendEvent(db, { ts: '2026-10-10T00:00:01.000Z', type: 'review.recorded', actor: 'worker:test:1', cardId: 809, pr: 732, head: null, dedupeKey: 'review.recorded:1', payload: {}, legacy: false })
+        return exit
+      },
+      work: operatorWork(bus, async () => {
+        pauses.push(seen.runs.length)
+        throw new Error('the relaunch waited for an event the bus already holds')
+      }),
+    })
+    db.close()
+
+    expect(code).toBe(0)
+    expect(seen.runs).toHaveLength(2)
+    expect(pauses).toEqual([])
+  })
+
   it('an idle exit does not count toward --max', async () => {
     const world = newWorld()
     const seen: Seen = { runs: [], out: [], err: [], stops: [] }

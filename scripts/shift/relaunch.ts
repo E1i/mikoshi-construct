@@ -375,6 +375,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     let pid: number | null = null
     let started: Promise<void> = Promise.resolve()
     const n = sessions
+    const cursor = deps.work?.cursor()
     const onSpawn = (spawned: number): void => {
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
@@ -404,9 +405,8 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       trigger = 'threshold'
       continue
     }
-    if (deps.work === undefined)
+    if (deps.work === undefined || cursor === undefined)
       return stop(`session ${sessions} exited idle and no bus is read for work`, 0)
-    const cursor = deps.work.cursor()
     deps.out(`${PREFIX}session ${sessions} exited idle: the next session waits for a bus event that gives the Operator work`)
     await deps.work.wait(cursor)
     trigger = 'event'
