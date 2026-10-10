@@ -175,6 +175,91 @@ describe('pnpm shift:bg', () => {
     }
   })
 
+  describe('a pr-review line as the last state of the card', () => {
+    const HEAD = 'e16c475f00000000000000000000000000000000'
+    const OLDER = 'a0a0a0a000000000000000000000000000000000'
+
+    function openPr(head: string, state = 'OPEN'): (args: string[]) => string {
+      return (args) => {
+        expect(args.slice(0, 3)).toEqual(['pr', 'view', '705'])
+        return JSON.stringify({ state, headRefOid: head })
+      }
+    }
+
+    function reviewed(w: ReturnType<typeof world>, verdict: string, commit: string): void {
+      ranShift(w.dir)
+      journal(w, { event: 'path', task: '758', path: 'cheap', shift: w.dir }, { event: 'stop', task: '758', at: 'merge', why: 'armed', shift: w.dir }, { event: 'pr-review', task: '758', pr: 705, verdict, commit, ts: '2026-10-09T10:00:00.000Z' }, { event: 'answer-brief', task: '758', file: path.join(w.dir, 'answer-758.md') })
+    }
+
+    it('a pr-review changes at the head of the card open pull request is answered', async () => {
+      const w = world(false)
+      reviewed(w, 'changes', HEAD)
+      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      expect(result.stderr).toEqual([])
+      expect(result.exitCode).toBe(0)
+      await settled(path.join(w.out, 'pid'))
+      expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe(`shift ${answerArgv(w.dir).join(' ')}`)
+    })
+
+    it('a pr-review changes at an older head is refused', () => {
+      const w = world(false)
+      reviewed(w, 'changes', OLDER)
+      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain(`event:pr-review changes at ${OLDER} on PR #705`)
+      expect(result.stderr[0]).toContain(HEAD)
+      expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+    })
+
+    it('a pr-review changes on a pull request that is no longer open is refused', () => {
+      const w = world(false)
+      reviewed(w, 'changes', HEAD)
+      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD, 'MERGED'))
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain('not open (MERGED)')
+      expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+    })
+
+    it('a pr-review pass is refused', () => {
+      const w = world(false)
+      reviewed(w, 'pass', HEAD)
+      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain(`event:pr-review pass at ${HEAD} on PR #705`)
+      expect(result.stderr[0]).toContain('not a changes verdict')
+      expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+    })
+
+    it('a pr-review changes of a card whose last shift line is another shift is refused', () => {
+      const w = world(false)
+      ranShift(w.dir)
+      journal(w, { event: 'stop', task: '758', at: 'merge', shift: path.join(w.root, 'other-shift') }, { event: 'pr-review', task: '758', pr: 705, verdict: 'changes', commit: HEAD })
+      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain('other-shift')
+      expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+    })
+  })
+
+  it('a card stopped at merge with a later review-missing line is answered', async () => {
+    const w = world(false)
+    ranShift(w.dir)
+    journal(w, { event: 'stop', task: '758', at: 'merge', why: 'armed', shift: w.dir }, { event: 'review-missing', task: '758', pr: 705, head: 'e16c475f', greenSince: '2026-10-09T10:00:00.000Z' })
+    const result = runBg(answerArgv(w.dir), w.env)
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    await settled(path.join(w.out, 'pid'))
+  })
+
+  it('a card whose last line is ready-for-owner is still refused', () => {
+    const w = world(false)
+    ranShift(w.dir)
+    journal(w, { event: 'stop', task: '758', at: 'merge', shift: w.dir }, { event: 'ready-for-owner', task: '758', pr: 705, head: 'e16c475f' })
+    const result = runBg(answerArgv(w.dir), w.env)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toContain('event:ready-for-owner')
+  })
+
   it('launches nohup pnpm shift with the shift arguments and no setsid', () => {
     expect(launchArgv(['d', '--chain'])).toEqual(['nohup', 'pnpm', 'shift', 'd', '--chain'])
     expect(launchArgv(['d'])).toEqual(['nohup', 'pnpm', 'shift', 'd'])
