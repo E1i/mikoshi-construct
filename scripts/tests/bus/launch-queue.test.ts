@@ -449,6 +449,28 @@ describe('card.admitted from the intake journal', () => {
     bench.close()
   })
 
+  it('a second admit after the card fell enqueues a new launch even after its task:start path line was imported', () => {
+    const starter = new FakeStarter()
+    const bench = journalBench(starter)
+    bench.park(974, 'lane-q')
+    const first = bench.append(intakeLine(974, 'admit', 1))
+    bench.tick()
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: `launch:974:${first}` })
+    bench.append(JSON.stringify({ event: 'path', task: '974', path: 'cheap', started: '2026-10-10T13:01:30.000Z', worktree: '/tmp/mc-974', branch: 'feat/card-974', card: cardText(974), ts: '2026-10-10T13:01:30.000Z' }))
+    bench.tick()
+
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'policy', cardId: 974, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:974`, payload: { reason: 'fault' }, legacy: false })
+    const again = bench.append(intakeLine(974, 'admit', 2))
+    bench.tick()
+    expect(launchTasks(bench.db)).toEqual([
+      { task_key: `launch:974:${first}`, state: 'completed' },
+      { task_key: `launch:974:${again}`, state: 'queued' },
+    ])
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: `launch:974:${again}` })
+    expect(starter.starts).toEqual([{ cardId: 974, lane: 'lane-q' }, { cardId: 974, lane: 'lane-q' }])
+    bench.close()
+  })
+
   it('a redelivered admit line enqueues no second launch task', () => {
     const bench = journalBench()
     bench.park(972, 'lane-q')

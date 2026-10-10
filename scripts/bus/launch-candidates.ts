@@ -14,9 +14,9 @@ const CARD_LIFE = `
 
 const MERGED_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL`
 
-const LEGACY_START_OR_CLOSE = ['path', 'merge']
+const LEGACY_MERGED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'merge'`
 
-const LEGACY_SETTLED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type IN (${LEGACY_START_OR_CLOSE.map(type => `'${type}'`).join(', ')})`
+const LEGACY_LATEST_START_OR_CLOSE = `SELECT card_id, MAX(id) AS id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'path' GROUP BY card_id`
 
 const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
 
@@ -36,6 +36,7 @@ export interface LaunchCandidate {
 interface CardLife {
   cardId: number
   generation: string
+  admittedAt: number
   lane: string | null
   depends: number[]
   started: boolean
@@ -72,7 +73,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
     if (row.type === CARD_ADMITTED) {
       const payload = payloadOf(row)
       const running = life !== undefined && life.started && !life.closed
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), lane: laneOf(payload), depends: dependsOf(payload), started: running, closed: false })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: row.id, lane: laneOf(payload), depends: dependsOf(payload), started: running, closed: false })
       continue
     }
     if (life !== undefined && row.type === CARD_STARTED)
@@ -87,12 +88,22 @@ function cardSet(db: DatabaseSync, query: string): Set<number> {
   return new Set((db.prepare(query).all() as { card_id: number }[]).map(row => row.card_id))
 }
 
-function settledCards(db: DatabaseSync, merged: Set<number>): Set<number> {
-  return new Set([...merged, ...cardSet(db, LEGACY_SETTLED_CARDS)])
+interface Settled {
+  merged: Set<number>
+  latestStartOrClose: Map<number, number>
 }
 
-function isQueued(life: CardLife | undefined, settled: Set<number>): boolean {
-  return life !== undefined && !life.started && !life.closed && !settled.has(life.cardId)
+function settledCards(db: DatabaseSync, merged: Set<number>): Settled {
+  const latestStartOrClose = new Map((db.prepare(LEGACY_LATEST_START_OR_CLOSE).all() as { card_id: number, id: number }[]).map(row => [row.card_id, row.id]))
+  return { merged: new Set([...merged, ...cardSet(db, LEGACY_MERGED_CARDS)]), latestStartOrClose }
+}
+
+function startedOrClosedSinceAdmission(life: CardLife, settled: Settled): boolean {
+  return (settled.latestStartOrClose.get(life.cardId) ?? 0) > life.admittedAt
+}
+
+function isQueued(life: CardLife | undefined, settled: Settled): boolean {
+  return life !== undefined && !life.started && !life.closed && !settled.merged.has(life.cardId) && !startedOrClosedSinceAdmission(life, settled)
 }
 
 export function queuedLane(db: DatabaseSync, cardId: number): string | null {
