@@ -1037,14 +1037,15 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     expect(chainSteps(budgeted)).toEqual(['wait 1', 'merged 1', 'end card-budget'])
   })
 
-  it('an owner PR in a chain is armed only under the shard issued for it', async () => {
+  it('an owner PR in a chain goes to the bus only under the shard issued for it, and merges on its merge.done', async () => {
     const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }])
     copyFileSync(path.resolve(import.meta.dirname, '../../../construct.json'), path.join(world.repo, 'construct.json'))
     const shard = '5a4d0000-0000-4000-8000-000000000652'
     writeFileSync(world.journal, `${JSON.stringify({ event: 'shard', id: shard, by: 'Eli', ts: '2026-10-08T09:00:00.000Z', run: world.shift })}\n`, { flag: 'a' })
     const gh = chainGh({ owner: [101] })
-    await chainRun(world, gh, ['--slot', shard])
-    expect(gh.calls.filter(args => args[1] === 'merge')).toHaveLength(1)
+    const { io } = await chainRun(world, gh, ['--slot', shard])
+    expect(gh.calls.filter(args => args[1] === 'merge')).toEqual([])
+    expect(io.out.some(line => line.includes(`PR #101 goes to the bus at ${CHAIN_HEAD}`))).toBe(true)
     expect(eventsOf(world, 'delegated')).toMatchObject([{ task: '1', pr: 101, shard }])
     expect(chainSteps(world)).toEqual(['wait 1', 'merged 1', 'end no-eligible'])
   })

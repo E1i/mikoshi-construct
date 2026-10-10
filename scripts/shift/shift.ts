@@ -106,12 +106,12 @@ export const USAGE = [
   '--manual turns the automation off for this run only: nothing is taken and nothing is continued without a yes from the prompt; with no terminal every answer is no.',
   'Every real run writes one event:autopilot line (state on or off) to <dir>/shift.jsonl, right after its start line and before it takes its first card.',
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
-  'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown is armed with auto-merge, and ghosts.jsonl gets owner decision delegated, shard <id>.',
+  'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown goes to the bus at its reviewed head, where owner_under_shard allows it, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a pipeline: once a card closes with a pull request, that pull request is in review and the chain takes the next card whose depends are merged and whose touches overlap no card in review;',
   'a card that overlaps one waits until that one merges and is then cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
   `The chain hands a pull request to the bus only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The chain calls no gh pr merge and arms no auto-merge: the bus is the one merger, and the chain waits for its ${MERGE_DONE} at the head it handed over, or stops on its ${POLICY_DENIED} with the denial's rule. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain hands over after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
-  'An owner pull request is merged by the owner (or armed under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
+  'An owner pull request is merged by the owner (or handed to the bus under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
   `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary>.`,
   'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run on its first fault (no second attempt): its stop carries failed: true and the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
   `At the end the run writes <dir>/${OUTCOMES_FILE}, one row per card it ran and per card skipped: card · result (done, failed, skipped, stop <at>, stop not-started, stop <chain end>) · reason · PR, and notifies once more.`,
@@ -531,10 +531,8 @@ interface StopRecord {
   log?: string
 }
 
-const MERGE_ARMED = /auto-merge armed on PR #\d+/
-
 function goesToMerge(line: string): boolean {
-  return MERGE_ARMED.test(line) || HANDED_TO_THE_BUS.test(line)
+  return HANDED_TO_THE_BUS.test(line)
 }
 
 function handedHead(lines: string[] | undefined): string | undefined {
@@ -1184,7 +1182,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const parked = read.choice === undefined ? {} : { parking, left: read.choice.left }
   if (shard !== undefined) {
     deps.append(ghostJournal, usedLine(shard, dir, deps.now()))
-    deps.out(`${PREFIX}shard ${shard} used by this run: an owner pull request the guards and the checks pass is armed`)
+    deps.out(`${PREFIX}shard ${shard} used by this run: an owner pull request the guards and the checks pass goes to the bus`)
   }
   if (read.choice !== undefined) {
     for (const line of forecastLines(cardForecasts(deps, dir, tasks), read.choice.left))
