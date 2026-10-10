@@ -9,7 +9,8 @@
     "Bash(pnpm --silent relaunch:bg:*)",
     "Bash(gh pr merge:*)",
     "Bash(ps:*)",
-    "Bash(pnpm miko:exit:*)"
+    "Bash(pnpm miko:exit:*)",
+    "Bash(pnpm decisions:add:*)"
   ],
   "denyMergeOfHead": "changeset-release/"
 }
