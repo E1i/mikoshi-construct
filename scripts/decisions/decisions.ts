@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
 export const WRITER_MARKER = 'decisions:add'
-export const DECISION_FORMAT = `- D-N · <date> — <decision> [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· supersedes D-K D-L] [· superseded-by D-M]`
+export const DECISION_FORMAT = `- D-N · <date> — <decision> [· supersedes D-K D-L] [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
 export const SPENDING_DECISION = 54
 
 const TERM = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2})?Z'
@@ -21,10 +21,11 @@ const FIELD = new RegExp(`(${Object.keys(FIELD_PATTERNS).join('|')})`)
 const OPTIONAL_TAIL = / \[([^\]]+)\]/g
 const LIST_START = /^\s*(?:[-*+]|\d+[.)])\s|^\s*D-/
 const NUMBER_ATTEMPT = /^\s*(?:[-*+]\s+)?D-/
-const SUPERSEDED_MENTION = /superseded-by/i
+const SUPERSEDING_MENTION = /superseded-by|\bsupersedes D-\d/i
+const TAIL_IN_BODY = new RegExp(`· (?:${WRITER_MARKER}\\b|card #)`)
 const TRAILING_UNTIL = new RegExp(`\\s(?:· )?until (?<until>${TERM})$`)
 const UNTIL_ATTEMPT = /\buntil\W*\d{4}-\d{2}-\d{2}/i
-const CARD_MENTION = /#[1-9]\d*/
+const CARD_MENTION = /(?<!PR )#[1-9]\d*/
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -72,7 +73,7 @@ export interface Decisions {
 
 function decisionOf(text: string, line: number): Decision | null {
   const groups = DECISION_LINE.exec(text)?.groups
-  if (groups === undefined || SUPERSEDED_MENTION.test(groups.body!))
+  if (groups === undefined || SUPERSEDING_MENTION.test(groups.body!) || TAIL_IN_BODY.test(groups.body!))
     return null
   return {
     number: Number(groups.number),
