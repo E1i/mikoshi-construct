@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { RAISED_STATUS, raisedByTheBus } from '../bus/role.js'
 import { statusOf } from '../shift/relaunch.js'
 import { realRoleStopObserver } from '../shift/role-bus.js'
-import { mikoshiHandoff, PREFIX } from './loop.js'
+import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX } from './loop.js'
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.join('scripts', 'miko', 'loop.ts')
@@ -81,10 +81,10 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   if (!underLoop)
     return { refuse: `claude ${claude.pid} does not run under the pnpm miko loop (${LOOP_SCRIPT}): nothing ended` }
   if (handoffMtime === undefined)
-    return { refuse: 'mikoshi.md does not exist: write it with pnpm handoff:write first; nothing ended' }
+    return { refuse: `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended` }
   const age = now - handoffMtime
   if (age > FRESH_MS)
-    return { refuse: `mikoshi.md was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with pnpm handoff:write first; nothing ended` }
+    return { refuse: `${MIKO_HANDOFF_NAME} was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with pnpm handoff:write first; nothing ended` }
   return { kill: claude.pid, line: `ending claude ${claude.pid}: the pnpm miko loop starts the next session` }
 }
 
@@ -111,7 +111,7 @@ function mtimeOf(file: string): number | undefined {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const handoff = mikoshiHandoff(os.homedir())
+  const handoff = mikoHandoff(os.homedir())
   process.exitCode = runMikoExit({
     pid: process.pid,
     table: () => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' })),
