@@ -142,9 +142,30 @@ export function spendDecisions(text: string, settled: (card: number) => boolean)
   const spent = new Set(inForce(decisions)
     .filter(decision => decision.cards.length > 0 && decision.cards.every(settled))
     .map(decision => decision.line))
-  if (spent.size === 0)
+  return markSuperseded(text, new Map([...spent].map(line => [line, SPENDING_DECISION])))
+}
+
+export function settleSupersedes(text: string, archive = ''): string {
+  const { decisions } = parseDecisions(text)
+  const retiredBy = new Map<number, number>()
+  for (const decision of [...parseDecisions(archive).decisions, ...decisions]) {
+    for (const target of decision.supersedes) {
+      if (target < decision.number && !retiredBy.has(target))
+        retiredBy.set(target, decision.number)
+    }
+  }
+  return markSuperseded(text, new Map(decisions
+    .filter(decision => decision.supersededBy === null && retiredBy.has(decision.number))
+    .map(decision => [decision.line, retiredBy.get(decision.number)!])))
+}
+
+function markSuperseded(text: string, byLine: ReadonlyMap<number, number>): string {
+  if (byLine.size === 0)
     return text
-  return text.split('\n').map((raw, index) => spent.has(index + 1) ? `${raw.trimEnd()} · superseded-by D-${SPENDING_DECISION}` : raw).join('\n')
+  return text.split('\n').map((raw, index) => {
+    const replacement = byLine.get(index + 1)
+    return replacement === undefined ? raw : `${raw.trimEnd()} · superseded-by D-${replacement}`
+  }).join('\n')
 }
 
 function offFormatRefusals(lines: readonly OffFormatLine[]): string[] {

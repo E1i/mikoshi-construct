@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, spendDecisions } from './decisions.js'
+import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spendDecisions } from './decisions.js'
 
 export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
 
@@ -65,11 +65,12 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
   }
   const read = deps.read(file)
   const settled = settledCards(deps.exists(deps.journal) ? deps.read(deps.journal) : '')
-  const text = spendDecisions(read, card => settled.has(card))
+  const archiveFile = archiveOf(file)
+  const archive = deps.exists(archiveFile) ? deps.read(archiveFile) : ''
+  const text = settleSupersedes(spendDecisions(read, card => settled.has(card)), archive)
   if (text !== read)
     deps.write(file, text)
-  const archive = archiveOf(file)
-  const refusals = decisionsRefusals(text, deps.exists(archive) ? deps.read(archive) : '')
+  const refusals = decisionsRefusals(text, archive)
   if (refusals.length > 0) {
     for (const line of refusals)
       deps.err(line)

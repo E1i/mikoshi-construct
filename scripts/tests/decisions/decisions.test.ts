@@ -10,8 +10,9 @@ function file(...lines: string[]): string {
 }
 
 const JOURNAL = '/h/ghosts.jsonl'
+const ARCHIVE = '/d/owner-decisions.archive.md'
 
-function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
+function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null, archive: string | null = null): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
   const out: string[] = []
   const err: string[] = []
   const findings: string[] = []
@@ -19,8 +20,8 @@ function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal:
   const code = runDecisionsRead(args, {
     home: '/home/x',
     journal: JOURNAL,
-    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null),
-    read: candidate => candidate === JOURNAL ? journal! : text,
+    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null) || (candidate === ARCHIVE && archive !== null),
+    read: candidate => candidate === JOURNAL ? journal! : candidate === ARCHIVE ? archive! : text,
     write: (candidate, content) => {
       written[candidate] = content
     },
@@ -199,7 +200,7 @@ describe('owner decisions are a numbered record', () => {
     expect(decisionsRefusals(text)).toEqual([])
     expect(parseDecisions(text).decisions.map(decision => decision.supersedes)).toEqual([[], [], [1]])
     expect(inForce(parseDecisions(text).decisions).map(decision => decision.number)).toEqual([2, 3])
-    expect(read(text)).toEqual({ code: 0, written: {}, err: [], findings: [], out: [
+    expect(read(text)).toEqual({ code: 0, written: { '/d/owner-decisions.md': text.replace('night order holds. · decisions:add', 'night order holds. · decisions:add · superseded-by D-3') }, err: [], findings: [], out: [
       '- D-2 · 2026-10-08 — An unrelated decision. · decisions:add',
       '- D-3 · 2026-10-11 — D-1 closed; the day order holds. · supersedes D-1 · decisions:add',
     ] })
@@ -207,6 +208,29 @@ describe('owner decisions are a numbered record', () => {
     const two = file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two.', '- D-3 · 2026-10-08 — three. · supersedes D-1 D-2 · card #9 · superseded-by D-4', '- D-4 · 2026-10-08 — four.')
     expect(decisionsRefusals(two)).toEqual([])
     expect(inForce(parseDecisions(two).decisions).map(decision => decision.number)).toEqual([4])
+  })
+
+  it('keeps a decision retired by supersedes out of force after the line that retired it goes to the archive', () => {
+    const now = new Date('2026-10-11T12:00:00Z')
+    const before = file(
+      '- D-1 · 2026-10-08 — The night order holds. · decisions:add',
+      '- D-2 · 2026-10-09 — [owner] D-1 closed. · supersedes D-1 · card #7 · decisions:add',
+      '- D-3 · 2026-10-09 — [owner] Another. · decisions:add',
+    )
+    const replace = { file: null, supersedes: [2], cards: [], until: null, text: '[owner] D-2 replaced.' }
+
+    const unread = planAdd(before, '', replace, now) as { file: string, archive: string, archived: number[] }
+    expect(unread.archived).toEqual([2])
+    const settled = read(unread.file, undefined, null, unread.archive)
+    expect(settled.code).toBe(0)
+    expect(settled.out.map(line => line.slice(0, 5))).toEqual(['- D-3', '- D-4'])
+    expect(settled.written['/d/owner-decisions.md']).toContain('night order holds. · decisions:add · superseded-by D-2')
+
+    const marked = read(before).written['/d/owner-decisions.md']!
+    const afterRead = planAdd(marked, '', replace, now) as { file: string, archive: string, archived: number[] }
+    expect(afterRead.archived).toEqual([1, 2])
+    expect(inForce(parseDecisions(afterRead.file).decisions).map(decision => decision.number)).toEqual([3, 4])
+    expect(decisionsRefusals(afterRead.file, afterRead.archive)).toEqual([])
   })
 
   it('counts no decision another one supersedes toward the size limit', () => {
