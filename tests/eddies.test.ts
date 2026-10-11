@@ -4,6 +4,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readd
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { MIKO_HANDOFF_NAME } from '../scripts/miko/loop.js'
 import { CONTINUE_PROMPT } from '../scripts/shift/continuation.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/eddies.mjs')
@@ -105,7 +106,7 @@ function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number):
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
 
 function continueLine(s: Scratch): string {
-  const handoff = path.join(s.handoff, 'mikoshi.md')
+  const handoff = path.join(s.handoff, MIKO_HANDOFF_NAME)
   return `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\neddies: to continue in a new window — cd '${s.root}' && pnpm miko\n`
 }
 
@@ -249,12 +250,12 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(lines(low)).toEqual([])
   })
 
-  it('names mikoshi.md and handoff:write, not the task continuation, to a session without CONSTRUCT_CARD that holds a task:start line', () => {
+  it('names miko.md and handoff:write, not the task continuation, to a session without CONSTRUCT_CARD that holds a task:start line', () => {
     const s = scratch(LIMITS, [{ input: 127500 }])
     taskStarted(s, '858-tmp-run-root', SESSION)
     const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
 
-    expect(window.stdout).toContain(`write ${path.join(s.handoff, 'mikoshi.md')} only through pnpm handoff:write`)
+    expect(window.stdout).toContain(`write ${path.join(s.handoff, MIKO_HANDOFF_NAME)} only through pnpm handoff:write`)
     expect(window.stdout).not.toContain(CONTINUE_PROMPT)
   })
 
@@ -267,7 +268,7 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(window.stdout).not.toContain('to continue in a new window')
   })
 
-  it('reads an empty CONSTRUCT_CARD and CONSTRUCT_HANDOFF as unset: mikoshi.md and the new-window line, not the task continuation', () => {
+  it('reads an empty CONSTRUCT_CARD and CONSTRUCT_HANDOFF as unset: miko.md and the new-window line, not the task continuation', () => {
     const s = scratch(LIMITS, [{ input: 127500 }])
     s.env = { CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '' }
     taskStarted(s, '866-x', SESSION)

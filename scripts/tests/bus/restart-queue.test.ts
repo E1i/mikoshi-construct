@@ -11,6 +11,7 @@ import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
 import { MIKO_LAUNCH_OFF, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
 import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
+import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
 import { chainObserver } from '../../shift/chain-bus.js'
 import { CLAUDE_VARIABLE } from '../../shift/claude.js'
 import { runRelaunchBg } from '../../shift/relaunch-bg.js'
@@ -32,7 +33,7 @@ const DIR = '/shift/lane-1'
 const NEW_PID = 5151
 const ROLE_PIDS: Record<Role, number> = { operator: 6161, miko: 7171 }
 const OPERATOR_HANDOFF = '/handoff/operator.md'
-const MIKO_HANDOFF = '/handoff/mikoshi.md'
+const MIKO_HANDOFF = `/handoff/${MIKO_HANDOFF_NAME}`
 const restart = (head = MAIN_2, cardId = CARD): string => taskKey({ queue: 'restart', cardId, head })
 
 function restartBench() {
