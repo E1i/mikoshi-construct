@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
-import { deriveQueues, queueTask, reviewKeysOfAnOldInput } from '../../bus/queue.js'
+import { deriveQueues, queueTask, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
@@ -70,11 +70,13 @@ function expectReplayKeepsOldReviews(copy: DatabaseSync): void {
   expect(projectionDump(copy)).toBe(folded)
 
   const ofAnOldInput = new Set(reviewKeysOfAnOldInput(copy))
+  const ofTheCurrentInputAgain = new Set(reviewKeysOfTheCurrentInputAgain(copy))
   deriveQueues(copy, '2026-10-11T17:30:00.000Z')
   const after = new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
   for (const old of oldReviews) {
     const leftBehind = (old.state === 'queued' || old.state === 'leased') && (old.head !== old.pr_head || ofAnOldInput.has(old.task_key))
-    expect({ key: old.task_key, state: after.get(old.task_key) }).toEqual({ key: old.task_key, state: leftBehind ? 'superseded' : old.state })
+    const expected = leftBehind ? 'superseded' : ofTheCurrentInputAgain.has(old.task_key) ? 'queued' : old.state
+    expect({ key: old.task_key, state: after.get(old.task_key) }).toEqual({ key: old.task_key, state: expected })
   }
   expect(copy.prepare(`SELECT pr, head FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING count(*) > 1`).all()).toEqual([])
 }

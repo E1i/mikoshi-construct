@@ -23,7 +23,7 @@ export const LEASED = 'leased'
 export const WITHDRAWN = 'withdrawn'
 const SUPERSEDED = 'superseded'
 const STOPPED = 'stopped'
-const REQUEUABLE = new Set([STOPPED, WITHDRAWN])
+const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
 const NO_CARD_TREE = 'no_card_tree'
 
 function cardBodyShaOf(card: string): string {
@@ -50,6 +50,16 @@ const REVIEW_CANDIDATES = `
     AND (verdict_on_head IS NULL OR (verdict_on_head = 'changes' AND body_sha IS NOT NULL AND ${REVIEWED_UNDER_AN_INPUT}))
     AND NOT ${A_REVIEW_UNDER_A_PLAIN_KEY}
   ORDER BY pr
+`
+
+const SUPERSEDED_REVIEWS_ON_THE_CURRENT_HEAD = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure, prs.body_sha, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = 'review' AND tasks.state = '${SUPERSEDED}' AND tasks.head = prs.head AND prs.state = 'open'
+    AND prs.ci = 'green' AND (prs.verdict_on_head IS NULL OR prs.verdict_on_head = 'changes')
+    AND prs.body_sha IS NOT NULL AND tasks.task_key LIKE '%:pr-body-%'
+    AND NOT EXISTS (SELECT 1 FROM tasks AS live WHERE live.queue = 'review' AND live.pr = tasks.pr AND live.state IN ('queued', 'leased'))
+  ORDER BY tasks.task_key
 `
 
 const REVIEWS_OF_AN_OLD_INPUT = `
@@ -218,6 +228,8 @@ interface ReviewRow extends TaskRow {
   card_body: unknown
 }
 
+type SupersededReviewRow = ReviewRow & StoppedRow
+
 interface QueuedTask extends TaskIdentity {
   stop?: number
 }
@@ -292,10 +304,11 @@ export function generationField(generation: string | undefined): { generation?: 
   return generation === undefined ? {} : { generation }
 }
 
-function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number): BusEvent {
+function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number, requeue?: number): BusEvent {
   const key = keyOf(task)
   const after = failure === undefined ? {} : { failure }
-  const dedupeKey = failure === undefined ? `${type}:${key}` : `${type}:${key}:${failure}`
+  const plain = failure === undefined ? `${type}:${key}` : `${type}:${key}:${failure}`
+  const dedupeKey = requeue === undefined ? plain : `${plain}:requeue-${requeue}`
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey, payload: { task_key: key, queue: task.queue, ...generationField(task.generation), ...after }, legacy: false }
 }
 
@@ -318,8 +331,13 @@ export function queueTask(db: DatabaseSync, ts: string, task: QueuedTask): boole
   return written(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
+function liveAgainBy(db: DatabaseSync, key: string): number | undefined {
+  const row = db.prepare(`SELECT tasks.event_id AS id FROM tasks JOIN events ON events.id = tasks.event_id WHERE tasks.task_key = ? AND events.type = '${TASK_REQUEUED}'`).get(key) as { id: number } | undefined
+  return row === undefined ? undefined : Number(row.id)
+}
+
 export function supersedeTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
-  return written(db, taskEvent(ts, TASK_SUPERSEDED, task))
+  return written(db, taskEvent(ts, TASK_SUPERSEDED, task, undefined, liveAgainBy(db, keyOf(task))))
 }
 
 function identity(row: TaskRow): QueuedTask {
@@ -339,6 +357,14 @@ function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
 
 export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
   return reviewsOfAnOldInput(db).map(row => row.task_key)
+}
+
+function reviewsOfTheCurrentInputAgain(db: DatabaseSync): SupersededReviewRow[] {
+  return (db.prepare(SUPERSEDED_REVIEWS_ON_THE_CURRENT_HEAD).all() as unknown as SupersededReviewRow[]).filter(underCurrentInput)
+}
+
+export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync): string[] {
+  return reviewsOfTheCurrentInputAgain(db).map(row => row.task_key)
 }
 
 function underCurrentInput(row: ReviewRow): boolean {
@@ -365,6 +391,10 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       if (requeueTask(db, ts, row))
         derived.queued.push(row.task_key)
     }
+  }
+  for (const row of reviewsOfTheCurrentInputAgain(db)) {
+    if (requeueTask(db, ts, row))
+      derived.queued.push(row.task_key)
   }
   for (const [queue, query, admits] of candidates(db)) {
     for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {

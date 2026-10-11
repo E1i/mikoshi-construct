@@ -195,4 +195,25 @@ describe('review queue', () => {
     expect(tasks(db)).toEqual([{ task_key: keyOf(body), state: 'superseded' }, { task_key: keyOf(edited), state: 'queued' }])
     db.close()
   })
+
+  it('an edit of the pull request body and its revert before the review leases leave exactly one queued review on the head', () => {
+    const { db, gitHub, tick } = setUp()
+    const body = cardBody(927)
+    const edited = `${body}\n\nedited`
+    const keyOf = (prBody: string): string => taskKey({ queue: 'review', cardId: 1027, pr: 927, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: null } })
+    const queued = (): string[] => (db.prepare(`SELECT task_key FROM tasks WHERE queue = 'review' AND state = 'queued'`).all() as { task_key: string }[]).map(row => row.task_key)
+
+    for (const [text, current, left] of [[body, body, null], [edited, edited, body], [body, body, edited], [edited, edited, body], [body, body, edited]] as const) {
+      gitHub.open({ number: 927, body: text })
+      tick()
+      expect(queued()).toEqual([keyOf(current)])
+      if (left !== null)
+        expect(tasks(db)).toContainEqual({ task_key: keyOf(left), state: 'superseded' })
+    }
+    expect(tasks(db)).toHaveLength(2)
+    const live = projectionDump(db)
+    reduce(db)
+    expect(projectionDump(db)).toBe(live)
+    db.close()
+  })
 })
