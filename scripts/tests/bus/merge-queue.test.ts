@@ -26,12 +26,13 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function delegatedBench(): ReturnType<typeof mergeBench> {
+function delegatedBench(decisions = D82): ReturnType<typeof mergeBench> & { file: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-merge-delegation-'))
   roots.push(root)
   const file = path.join(root, 'owner-decisions.md')
-  writeFileSync(file, D82)
-  return mergeBench((db, clock) => decisionsIntake(db, file, clock.now))
+  writeFileSync(file, decisions)
+  writeFileSync(path.join(root, 'owner-decisions.archive.md'), `# Owner decisions archive\n\n${Array.from({ length: 81 }, (_, index) => `- D-${index + 1} · 2026-10-08 — archived ${index + 1}.\n`).join('')}`)
+  return { ...mergeBench((db, clock) => decisionsIntake(db, file, clock.now)), file }
 }
 
 function shardDeps(bench: ReturnType<typeof mergeBench>, id: string, out: string[] = []): ShardDeps {
@@ -174,6 +175,38 @@ describe('the merge worker', () => {
     const out: string[] = []
     expect(runShard(['--pr', '980', '--under', 'D-82', '--by', 'Eli'], shardDeps(bench, 'shard-late', out))).toBe(1)
     expect(out).toEqual([expect.stringContaining('D-82 is not in force')])
+    bench.close()
+  })
+
+  it('an until the decisions file cannot read leaves D-N out of force, and a shard --under it gets policy.denied authority', () => {
+    for (const unread of ['until 2026-10-09T13:00Z.', '(until 2026-10-09T13:00Z)']) {
+      const bench = delegatedBench(D82.replace('until 2026-10-09T13:00Z', unread))
+      recorded(bench, 'worker:review:reviewer-1')
+      ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+      bench.tick()
+      const out: string[] = []
+      expect(runShard(['--pr', '980', '--under', 'D-82', '--by', 'Eli'], shardDeps(bench, 'shard-unread', out))).toBe(1)
+      expect(out).toEqual([expect.stringContaining('D-82 is not in force')])
+      expect(startMergeWorker(parts(bench)).step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+      expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
+      bench.close()
+    }
+  })
+
+  it('a corrupted until after a passed import takes the authority away: a shard --under that D-N gets policy.denied authority', () => {
+    const bench = delegatedBench()
+    recorded(bench, 'worker:review:reviewer-1')
+    ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+    bench.tick()
+    expect(decisionsInForceAt(bench.db, bench.clock.now()).map(decision => decision.decisionId)).toEqual([82])
+    expect(shardUnderD82(bench, 980)).toBe(0)
+
+    writeFileSync(bench.file, D82.replace('until 2026-10-09T13:00Z', 'until 2026-10-09T13:00 Z'))
+    bench.tick()
+    expect(decisionsInForceAt(bench.db, bench.clock.now())).toEqual([])
+    expect(startMergeWorker(parts(bench)).step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
+    expect(bench.gitHub.puts).toEqual([])
     bench.close()
   })
 

@@ -3,15 +3,17 @@ import { Buffer } from 'node:buffer'
 export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
 export const WRITER_MARKER = 'decisions:add'
-export const DECISION_FORMAT = `- D-N · <date> — <decision> [· card #A #B] [· ${WRITER_MARKER}] [· superseded-by D-M]`
+export const DECISION_FORMAT = `- D-N · <date> — <decision> [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
 export const SPENDING_DECISION = 54
 
+const TERM = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2})?Z'
 const FIELD_PATTERNS: Record<string, string> = {
   'D-N': 'D-(?<number>[1-9]\\d*)',
   'D-M': 'D-(?<supersededBy>[1-9]\\d*)',
   '<date>': '\\d{4}-\\d{2}-\\d{2}(?: ~\\d{2}:\\d{2}Z)?',
   '<decision>': '(?<body>\\S.*?)',
   '#A #B': '(?<cards>#[1-9]\\d*(?: #[1-9]\\d*)*)',
+  '<YYYY-MM-DDTHH:MMZ>': `(?<until>${TERM})`,
   [WRITER_MARKER]: `(?<written>${WRITER_MARKER})`,
 }
 const FIELD = new RegExp(`(${Object.keys(FIELD_PATTERNS).join('|')})`)
@@ -19,7 +21,8 @@ const OPTIONAL_TAIL = / \[([^\]]+)\]/g
 const LIST_START = /^\s*(?:[-*+]|\d+[.)])\s|^\s*D-/
 const NUMBER_ATTEMPT = /^\s*(?:[-*+]\s+)?D-/
 const SUPERSEDED_MENTION = /superseded-by/i
-const UNTIL = /\buntil (?<until>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)(?!\S)/
+const TRAILING_UNTIL = new RegExp(`\\s(?:· )?until (?<until>${TERM})$`)
+const UNTIL_ATTEMPT = /\buntil\W*\d{4}-\d{2}-\d{2}/i
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -38,12 +41,18 @@ function lineShape(format: string): RegExp {
 
 const DECISION_LINE = lineShape(DECISION_FORMAT)
 
+export interface Term {
+  until: string | null
+  unread: boolean
+}
+
 export interface Decision {
   number: number
   line: number
   text: string
   body: string
   cards: number[]
+  term: Term
   written: boolean
   supersededBy: number | null
 }
@@ -68,6 +77,7 @@ function decisionOf(text: string, line: number): Decision | null {
     text,
     body: groups.body!,
     cards: groups.cards === undefined ? [] : groups.cards.split(' ').map(card => Number(card.slice(1))),
+    term: termOf(groups.body!, groups.until),
     written: groups.written !== undefined,
     supersededBy: groups.supersededBy === undefined ? null : Number(groups.supersededBy),
   }
@@ -90,18 +100,29 @@ export function parseDecisions(text: string): Decisions {
   return { decisions, offFormat }
 }
 
-export function untilOf(body: string): Date | null {
-  const until = UNTIL.exec(body)?.groups?.until
-  return until === undefined ? null : new Date(until)
+export function calendarTerm(until: string): boolean {
+  const ms = Date.parse(until)
+  return !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(until.slice(0, -1))
 }
 
-export function expired(body: string, now: Date): boolean {
-  const until = untilOf(body)
-  return until !== null && until.getTime() <= now.getTime()
+export function termOf(body: string, tail?: string): Term {
+  const trailing = TRAILING_UNTIL.exec(body)
+  const rest = trailing === null ? body : body.slice(0, trailing.index)
+  const terms = [tail, trailing?.groups?.until].filter(term => term !== undefined)
+  const until = terms[0] ?? null
+  return { until, unread: terms.length > 1 || UNTIL_ATTEMPT.test(rest) || (until !== null && !calendarTerm(until)) }
+}
+
+export function lapsed(term: Term, now: Date): boolean {
+  return term.unread || (term.until !== null && Date.parse(term.until) <= now.getTime())
+}
+
+export function boundText(decision: Decision): string {
+  return decision.term.until === null || TRAILING_UNTIL.test(decision.body) ? decision.body : `${decision.body} · until ${decision.term.until}`
 }
 
 export function inForce(decisions: readonly Decision[], now: Date = new Date()): Decision[] {
-  return decisions.filter(decision => decision.supersededBy === null && !expired(decision.body, now))
+  return decisions.filter(decision => decision.supersededBy === null && !lapsed(decision.term, now))
 }
 
 export function inForceBytes(decisions: readonly Decision[]): number {
@@ -198,6 +219,12 @@ function duplicateInForceRefusals(decisions: readonly Decision[]): string[] {
   return refusals
 }
 
+function untilRefusals(decisions: readonly Decision[]): string[] {
+  return decisions
+    .filter(decision => decision.term.unread)
+    .map(decision => `${PREFIX}D-${decision.number} on line ${decision.line}: an until that does not read as · until <YYYY-MM-DDTHH:MMZ> at the end of the decision; it is not in force`)
+}
+
 function sizeRefusals(decisions: readonly Decision[]): string[] {
   const bytes = inForceBytes(decisions)
   return bytes <= DECISIONS_IN_FORCE_LIMIT ? [] : [`${PREFIX}decisions in force: ${bytes} bytes over the limit of ${DECISIONS_IN_FORCE_LIMIT}; mark the replaced ones superseded-by D-M`]
@@ -213,6 +240,7 @@ export function decisionsRefusals(text: string, archive = ''): string[] {
     ...unmarkedRefusals(decisions),
     ...supersedingRefusals(decisions, archived),
     ...duplicateInForceRefusals(decisions),
+    ...untilRefusals(decisions),
     ...sizeRefusals(decisions),
   ]
 }

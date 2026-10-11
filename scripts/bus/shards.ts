@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { InForceDecision } from './decisions.js'
-import { expired } from '../decisions/decisions.js'
+import { lapsed, termOf } from '../decisions/decisions.js'
 import { inForceDecisions } from './decisions.js'
 
 export const SHARD_ISSUED = 'shard.issued'
@@ -12,7 +12,7 @@ export interface UnspentShard {
 }
 
 export function decisionsInForceAt(db: DatabaseSync, now: Date): InForceDecision[] {
-  return inForceDecisions(db).filter(decision => !expired(decision.text, now))
+  return inForceDecisions(db).filter(decision => !lapsed(termOf(decision.text), now))
 }
 
 export function shardActive(db: DatabaseSync, run: string | null): boolean {

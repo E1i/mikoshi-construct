@@ -78,6 +78,21 @@ describe('owner decisions are a numbered record', () => {
     expect(numbers(new Date('2026-10-12T04:30:00.000Z'))).toEqual([1, 5])
   })
 
+  it('an until that is not the until tail is refused with its line and is never in force', () => {
+    const text = file(
+      '- D-1 · 2026-10-08 — Delegated until 2026-10-12T04:30Z.',
+      '- D-2 · 2026-10-08 — Delegated (until 2026-10-12T04:30Z).',
+      '- D-3 · 2026-10-08 — Delegated until 2026-10-12 11:30, then Eli.',
+      '- D-4 · 2026-10-08 — Delegated. · until 2026-02-30T00:00Z',
+      '- D-5 · 2026-10-08 — Delegated. · until 2026-10-12T04:30Z',
+      '- D-6 · 2026-10-08 — Delegated, the term at the end. until 2026-10-12T04:30Z · decisions:add',
+      '- D-7 · 2026-10-08 — Merged until reviewed; the freeze held only until 0.43. · decisions:add',
+    )
+    expect(inForce(parseDecisions(text).decisions, new Date('2026-10-11T12:00:00.000Z')).map(decision => decision.number)).toEqual([5, 6, 7])
+    expect(decisionsRefusals(text)).toEqual([1, 2, 3, 4].map(number => expect.stringContaining(`D-${number} on line ${number + 4}: an until that does not read as · until`) as unknown))
+    expect(read(text).code).toBe(1)
+  })
+
   it('reads the home decisions file when none is named', () => {
     expect(read(file('- D-1 · 2026-10-08 — one.'), []).out).toEqual(['- D-1 · 2026-10-08 — one.'])
   })
@@ -177,7 +192,7 @@ describe('owner decisions are a numbered record', () => {
 
 describe('a decision bound to a card is spent once the card is merged or closed', () => {
   it('names the card tail in the format, before superseded-by', () => {
-    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· card #A #B] [· decisions:add] [· superseded-by D-M]')
+    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· decisions:add] [· superseded-by D-M]')
     const text = file('- D-1 · 2026-10-08 — one. · card #686 #687', '- D-2 · 2026-10-08 — two. · card #5 · superseded-by D-3', '- D-3 · 2026-10-08 — three.')
     expect(decisionsRefusals(text)).toEqual([])
     expect(parseDecisions(text).decisions.map(decision => [decision.body, decision.cards, decision.supersededBy])).toEqual([['one.', [686, 687], null], ['two.', [5], 3], ['three.', [], null]])

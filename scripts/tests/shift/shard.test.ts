@@ -116,13 +116,14 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(recorded).toHaveLength(1)
   })
 
-  it('the run path writes shard.used to the bus when the run spends its shard', async () => {
+  it('pnpm shift --slot writes shard.used to the bus with no bus refusal', async () => {
     const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
     const shard = issue(world)
     const { gh } = ownerGh()
-    const recorded: BusEvent[] = []
-    await runShift([world.shift, '--parking', world.parking, '--slot', shard], { ...depsOf(world, gh, captured()), recordBus: event => recorded.push(event) })
-    expect(recorded).toMatchObject([{ type: SHARD_USED, payload: { id: shard, run: world.shift } }])
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    await runShift([world.shift, '--parking', world.parking, '--slot', shard], { ...depsOf(world, gh, captured()), recordBus: event => appendEvent(db, event) })
+    expect(busEvents(db)).toEqual([{ type: SHARD_USED, actor: `worker:shift:${path.basename(world.shift)}`, card_id: null, pr: null, payload: { id: shard, run: world.shift } }])
+    db.close()
   })
 
   it('without a shard an owner PR stops at the owner', async () => {

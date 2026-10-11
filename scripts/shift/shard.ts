@@ -99,7 +99,7 @@ export function usedLine(id: string, run: string, now: Date): string {
 }
 
 export function usedEvent(id: string, run: string, now: Date): BusEvent {
-  return { ts: now.toISOString(), type: SHARD_USED, actor: 'shift', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_USED}:${id}`, payload: { id, run }, legacy: false }
+  return { ts: now.toISOString(), type: SHARD_USED, actor: `worker:shift:${path.basename(run)}`, cardId: null, pr: null, head: null, dedupeKey: `${SHARD_USED}:${id}`, payload: { id, run }, legacy: false }
 }
 
 function notApplied(number: string, shard: string, why: string): string[] {
