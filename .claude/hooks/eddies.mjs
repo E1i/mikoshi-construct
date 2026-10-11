@@ -11,6 +11,8 @@ const CONFIG_FILE = '.claude/eddies.json'
 const WARNED_DIR = '.construct/eddies.d/warned'
 const TASK_CACHE_DIR = '.construct/eddies.d/task'
 const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
+const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
+const CARD_VARIABLE = 'CONSTRUCT_CARD'
 const GHOST_JOURNAL = 'ghosts.jsonl'
 const JOURNAL_VERSION = 1
 const THRESHOLDS = ['contextLimit', 'sessionSpend', 'agentSpend', 'runSpend', 'warnRatio']
@@ -76,9 +78,13 @@ function readConfig(root) {
   return config
 }
 
-function ghostJournalPath() {
+function handoffDir() {
   const dir = process.env[HANDOFF_DIR_VARIABLE]
-  return path.join(dir != null && dir !== '' ? dir : path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
+  return dir != null && dir !== '' ? dir : path.join(os.homedir(), '.construct', 'handoff')
+}
+
+function ghostJournalPath() {
+  return path.join(handoffDir(), GHOST_JOURNAL)
 }
 
 function startedTaskIn(text, session) {
@@ -228,7 +234,23 @@ function shellQuoted(text) {
   return `'${text.replaceAll('\'', '\'\\\'\'')}'`
 }
 
+function sessionHandoffOf() {
+  const file = process.env[HANDOFF_VARIABLE]
+  return file != null && file !== '' ? file : path.join(handoffDir(), 'mikoshi.md')
+}
+
+function isCardSession() {
+  const card = process.env[CARD_VARIABLE]
+  return card != null && card !== ''
+}
+
 function continueLineOf(root) {
+  if (!isCardSession()) {
+    const handoff = sessionHandoffOf()
+    const writeLine = `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n`
+    const unset = process.env[HANDOFF_VARIABLE] == null || process.env[HANDOFF_VARIABLE] === ''
+    return unset ? `${writeLine}eddies: to continue in a new window — cd ${shellQuoted(root)} && pnpm miko\n` : writeLine
+  }
   return `eddies: to continue in a new window — cd ${shellQuoted(root)} && claude ${shellQuoted(CONTINUE_PROMPT)}\n`
 }
 
