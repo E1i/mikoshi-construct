@@ -10,7 +10,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
-import { checkDraft, COMPANION_REASON, COMPANION_TABLE, DEFAULT_CONTOUR, invalidTestPatterns } from '../src/commands/intake/check.js'
+import { runAdmit } from '../src/commands/intake/admit.js'
+import { checkDraft, COMPANION_REASON, COMPANION_TABLE, correctionText, DEFAULT_CONTOUR, invalidTestPatterns, publishedRootsOf } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -18,6 +19,7 @@ import { resolveTheme } from '../src/ui/theme.js'
 import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
+const PUBLISHED = ['dist', 'templates']
 const TASK = 'The intake should check every card against the repository before it is parked.'
 
 const roots: string[] = []
@@ -270,7 +272,7 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
   for (const [kind, { repository: files, touches, added }] of Object.entries(companionCases)) {
     it(`adds the companions of ${kind} the card lacks, once, and none where the repository does not keep them`, () => {
       const dir = repository(files.filter(file => !file.endsWith('/**')))
-      const kept = facts({ repository: new DirectoryFacts(dir, '') })
+      const kept = facts({ repository: new DirectoryFacts(dir, ''), published: PUBLISHED })
       const [checked] = checkDraft([draftCard({ touches })], [2], kept)
       expect(checked!.touches).toEqual([...touches, ...added])
       expect(checked!.corrections).toEqual(added.map(now => ({ field: 'touches', was: '(absent)', now, reason: COMPANION_REASON })))
@@ -280,6 +282,71 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
       expect(checkDraft([draftCard({ touches })], [2], kept)[0]!.touches).toEqual(touches)
     })
   }
+
+  function publishedRepository(manifest: Record<string, unknown> | null): string {
+    const dir = repository(['.changeset/config.json', 'src/commands/intake/index.ts', 'scripts/board/next.ts', 'tests/a.test.ts'])
+    if (manifest !== null)
+      put(dir, 'package.json', JSON.stringify(manifest))
+    return dir
+  }
+
+  function admitParked(dir: string, touches: string): { status: string, parked: string } {
+    const parked = path.join(dir, 'parking', '80.md')
+    put(dir, 'parking/80.md', `card: #80 admit-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    const { status } = runAdmit({ file: parked, dir, journal: path.join(dir, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, parkingRoot: path.join(dir, 'parking') })
+    return { status, parked }
+  }
+
+  function changesetCorrections(result: IntakeResult): string[] {
+    if (result.status === 'refused')
+      throw new Error(`refused: ${result.refusal} ${result.detail.join('; ')}`)
+    return result.cards.flatMap(entry => entry.corrections.filter(correction => correction.now === '.changeset/**').map(correctionText))
+  }
+
+  it('a touch under src/commands gets the changeset companion', () => {
+    const dir = publishedRepository({ name: 'published', files: PUBLISHED })
+    const { result, parking } = intake([card({ touches: ['src/commands/intake/index.ts', 'tests/**'] })], { dir })
+    expect(changesetCorrections(result)).toEqual([`touches — (absent) → .changeset/** — ${COMPANION_REASON}`])
+    expect(written(result, parking, 2)).toContain('touches: src/commands/intake/index.ts, tests/**, .changeset/**')
+  })
+
+  it('a files entry written as ./dist/ names the published root dist', () => {
+    expect(publishedRootsOf(JSON.stringify({ files: ['./dist/', 'templates'] }))).toEqual(['dist', 'templates'])
+  })
+
+  it('an admitted card that touches src gets the changeset companion when the files field names dist', () => {
+    const dir = publishedRepository({ name: 'published', files: ['dist'] })
+    const { status, parked } = admitParked(dir, 'src/commands/intake/index.ts, tests/**')
+    expect(status).toBe('admitted')
+    expect(readFileSync(parked, 'utf8')).toContain('touches: src/commands/intake/index.ts, tests/**, .changeset/**\n')
+  })
+
+  it('a package.json that cannot be read refuses intake and admit instead of throwing', () => {
+    const dir = publishedRepository(null)
+    mkdirSync(path.join(dir, 'package.json'))
+    const { result } = intake([card({ touches: ['src/commands/intake/index.ts', 'tests/**'] })], { dir })
+    expect(result).toMatchObject({ status: 'refused', refusal: 'unreadable' })
+    expect(admitParked(dir, 'src/commands/intake/index.ts').status).toBe('refused')
+  })
+
+  it('a touch under scripts, which is not published, gets no changeset companion', () => {
+    const dir = publishedRepository({ name: 'published', files: PUBLISHED })
+    expect(changesetCorrections(intake([card({ touches: ['scripts/board/next.ts'] })], { dir }).result)).toEqual([])
+  })
+
+  it('a touch under src gets no changeset companion when package.json names no files', () => {
+    for (const manifest of [null, { name: 'no-files-field' }]) {
+      const dir = publishedRepository(manifest)
+      expect(changesetCorrections(intake([card({ touches: ['src/commands/intake/index.ts', 'tests/**'] })], { dir }).result)).toEqual([])
+    }
+  })
+
+  it('an unparseable package.json names no published files', () => {
+    const dir = publishedRepository(null)
+    put(dir, 'package.json', '{ "files": [')
+    expect(publishedRootsOf('{ "files": [')).toBeUndefined()
+    expect(changesetCorrections(intake([card({ touches: ['src/commands/intake/index.ts', 'tests/**'] })], { dir }).result)).toEqual([])
+  })
 
   it('keeps who: shift on a corrected card with no unclear line', () => {
     const dir = repository(['src/commands/intake/index.ts'])
