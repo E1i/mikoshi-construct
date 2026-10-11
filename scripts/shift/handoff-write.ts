@@ -41,12 +41,9 @@ function setOrNull(value: string | undefined): string | null {
 }
 
 export function sessionHandoffOf(env: NodeJS.ProcessEnv, home: string): string | null {
-  const handoff = setOrNull(env[HANDOFF_VARIABLE])
-  if (handoff !== null)
-    return handoff
   if (setOrNull(env[CARD_VARIABLE]) !== null)
     return null
-  return path.join(setOrNull(env[HANDOFF_DIR_VARIABLE]) ?? path.join(home, '.construct', 'handoff'), 'mikoshi.md')
+  return setOrNull(env[HANDOFF_VARIABLE]) ?? path.join(setOrNull(env[HANDOFF_DIR_VARIABLE]) ?? path.join(home, '.construct', 'handoff'), 'mikoshi.md')
 }
 
 export function nextArchive(names: readonly string[]): string {

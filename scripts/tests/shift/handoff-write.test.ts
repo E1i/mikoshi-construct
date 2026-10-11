@@ -152,11 +152,24 @@ describe('handoff:write', () => {
     expect(existsSync(task)).toBe(true)
   })
 
+  it('lets a card session that inherited the Operator CONSTRUCT_HANDOFF create its task handoff', () => {
+    const { dir, draft: file } = world()
+    const operator = path.join(dir, 'operator.md')
+    const task = path.join(dir, '866-handoff.md')
+    writeFileSync(file, draft())
+    const session = sessionHandoffOf({ CONSTRUCT_CARD: '866', CONSTRUCT_HANDOFF: operator, CONSTRUCT_HANDOFF_DIR: dir }, '/home')
+    expect(session).toBeNull()
+    expect(write([task, file], undefined, session).code).toBe(0)
+    expect(existsSync(task)).toBe(true)
+    expect(existsSync(operator)).toBe(false)
+  })
+
   it.each([
     ['unset variables', {}, '/home/.construct/handoff/mikoshi.md'],
     ['empty variables', { CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CONSTRUCT_CARD: '' }, '/home/.construct/handoff/mikoshi.md'],
     ['a handoff dir', { CONSTRUCT_HANDOFF_DIR: '/d' }, '/d/mikoshi.md'],
-    ['CONSTRUCT_HANDOFF over the dir and the card', { CONSTRUCT_HANDOFF: '/r/h.md', CONSTRUCT_HANDOFF_DIR: '/d', CONSTRUCT_CARD: '1' }, '/r/h.md'],
+    ['CONSTRUCT_HANDOFF over the dir', { CONSTRUCT_HANDOFF: '/r/h.md', CONSTRUCT_HANDOFF_DIR: '/d' }, '/r/h.md'],
+    ['a card session with an inherited CONSTRUCT_HANDOFF', { CONSTRUCT_HANDOFF: '/r/operator.md', CONSTRUCT_HANDOFF_DIR: '/d', CONSTRUCT_CARD: '1' }, null],
     ['a card session with no CONSTRUCT_HANDOFF', { CONSTRUCT_CARD: '866', CONSTRUCT_HANDOFF: '' }, null],
   ] as const)('reads the session handoff from %s', (_, env, expected) => {
     expect(sessionHandoffOf(env, '/home')).toBe(expected)
