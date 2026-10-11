@@ -13,7 +13,7 @@ import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { raisedByTheBus } from '../bus/role.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
-import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
+import { decisionsPath, defaultParking, handoffRefusals, parkedDepends, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
@@ -37,7 +37,7 @@ export function boundaryCommand(session: string): string {
 }
 export function relaunchPrompt(handoff: string, decisions: string | null, session: string): string {
   const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${decisions}, and never copy them into the handoff.`
-  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
+  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file. It generates ${STATE_LABELS.join(', ')} from the bus state; the draft carries the stop reason and the next task.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
 export const FACTORY_FILE = 'factory.json'

@@ -94,6 +94,7 @@ export const PREV_LABEL = 'prev'
 export const IN_FLIGHT_LABEL = 'in-flight'
 export const NO_PREV = 'none'
 export const IN_FLIGHT_FORMAT = '#N <stage> [PR #M]'
+export const STATE_LABELS = ['current card', 'queue', IN_FLIGHT_LABEL, 'owner waits'] as const
 
 const STOP_HEADING = /^#{1,6} +STOP\b/
 const ANY_LABEL = /^\s*(?:[-*+]\s+)?[a-z][\w -]{0,30}:/i

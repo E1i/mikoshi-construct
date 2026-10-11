@@ -1,11 +1,12 @@
+import type { HandoffState } from '../../shift/handoff-write.js'
 import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
-import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck, STATE_LABELS } from '../../ghosts/handoff-check.js'
+import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, stateLines, withPrev, withState } from '../../shift/handoff-write.js'
 import { statusOf } from '../../shift/relaunch.js'
 
 const roots: string[] = []
@@ -37,7 +38,14 @@ function world(): { dir: string, handoff: string, draft: string } {
   return { dir, handoff: path.join(dir, 'handoff.md'), draft: path.join(dir, 'draft.md') }
 }
 
-function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[] } {
+const BUS_STATE: HandoffState = {
+  ready: [{ card: '650', lane: 'lane-1', reason: null }, { card: '652', lane: 'lane-1', reason: null }],
+  blocked: [{ card: '653', lane: 'lane-2', reason: 'waits question' }],
+  lanes: [{ lane: 'lane-1', card: 648, state: 'running', since: null }, { lane: 'lane-2', card: null, state: null, since: null }],
+  execution: [{ card: 648, pr: null, stage: 'writing', since: null, review: null, markers: [] }, { card: 640, pr: 701, stage: 'awaiting merge', since: null, review: null, markers: [] }],
+}
+
+function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? ''), state: HandoffState | null = null): { code: number, out: string[], err: string[] } {
   const out: string[] = []
   const err: string[] = []
   const code = runHandoffWrite(args, {
@@ -52,6 +60,7 @@ function write(args: string[], handoffDir?: string, sessionHandoff: string | nul
     writeNew: (file, text) => writeFileSync(file, text, { flag: 'wx' }),
     rename: renameSync,
     parked: () => PARKED,
+    state: () => state,
     home: '/home/x',
     out: line => out.push(line),
     err: line => err.push(line),
@@ -207,6 +216,46 @@ describe('handoff:write', () => {
       expect(write([handoff, file]).code).toBe(0)
       expect(readFileSync(handoff, 'utf8')).toContain(`${status}\n`)
     }
+  })
+
+  it('the in-flight and queue fields are generated from the bus state, not from the draft', () => {
+    const { handoff, draft: file } = world()
+    writeFileSync(file, draft({ 'queue': '#652', 'in-flight': '#999 brief', 'current card': '#1', 'owner waits': 'prose' }).replace('in-flight: #999 brief', 'in-flight: #999 brief\n#998 review PR #5'))
+    const result = write([handoff, file], undefined, undefined, BUS_STATE)
+    expect(result.err).toEqual([])
+    expect(result.code).toBe(0)
+    const written = readFileSync(handoff, 'utf8')
+    expect(written).toContain('queue: #650 → #652\n')
+    expect(written).toContain('in-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\n')
+    expect(written).toContain('current card: #648 lane-1 running\n')
+    expect(written).toContain('owner waits: #653 waits question\n')
+    expect(written).not.toMatch(/#99[89]|prose|current card: #1\n/)
+    expect(written).toContain('stop reason: stop-reason value\n')
+    expect(written).toContain('continue when: continue-when value\n')
+    expect(result.out[0]).toContain(`${STATE_LABELS.join(', ')} from the bus state`)
+  })
+
+  it('writes none for every state field the bus holds nothing for, and lets a draft with no state fields pass', () => {
+    const empty: HandoffState = { ready: [], blocked: [], lanes: [], execution: [] }
+    expect(stateLines(empty)).toEqual(['current card: none', 'queue: none', 'in-flight: none', 'owner waits: none'])
+    const { handoff, draft: file } = world()
+    const bare = draft().split('\n').filter(line => !STATE_LABELS.some(label => line.startsWith(`${label}:`))).join('\n')
+    writeFileSync(file, bare)
+    expect(write([handoff, file]).code).toBe(1)
+    expect(write([handoff, file], undefined, undefined, empty).code).toBe(0)
+  })
+
+  it('keeps the draft fields and says so when no bus state is read', () => {
+    const { handoff, draft: file } = world()
+    writeFileSync(file, draft())
+    const result = write([handoff, file])
+    expect(result.code).toBe(0)
+    expect(readFileSync(handoff, 'utf8')).toContain('queue: #650 → #652\n')
+    expect(result.out[0]).toContain('no bus state read')
+  })
+
+  it('puts the generated fields under the STOP heading and keeps the labels that follow a dropped field', () => {
+    expect(withState('# H\n## STOP\nqueue: #1\n#2\nstop reason: x\n', ['queue: #3'])).toBe('# H\n## STOP\nqueue: #3\nstop reason: x\n')
   })
 
   it('refuses a bad argv', () => {
