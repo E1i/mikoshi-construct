@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AnswerOutcome } from './answer-executor.js'
 import type { Answerer } from './answerer.js'
+import type { Lease } from './lease.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -10,13 +11,44 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { AnswerExecutor } from './answer-executor.js'
 import { claudeAnswerer, PREFIX } from './answerer.js'
-import { defaultBusPath, openBus } from './db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { messageOf, OWNER_MERGES } from './executor.js'
-import { expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease } from './lease.js'
+import { expireLeases, LEASE_FOLDS, RENEW_MS, renewLease, StaleLease, TASK_LEASED } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
+import { LEASED, QUEUED } from './queue.js'
 import { SWITCH_FLAG } from './review-worker.js'
+import { slotsOf } from './scheduler.js'
+import { storedByKey } from './stored.js'
 
 const ANSWERS_DIR = path.join(os.homedir(), '.construct', 'bus', 'answers')
+
+const NEXT_ON_A_FREE_CARD_TREE = `
+  SELECT tasks.* FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = 'answer' AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
+    AND NOT EXISTS (SELECT 1 FROM tasks AS held WHERE held.queue = 'answer' AND held.state = '${LEASED}' AND held.card_id = tasks.card_id)
+  ORDER BY tasks.id LIMIT 1
+`
+
+interface AnswerRow {
+  task_key: string
+  card_id: number
+  pr: number | null
+  head: string | null
+  lease_gen: number
+}
+
+export function leaseOnAFreeCardTree(db: DatabaseSync, ts: string, actor: string): Lease | null {
+  return inTransaction(db, () => {
+    const row = db.prepare(NEXT_ON_A_FREE_CARD_TREE).get() as AnswerRow | undefined
+    if (row === undefined)
+      return null
+    const leaseGen = row.lease_gen + 1
+    const dedupeKey = `${TASK_LEASED}:${row.task_key}:${leaseGen}`
+    if (appendEvent(db, { ts, type: TASK_LEASED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey, payload: { task_key: row.task_key, queue: 'answer', lease_gen: leaseGen }, legacy: false }))
+      LEASE_FOLDS[TASK_LEASED]!(db, storedByKey(db, dedupeKey))
+    return { taskKey: row.task_key, queue: 'answer', cardId: row.card_id, pr: row.pr, head: row.head, leaseGen, actor }
+  })
+}
 
 export type AnswerStep = { kind: 'idle' } | AnswerOutcome
 
@@ -44,7 +76,7 @@ export class AnswerWorker {
   async step(): Promise<AnswerStep> {
     const { db } = this.parts
     expireLeases(db, this.ts())
-    const lease = leaseNext(db, this.ts(), 'answer', this.actor)
+    const lease = leaseOnAFreeCardTree(db, this.ts(), this.actor)
     if (lease === null)
       return { kind: 'idle' }
     const heartbeat = setInterval(() => {
@@ -64,6 +96,20 @@ export class AnswerWorker {
     finally {
       clearInterval(heartbeat)
     }
+  }
+}
+
+export function startAnswerWorkers(parts: AnswerWorkerParts, slots: number): AnswerWorker[] {
+  return Array.from({ length: slots }, (_, slot) => new AnswerWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))
+}
+
+async function keepAnswering(worker: AnswerWorker, pause: (ms: number) => Promise<unknown>): Promise<never> {
+  for (;;) {
+    const step = await worker.step()
+    const line = answerStepLine(step)
+    if (line !== null)
+      console.log(line)
+    await pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
   }
 }
 
@@ -94,15 +140,10 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
   }
   const db = openBus(run.busPath)
   try {
-    const worker = new AnswerWorker({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, clock: () => new Date(), session: run.session })
-    console.log(`${PREFIX}${run.busPath}: the answer worker ${worker.actor} takes the answer queue`)
-    for (;;) {
-      const step = await worker.step()
-      const line = answerStepLine(step)
-      if (line !== null)
-        console.log(line)
-      await run.pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
-    }
+    const workers = startAnswerWorkers({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, clock: () => new Date(), session: run.session }, slotsOf('answer', process.env))
+    for (const worker of workers)
+      console.log(`${PREFIX}${run.busPath}: the answer worker ${worker.actor} takes the answer queue`)
+    return await Promise.race(workers.map(worker => keepAnswering(worker, run.pause)))
   }
   finally {
     db.close()
