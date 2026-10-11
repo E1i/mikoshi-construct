@@ -14,6 +14,7 @@ import { mergePolicy, VERSION_BRANCH } from './policy.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const MERGE_DONE = 'merge.done'
+export const SHARD_ISSUED = 'shard.issued'
 export const SHARD_USED = 'shard.used'
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const MERGE_METHOD = 'squash'
@@ -55,7 +56,7 @@ interface Pull {
   head?: { sha?: string, ref?: string }
 }
 
-type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null } | { kind: 'denied', denial: MergeDenial }
+type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, shard: string | null } | { kind: 'denied', denial: MergeDenial }
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
@@ -69,6 +70,16 @@ export function shardActive(db: DatabaseSync, run: string | null): boolean {
   if (run === null)
     return false
   return db.prepare(`SELECT 1 FROM events WHERE type = '${SHARD_USED}' AND json_extract(payload, '$.run') = ? LIMIT 1`).get(run) !== undefined
+}
+
+export function unspentShard(db: DatabaseSync, cardId: number, pr: number | null): string | null {
+  const row = db.prepare(`
+    SELECT json_extract(issued.payload, '$.id') AS id FROM events issued
+    WHERE issued.type = '${SHARD_ISSUED}' AND (issued.card_id = ? OR issued.pr = ?)
+      AND NOT EXISTS (SELECT 1 FROM events used WHERE used.type = '${SHARD_USED}' AND json_extract(used.payload, '$.id') = json_extract(issued.payload, '$.id'))
+    ORDER BY issued.id LIMIT 1
+  `).get(cardId, pr) as { id: unknown } | undefined
+  return typeof row?.id === 'string' ? row.id : null
 }
 
 function changedFiles(meter: Meter, pr: number): string[] {
@@ -111,12 +122,13 @@ export class MergeExecutor {
       const verdict = mergePolicy(checked.facts)
       if (verdict.kind === 'denied')
         return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
+      const spent = verdict.rule === 'owner_under_shard' ? checked.shard : null
       if (checked.mergedCommit !== null)
-        return this.finished(lease, checked.mergedCommit, verdict.rule)
+        return this.finished(lease, checked.mergedCommit, verdict.rule, spent)
       const locked = this.versionLock(lease)
       if (locked !== null)
         return this.denied(lease, locked)
-      return this.merged(lease, verdict.rule)
+      return this.merged(lease, verdict.rule, spent)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -147,9 +159,12 @@ export class MergeExecutor {
         if (verdict !== 'pass')
           return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
       }
+      const runShard = shardActive(this.parts.db, this.parts.run)
+      const shard = runShard ? null : unspentShard(this.parts.db, lease.cardId, lease.pr)
       return {
         kind: 'ready',
         mergedCommit,
+        shard,
         facts: {
           cardId: lease.cardId,
           description: pull.body ?? '',
@@ -157,7 +172,7 @@ export class MergeExecutor {
           title: pull.title ?? '',
           files: changedFiles(meter, lease.pr!),
           ownerMergesText: ownerMergesText(meter),
-          shardActive: shardActive(this.parts.db, this.parts.run),
+          shardActive: runShard || shard !== null,
           decisions: inForceDecisions(this.parts.db),
         },
       }
@@ -185,12 +200,12 @@ export class MergeExecutor {
     }
   }
 
-  private finished(lease: Lease, commit: string, rule: AllowedRule): MergeOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [this.done(lease, commit, rule)])
+  private finished(lease: Lease, commit: string, rule: AllowedRule, spent: string | null): MergeOutcome {
+    completeTask(this.parts.db, this.ts(), lease, [this.done(lease, commit, rule), ...(spent === null ? [] : [this.used(lease, commit, spent)])])
     return { kind: 'merged', taskKey: lease.taskKey, commit, rule }
   }
 
-  private merged(lease: Lease, rule: AllowedRule): MergeOutcome {
+  private merged(lease: Lease, rule: AllowedRule, spent: string | null): MergeOutcome {
     let response
     try {
       response = this.parts.put(`${REPO}/pulls/${lease.pr}/merge`, { sha: lease.head!, merge_method: MERGE_METHOD })
@@ -203,11 +218,15 @@ export class MergeExecutor {
     const commit = (response.body as { sha?: unknown } | null)?.sha
     if (response.status !== 200 || !isFullSha(commit))
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}` })
-    return this.finished(lease, commit, rule)
+    return this.finished(lease, commit, rule, spent)
   }
 
   private done(lease: Lease, commit: string, rule: AllowedRule): BusEvent {
     return { ts: this.ts(), type: MERGE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${MERGE_DONE}:${lease.taskKey}`, payload: { commit, rule }, legacy: false }
+  }
+
+  private used(lease: Lease, commit: string, shard: string): BusEvent {
+    return { ts: this.ts(), type: SHARD_USED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SHARD_USED}:${shard}`, payload: { id: shard, commit }, legacy: false }
   }
 
   private denied(lease: Lease, denial: MergeDenial): MergeOutcome {
