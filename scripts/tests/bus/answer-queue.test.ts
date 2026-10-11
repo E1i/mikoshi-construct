@@ -13,10 +13,11 @@ import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
+import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
-import { expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { BOARD_ALARM, expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
@@ -368,6 +369,86 @@ describe('the answer queue', () => {
     for (const queue of ['review', 'merge', 'update'])
       expect(() => identityOf(stored(queue, ':stop-9'))).toThrow(Rejection)
     expect(identityOf(stored('answer', ':stop-9')).key).toBe(`${answer(1090, 990, sha('a'))}:stop-9`)
+  })
+
+  it('a card with an open pull request and changes on its current head gets an answer task within two ticks in any card state', async () => {
+    const bench = answerBench()
+    const ownerQuestion = 'the finding asks for a change to architecture/owner-merges.md'
+    bench.tools.heads = [sha('a'), sha('a')]
+    bench.started(1142)
+    bench.gitHub.open({ number: 1042, review: 'failure' })
+    bench.tick()
+    const lease = bench.leaseAnswer()!
+    bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), `${ownerQuestion}\n`)
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+
+    const states: Record<number, () => void> = {
+      1140: () => bench.started(1140),
+      1141: () => bench.stopped(1141, { reason: 'question.owner', detail: 'may the card touch architecture/owner-merges.md?' }),
+      1143: () => bench.stopped(1143, { reason: 'fault', detail: 'the chain fell' }),
+      1144: () => bench.stopped(1144, { reason: 'question.agent', detail: 'which reader owns the session id?' }, 1044, sha('a')),
+    }
+    for (const [cardId, state] of Object.entries(states)) {
+      state()
+      bench.gitHub.open({ number: Number(cardId) - 100, review: 'failure' })
+    }
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 84, text: '#1141 and #1142 may go on', cards: [1141, 1142] })
+    bench.tick()
+    bench.tick()
+
+    const tasked = (bench.db.prepare(`SELECT DISTINCT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' AND head = ? ORDER BY card_id`).all(sha('a')) as { card_id: number }[]).map(row => row.card_id)
+    expect(tasked).toEqual([1140, 1141, 1142, 1143, 1144])
+    expect(taskState(bench.db, answer(1142, 1042, sha('a')))).toMatchObject({ state: 'queued', failures: 0 })
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('repeated ticks set no second task on the same head', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a')]
+    bench.started(1150)
+    bench.gitHub.open({ number: 1050, review: 'failure' })
+    bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    bench.started(1151)
+    bench.stopped(1151, { reason: 'question.agent', detail: 'which reader owns the session id?' }, 1051, sha('a'))
+    bench.gitHub.open({ number: 1051, review: 'failure' })
+    for (let tick = 0; tick < 4; tick++)
+      bench.tick()
+
+    const live = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(live).toEqual([answer(1150, 1050, sha('a')), bench.question(1151, 1051, sha('a'))])
+    expect(bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer'`).get()).toEqual({ n: 2 })
+    expect(eventsOf(bench.db, 'task.requeued')).toHaveLength(1)
+    bench.close()
+  })
+
+  it('after a fault the task is set again, and the third failure writes board.alarm and no owner inbox item', async () => {
+    const bench = answerBench()
+    bench.tools.heads = Array.from({ length: 2 * FAILURES_TO_STOP }, () => sha('a'))
+    bench.started(1160)
+    bench.gitHub.open({ number: 1060, review: 'failure' })
+    bench.tick()
+    const key = answer(1160, 1060, sha('a'))
+
+    for (let failure = 1; failure <= FAILURES_TO_STOP; failure++) {
+      expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: key, reason: 'fault' })
+      expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+      bench.tick()
+      bench.tick()
+      if (failure < FAILURES_TO_STOP)
+        expect(taskState(bench.db, key)).toMatchObject({ state: 'queued', failures: failure })
+    }
+
+    expect(taskState(bench.db, key).state).toBe('completed')
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ task_key: key, reason: 'fault', failures: FAILURES_TO_STOP, detail: expect.stringContaining(key) }])
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
   })
 
   it('an answer with a stale lease_gen is refused and writes nothing', async () => {
