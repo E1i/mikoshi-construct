@@ -1,6 +1,7 @@
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../bus/bg.js'
 import { describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX } from '../../bus/bg.js'
+import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
 import { backoffMs, FAILURES_REPORTED, KEEP_MAX_MS, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
@@ -79,6 +80,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     s.keeper.step()
     expect(s.starts).toHaveLength(3)
     expect(s.alive).toHaveLength(1)
+    expect(s.keeper.step()).toEqual([])
 
     s.alive = []
     failing = 1
@@ -170,6 +172,33 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     expect(report).toContain(NOT_CLEAN)
     expect(report).toContain('keeps backing off')
     expect(reports[FAILURES_REPORTED]!.at(-1)).toContain(`failed to start ${FAILURES_REPORTED + 1} time(s) in a row`)
+  })
+
+  it('a worker that dies right after its start backs off and reaches the owner after three starts', () => {
+    const merge = workerLaunches(() => []).merge
+    const s = kept([merge], ok)
+    const startedAt: number[] = []
+    const reports: string[] = []
+    for (let tick = 0; tick < 120; tick++) {
+      s.clock.now = tick * CHECK_MS
+      const before = s.starts.length
+      reports.push(...s.keeper.step())
+      if (s.starts.length > before)
+        startedAt.push(s.clock.now)
+      s.alive = []
+    }
+
+    const gaps = startedAt.slice(1).map((at, index) => at - startedAt[index]!)
+    expect(gaps.length).toBeGreaterThanOrEqual(FAILURES_REPORTED)
+    for (let index = 1; index < gaps.length; index++)
+      expect(gaps[index]!).toBeGreaterThan(gaps[index - 1]!)
+    expect(s.starts.length).toBeLessThan(20)
+
+    expect(s.journal).toHaveLength(1)
+    expect(s.journal[0]).toMatchObject({ event: 'worker.down', worker: launchName(merge), failures: ['exited after start', 'exited after start', 'exited after start'] })
+    const owner = reports.filter(line => line.includes('needs the owner'))
+    expect(owner).toHaveLength(1)
+    expect(owner[0]).toContain(`${launchName(merge)} failed ${FAILURES_REPORTED} starts in a row and needs the owner: 1) exited after start`)
   })
 
   it('the backoff stops growing at its ceiling', () => {

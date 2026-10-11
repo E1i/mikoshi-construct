@@ -202,7 +202,10 @@ export interface KeeperParts {
 interface Streak {
   causes: string[]
   retryAt: number
+  awaitingSight: boolean
 }
+
+const EXITED_AFTER_START = 'exited after start'
 
 export function backoffMs(failures: number): number {
   return Math.min(KEEP_BASE_MS * 2 ** (failures - 1), KEEP_MAX_MS)
@@ -239,6 +242,8 @@ export class WorkerKeeper {
   private revive(launch: DetachedLaunch): string[] {
     const name = launchName(launch)
     const streak = this.streaks.get(name)
+    if (streak?.awaitingSight === true)
+      return this.failed(name, streak, EXITED_AFTER_START)
     if (streak !== undefined && this.parts.now() < streak.retryAt)
       return []
     const lines = [`${PREFIX}${name} is switched on and not running; starting it`]
@@ -248,8 +253,12 @@ export class WorkerKeeper {
       started = this.parts.start(launch)
     }
     lines.push(...started.stdout, ...started.stderr)
-    if (started.exitCode === 0 || started.alreadyRunning !== undefined) {
+    if (started.alreadyRunning !== undefined) {
       this.streaks.delete(name)
+      return lines
+    }
+    if (started.exitCode === 0) {
+      this.streaks.set(name, { causes: streak?.causes ?? [], retryAt: this.parts.now(), awaitingSight: true })
       return lines
     }
     return [...lines, ...this.failed(name, streak, causeOf(started))]
@@ -258,7 +267,7 @@ export class WorkerKeeper {
   private failed(name: string, streak: Streak | undefined, cause: string): string[] {
     const causes = [...streak?.causes ?? [], cause]
     const wait = backoffMs(causes.length)
-    this.streaks.set(name, { causes, retryAt: this.parts.now() + wait })
+    this.streaks.set(name, { causes, retryAt: this.parts.now() + wait, awaitingSight: false })
     const next = `${PREFIX}${name} failed to start ${causes.length} time(s) in a row; the next attempt in ${Math.round(wait / 1000)}s`
     if (causes.length !== FAILURES_REPORTED)
       return [next]
