@@ -10,10 +10,13 @@ import { defaultParking, handoffBytes, handoffRefusals, NO_PREV, parkedDepends, 
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
 export const ARCHIVE_DIR = 'archive'
+export const OWNER_BOUNDARIES = ['version-pr', 'owner-merged-kind', 'missing-right', 'owner-question'] as const
 
 const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
 const PREV_LINE = new RegExp(`^\\s*(?:[-*+]\\s+)?${PREV_LABEL}:`, 'i')
+const STATUS_LINE = /^STATUS:\s*(\S+)/
+const NAMED_BOUNDARY = /\s—\s*boundary:\s*(\S+)\s*$/
 
 export interface HandoffWriteDeps {
   cwd: string
@@ -43,6 +46,16 @@ export function withPrev(draft: string, prev: string): string {
   return lines.join('\n')
 }
 
+export function ownerStatusRefusal(text: string): string | null {
+  const status = text.split(/\r?\n/).map(line => STATUS_LINE.exec(line)).filter(match => match !== null).at(-1)
+  if (status === undefined || status[1] !== 'OWNER')
+    return null
+  const boundary = NAMED_BOUNDARY.exec(status.input)?.[1]
+  if (boundary !== undefined && (OWNER_BOUNDARIES as readonly string[]).includes(boundary))
+    return null
+  return `${PREFIX}STATUS: OWNER must end with \`— boundary: <name>\`, the name one of ${OWNER_BOUNDARIES.join(', ')}; review changes, red CI, a denied form with an allowed route and who: window cards are executor work`
+}
+
 function parseArgs(args: string[]): { handoff: string, draft: string, parking: string | null } | null {
   const [handoff, draft, ...rest] = args
   if (handoff === undefined || draft === undefined || handoff.startsWith('--') || draft.startsWith('--'))
@@ -69,12 +82,16 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const archived = previous === null ? null : path.join(archiveDir, nextArchive(deps.exists(archiveDir) ? deps.listDir(archiveDir) : []))
   const prev = archived === null ? NO_PREV : path.relative(path.dirname(handoff), archived)
   const text = withPrev(deps.read(draft), prev)
-  const refusals = handoffRefusals(text, {
-    file: handoff,
-    home: deps.home,
-    exists: file => file === archived || deps.exists(file),
-    parked: deps.parked(parsed.parking ?? defaultParking(deps.home)),
-  })
+  const ownerRefusal = ownerStatusRefusal(text)
+  const refusals = [
+    ...handoffRefusals(text, {
+      file: handoff,
+      home: deps.home,
+      exists: file => file === archived || deps.exists(file),
+      parked: deps.parked(parsed.parking ?? defaultParking(deps.home)),
+    }),
+    ...(ownerRefusal === null ? [] : [ownerRefusal]),
+  ]
   if (refusals.length > 0) {
     for (const line of refusals)
       deps.err(line)
