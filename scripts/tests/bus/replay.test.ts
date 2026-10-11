@@ -78,7 +78,7 @@ function expectReplayKeepsOldReviews(copy: DatabaseSync): void {
     const expected = leftBehind ? 'superseded' : ofTheCurrentInputAgain.has(old.task_key) ? 'queued' : old.state
     expect({ key: old.task_key, state: after.get(old.task_key) }).toEqual({ key: old.task_key, state: expected })
   }
-  expect(copy.prepare(`SELECT pr, head FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING count(*) > 1`).all()).toEqual([])
+  expect(copy.prepare(`SELECT pr FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr HAVING count(*) > 1`).all()).toEqual([])
 }
 
 describe('replay determinism', () => {

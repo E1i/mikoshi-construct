@@ -304,11 +304,11 @@ export function generationField(generation: string | undefined): { generation?: 
   return generation === undefined ? {} : { generation }
 }
 
-function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number, requeue?: number): BusEvent {
+function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number, state?: number): BusEvent {
   const key = keyOf(task)
   const after = failure === undefined ? {} : { failure }
   const plain = failure === undefined ? `${type}:${key}` : `${type}:${key}:${failure}`
-  const dedupeKey = requeue === undefined ? plain : `${plain}:requeue-${requeue}`
+  const dedupeKey = state === undefined ? plain : `${plain}:after-${state}`
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey, payload: { task_key: key, queue: task.queue, ...generationField(task.generation), ...after }, legacy: false }
 }
 
@@ -331,13 +331,13 @@ export function queueTask(db: DatabaseSync, ts: string, task: QueuedTask): boole
   return written(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
-function liveAgainBy(db: DatabaseSync, key: string): number | undefined {
-  const row = db.prepare(`SELECT tasks.event_id AS id FROM tasks JOIN events ON events.id = tasks.event_id WHERE tasks.task_key = ? AND events.type = '${TASK_REQUEUED}'`).get(key) as { id: number } | undefined
-  return row === undefined ? undefined : Number(row.id)
+function stateEventOf(db: DatabaseSync, task: QueuedTask): number | undefined {
+  const row = db.prepare('SELECT event_id FROM tasks WHERE task_key = ?').get(keyOf(task)) as { event_id: number } | undefined
+  return row === undefined ? undefined : Number(row.event_id)
 }
 
 export function supersedeTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
-  return written(db, taskEvent(ts, TASK_SUPERSEDED, task, undefined, liveAgainBy(db, keyOf(task))))
+  return written(db, taskEvent(ts, TASK_SUPERSEDED, task, undefined, stateEventOf(db, task)))
 }
 
 function identity(row: TaskRow): QueuedTask {
