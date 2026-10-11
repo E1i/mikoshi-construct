@@ -61,6 +61,22 @@ export function sessionCtrlCsStillInFlight(end: SessionEnd, pressesSeenDuringSes
   return end.signal === 'SIGINT' && pressesSeenDuringSession === 0 ? 1 : 0
 }
 
+export function sessionAndPauseSharingCtrlCs(
+  ctrlC: { presses: () => number },
+  runSession: (prompt: string | undefined) => Promise<SessionEnd>,
+): Pick<MikoLoopDeps, 'session' | 'pause'> {
+  let sessionCtrlCs = 0
+  return {
+    session: async (prompt) => {
+      const pressesBefore = ctrlC.presses()
+      const end = await runSession(prompt)
+      sessionCtrlCs = sessionCtrlCsStillInFlight(end, ctrlC.presses() - pressesBefore)
+      return end
+    },
+    pause: ms => pauseUntilCtrlC(ms, sessionCtrlCs),
+  }
+}
+
 function didNotStart(end: SessionEnd): boolean {
   return (end.code === null && end.signal === null) || SHELL_COULD_NOT_RUN_THE_COMMAND.has(end.code ?? -1)
 }
@@ -139,17 +155,10 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoshiHandoff(os.homedir())
   const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
-  let sessionCtrlCs = 0
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),
     handoffMtime: () => mtimeOf(handoff),
-    session: async (prompt) => {
-      const pressesBefore = ctrlC.presses()
-      const end = await runSession(command, prompt)
-      sessionCtrlCs = sessionCtrlCsStillInFlight(end, ctrlC.presses() - pressesBefore)
-      return end
-    },
-    pause: ms => pauseUntilCtrlC(ms, sessionCtrlCs),
+    ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt)),
     doubleCtrlC: ctrlC.seen,
     err: line => console.error(line),
   })

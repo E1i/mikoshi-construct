@@ -1,4 +1,4 @@
-import type { PauseEnd } from '../../miko/loop.js'
+import type { PauseEnd, SessionEnd } from '../../miko/loop.js'
 import type { Status } from '../../shift/relaunch.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, mikoshiHandoff, PAUSE_MS, runMikoLoop } from '../../miko/loop.js'
+import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, mikoshiHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
@@ -260,6 +260,49 @@ describe('runMikoLoop decides from STATUS in mikoshi.md and a Ctrl+C in the paus
       err: () => {},
     })
     expect(code).toBe(1)
+  })
+})
+
+const SHORT_PAUSE_MS = 200
+
+describe('the Ctrl-C that ended the session is not read as a Ctrl+C in the pause, whichever the loop dispatches first', () => {
+  it.each([
+    { end: { code: null, signal: 'SIGINT' }, seen: 0, inFlight: 1 },
+    { end: { code: null, signal: 'SIGINT' }, seen: 1, inFlight: 0 },
+    { end: { code: 0, signal: null }, seen: 0, inFlight: 0 },
+    { end: { code: null, signal: 'SIGTERM' }, seen: 0, inFlight: 0 },
+  ] satisfies { end: SessionEnd, seen: number, inFlight: number }[])('a session ended by $end.signal with $seen Ctrl-C seen leaves $inFlight in flight', ({ end, seen, inFlight }) => {
+    expect(sessionCtrlCsStillInFlight(end, seen)).toBe(inFlight)
+  })
+
+  it.each([
+    { sessionCtrlCs: 0, sigints: 1, end: 'ctrl-c' },
+    { sessionCtrlCs: 1, sigints: 1, end: 'elapsed' },
+    { sessionCtrlCs: 1, sigints: 2, end: 'ctrl-c' },
+  ])('a pause owing $sessionCtrlCs session Ctrl-C ends $end after $sigints SIGINT', async ({ sessionCtrlCs, sigints, end }) => {
+    const listeners = process.listenerCount('SIGINT')
+    const pause = pauseUntilCtrlC(SHORT_PAUSE_MS, sessionCtrlCs)
+    for (let n = 0; n < sigints; n++)
+      process.emit('SIGINT', 'SIGINT')
+    expect(await pause).toBe(end)
+    expect(process.listenerCount('SIGINT')).toBe(listeners)
+  })
+
+  it.each([
+    { pressesInSession: 0, end: 'elapsed' },
+    { pressesInSession: 1, end: 'ctrl-c' },
+  ])('after a session the SIGINT closed with $pressesInSession press seen, one SIGINT in the pause ends it $end', async ({ pressesInSession, end }) => {
+    const ctrlC = doubleCtrlCWatcher(() => 0)
+    ctrlC.press()
+    const { session, pause } = sessionAndPauseSharingCtrlCs(ctrlC, async () => {
+      for (let n = 0; n < pressesInSession; n++)
+        ctrlC.press()
+      return { code: null, signal: 'SIGINT' }
+    })
+    await session(undefined)
+    const paused = pause(SHORT_PAUSE_MS)
+    process.emit('SIGINT', 'SIGINT')
+    expect(await paused).toBe(end)
   })
 })
 
