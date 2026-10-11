@@ -1,12 +1,28 @@
 import type { BusEvent } from '../../bus/db.js'
+import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
+import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../bus/db.js'
 import { cardIdOf, isActor, taskKey } from '../../bus/identifiers.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
+const WAIT_ON_MAIN_MS = 5000
+const LOCK_HELD_MS = WAIT_ON_MAIN_MS + 1000
+const HOLDS_THE_WRITE_LOCK = `
+const { DatabaseSync } = require('node:sqlite')
+const { workerData } = require('node:worker_threads')
+const db = new DatabaseSync(workerData.file)
+db.exec('BEGIN IMMEDIATE')
+Atomics.store(workerData.signal, 0, 1)
+Atomics.notify(workerData.signal, 0)
+Atomics.wait(workerData.signal, 1, 0, workerData.holdMs)
+db.exec('COMMIT')
+db.close()
+`
 const roots: string[] = []
 
 afterEach(() => {
@@ -89,6 +105,23 @@ describe('bus.db', () => {
     expect(() => insert.run('review:792:800:-')).toThrow(/UNIQUE/)
     db.close()
   })
+
+  it('with two connections, one holding BEGIN IMMEDIATE, the second waits in inTransaction instead of throwing database is locked', async () => {
+    const db = newBus()
+    const file = db.prepare('PRAGMA database_list').get()!.file as string
+    const signal = new Int32Array(new SharedArrayBuffer(8))
+    const holder = new Worker(HOLDS_THE_WRITE_LOCK, { eval: true, workerData: { file, signal, holdMs: LOCK_HELD_MS } })
+    const holderDone = once(holder, 'exit')
+    expect(Atomics.wait(signal, 0, 0, 10_000)).not.toBe('timed-out')
+
+    const started = performance.now()
+    expect(inTransaction(db, () => appendEvent(db, observed()))).toBe(true)
+    expect(performance.now() - started).toBeGreaterThan(WAIT_ON_MAIN_MS)
+    expect(BUSY_TIMEOUT_MS).toBeGreaterThan(LOCK_HELD_MS)
+    expect(db.prepare('SELECT count(*) AS n FROM events').get()).toEqual({ n: 1 })
+    await holderDone
+    db.close()
+  }, LOCK_HELD_MS * 3)
 })
 
 describe('identifiers', () => {

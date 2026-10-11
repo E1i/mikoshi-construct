@@ -15,11 +15,12 @@ import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answe
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
+import { SHARD_ISSUED } from '../../bus/shards.js'
 import { Rejection } from '../../bus/stored.js'
 import { moduleOf, wideningOf } from '../../bus/widening.js'
 import { sha } from './github-fake.js'
@@ -481,6 +482,85 @@ describe('the answer executor', () => {
     const inbox = ownerInbox(bench.db)
     expect(inbox.map(line => line.card_id)).toEqual([1097])
     expect(inboxText(inbox[0]!)).toContain(reason)
+    bench.close()
+  })
+
+  it('a session question about touches stops the card as question.agent, and only R1, an owner path or a reserved item outside an active delegation goes to question.owner', async () => {
+    const bench = answerBench()
+    const ownerPath = 'the finding asks for a change to contract/factory-permissions.json'
+    const reserved = (cardId: number): string => `card #${cardId} reserved by the owner: may the answer go on?`
+    const questions: Record<number, string> = {
+      1120: 'may the card also touch scripts/bus/lease.ts, scripts/tests/bus/lease.test.ts and package.json?',
+      1121: 'the finding needs src/materialize/plan.ts.',
+      1122: ownerPath,
+      1123: reserved(1123),
+      1124: reserved(1124),
+      1125: ownerPath,
+      1126: 'may the card also touch AGENTS.md?',
+      1127: 'the finding needs eslint.config.mjs',
+      1128: 'may the card also touch scripts/bus/lease.ts?',
+    }
+    const delegated = [1124, 1125, 1127, 1128]
+    const cards = Object.keys(questions).map(Number)
+    bench.tools.heads = cards.flatMap(() => [sha('a'), sha('a')])
+    for (const cardId of cards) {
+      bench.started(cardId)
+      bench.gitHub.open({ number: cardId - 100, review: 'failure' })
+    }
+    for (const cardId of delegated)
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${cardId}`, payload: { id: `shard-${cardId}`, under: null }, legacy: false })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: DECISION_RECORDED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${DECISION_RECORDED}:90`, payload: { source: 'owner', decision_id: 90, text: '#1128 reserved: the owner answers it', scope: [1128] }, legacy: false })
+    bench.tick()
+
+    const reasons: Record<number, string> = {}
+    for (const _ of cards) {
+      const lease = bench.leaseAnswer()!
+      bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), `${questions[lease.cardId]}\n`)
+      const outcome = await bench.answer(lease)
+      expect(outcome).toMatchObject({ kind: 'stopped', detail: questions[lease.cardId] })
+      reasons[lease.cardId] = (outcome as { reason: string }).reason
+    }
+
+    expect(reasons).toEqual({
+      1120: 'question.agent',
+      1121: 'question.owner',
+      1122: 'question.owner',
+      1123: 'question.owner',
+      1124: 'question.owner',
+      1125: 'question.agent',
+      1126: 'question.owner',
+      1127: 'question.agent',
+      1128: 'question.owner',
+    })
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123, 1124, 1126, 1128])
+    expect(bench.tools.published).toEqual([])
+    bench.tick()
+    const asked = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' ORDER BY card_id`).all() as { card_id: number }[]).map(row => row.card_id)
+    expect(asked).toEqual([1120, 1125, 1127])
+    bench.close()
+  })
+
+  it('a pull request that turns dirty after its last round gets an answer task to resolve the conflict on its current head', async () => {
+    const bench = answerBench()
+    bench.started(1130)
+    bench.gitHub.open({ number: 1030, review: 'failure' })
+    bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1130, 1030, sha('a')), head: PUSHED })
+
+    bench.gitHub.open({ number: 1030, head: PUSHED, review: 'success', mergeable_state: 'dirty' })
+    bench.started(1131)
+    bench.gitHub.open({ number: 1031, head: sha('b'), mergeable_state: 'dirty', draft: true })
+    bench.tick()
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state = 'queued'`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(queued).toEqual([answer(1130, 1030, PUSHED)])
+    bench.tools.heads = [PUSHED, sha('f')]
+    const lease = bench.leaseAnswer()!
+    expect(answerSourceOf(bench.db, lease)).toBeNull()
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1130, 1030, PUSHED), head: sha('f') })
+    expect(bench.tools.runs[1]!.argv.at(-1)).toContain(`pull request #1030 conflicts with main at ${PUSHED}`)
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     bench.close()
   })
 })
