@@ -289,18 +289,30 @@ function executionBlock(db: DatabaseSync, chains: readonly ChainLane[], down: Re
   return [...writing, ...reviewed, ...past]
 }
 
+function lastProgress(db: DatabaseSync, inWork: readonly number[]): string | null {
+  const ofCardsInWork = inWork.length === 0 ? '' : ` AND card_id IN (${inWork.join(', ')})`
+  return (db.prepare(`SELECT max(ts) AS ts FROM events WHERE legacy = 0 AND type IN (${PROGRESS_EVENTS.map(type => `'${type}'`).join(', ')})${ofCardsInWork}`).get() as { ts: string | null }).ts
+}
+
+function queueBlockedCause(inWork: readonly number[], blocked: readonly QueueCard[], ready: readonly QueueCard[]): string | null {
+  const blocking = inWork.length === 0
+    ? (ready.length === 0 ? blocked : [])
+    : blocked.filter(card => inWork.includes(Number(card.card)))
+  return blocking.length === 0 ? null : `queue blocked: ${blocking.map(card => `#${card.card} ${card.reason}`).join('; ')}`
+}
+
 function progressOf(db: DatabaseSync, now: Date, health: readonly ComponentHealth[], blocked: readonly QueueCard[], ready: readonly QueueCard[]): Progress {
-  if (count(db, `SELECT count(*) AS n FROM (${CARDS_IN_WORK})`) === 0)
-    return { last: null, stalled: false, cause: null }
-  const last = (db.prepare(`SELECT max(ts) AS ts FROM events WHERE legacy = 0 AND type IN (${PROGRESS_EVENTS.map(type => `'${type}'`).join(', ')}) AND card_id IN (${CARDS_IN_WORK})`).get() as { ts: string | null }).ts
+  const inWork = (db.prepare(CARDS_IN_WORK).all() as { card_id: number }[]).map(row => row.card_id)
+  const last = lastProgress(db, inWork)
   if (ageMs(now, last) < NO_PROGRESS_MS)
     return { last, stalled: false, cause: null }
   const down = health.filter(component => component.health === 'down').map(component => component.name)
   if (down.length > 0)
     return { last, stalled: true, cause: `down: ${down.join(', ')}` }
-  if (ready.length === 0 && blocked.length > 0)
-    return { last, stalled: true, cause: `queue blocked: ${blocked.map(card => `#${card.card} ${card.reason}`).join('; ')}` }
-  return { last, stalled: true, cause: 'cause unknown' }
+  const queueBlocked = queueBlockedCause(inWork, blocked, ready)
+  if (queueBlocked !== null)
+    return { last, stalled: true, cause: queueBlocked }
+  return inWork.length === 0 ? { last, stalled: false, cause: null } : { last, stalled: true, cause: 'cause unknown' }
 }
 
 function link(name: string, green: boolean, fact: string): ContractLink {
