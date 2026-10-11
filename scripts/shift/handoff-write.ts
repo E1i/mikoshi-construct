@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultParking, handoffBytes, handoffRefusals, NO_PREV, parkedDepends, PREV_LABEL } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
+import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
 export const PREFIX = '[handoff:write] '
@@ -43,7 +44,7 @@ function setOrNull(value: string | undefined): string | null {
 export function sessionHandoffOf(env: NodeJS.ProcessEnv, home: string): string | null {
   if (setOrNull(env[CARD_VARIABLE]) !== null)
     return null
-  return setOrNull(env[HANDOFF_VARIABLE]) ?? path.join(setOrNull(env[HANDOFF_DIR_VARIABLE]) ?? path.join(home, '.construct', 'handoff'), 'mikoshi.md')
+  return setOrNull(env[HANDOFF_VARIABLE]) ?? path.join(setOrNull(env[HANDOFF_DIR_VARIABLE]) ?? path.join(home, '.construct', 'handoff'), MIKO_HANDOFF_NAME)
 }
 
 export function nextArchive(names: readonly string[]): string {

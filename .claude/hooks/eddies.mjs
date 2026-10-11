@@ -236,7 +236,7 @@ function shellQuoted(text) {
 
 function sessionHandoffOf() {
   const file = process.env[HANDOFF_VARIABLE]
-  return file != null && file !== '' ? file : path.join(handoffDir(), 'mikoshi.md')
+  return file != null && file !== '' ? file : path.join(handoffDir(), 'miko.md')
 }
 
 function isCardSession() {

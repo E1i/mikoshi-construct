@@ -11,7 +11,8 @@ import { statusOf } from '../shift/relaunch.js'
 export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
-export const CONTINUE_PROMPT = 'прочитай mikoshi.md'
+export const MIKO_HANDOFF_NAME = 'miko.md'
+export const CONTINUE_PROMPT = `прочитай ${MIKO_HANDOFF_NAME}`
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 
@@ -33,8 +34,8 @@ export interface MikoLoopDeps {
   err: (line: string) => void
 }
 
-export function mikoshiHandoff(home: string): string {
-  return path.join(home, '.construct', 'handoff', 'mikoshi.md')
+export function mikoHandoff(home: string): string {
+  return path.join(home, '.construct', 'handoff', MIKO_HANDOFF_NAME)
 }
 
 export function claudeArgv(command: string, prompt: string | undefined): string[] {
@@ -95,12 +96,12 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
       return 1
     }
     if (deps.handoffMtime() === before) {
-      deps.err(`${PREFIX}the session ended without rewriting mikoshi.md: no next session`)
+      deps.err(`${PREFIX}the session ended without rewriting ${MIKO_HANDOFF_NAME}: no next session`)
       return 0
     }
     const status = deps.status()
     if (status !== 'CONTINUE') {
-      deps.err(`${PREFIX}mikoshi.md says STATUS: ${status ?? 'none'}: no next session`)
+      deps.err(`${PREFIX}${MIKO_HANDOFF_NAME} says STATUS: ${status ?? 'none'}: no next session`)
       return 0
     }
     deps.err(`${PREFIX}STATUS: CONTINUE: next session in ${PAUSE_MS / 1000}s, Ctrl+C now stops the loop`)
@@ -153,7 +154,7 @@ function runSession(command: string, prompt: string | undefined): Promise<Sessio
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const ctrlC = doubleCtrlCWatcher()
   process.on('SIGINT', ctrlC.press)
-  const handoff = mikoshiHandoff(os.homedir())
+  const handoff = mikoHandoff(os.homedir())
   const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),

@@ -165,9 +165,9 @@ describe('handoff:write', () => {
   })
 
   it.each([
-    ['unset variables', {}, '/home/.construct/handoff/mikoshi.md'],
-    ['empty variables', { CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CONSTRUCT_CARD: '' }, '/home/.construct/handoff/mikoshi.md'],
-    ['a handoff dir', { CONSTRUCT_HANDOFF_DIR: '/d' }, '/d/mikoshi.md'],
+    ['unset variables', {}, '/home/.construct/handoff/miko.md'],
+    ['empty variables', { CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CONSTRUCT_CARD: '' }, '/home/.construct/handoff/miko.md'],
+    ['a handoff dir', { CONSTRUCT_HANDOFF_DIR: '/d' }, '/d/miko.md'],
     ['CONSTRUCT_HANDOFF over the dir', { CONSTRUCT_HANDOFF: '/r/h.md', CONSTRUCT_HANDOFF_DIR: '/d' }, '/r/h.md'],
     ['a card session with an inherited CONSTRUCT_HANDOFF', { CONSTRUCT_HANDOFF: '/r/operator.md', CONSTRUCT_HANDOFF_DIR: '/d', CONSTRUCT_CARD: '1' }, null],
     ['a card session with no CONSTRUCT_HANDOFF', { CONSTRUCT_CARD: '866', CONSTRUCT_HANDOFF: '' }, null],
