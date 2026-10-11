@@ -4,12 +4,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { taskKey } from '../../bus/identifiers.js'
+import { prBodySha, taskKey } from '../../bus/identifiers.js'
+import { importJournal } from '../../bus/import.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { queueTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import { fullReview } from '../../bus/review-depth.js'
+import { REVIEW_RECORDED, ReviewWorker } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
-import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 
 const roots: string[] = []
 
@@ -18,7 +21,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function setUp(): { db: DatabaseSync, gitHub: FakeGitHub, tick: () => void } {
+function setUp(): { db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, tick: () => void } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-review-queue-'))
   roots.push(root)
   const db = openBus(path.join(root, 'bus.db'))
@@ -32,7 +35,7 @@ function setUp(): { db: DatabaseSync, gitHub: FakeGitHub, tick: () => void } {
     first = false
     busTick.run()
   }
-  return { db, gitHub, tick }
+  return { db, gitHub, clock, tick }
 }
 
 function tasks(db: DatabaseSync): { task_key: string, state: string }[] {
@@ -43,7 +46,11 @@ function taskEvents(db: DatabaseSync): { type: string, dedupe_key: string }[] {
   return db.prepare(`SELECT type, dedupe_key FROM events WHERE type LIKE 'task.%' ORDER BY id`).all() as { type: string, dedupe_key: string }[]
 }
 
-const review = (pr: number, head: string): string => taskKey({ queue: 'review', cardId: pr + 100, pr, head })
+const review = (pr: number, head: string): string => taskKey({ queue: 'review', cardId: pr + 100, pr, head, input: { prBody: prBodySha(cardBody(pr)), cardBody: null } })
+
+function intakeLine(cardId: number, bodySha: string): string {
+  return JSON.stringify({ event: 'intake', task: String(cardId), card: `#${cardId} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —`, confirmation: 'auto', corrections: [], bodySha, source: 'admit', ts: '2026-10-11T14:00:00.000Z' })
+}
 
 describe('review queue', () => {
   it('a pr with a new head and no verdict enters review within 2 ticks', () => {
@@ -124,6 +131,68 @@ describe('review queue', () => {
       { task_key: merge, state: 'superseded' },
       { task_key: review(924, sha('e')), state: 'queued' },
     ])
+    db.close()
+  })
+
+  it('an edit of the pull request body or of the card body after changes on head X gives a new review.recorded on X with no new commit', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const body = cardBody(925)
+    const worker = new ReviewWorker({
+      db,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        gitHub.pulls.get(925)!.review = status.state
+      },
+      reviewer: async () => ({ verdict: 'changes', findings: ['the pull request body names no ladder reason'], session: 'reviewer-1' }),
+      plan: () => fullReview('a fixed plan'),
+      clock: clock.now,
+      session: 'worker-1',
+    })
+    const recorded = (): { head: string, task: string }[] => (db.prepare(`SELECT head, dedupe_key FROM events WHERE type = '${REVIEW_RECORDED}' ORDER BY id`).all() as { head: string, dedupe_key: string }[]).map(row => ({ head: row.head, task: row.dedupe_key.split(':').slice(1, -1).join(':') }))
+    const keyOf = (prBody: string, card: string | null): string => taskKey({ queue: 'review', cardId: 1025, pr: 925, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: card } })
+
+    gitHub.open({ number: 925, body })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes', taskKey: keyOf(body, null) })
+    tick()
+    tick()
+    expect(await worker.step()).toEqual({ kind: 'idle' })
+
+    const edited = `${body}\n\nThe ladder: MORSE predicts ladder by rule doubt.`
+    gitHub.open({ number: 925, body: edited, review: 'failure' })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', taskKey: keyOf(edited, null) })
+    tick()
+    expect(await worker.step()).toEqual({ kind: 'idle' })
+
+    importJournal(db, intakeLine(1025, '0123abcd4567ef89'))
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', taskKey: keyOf(edited, '0123abcd4567ef89') })
+    tick()
+    expect(await worker.step()).toEqual({ kind: 'idle' })
+
+    expect(recorded()).toEqual([
+      { head: sha('a'), task: keyOf(body, null) },
+      { head: sha('a'), task: keyOf(edited, null) },
+      { head: sha('a'), task: keyOf(edited, '0123abcd4567ef89') },
+    ])
+    expect(gitHub.pulls.get(925)!.head).toBe(sha('a'))
+    const live = projectionDump(db)
+    reduce(db)
+    expect(projectionDump(db)).toBe(live)
+    db.close()
+  })
+
+  it('a review queued under one body is superseded when the body changes before it runs', () => {
+    const { db, gitHub, tick } = setUp()
+    const body = cardBody(926)
+    const edited = `${body}\n\nedited`
+    gitHub.open({ number: 926, body })
+    tick()
+    gitHub.open({ number: 926, body: edited })
+    tick()
+    const keyOf = (prBody: string): string => taskKey({ queue: 'review', cardId: 1026, pr: 926, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: null } })
+    expect(tasks(db)).toEqual([{ task_key: keyOf(body), state: 'superseded' }, { task_key: keyOf(edited), state: 'queued' }])
     db.close()
   })
 })

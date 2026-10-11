@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS prs (
   verdict_on_head TEXT,
   auto_merge INTEGER,
   draft INTEGER,
-  event_id INTEGER NOT NULL REFERENCES events(id)
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  body_sha TEXT
 );
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +96,16 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 `
 
+const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT']]
+
+function addMissingColumns(db: DatabaseSync): void {
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    if (!columns.some(each => each.name === column))
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  }
+}
+
 export interface BusEvent {
   ts: string | null
   type: string
@@ -116,6 +127,7 @@ export function openBus(file: string): DatabaseSync {
   const db = new DatabaseSync(file)
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
   db.exec(SCHEMA)
+  addMissingColumns(db)
   return db
 }
 

@@ -11,7 +11,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { taskKey } from '../../bus/identifiers.js'
+import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../bus/lease.js'
@@ -24,7 +24,7 @@ import { claudeReviewer, reviewPrompt } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
-import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 
 const roots: string[] = []
 
@@ -82,7 +82,7 @@ const unreachable: StatusPublisher = () => {
   throw new Error('gh api: HTTP 502 Bad Gateway')
 }
 
-const review = (pr: number, head = sha('a')): string => taskKey({ queue: 'review', cardId: pr + 100, pr, head })
+const review = (pr: number, head = sha('a')): string => taskKey({ queue: 'review', cardId: pr + 100, pr, head, input: { prBody: prBodySha(cardBody(pr)), cardBody: null } })
 
 function task(db: DatabaseSync, key: string): { state: string, lease_gen: number, failures: number } {
   return db.prepare('SELECT state, lease_gen, failures FROM tasks WHERE task_key = ?').get(key) as { state: string, lease_gen: number, failures: number }

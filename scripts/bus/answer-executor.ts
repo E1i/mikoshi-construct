@@ -16,6 +16,7 @@ import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { reservationOf } from './policy.js'
 import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
 import { decisionsInForceAt, unspentShard } from './shards.js'
+import { MAIN_BRANCH } from './snapshot.js'
 import { wideningOf } from './widening.js'
 
 export const SCOPE_WIDENED = 'scope.widened'
@@ -48,12 +49,15 @@ interface Widened {
 }
 
 const OWNER_EVEN_UNDER_A_DELEGATION = 'R1'
-const PATH_IN_TEXT = /[\w.@-]+(?:\/[\w.@*-]+)+/g
+const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
 const TRAILING_DOTS = /\.+$/
+const FILE_EXTENSION = /\.[a-z][\w-]*$/i
 
 function pathsIn(question: string): string[] {
-  return (question.match(PATH_IN_TEXT) ?? []).map(each => each.replace(TRAILING_DOTS, ''))
+  return question.split(WORD_BOUNDARY).map(word => word.replace(TRAILING_DOTS, '')).filter(word => word.includes('/') || FILE_EXTENSION.test(word))
 }
+
+const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
 
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
 
@@ -71,9 +75,9 @@ export class AnswerExecutor {
   async answer(lease: Lease): Promise<AnswerOutcome> {
     try {
       assertHeld(this.parts.db, lease)
-      const source = answerSourceOf(this.parts.db, lease)
+      const source = answerSourceOf(this.parts.db, lease) ?? this.conflict(lease)
       if (source === null)
-        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict and no red CI on ${lease.head ?? 'its head'}` })
+        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
       let widened: Widened | null = null
       if (source.kind === 'question' && source.widen !== null) {
         const widening = wideningOf(source.widen.paths, source.widen.touches, this.parts.ownerMerges())
@@ -96,6 +100,12 @@ export class AnswerExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private conflict(lease: Lease): AnswerSource | null {
+    if (lease.pr === null || lease.head === null || this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) === undefined)
+      return null
+    return { kind: 'changes', findings: [`pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}: merge origin/${MAIN_BRANCH} into the branch and resolve every conflict, keeping what the card asks for`], events: [] }
   }
 
   private tree(lease: Lease): CardSession | AnswerDenial | null {
@@ -133,13 +143,15 @@ export class AnswerExecutor {
 
   private ownersQuestion(lease: Lease, question: string): boolean {
     const paths = pathsIn(question)
-    if (paths.some(file => riskOf(file).level === OWNER_EVEN_UNDER_A_DELEGATION))
+    if (reservationOf(lease.cardId, question) || paths.some(file => riskOf(file).level === OWNER_EVEN_UNDER_A_DELEGATION))
       return true
     const owner = ownerPathsOf(this.parts.ownerMerges())
     const globs = [...owner.globs, ...owner.byRisk.flatMap(row => row.globs)]
-    if (paths.some(file => globs.some(glob => matchGlob(glob, file))))
-      return true
-    return reservationOf(lease.cardId, question) && unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, this.parts.clock())) === null
+    return paths.some(file => globs.some(glob => matchGlob(glob, file))) && !this.delegated(lease)
+  }
+
+  private delegated(lease: Lease): boolean {
+    return unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, this.parts.clock())) !== null
   }
 
   private stopped(lease: Lease, reason: string, detail: string, scope: BusEvent[] = []): AnswerOutcome {

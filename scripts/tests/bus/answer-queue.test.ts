@@ -487,20 +487,27 @@ describe('the answer executor', () => {
 
   it('a session question about touches stops the card as question.agent, and only R1, an owner path or a reserved item outside an active delegation goes to question.owner', async () => {
     const bench = answerBench()
+    const ownerPath = 'the finding asks for a change to contract/factory-permissions.json'
+    const reserved = (cardId: number): string => `card #${cardId} reserved by the owner: may the answer go on?`
     const questions: Record<number, string> = {
-      1120: 'may the card also touch scripts/bus/lease.ts and scripts/tests/bus/lease.test.ts?',
+      1120: 'may the card also touch scripts/bus/lease.ts, scripts/tests/bus/lease.test.ts and package.json?',
       1121: 'the finding needs src/materialize/plan.ts.',
-      1122: 'the finding asks for a change to contract/factory-permissions.json',
-      1123: 'card #1123 reserved by the owner: may the answer go on?',
-      1124: 'card #1124 reserved by the owner: may the answer go on?',
+      1122: ownerPath,
+      1123: reserved(1123),
+      1124: reserved(1124),
+      1125: ownerPath,
+      1126: 'may the card also touch AGENTS.md?',
+      1127: 'the finding needs eslint.config.mjs',
     }
+    const delegated = [1124, 1125, 1127]
     const cards = Object.keys(questions).map(Number)
     bench.tools.heads = cards.flatMap(() => [sha('a'), sha('a')])
     for (const cardId of cards) {
       bench.started(cardId)
       bench.gitHub.open({ number: cardId - 100, review: 'failure' })
     }
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: 1124, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:1124`, payload: { id: 'shard-1124', under: null }, legacy: false })
+    for (const cardId of delegated)
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${cardId}`, payload: { id: `shard-${cardId}`, under: null }, legacy: false })
     bench.tick()
 
     const reasons: Record<number, string> = {}
@@ -512,12 +519,45 @@ describe('the answer executor', () => {
       reasons[lease.cardId] = (outcome as { reason: string }).reason
     }
 
-    expect(reasons).toEqual({ 1120: 'question.agent', 1121: 'question.owner', 1122: 'question.owner', 1123: 'question.owner', 1124: 'question.agent' })
-    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123])
+    expect(reasons).toEqual({
+      1120: 'question.agent',
+      1121: 'question.owner',
+      1122: 'question.owner',
+      1123: 'question.owner',
+      1124: 'question.owner',
+      1125: 'question.agent',
+      1126: 'question.owner',
+      1127: 'question.owner',
+    })
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123, 1124, 1126, 1127])
     expect(bench.tools.published).toEqual([])
     bench.tick()
     const asked = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' ORDER BY card_id`).all() as { card_id: number }[]).map(row => row.card_id)
-    expect(asked).toEqual([1120, 1124])
+    expect(asked).toEqual([1120, 1125])
+    bench.close()
+  })
+
+  it('a pull request that turns dirty after its last round gets an answer task to resolve the conflict on its current head', async () => {
+    const bench = answerBench()
+    bench.started(1130)
+    bench.gitHub.open({ number: 1030, review: 'failure' })
+    bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1130, 1030, sha('a')), head: PUSHED })
+
+    bench.gitHub.open({ number: 1030, head: PUSHED, review: 'success', mergeable_state: 'dirty' })
+    bench.started(1131)
+    bench.gitHub.open({ number: 1031, head: sha('b'), mergeable_state: 'dirty', draft: true })
+    bench.tick()
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state = 'queued'`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(queued).toEqual([answer(1130, 1030, PUSHED)])
+    bench.tools.heads = [PUSHED, sha('f')]
+    const lease = bench.leaseAnswer()!
+    expect(answerSourceOf(bench.db, lease)).toBeNull()
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1130, 1030, PUSHED), head: sha('f') })
+    expect(bench.tools.runs[1]!.argv.at(-1)).toContain(`pull request #1030 conflicts with main at ${PUSHED}`)
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     bench.close()
   })
 })
