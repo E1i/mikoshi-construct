@@ -142,6 +142,25 @@ describe('owner decisions on the bus', () => {
     expect(projectionDump(db)).toBe(projection)
   })
 
+  it('while pnpm decisions refuses the file, a decision with an until is out of the decisions table until an import of a file it reads', () => {
+    const db = newBus()
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
+    roots.push(path.dirname(file))
+    const clean = '# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n- D-2 · 2026-10-08 — delegated. · until 2026-10-12T04:30Z\n'
+    const intake = decisionsIntake(db, file, () => NOW)
+    const held = (): unknown[] => {
+      intake()
+      reduce(db)
+      return rows(db, 'SELECT decision_id FROM decisions ORDER BY decision_id').map(row => row.decision_id)
+    }
+    writeFileSync(file, clean)
+    expect(held()).toEqual([1, 2])
+    writeFileSync(file, `${clean}- D-3 · 2026-10-08 — one.\n`)
+    expect(held()).toEqual([1, 3])
+    writeFileSync(file, `${clean}- D-3 · 2026-10-08 — three.\n`)
+    expect(held()).toEqual([1, 2, 3])
+  })
+
   it('a change of owner-decisions.md is imported without writing the file', () => {
     const db = newBus()
     const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')

@@ -6,6 +6,7 @@ import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, taskKey } from './identifiers.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
+import { unspentShardsOf } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -17,8 +18,10 @@ export const CARD_CLOSED = 'card.closed'
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
+export const WITHDRAWN = 'withdrawn'
 const SUPERSEDED = 'superseded'
 const STOPPED = 'stopped'
+const REQUEUABLE = new Set([STOPPED, WITHDRAWN])
 const NO_CARD_TREE = 'no_card_tree'
 
 const REVIEW_CANDIDATES = `
@@ -154,6 +157,15 @@ const STOPPED_ON_NO_CARD_TREE = `
   ORDER BY tasks.task_key
 `
 
+const WITHDRAWN_MERGES_A_LATER_SHARD_NAMES = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = 'merge' AND tasks.state = '${WITHDRAWN}' AND prs.state = 'open' AND prs.head = tasks.head
+    AND NOT EXISTS (SELECT 1 FROM events AS requeued WHERE requeued.type = '${TASK_REQUEUED}' AND json_extract(requeued.payload, '$.task_key') = tasks.task_key)
+    AND EXISTS (SELECT 1 FROM (${unspentShardsOf('tasks.card_id', 'tasks.pr')}) AS shard WHERE shard.event_id > tasks.event_id)
+  ORDER BY tasks.task_key
+`
+
 interface TaskRow {
   task_key: string
   queue: Queue
@@ -222,8 +234,8 @@ function foldSuperseded(db: DatabaseSync, event: StoredEvent): void {
 function foldRequeued(db: DatabaseSync, event: StoredEvent): void {
   const { key } = identityOf(event)
   const task = taskRow(db, key) ?? reject(`task ${key} was never queued`)
-  if (task.state !== STOPPED)
-    reject(`task ${key} is ${task.state}, not ${STOPPED}`)
+  if (!REQUEUABLE.has(task.state))
+    reject(`task ${key} is ${task.state}, not ${[...REQUEUABLE].join(' or ')}`)
   db.prepare('UPDATE tasks SET state = ?, failures = 0, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, key)
 }
 
@@ -282,9 +294,11 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const row of db.prepare(STOPPED_ON_NO_CARD_TREE).all() as unknown as StoppedRow[]) {
-    if (requeueTask(db, ts, row))
-      derived.queued.push(row.task_key)
+  for (const query of [STOPPED_ON_NO_CARD_TREE, WITHDRAWN_MERGES_A_LATER_SHARD_NAMES]) {
+    for (const row of db.prepare(query).all() as unknown as StoppedRow[]) {
+      if (requeueTask(db, ts, row))
+        derived.queued.push(row.task_key)
+    }
   }
   for (const [queue, query, admits] of candidates(db)) {
     for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {

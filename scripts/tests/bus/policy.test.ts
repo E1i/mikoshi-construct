@@ -37,6 +37,7 @@ function facts(overrides: Partial<MergeFacts> = {}): MergeFacts {
     files: ['scripts/bus/policy.ts'],
     ownerMergesText: OWNER_MERGES,
     shardActive: false,
+    shardUnder: null,
     decisions: [],
     ...overrides,
   }
@@ -91,6 +92,19 @@ describe('the merge policy', () => {
   it('the reservations hold under a shard, where an owner card would merge', () => {
     for (const overrides of [{ headRef: 'changeset-release/main' }, { files: ['architecture/security-invariants.md'] }, { files: ['scripts/ghosts/approve.ts'] }, { description: `${cardBody(942, 'owner')}\n#1042 reserved` }])
       expect(mergePolicy(facts({ ...overrides, shardActive: true })).kind).toBe('denied')
+  })
+
+  it('whatever the until, the version pull request and a reserved card get policy.denied authority under a shard --under D-N', () => {
+    const d82 = { decisionId: 82, text: 'Delegation. until 2026-10-12T04:30Z', cards: [] }
+    const owner = { description: cardBody(942, 'owner'), shardActive: true, shardUnder: 82 }
+    for (const decisions of [[d82], []]) {
+      expect(mergePolicy(facts({ ...owner, decisions, headRef: 'changeset-release/main' }))).toMatchObject({ kind: 'denied', rule: 'version_pr' })
+      expect(mergePolicy(facts({ ...owner, decisions, title: 'chore: version packages' }))).toMatchObject({ kind: 'denied', rule: 'version_pr' })
+      expect(mergePolicy(facts({ ...owner, decisions, description: `${cardBody(942, 'owner')}\n#1042 reserved` }))).toMatchObject({ kind: 'denied', rule: 'reserved' })
+      expect(mergePolicy(facts({ ...owner, decisions: [...decisions, { decisionId: 84, text: '#1042 reserved: Eli merges it.', cards: [1042] }] }))).toMatchObject({ kind: 'denied', rule: 'reserved' })
+    }
+    expect(mergePolicy(facts({ ...owner, decisions: [d82], files: ['architecture/security-invariants.md', 'scripts/ghosts/approve.ts'] }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard', detail: expect.stringContaining('D-82') as unknown })
+    expect(mergePolicy(facts({ ...owner, decisions: [], files: ['scripts/ghosts/approve.ts'] }))).toMatchObject({ kind: 'denied', rule: 'owner_by_risk' })
   })
 
   it('under D-77 a PR with an owner path, a pass and green CI is merged without a shard', () => {

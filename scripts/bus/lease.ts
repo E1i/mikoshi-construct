@@ -5,7 +5,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED } from './inbox.js'
-import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin } from './queue.js'
+import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, WITHDRAWN } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_LEASED = 'task.leased'
@@ -21,7 +21,6 @@ export const RENEW_MS = 10 * 60_000
 export const FAILURES_TO_STOP = 3
 
 export const COMPLETED = 'completed'
-export const WITHDRAWN = 'withdrawn'
 export const STOPPED = 'stopped'
 
 const NEXT_STATES = new Set([QUEUED, WITHDRAWN, STOPPED])

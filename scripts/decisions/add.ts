@@ -5,16 +5,17 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { recordDecision } from '../bus/decisions.js'
-import { DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
+import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
 import { archiveOf, defaultDecisions } from './read.js'
 
-export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... "[owner] <decision>"'
+export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
 export const OWNER_SOURCE = '[owner]'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
 
 const SOURCE_TAG = /^\[[^\]]*\]/
 const DECISION_REFERENCE = /^D-([1-9]\d*)$/
 const CARD_REFERENCE = /^#?([1-9]\d*)$/
+const UNTIL_VALUE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/
 
 export interface DecisionsAddDeps {
   home: string
@@ -28,10 +29,11 @@ export interface DecisionsAddDeps {
   err: (line: string) => void
 }
 
-interface AddArgs {
+export interface AddArgs {
   file: string | null
   supersedes: number[]
   cards: number[]
+  until: string | null
   text: string
 }
 
@@ -44,7 +46,7 @@ export interface AddPlan {
 }
 
 function parseArgs(args: readonly string[]): AddArgs | null {
-  const parsed: AddArgs = { file: null, supersedes: [], cards: [], text: '' }
+  const parsed: AddArgs = { file: null, supersedes: [], cards: [], until: null, text: '' }
   const texts: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -59,6 +61,10 @@ function parseArgs(args: readonly string[]): AddArgs | null {
     }
     else if (arg === '--card' && value !== undefined && CARD_REFERENCE.test(value)) {
       parsed.cards.push(Number(CARD_REFERENCE.exec(value)![1]))
+      index += 1
+    }
+    else if (arg === '--until' && value !== undefined && parsed.until === null && UNTIL_VALUE.test(value) && calendarTerm(value)) {
+      parsed.until = value
       index += 1
     }
     else if (arg.startsWith('--')) {
@@ -91,7 +97,11 @@ function cardTail(cards: readonly number[]): string {
   return cards.length === 0 ? '' : ` · card ${[...new Set(cards)].map(card => `#${card}`).join(' ')}`
 }
 
-export function planAdd(text: string, archive: string, record: string, supersedes: readonly number[], cards: readonly number[], now: Date): AddPlan | string {
+function untilTail(until: string | null): string {
+  return until === null ? '' : ` · until ${until}`
+}
+
+export function planAdd(text: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date): AddPlan | string {
   const { decisions } = parseDecisions(text)
   const archivedNumbers = parseDecisions(archive).decisions.map(decision => decision.number)
   const number = Math.max(0, ...decisions.map(decision => decision.number), ...archivedNumbers) + 1
@@ -106,7 +116,7 @@ export function planAdd(text: string, archive: string, record: string, supersede
   const marked = parseDecisions(lines.join('\n')).decisions.filter(decision => decision.supersededBy !== null)
   const movedLines = new Set(marked.map(decision => decision.line))
   const kept = lines.filter((_, index) => !movedLines.has(index + 1))
-  const line = `- D-${number} · ${stampOf(now)} — ${record}${cardTail(cards)} · ${WRITER_MARKER}`
+  const line = `- D-${number} · ${stampOf(now)} — ${record}${cardTail(cards)}${untilTail(until)} · ${WRITER_MARKER}`
   const moved = marked.map(decision => `${decision.text}\n`).join('')
   return {
     number,
@@ -142,7 +152,7 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   const archiveExisted = deps.exists(archiveFile)
   const originalArchive = archiveExisted ? deps.read(archiveFile) : ''
   const now = deps.now()
-  const plan = planAdd(original, originalArchive, parsed.text, parsed.supersedes, parsed.cards, now)
+  const plan = planAdd(original, originalArchive, parsed, now)
   if (typeof plan === 'string') {
     deps.err(plan)
     return 1
@@ -178,7 +188,7 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     return 1
   }
   try {
-    deps.record({ ts: now.toISOString(), decisionId: plan.number, text: parsed.text.slice(OWNER_SOURCE.length).trim(), cards: [...new Set(parsed.cards)] })
+    deps.record({ ts: now.toISOString(), decisionId: plan.number, text: `${parsed.text.slice(OWNER_SOURCE.length).trim()}${untilTail(parsed.until)}`, cards: [...new Set(parsed.cards)] })
   }
   catch (error) {
     restore()
