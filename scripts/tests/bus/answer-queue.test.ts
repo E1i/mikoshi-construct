@@ -16,7 +16,7 @@ import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
-import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
@@ -542,6 +542,33 @@ describe('the card tree of every start path', () => {
     expect(bench.tools.runs[0]!.cwd).toBe(tree)
     expect(bench.tools.published.map(each => each.branch)).toEqual(['feat/card-1113'])
     expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    bench.close()
+  })
+
+  it('an answer task stopped on no_card_tree is queued again once the card tree can be brought up', async () => {
+    const bench = answerBench()
+    bench.gitHub.open({ number: 1014, review: 'failure' })
+    bench.gitHub.open({ number: 1015, review: 'failure' })
+    bench.tick()
+    const stopOn = (reason: string): void => {
+      for (let failure = 0; failure < FAILURES_TO_STOP; failure++)
+        failTask(bench.db, bench.clock.now().toISOString(), bench.leaseAnswer()!, { reason, withdraw: false })
+    }
+    stopOn('no_card_tree')
+    stopOn('answer_failed')
+    expect(taskState(bench.db, answer(1114, 1014, sha('a'))).state).toBe('stopped')
+    expect(taskState(bench.db, answer(1115, 1015, sha('a'))).state).toBe('stopped')
+
+    bench.tick()
+
+    expect(taskState(bench.db, answer(1114, 1014, sha('a')))).toMatchObject({ state: 'queued', failures: 0 })
+    expect(taskState(bench.db, answer(1115, 1015, sha('a'))).state).toBe('stopped')
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1114, 1014, sha('a')), head: PUSHED })
+    const tree = path.join(bench.home, 'mc-1114')
+    expect(bench.tools.recreated).toEqual([{ worktree: tree, branch: 'feat/card-1114' }])
+    expect(bench.tools.runs.map(run => run.cwd)).toEqual([tree])
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
     bench.close()
   })
 })

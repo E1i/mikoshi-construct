@@ -12,6 +12,7 @@ import { appendEvent } from '../../bus/db.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, POLICY_DENIED } from '../../bus/inbox.js'
 import { leaseNext } from '../../bus/lease.js'
+import { taskWorktree } from '../../ghosts/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -62,14 +63,22 @@ function startedByShiftChain(bench: Bench, tree: string): void {
   importJournal(bench.db, JSON.stringify({ event: 'path', task: '1199', path: 'cheap', started: ts, session: SESSION, shift: '/shift/2026-10-11-a', worktree: tree, branch: BRANCH, ts }))
 }
 
-async function roundInDeletedTree(treeOf: (root: string) => string, start: (bench: Bench, tree: string) => void): Promise<void> {
+function deletedAfter(start: (bench: Bench, tree: string) => void): (bench: Bench, tree: string, repo: string) => void {
+  return (bench, tree, repo) => {
+    git(repo, 'worktree', 'add', '-q', tree, BRANCH)
+    start(bench, tree)
+    rmSync(tree, { recursive: true, force: true })
+  }
+}
+
+function neverStarted(): void {}
+
+async function roundInRecreatedTree(treeOf: (root: string) => string, start: (bench: Bench, tree: string, repo: string) => void, session: { session: string, resumed: boolean }): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-card-tree-'))
   const bench = mergeBench()
   const { repo, pushedHead } = origin(root)
   const tree = treeOf(root)
-  git(repo, 'worktree', 'add', '-q', tree, BRANCH)
-  start(bench, tree)
-  rmSync(tree, { recursive: true, force: true })
+  start(bench, tree, repo)
   const head = pushedHead()
   bench.gitHub.open({ number: 1099, review: 'failure', ref: BRANCH })
   bench.tick()
@@ -101,25 +110,31 @@ async function roundInDeletedTree(treeOf: (root: string) => string, start: (benc
 
   const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
 
-  expect(outcome).toMatchObject({ kind: 'answered', session: SESSION, resumed: true })
+  expect(outcome).toMatchObject({ kind: 'answered', ...session })
   expect(recreated).toEqual([tree])
   expect(existsSync(path.join(tree, 'round-1.txt'))).toBe(true)
   expect(git(tree, 'rev-parse', 'HEAD~1')).toBe(head)
   expect(git(tree, 'branch', '--show-current')).toBe(BRANCH)
   expect(installed).toEqual([tree])
   expect(runs.map(run => run.cwd)).toEqual([tree])
-  expect(eventsOf(bench.db, CARD_ANSWERED)).toMatchObject([{ session: SESSION, resumed: true, from: head }])
+  expect(eventsOf(bench.db, CARD_ANSWERED)).toMatchObject([{ ...session, from: head }])
   expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
   bench.close()
   rmSync(root, { recursive: true, force: true })
 }
 
+const RESUMED = { session: SESSION, resumed: true }
+
 describe('the card tree', () => {
   it('a deleted card tree is recreated from the pull request branch and the round starts', async () => {
-    await roundInDeletedTree(root => path.join(root, 'worktrees', 'mc-1199'), startedByLaunch)
+    await roundInRecreatedTree(root => path.join(root, 'worktrees', 'mc-1199'), deletedAfter(startedByLaunch), RESUMED)
   })
 
   it('a deleted card tree recorded outside the worktree home is recreated at its recorded path', async () => {
-    await roundInDeletedTree(root => path.join(root, 'projects', 'mc-1199'), startedByShiftChain)
+    await roundInRecreatedTree(root => path.join(root, 'projects', 'mc-1199'), deletedAfter(startedByShiftChain), RESUMED)
+  })
+
+  it('a card with no card.started and an open pull request gets its tree from the pull request branch and the round starts', async () => {
+    await roundInRecreatedTree(root => taskWorktree(path.join(root, 'worktrees'), '1199'), neverStarted, { session: 'new-session-1', resumed: false })
   })
 })
