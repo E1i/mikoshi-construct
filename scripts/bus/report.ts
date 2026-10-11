@@ -10,9 +10,8 @@ import { ghApi } from './github.js'
 import { LEASE_FOLDS } from './lease.js'
 import { Meter } from './meter.js'
 import { TASK_ENQUEUED, TASK_FOLDS, TASK_SUPERSEDED } from './queue.js'
-import { projectionDump, reduce, reducedThrough, REJECTED } from './reducer.js'
+import { projectionDump, reduce, REDUCED, reducedThrough, REJECTED } from './reducer.js'
 import { ROLE_FOLDS } from './role.js'
-import { REDUCED } from './run.js'
 
 export const PREFIX = '[bus:report] '
 
@@ -224,7 +223,7 @@ function rowDifferences(live: Projection, replayed: Projection): string[] {
   return differences
 }
 
-function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
+export function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
   const liveDump = projectionDump(db)
   const live = Buffer.from(liveDump)
   const through = replayCutOff(db)

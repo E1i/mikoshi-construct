@@ -1,10 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Board, LaneParking, Watched } from '../../bus/board.js'
+import type { Board, LaneParking, LeaseOrders, Watched } from '../../bus/board.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { renderBoard } from '../../bus/board-page.js'
 import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
 import { observeChain } from '../../bus/chain.js'
@@ -27,6 +28,7 @@ interface BoardBench {
   clock: Clock
   watched: Watched[]
   parking: LaneParking[]
+  leaseOrders: LeaseOrders
   boards: Board[]
   tick: () => Board
   ts: () => string
@@ -51,8 +53,8 @@ function boardBench(): BoardBench {
   benches.push({ root, db })
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], parking: [], boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, parking: bench.parking })))
+  const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], parking: [], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
+  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, parking: bench.parking, leaseOrders: bench.leaseOrders })))
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()
@@ -91,6 +93,25 @@ describe('the factory board', () => {
     expect(answer?.waiting.map(task => task.card)).toEqual([849, 837, 847])
     const granted = leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s2')
     expect(granted?.cardId).toBe(849)
+  })
+
+  it('the answer queue lists a p0 card first and a second task of a held card last, in the order the answer worker grants', () => {
+    const bench = boardBench()
+    bench.gitHub.open({ number: 735 })
+    bench.tick()
+    const cardText = (cardId: number): string => `card: #${cardId} task-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/${cardId}\ntouches: scripts/${cardId}/**\nwho: shift\n${cardId === 847 ? 'priority: p0\n' : ''}\ndo ${cardId}\n`
+    queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 835 })
+    leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s1', answerLeaseOrder(bench.db, cardText))
+    queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 835, pr: 735, head: sha('a') })
+    for (const cardId of [849, 837, 847])
+      queueTask(bench.db, bench.ts(), { queue: 'answer', cardId })
+    bench.leaseOrders = { answer: answerLeaseOrder(bench.db, cardText) }
+    const answer = bench.tick().queues.find(queue => queue.queue === 'answer')
+    expect(answer?.waiting.map(task => task.card)).toEqual([847, 849, 837, 835])
+    const granted: number[] = []
+    for (let lease = leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s2', answerLeaseOrder(bench.db, cardText)); lease !== null; lease = leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s2', answerLeaseOrder(bench.db, cardText)))
+      granted.push(lease.cardId)
+    expect(granted).toEqual([847, 849, 837])
   })
 
   it('a killed review worker reads red and marks the cards in review within two ticks', () => {

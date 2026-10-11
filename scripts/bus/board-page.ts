@@ -8,6 +8,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { defaultParking } from '../ghosts/handoff-check.js'
+import { answerLeaseOrder } from './answer-worker.js'
+import { parkedCardText } from './answerer.js'
 import { psList, RUN_SCRIPT, runningInstance } from './bg.js'
 import { BOARD_FILE, parkingLanes, readBoard } from './board.js'
 import { journalPath } from './import.js'
@@ -186,7 +188,8 @@ export function boardProjection(db: DatabaseSync, busPath: string): BoardProject
     file,
     project: (now) => {
       try {
-        const board = readBoard({ db, now, watched: watchedNow(busDir, psList()()), parking: parkingLanes(reads, defaultParking(os.homedir())) })
+        const parking = defaultParking(os.homedir())
+        const board = readBoard({ db, now, watched: watchedNow(busDir, psList()()), parking: parkingLanes(reads, parking), leaseOrders: { answer: answerLeaseOrder(db, parkedCardText(parking)) } })
         writeBoardPage(file, renderBoard(board))
       }
       catch (error) {

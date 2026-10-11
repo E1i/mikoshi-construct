@@ -11,16 +11,16 @@ import { fileURLToPath } from 'node:url'
 import { defaultDecisions } from '../decisions/read.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { parkingLane } from './admissions.js'
+import { boardProjection } from './board-page.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { decisionsIntake } from './decisions-import.js'
 import { ghApi } from './github.js'
 import { importJournal, journalPath } from './import.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
 import { deriveQueues } from './queue.js'
-import { reduce } from './reducer.js'
+import { reduce, REDUCED } from './reducer.js'
 
 export const PREFIX = '[bus:run] '
-export const REDUCED = 'reducer.reduced'
 
 export interface Tick {
   poll: Poll
@@ -74,7 +74,6 @@ async function main(): Promise<number> {
   const clock = (): Date => new Date()
   const journal = journalIntake(db, journalPath(), parkingLane(defaultParking(os.homedir())), clock)
   const decisions = decisionsIntake(db, defaultDecisions(os.homedir()), clock)
-  const { boardProjection } = await import('./board-page.js')
   const board = boardProjection(db, busPath)
   const busTick = new BusTick(db, new NetWatch(db, ghApi(process.cwd()), clock), clock, () => {
     journal()

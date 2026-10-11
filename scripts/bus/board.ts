@@ -1,20 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Choice, ParkingReads } from '../shift/parking.js'
 import type { Queue } from './identifiers.js'
+import type { LeaseOrder } from './lease.js'
 import path from 'node:path'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { isLaneName } from './admissions.js'
 import { CHAIN_OBSERVED } from './chain.js'
-import { openBus } from './db.js'
 import { MERGE_DONE } from './executor.js'
 import { QUEUES } from './identifiers.js'
 import { CARD_STARTED } from './inbox.js'
-import { LEASE_FOLDS, RENEW_MS, TASK_COMPLETED, TASK_LEASED } from './lease.js'
+import { grantOrder, RENEW_MS, TASK_COMPLETED, TASK_LEASED } from './lease.js'
 import { CARD_ADMITTED } from './operator-work.js'
-import { CARD_CLOSED, LEASED, QUEUED, TASK_FOLDS } from './queue.js'
-import { projectionDump, reduce, reducedThrough, REJECTED } from './reducer.js'
+import { CARD_CLOSED, LEASED } from './queue.js'
+import { REJECTED } from './reducer.js'
+import { replayDifferences } from './report.js'
 import { REVIEW_RECORDED } from './review-worker.js'
-import { ROLE_FOLDS, roleReadings } from './role.js'
+import { roleReadings } from './role.js'
 
 export const BOARD_FILE = 'board.html'
 export const FRESH_MS = RENEW_MS
@@ -44,7 +45,10 @@ export interface BoardSources {
   now: Date
   watched: readonly Watched[]
   parking: readonly LaneParking[]
+  leaseOrders: LeaseOrders
 }
+
+export type LeaseOrders = Partial<Record<Queue, LeaseOrder>>
 
 export interface QueueCard {
   card: string
@@ -157,11 +161,6 @@ const LEASED_TASKS = `
   SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.actor, leased.ts FROM tasks
   LEFT JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
   WHERE tasks.queue = ? AND tasks.state = '${LEASED}' ORDER BY tasks.id
-`
-
-const WAITING_TASKS = `
-  SELECT task_key, card_id FROM tasks WHERE queue = ? AND state = '${QUEUED}'
-  ORDER BY CASE WHEN queue = 'review' THEN event_id ELSE id END
 `
 
 function count(db: DatabaseSync, sql: string, ...params: (string | number)[]): number {
@@ -285,26 +284,6 @@ function progressOf(db: DatabaseSync, now: Date, health: readonly ComponentHealt
   return { last, stalled: true, cause: 'cause unknown' }
 }
 
-const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...Object.keys(ROLE_FOLDS), CHAIN_OBSERVED])
-const EVENT_COLUMNS = 'id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy'
-
-export function replayMatches(db: DatabaseSync): boolean {
-  const through = reducedThrough(db) === 0 ? Number.POSITIVE_INFINITY : reducedThrough(db)
-  const replay = openBus(':memory:')
-  try {
-    const insert = replay.prepare(`INSERT INTO events (${EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    for (const row of db.prepare(`SELECT ${EVENT_COLUMNS} FROM events ORDER BY id`).all()) {
-      if (Number(row.id) <= through || FOLDED_ON_APPEND.has(String(row.type)))
-        insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
-    }
-    reduce(replay)
-    return projectionDump(replay) === projectionDump(db)
-  }
-  finally {
-    replay.close()
-  }
-}
-
 function link(name: string, green: boolean, fact: string): ContractLink {
   return { link: name, green, fact }
 }
@@ -323,7 +302,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
   const shards = count(db, `SELECT count(*) AS n FROM events WHERE type = '${MERGE_DONE}' AND legacy = 0 AND json_extract(payload, '$.rule') != 'auto'`)
   const opened = count(db, `SELECT count(*) AS n FROM events WHERE type = 'pr.opened' AND legacy = 0`)
   const stateless = count(db, 'SELECT count(*) AS n FROM cards WHERE state IS NULL')
-  const replayed = replayMatches(db)
+  const replayed = replayDifferences(db).differences.length === 0
   const rejected = count(db, `SELECT count(*) AS n FROM events WHERE type = '${REJECTED}'`)
   return [
     link('launch', started > 0, `${started} ${CARD_STARTED} from the bus`),
@@ -336,12 +315,12 @@ function contractRow(db: DatabaseSync): ContractLink[] {
   ]
 }
 
-function taskQueues(db: DatabaseSync): TaskQueue[] {
+function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
   return QUEUES.map(queue => ({
     queue,
     leased: (db.prepare(LEASED_TASKS).all(queue) as { task_key: string, card_id: number, lease_gen: number, actor: string | null, ts: string | null }[])
       .map(row => ({ taskKey: row.task_key, card: row.card_id, holder: row.actor, leaseGen: row.lease_gen, since: row.ts })),
-    waiting: (db.prepare(WAITING_TASKS).all(queue) as { task_key: string, card_id: number }[]).map(row => ({ taskKey: row.task_key, card: row.card_id })),
+    waiting: grantOrder(db, queue, orders[queue]).map(task => ({ taskKey: task.taskKey, card: task.cardId })),
   })).filter(queue => queue.leased.length + queue.waiting.length > 0)
 }
 
@@ -366,7 +345,7 @@ export function readBoard(sources: BoardSources): Board {
     health,
     progress: progressOf(db, now, health, queue.blocked, queue.ready),
     contract: contractRow(db),
-    queues: taskQueues(db),
+    queues: taskQueues(db, sources.leaseOrders),
   }
 }
 
