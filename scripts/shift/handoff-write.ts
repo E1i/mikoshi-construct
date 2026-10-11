@@ -6,6 +6,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultParking, handoffBytes, handoffRefusals, NO_PREV, parkedDepends, PREV_LABEL } from '../ghosts/handoff-check.js'
+import { statusOf } from './relaunch.js'
 
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
@@ -15,7 +16,6 @@ export const OWNER_BOUNDARIES = ['version-pr', 'owner-merged-kind', 'missing-rig
 const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
 const PREV_LINE = new RegExp(`^\\s*(?:[-*+]\\s+)?${PREV_LABEL}:`, 'i')
-const STATUS_LINE = /^STATUS:\s*(\S+)/
 const NAMED_BOUNDARY = /\s—\s*boundary:\s*(\S+)\s*$/
 
 export interface HandoffWriteDeps {
@@ -47,10 +47,10 @@ export function withPrev(draft: string, prev: string): string {
 }
 
 export function ownerStatusRefusal(text: string): string | null {
-  const status = text.split(/\r?\n/).map(line => STATUS_LINE.exec(line)).filter(match => match !== null).at(-1)
-  if (status === undefined || status[1] !== 'OWNER')
+  const statusLine = text.split(/\r?\n/).filter(line => statusOf(line) !== null).at(-1)
+  if (statusLine === undefined || statusOf(statusLine) !== 'OWNER')
     return null
-  const boundary = NAMED_BOUNDARY.exec(status.input)?.[1]
+  const boundary = NAMED_BOUNDARY.exec(statusLine)?.[1]
   if (boundary !== undefined && (OWNER_BOUNDARIES as readonly string[]).includes(boundary))
     return null
   return `${PREFIX}STATUS: OWNER must end with \`— boundary: <name>\`, the name one of ${OWNER_BOUNDARIES.join(', ')}; review changes, red CI, a denied form with an allowed route and who: window cards are executor work`

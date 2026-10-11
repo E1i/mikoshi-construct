@@ -6,8 +6,18 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
 import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, withPrev } from '../../shift/handoff-write.js'
+import { statusOf } from '../../shift/relaunch.js'
 
 const roots: string[] = []
+const UNBOUNDED_OWNER_STATUSES = [
+  'STATUS: OWNER',
+  'STATUS: OWNER — review changes',
+  'STATUS: OWNER — boundary: red-ci',
+  `STATUS: OWNER — boundary: ${OWNER_BOUNDARIES[0]}\n\nSTATUS: OWNER`,
+  'STATUS: OWNER.',
+  'STATUS: OWNER—boundary: x',
+  'STATUS: OWNER\nSTATUS: n/a',
+]
 const DECISIONS = fileURLToPath(import.meta.url)
 const PARKED = new Map<number, number[]>([[650, []], [652, [650]]])
 
@@ -126,16 +136,18 @@ describe('handoff:write', () => {
     expect(withPrev('# H\n## STOP\nprev: x\nqueue: #1', 'archive/0003.md')).toBe('# H\n## STOP\nprev: archive/0003.md\nqueue: #1')
   })
 
-  it('refuses STATUS: OWNER with no boundary from the list, archiving nothing and naming the list', () => {
+  it.each(UNBOUNDED_OWNER_STATUSES)('reads the refused draft %j as OWNER, as relaunch does', (status) => {
+    expect(statusOf(draft().replace('STATUS: CONTINUE', status))).toBe('OWNER')
+  })
+
+  it.each(UNBOUNDED_OWNER_STATUSES)('refuses STATUS: OWNER with no boundary from the list, archiving nothing and naming the list: %j', (status) => {
     const { dir, handoff, draft: file } = world()
     writeFileSync(handoff, 'old\n')
-    for (const status of ['STATUS: OWNER', 'STATUS: OWNER — review changes', 'STATUS: OWNER — boundary: red-ci', `STATUS: OWNER — boundary: ${OWNER_BOUNDARIES[0]}\n\nSTATUS: OWNER`]) {
-      writeFileSync(file, draft().replace('STATUS: CONTINUE', status))
-      const result = write([handoff, file])
-      expect(result.code).toBe(1)
-      expect(result.err.join('\n')).toContain(OWNER_BOUNDARIES.join(', '))
-      expect(result.err.at(-1)).toContain('nothing archived')
-    }
+    writeFileSync(file, draft().replace('STATUS: CONTINUE', status))
+    const result = write([handoff, file])
+    expect(result.code).toBe(1)
+    expect(result.err.join('\n')).toContain(OWNER_BOUNDARIES.join(', '))
+    expect(result.err.at(-1)).toContain('nothing archived')
     expect(readFileSync(handoff, 'utf8')).toBe('old\n')
     expect(existsSync(path.join(dir, 'archive'))).toBe(false)
   })
