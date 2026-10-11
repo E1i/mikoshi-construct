@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
-import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf } from './check.js'
+import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
@@ -129,6 +129,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   let takenText: string
   let journalText: string | null
   let ownerMerges: string | null
+  let published: string[] | undefined
   if (!isDirectory(options.dir))
     return refused('unreadable', [`${options.dir} is not a directory`])
   try {
@@ -137,6 +138,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     journalText = readJournal(options.journal)
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
+    const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+    published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   }
   catch (error) {
     return refused('unreadable', [error instanceof Error ? error.message : String(error)])
@@ -159,6 +162,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     merged: mergedTasks(journalText),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
+    ...(published === undefined ? {} : { published }),
   })
   const slice = sliceCards(checked, numbers)
   if (slice.kind === 'refused')
