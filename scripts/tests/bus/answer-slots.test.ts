@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { AnswerWorker, priorityOf, settledStep, startAnswerWorkers } from '../../bus/answer-worker.js'
+import { answerInSlots, AnswerWorker, priorityOf, startAnswerWorkers } from '../../bus/answer-worker.js'
 import { claudeAnswerer } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
@@ -178,19 +178,33 @@ describe('answer slots', () => {
     bench.close()
   })
 
-  it('a round that throws in one slot settles as faulted and its peer slot finishes its own round', async () => {
+  it('a round that throws in one slot ends no loop: the peer slot answers and its task completes, the fault goes to stderr', async () => {
     const bench = slotsBench()
     bench.asked(901)
     bench.tick()
     const [faulty, peer] = bench.workers(2)
     vi.spyOn(faulty!, 'step').mockRejectedValue(new Error('a fault on card #900'))
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const stopped = new Error('the test stops the loops once the peer answered')
+    const pause = async (): Promise<void> => {
+      if (bench.answered.length > 0)
+        throw stopped
+      await new Promise(() => {})
+    }
 
-    const one = bench.whenInFlight(1)
-    const peerStep = settledStep(peer!)
-    await one
-    expect(await settledStep(faulty!)).toEqual({ kind: 'faulted', detail: 'a fault on card #900' })
+    const peerInFlight = bench.whenInFlight(1)
+    const slots = answerInSlots([faulty!, peer!], pause)
+    const ended = slots.catch((error: unknown) => error)
+    await peerInFlight
     bench.finishAll()
-    expect(await peerStep).toMatchObject({ kind: 'answered', taskKey: expect.stringContaining('answer:901:') })
+
+    expect(await ended).toBe(stopped)
+    expect(bench.answered).toEqual([901])
+    const task = bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'answer' AND card_id = 901`).get() as { state: string }
+    expect(task.state).toBe('completed')
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('worker:answer:slots-1: the round threw'))
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('a fault on card #900'))
     vi.restoreAllMocks()
     bench.close()
   })

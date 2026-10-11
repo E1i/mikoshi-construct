@@ -87,7 +87,7 @@ export function startAnswerWorkers(parts: AnswerWorkerParts, slots: number): Ans
   return Array.from({ length: slots }, (_, slot) => new AnswerWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))
 }
 
-export async function settledStep(worker: AnswerWorker): Promise<AnswerStep | { kind: 'faulted', detail: string }> {
+async function settledStep(worker: AnswerWorker): Promise<AnswerStep | { kind: 'faulted', detail: string }> {
   try {
     return await worker.step()
   }
@@ -105,6 +105,10 @@ async function keepAnswering(worker: AnswerWorker, pause: (ms: number) => Promis
       console.log(answerStepLine(step))
     await pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
   }
+}
+
+export function answerInSlots(workers: AnswerWorker[], pause: (ms: number) => Promise<unknown>): Promise<never> {
+  return Promise.race(workers.map(worker => keepAnswering(worker, pause)))
 }
 
 export function answerStepLine(step: AnswerStep): string | null {
@@ -138,7 +142,7 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
     const workers = startAnswerWorkers({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session }, slotsOf('answer', process.env))
     for (const worker of workers)
       console.log(`${PREFIX}${run.busPath}: the answer worker ${worker.actor} takes the answer queue`)
-    return await Promise.race(workers.map(worker => keepAnswering(worker, run.pause)))
+    return await answerInSlots(workers, run.pause)
   }
   finally {
     db.close()
