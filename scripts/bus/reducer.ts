@@ -183,9 +183,15 @@ function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
   }
 }
 
+export function reducedThrough(db: DatabaseSync): number {
+  return Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
+}
+
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
     db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM decisions; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+    db.exec(`PRAGMA user_version = ${through}`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
     const count: ReduceCount = { applied: 0, rejected: 0 }
     for (const event of events) {
