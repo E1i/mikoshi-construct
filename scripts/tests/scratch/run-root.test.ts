@@ -12,6 +12,8 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const RUN = path.join(REPO_ROOT, 'scripts/scratch/run.ts')
 const RUN_ROOT_MODULE = path.join(REPO_ROOT, 'scripts/scratch/run-root.ts')
+const VITEST = path.join(REPO_ROOT, 'node_modules/vitest/vitest.mjs')
+const VITEST_SETUP = path.join(REPO_ROOT, 'scripts/scratch/vitest-setup.ts')
 const NO_PROCESS = 2 ** 22 + 1
 
 const vitestRoot = (): string => process.env[RUN_ROOT_VARIABLE]!
@@ -32,7 +34,7 @@ if (process.argv.includes('wait')) setInterval(() => {}, 1000)
 `
 
 function startLazyOwner(mode: 'exit' | 'wait'): ChildProcess {
-  return spawn(process.execPath, [TSX, '--eval', LAZY_OWNER, mode], { env: outsideEveryRunRoot(), stdio: ['ignore', 'pipe', 'inherit'] })
+  return spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', LAZY_OWNER, mode], { cwd: REPO_ROOT, env: outsideEveryRunRoot(), stdio: ['ignore', 'pipe', 'inherit'] })
 }
 
 function ownerPid(child: ChildProcess): Promise<number> {
@@ -155,6 +157,36 @@ describe('run.ts, the root quality runs in', () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain(survivedTheRun(rootIn(result.stdout)))
+  })
+})
+
+const HUNG_TEST = `
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+it('hangs past its timeout with its worker kept busy', async () => {
+  writeFileSync(process.env.ROOT_SEEN_AT, process.env.${RUN_ROOT_VARIABLE})
+  mkdtempSync(path.join(os.tmpdir(), 'left-by-a-hung-test-'))
+  setInterval(() => {}, 1000)
+  await new Promise(() => {})
+})
+`
+
+describe('the root vitest runs in', () => {
+  it('is gone from the outer TMPDIR after a test timeout leaves its worker to be killed', () => {
+    const project = scratchDir('hung-')
+    const rootSeenAt = path.join(project, 'root')
+    writeFileSync(path.join(project, 'hung.test.mjs'), HUNG_TEST)
+    writeFileSync(path.join(project, 'vitest.config.mjs'), `export default ${JSON.stringify({ test: { globals: true, include: ['hung.test.mjs'], globalSetup: [VITEST_SETUP], testTimeout: 300, pool: 'forks' } })}\n`)
+
+    const result = spawnSync(process.execPath, [VITEST, 'run', '--root', project, '--config', path.join(project, 'vitest.config.mjs')], { env: { ...outsideEveryRunRoot(), ROOT_SEEN_AT: rootSeenAt }, encoding: 'utf8' })
+    const root = readFileSync(rootSeenAt, 'utf8')
+
+    expect(`${result.stdout}${result.stderr}`).toMatch(/timed out/i)
+    expect(result.status).not.toBe(0)
+    expect(path.dirname(root)).toBe(systemTmpdir())
+    expect(existsSync(root)).toBe(false)
+    expect(rootsOf(result.pid)).toEqual([])
   })
 })
 
