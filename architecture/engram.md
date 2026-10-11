@@ -115,7 +115,7 @@ and `calls` alone and shows entry points and channels as layers of their own.
 | `path` | The repository-relative path a component or a line source names |
 | `from` | The `id` of the component a relation leaves |
 | `to` | The `id` of the component a relation arrives at, or null when its specifier resolves to no tracked file |
-| `kind` | On a relation, `imports` for an import or re-export of a relative specifier, `calls` for a call of a name it imported, `runs` from an entry point's declaration to a file its command names, `writes` from a module that writes a file to a module that reads it, `reads` back the other way; on a contour, what declared it: `package`, `workspace`, `reference` or `contract` |
+| `kind` | On a relation, `imports` for an import or re-export of a relative specifier, `calls` for a call of a name it imported, `runs` from an entry point's declaration to a file its command names, `writes` from a module that calls a `node:fs` write to a module that calls a `node:fs` read, both naming the same file name (a candidate, not traced), `reads` back the other way; on a contour, what declared it: `package`, `workspace`, `reference` or `contract` |
 | `contours` | In `mechanics`, every declared boundary, sorted by `id`; the root contour has the `id` `.` |
 | `name` | A contour's name: the `name` of its manifest, else its directory |
 | `declaredBy` | The tracked file that declares the contour, or `git ls-files -z` for a root no manifest names |

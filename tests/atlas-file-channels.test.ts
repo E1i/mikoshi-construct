@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { channelMap } from '../src/atlas/channels.js'
+import { ATLAS_SCRIPT } from '../src/atlas/client.js'
 import { componentMap } from '../src/atlas/components.js'
+import { mapSection } from '../src/atlas/map.js'
 import { discoverMechanics } from '../src/model/discovery.js'
 import { MODEL_FILE, parseModel } from '../src/model/schema.js'
 
@@ -58,7 +60,7 @@ function fileRelations(relations: Relation[]): Relation[] {
 }
 
 describe('construct atlas: relations through files', () => {
-  it('a fixture with one module writing a file and another reading it shows one file relation with both path:line', () => {
+  it('a fixture with one module calling a node:fs write and another calling a node:fs read on the same file name shows one candidate channel with both path:line', () => {
     const mechanics = discoverMechanics(repository(JOURNAL))
     expect(channelMap(mechanics.relations)).toEqual([
       { file: 'ghosts.jsonl', writer: 'src/journal/write.ts', writerAt: 'src/journal/write.ts:5', reader: 'src/board/read.ts', readerAt: 'src/board/read.ts:5' },
@@ -105,5 +107,21 @@ describe('construct atlas: relations through files', () => {
   it('the code arrows do not count a file channel', () => {
     const mechanics = discoverMechanics(repository(JOURNAL))
     expect(componentMap(mechanics, [], 'journal').relations).toEqual([])
+  })
+})
+
+describe('construct atlas: a file channel reads as a candidate, never as traced', () => {
+  it('the legend names the file layer a candidate, not traced', () => {
+    expect(mapSection('')).toContain('<li data-layer="file"><b>file</b> — a file name that a module calling a node:fs write and a module calling a node:fs read both name; a candidate, not traced</li>')
+  })
+
+  it('the file panel heads its channels as candidates on the write side and on the read side', () => {
+    expect(ATLAS_SCRIPT).toContain('\'<h3>Candidate channels on the write side (\'')
+    expect(ATLAS_SCRIPT).toContain('\'<h3>Candidate channels on the read side (\'')
+  })
+
+  it('a channel item and a channel arrow say each side calls a write or a read, a candidate, not traced', () => {
+    expect(ATLAS_SCRIPT).toContain('\' calls a write, \' + sourceLink(file(channel[2]), channel[3]) + \' calls a read, both name it — a candidate, not traced</li>\'')
+    expect(ATLAS_SCRIPT).toContain('\' calls a write, \' + file(channel[2]) + \':\' + channel[3] + \' calls a read — a candidate, not traced\'')
   })
 })

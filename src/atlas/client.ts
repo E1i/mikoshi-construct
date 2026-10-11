@@ -156,7 +156,7 @@ export const ATLAS_SCRIPT = `
       const from = open.has(sourceOf.get(entry.id).id) ? entry.id : sourceOf.get(entry.id).id;
       entry.runs.forEach((index) => add('runs', from, nodeOfFile(file(index)), file(entry.source) + ':' + entry.line + ' ' + entry.name + ' → ' + file(index)));
     }
-    for (const channel of DATA.channels) add('file', nodeOfFile(file(channel[0])), nodeOfFile(file(channel[2])), channel[4] + ': ' + file(channel[0]) + ':' + channel[1] + ' → ' + file(channel[2]) + ':' + channel[3]);
+    for (const channel of DATA.channels) add('file', nodeOfFile(file(channel[0])), nodeOfFile(file(channel[2])), channel[4] + ': ' + file(channel[0]) + ':' + channel[1] + ' calls a write, ' + file(channel[2]) + ':' + channel[3] + ' calls a read — a candidate, not traced');
     return Array.from(found.values());
   }
 
