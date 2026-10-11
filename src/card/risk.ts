@@ -4,6 +4,7 @@ export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
 export const RISK_PREFIX = 'risk: '
 export const SEAM_PREFIX = 'seam: '
 export const SLICE_PREFIX = 'slice: '
+export const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
 
 export type RiskLevel = typeof RISK_LEVELS[number]
 
@@ -139,7 +140,7 @@ function isLow(entry: string): boolean {
 }
 
 export function riskOf(touch: string): RiskOfTouch {
-  const core = CORE.find(([root]) => reaches(touch, root))
+  const core = touch === CHANGESET_COMPANION ? undefined : CORE.find(([root]) => reaches(touch, root))
   if (core !== undefined)
     return { touch, level: 'R1', why: core[1] }
   const high = HIGH.find(([root]) => reaches(touch, root))
