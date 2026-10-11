@@ -79,6 +79,10 @@ function repositoryAtCwd(): string {
   }
 }
 
+export function witnessesDirOf(briefPath: string): string {
+  return `${briefPath.replace(/\.md$/, '')}.witnesses`
+}
+
 export function pinnedBaseAtCwd(): string {
   return pinnedBase(repositoryAtCwd())
 }
@@ -114,7 +118,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     refuseOn('P5', immutableRefusal(changed ?? [], built.immutable))
     withWorktree(env.repo, base, tree => runOnTree(
       { tree, base, shell: env.shell, log: env.log, refuse: refuseOn, time },
-      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: `${input.briefPath.replace(/\.md$/, '')}.witnesses` },
+      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: witnessesDirOf(input.briefPath) },
     ))
   }
   finally {

@@ -4,7 +4,8 @@ import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,7 +17,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
 import { appendJournalEvent } from './journal.js'
-import { pinnedBaseAtCwd, runPreflight } from './preflight.js'
+import { pinnedBaseAtCwd, runPreflight, witnessesDirOf } from './preflight.js'
 import { parseSketch } from './sketch.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -74,25 +75,50 @@ export interface PreflightMemory {
   now: () => Date
 }
 
-function passedOn(events: JournalEvent[], sha256: string, base: string): boolean {
-  return events.some(event => event.event === PREFLIGHT_EVENT && event.sha256 === sha256 && event.base === base && event.ok === true)
+export const NO_WITNESS_FILES = 'none'
+
+interface PreflightKey { sha256: string, base: string, witnesses: string }
+
+export interface RememberedPreflight {
+  preflight: Preflight
+  journaled: () => Promise<void>
 }
 
-export function rememberedPreflight(preflight: Preflight, memory: PreflightMemory): Preflight {
-  return (input) => {
-    const sha256 = approvalSha256(input.text)
-    const base = memory.base()
-    if (passedOn(journalEvents(memory.journalPath), sha256, base)) {
-      memory.log(`preflight: base ${base.slice(0, 7)}; green on this text and base in ${memory.journalPath}, not run again`)
-      return
-    }
-    preflight({ ...input, base })
-    mkdirSync(path.dirname(memory.journalPath), { recursive: true })
-    appendFileSync(memory.journalPath, `${JSON.stringify({ event: PREFLIGHT_EVENT, sha256, base, ok: true, ts: memory.now().toISOString() })}\n`)
+export function witnessFilesDigest(witnessesDir: string): string {
+  if (!existsSync(witnessesDir))
+    return NO_WITNESS_FILES
+  const files = readdirSync(witnessesDir, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => path.join(entry.parentPath, entry.name))
+    .sort()
+  const digest = createHash('sha256')
+  for (const file of files)
+    digest.update(`${path.relative(witnessesDir, file)}\0`).update(readFileSync(file)).update('\0')
+  return digest.digest('hex')
+}
+
+function passedOn(events: JournalEvent[], key: PreflightKey): boolean {
+  return events.some(event => event.event === PREFLIGHT_EVENT && event.sha256 === key.sha256 && event.base === key.base && event.witnesses === key.witnesses && event.ok === true)
+}
+
+export function rememberedPreflight(preflight: Preflight, memory: PreflightMemory): RememberedPreflight {
+  let journaled: Promise<void> = Promise.resolve()
+  return {
+    preflight: (input) => {
+      const key: PreflightKey = { sha256: approvalSha256(input.text), base: memory.base(), witnesses: witnessFilesDigest(witnessesDirOf(input.briefPath)) }
+      if (passedOn(journalEvents(memory.journalPath), key)) {
+        memory.log(`preflight: base ${key.base.slice(0, 7)}; green on this text, base and witness files in ${memory.journalPath}, not run again`)
+        return
+      }
+      preflight({ ...input, base: key.base })
+      mkdirSync(path.dirname(memory.journalPath), { recursive: true })
+      journaled = appendJournalEvent(memory.journalPath, { event: PREFLIGHT_EVENT, ...key, ok: true, ts: memory.now().toISOString() })
+    },
+    journaled: () => journaled,
   }
 }
 
-function journalPreflight(): Preflight {
+function journalPreflight(): RememberedPreflight {
   return rememberedPreflight(runPreflight, { journalPath: handoffJournalPath(), base: pinnedBaseAtCwd, log: line => console.error(line), now: () => new Date() })
 }
 
@@ -295,19 +321,23 @@ async function main(): Promise<void> {
     return
   }
 
+  const remembered = journalPreflight()
   try {
     if (args.card !== undefined) {
-      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date(), preflight: journalPreflight() })
+      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date(), preflight: remembered.preflight })
       console.log(approval.line)
       if (approval.suggestion !== undefined)
         console.log(approval.suggestion)
       return
     }
-    console.log(approvalLine(args.briefPath, new Date(), resolveApprover(args.by), checkAcceptanceBuild, journalPreflight()))
+    console.log(approvalLine(args.briefPath, new Date(), resolveApprover(args.by), checkAcceptanceBuild, remembered.preflight))
   }
   catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1
+  }
+  finally {
+    await remembered.journaled()
   }
 }
 
