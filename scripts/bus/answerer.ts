@@ -71,6 +71,12 @@ function sourceLines(source: AnswerSource): string[] {
       'Address every finding.',
     ]
   }
+  if (source.kind === 'ci') {
+    return [
+      source.failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name; read the checks on the pull request.' : `CI is red on this head. The failed checks: ${source.failedChecks.join(', ')}.`,
+      'Read their logs (gh pr checks, gh run view --log-failed) and fix every one.',
+    ]
+  }
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 

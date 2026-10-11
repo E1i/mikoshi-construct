@@ -256,7 +256,7 @@ function carryRefused(message: string): MergeResult {
   return { stdout: [], stderr: [`${CARRY_PREFIX}${message}; nothing published`], exitCode: 1 }
 }
 
-export function runCarry(argv: string[], deps: CarryDeps): MergeResult {
+export function runCarry(argv: string[], deps: CarryDeps, expected?: string): MergeResult {
   const number = argv.find(arg => arg !== CARRY_FLAG)
   if (argv.length !== 2 || !argv.includes(CARRY_FLAG) || number === undefined || !/^\d+$/.test(number))
     return carryRefused(CARRY_USAGE)
@@ -267,6 +267,8 @@ export function runCarry(argv: string[], deps: CarryDeps): MergeResult {
   catch (error) {
     return carryRefused(`PR #${number} not read: ${firstLine(error)}`)
   }
+  if (expected !== undefined && view.headRefOid !== expected)
+    return carryRefused(`PR #${number} head is ${view.headRefOid}, not the updated head ${expected}`)
   const card = readBodyCard(view.body)
   if (card.kind === 'refused')
     return carryRefused(`the first line of PR #${number} is not the task's card (${card.reason})`)
