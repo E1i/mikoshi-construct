@@ -79,7 +79,7 @@ describe('every gate is reachable from the harness, and anything outside it says
   })
 
   it('runs the harness steps under scripts/quality/lock.ts, so two quality runs on one machine take turns', () => {
-    expect(packageScripts().quality).toBe('tsx scripts/quality/lock.ts pnpm run quality:steps')
+    expect(packageScripts().quality).toBe('tsx scripts/quality/lock.ts tsx scripts/scratch/run.ts pnpm run quality:steps')
     expect(reachedByHarness()).toContain('quality:steps')
   })
 
