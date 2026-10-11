@@ -190,6 +190,29 @@ describe('the restart queue', () => {
     bench.close()
   })
 
+  it('a chain waiting on #N sits at its boundary under the card it waits for, restarts on a mechanism merge, and replays the same', () => {
+    const bench = restartBench()
+    bench.observe({ cardId: 812, state: 'waiting', boundary: true, waitingOn: [809] })
+    expect(bench.db.prepare('SELECT card_id, state, boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ card_id: 812, state: 'waiting', boundary: 1 })
+    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.tick()
+    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'restarted', fromDir: DIR, from: MAIN_1, to: MAIN_2 })
+    bench.tick()
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a chain.observed is refused when it waits without naming on what, or names what it waits on without waiting', () => {
+    const bench = restartBench()
+    expect(() => bench.observe({ state: 'waiting' })).toThrow('waitingOn')
+    expect(() => bench.observe({ state: 'waiting', waitingOn: [0] })).toThrow('waitingOn')
+    expect(() => bench.observe({ state: 'running', waitingOn: [809] })).toThrow('waitingOn')
+    expect(bench.db.prepare('SELECT count(*) AS n FROM chains').get()).toEqual({ n: 0 })
+    bench.close()
+  })
+
   it('a launch that fails is a technical denial and the task goes back to the queue', () => {
     const bench = restartBench()
     bench.observe()

@@ -7,9 +7,11 @@ import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const CHAIN_OBSERVED = 'chain.observed'
 export const CHAIN_RESTARTED = 'chain.restarted'
-export const CHAIN_STATES = ['running', 'stopped', 'fault'] as const
+export const CHAIN_STATES = ['running', 'waiting', 'stopped', 'fault'] as const
 
 export type ChainState = typeof CHAIN_STATES[number]
+
+export const WAITING: ChainState = 'waiting'
 
 export interface ChainObservation {
   dir: string
@@ -20,6 +22,7 @@ export interface ChainObservation {
   leader: number | null
   boundary: boolean
   state: ChainState
+  waitingOn?: number[]
 }
 
 export interface ChainRow {
@@ -57,8 +60,18 @@ function leader(payload: Record<string, unknown>): number | null {
   return payload.leader === null ? null : positive(payload.leader, 'leader')
 }
 
+function waitingOn(payload: Record<string, unknown>): number[] {
+  const cards = payload.waitingOn
+  return Array.isArray(cards) && cards.length > 0 ? cards.map(card => positive(card, 'waitingOn')) : reject(`a ${WAITING} chain names the cards it waits on in waitingOn`)
+}
+
 function chainState(payload: Record<string, unknown>): ChainState {
-  return CHAIN_STATES.find(each => each === payload.state) ?? reject(`state is not one of ${CHAIN_STATES.join(' | ')}`)
+  const state = CHAIN_STATES.find(each => each === payload.state) ?? reject(`state is not one of ${CHAIN_STATES.join(' | ')}`)
+  if (state === WAITING)
+    waitingOn(payload)
+  else if (payload.waitingOn !== undefined)
+    reject(`only a ${WAITING} chain carries waitingOn`)
+  return state
 }
 
 export function chainOfCard(db: DatabaseSync, cardId: number): ChainRow | undefined {
@@ -102,7 +115,7 @@ export const CHAIN_FOLDS: Record<string, Fold> = {
 }
 
 export function observeChain(db: DatabaseSync, ts: string, actor: string, chain: ChainObservation): boolean {
-  const event: BusEvent = { ts, type: CHAIN_OBSERVED, actor, cardId: chain.cardId, pr: null, head: chain.sha, dedupeKey: `${CHAIN_OBSERVED}:${chain.dir}:${ts}:${chain.state}:${chain.boundary}`, payload: { dir: chain.dir, parking: chain.parking, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary, state: chain.state }, legacy: false }
+  const event: BusEvent = { ts, type: CHAIN_OBSERVED, actor, cardId: chain.cardId, pr: null, head: chain.sha, dedupeKey: `${CHAIN_OBSERVED}:${chain.dir}:${ts}:${chain.state}:${chain.boundary}`, payload: { dir: chain.dir, parking: chain.parking, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary, state: chain.state, ...(chain.waitingOn === undefined ? {} : { waitingOn: chain.waitingOn }) }, legacy: false }
   return inTransaction(db, () => {
     if (!appendEvent(db, event))
       return false

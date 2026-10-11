@@ -5,7 +5,7 @@ import type { LeaseOrder } from './lease.js'
 import path from 'node:path'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { isLaneName } from './admissions.js'
-import { CHAIN_OBSERVED } from './chain.js'
+import { CHAIN_OBSERVED, WAITING } from './chain.js'
 import { MERGE_DONE } from './executor.js'
 import { QUEUES } from './identifiers.js'
 import { CARD_STARTED } from './inbox.js'
@@ -130,12 +130,22 @@ interface ChainLane {
   card_id: number
   state: string
   since: string | null
+  waiting_on: string | null
 }
 
 const CHAINS = `
   SELECT chains.dir, chains.parking, chains.card_id, chains.state,
-    (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = '${CHAIN_OBSERVED}' AND seen.card_id = chains.card_id AND json_extract(seen.payload, '$.dir') = chains.dir) AS since
+    (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = '${CHAIN_OBSERVED}' AND seen.card_id = chains.card_id AND json_extract(seen.payload, '$.dir') = chains.dir) AS since,
+    (SELECT json_extract(folded.payload, '$.waitingOn') FROM events AS folded WHERE folded.id = chains.event_id) AS waiting_on
   FROM chains ORDER BY chains.dir
+`
+
+const CARDS_IN_WORK = `
+  SELECT card_id FROM chains WHERE state IN ('running', 'fault')
+  UNION
+  SELECT started.card_id FROM events AS started
+  WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
 `
 
 const OPEN_PRS = `
@@ -257,11 +267,18 @@ function markersOf(stage: string, down: ReadonlySet<string>): string[] {
   return worker !== undefined && down.has(worker) ? [`${worker} down`] : []
 }
 
+function stageOfChain(chain: ChainLane): string {
+  if (chain.state !== WAITING)
+    return 'writing'
+  const cards = JSON.parse(chain.waiting_on ?? '[]') as number[]
+  return `waiting on ${cards.map(card => `#${card}`).join(', ')}`
+}
+
 function executionBlock(db: DatabaseSync, chains: readonly ChainLane[], down: ReadonlySet<string>): ExecutionRow[] {
   const open = db.prepare(OPEN_PRS).all() as unknown as OpenPrRow[]
   const withPr = new Set(open.map(row => row.card_id))
   const writing = chains.filter(chain => chain.state !== 'stopped' && !withPr.has(chain.card_id))
-    .map(chain => ({ card: chain.card_id, pr: null, stage: 'writing', since: chain.since, review: null, markers: [] }))
+    .map(chain => ({ card: chain.card_id, pr: null, stage: stageOfChain(chain), since: chain.since, review: null, markers: [] }))
   const reviewed = open.map((row) => {
     const stage = stageOf(row)
     return { card: row.card_id, pr: row.pr, stage, since: row.since, review: row.review, markers: markersOf(stage, down) }
@@ -273,7 +290,9 @@ function executionBlock(db: DatabaseSync, chains: readonly ChainLane[], down: Re
 }
 
 function progressOf(db: DatabaseSync, now: Date, health: readonly ComponentHealth[], blocked: readonly QueueCard[], ready: readonly QueueCard[]): Progress {
-  const last = (db.prepare(`SELECT max(ts) AS ts FROM events WHERE legacy = 0 AND type IN (${PROGRESS_EVENTS.map(type => `'${type}'`).join(', ')})`).get() as { ts: string | null }).ts
+  if (count(db, `SELECT count(*) AS n FROM (${CARDS_IN_WORK})`) === 0)
+    return { last: null, stalled: false, cause: null }
+  const last = (db.prepare(`SELECT max(ts) AS ts FROM events WHERE legacy = 0 AND type IN (${PROGRESS_EVENTS.map(type => `'${type}'`).join(', ')}) AND card_id IN (${CARDS_IN_WORK})`).get() as { ts: string | null }).ts
   if (ageMs(now, last) < NO_PROGRESS_MS)
     return { last, stalled: false, cause: null }
   const down = health.filter(component => component.health === 'down').map(component => component.name)
