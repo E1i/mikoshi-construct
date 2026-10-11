@@ -328,6 +328,19 @@ function identity(row: TaskRow): QueuedTask {
   return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input }
 }
 
+export function cardBodyShaOfCard(db: DatabaseSync, cardId: number): string | null {
+  const row = db.prepare(`SELECT ${cardBodyShaOf('?')} AS card_body`).get(cardId) as { card_body: unknown }
+  return typeof row.card_body === 'string' ? row.card_body : null
+}
+
+function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
+  return (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))
+}
+
+export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
+  return reviewsOfAnOldInput(db).map(row => row.task_key)
+}
+
 function underCurrentInput(row: ReviewRow): boolean {
   const current: QueuedTask = { queue: 'review', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, input: reviewInputOf(row.body_sha, row.card_body) }
   return current.input === undefined || keyOf(current) === row.task_key
@@ -343,7 +356,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const row of (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))) {
+  for (const row of reviewsOfAnOldInput(db)) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }

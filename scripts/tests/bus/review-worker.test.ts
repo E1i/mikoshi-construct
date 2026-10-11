@@ -19,7 +19,7 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine } from '../../bus/review-worker.js'
 import { claudeReviewer, reviewPrompt } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
@@ -288,7 +288,8 @@ describe('review worker', () => {
   })
 
   it('a dry run prints the review and writes nothing to the bus or GitHub', async () => {
-    const { db, gitHub, statuses, tick } = setUp()
+    const { db, busPath, gitHub, statuses, tick } = setUp()
+    importJournal(db, JSON.stringify({ event: 'intake', task: '1049', card: '#1049 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', confirmation: 'auto', corrections: [], bodySha: '0123abcd4567ef89', source: 'admit', ts: '2026-10-11T14:00:00.000Z' }))
     gitHub.open({ number: 949 })
     tick()
     gitHub.open({ number: 949, head: sha('e') })
@@ -300,8 +301,9 @@ describe('review worker', () => {
       return { verdict: 'changes', findings: ['the first finding', 'the second finding'], session: 'reviewer-dry' }
     }
 
-    const lines = await dryRun(gitHub.client, reviewer, fixedPlan, 949)
-    expect(leases).toEqual([{ taskKey: taskKey({ queue: 'review', cardId: 1049, pr: 949, head: sha('e') }), queue: 'review', cardId: 1049, pr: 949, head: sha('e'), leaseGen: 0, actor: DRY_RUN_ACTOR }])
+    const lines = await dryRun(gitHub.client, reviewer, fixedPlan, 949, busCardBody(busPath))
+    const queued = taskKey({ queue: 'review', cardId: 1049, pr: 949, head: sha('e'), input: { prBody: prBodySha(cardBody(949)), cardBody: '0123abcd4567ef89' } })
+    expect(leases).toEqual([{ taskKey: queued, queue: 'review', cardId: 1049, pr: 949, head: sha('e'), leaseGen: 0, actor: DRY_RUN_ACTOR }])
     expect(lines.join('\n')).toContain(sha('e'))
     expect(lines.join('\n')).toContain('verdict: changes')
     expect(lines.join('\n')).toContain('reviewer session: reviewer-dry')
@@ -311,6 +313,8 @@ describe('review worker', () => {
     expect(gitHub.pulls.get(949)!.review).toBeUndefined()
     expect({ events: eventCount(db), tasks: projectionDump(db) }).toEqual(before)
     expect(reviewMode(['--dry-run', '949'])).toEqual({ kind: 'dry-run', pr: 949 })
+    tick()
+    expect(task(db, queued).state).toBe('queued')
     db.close()
   })
 

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
-import { deriveQueues, queueTask } from '../../bus/queue.js'
+import { deriveQueues, queueTask, reviewKeysOfAnOldInput } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
@@ -60,6 +60,23 @@ function replayedFromEmpty(log: readonly { [key: string]: unknown }[]): string {
   const dump = projectionDump(db)
   db.close()
   return dump
+}
+
+function expectReplayKeepsOldReviews(copy: DatabaseSync): void {
+  reduce(copy)
+  const folded = projectionDump(copy)
+  const oldReviews = copy.prepare(`SELECT tasks.task_key, tasks.state, tasks.head, prs.head AS pr_head FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr WHERE tasks.queue = 'review' ORDER BY tasks.task_key`).all() as { task_key: string, state: string, head: string | null, pr_head: string | null }[]
+  reduce(copy)
+  expect(projectionDump(copy)).toBe(folded)
+
+  const ofAnOldInput = new Set(reviewKeysOfAnOldInput(copy))
+  deriveQueues(copy, '2026-10-11T17:30:00.000Z')
+  const after = new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
+  for (const old of oldReviews) {
+    const leftBehind = (old.state === 'queued' || old.state === 'leased') && (old.head !== old.pr_head || ofAnOldInput.has(old.task_key))
+    expect({ key: old.task_key, state: after.get(old.task_key) }).toEqual({ key: old.task_key, state: leftBehind ? 'superseded' : old.state })
+  }
+  expect(copy.prepare(`SELECT pr, head FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING count(*) > 1`).all()).toEqual([])
 }
 
 describe('replay determinism', () => {
@@ -148,19 +165,24 @@ describe('replay determinism', () => {
     live.close()
 
     const copy = openBus(snapshot)
-    reduce(copy)
-    const folded = projectionDump(copy)
-    const oldReviews = copy.prepare(`SELECT tasks.task_key, tasks.state, tasks.head, prs.head AS pr_head FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr WHERE tasks.queue = 'review' ORDER BY tasks.task_key`).all() as { task_key: string, state: string, head: string | null, pr_head: string | null }[]
-    reduce(copy)
-    expect(projectionDump(copy)).toBe(folded)
+    expectReplayKeepsOldReviews(copy)
+    copy.close()
+  })
 
-    deriveQueues(copy, new Date().toISOString())
-    const after = new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
-    for (const old of oldReviews) {
-      const leftBehind = (old.state === 'queued' || old.state === 'leased') && old.head !== old.pr_head
-      expect({ key: old.task_key, state: after.get(old.task_key) }).toEqual({ key: old.task_key, state: leftBehind ? 'superseded' : old.state })
-    }
-    expect(copy.prepare(`SELECT pr, head FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING count(*) > 1`).all()).toEqual([])
+  it('a snapshot taken after a body edit was folded and before the tick derived its queues counts the input-keyed review of the old body as left behind', () => {
+    const copy = newBus()
+    const head = HEADS[0]!
+    const body = (text: string): BusEvent => ({ ...observed(950, 850, head, 'green'), dedupeKey: `pr:950:${text}`, payload: { base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(text) } })
+    appendEvent(copy, body('card: #850'))
+    reduce(copy)
+    deriveQueues(copy, '2026-10-11T17:00:00.000Z')
+    const first = taskKey({ queue: 'review', cardId: 850, pr: 950, head, input: { prBody: prBodySha('card: #850'), cardBody: null } })
+    expect(copy.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(first)).toEqual({ state: 'queued' })
+    appendEvent(copy, body('card: #850 edited'))
+    reduce(copy)
+
+    expectReplayKeepsOldReviews(copy)
+    expect(copy.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(first)).toEqual({ state: 'superseded' })
     copy.close()
   })
 })
