@@ -44,6 +44,7 @@ import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
+import { parseSketch } from '../ghosts/sketch.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
@@ -709,6 +710,61 @@ function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { fil
   return { file }
 }
 
+const EXPECT_LINE_INDEX = 2
+const LOOKS_LIKE_EXPECT = /^\s*expect:/im
+const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m
+
+function commitSketch(deps: ShiftDeps, tree: string, name: string): string {
+  const original = deps.git(tree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+  const branch = `sketch/${name}`
+  deps.git(tree, ['checkout', '-b', branch])
+  deps.git(tree, ['add', '-A'])
+  deps.git(tree, ['commit', '-m', `sketch: ${name}`])
+  const sha = deps.git(tree, ['rev-parse', 'HEAD']).trim()
+  deps.git(tree, ['checkout', original])
+  return `${branch} @ ${sha}`
+}
+
+function finishedBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], text: string): { text: string } | { problem: string } {
+  let sketch: ReturnType<typeof parseSketch>
+  try {
+    sketch = parseSketch(text)
+  }
+  catch {
+    return { text }
+  }
+  const lines = text.split('\n')
+  const dirty = sketch.kind === 'none' && deps.git(tree, ['status', '--porcelain']).trim() !== ''
+  if (dirty)
+    lines[1] = `Sketch: ${commitSketch(deps, tree, card.name)}`
+  if (LOOKS_LIKE_EXPECT.test(text))
+    return { text: lines.join('\n') }
+  const effort = EFFORT_LINE.exec(text)?.[1]?.toLowerCase()
+  const sampled = runPnpm(deps, ['ghosts:expect-sample', ...(effort === undefined ? [] : ['--effort', effort]), '--sketch', dirty || sketch.kind === 'branch' ? 'yes' : 'no'])
+  if (sampled === null)
+    return { problem: NO_PNPM_RUNNER }
+  const line = sampled.stdout.split('\n').find(candidate => candidate.startsWith('expect: '))
+  if (sampled.code !== 0 || line === undefined)
+    return { problem: firstLine(sampled.stderr) || `ghosts:expect-sample exit ${sampled.code}` }
+  lines.splice(EXPECT_LINE_INDEX, 0, line)
+  return { text: lines.join('\n') }
+}
+
+function finishBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], brief: string): string | null {
+  try {
+    const before = deps.read(brief)
+    const finished = finishedBrief(deps, tree, card, before)
+    if ('problem' in finished)
+      return finished.problem
+    if (finished.text !== before)
+      writeFileSync(brief, finished.text)
+    return null
+  }
+  catch (error) {
+    return firstLine(error instanceof Error ? error.message : String(error))
+  }
+}
+
 async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string, manual: boolean, shard: string | undefined): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const { card } = task
   const brief = briefPathOf(deps.handoffDir, card)
@@ -778,6 +834,11 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
       return result(interrupted)
     if (!deps.exists(brief))
       return stopped('fault', `the brief session wrote no brief at ${brief}`, ran.current)
+    if (deps.pnpm === undefined)
+      return stopped('fault', NO_PNPM_RUNNER, ran.current)
+    const unfinished = finishBrief(deps, worktree, card, brief)
+    if (unfinished !== null)
+      return stopped('hash', `${LADDER_REASON}: ${unfinished}`, ran.current)
     const approved = runPnpm(deps, ['ghosts:hash', brief, '--by', 'morse', '--card', String(card.id), '--parking', parking])
     if (approved === null)
       return stopped('fault', NO_PNPM_RUNNER, ran.current)

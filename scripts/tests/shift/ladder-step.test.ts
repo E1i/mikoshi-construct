@@ -1,5 +1,9 @@
 import type { Card } from '../../../src/card/grammar.js'
-import { readFileSync } from 'node:fs'
+import type { PnpmResult } from '../../shift/shift.js'
+import type { World } from './fixtures/autopilot-world.js'
+import type { Ladder } from './fixtures/ladder-world.js'
+import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
@@ -7,7 +11,7 @@ import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js
 import { approvedSha256Of, briefPathOf, isLadder, ladderStep, tasksFilePathOf, tasksFileText } from '../../shift/ladder.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
-import { approvalLine, approve, BRIEF_TEXT, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
+import { approvalLine, approve, BRIEF_TEXT, briefOf, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
 
 function cardOf(line: string): Card {
   const parsed = parseCard(line)
@@ -91,11 +95,57 @@ describe('the approved hash of a card is read from the journal alone', () => {
   })
 })
 
+const PLACED_SKETCH = `Sketch: sketch/task-1 @ ${'a'.repeat(40)}`
+const PLACED_EXPECT = 'expect: tokens ≈ 1k, minutes ≈ 1 — effort low, n=9, median, p25–p75 1k–2k'
+
+function refusingMorse(world: World): Ladder {
+  const ladder = ladderPnpm(world, 1, { morse: 'refuses' })
+  const pnpm = (cwd: string, args: string[], input?: string): PnpmResult => args[0] === 'ghosts:expect-sample' ? { code: 0, stdout: `${PLACED_EXPECT}\n`, stderr: '' } : ladder.pnpm(cwd, args, input)
+  return { calls: ladder.calls, pnpm }
+}
+
+async function briefAfterSession(written: string): Promise<{ brief: string, sampled: string[][], branches: string }> {
+  const world = newWorld([{ id: 1, kind: LADDER, who: 'shift', body: 'do 1 STUB-BRIEF-WRITE' }])
+  const text = path.join(world.stubOut, 'written-brief.md')
+  const script = path.join(world.stubOut, 'writing.sh')
+  const stub = path.join(import.meta.dirname, 'fixtures', 'claude-stub-ladder.sh')
+  writeFileSync(text, written)
+  writeFileSync(script, `prompt=$(cat)\nprintf '%s\\n' "$prompt" | sh ${stub} "$@" || exit $?\ncp ${text} ${briefOf(world, 1)}\n`)
+  const sampled: string[][] = []
+  const base = ladderPnpm(world, 1, { morse: 'refuses' })
+  const ladder = { calls: base.calls, pnpm: (cwd: string, args: string[], input?: string): PnpmResult => {
+    if (args[0] === 'ghosts:expect-sample')
+      sampled.push(args)
+    return base.pnpm(cwd, args, input)
+  } }
+  const { gh } = fakeGh({ 101: cardLine(1, LADDER) })
+  const claude = `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${script}`
+  await runShift([world.shift, '--parking', world.parking], ladderDeps(world, gh, captured(), ladder, { claude }))
+  return { brief: readFileSync(briefOf(world, 1), 'utf8'), sampled, branches: execFileSync('git', ['-C', world.repo, 'branch', '--list', 'sketch/*'], { encoding: 'utf8' }) }
+}
+
+describe('a finished brief is left as the session wrote it', () => {
+  it('a brief that already has an expect: line is untouched and no forecast is sampled', async () => {
+    const written = `/implement stub brief\nSketch: none — stub\n${PLACED_EXPECT}\n`
+    const after = await briefAfterSession(written)
+    expect(after.brief).toBe(written)
+    expect(after.sampled).toEqual([])
+  })
+
+  it('a brief that already names a branch sketch is untouched and no sketch branch is made', async () => {
+    const written = `/implement stub brief\n${PLACED_SKETCH}\n${PLACED_EXPECT}\n`
+    const after = await briefAfterSession(written)
+    expect(after.brief).toBe(written)
+    expect(after.sampled).toEqual([])
+    expect(after.branches).toBe('')
+  })
+})
+
 describe('a failed ladder launch keeps what it printed', () => {
   it('a failed ladder launch writes its stderr tail and log path into its fault line', async () => {
     const world = newWorld([{ id: 1, kind: LADDER, who: 'shift', body: 'do 1 STUB-BRIEF-WRITE STUB-VERIFIED-run STUB-PR-101' }])
     const { gh } = fakeGh({ 101: cardLine(1, LADDER) })
-    await runShift([world.shift, '--parking', world.parking], ladderDeps(world, gh, captured(), ladderPnpm(world, 1, { morse: 'refuses' })))
+    await runShift([world.shift, '--parking', world.parking], ladderDeps(world, gh, captured(), refusingMorse(world)))
     approve(world, 1)
     const shift = path.join(world.root, 'shift-2')
     const lines = Array.from({ length: 25 }, (_, index) => `launch line ${index}`)
