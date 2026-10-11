@@ -4,6 +4,34 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.44.0
+
+### Minor Changes
+
+- [#726](https://github.com/E1i/mikoshi-construct/pull/726) [`9796252`](https://github.com/E1i/mikoshi-construct/commit/9796252ca2b12e70b77ea015cf3ddeabe9961532) Thanks [@E1i](https://github.com/E1i)! - cli: `construct atlas` draws a map you can click: the contours your repository declares at the top, at most 30 nodes at first sight, a click unfolding a contour into components and a file into its relations with path:line, arrows counting the relations under them and marking those that bypass a declared entry; templates: discovery names the components of each contour in the Engram's `interpretation` layer, and the Engram is `modelVersion` 6
+
+- [#680](https://github.com/E1i/mikoshi-construct/pull/680) [`fa58d2f`](https://github.com/E1i/mikoshi-construct/commit/fa58d2f09d5823c12d35ed117b1d298df14df3f4) Thanks [@E1i](https://github.com/E1i)! - attach record v3: harness may be none; an older build refuses to detach it
+
+- [#705](https://github.com/E1i/mikoshi-construct/pull/705) [`226a3d9`](https://github.com/E1i/mikoshi-construct/commit/226a3d9abb1ff838c608c0fb36f4c551e21bbbfd) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake --draft` and `--admit` derive a card's decision from `architecture/owner-merges.md` — a touch that meets an owner glob makes it `owner`, otherwise `auto` — and `--admit` refuses a hand-written `owner` on a card that touches no owner path, naming it, until the token it prints confirms `auto`; a repository without that file keeps the card's own decision
+
+- [#665](https://github.com/E1i/mikoshi-construct/pull/665) [`dcb82b7`](https://github.com/E1i/mikoshi-construct/commit/dcb82b749e3c9089b8a0e2c148f4eec6f1b21673) Thanks [@E1i](https://github.com/E1i)! - cli: in a repository that has `tests/harness-membership.test.ts`, `construct intake` adds it and `CONTRIBUTING.md` to the touches of a card that touches `package.json`, recording each as a correction that needs no confirmation; a repository without that test gets nothing added
+
+- [#699](https://github.com/E1i/mikoshi-construct/pull/699) [`d253c30`](https://github.com/E1i/mikoshi-construct/commit/d253c30f55a2a671f34ed1319111c800f8838d8f) Thanks [@E1i](https://github.com/E1i)! - cli: when `construct intake` proposes a risk seam, a test now goes into the slice of the higher-risk code it checks. This covers tests under `tests/` and tests under `scripts/tests/<area>/`, which match only code under `scripts/`. A test matches when its file name or one of its directories under the test root matches a path segment of that code. The test name may also be that segment followed by `-` and more. The top-level directory of the code path and `commands` never count as a match. Before this, every test went into the lower slice, where it could not fail on the code it checks. Intake also refuses a card whose task text has its own `slice:` lines when a seam proposes different slices, unless a person kept the card whole. The reason it gives names both ways to settle it
+
+### Patch Changes
+
+- [#683](https://github.com/E1i/mikoshi-construct/pull/683) [`41f8d96`](https://github.com/E1i/mikoshi-construct/commit/41f8d9609f1e55bc7663c1e5e215b87c4625095f) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake --admit` refuses a card whose witness passes a `-t` that is not a valid regex, naming the witness and the compile error as `--draft` already does, so a card parked earlier or edited by hand can no longer be admitted with a witness that never exits 0
+
+- [#693](https://github.com/E1i/mikoshi-construct/pull/693) [`7021a38`](https://github.com/E1i/mikoshi-construct/commit/7021a387ba5975cedcf52793c5ae332d2812733a) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake --admit` resolves a card's depends and blocks against every lane under the parking root, not only the card's own directory, so a card that depends on one parked in another lane is no longer marked unclear
+
+- [#684](https://github.com/E1i/mikoshi-construct/pull/684) [`b9d84b6`](https://github.com/E1i/mikoshi-construct/commit/b9d84b67aae25dc6957820a2d996c0e7f318da5a) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` adds what every change of a kind carries to a card's touches as a correction — the README, `docs/cli.md` and a `docs/guide` page for a change to the command definitions, a changeset for published code, and the test beside a source module — each row only in a repository that keeps the file that holds it
+
+- [#697](https://github.com/E1i/mikoshi-construct/pull/697) [`28f61df`](https://github.com/E1i/mikoshi-construct/commit/28f61dfcccf5a3638fb43e480fc8a34baf9877d4) Thanks [@E1i](https://github.com/E1i)! - cli: `construct intake` reads a `creates` entry written as `<path> (ghosts)` or `<path> (plain)` as the path it creates, the same way the shift guard does, and refuses any other form (`--admit` marks it `unclear: creates`) instead of treating the whole entry as a path that does not exist
+
+- [#706](https://github.com/E1i/mikoshi-construct/pull/706) [`7f607e6`](https://github.com/E1i/mikoshi-construct/commit/7f607e66269c29dda044b38df5ab69f1507f2da2) Thanks [@E1i](https://github.com/E1i)! - cli: no change in behaviour — `construct intake` and `construct intake --admit` now walk the parking lanes through one shared reader instead of two copies of it
+
+- [#696](https://github.com/E1i/mikoshi-construct/pull/696) [`410ba6e`](https://github.com/E1i/mikoshi-construct/commit/410ba6edf494c7e3dee45acc57548a6d76cb00df) Thanks [@E1i](https://github.com/E1i)! - card: `readBodyCard` in `src/card/grammar.ts` is the one reader of a pull request body's card line, accepting the line with or without a leading `card: `; `shift:merge` (merge, verdict and `--carry`), `task:merged` and `task:close` read the body through it, so a body opening with `card: #N …` is no longer refused as "not a card". The line is still written in one form, `cardLine`, without the prefix
+
 ## 0.43.0
 
 [0.43.0 — Mikoshi builds the Atlas of any repository](/release-notes/0.43.0)
