@@ -3,10 +3,14 @@ import type { MergeEvent } from '../board/handoff.js'
 import type { CardFileStep } from './card-archive.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import process from 'node:process'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
+import { cardSessionOf } from './answer-source.js'
 import { archiveCardFile } from './card-archive.js'
+import { appendEvent } from './db.js'
 import { MERGE_DONE } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
@@ -34,12 +38,55 @@ export type CloseOutcome
 
 export type ReportedVerification = (cardId: number) => string | null
 
+export const ARTIFACT_REMOVED = 'artifact.removed'
+
+export interface RemovedTree {
+  path: string
+  dirty: number
+}
+
+export interface CardTreeRemover {
+  remove: (worktree: string) => RemovedTree | null
+}
+
 export interface CloseParts {
   db: DatabaseSync
   reported: ReportedVerification
   clock: () => Date
   journal: string
   parking: string
+  trees?: CardTreeRemover
+}
+
+function git(repo: string, args: string[]): string {
+  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function canonical(dir: string): string {
+  return existsSync(dir) ? realpathSync(dir) : dir
+}
+
+function listedWorktrees(repo: string): string[] {
+  return git(repo, ['worktree', 'list', '--porcelain']).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length))
+}
+
+function dirtyCount(worktree: string): number {
+  return existsSync(worktree) ? git(worktree, ['status', '--porcelain']).split('\n').filter(line => line !== '').length : 0
+}
+
+export function gitTreeRemover(repo: string): CardTreeRemover {
+  return {
+    remove: (worktree) => {
+      const [, ...linked] = listedWorktrees(repo)
+      const listed = linked.find(entry => canonical(entry) === canonical(worktree))
+      if (listed === undefined)
+        return null
+      const dirty = dirtyCount(listed)
+      git(repo, ['worktree', 'remove', '--force', listed])
+      git(repo, ['worktree', 'prune'])
+      return { path: listed, dirty }
+    },
+  }
 }
 
 interface MergeRecord {
@@ -78,7 +125,11 @@ function isVerificationWord(word: string | null): word is string {
 }
 
 export class CloseExecutor {
-  constructor(private readonly parts: CloseParts) {}
+  private readonly trees: CardTreeRemover
+
+  constructor(private readonly parts: CloseParts) {
+    this.trees = parts.trees ?? gitTreeRemover(process.cwd())
+  }
 
   private ts(): string {
     return this.parts.clock().toISOString()
@@ -138,7 +189,24 @@ export class CloseExecutor {
       if (cardClosed(db, lease.cardId))
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
+    this.removeCardTree(lease)
     return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { mergeLine, cardFile } }
+  }
+
+  private removeCardTree(lease: Lease): void {
+    const session = cardSessionOf(this.parts.db, lease.cardId)
+    if (session === null)
+      return
+    let removed: RemovedTree | null
+    try {
+      removed = this.trees.remove(session.worktree)
+    }
+    catch {
+      return
+    }
+    if (removed === null)
+      return
+    appendEvent(this.parts.db, { ts: this.ts(), type: ARTIFACT_REMOVED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${ARTIFACT_REMOVED}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty }, legacy: false })
   }
 
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {

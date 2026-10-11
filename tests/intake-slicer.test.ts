@@ -209,8 +209,8 @@ describe('a test rides in the slice whose change it witnesses', () => {
   it('a test that witnesses a slice rides in the same slice as its code', () => {
     const [card] = cards(intake({ cards: [detach] }, '655', path.join(scratch(), 'parking'), { dryRun: true }))
     expect(card!.risk.filter(line => line.startsWith('slice: '))).toEqual([
-      'slice: 1 R1 — .changeset/**, src/commands/detach/**, tests/detach.test.ts',
-      'slice: 2 R3 — docs/cli.md, src/ui/lore.ts, architecture/detach.md, scripts/privacy/allowlist.ts',
+      'slice: 1 R1 — src/commands/detach/**, tests/detach.test.ts',
+      'slice: 2 R3 — docs/cli.md, .changeset/**, src/ui/lore.ts, architecture/detach.md, scripts/privacy/allowlist.ts',
     ])
   })
 

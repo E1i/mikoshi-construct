@@ -1,12 +1,14 @@
+import type { DiskReader } from '../bus/disk.js'
 import type { Shell } from './preflight-trees.js'
 import type { Timer } from './preflight-witnesses.js'
 import type { Sketch } from './sketch.js'
 import process from 'node:process'
+import { DISK_LOW, diskLowDetail, statfsReader } from '../bus/disk.js'
 import { generatorRefusal, ghostsFilesRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, unreadInvariantRefusal } from './preflight-static.js'
 import { gitIn, lastLine, realShell, withWorktree } from './preflight-trees.js'
 import { runOnTree } from './preflight-witnesses.js'
 
-export interface PreflightEnv { repo: string, shell: Shell, log: (line: string) => void, clock: () => number }
+export interface PreflightEnv { repo: string, shell: Shell, log: (line: string) => void, clock: () => number, disk?: DiskReader }
 export interface PreflightInput { briefPath: string, text: string, sketch: Sketch, buildStdout: string, base?: string }
 export type Preflight = (input: PreflightInput) => void
 
@@ -22,6 +24,11 @@ export class PreflightRefusal extends Error {
 function refuseOn(step: string, problem: string | null): void {
   if (problem !== null)
     throw new PreflightRefusal(step, problem)
+}
+
+function diskLowRefusal(env: PreflightEnv): string | null {
+  const detail = diskLowDetail(env.disk ?? statfsReader(env.repo))
+  return detail === null ? null : `${DISK_LOW}: ${detail}; no worktree is created`
 }
 
 function seconds(ms: number): string {
@@ -105,6 +112,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     }
   }
   try {
+    refuseOn('P0', diskLowRefusal(env))
     const built = builtArgsOf(input.buildStdout)
     const design = built.design ?? ''
     refuseOn('P1', unreadInvariantRefusal(built.invariants))
