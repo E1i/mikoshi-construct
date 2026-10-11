@@ -26,10 +26,13 @@ const AUTO_DECISION = 'auto'
 export const NO_OWNER_PATH = `no touch meets an owner path of ${OWNER_MERGES}`
 const UNDER_PREFIX = 'x'
 
+export const PACKAGE_MANIFEST = 'package.json'
+const SOURCE_OF_BUILT_ROOT: Readonly<Record<string, string>> = { dist: 'src' }
+
 export interface CompanionRow {
   kind: string
   keptBy: string
-  touched: (entry: string) => boolean
+  touched: (entry: string, published: readonly string[]) => boolean
   companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]
 }
 
@@ -53,7 +56,7 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
 export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
   { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
-  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
@@ -76,6 +79,20 @@ export interface CheckFacts {
   merged: ReadonlySet<string>
   repository: RepositoryFacts
   ownerMerges?: OwnerPaths
+  published?: readonly string[]
+}
+
+export function publishedRootsOf(packageManifestText: string): string[] | undefined {
+  let files: unknown
+  try {
+    files = (JSON.parse(packageManifestText) as { files?: unknown } | null)?.files
+  }
+  catch {
+    return undefined
+  }
+  if (!Array.isArray(files))
+    return undefined
+  return files.filter((file): file is string => typeof file === 'string').map(file => file.replace(/^\.\//, '').replace(/\/+$/, ''))
 }
 
 export interface OwnerByRisk {
@@ -246,12 +263,12 @@ function covers(touch: string, companion: string): boolean {
   return touch === companion || (touch.endsWith(PREFIX_SUFFIX) && under(companion, scopeOf(touch)))
 }
 
-function withCompanions(touched: Touched, repository: RepositoryFacts): Touched {
+function withCompanions(touched: Touched, repository: RepositoryFacts, published: readonly string[]): Touched {
   const missing: string[] = []
   for (const row of COMPANION_TABLE) {
     if (!repository.exists(row.keptBy))
       continue
-    for (const entry of touched.touches.filter(row.touched)) {
+    for (const entry of touched.touches.filter(touch => row.touched(touch, published))) {
       const touches = [...touched.touches, ...missing]
       for (const companion of row.companions(entry, touches, repository)) {
         if (repository.exists(scopeOf(companion)) && !touches.some(touch => covers(touch, companion)))
@@ -322,7 +339,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = withCompanions(touchesChecked(card, facts.repository), facts.repository)
+  const touched = withCompanions(touchesChecked(card, facts.repository), facts.repository, facts.published ?? [])
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)

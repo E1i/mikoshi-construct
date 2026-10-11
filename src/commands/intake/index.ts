@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
-import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf } from './check.js'
+import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
@@ -141,6 +141,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   catch (error) {
     return refused('unreadable', [error instanceof Error ? error.message : String(error)])
   }
+  const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+  const published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   const draft = parseDraft(draftText)
   if (draft.kind === 'refused')
     return refused('invalid', draft.reasons)
@@ -159,6 +161,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     merged: mergedTasks(journalText),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
+    ...(published === undefined ? {} : { published }),
   })
   const slice = sliceCards(checked, numbers)
   if (slice.kind === 'refused')

@@ -10,7 +10,7 @@ import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, NO_OWNER_PATH, OWNER_MERGES, ownerPathsOf, refusesOwnerDecision } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, NO_OWNER_PATH, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, refusesOwnerDecision } from './check.js'
 import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { defaultParking, INTAKE_EXIT } from './index.js'
@@ -164,6 +164,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   catch (error) {
     return { status: 'refused', why: error instanceof Error ? error.message : String(error) }
   }
+  const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+  const published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   const file = path.basename(options.file)
   const parsed = parseParkingFile(file, text)
   if (parsed.kind === 'refused')
@@ -180,6 +182,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     merged: mergedTasks(journal),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
+    ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
