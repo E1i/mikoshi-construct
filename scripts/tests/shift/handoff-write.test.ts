@@ -5,9 +5,19 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
-import { nextArchive, runHandoffWrite, withPrev } from '../../shift/handoff-write.js'
+import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, withPrev } from '../../shift/handoff-write.js'
+import { statusOf } from '../../shift/relaunch.js'
 
 const roots: string[] = []
+const UNBOUNDED_OWNER_STATUSES = [
+  'STATUS: OWNER',
+  'STATUS: OWNER — review changes',
+  'STATUS: OWNER — boundary: red-ci',
+  `STATUS: OWNER — boundary: ${OWNER_BOUNDARIES[0]}\n\nSTATUS: OWNER`,
+  'STATUS: OWNER.',
+  'STATUS: OWNER—boundary: x',
+  'STATUS: OWNER\nSTATUS: n/a',
+]
 const DECISIONS = fileURLToPath(import.meta.url)
 const PARKED = new Map<number, number[]>([[650, []], [652, [650]]])
 
@@ -124,6 +134,31 @@ describe('handoff:write', () => {
 
   it('puts prev right under the STOP heading and drops any prev the draft carried', () => {
     expect(withPrev('# H\n## STOP\nprev: x\nqueue: #1', 'archive/0003.md')).toBe('# H\n## STOP\nprev: archive/0003.md\nqueue: #1')
+  })
+
+  it.each(UNBOUNDED_OWNER_STATUSES)('reads the refused draft %j as OWNER, as relaunch does', (status) => {
+    expect(statusOf(draft().replace('STATUS: CONTINUE', status))).toBe('OWNER')
+  })
+
+  it.each(UNBOUNDED_OWNER_STATUSES)('refuses STATUS: OWNER with no boundary from the list, archiving nothing and naming the list: %j', (status) => {
+    const { dir, handoff, draft: file } = world()
+    writeFileSync(handoff, 'old\n')
+    writeFileSync(file, draft().replace('STATUS: CONTINUE', status))
+    const result = write([handoff, file])
+    expect(result.code).toBe(1)
+    expect(result.err.join('\n')).toContain(OWNER_BOUNDARIES.join(', '))
+    expect(result.err.at(-1)).toContain('nothing archived')
+    expect(readFileSync(handoff, 'utf8')).toBe('old\n')
+    expect(existsSync(path.join(dir, 'archive'))).toBe(false)
+  })
+
+  it('writes STATUS: OWNER that names a boundary from the list, and leaves CONTINUE and DONE as they were', () => {
+    for (const status of [...OWNER_BOUNDARIES.map(name => `STATUS: OWNER — boundary: ${name}`), 'STATUS: CONTINUE', 'STATUS: DONE']) {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', status))
+      expect(write([handoff, file]).code).toBe(0)
+      expect(readFileSync(handoff, 'utf8')).toContain(`${status}\n`)
+    }
   })
 
   it('refuses a bad argv', () => {

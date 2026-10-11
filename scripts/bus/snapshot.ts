@@ -18,6 +18,7 @@ export interface OpenPr {
   head: string
   mergeable: Mergeable
   ci: CiReading
+  failedChecks: string[]
   verdictOnHead: VerdictOnHead | null
   autoMerge: boolean
   draft: boolean
@@ -84,12 +85,25 @@ interface CommitStatus {
 
 const REPO = 'repos/{owner}/{repo}'
 
-export function ciOf(meter: Meter, sha: string): CiReading {
-  const runs = (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
+const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure'])
+
+function checkRunsOf(meter: Meter, sha: string): CheckRun[] {
+  return (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
+}
+
+function ciOfRuns(runs: CheckRun[]): CiReading {
   const required = runs.find(run => run.name === REQUIRED_CHECK)
   if (required === undefined || required.status !== 'completed')
     return 'pending'
   return required.conclusion === 'success' ? 'green' : 'red'
+}
+
+function failedChecksOf(runs: CheckRun[]): string[] {
+  return runs.flatMap(run => run.name !== undefined && run.name !== REQUIRED_CHECK && run.status === 'completed' && FAILED_CONCLUSIONS.has(run.conclusion ?? '') ? [run.name] : [])
+}
+
+export function ciOf(meter: Meter, sha: string): CiReading {
+  return ciOfRuns(checkRunsOf(meter, sha))
 }
 
 export function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
@@ -102,13 +116,16 @@ function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
   const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
   if (mergeable === undefined)
     return null
+  const runs = checkRunsOf(meter, pull.head.sha)
+  const ci = ciOfRuns(runs)
   return {
     pr: pull.number,
     cardId: cardIdOfDescription(pull.body),
     base: pull.base.ref,
     head: pull.head.sha,
     mergeable,
-    ci: ciOf(meter, pull.head.sha),
+    ci,
+    failedChecks: ci === 'red' ? failedChecksOf(runs) : [],
     verdictOnHead: verdictOf(meter, pull.head.sha),
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,

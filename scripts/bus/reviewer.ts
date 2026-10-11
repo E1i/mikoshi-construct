@@ -1,6 +1,7 @@
 import type { SpawnSessionParams } from '../ghosts/session.js'
 import type { Lease } from './lease.js'
 import type { VerdictWord } from './record-verdict.js'
+import type { ReviewPlan } from './review-depth.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -13,7 +14,7 @@ export interface Review {
   session: string
 }
 
-export type Reviewer = (lease: Lease) => Promise<Review>
+export type Reviewer = (lease: Lease, plan: ReviewPlan) => Promise<Review>
 
 export interface ReviewerTools {
   git: (cwd: string, args: string[]) => void
@@ -33,11 +34,29 @@ export function reviewOf(text: string, session: string): Review {
   return { verdict: parsed.verdict as VerdictWord, findings: parsed.findings as string[], session }
 }
 
-export function reviewPrompt(lease: Lease, tree: string, verdictPath: string): string {
+function depthLines(lease: Lease, plan: ReviewPlan): string[] {
+  const depth = `Review depth ${plan.depth}: ${plan.why}.`
+  if (plan.depth === 'cheap')
+    return [depth, `Read only the diff ${plan.base}..${lease.head} against the card and its witnesses; do not walk the modules it touches.`]
+  if (plan.depth === 'diff') {
+    return [
+      depth,
+      `This is a re-review: read only the diff ${plan.since}..${lease.head}, not the whole pull request, and check that each finding of the earlier verdict is closed; one still open stays a finding.`,
+      ...plan.findings.map(finding => `Earlier finding: ${finding}`),
+    ]
+  }
+  const ladder = plan.prediction?.verdict === 'ladder'
+    ? [`MORSE predicts the ladder by rule ${plan.prediction.rule} (${plan.prediction.why.join(', ')}): check that the card or the pull request names the reason this change takes the ladder (D-76), and make a missing reason a finding.`]
+    : []
+  return [depth, `Review the whole pull request and walk every module it touches.`, ...ladder]
+}
+
+export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string): string {
   return [
     `[review:${lease.taskKey}]`,
     `Act as the review role defined in .claude/agents/review.md. Pull request #${lease.pr} of card #${lease.cardId} is checked out at ${tree}, at its head ${lease.head}; read it there.`,
     `Review it against its card (the first line of the pull request description) and the repository's rules. Change nothing, commit nothing, push nothing, and post nothing to GitHub.`,
+    ...depthLines(lease, plan),
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"]}.`,
   ].join('\n')
 }
@@ -57,14 +76,14 @@ function removeTree(tools: ReviewerTools, repo: string, tree: string): void {
   }
 }
 
-export function reviewSession(repo: string, dir: string, session: string, lease: Lease): SpawnSessionParams & { tree: string, verdictPath: string } {
+export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
   return {
     cwd: repo,
     addDirs: [dir],
     sessionId: session,
-    prompt: reviewPrompt(lease, tree, verdictPath),
+    prompt: reviewPrompt(lease, plan, tree, verdictPath),
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     tree,
@@ -73,9 +92,9 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
 }
 
 export function claudeReviewer(repo: string, dir: string, tools: ReviewerTools = REAL_TOOLS): Reviewer {
-  return async (lease) => {
+  return async (lease, plan) => {
     const session = randomUUID()
-    const { tree, verdictPath, ...params } = reviewSession(repo, dir, session, lease)
+    const { tree, verdictPath, ...params } = reviewSession(repo, dir, session, lease, plan)
     mkdirSync(dir, { recursive: true })
     tools.git(repo, ['fetch', '--quiet', 'origin', `pull/${lease.pr}/head`])
     tools.git(repo, ['worktree', 'add', '--detach', tree, lease.head!])

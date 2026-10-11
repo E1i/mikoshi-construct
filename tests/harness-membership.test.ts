@@ -48,6 +48,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'handoff:write': 'the only writer of a handoff file, run by hand or by a session; its own tests are its gate',
   'ghosts:hash': 'a hand-run tool for computing an approval hash; its own tests are its gate',
   'morse:approve': 'writes a MORSE approval, and only that, when run by hand; its own tests are its gate',
+  'morse:predict': 'appends one MORSE path prediction for a diff to a journal outside the repository when run by hand; the review worker calls the same predict in process; its own tests are its gate',
   'ghosts:role': 'prints which route, local or cloud, a role takes; its own tests are its gate',
   'ghosts:launch': 'opens headless sessions after a human confirmation; its own tests are its gate',
   'ghosts:verdict': 'appends one journal line after a review verdict file holds its schema and its digests; its own tests are its gate',

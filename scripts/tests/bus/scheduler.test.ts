@@ -12,6 +12,7 @@ import { openBus } from '../../bus/db.js'
 import { completeTask, LEASE_MS, leasedCount } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import { fullReview } from '../../bus/review-depth.js'
 import { startReviewWorkers } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../bus/scheduler.js'
@@ -150,7 +151,7 @@ describe('heavy run scheduler', () => {
       await together
       return { verdict: 'pass', findings: [], session: `reviewer-${lease.pr}` }
     }
-    const workers = startReviewWorkers({ db, gitHub: gitHub.client, publish, reviewer, clock: clock.now, session: 'parallel' }, slotsOf('review', {}))
+    const workers = startReviewWorkers({ db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'parallel' }, slotsOf('review', {}))
 
     const steps = await Promise.all(workers.map(async worker => worker.step()))
 

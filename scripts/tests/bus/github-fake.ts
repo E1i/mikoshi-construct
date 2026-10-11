@@ -30,6 +30,7 @@ export interface FakePull {
   merger?: FakeMerger
   draft?: boolean
   required?: 'pending' | 'success' | 'failure'
+  failed?: string[]
   review?: 'success' | 'failure'
   body?: string
   ref?: string
@@ -147,7 +148,8 @@ export class FakeGitHub {
     if (checks !== null) {
       const owner = [...this.pulls.values()].find(candidate => candidate.head === checks[1])
       const required = owner?.required ?? 'pending'
-      return { check_runs: [{ name: 'required', status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }] }
+      const failed = (owner?.failed ?? []).map(name => ({ name, status: 'completed', conclusion: 'failure' }))
+      return { check_runs: [{ name: 'required', status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }, ...failed] }
     }
     const status = /\/commits\/([0-9a-f]{40})\/status$/.exec(endpoint)
     if (status !== null) {

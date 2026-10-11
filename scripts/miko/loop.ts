@@ -41,16 +41,39 @@ export function claudeArgv(command: string, prompt: string | undefined): string[
   return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
-export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean } {
+export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean, presses: () => number } {
   let last = Number.NEGATIVE_INFINITY
   let seen = false
+  let presses = 0
   return {
     press: () => {
       const at = now()
       seen ||= at - last <= DOUBLE_CTRL_C_WINDOW_MS
       last = at
+      presses++
     },
     seen: () => seen,
+    presses: () => presses,
+  }
+}
+
+export function sessionCtrlCsStillInFlight(end: SessionEnd, pressesSeenDuringSession: number): number {
+  return end.signal === 'SIGINT' && pressesSeenDuringSession === 0 ? 1 : 0
+}
+
+export function sessionAndPauseSharingCtrlCs(
+  ctrlC: { presses: () => number },
+  runSession: (prompt: string | undefined) => Promise<SessionEnd>,
+): Pick<MikoLoopDeps, 'session' | 'pause'> {
+  let sessionCtrlCs = 0
+  return {
+    session: async (prompt) => {
+      const pressesBefore = ctrlC.presses()
+      const end = await runSession(prompt)
+      sessionCtrlCs = sessionCtrlCsStillInFlight(end, ctrlC.presses() - pressesBefore)
+      return end
+    },
+    pause: ms => pauseUntilCtrlC(ms, sessionCtrlCs),
   }
 }
 
@@ -97,10 +120,16 @@ function mtimeOf(file: string): number | undefined {
   return existsSync(file) ? statSync(file).mtimeMs : undefined
 }
 
-async function pauseUntilCtrlC(ms: number): Promise<PauseEnd> {
+export async function pauseUntilCtrlC(ms: number, sessionCtrlCs = 0): Promise<PauseEnd> {
   const ctrlC = new AbortController()
-  const abort = (): void => ctrlC.abort()
-  process.once('SIGINT', abort)
+  let unclaimedSessionCtrlCs = sessionCtrlCs
+  const abort = (): void => {
+    if (unclaimedSessionCtrlCs > 0)
+      unclaimedSessionCtrlCs--
+    else
+      ctrlC.abort()
+  }
+  process.on('SIGINT', abort)
   try {
     await sleep(ms, undefined, { signal: ctrlC.signal })
     return 'elapsed'
@@ -129,8 +158,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),
     handoffMtime: () => mtimeOf(handoff),
-    session: prompt => runSession(command, prompt),
-    pause: pauseUntilCtrlC,
+    ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt)),
     doubleCtrlC: ctrlC.seen,
     err: line => console.error(line),
   })

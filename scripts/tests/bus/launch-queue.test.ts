@@ -483,6 +483,17 @@ describe('card.admitted from the intake journal', () => {
     bench.close()
   })
 
+  it('a card moved through dropped into a lane is admitted only for the lane', () => {
+    const bench = journalBench()
+    bench.park(996, 'lane-q')
+    bench.append(moveLine(996, bench.parking, path.join(bench.parking, 'dropped'), 1))
+    bench.append(moveLine(996, path.join(bench.parking, 'dropped'), path.join(bench.parking, 'lane-q'), 2))
+    bench.tick()
+
+    expect(admittedRows(bench.db).map(row => JSON.parse(String(row.payload)).lane)).toEqual(['lane-q'])
+    bench.close()
+  })
+
   it('a second admit after the card fell enqueues a new launch', () => {
     const starter = new FakeStarter()
     const bench = journalBench(starter)

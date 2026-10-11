@@ -22,10 +22,12 @@ function digestOf(payloadText: string): string {
 
 export function prObserved(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent {
   const payload = {
+    card_id: open.cardId,
     base: open.base,
     head: open.head,
     mergeable: open.mergeable,
     ci: open.ci,
+    ...(open.failedChecks.length === 0 ? {} : { failed_checks: open.failedChecks }),
     ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
     auto_merge: open.autoMerge,
     draft: open.draft,
