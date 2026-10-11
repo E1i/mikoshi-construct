@@ -1,10 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { AnswerSource } from './answer-source.js'
+import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer } from './answerer.js'
+import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
-import { answerSourceOf, cardSessionOf } from './answer-source.js'
+import { answerSourceOf } from './answer-source.js'
 import { CardTreeGone } from './answerer.js'
+import { cardTreeOf, realCardTrees } from './card-tree.js'
 import { messageOf } from './executor.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
@@ -32,6 +34,7 @@ export interface AnswerParts {
   answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
+  trees?: CardTreeTools
 }
 
 interface Widened {
@@ -65,9 +68,11 @@ export class AnswerExecutor {
           return this.stopped(lease, QUESTION_OWNER, `${widening.reason}: ${source.detail}`)
         widened = { reason: widening.reason, event: this.event(lease, SCOPE_WIDENED, { paths: widening.paths, touches: source.widen.touches, reason: widening.reason, detail: source.detail }) }
       }
-      const card = cardSessionOf(this.parts.db, lease.cardId)
+      const card = this.tree(lease)
       if (card === null)
-        return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started with a session, a worktree and a branch` })
+        return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
+      if ('kind' in card)
+        return this.denied(lease, card)
       const answered = await this.session(lease, source, widened, card)
       if ('kind' in answered)
         return this.denied(lease, answered)
@@ -80,7 +85,16 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: NonNullable<ReturnType<typeof cardSessionOf>>): Promise<Answered | AnswerDenial> {
+  private tree(lease: Lease): CardSession | AnswerDenial | null {
+    try {
+      return cardTreeOf(this.parts.db, lease.cardId, this.parts.trees ?? realCardTrees())
+    }
+    catch (error) {
+      return { kind: 'technical', reason: 'answer_failed', detail: `the tree of card #${lease.cardId} could not be recreated: ${messageOf(error)}` }
+    }
+  }
+
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession): Promise<Answered | AnswerDenial> {
     try {
       return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card })
     }
