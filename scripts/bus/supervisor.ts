@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
+import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { CHECK_MS } from './netwatch.js'
 import { busShadowProblems } from './review-bg.js'
 import { busLaunches, isBusWorker, switchWorker, wantedLaunches, WORKERS } from './workers.js'
@@ -100,6 +101,7 @@ export interface SupervisorParts {
   wanted: () => DetachedLaunch[]
   start: (launch: DetachedLaunch) => BgResult
   stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
+  freeLeases?: (stopped: DetachedLaunch[]) => string[]
   processes: ProcessList
   mainSince: (afterId: number) => MainAdvance[]
   code: BusCode
@@ -182,12 +184,20 @@ export class BusSupervisor {
     })
     for (const { launch, instance } of running)
       await this.parts.stop(instance, launch)
-    const again = [...wanted, ...running.map(({ launch }) => launch).filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
-    return again.flatMap((launch) => {
+    const stopped = running.map(({ launch }) => launch)
+    const freed = this.parts.freeLeases?.(stopped) ?? []
+    const again = [...wanted, ...stopped.filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
+    return [...freed, ...again.flatMap((launch) => {
       const started = this.parts.start(launch)
       return [...started.stdout, ...started.stderr]
-    })
+    })]
   }
+}
+
+export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
+  const kinds = stopped.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
+  const freed = expireLeasesHeldBy(db, ts, kinds)
+  return freed.length === 0 ? [] : [`${PREFIX}freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${freed.join(', ')}`]
 }
 
 export const KEEP_BASE_MS = CHECK_MS
@@ -387,6 +397,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: launch => startDetached(launch, busDir, process.env, processes),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
+    freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code: gitCode(cwd),

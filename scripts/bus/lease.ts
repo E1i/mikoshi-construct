@@ -70,6 +70,11 @@ const PR_STATE_OF_QUEUE: Partial<Record<Queue, string>> = { close: 'merged' }
 
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`
 
+const HELD_BY_KIND = `
+  SELECT tasks.* FROM tasks JOIN events ON events.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
+  WHERE tasks.state = '${LEASED}' AND events.actor LIKE ? ORDER BY tasks.id
+`
+
 function rowOf(db: DatabaseSync, key: string): LeaseRow | undefined {
   return db.prepare('SELECT * FROM tasks WHERE task_key = ?').get(key) as LeaseRow | undefined
 }
@@ -235,11 +240,19 @@ export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: 
   })
 }
 
+function expired(db: DatabaseSync, ts: string, rows: LeaseRow[], reason: string): string[] {
+  for (const row of rows)
+    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason, withdraw: false }, [])
+  return rows.map(row => row.task_key)
+}
+
 export function expireLeases(db: DatabaseSync, ts: string): string[] {
+  return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], 'lease_expired'))
+}
+
+export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: readonly string[]): string[] {
   return inTransaction(db, () => {
-    const lapsed = db.prepare(LAPSED).all(ts) as unknown as LeaseRow[]
-    for (const row of lapsed)
-      failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason: 'lease_expired', withdraw: false }, [])
-    return lapsed.map(row => row.task_key)
+    const held = workerKinds.flatMap(kind => db.prepare(HELD_BY_KIND).all(`worker:${kind}:%`) as unknown as LeaseRow[])
+    return expired(db, ts, held, 'holder_stopped')
   })
 }

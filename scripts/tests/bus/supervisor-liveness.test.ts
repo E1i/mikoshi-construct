@@ -6,9 +6,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
+import { openBus } from '../../bus/db.js'
+import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, BusSupervisor, FAILURES_REPORTED, KEEP_MAX_MS, outsideGroup, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, outsideGroup, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -422,6 +424,51 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     })
     expect(attempts).toBe(2)
     expect(m.lines.join('\n')).toContain(`could not start a fresh supervisor on ${NEW_MAIN}`)
+  })
+
+  it('a worker restart frees the leases of the killed process at once with fencing', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-leases-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const killedAt = '2026-10-11T06:44:00.000Z'
+    const killed = leaseWhileFree(db, killedAt, { queue: 'launch', cardId: 845, generation: 'g1' }, 'worker:launch:killed', 1)!
+    const elsewhere = leaseWhileFree(db, killedAt, { queue: 'answer', cardId: 745 }, 'worker:answer:alive', 1)!
+    const launch = workerLaunches(() => []).launch
+    let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(launch)} --on` }]
+    let aliveWhenFreed: RunningProcess[] | undefined
+    const supervisor = new BusSupervisor({
+      known: [launch],
+      wanted: () => [launch],
+      start: ok,
+      stop: async (instance) => {
+        alive = alive.filter(candidate => candidate.pid !== instance.pid)
+      },
+      freeLeases: (stopped) => {
+        aliveWhenFreed = alive
+        return freeLeasesOf(db, killedAt, stopped)
+      },
+      processes: () => alive,
+      mainSince: () => [{ id: 1, sha: NEW_MAIN }],
+      code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => true },
+    }, 0)
+
+    const lines = await supervisor.step()
+
+    expect(aliveWhenFreed).toEqual([])
+    expect(lines.join('\n')).toContain(`freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${killed.taskKey}`)
+    const expired = db.prepare('SELECT ts, actor, payload FROM events WHERE type = ?').all(TASK_EXPIRED).map(row => ({ ts: row.ts, actor: row.actor, payload: JSON.parse(String(row.payload)) as Record<string, unknown> }))
+    expect(expired).toEqual([{ ts: killedAt, actor: 'policy', payload: expect.objectContaining({ task_key: killed.taskKey, lease_gen: killed.leaseGen, reason: 'holder_stopped', next: 'queued' }) }])
+    const state = (key: string): unknown => db.prepare('SELECT state, lease_gen FROM tasks WHERE task_key = ?').get(key)
+    expect(state(killed.taskKey)).toEqual({ state: 'queued', lease_gen: 1 })
+    expect(state(elsewhere.taskKey)).toEqual({ state: 'leased', lease_gen: 1 })
+
+    expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
+    const fresh = leaseNext(db, killedAt, 'launch', 'worker:launch:fresh')!
+    expect(fresh.leaseGen).toBe(killed.leaseGen + 1)
+    expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
+    completeTask(db, killedAt, fresh, [])
+    expect(state(killed.taskKey)).toEqual({ state: 'completed', lease_gen: 2 })
+    db.close()
   })
 
   it('the replacement does not see its own supervisor as already running', () => {
