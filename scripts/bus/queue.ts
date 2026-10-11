@@ -76,15 +76,21 @@ const QUESTION_CANDIDATES = `
   ORDER BY stop.card_id
 `
 
-const CHANGES_CANDIDATES = `
+function answerCandidatesWhere(condition: string): string {
+  return `
   SELECT pr, card_id, head FROM prs
-  WHERE state = 'open' AND verdict_on_head = 'changes' AND card_id IS NOT NULL AND head IS NOT NULL
+  WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') IN ('${QUESTION_OWNER}', '${QUESTION_AGENT}')
     )
   ORDER BY pr
 `
+}
+
+const CHANGES_CANDIDATES = answerCandidatesWhere(`verdict_on_head = 'changes'`)
+
+const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red'`)
 
 interface Candidate {
   pr: number | null
@@ -112,6 +118,7 @@ function candidates(db: DatabaseSync): [Queue, string, Admits][] {
     ['close', CLOSE_CANDIDATES, everyRow],
     ['answer', QUESTION_CANDIDATES, everyRow],
     ['answer', CHANGES_CANDIDATES, everyRow],
+    ['answer', RED_CI_CANDIDATES, everyRow],
   ]
 }
 
