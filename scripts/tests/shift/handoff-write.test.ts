@@ -37,12 +37,13 @@ function world(): { dir: string, handoff: string, draft: string } {
   return { dir, handoff: path.join(dir, 'handoff.md'), draft: path.join(dir, 'draft.md') }
 }
 
-function write(args: string[], handoffDir?: string): { code: number, out: string[], err: string[] } {
+function write(args: string[], handoffDir?: string, sessionHandoff = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[] } {
   const out: string[] = []
   const err: string[] = []
   const code = runHandoffWrite(args, {
     cwd: '/nowhere',
     handoffDir,
+    sessionHandoff,
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
     listDir: readdirSync,
@@ -125,6 +126,20 @@ describe('handoff:write', () => {
     expect(readFileSync(path.join(ghostDir, 'archive', '0001.md'), 'utf8')).toBe('old\n')
     expect(readFileSync(path.join(ghostDir, 'handoff.md'), 'utf8')).toContain('prev: archive/0001.md\n')
     expect(existsSync(path.join(dir, 'archive'))).toBe(false)
+  })
+
+  it('refuses a new handoff file that is not the session handoff, writes the session handoff and an existing file', () => {
+    const { dir, handoff, draft: file } = world()
+    const session = path.join(dir, 'mikoshi.md')
+    writeFileSync(file, draft())
+    const refused = write([handoff, file], undefined, session)
+    expect(refused.code).toBe(1)
+    expect(refused.err.join('\n')).toContain(session)
+    expect(existsSync(handoff)).toBe(false)
+    expect(write([session, file], undefined, session).code).toBe(0)
+    expect(existsSync(session)).toBe(true)
+    writeFileSync(handoff, 'old\n')
+    expect(write([handoff, file], undefined, session).code).toBe(0)
   })
 
   it('numbers the archive after the highest archive already there', () => {

@@ -6,7 +6,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultParking, handoffBytes, handoffRefusals, NO_PREV, parkedDepends, PREV_LABEL } from '../ghosts/handoff-check.js'
-import { statusOf } from './relaunch.js'
+import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
@@ -21,6 +21,7 @@ const NAMED_BOUNDARY = /\s—\s*boundary:\s*(\S+)\s*$/
 export interface HandoffWriteDeps {
   cwd: string
   handoffDir: string | undefined
+  sessionHandoff: string
   exists: (file: string) => boolean
   read: (file: string) => string
   listDir: (dir: string) => string[]
@@ -77,6 +78,10 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     return 1
   }
   const handoff = path.resolve(deps.handoffDir ?? deps.cwd, parsed.handoff)
+  if (!deps.exists(handoff) && handoff !== path.resolve(deps.sessionHandoff)) {
+    deps.err(`${PREFIX}${handoff} is not this session's handoff and does not exist: one handoff per session, update ${deps.sessionHandoff} in place`)
+    return 1
+  }
   const archiveDir = path.join(path.dirname(handoff), ARCHIVE_DIR)
   const previous = deps.exists(handoff) ? deps.read(handoff) : null
   const archived = previous === null ? null : path.join(archiveDir, nextArchive(deps.exists(archiveDir) ? deps.listDir(archiveDir) : []))
@@ -113,6 +118,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   process.exitCode = runHandoffWrite(process.argv.slice(2), {
     cwd: process.cwd(),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE],
+    sessionHandoff: process.env[HANDOFF_VARIABLE] ?? path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'mikoshi.md'),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
     listDir: readdirSync,
