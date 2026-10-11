@@ -17,12 +17,14 @@ const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'dep
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
 const TESTS_ROOT = 'tests'
 const SOURCE_MODULE = /^src\/(.+)\.ts$/
+const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 const OWNER_KINDS_HEADER = '| kind |'
 const OWNER_BY_RISK_HEADER = '| by risk |'
 const OWNER_DECISION = 'owner'
 const AUTO_DECISION = 'auto'
+const OWNER_RISK = 'R1'
 export const NO_OWNER_PATH = `no touch meets an owner path of ${OWNER_MERGES}`
 const UNDER_PREFIX = 'x'
 
@@ -53,7 +55,7 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
 export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
   { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
-  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [CHANGESET_COMPANION] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
@@ -169,17 +171,28 @@ function contourCorrection(card: DraftCard): Correction[] {
   return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
 }
 
-function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+function ownerReason(cardTouches: readonly string[], owner: OwnerPaths): string | undefined {
+  const touches = cardTouches.filter(touch => touch !== CHANGESET_COMPANION)
   const hold = ownerHold(touches, owner)
-  if (hold === undefined)
+  if (hold !== undefined)
+    return `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}`
+  const critical = touches.map(riskOf).find(reading => reading.level === OWNER_RISK)
+  return critical === undefined ? undefined : `${critical.touch} is risk ${OWNER_RISK}, ${critical.why}`
+}
+
+function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+  if (decision === OWNER_DECISION)
+    return []
+  const reason = ownerReason(touches, owner)
+  if (reason === undefined)
     return decision === AUTO_DECISION ? [] : [{ field: 'decision', was: decision, now: AUTO_DECISION, reason: NO_OWNER_PATH }]
-  return decision === OWNER_DECISION ? [] : [{ field: 'decision', was: decision, now: OWNER_DECISION, reason: `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}` }]
+  return [{ field: 'decision', was: decision, now: OWNER_DECISION, reason }]
 }
 
 function unstatedDecision(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): string | undefined {
   if (card.decision !== undefined || owner === undefined || !includes(KINDS, card.kind) || !includes(decisionsOf(card.kind as Kind), OWNER_DECISION))
     return undefined
-  return ownerHold(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
+  return ownerReason(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
 }
 
 function decisionCorrection(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): Correction[] {
@@ -191,10 +204,6 @@ function decisionCorrection(card: DraftCard, touches: readonly string[], owner: 
   if (includes(decisions, card.decision))
     return []
   return [{ field: 'decision', was: card.decision, now: decisions[0]!, reason: `kind ${card.kind} takes decision ${decisions.join(' or ')}, not ${card.decision}` }]
-}
-
-export function refusesOwnerDecision(corrections: readonly Correction[]): boolean {
-  return corrections.some(correction => correction.field === 'decision' && correction.was === OWNER_DECISION && correction.reason === NO_OWNER_PATH)
 }
 
 function candidatesText(candidates: readonly string[]): string {

@@ -52,12 +52,27 @@ function cardOf(file: string): string {
 }
 
 describe('construct intake --admit derives the decision from architecture/owner-merges.md', () => {
-  it('touches with no owner path make the card auto', () => {
-    const w = world(['src/board/run.ts'])
-    const file = park(w, 80, 'owner', 'src/board/**')
-    const result = admit(w, file, { autoConfirm: true })
-    expect(result.status).toBe('admitted')
+  it('an ordinary card with no R1 and no owner path still gets auto', () => {
+    const touches = ['src/board/run.ts', 'tests/board/run.test.ts']
+    const files = [...touches, '.changeset/config.json']
+    const draft = drafted(world(files), undefined, touches)
+    expect(draftedLine(draft)).toContain('/auto]')
+    expect(draft.status !== 'refused' && draft.cards[0]!.text).toContain('touches: src/board/run.ts, tests/board/run.test.ts, .changeset/**')
+    const w = world(files)
+    const file = park(w, 80, 'auto', [...touches, '.changeset/**'].join(', '))
+    expect(admit(w, file).status).toBe('admitted')
     expect(cardOf(file)).toBe('card: #80 card-80 [implement/runner/S/cheap/auto] · depends — · blocks —')
+  })
+
+  it('a card that touches .changeset/config.json gets owner', () => {
+    const touches = ['.changeset/config.json']
+    expect(riskOf('.changeset/config.json').level).toBe('R1')
+    expect(draftedLine(drafted(world(touches), undefined, touches))).toContain('/owner]')
+    const w = world(touches)
+    const file = park(w, 88, 'auto', touches.join(', '))
+    expect(admit(w, file, { autoConfirm: true }).status).toBe('admitted')
+    expect(cardOf(file)).toContain('/owner]')
+    expect(readFileSync(file, 'utf8')).toContain('corrected: decision — auto → owner — .changeset/config.json is risk R1')
   })
 
   it('a touch under .claude/skills makes the card owner', () => {
@@ -76,27 +91,32 @@ describe('construct intake --admit derives the decision from architecture/owner-
     expect(cardOf(file)).toContain('/owner]')
   })
 
-  it('a hand-written owner decision with no owner path is refused, naming it', () => {
-    const w = world(['src/board/run.ts'])
-    const file = park(w, 83, 'owner', 'src/board/**')
-    const before = readFileSync(file, 'utf8')
-    const result = admit(w, file)
-    expect(result.status).toBe('refused')
-    expect(result.status === 'refused' && result.why).toContain(`decision owner, but ${NO_OWNER_PATH}`)
-    const lines: string[] = []
-    expect(printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), result)).toBe(INTAKE_EXIT.refused)
-    expect(lines.join('\n')).toContain(NO_OWNER_PATH)
-    expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(existsSync(w.journal)).toBe(false)
+  it('an R1 card gets owner and stays owner after intake --admit', () => {
+    const touches = ['eslint.config.mjs', 'tests/dependency-policy.test.ts']
+    expect(riskOf('eslint.config.mjs').level).toBe('R1')
+    const w = world(touches)
+    const kept = park(w, 83, 'owner', touches.join(', '))
+    expect(admit(w, kept).status).toBe('admitted')
+    expect(cardOf(kept)).toBe('card: #83 card-83 [implement/runner/S/cheap/owner] · depends — · blocks —')
+    expect(readFileSync(kept, 'utf8')).not.toContain('corrected: decision')
+    const raised = park(w, 84, 'auto', touches.join(', '))
+    expect(admit(w, raised, { autoConfirm: true }).status).toBe('admitted')
+    expect(cardOf(raised)).toContain('/owner]')
+    expect(readFileSync(raised, 'utf8')).toContain('corrected: decision — auto → owner — eslint.config.mjs is risk R1')
+    for (const decision of ['owner', 'auto', undefined])
+      expect(draftedLine(drafted(world(touches), decision, touches))).toContain('/owner]')
   })
 
-  it('the token the refusal names admits the card as auto', () => {
+  it('an owner decision with no owner path and no R1 touch stays owner and is never refused', () => {
     const w = world(['src/board/run.ts'])
-    const file = park(w, 84, 'owner', 'src/board/**')
-    const refused = admit(w, file)
-    const token = refused.status === 'refused' ? /--confirm (\w+)/.exec(refused.why)?.[1] : undefined
-    expect(admit(w, file, { confirm: token }).status).toBe('admitted')
-    expect(cardOf(file)).toContain('/auto]')
+    const file = park(w, 87, 'owner', 'src/board/**')
+    const result = admit(w, file)
+    expect(result.status).toBe('admitted')
+    expect(cardOf(file)).toContain('/owner]')
+    expect(readFileSync(file, 'utf8')).not.toContain(NO_OWNER_PATH)
+    const lines: string[] = []
+    expect(printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), result)).not.toBe(INTAKE_EXIT.refused)
+    expect(existsSync(w.journal)).toBe(true)
   })
 
   it('an R1 card on the approval rules is owner by its owner-merges row', () => {
@@ -144,8 +164,8 @@ describe('construct intake --draft derives the decision from architecture/owner-
   it('a drafted card gets its decision from owner-merges at --draft', () => {
     const toOwner = world(['.claude/skills/intake/SKILL.md'])
     expect(draftedLine(drafted(toOwner, 'auto', ['.claude/skills/intake/SKILL.md']))).toContain('/owner]')
-    const toAuto = world(['src/board/run.ts'])
-    expect(draftedLine(drafted(toAuto, 'owner', ['src/board/run.ts']))).toContain('/auto]')
+    const keptOwner = world(['src/board/run.ts'])
+    expect(draftedLine(drafted(keptOwner, 'owner', ['src/board/run.ts']))).toContain('/owner]')
     const withoutOwnerMerges = world(['src/board/run.ts'], false)
     expect(draftedLine(drafted(withoutOwnerMerges, 'owner', ['src/board/run.ts']))).toContain('/owner]')
   })
