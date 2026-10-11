@@ -31,6 +31,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
     auto_merge: open.autoMerge,
     draft: open.draft,
+    body_sha: open.bodySha,
   }
   const digest = digestOf(JSON.stringify(payload))
   const repeatsPrevious = previous !== null && digestOf(previous.payload) === digest

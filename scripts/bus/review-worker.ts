@@ -1,4 +1,3 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
@@ -7,10 +6,11 @@ import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { Review, Reviewer } from './reviewer.js'
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DatabaseSync } from 'node:sqlite'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
@@ -18,10 +18,11 @@ import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { defaultBusPath, openBus } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { ghApi } from './github.js'
-import { cardIdOfDescription, isFullSha, prOf, taskKey } from './identifiers.js'
+import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, expireLeases, failTask, leaseNext, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
+import { cardBodyShaOfCard } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
 import { fullReview } from './review-depth.js'
@@ -252,7 +253,25 @@ export function reviewMode(argv: string[]): ReviewMode {
   return pr === null ? { kind: 'refused', reason: `${DRY_RUN_FLAG} needs a pull request number: ${DRY_RUN_FLAG} <pr>` } : { kind: 'dry-run', pr }
 }
 
-export function dryRunLease(gitHub: GitHub, pr: number): Lease {
+export type CardBodyOf = (cardId: number) => string | null
+
+const NO_CARD_BODY: CardBodyOf = () => null
+
+export function busCardBody(busPath: string): CardBodyOf {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      return cardBodyShaOfCard(db, cardId)
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export function dryRunLease(gitHub: GitHub, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY): Lease {
   const response = gitHub(`repos/{owner}/{repo}/pulls/${pr}`)
   if (response.status !== 200)
     throw new Error(`GitHub answered ${response.status} for pull request #${pr}`)
@@ -263,7 +282,7 @@ export function dryRunLease(gitHub: GitHub, pr: number): Lease {
   const cardId = cardIdOfDescription(pull.body)
   if (cardId === null)
     throw new Error(`the first line of pull request #${pr} names no card`)
-  return { taskKey: taskKey({ queue: 'review', cardId, pr, head }), queue: 'review', cardId, pr, head, leaseGen: 0, actor: DRY_RUN_ACTOR }
+  return { taskKey: taskKey({ queue: 'review', cardId, pr, head, input: reviewInputOf(prBodySha(pull.body), cardBodyOf(cardId)) }), queue: 'review', cardId, pr, head, leaseGen: 0, actor: DRY_RUN_ACTOR }
 }
 
 export function dryRunLines(lease: Lease, plan: ReviewPlan, review: Review): string[] {
@@ -276,8 +295,8 @@ export function dryRunLines(lease: Lease, plan: ReviewPlan, review: Review): str
   ]
 }
 
-export async function dryRun(gitHub: GitHub, reviewer: Reviewer, planner: ReviewPlanner, pr: number): Promise<string[]> {
-  const lease = dryRunLease(gitHub, pr)
+export async function dryRun(gitHub: GitHub, reviewer: Reviewer, planner: ReviewPlanner, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY): Promise<string[]> {
+  const lease = dryRunLease(gitHub, pr, cardBodyOf)
   const plan = planned(planner, lease, null)
   return dryRunLines(lease, plan, await reviewer(lease, plan))
 }
@@ -304,7 +323,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     return 0
   }
   if (mode.kind === 'dry-run') {
-    for (const line of await dryRun(run.gitHub, run.reviewer, run.plan, mode.pr))
+    for (const line of await dryRun(run.gitHub, run.reviewer, run.plan, mode.pr, busCardBody(run.busPath)))
       console.log(line)
     return 0
   }

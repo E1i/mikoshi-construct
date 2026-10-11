@@ -1,7 +1,7 @@
 import type { Meter } from './meter.js'
 import { REQUIRED_CHECK } from '../board/gh.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
-import { cardIdOfDescription, isFullSha } from './identifiers.js'
+import { cardIdOfDescription, isFullSha, prBodySha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
@@ -22,6 +22,7 @@ export interface OpenPr {
   verdictOnHead: VerdictOnHead | null
   autoMerge: boolean
   draft: boolean
+  bodySha: string
 }
 
 export interface ClosedPr {
@@ -129,6 +130,7 @@ function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
     verdictOnHead: verdictOf(meter, pull.head.sha),
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,
+    bodySha: prBodySha(pull.body),
   }
 }
 
