@@ -2,7 +2,7 @@ import type { Lease } from '../../bus/lease.js'
 import type { UpdateOutcome } from '../../bus/update-executor.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../bus/db.js'
-import { taskKey } from '../../bus/identifiers.js'
+import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { NoLiveVerdict } from '../../bus/merge-worker.js'
@@ -10,7 +10,7 @@ import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
 import { runUpdateWorker, startUpdateWorker } from '../../bus/update-worker.js'
-import { MAIN_2, sha } from './github-fake.js'
+import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 afterEach(() => {
@@ -126,7 +126,7 @@ describe('the update queue', () => {
 
     bench.tick()
     expect(bench.db.prepare('SELECT verdict_on_head FROM prs WHERE pr = 988').get()).toEqual({ verdict_on_head: null })
-    expect(bench.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all()).toEqual([{ task_key: taskKey({ queue: 'review', cardId: 1088, pr: 988, head: NEW_HEAD }), state: 'queued' }])
+    expect(bench.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all()).toEqual([{ task_key: taskKey({ queue: 'review', cardId: 1088, pr: 988, head: NEW_HEAD, input: { prBody: prBodySha(cardBody(988)), cardBody: null } }), state: 'queued' }])
     expect(bench.lease()).toBeNull()
     bench.close()
   })
