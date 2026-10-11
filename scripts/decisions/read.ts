@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { decisionsRefusals, inForce, parseDecisions, PREFIX, spendDecisions } from './decisions.js'
+import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, spendDecisions } from './decisions.js'
 
 export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
 
@@ -15,6 +15,7 @@ export interface DecisionsReadDeps {
   write: (file: string, text: string) => void
   out: (line: string) => void
   err: (line: string) => void
+  finding?: (line: string) => void
 }
 
 export function defaultDecisions(home: string): string {
@@ -77,6 +78,8 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
   }
   for (const decision of inForce(parseDecisions(text).decisions))
     deps.out(decision.text)
+  for (const line of decisionsFindings(text))
+    deps.finding?.(line)
   return 0
 }
 
@@ -89,5 +92,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     write: (file, text) => writeFileSync(file, text),
     out: line => console.log(line),
     err: line => console.error(line),
+    finding: line => console.error(line),
   })
 }
