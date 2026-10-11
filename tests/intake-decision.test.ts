@@ -52,11 +52,27 @@ function cardOf(file: string): string {
 }
 
 describe('construct intake --admit derives the decision from architecture/owner-merges.md', () => {
-  it('touches with no owner path and no R1 touch keep an auto card auto', () => {
-    const w = world(['src/board/run.ts'])
-    const file = park(w, 80, 'auto', 'src/board/**')
+  it('an ordinary card with no R1 and no owner path still gets auto', () => {
+    const touches = ['src/board/run.ts', 'tests/board/run.test.ts']
+    const files = [...touches, '.changeset/config.json']
+    const draft = drafted(world(files), undefined, touches)
+    expect(draftedLine(draft)).toContain('/auto]')
+    expect(draft.status !== 'refused' && draft.cards[0]!.text).toContain('touches: src/board/run.ts, tests/board/run.test.ts, .changeset/**')
+    const w = world(files)
+    const file = park(w, 80, 'auto', [...touches, '.changeset/**'].join(', '))
     expect(admit(w, file).status).toBe('admitted')
     expect(cardOf(file)).toBe('card: #80 card-80 [implement/runner/S/cheap/auto] · depends — · blocks —')
+  })
+
+  it('a card that touches .changeset/config.json gets owner', () => {
+    const touches = ['.changeset/config.json']
+    expect(riskOf('.changeset/config.json').level).toBe('R1')
+    expect(draftedLine(drafted(world(touches), undefined, touches))).toContain('/owner]')
+    const w = world(touches)
+    const file = park(w, 88, 'auto', touches.join(', '))
+    expect(admit(w, file, { autoConfirm: true }).status).toBe('admitted')
+    expect(cardOf(file)).toContain('/owner]')
+    expect(readFileSync(file, 'utf8')).toContain('corrected: decision — auto → owner — .changeset/config.json is risk R1')
   })
 
   it('a touch under .claude/skills makes the card owner', () => {
@@ -75,7 +91,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
     expect(cardOf(file)).toContain('/owner]')
   })
 
-  it('an R1 card is owner whatever its paths and an owner decision is never lowered to auto', () => {
+  it('an R1 card gets owner and stays owner after intake --admit', () => {
     const touches = ['eslint.config.mjs', 'tests/dependency-policy.test.ts']
     expect(riskOf('eslint.config.mjs').level).toBe('R1')
     const w = world(touches)

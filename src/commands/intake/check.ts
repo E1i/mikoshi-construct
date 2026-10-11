@@ -17,6 +17,7 @@ const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'dep
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
 const TESTS_ROOT = 'tests'
 const SOURCE_MODULE = /^src\/(.+)\.ts$/
+const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 const OWNER_KINDS_HEADER = '| kind |'
@@ -54,7 +55,7 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
 export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
   { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
-  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [CHANGESET_COMPANION] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
@@ -170,7 +171,8 @@ function contourCorrection(card: DraftCard): Correction[] {
   return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
 }
 
-function ownerReason(touches: readonly string[], owner: OwnerPaths): string | undefined {
+function ownerReason(cardTouches: readonly string[], owner: OwnerPaths): string | undefined {
+  const touches = cardTouches.filter(touch => touch !== CHANGESET_COMPANION)
   const hold = ownerHold(touches, owner)
   if (hold !== undefined)
     return `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}`
@@ -202,10 +204,6 @@ function decisionCorrection(card: DraftCard, touches: readonly string[], owner: 
   if (includes(decisions, card.decision))
     return []
   return [{ field: 'decision', was: card.decision, now: decisions[0]!, reason: `kind ${card.kind} takes decision ${decisions.join(' or ')}, not ${card.decision}` }]
-}
-
-export function refusesOwnerDecision(corrections: readonly Correction[]): boolean {
-  return corrections.some(correction => correction.field === 'decision' && correction.was === OWNER_DECISION && correction.reason === NO_OWNER_PATH)
 }
 
 function candidatesText(candidates: readonly string[]): string {
