@@ -1,3 +1,6 @@
+import type { FileAccess, FileConstant, NamedFile } from './file-names.js'
+import { fileAccess, fileConstants, namedFiles } from './file-names.js'
+
 export interface ImportReading {
   specifier: string
   line: number
@@ -8,6 +11,14 @@ export interface ImportReading {
 export interface ModuleReading {
   imports: ImportReading[]
   calls: Array<{ name: string, member: boolean, line: number }>
+  files: NamedFile[]
+  fileConstants: FileConstant[]
+  access: FileAccess[]
+}
+
+export interface Literal {
+  offset: number
+  text: string
 }
 
 const QUOTES = new Set(['\'', '"', '`'])
@@ -33,9 +44,10 @@ function stringEnd(source: string, start: number, quote: string): number {
   return source.length
 }
 
-export function maskComments(source: string): { code: string, strings: string } {
+export function maskComments(source: string): { code: string, strings: string, literals: Literal[] } {
   let code = ''
   let strings = ''
+  const literals: Literal[] = []
   let index = 0
   while (index < source.length) {
     const character = source[index]
@@ -59,6 +71,7 @@ export function maskComments(source: string): { code: string, strings: string } 
     }
     if (QUOTES.has(character)) {
       const end = stringEnd(source, index, character)
+      literals.push({ offset: index, text: source.slice(index + 1, end - 1) })
       code += source.slice(index, end)
       strings += `${character}${[...source.slice(index + 1, end - 1)].map(blank).join('')}${end - index > 1 ? source[end - 1] : ''}`
       index = end
@@ -68,7 +81,7 @@ export function maskComments(source: string): { code: string, strings: string } 
     strings += character
     index += 1
   }
-  return { code, strings }
+  return { code, strings, literals }
 }
 
 function lineAt(source: string, offset: number): number {
@@ -109,21 +122,24 @@ function escaped(name: string): string {
 }
 
 export function scanModule(source: string): ModuleReading {
-  const { code, strings } = maskComments(source)
+  const { code, strings, literals } = maskComments(source)
   const imports: ImportReading[] = []
   const taken = new Set<number>()
+  const specifierQuotes = new Set<number>()
   for (const match of strings.matchAll(IMPORT_FROM)) {
     const index = match.index ?? 0
     const exportsOnly = match[0].startsWith('export')
     const { bindings, namespaces } = exportsOnly ? { bindings: [], namespaces: [] } : bindingsOf(match[1])
     imports.push({ specifier: specifierAt(code, match, match[3]), line: lineAt(source, index), bindings, namespaces })
     taken.add(index + match[0].length)
+    specifierQuotes.add(index + match[0].length - match[3].length - 2)
   }
   for (const match of strings.matchAll(BARE_IMPORT)) {
     const index = match.index ?? 0
     if (taken.has(index + match[0].length))
       continue
     imports.push({ specifier: specifierAt(code, match, match[2]), line: lineAt(source, index), bindings: [], namespaces: [] })
+    specifierQuotes.add(index + match[0].length - match[2].length - 2)
   }
   const calls: ModuleReading['calls'] = []
   for (const reading of imports) {
@@ -136,5 +152,12 @@ export function scanModule(source: string): ModuleReading {
         calls.push({ name, member: true, line: lineAt(source, match.index ?? 0) })
     }
   }
-  return { imports: imports.sort((a, b) => a.line - b.line || (a.specifier < b.specifier ? -1 : a.specifier > b.specifier ? 1 : 0)), calls }
+  const written = literals.filter(literal => !specifierQuotes.has(literal.offset))
+  return {
+    imports: imports.sort((a, b) => a.line - b.line || (a.specifier < b.specifier ? -1 : a.specifier > b.specifier ? 1 : 0)),
+    calls,
+    files: namedFiles(source, written),
+    fileConstants: fileConstants(strings, written),
+    access: fileAccess(source, strings, imports),
+  }
 }
