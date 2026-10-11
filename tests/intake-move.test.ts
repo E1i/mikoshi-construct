@@ -1,8 +1,10 @@
+import type { CardEvent, CardEventPort } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bodySha } from '../src/commands/intake/confirm.js'
+import { CARD_MOVED } from '../src/commands/intake/index.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -30,8 +32,8 @@ function park(dir: string, id: number, body = 'Do the thing.'): string {
   return file
 }
 
-function move(w: { parking: string, journal: string }, id: number, to: string) {
-  return runMove({ move: `#${id}`, to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal }, () => NOW)
+function move(w: { parking: string, journal: string }, id: number, to: string, events?: CardEventPort) {
+  return runMove({ move: `#${id}`, to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)
 }
 
 function journalLines(journal: string): Record<string, unknown>[] {
@@ -61,6 +63,22 @@ describe('intake --move', () => {
       { event: 'intake-move', task: '700', from: w.parking, to: path.join(w.parking, 'after-0.42'), bodySha: bodySha(text), ts: NOW.toISOString() },
       { event: 'intake-move', task: '700', from: path.join(w.parking, 'after-0.42'), to: w.parking, bodySha: bodySha(text), ts: NOW.toISOString() },
     ])
+  })
+
+  it('a moved card writes card.moved to the bus and nothing to the journal', () => {
+    const w = world()
+    const text = readFileSync(park(w.parking, 704), 'utf8')
+    const bus: CardEvent[] = []
+    expect(move(w, 704, 'lane-2', event => bus.push(event)).status).toBe('moved')
+    const to = path.join(w.parking, 'lane-2')
+    expect(bus).toEqual([{
+      type: CARD_MOVED,
+      cardId: 704,
+      ts: NOW.toISOString(),
+      dedupeKey: `${CARD_MOVED}:704:${to}:${NOW.toISOString()}`,
+      payload: { from: w.parking, to, bodySha: bodySha(text), lane: 'lane-2' },
+    }])
+    expect(journalLines(w.journal)).toEqual([])
   })
 
   it('a move into a missing directory creates it', () => {

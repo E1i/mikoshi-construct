@@ -1,9 +1,10 @@
-import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
+import type { CardEvent, IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
+import { bodySha } from '../src/commands/intake/confirm.js'
+import { CARD_ADMITTED, INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
@@ -111,5 +112,23 @@ describe('intake confirmation gate', () => {
     expect(existsSync(w.parking)).toBe(false)
     expect(journalLines(w)).toEqual([])
     printIntake(createUi(resolveTheme({ plain: true }), silentWriter), intake(w, { dryRun: true }))
+  })
+
+  it('a confirmed card writes card.admitted to the bus and nothing to the journal', () => {
+    const w = world([card({ number: 12 })])
+    const bus: CardEvent[] = []
+    const held = intake(w, { events: event => bus.push(event) })
+    expect(bus).toEqual([])
+    const token = held.status === 'awaiting' ? held.token : ''
+    expect(intake(w, { confirm: token, events: event => bus.push(event) }).status).toBe('written')
+    const text = readFileSync(path.join(w.parking, '13.md'), 'utf8')
+    expect(bus).toEqual([{
+      type: CARD_ADMITTED,
+      cardId: 13,
+      ts: expect.any(String),
+      dedupeKey: expect.stringMatching(/^card\.admitted:13:/),
+      payload: { card: expect.stringMatching(/^#13 gate-card /), lane: 'parking', confirmation: 'person', corrections: [CORRECTION], bodySha: bodySha(text) },
+    }])
+    expect(existsSync(w.journal)).toBe(false)
   })
 })
