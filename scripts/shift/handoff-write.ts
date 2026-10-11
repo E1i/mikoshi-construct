@@ -6,6 +6,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultParking, handoffBytes, handoffRefusals, NO_PREV, parkedDepends, PREV_LABEL } from '../ghosts/handoff-check.js'
+import { CARD_VARIABLE } from '../ghosts/session.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
 export const PREFIX = '[handoff:write] '
@@ -21,7 +22,7 @@ const NAMED_BOUNDARY = /\s—\s*boundary:\s*(\S+)\s*$/
 export interface HandoffWriteDeps {
   cwd: string
   handoffDir: string | undefined
-  sessionHandoff: string
+  sessionHandoff: string | null
   exists: (file: string) => boolean
   read: (file: string) => string
   listDir: (dir: string) => string[]
@@ -33,6 +34,19 @@ export interface HandoffWriteDeps {
   home: string
   out: (line: string) => void
   err: (line: string) => void
+}
+
+function setOrNull(value: string | undefined): string | null {
+  return value === undefined || value === '' ? null : value
+}
+
+export function sessionHandoffOf(env: NodeJS.ProcessEnv, home: string): string | null {
+  const handoff = setOrNull(env[HANDOFF_VARIABLE])
+  if (handoff !== null)
+    return handoff
+  if (setOrNull(env[CARD_VARIABLE]) !== null)
+    return null
+  return path.join(setOrNull(env[HANDOFF_DIR_VARIABLE]) ?? path.join(home, '.construct', 'handoff'), 'mikoshi.md')
 }
 
 export function nextArchive(names: readonly string[]): string {
@@ -78,7 +92,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     return 1
   }
   const handoff = path.resolve(deps.handoffDir ?? deps.cwd, parsed.handoff)
-  if (!deps.exists(handoff) && handoff !== path.resolve(deps.sessionHandoff)) {
+  if (deps.sessionHandoff !== null && !deps.exists(handoff) && handoff !== path.resolve(deps.sessionHandoff)) {
     deps.err(`${PREFIX}${handoff} is not this session's handoff and does not exist: one handoff per session, update ${deps.sessionHandoff} in place`)
     return 1
   }
@@ -117,8 +131,8 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runHandoffWrite(process.argv.slice(2), {
     cwd: process.cwd(),
-    handoffDir: process.env[HANDOFF_DIR_VARIABLE],
-    sessionHandoff: process.env[HANDOFF_VARIABLE] ?? path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'mikoshi.md'),
+    handoffDir: setOrNull(process.env[HANDOFF_DIR_VARIABLE]) ?? undefined,
+    sessionHandoff: sessionHandoffOf(process.env, os.homedir()),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
     listDir: readdirSync,
