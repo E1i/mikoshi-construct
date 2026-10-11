@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
+import { reduce } from '../../bus/reducer.js'
 import { EXIT_CRITERIA, PREFIX, shadowProblems, shadowReport } from '../../bus/report.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -61,6 +62,25 @@ describe('shadow report', () => {
     db.prepare(`INSERT INTO events (ts, type, actor, pr, dedupe_key, payload) VALUES (?, 'pr.closed', 'netwatch', 930, 'pr:930:closed', '{"merged":true}')`).run(clock.now().toISOString())
 
     expect(replayProblems(db, gitHub, clock)).toEqual([])
+    db.close()
+  })
+
+  it('after a reduce by pnpm bus:reduce a correct projection is not a replay divergence', () => {
+    const { db, gitHub, clock } = reducedBus()
+    db.prepare(`INSERT INTO events (ts, type, actor, pr, dedupe_key, payload) VALUES (?, 'pr.closed', 'netwatch', 930, 'pr:930:closed', '{"merged":true}')`).run(clock.now().toISOString())
+    reduce(db)
+
+    expect(replayProblems(db, gitHub, clock)).toEqual([])
+    db.close()
+  })
+
+  it('a bus whose last reduce left no marker replays every event', () => {
+    const { db, gitHub, clock } = reducedBus()
+    db.exec('PRAGMA user_version = 0')
+
+    expect(replayProblems(db, gitHub, clock)).toEqual([])
+    db.prepare(`UPDATE prs SET state = 'closed' WHERE pr = 930`).run()
+    expect(replayProblems(db, gitHub, clock)).toEqual([`${EXIT_CRITERIA.replay}: prs 930: state live "closed", replay "open"`])
     db.close()
   })
 

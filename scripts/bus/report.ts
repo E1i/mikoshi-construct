@@ -9,7 +9,7 @@ import { ghApi } from './github.js'
 import { LEASE_FOLDS } from './lease.js'
 import { Meter } from './meter.js'
 import { TASK_ENQUEUED, TASK_FOLDS, TASK_SUPERSEDED } from './queue.js'
-import { projectionDump, reduce, REJECTED } from './reducer.js'
+import { projectionDump, reduce, reducedThrough, REJECTED } from './reducer.js'
 import { ROLE_FOLDS } from './role.js'
 import { REDUCED } from './run.js'
 
@@ -182,9 +182,11 @@ const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEA
 type ProjectionRow = Record<string, unknown>
 type Projection = Record<string, ProjectionRow[]>
 
-function lastReducedThrough(db: DatabaseSync): number {
-  const last = db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(REDUCED) as { payload: string } | undefined
-  return last === undefined ? Number.POSITIVE_INFINITY : Number((JSON.parse(last.payload) as { through_event_id: unknown }).through_event_id)
+const NO_REDUCE_MARKER = 0
+
+function replayCutOff(db: DatabaseSync): number {
+  const through = reducedThrough(db)
+  return through === NO_REDUCE_MARKER ? Number.POSITIVE_INFINITY : through
 }
 
 function rowsByKey(table: string, rows: ProjectionRow[]): Map<string, ProjectionRow> {
@@ -224,7 +226,7 @@ function rowDifferences(live: Projection, replayed: Projection): string[] {
 function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
   const liveDump = projectionDump(db)
   const live = Buffer.from(liveDump)
-  const through = lastReducedThrough(db)
+  const through = replayCutOff(db)
   const replay = openBus(':memory:')
   try {
     const insert = replay.prepare(`INSERT INTO events (${ALL_EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
