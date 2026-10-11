@@ -28,8 +28,8 @@ import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
-import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
-import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
+import { SHIFT_WHO } from '../../src/card/parking.js'
+import { parseTaskFile } from '../../src/card/task-file.js'
 import { cheapClass, cheapForecast, cheapForecastOf, cheapRows, claudeProjectsDir, formatTokens, readCheapTasks } from '../../src/commands/cost/index.js'
 import { quantile } from '../../src/commands/cost/sample.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
@@ -54,12 +54,12 @@ import { chainBusMerge, realChainObserver } from './chain-bus.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as CURRENT_PREFIX, realCurrentDeps, runCurrent } from './current.js'
-import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, HANDED_TO_THE_BUS, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
+import { changedFiles, COMMIT_FLAG, HANDED_TO_THE_BUS, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, standingStops } from './parking.js'
+import { FAILED_AT, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, readParking, taskFiles } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 import { delegatedMerge, recordInBus, shardRefusal, slotRefusal, usedEvent, usedLine } from './shard.js'
@@ -171,46 +171,10 @@ function refuse(deps: ShiftDeps, lines: string[]): number {
   return 1
 }
 
-function taskFiles(deps: ShiftDeps, dir: string): string[] {
-  return deps.listDir(dir).filter(file => TASK_FILE.test(file)).sort((a, b) => Number(TASK_FILE.exec(a)![1]) - Number(TASK_FILE.exec(b)![1]) || a.localeCompare(b))
-}
-
 function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: string[] } {
   const parsed = taskFiles(deps, dir).map(file => parseTaskFile(file, deps.read(path.join(dir, file))))
   return {
     tasks: parsed.flatMap(entry => entry.kind === 'task' ? [entry.task] : []),
-    errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
-  }
-}
-
-function approvedBrief(deps: ShiftDeps, task: ShiftTask): boolean {
-  return approvedSha256Of(briefFacts(deps, task), task.card) !== null
-}
-
-function createdFile(deps: ShiftDeps): (file: string) => boolean {
-  return (file) => {
-    try {
-      const inTree = deps.git(deps.cwd, ['ls-tree', '--name-only', 'origin/main', '--', file]).trim() !== ''
-      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', GHOSTS_FILES_ON_MAIN]))
-    }
-    catch {
-      return false
-    }
-  }
-}
-
-function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
-  const parsed = taskFiles(deps, parking).map(file => parseParkingFile(file, deps.read(path.join(parking, file))))
-  const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
-  const text = deps.exists(journal) ? deps.read(journal) : null
-  const done = new Set(closedTasks(text).keys())
-  const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
-  const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
-  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(deps, ladder.get(stop.task)!)
-  const stops = latestStops(text)
-  const standing = standingStops(stops, deps.exists, released)
-  return {
-    choice: choose(cards, done, mergedTasks(text), standing, createdFile(deps), failedCards(stops, standing)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }
