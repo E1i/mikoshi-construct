@@ -17,8 +17,8 @@ import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
-import { BOARD_ALARM, expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
+import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { BOARD_ALARM, FAILURES_TO_STOP, identityOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
 import { SHARD_ISSUED } from '../../bus/shards.js'
@@ -448,6 +448,33 @@ describe('the answer queue', () => {
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a task.requeued is refused for a completed task of any queue but answer', () => {
+    const bench = answerBench()
+    bench.started(1170)
+    bench.gitHub.open({ number: 1070, review: 'failure' })
+    bench.gitHub.open({ number: 1071 })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'review', cardId: 1171, pr: 1071, head: sha('a') })
+    const completed = (queue: Queue): Lease => {
+      const lease = leaseNext(bench.db, ts, queue, `worker:${queue}:worker-1`)!
+      completeTask(bench.db, ts, lease, [])
+      return lease
+    }
+    const requeue = (lease: Lease): void => {
+      const { id } = bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }
+      TASK_FOLDS[TASK_REQUEUED]!(bench.db, { id, ts, type: TASK_REQUEUED, card_id: lease.cardId, pr: lease.pr, head: lease.head, dedupe_key: `${TASK_REQUEUED}:${lease.taskKey}`, payload: JSON.stringify({ task_key: lease.taskKey, queue: lease.queue, failure: id }) })
+    }
+    const review = completed('review')
+    const answered = completed('answer')
+
+    expect(() => requeue(review)).toThrow(new Rejection(`task ${review.taskKey} is completed, not stopped or withdrawn or superseded`))
+    expect(taskState(bench.db, review.taskKey).state).toBe('completed')
+    requeue(answered)
+    expect(taskState(bench.db, answered.taskKey)).toMatchObject({ state: 'queued', failures: 0 })
     bench.close()
   })
 

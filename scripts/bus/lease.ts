@@ -8,8 +8,6 @@ import { CARD_STOPPED } from './inbox.js'
 import { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
-export { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, STOPPED } from './queue.js'
-
 export const TASK_LEASED = 'task.leased'
 export const TASK_RENEWED = 'task.renewed'
 export const TASK_COMPLETED = 'task.completed'

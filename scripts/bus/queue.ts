@@ -27,7 +27,8 @@ export const COMPLETED = 'completed'
 export const STOPPED = 'stopped'
 const SUPERSEDED = 'superseded'
 const FAULT = 'fault'
-const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED, COMPLETED])
+const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
+const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
 const NO_CARD_TREE = 'no_card_tree'
 
 function cardBodyShaOf(card: string): string {
@@ -313,10 +314,11 @@ function foldSuperseded(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function foldRequeued(db: DatabaseSync, event: StoredEvent): void {
-  const { key } = identityOf(event)
+  const { key, queue } = identityOf(event)
   const task = taskRow(db, key) ?? reject(`task ${key} was never queued`)
-  if (!REQUEUABLE.has(task.state))
-    reject(`task ${key} is ${task.state}, not ${[...REQUEUABLE].join(' or ')}`)
+  const requeuable = queue === 'answer' ? REQUEUABLE_ANSWER : REQUEUABLE
+  if (!requeuable.has(task.state))
+    reject(`task ${key} is ${task.state}, not ${[...requeuable].join(' or ')}`)
   const failures = payloadOf(event).fault === true ? 'failures + 1' : '0'
   db.prepare(`UPDATE tasks SET state = ?, failures = ${failures}, event_id = ? WHERE task_key = ?`).run(QUEUED, event.id, key)
 }
