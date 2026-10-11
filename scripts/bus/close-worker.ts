@@ -7,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { closingVerificationOf } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { reportPath } from '../shift/places.js'
 import { CloseExecutor } from './close-executor.js'
@@ -56,7 +57,7 @@ export function closeStepLine(step: CloseStep): string | null {
   return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
 }
 
-export function shiftReportVerification(shiftRoot: string): ReportedVerification {
+export function shiftReportVerification(shiftRoot: string): (cardId: number) => string | null {
   return (cardId) => {
     if (!existsSync(shiftRoot))
       return null
@@ -68,6 +69,16 @@ export function shiftReportVerification(shiftRoot: string): ReportedVerification
     const newest = reports[0]
     return newest === undefined ? null : REPORT_VERIFICATION_LINE.exec(readFileSync(newest, 'utf8'))?.[1] ?? null
   }
+}
+
+export function journalVerification(journal: string): ReportedVerification {
+  return (cardId, pr) => pr === null || !existsSync(journal) ? null : closingVerificationOf(readFileSync(journal, 'utf8'), String(cardId), pr)
+}
+
+export function anyExecutorVerification(shiftRoot: string, journal: string): ReportedVerification {
+  const fromShift = shiftReportVerification(shiftRoot)
+  const fromJournal = journalVerification(journal)
+  return (cardId, pr) => fromShift(cardId) ?? fromJournal(cardId, pr)
 }
 
 export interface CloseRun {
@@ -103,7 +114,8 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
 
 async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
-  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: shiftReportVerification(path.join(construct, 'shift')), session: randomUUID(), journal: defaultGhostJournal(), parking: path.join(construct, 'parking'), pause: sleep })
+  const journal = defaultGhostJournal()
+  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: anyExecutorVerification(path.join(construct, 'shift'), journal), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
