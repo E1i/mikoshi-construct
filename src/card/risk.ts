@@ -221,8 +221,7 @@ function witnesses(test: string, code: string): boolean {
 }
 
 function withWitnesses(touches: readonly string[], critical: readonly boolean[]): boolean[] {
-  const publishesCritical = critical.includes(true)
-  return touches.map((touch, index) => critical[index]! || (publishesCritical && touch === CHANGESET_COMPANION) || touches.some((code, at) => critical[at]! && witnesses(touch, code)))
+  return touches.map((touch, index) => critical[index]! || touches.some((code, at) => critical[at]! && witnesses(touch, code)))
 }
 
 export function riskReading(touches: readonly string[], complexitySliced: boolean): RiskReading {
