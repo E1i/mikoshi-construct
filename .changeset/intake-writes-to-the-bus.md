@@ -2,4 +2,4 @@
 "mikoshi-construct": patch
 ---
 
-cli: `construct intake`'s confirm, `--admit` and `--move` hand `card.admitted` and `card.moved` to an event port when the caller supplies one, beside the journal line they write as before, so intake still sees every number it issued and every card it admitted
+internal: `construct intake --admit` and `--move` can hand `card.admitted` and `card.moved` to an event port that a caller inside the repository supplies, after the journal line they write as before. The published CLI supplies none, so its behaviour is unchanged

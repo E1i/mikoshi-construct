@@ -214,7 +214,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), path.dirname(options.file), source)], options.events)
+  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), path.dirname(options.file), source)], source === ADMIT_SOURCE ? options.events : undefined)
   return { ...base, status: 'admitted' }
 }
 

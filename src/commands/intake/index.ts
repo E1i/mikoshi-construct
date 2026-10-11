@@ -8,6 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
+import { parseCard } from '../../card/grammar.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
@@ -84,10 +85,15 @@ export interface IntakeRecord {
 }
 
 export function recordIntake(journal: string, records: readonly IntakeRecord[], events: CardEventPort | undefined): void {
-  for (const record of records)
-    events?.(record.event)
   mkdirSync(path.dirname(journal), { recursive: true })
   appendFileSync(journal, records.map(record => `${record.journalLine}\n`).join(''))
+  for (const record of records)
+    events?.(record.event)
+}
+
+function admissionOf(line: string): { depends: number[], decision: string | null, contour: string | null } {
+  const parsed = parseCard(line)
+  return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
 }
 
 export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, laneDir: string, source?: string): IntakeRecord {
@@ -103,6 +109,7 @@ export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at:
       payload: {
         card: card.line,
         lane: path.basename(laneDir),
+        ...admissionOf(card.line),
         confirmation,
         corrections: card.corrections.map(correctionText),
         bodySha: sha,
@@ -124,7 +131,6 @@ export interface IntakeOptions {
   confirm?: string
   autoConfirm: boolean
   readStdin: () => string
-  events?: CardEventPort
 }
 
 type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid' | 'invalidTestPattern'
@@ -225,7 +231,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   for (const card of slice.cards)
     writeFileSync(path.join(options.parking, card.file), card.text, { flag: 'wx' })
   const at = new Date()
-  recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, options.parking)), options.events)
+  recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, options.parking)), undefined)
   return { status: 'written', parking: options.parking, cards: slice.cards, autoConfirm: options.autoConfirm }
 }
 
