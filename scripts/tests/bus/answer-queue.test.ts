@@ -15,7 +15,7 @@ import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answe
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
@@ -498,8 +498,9 @@ describe('the answer executor', () => {
       1125: ownerPath,
       1126: 'may the card also touch AGENTS.md?',
       1127: 'the finding needs eslint.config.mjs',
+      1128: 'may the card also touch scripts/bus/lease.ts?',
     }
-    const delegated = [1124, 1125, 1127]
+    const delegated = [1124, 1125, 1127, 1128]
     const cards = Object.keys(questions).map(Number)
     bench.tools.heads = cards.flatMap(() => [sha('a'), sha('a')])
     for (const cardId of cards) {
@@ -508,6 +509,7 @@ describe('the answer executor', () => {
     }
     for (const cardId of delegated)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${cardId}`, payload: { id: `shard-${cardId}`, under: null }, legacy: false })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: DECISION_RECORDED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${DECISION_RECORDED}:90`, payload: { source: 'owner', decision_id: 90, text: '#1128 reserved: the owner answers it', scope: [1128] }, legacy: false })
     bench.tick()
 
     const reasons: Record<number, string> = {}
@@ -528,8 +530,9 @@ describe('the answer executor', () => {
       1125: 'question.agent',
       1126: 'question.owner',
       1127: 'question.agent',
+      1128: 'question.owner',
     })
-    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123, 1124, 1126])
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123, 1124, 1126, 1128])
     expect(bench.tools.published).toEqual([])
     bench.tick()
     const asked = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' ORDER BY card_id`).all() as { card_id: number }[]).map(row => row.card_id)

@@ -148,16 +148,18 @@ describe('replay determinism', () => {
     live.close()
 
     const copy = openBus(snapshot)
-    const reviewKeys = (): Map<string, string> => new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
-    const before = projectionDump(copy)
-    const oldReviews = reviewKeys()
     reduce(copy)
-    expect(projectionDump(copy)).toBe(before)
+    const folded = projectionDump(copy)
+    const oldReviews = copy.prepare(`SELECT tasks.task_key, tasks.state, tasks.head, prs.head AS pr_head FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr WHERE tasks.queue = 'review' ORDER BY tasks.task_key`).all() as { task_key: string, state: string, head: string | null, pr_head: string | null }[]
+    reduce(copy)
+    expect(projectionDump(copy)).toBe(folded)
 
     deriveQueues(copy, new Date().toISOString())
-    const after = reviewKeys()
-    for (const [key, state] of oldReviews)
-      expect([key, after.get(key)]).toEqual([key, state === 'queued' || state === 'leased' ? expect.any(String) : state])
+    const after = new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
+    for (const old of oldReviews) {
+      const leftBehind = (old.state === 'queued' || old.state === 'leased') && old.head !== old.pr_head
+      expect({ key: old.task_key, state: after.get(old.task_key) }).toEqual({ key: old.task_key, state: leftBehind ? 'superseded' : old.state })
+    }
     expect(copy.prepare(`SELECT pr, head FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING count(*) > 1`).all()).toEqual([])
     copy.close()
   })

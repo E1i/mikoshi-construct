@@ -26,7 +26,7 @@ export function moduleOf(file: string): string | null {
   return directoryOf(`${home}${file.slice(prefix.length)}`)
 }
 
-function ownerGlobs(ownerMergesText: string): string[] {
+export function ownerGlobs(ownerMergesText: string): string[] {
   const owner = ownerPathsOf(ownerMergesText)
   return [...owner.globs, ...owner.byRisk.flatMap(row => row.globs)]
 }

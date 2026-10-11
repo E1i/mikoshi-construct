@@ -5,7 +5,6 @@ import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import { riskOf } from '../../src/card/risk.js'
-import { ownerPathsOf } from '../../src/commands/intake/check.js'
 import { matchGlob } from '../shredder/glob.js'
 import { answerSourceOf } from './answer-source.js'
 import { CardTreeGone } from './answerer.js'
@@ -13,11 +12,11 @@ import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
 import { messageOf } from './executor.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
-import { reservationOf } from './policy.js'
+import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
 import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
 import { decisionsInForceAt, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
-import { wideningOf } from './widening.js'
+import { ownerGlobs, wideningOf } from './widening.js'
 
 export const SCOPE_WIDENED = 'scope.widened'
 
@@ -48,7 +47,6 @@ interface Widened {
   reason: string
 }
 
-const OWNER_WITHOUT_A_DELEGATION = 'R1'
 const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
 const TRAILING_DOTS = /\.+$/
 const FILE_EXTENSION = /\.[a-z][\w-]*$/i
@@ -142,17 +140,13 @@ export class AnswerExecutor {
   }
 
   private ownersQuestion(lease: Lease, question: string): boolean {
-    if (reservationOf(lease.cardId, question))
+    const decisions = decisionsInForceAt(this.parts.db, this.parts.clock())
+    if ([question, ...decisions.map(decision => decision.text)].some(text => reservationOf(lease.cardId, text)))
       return true
-    if (this.delegated(lease))
+    if (unspentShard(this.parts.db, lease.cardId, lease.pr, decisions) !== null)
       return false
-    const owner = ownerPathsOf(this.parts.ownerMerges())
-    const globs = [...owner.globs, ...owner.byRisk.flatMap(row => row.globs)]
-    return pathsIn(question).some(file => riskOf(file).level === OWNER_WITHOUT_A_DELEGATION || globs.some(glob => matchGlob(glob, file)))
-  }
-
-  private delegated(lease: Lease): boolean {
-    return unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, this.parts.clock())) !== null
+    const globs = ownerGlobs(this.parts.ownerMerges())
+    return pathsIn(question).some(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION || globs.some(glob => matchGlob(glob, file)))
   }
 
   private stopped(lease: Lease, reason: string, detail: string, scope: BusEvent[] = []): AnswerOutcome {
