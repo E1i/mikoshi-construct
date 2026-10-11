@@ -278,6 +278,33 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     expect(lines.at(-1)).toContain(`${launchName(review)} failed ${FAILURES_REPORTED} starts in a row and needs the owner`)
   })
 
+  it('a refused worker repaired by the reducer that then keeps running ends its episode, and a later refusal counts 1', () => {
+    let shadow = [NOT_CLEAN]
+    let reduceRepairs = true
+    const review = reviewLaunch(() => shadow)
+    const s = kept([review], preflighted, () => {
+      if (reduceRepairs)
+        shadow = []
+      return []
+    })
+
+    for (let episode = 1; episode <= FAILURES_REPORTED; episode++) {
+      s.alive = []
+      shadow = [NOT_CLEAN]
+      expect(s.keeper.step().join('\n')).not.toContain('needs the owner')
+      for (let tick = 0; tick < 5; tick++)
+        expect(s.keeper.step()).toEqual([])
+      s.clock.now += 7 * 24 * 60 * 60_000
+    }
+    expect(s.reduces).toHaveLength(FAILURES_REPORTED)
+    expect(s.journal).toEqual([])
+
+    s.alive = []
+    shadow = [NOT_CLEAN]
+    reduceRepairs = false
+    expect(s.keeper.step().at(-1)).toContain('failed to start 1 time(s) in a row')
+  })
+
   it('the backoff stops growing at its ceiling', () => {
     expect(backoffMs(100)).toBe(KEEP_MAX_MS)
   })

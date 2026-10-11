@@ -264,7 +264,7 @@ export class WorkerKeeper {
 
   private seenRunning(name: string): void {
     const streak = this.streaks.get(name)
-    if (streak?.refused === true)
+    if (streak?.refused === true && streak.awaitingSight)
       this.streaks.set(name, { ...streak, retryAt: this.parts.now(), awaitingSight: false })
     else
       this.streaks.delete(name)
@@ -289,7 +289,7 @@ export class WorkerKeeper {
     if (!up)
       return [...lines, ...this.failed(name, streak, causeOf(started), refusal !== null)]
     if (refusal !== null)
-      return [...lines, ...this.counted(name, { causes: [...streak?.causes ?? [], refusal], retryAt: this.parts.now(), awaitingSight: started.alreadyRunning === undefined, refused: true })]
+      return [...lines, ...this.counted(name, { causes: [...streak?.causes ?? [], refusal], retryAt: this.parts.now(), awaitingSight: true, refused: true })]
     if (started.alreadyRunning !== undefined)
       this.streaks.delete(name)
     else
