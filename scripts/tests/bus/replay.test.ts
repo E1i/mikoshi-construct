@@ -1,16 +1,21 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
 import { Buffer } from 'node:buffer'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
+import { prBodySha, taskKey } from '../../bus/identifiers.js'
+import { completeTask, leaseNext } from '../../bus/lease.js'
+import { deriveQueues, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
 const MAIN = 'fedcba9876543210fedcba9876543210fedcba98'
 const roots: string[] = []
+const LIVE_BUS = defaultBusPath()
+const WITNESS = 'a replay of the whole live journal on a copy of bus.db after the review-key format change gives the same projection as before, and review tasks with old keys are neither duplicated nor lost'
 
 afterEach(() => {
   for (const root of roots.splice(0))
@@ -87,5 +92,73 @@ describe('replay determinism', () => {
     source.close()
 
     expect(replayedFromEmpty(log)).toBe(live)
+  })
+
+  it(WITNESS, () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-'))
+    roots.push(root)
+    const liveFile = path.join(root, 'bus.db')
+    const source = openBus(liveFile)
+    for (const each of LOG)
+      appendEvent(source, each)
+    const prs = [930, 931, 932]
+    for (const pr of prs)
+      appendEvent(source, observed(pr, pr - 100, HEADS[0]!, 'green'))
+    reduce(source)
+    const oldKeys = prs.map(pr => taskKey({ queue: 'review', cardId: pr - 100, pr, head: HEADS[0]! }))
+    queueTask(source, '2026-10-09T12:00:30.000Z', { queue: 'review', cardId: 832, pr: 932, head: HEADS[0]! })
+    completeTask(source, '2026-10-09T12:00:40.000Z', leaseNext(source, '2026-10-09T12:00:35.000Z', 'review', 'worker:review:s0')!, [])
+    for (const pr of [930, 931])
+      queueTask(source, '2026-10-09T12:01:00.000Z', { queue: 'review', cardId: pr - 100, pr, head: HEADS[0]! })
+    expect(leaseNext(source, '2026-10-09T12:02:00.000Z', 'review', 'worker:review:s1')?.taskKey).toBe(oldKeys[0])
+    source.exec('ALTER TABLE prs DROP COLUMN body_sha')
+    source.close()
+    const copyFile = path.join(root, 'bus-copy.db')
+    copyFileSync(liveFile, copyFile)
+
+    const copy = openBus(copyFile)
+    const before = projectionDump(copy)
+    reduce(copy)
+    expect(projectionDump(copy)).toBe(before)
+
+    for (const pr of prs)
+      appendEvent(copy, { ...observed(pr, pr - 100, HEADS[0]!, 'green'), dedupeKey: `pr:${pr}:${HEADS[0]!}:green:body`, payload: { base: 'main', head: HEADS[0]!, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(`card: #${pr - 100}`) } })
+    reduce(copy)
+    deriveQueues(copy, '2026-10-09T12:03:00.000Z')
+    const live = copy.prepare(`SELECT pr, head, count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING n > 1`).all()
+    expect(live).toEqual([])
+    const reviews = copy.prepare(`SELECT task_key, pr, state FROM tasks WHERE queue = 'review' AND pr IN (930, 931, 932) ORDER BY pr, id`).all()
+    expect(reviews).toEqual([
+      { task_key: oldKeys[0], pr: 930, state: 'leased' },
+      { task_key: oldKeys[1], pr: 931, state: 'queued' },
+      { task_key: oldKeys[2], pr: 932, state: 'completed' },
+    ])
+    const settled = projectionDump(copy)
+    reduce(copy)
+    expect(projectionDump(copy)).toBe(settled)
+    copy.close()
+  })
+
+  it.skipIf(!existsSync(LIVE_BUS))(`${WITNESS}, on a snapshot of the live bus.db of this machine`, () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-live-'))
+    roots.push(root)
+    const snapshot = path.join(root, 'bus.db')
+    const live = new DatabaseSync(LIVE_BUS, { readOnly: true })
+    live.prepare('VACUUM INTO ?').run(snapshot)
+    live.close()
+
+    const copy = openBus(snapshot)
+    const reviewKeys = (): Map<string, string> => new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
+    const before = projectionDump(copy)
+    const oldReviews = reviewKeys()
+    reduce(copy)
+    expect(projectionDump(copy)).toBe(before)
+
+    deriveQueues(copy, new Date().toISOString())
+    const after = reviewKeys()
+    for (const [key, state] of oldReviews)
+      expect([key, after.get(key)]).toEqual([key, state === 'queued' || state === 'leased' ? expect.any(String) : state])
+    expect(copy.prepare(`SELECT pr, head FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING count(*) > 1`).all()).toEqual([])
+    copy.close()
   })
 })

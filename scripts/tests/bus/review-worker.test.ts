@@ -301,7 +301,7 @@ describe('review worker', () => {
     }
 
     const lines = await dryRun(gitHub.client, reviewer, fixedPlan, 949)
-    expect(leases).toEqual([{ taskKey: review(949, sha('e')), queue: 'review', cardId: 1049, pr: 949, head: sha('e'), leaseGen: 0, actor: DRY_RUN_ACTOR }])
+    expect(leases).toEqual([{ taskKey: taskKey({ queue: 'review', cardId: 1049, pr: 949, head: sha('e') }), queue: 'review', cardId: 1049, pr: 949, head: sha('e'), leaseGen: 0, actor: DRY_RUN_ACTOR }])
     expect(lines.join('\n')).toContain(sha('e'))
     expect(lines.join('\n')).toContain('verdict: changes')
     expect(lines.join('\n')).toContain('reviewer session: reviewer-dry')

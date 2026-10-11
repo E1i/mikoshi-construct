@@ -527,13 +527,13 @@ describe('the answer executor', () => {
       1124: 'question.owner',
       1125: 'question.agent',
       1126: 'question.owner',
-      1127: 'question.owner',
+      1127: 'question.agent',
     })
-    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123, 1124, 1126, 1127])
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123, 1124, 1126])
     expect(bench.tools.published).toEqual([])
     bench.tick()
     const asked = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' ORDER BY card_id`).all() as { card_id: number }[]).map(row => row.card_id)
-    expect(asked).toEqual([1120, 1125])
+    expect(asked).toEqual([1120, 1125, 1127])
     bench.close()
   })
 

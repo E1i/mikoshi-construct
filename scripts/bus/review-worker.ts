@@ -18,7 +18,7 @@ import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { defaultBusPath, openBus } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { ghApi } from './github.js'
-import { cardIdOfDescription, isFullSha, prBodySha, prOf, taskKey } from './identifiers.js'
+import { cardIdOfDescription, isFullSha, prOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, expireLeases, failTask, leaseNext, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
@@ -263,7 +263,7 @@ export function dryRunLease(gitHub: GitHub, pr: number): Lease {
   const cardId = cardIdOfDescription(pull.body)
   if (cardId === null)
     throw new Error(`the first line of pull request #${pr} names no card`)
-  return { taskKey: taskKey({ queue: 'review', cardId, pr, head, input: { prBody: prBodySha(pull.body), cardBody: null } }), queue: 'review', cardId, pr, head, leaseGen: 0, actor: DRY_RUN_ACTOR }
+  return { taskKey: taskKey({ queue: 'review', cardId, pr, head }), queue: 'review', cardId, pr, head, leaseGen: 0, actor: DRY_RUN_ACTOR }
 }
 
 export function dryRunLines(lease: Lease, plan: ReviewPlan, review: Review): string[] {

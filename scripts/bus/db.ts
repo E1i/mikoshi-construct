@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 
 export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
+export const BUSY_TIMEOUT_MS = 30_000
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -125,7 +126,7 @@ export function defaultBusPath(): string {
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
   addMissingColumns(db)
   return db

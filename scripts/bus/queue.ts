@@ -39,10 +39,16 @@ const REVIEWED_UNDER_AN_INPUT = `EXISTS (
   SELECT 1 FROM tasks AS reviewed WHERE reviewed.queue = 'review' AND reviewed.pr = prs.pr AND reviewed.head = prs.head AND reviewed.task_key LIKE '%:pr-body-%'
 )`
 
+const A_REVIEW_UNDER_A_PLAIN_KEY = `EXISTS (
+  SELECT 1 FROM tasks AS plain WHERE plain.queue = 'review' AND plain.pr = prs.pr AND plain.head = prs.head
+    AND plain.state != '${SUPERSEDED}' AND plain.task_key NOT LIKE '%:pr-body-%'
+)`
+
 const REVIEW_CANDIDATES = `
   SELECT pr, card_id, head, body_sha, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ci = 'green' AND card_id IS NOT NULL AND head IS NOT NULL
     AND (verdict_on_head IS NULL OR (verdict_on_head = 'changes' AND body_sha IS NOT NULL AND ${REVIEWED_UNDER_AN_INPUT}))
+    AND NOT ${A_REVIEW_UNDER_A_PLAIN_KEY}
   ORDER BY pr
 `
 

@@ -48,7 +48,7 @@ interface Widened {
   reason: string
 }
 
-const OWNER_EVEN_UNDER_A_DELEGATION = 'R1'
+const OWNER_WITHOUT_A_DELEGATION = 'R1'
 const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
 const TRAILING_DOTS = /\.+$/
 const FILE_EXTENSION = /\.[a-z][\w-]*$/i
@@ -142,12 +142,13 @@ export class AnswerExecutor {
   }
 
   private ownersQuestion(lease: Lease, question: string): boolean {
-    const paths = pathsIn(question)
-    if (reservationOf(lease.cardId, question) || paths.some(file => riskOf(file).level === OWNER_EVEN_UNDER_A_DELEGATION))
+    if (reservationOf(lease.cardId, question))
       return true
+    if (this.delegated(lease))
+      return false
     const owner = ownerPathsOf(this.parts.ownerMerges())
     const globs = [...owner.globs, ...owner.byRisk.flatMap(row => row.globs)]
-    return paths.some(file => globs.some(glob => matchGlob(glob, file))) && !this.delegated(lease)
+    return pathsIn(question).some(file => riskOf(file).level === OWNER_WITHOUT_A_DELEGATION || globs.some(glob => matchGlob(glob, file)))
   }
 
   private delegated(lease: Lease): boolean {
