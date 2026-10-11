@@ -45,7 +45,7 @@ describe('netwatch', () => {
     const observed = events(db, 'pr.observed')
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatchObject({ pr: 900, card_id: 1000, head: sha('a') })
-    expect(observed[0]!.payload).toEqual({ base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false })
+    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false })
     expect(observed[0]!.dedupe_key).toMatch(/^pr:900:[0-9a-f]{64}:-$/)
 
     gitHub.open({ number: 900, mergeable_state: 'behind', review: 'success' })
@@ -78,6 +78,25 @@ describe('netwatch', () => {
     expect(observed.map(event => event.dedupe_key.split(':').at(-1))).toEqual(['-', String(ids[0]), String(ids[1])])
     reduce(db)
     expect(db.prepare('SELECT head, mergeable FROM prs WHERE pr = 911').get()).toEqual({ head: sha('a'), mergeable: 'clean' })
+    db.close()
+  })
+
+  it('an edited card line in the pull request body is a new observation and the reducer relinks card and pull request without a push', () => {
+    const { db, gitHub, clock, netWatch } = setUp()
+    gitHub.open({ number: 753, body: 'lane-guard witness\nbranch: feat/recorded-lane-guard-witness' })
+    netWatch.poll()
+    reduce(db)
+    expect(db.prepare('SELECT card_id FROM prs WHERE pr = 753').get()).toEqual({ card_id: null })
+
+    gitHub.open({ number: 753, body: 'card: #764 lane-guard [implement/bus/S/cheap/auto]\nbranch: feat/recorded-lane-guard-witness' })
+    clock.advance(TICK_MS)
+    netWatch.poll()
+    const observed = events(db, 'pr.observed')
+    expect(observed.map(event => [event.head, event.card_id, event.payload.card_id])).toEqual([[sha('a'), null, null], [sha('a'), 764, 764]])
+
+    reduce(db)
+    expect(db.prepare('SELECT card_id, head FROM prs WHERE pr = 753').get()).toEqual({ card_id: 764, head: sha('a') })
+    expect(db.prepare('SELECT card_id, pr FROM cards WHERE card_id = 764').get()).toEqual({ card_id: 764, pr: 753 })
     db.close()
   })
 

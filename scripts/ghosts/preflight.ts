@@ -7,7 +7,7 @@ import { gitIn, lastLine, realShell, withWorktree } from './preflight-trees.js'
 import { runOnTree } from './preflight-witnesses.js'
 
 export interface PreflightEnv { repo: string, shell: Shell, log: (line: string) => void, clock: () => number }
-export interface PreflightInput { briefPath: string, text: string, sketch: Sketch, buildStdout: string }
+export interface PreflightInput { briefPath: string, text: string, sketch: Sketch, buildStdout: string, base?: string }
 export type Preflight = (input: PreflightInput) => void
 
 interface BuiltArgs { witnesses: { criterion: string, command: string }[], invariants: string[], immutable: string[], design?: string, harness: { command: string } }
@@ -79,6 +79,14 @@ function repositoryAtCwd(): string {
   }
 }
 
+export function witnessesDirOf(briefPath: string): string {
+  return `${briefPath.replace(/\.md$/, '')}.witnesses`
+}
+
+export function pinnedBaseAtCwd(): string {
+  return pinnedBase(repositoryAtCwd())
+}
+
 function processEnv(): PreflightEnv {
   return { repo: repositoryAtCwd(), shell: realShell, log: line => console.error(line), clock: () => performance.now() }
 }
@@ -101,7 +109,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     const design = built.design ?? ''
     refuseOn('P1', unreadInvariantRefusal(built.invariants))
     const invariants = invariantWitnesses(built.invariants)
-    base = time('P0 base', () => pinnedBase(env.repo))
+    base = input.base ?? time('P0 base', () => pinnedBase(env.repo))
     const changed = time('P0 sketch', () => sketchChangedFiles(env.repo, base, input.sketch))
     const sketchSha = input.sketch.kind === 'branch' ? input.sketch.sha : null
     refuseOn('P2', movingRefRefusal([...built.witnesses, ...invariants]))
@@ -110,7 +118,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     refuseOn('P5', immutableRefusal(changed ?? [], built.immutable))
     withWorktree(env.repo, base, tree => runOnTree(
       { tree, base, shell: env.shell, log: env.log, refuse: refuseOn, time },
-      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: `${input.briefPath.replace(/\.md$/, '')}.witnesses` },
+      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: witnessesDirOf(input.briefPath) },
     ))
   }
   finally {

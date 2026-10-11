@@ -368,6 +368,15 @@ touches an attach carrier passes `earlier-carriers --check`. A brief with ready 
 (`<brief>.witnesses/`) has them linted the same way. The first failure is named on stderr and no hash is
 printed; the base sha and the time of each phase are printed on stderr either way.
 
+`ghosts:hash` pins the base before the preflight starts, so `git fetch` runs before the P1 refusal of
+an unread Invariant and the pin is not among the phase timings. A green preflight is remembered in the
+handoff journal as `{"event":"preflight","sha256","base","witnesses","ok":true}`: `sha256` is the
+approval sha256 of the `/implement` text, `base` the pinned sha, and `witnesses` a sha256 over the
+paths and contents of `<brief>.witnesses/`, or `none` when there is none. A later `ghosts:hash` whose
+three values match an `ok:true` line runs no witness and prints only the base, with `not run again`, on
+stderr before the hash; any other text, base or witness file runs the whole preflight. A refused
+preflight writes no line.
+
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger
 line `done` means the ladder finished, not that the tree was released, and until then others only read
