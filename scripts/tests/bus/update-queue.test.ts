@@ -10,7 +10,7 @@ import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
 import { runUpdateWorker, startUpdateWorker } from '../../bus/update-worker.js'
-import { sha } from './github-fake.js'
+import { MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 afterEach(() => {
@@ -48,6 +48,24 @@ describe('the update queue', () => {
     expect(taskState(bench.db, update(980))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(bench.lease()).toBeNull()
     expect(bench.leaseUpdate()).toMatchObject({ taskKey: update(980), queue: 'update', head: sha('a'), leaseGen: 1 })
+    bench.close()
+  })
+
+  it('a merge of another pull request makes a pass pull request behind and queues its update within two ticks', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 970, review: 'success' })
+    bench.gitHub.open({ number: 971, review: 'success' })
+    bench.tick()
+    expect(bench.leaseUpdate()).toBeNull()
+
+    bench.gitHub.close(971, true)
+    bench.gitHub.main = MAIN_2
+    bench.gitHub.pulls.get(970)!.mergeable_state = 'behind'
+    bench.tick()
+    bench.tick()
+
+    expect(taskState(bench.db, update(970))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
+    expect(bench.leaseUpdate()).toMatchObject({ taskKey: update(970), queue: 'update', head: sha('a') })
     bench.close()
   })
 
