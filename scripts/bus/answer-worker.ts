@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Priority } from '../../src/card/parking.js'
 import type { AnswerOutcome } from './answer-executor.js'
-import type { Answerer } from './answerer.js'
-import type { Lease } from './lease.js'
+import type { Answerer, CardText } from './answerer.js'
+import type { CardTreeTools } from './card-tree.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -9,45 +10,25 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { parseParkingFile } from '../../src/card/parking.js'
+import { defaultParking } from '../ghosts/handoff-check.js'
 import { AnswerExecutor } from './answer-executor.js'
-import { claudeAnswerer, PREFIX } from './answerer.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
+import { claudeAnswerer, parkedCardText, PREFIX, realAnswererTools } from './answerer.js'
+import { defaultBusPath, openBus } from './db.js'
 import { messageOf, OWNER_MERGES } from './executor.js'
-import { expireLeases, LEASE_FOLDS, RENEW_MS, renewLease, StaleLease, TASK_LEASED } from './lease.js'
+import { expireLeases, leaseNext, queuedCards, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { LEASED, QUEUED } from './queue.js'
 import { SWITCH_FLAG } from './review-worker.js'
 import { slotsOf } from './scheduler.js'
-import { storedByKey } from './stored.js'
 
 const ANSWERS_DIR = path.join(os.homedir(), '.construct', 'bus', 'answers')
 
-const NEXT_ON_A_FREE_CARD_TREE = `
-  SELECT tasks.* FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = 'answer' AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
-    AND NOT EXISTS (SELECT 1 FROM tasks AS held WHERE held.queue = 'answer' AND held.state = '${LEASED}' AND held.card_id = tasks.card_id)
-  ORDER BY tasks.id LIMIT 1
-`
-
-interface AnswerRow {
-  task_key: string
-  card_id: number
-  pr: number | null
-  head: string | null
-  lease_gen: number
-}
-
-export function leaseOnAFreeCardTree(db: DatabaseSync, ts: string, actor: string): Lease | null {
-  return inTransaction(db, () => {
-    const row = db.prepare(NEXT_ON_A_FREE_CARD_TREE).get() as AnswerRow | undefined
-    if (row === undefined)
-      return null
-    const leaseGen = row.lease_gen + 1
-    const dedupeKey = `${TASK_LEASED}:${row.task_key}:${leaseGen}`
-    if (appendEvent(db, { ts, type: TASK_LEASED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey, payload: { task_key: row.task_key, queue: 'answer', lease_gen: leaseGen }, legacy: false }))
-      LEASE_FOLDS[TASK_LEASED]!(db, storedByKey(db, dedupeKey))
-    return { taskKey: row.task_key, queue: 'answer', cardId: row.card_id, pr: row.pr, head: row.head, leaseGen, actor }
-  })
+export function priorityOf(cardText: CardText, cardId: number): Priority | null {
+  const text = cardText(cardId)
+  if (text === null)
+    return null
+  const parsed = parseParkingFile(`${cardId}.md`, text)
+  return parsed.kind === 'parked' ? parsed.parked.priority : null
 }
 
 export type AnswerStep = { kind: 'idle' } | AnswerOutcome
@@ -58,6 +39,8 @@ export interface AnswerWorkerParts {
   ownerMerges: () => string
   clock: () => Date
   session: string
+  cardText: CardText
+  trees?: CardTreeTools
 }
 
 export class AnswerWorker {
@@ -76,7 +59,8 @@ export class AnswerWorker {
   async step(): Promise<AnswerStep> {
     const { db } = this.parts
     expireLeases(db, this.ts())
-    const lease = leaseOnAFreeCardTree(db, this.ts(), this.actor)
+    const firstCards = queuedCards(db, 'answer').filter(cardId => priorityOf(this.parts.cardText, cardId) === 'p0')
+    const lease = leaseNext(db, this.ts(), 'answer', this.actor, { onePerCard: true, firstCards })
     if (lease === null)
       return { kind: 'idle' }
     const heartbeat = setInterval(() => {
@@ -129,6 +113,7 @@ export interface AnswerRun {
   busPath: string
   answerer: Answerer
   ownerMerges: () => string
+  cardText: CardText
   session: string
   pause: (ms: number) => Promise<unknown>
 }
@@ -140,7 +125,7 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
   }
   const db = openBus(run.busPath)
   try {
-    const workers = startAnswerWorkers({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, clock: () => new Date(), session: run.session }, slotsOf('answer', process.env))
+    const workers = startAnswerWorkers({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session }, slotsOf('answer', process.env))
     for (const worker of workers)
       console.log(`${PREFIX}${run.busPath}: the answer worker ${worker.actor} takes the answer queue`)
     return await Promise.race(workers.map(worker => keepAnswering(worker, run.pause)))
@@ -152,10 +137,12 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
+  const parking = defaultParking(os.homedir())
   return runAnswerWorker(process.argv.slice(2), {
     busPath: defaultBusPath(),
-    answerer: claudeAnswerer(ANSWERS_DIR),
+    answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(parking)),
     ownerMerges: () => readFileSync(path.join(cwd, OWNER_MERGES), 'utf8'),
+    cardText: parkedCardText(parking),
     session: randomUUID(),
     pause: sleep,
   })

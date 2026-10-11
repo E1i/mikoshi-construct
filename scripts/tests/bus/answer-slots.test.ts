@@ -1,9 +1,11 @@
-import type { Answered, AnswerRequest } from '../../bus/answerer.js'
+import type { Answered, AnswerRequest, AnswerRun } from '../../bus/answerer.js'
+import type { CardTreeTools } from '../../bus/card-tree.js'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { startAnswerWorkers } from '../../bus/answer-worker.js'
+import { AnswerWorker, priorityOf, startAnswerWorkers } from '../../bus/answer-worker.js'
+import { claudeAnswerer } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { queueTask } from '../../bus/queue.js'
@@ -13,10 +15,17 @@ import { mergeBench } from './merge-bench.js'
 
 const PUSHED = sha('e')
 
+function parkedCard(cardId: number, header: string, body: string): string {
+  return `card: #${cardId} task-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/bus/**\n${header}\n\n${body}\n`
+}
+
 function slotsBench() {
   const bench = mergeBench()
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-slots-'))
   const ts = (): string => bench.clock.now().toISOString()
+  const cards = new Map<number, string>()
+  const cardText = (cardId: number): string | null => cards.get(cardId) ?? null
+  const cardTrees: CardTreeTools = { home: path.join(trees, 'worktrees'), exists: () => true, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
   const inFlight: AnswerRequest[] = []
   const answered: number[] = []
   const finishes: (() => void)[] = []
@@ -31,11 +40,24 @@ function slotsBench() {
     answered.push(request.lease.cardId)
     return { session: request.card.session, resumed: true, before: sha('a'), after: PUSHED, owner: null }
   }
+  const parts = { db: bench.db, ownerMerges: () => '', clock: bench.clock.now, session: 'slots', cardText, trees: cardTrees }
   return {
     ...bench,
+    cards,
     inFlight,
     answered,
-    workers: (slots: number) => startAnswerWorkers({ db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, session: 'slots' }, slots),
+    workers: (slots: number) => startAnswerWorkers({ ...parts, answerer }, slots),
+    prompted: (runs: AnswerRun[]) => new AnswerWorker({ ...parts, answerer: claudeAnswerer(path.join(trees, 'answers'), {
+      cardText,
+      available: () => true,
+      remoteHead: () => null,
+      spawn: async (run) => {
+        runs.push(run)
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => {},
+    }) }),
     whenInFlight: (count: number): Promise<void> => {
       expected = count
       return new Promise(resolve => (allIn = resolve))
@@ -107,6 +129,52 @@ describe('answer slots', () => {
     bench.finishAll()
     await thirdStep
     expect(bench.answered.sort()).toEqual([1090, 1090, 901])
+    bench.close()
+  })
+
+  it('with several tasks queued in answer, the task of a p0 card is leased first', async () => {
+    const bench = slotsBench()
+    for (const cardId of [900, 901, 902])
+      bench.asked(cardId)
+    bench.cards.set(900, parkedCard(900, 'who: shift', 'an ordinary card'))
+    bench.cards.set(902, parkedCard(902, 'who: shift\npriority: p0', 'the owner ordered it first'))
+    bench.tick()
+    expect(priorityOf(id => bench.cards.get(id) ?? null, 902)).toBe('p0')
+    expect(priorityOf(id => bench.cards.get(id) ?? null, 900)).toBeNull()
+
+    const [worker] = bench.workers(1)
+    const one = bench.whenInFlight(1)
+    const step = worker!.step()
+    await one
+    expect(bench.inFlight.map(request => request.lease.cardId)).toEqual([902])
+    bench.finishAll()
+    await step
+
+    const next = bench.whenInFlight(1)
+    const following = worker!.step()
+    await next
+    expect(bench.inFlight.map(request => request.lease.cardId)).toEqual([900])
+    bench.finishAll()
+    await following
+    bench.close()
+  })
+
+  it('a witness admitted through --admit after the verdict appears in the answer round prompt', async () => {
+    const bench = slotsBench()
+    bench.asked(903)
+    bench.cards.set(903, parkedCard(903, 'who: shift', 'Witnesses:\n- `pnpm exec vitest run scripts/tests/bus/first.test.ts` exits 0'))
+    bench.tick()
+    const admitted = '- `pnpm exec vitest run scripts/tests/bus/admitted-after-the-verdict.test.ts` exits 0; red on main'
+    bench.cards.set(903, `${bench.cards.get(903)!.trimEnd()}\n${admitted}\n`)
+
+    const runs: AnswerRun[] = []
+    await bench.prompted(runs).step()
+
+    expect(runs).toHaveLength(1)
+    const prompt = runs[0]!.argv.at(-1)!
+    expect(prompt).toContain(admitted)
+    expect(prompt).toContain('scripts/tests/bus/first.test.ts')
+    expect(prompt).toContain('a question on card #903')
     bench.close()
   })
 })

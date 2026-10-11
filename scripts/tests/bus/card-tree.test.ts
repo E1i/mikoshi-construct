@@ -87,6 +87,7 @@ async function roundInRecreatedTree(treeOf: (root: string) => string, start: (be
   const recreated: string[] = []
   const runs: AnswerRun[] = []
   const answerer = claudeAnswerer(path.join(root, 'answers'), {
+    cardText: () => null,
     available: card => card.session === SESSION,
     remoteHead: card => git(card.worktree, 'rev-parse', 'HEAD'),
     spawn: async (run) => {
@@ -125,6 +126,48 @@ async function roundInRecreatedTree(treeOf: (root: string) => string, start: (be
 
 const RESUMED = { session: SESSION, resumed: true }
 
+async function roundInAnExistingTree(prepare: (tree: string) => void) {
+  const root = mkdtempSync(path.join(tmpdir(), 'bus-card-tree-'))
+  const bench = mergeBench()
+  const { repo, pushedHead } = origin(root)
+  const tree = path.join(root, 'worktrees', 'mc-1199')
+  git(repo, 'worktree', 'add', '-q', tree, BRANCH)
+  startedByLaunch(bench, tree)
+  const behind = git(tree, 'rev-parse', 'HEAD')
+  const head = pushedHead()
+  prepare(tree)
+  bench.gitHub.open({ number: 1099, review: 'failure', ref: BRANCH, head })
+  bench.tick()
+
+  const headsAtSpawn: string[] = []
+  const answerer = claudeAnswerer(path.join(root, 'answers'), {
+    cardText: () => null,
+    available: () => true,
+    remoteHead: card => git(card.worktree, 'rev-parse', 'HEAD'),
+    spawn: async (run) => {
+      headsAtSpawn.push(git(run.cwd, 'rev-parse', 'HEAD'))
+      commit(run.cwd, 'answer.txt')
+      return 0
+    },
+    newSession: () => 'new-session-1',
+    publish: () => {},
+  })
+  const trees = { ...gitCardTrees(repo, path.join(root, 'worktrees'), () => {}), branchOf: () => BRANCH }
+  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
+  const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+  return {
+    behind,
+    head,
+    outcome,
+    headsAtSpawn,
+    denials: eventsOf(bench.db, POLICY_DENIED),
+    close: () => {
+      bench.close()
+      rmSync(root, { recursive: true, force: true })
+    },
+  }
+}
+
 describe('the card tree', () => {
   it('a deleted card tree is recreated from the pull request branch and the round starts', async () => {
     await roundInRecreatedTree(root => path.join(root, 'worktrees', 'mc-1199'), deletedAfter(startedByLaunch), RESUMED)
@@ -136,5 +179,21 @@ describe('the card tree', () => {
 
   it('a card with no card.started and an open pull request gets its tree from the pull request branch and the round starts', async () => {
     await roundInRecreatedTree(root => taskWorktree(path.join(root, 'worktrees'), '1199'), neverStarted, { session: 'new-session-1', resumed: false })
+  })
+
+  it('an existing card tree behind the task head is brought to the head before the answer runs', async () => {
+    const round = await roundInAnExistingTree(() => {})
+    expect(round.behind).not.toBe(round.head)
+    expect(round.headsAtSpawn).toEqual([round.head])
+    expect(round.outcome).toMatchObject({ kind: 'answered', resumed: true })
+    round.close()
+  })
+
+  it('an existing card tree with commits the task head lacks is refused, naming the gap, and no session runs', async () => {
+    const round = await roundInAnExistingTree(tree => commit(tree, 'local.txt'))
+    expect(round.headsAtSpawn).toEqual([])
+    expect(round.outcome).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(String(round.denials[0]?.detail)).toContain(`is not behind the task head ${round.head}`)
+    round.close()
   })
 })
