@@ -127,7 +127,6 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
     reject('sha is not a full sha')
   const touches = boolean(payload, 'touches_mechanics')
   db.prepare('INSERT INTO mains (sha, touches_mechanics, event_id) VALUES (?, ?, ?)').run(payload.sha, touches ? 1 : 0, event.id)
-  db.prepare(`UPDATE prs SET mergeable = NULL, event_id = ? WHERE state = 'open' AND base = 'main'`).run(event.id)
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
