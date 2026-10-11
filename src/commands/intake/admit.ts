@@ -155,17 +155,18 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   let text: string
   let journal: string | null
   let ownerMerges: string | null
+  let published: string[] | undefined
   try {
     text = readFileSync(options.file, 'utf8')
     journal = existsSync(options.journal) ? readFileSync(options.journal, 'utf8') : null
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
+    const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+    published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   }
   catch (error) {
     return { status: 'refused', why: error instanceof Error ? error.message : String(error) }
   }
-  const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
-  const published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   const file = path.basename(options.file)
   const parsed = parseParkingFile(file, text)
   if (parsed.kind === 'refused')

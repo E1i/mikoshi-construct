@@ -10,6 +10,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
+import { runAdmit } from '../src/commands/intake/admit.js'
 import { checkDraft, COMPANION_REASON, COMPANION_TABLE, correctionText, DEFAULT_CONTOUR, invalidTestPatterns, publishedRootsOf } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
@@ -289,6 +290,13 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     return dir
   }
 
+  function admitParked(dir: string, touches: string): { status: string, parked: string } {
+    const parked = path.join(dir, 'parking', '80.md')
+    put(dir, 'parking/80.md', `card: #80 admit-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    const { status } = runAdmit({ file: parked, dir, journal: path.join(dir, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, parkingRoot: path.join(dir, 'parking') })
+    return { status, parked }
+  }
+
   function changesetCorrections(result: IntakeResult): string[] {
     if (result.status === 'refused')
       throw new Error(`refused: ${result.refusal} ${result.detail.join('; ')}`)
@@ -300,7 +308,25 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     const { result, parking } = intake([card({ touches: ['src/commands/intake/index.ts', 'tests/**'] })], { dir })
     expect(changesetCorrections(result)).toEqual([`touches — (absent) → .changeset/** — ${COMPANION_REASON}`])
     expect(written(result, parking, 2)).toContain('touches: src/commands/intake/index.ts, tests/**, .changeset/**')
+  })
+
+  it('a files entry written as ./dist/ names the published root dist', () => {
     expect(publishedRootsOf(JSON.stringify({ files: ['./dist/', 'templates'] }))).toEqual(['dist', 'templates'])
+  })
+
+  it('an admitted card that touches src gets the changeset companion when the files field names dist', () => {
+    const dir = publishedRepository({ name: 'published', files: ['dist'] })
+    const { status, parked } = admitParked(dir, 'src/commands/intake/index.ts, tests/**')
+    expect(status).toBe('admitted')
+    expect(readFileSync(parked, 'utf8')).toContain('touches: src/commands/intake/index.ts, tests/**, .changeset/**\n')
+  })
+
+  it('a package.json that cannot be read refuses intake and admit instead of throwing', () => {
+    const dir = publishedRepository(null)
+    mkdirSync(path.join(dir, 'package.json'))
+    const { result } = intake([card({ touches: ['src/commands/intake/index.ts', 'tests/**'] })], { dir })
+    expect(result).toMatchObject({ status: 'refused', refusal: 'unreadable' })
+    expect(admitParked(dir, 'src/commands/intake/index.ts').status).toBe('refused')
   })
 
   it('a touch under scripts, which is not published, gets no changeset companion', () => {

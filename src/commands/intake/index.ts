@@ -129,6 +129,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   let takenText: string
   let journalText: string | null
   let ownerMerges: string | null
+  let published: string[] | undefined
   if (!isDirectory(options.dir))
     return refused('unreadable', [`${options.dir} is not a directory`])
   try {
@@ -137,12 +138,12 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     journalText = readJournal(options.journal)
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
+    const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+    published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   }
   catch (error) {
     return refused('unreadable', [error instanceof Error ? error.message : String(error)])
   }
-  const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
-  const published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   const draft = parseDraft(draftText)
   if (draft.kind === 'refused')
     return refused('invalid', draft.reasons)
