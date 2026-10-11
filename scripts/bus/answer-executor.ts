@@ -4,13 +4,18 @@ import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { riskOf } from '../../src/card/risk.js'
+import { ownerPathsOf } from '../../src/commands/intake/check.js'
+import { matchGlob } from '../shredder/glob.js'
 import { answerSourceOf } from './answer-source.js'
 import { CardTreeGone } from './answerer.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
 import { messageOf } from './executor.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
-import { QUESTION_OWNER } from './queue.js'
+import { reservationOf } from './policy.js'
+import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
+import { decisionsInForceAt, unspentShard } from './shards.js'
 import { wideningOf } from './widening.js'
 
 export const SCOPE_WIDENED = 'scope.widened'
@@ -40,6 +45,14 @@ export interface AnswerParts {
 interface Widened {
   event: BusEvent
   reason: string
+}
+
+const OWNER_EVEN_UNDER_A_DELEGATION = 'R1'
+const PATH_IN_TEXT = /[\w.@-]+(?:\/[\w.@*-]+)+/g
+const TRAILING_DOTS = /\.+$/
+
+function pathsIn(question: string): string[] {
+  return (question.match(PATH_IN_TEXT) ?? []).map(each => each.replace(TRAILING_DOTS, ''))
 }
 
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
@@ -109,13 +122,24 @@ export class AnswerExecutor {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.stopped(lease, QUESTION_OWNER, answered.owner, scope)
+        return this.stopped(lease, this.ownersQuestion(lease, answered.owner) ? QUESTION_OWNER : QUESTION_AGENT, answered.owner, scope)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
     const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
+  }
+
+  private ownersQuestion(lease: Lease, question: string): boolean {
+    const paths = pathsIn(question)
+    if (paths.some(file => riskOf(file).level === OWNER_EVEN_UNDER_A_DELEGATION))
+      return true
+    const owner = ownerPathsOf(this.parts.ownerMerges())
+    const globs = [...owner.globs, ...owner.byRisk.flatMap(row => row.globs)]
+    if (paths.some(file => globs.some(glob => matchGlob(glob, file))))
+      return true
+    return reservationOf(lease.cardId, question) && unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, this.parts.clock())) === null
   }
 
   private stopped(lease: Lease, reason: string, detail: string, scope: BusEvent[] = []): AnswerOutcome {

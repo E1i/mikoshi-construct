@@ -20,6 +20,7 @@ import { expireLeases, failTask, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '.
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REVIEW_RECORDED } from '../../bus/review-worker.js'
+import { SHARD_ISSUED } from '../../bus/shards.js'
 import { Rejection } from '../../bus/stored.js'
 import { moduleOf, wideningOf } from '../../bus/widening.js'
 import { sha } from './github-fake.js'
@@ -481,6 +482,42 @@ describe('the answer executor', () => {
     const inbox = ownerInbox(bench.db)
     expect(inbox.map(line => line.card_id)).toEqual([1097])
     expect(inboxText(inbox[0]!)).toContain(reason)
+    bench.close()
+  })
+
+  it('a session question about touches stops the card as question.agent, and only R1, an owner path or a reserved item outside an active delegation goes to question.owner', async () => {
+    const bench = answerBench()
+    const questions: Record<number, string> = {
+      1120: 'may the card also touch scripts/bus/lease.ts and scripts/tests/bus/lease.test.ts?',
+      1121: 'the finding needs src/materialize/plan.ts.',
+      1122: 'the finding asks for a change to contract/factory-permissions.json',
+      1123: 'card #1123 reserved by the owner: may the answer go on?',
+      1124: 'card #1124 reserved by the owner: may the answer go on?',
+    }
+    const cards = Object.keys(questions).map(Number)
+    bench.tools.heads = cards.flatMap(() => [sha('a'), sha('a')])
+    for (const cardId of cards) {
+      bench.started(cardId)
+      bench.gitHub.open({ number: cardId - 100, review: 'failure' })
+    }
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: 1124, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:1124`, payload: { id: 'shard-1124', under: null }, legacy: false })
+    bench.tick()
+
+    const reasons: Record<number, string> = {}
+    for (const _ of cards) {
+      const lease = bench.leaseAnswer()!
+      bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), `${questions[lease.cardId]}\n`)
+      const outcome = await bench.answer(lease)
+      expect(outcome).toMatchObject({ kind: 'stopped', detail: questions[lease.cardId] })
+      reasons[lease.cardId] = (outcome as { reason: string }).reason
+    }
+
+    expect(reasons).toEqual({ 1120: 'question.agent', 1121: 'question.owner', 1122: 'question.owner', 1123: 'question.owner', 1124: 'question.agent' })
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1121, 1122, 1123])
+    expect(bench.tools.published).toEqual([])
+    bench.tick()
+    const asked = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' ORDER BY card_id`).all() as { card_id: number }[]).map(row => row.card_id)
+    expect(asked).toEqual([1120, 1124])
     bench.close()
   })
 })
