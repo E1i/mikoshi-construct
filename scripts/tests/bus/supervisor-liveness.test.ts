@@ -1,6 +1,10 @@
-import type { BgResult, DetachedLaunch, RunningProcess } from '../../bus/bg.js'
-import { describe, expect, it } from 'vitest'
-import { BUS_RUN_LAUNCH, launchName, PREFIX } from '../../bus/bg.js'
+import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_RUN_LAUNCH, launchName, PREFIX, startDetached } from '../../bus/bg.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
 import { backoffMs, FAILURES_REPORTED, KEEP_MAX_MS, WorkerKeeper } from '../../bus/supervisor.js'
@@ -42,9 +46,17 @@ function kept(wanted: DetachedLaunch[], start: (launch: DetachedLaunch, kept: Ke
 
 const ok = (launch: DetachedLaunch): BgResult => ({ stdout: [`${PREFIX}pnpm ${launchName(launch)}`], stderr: [], exitCode: 0 })
 
-function preflighted(launch: DetachedLaunch): BgResult {
-  const problems = launch.preflight?.() ?? []
-  return problems.length === 0 ? ok(launch) : { stdout: [], stderr: [`${launch.prefix}refused to start ${launch.script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
+const roots: string[] = []
+
+afterEach(() => {
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true })
+})
+
+function startedForReal(processes: ProcessList): (launch: DetachedLaunch) => BgResult {
+  const busDir = mkdtempSync(path.join(tmpdir(), 'supervisor-liveness-'))
+  roots.push(busDir)
+  return launch => startDetached(launch, busDir, process.env, processes)
 }
 
 describe('the supervisor keeps every switched-on worker alive', () => {
@@ -158,7 +170,8 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   it('a start refused by the projection preflight runs the reducer and comes back', () => {
     let shadow = [NOT_CLEAN]
     const review = reviewLaunch(() => shadow)
-    const s = kept([review], preflighted, () => {
+    const startedAfterReduce = { pid: 7, args: `node pnpm.cjs --silent ${launchName(review)}` }
+    const s = kept([review], startedForReal(() => shadow.length === 0 ? [startedAfterReduce] : []), () => {
       shadow = []
       return ['[bus:reduce] bus.db: applied 12, rejected 0']
     })
@@ -166,9 +179,10 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     const lines = s.keeper.step()
     expect(s.reduces).toHaveLength(1)
     expect(s.starts).toEqual([launchName(review), launchName(review)])
-    expect(s.alive).toHaveLength(1)
     expect(lines.join('\n')).toContain('refused by the projection preflight; running bus:reduce once')
     expect(lines).toContain('[bus:reduce] bus.db: applied 12, rejected 0')
+    expect(lines.join('\n')).toContain(`is already running as pid ${startedAfterReduce.pid}`)
+    expect(lines.join('\n')).not.toContain('failed to start')
     expect(s.journal).toEqual([])
   })
 
@@ -182,7 +196,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
 
   it('three failed starts in a row write a journal line and a report', () => {
     const review = reviewLaunch(() => [NOT_CLEAN])
-    const s = kept([review], preflighted)
+    const s = kept([review], startedForReal(() => []))
 
     const reports: string[][] = []
     for (let attempt = 1; attempt <= FAILURES_REPORTED + 1; attempt++) {
