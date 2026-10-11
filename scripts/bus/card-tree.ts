@@ -14,6 +14,7 @@ export interface CardTreeTools {
   exists: (dir: string) => boolean
   branchOf: (pr: number) => string
   recreate: (worktree: string, branch: string) => void
+  bringTo: (worktree: string, branch: string, head: string) => void
 }
 
 function git(repo: string, args: string[]): string {
@@ -31,7 +32,40 @@ export function gitCardTrees(repo: string, home: string, install: (cwd: string) 
       git(repo, ['worktree', 'add', '-q', '-B', branch, worktree, `origin/${branch}`])
       install(worktree)
     },
+    bringTo: (worktree, branch, head) => bringToHead(worktree, branch, head),
   }
+}
+
+export class CardTreeRefused extends Error {}
+
+function isAncestor(worktree: string, at: string, head: string): boolean {
+  try {
+    git(worktree, ['merge-base', '--is-ancestor', at, head])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function bringToHead(worktree: string, branch: string, head: string): void {
+  git(worktree, ['fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`])
+  const at = git(worktree, ['rev-parse', 'HEAD']).trim()
+  if (at === head)
+    return
+  const current = git(worktree, ['branch', '--show-current']).trim()
+  if (current !== branch)
+    throw new CardTreeRefused(`the card tree ${worktree} is on ${current || 'a detached head'}, not ${branch}; it is not brought to the task head ${head}`)
+  if (git(worktree, ['status', '--porcelain']).trim() !== '')
+    throw new CardTreeRefused(`the card tree ${worktree} at ${at} has uncommitted changes; it is not brought to the task head ${head}`)
+  if (!isAncestor(worktree, at, head))
+    throw new CardTreeRefused(`the card tree ${worktree} at ${at} is not behind the task head ${head}, it has commits the head lacks; it is not brought to it`)
+  git(worktree, ['merge', '-q', '--ff-only', head])
+}
+
+function openHeadOf(db: DatabaseSync, pr: number): string | null {
+  const row = db.prepare(`SELECT head FROM prs WHERE pr = ?`).get(pr) as { head: string | null } | undefined
+  return row?.head ?? null
 }
 
 export function realCardTrees(): CardTreeTools {
@@ -40,9 +74,13 @@ export function realCardTrees(): CardTreeTools {
 
 export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null {
   const recorded = cardSessionOf(db, cardId)
-  if (recorded !== null && tools.exists(recorded.worktree))
-    return recorded
   const pr = openPrOfCard(db, cardId)
+  if (recorded !== null && tools.exists(recorded.worktree)) {
+    const head = pr === null ? null : openHeadOf(db, pr)
+    if (head !== null)
+      tools.bringTo(recorded.worktree, recorded.branch, head)
+    return recorded
+  }
   if (pr === null)
     return recorded
   const branch = tools.branchOf(pr)

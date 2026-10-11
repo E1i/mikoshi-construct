@@ -6,7 +6,7 @@ import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import { answerSourceOf } from './answer-source.js'
 import { CardTreeGone } from './answerer.js'
-import { cardTreeOf, realCardTrees } from './card-tree.js'
+import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
 import { messageOf } from './executor.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
@@ -90,6 +90,8 @@ export class AnswerExecutor {
       return cardTreeOf(this.parts.db, lease.cardId, this.parts.trees ?? realCardTrees())
     }
     catch (error) {
+      if (error instanceof CardTreeRefused)
+        return { kind: 'technical', reason: 'answer_failed', detail: error.message }
       return { kind: 'technical', reason: 'answer_failed', detail: `the tree of card #${lease.cardId} could not be recreated: ${messageOf(error)}` }
     }
   }
