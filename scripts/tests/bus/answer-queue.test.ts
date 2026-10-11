@@ -451,6 +451,24 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('an open owner question raised after a fault holds the faulted answer task', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a')]
+    bench.started(1180)
+    bench.gitHub.open({ number: 1080, review: 'failure' })
+    bench.tick()
+    const key = answer(1180, 1080, sha('a'))
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: key, reason: 'fault' })
+    bench.stopped(1180, { reason: 'question.owner', detail: 'may the card touch architecture/owner-merges.md?' }, 1080, sha('a'))
+    bench.tick()
+    bench.tick()
+
+    expect(taskState(bench.db, key).state).toBe('completed')
+    expect(eventsOf(bench.db, TASK_REQUEUED)).toEqual([])
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1180])
+    bench.close()
+  })
+
   it('a task.requeued is refused for a completed task of any queue but answer', () => {
     const bench = answerBench()
     bench.started(1170)
