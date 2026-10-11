@@ -1,11 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
+import type { DiskReader } from './disk.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { DISK_LOW, diskLowDetail, statfsReader } from './disk.js'
 import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
 import { queuedLane } from './launch-candidates.js'
-import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
+import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 
-export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached'
+export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | typeof DISK_LOW
 
 export interface LaunchDenial {
   kind: 'technical'
@@ -43,16 +45,23 @@ export interface LaunchParts {
   db: DatabaseSync
   starter: CardStarter
   clock: () => Date
+  disk?: DiskReader
 }
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued'])
+
+const RELEASE_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set([DISK_LOW])
 
 export function technical(reason: LaunchTechnicalReason, detail: string): LaunchDenial {
   return { kind: 'technical', reason, detail }
 }
 
 export class LaunchExecutor {
-  constructor(private readonly parts: LaunchParts) {}
+  private readonly disk: DiskReader
+
+  constructor(private readonly parts: LaunchParts) {
+    this.disk = parts.disk ?? statfsReader()
+  }
 
   private ts(): string {
     return this.parts.clock().toISOString()
@@ -64,6 +73,9 @@ export class LaunchExecutor {
       const lane = queuedLane(this.parts.db, lease.cardId)
       if (lane === null)
         return this.denied(lease, technical('card_not_queued', `card #${lease.cardId} is no longer queued`))
+      const diskLow = diskLowDetail(this.disk)
+      if (diskLow !== null)
+        return this.denied(lease, technical(DISK_LOW, `card #${lease.cardId} is not started: ${diskLow}`))
       const start = this.parts.starter.start({ cardId: lease.cardId, lane })
       if (start.kind === 'refused')
         return this.denied(lease, start.denial)
@@ -98,6 +110,10 @@ export class LaunchExecutor {
   private denied(lease: Lease, denial: LaunchDenial): LaunchOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: null, head: null, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'launch', ...denial }, legacy: false }
+    if (RELEASE_REASONS.has(denial.reason)) {
+      releaseTask(this.parts.db, ts, lease, denial.reason, [event])
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
+    }
     const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAW_REASONS.has(denial.reason) }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
