@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ADMIT_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
 import { CARD_ADMITTED, INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -114,7 +115,7 @@ describe('intake confirmation gate', () => {
     printIntake(createUi(resolveTheme({ plain: true }), silentWriter), intake(w, { dryRun: true }))
   })
 
-  it('a confirmed card writes card.admitted to the bus and nothing to the journal', () => {
+  it('a confirmed card writes card.admitted to the bus and nothing to the journal but its intake line', () => {
     const w = world([card({ number: 12 })])
     const bus: CardEvent[] = []
     const held = intake(w, { events: event => bus.push(event) })
@@ -129,6 +130,31 @@ describe('intake confirmation gate', () => {
       dedupeKey: expect.stringMatching(/^card\.admitted:13:/),
       payload: { card: expect.stringMatching(/^#13 gate-card /), lane: 'parking', confirmation: 'person', corrections: [CORRECTION], bodySha: bodySha(text) },
     }])
-    expect(existsSync(w.journal)).toBe(false)
+    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'person', corrections: [CORRECTION] }])
+  })
+
+  it('with a port a number issued earlier is not issued again after its card leaves the parking', () => {
+    const w = world([card()])
+    const bus: CardEvent[] = []
+    expect(intake(w, { events: event => bus.push(event) }).status).toBe('written')
+    rmSync(path.join(w.parking, '13.md'))
+    writeFileSync(w.draft, JSON.stringify({ cards: [card({ name: 'next-card' })] }))
+    const next = intake(w, { events: event => bus.push(event) })
+    expect(next.status === 'written' ? next.cards.map(written => written.id) : []).toEqual([14])
+    expect(bus.map(event => event.cardId)).toEqual([13, 14])
+  })
+
+  it('with a port --admit writes card.admitted with the card\'s lane and source, and a second --admit reports it already admitted', () => {
+    const w = world([card()])
+    const lane = path.join(w.parking, 'lane-2')
+    mkdirSync(lane, { recursive: true })
+    const file = path.join(lane, '80.md')
+    writeFileSync(file, `card: #80 clean-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    const bus: CardEvent[] = []
+    const admit = () => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) })
+    expect(admit().status).toBe('admitted')
+    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 80, payload: { lane: 'lane-2', source: ADMIT_SOURCE } }])
+    expect(admit().status).toBe('alreadyAdmitted')
+    expect(bus).toHaveLength(1)
   })
 })

@@ -65,7 +65,7 @@ describe('intake --move', () => {
     ])
   })
 
-  it('a moved card writes card.moved to the bus and nothing to the journal', () => {
+  it('a moved card writes card.moved to the bus beside its journal line', () => {
     const w = world()
     const text = readFileSync(park(w.parking, 704), 'utf8')
     const bus: CardEvent[] = []
@@ -78,7 +78,7 @@ describe('intake --move', () => {
       dedupeKey: `${CARD_MOVED}:704:${to}:${NOW.toISOString()}`,
       payload: { from: w.parking, to, bodySha: bodySha(text), lane: 'lane-2' },
     }])
-    expect(journalLines(w.journal)).toEqual([])
+    expect(journalLines(w.journal)).toEqual([{ event: 'intake-move', task: '704', from: w.parking, to, bodySha: bodySha(text), ts: NOW.toISOString() }])
   })
 
   it('a move into a missing directory creates it', () => {

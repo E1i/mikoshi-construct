@@ -84,11 +84,8 @@ export interface IntakeRecord {
 }
 
 export function recordIntake(journal: string, records: readonly IntakeRecord[], events: CardEventPort | undefined): void {
-  if (events !== undefined) {
-    for (const record of records)
-      events(record.event)
-    return
-  }
+  for (const record of records)
+    events?.(record.event)
   mkdirSync(path.dirname(journal), { recursive: true })
   appendFileSync(journal, records.map(record => `${record.journalLine}\n`).join(''))
 }
