@@ -6,9 +6,11 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
+import { LEASE_FOLDS } from './lease.js'
 import { Meter } from './meter.js'
-import { TASK_ENQUEUED, TASK_SUPERSEDED } from './queue.js'
+import { TASK_ENQUEUED, TASK_FOLDS, TASK_SUPERSEDED } from './queue.js'
 import { projectionDump, reduce, REJECTED } from './reducer.js'
+import { ROLE_FOLDS } from './role.js'
 import { REDUCED } from './run.js'
 
 export const PREFIX = '[bus:report] '
@@ -174,19 +176,72 @@ function rejectedLine(period: Period): string {
   return `${EXIT_CRITERIA.rejected}: ${rejections.length}${detail === '' ? '' : ` (${detail})`}`
 }
 
-function replayDifference(db: DatabaseSync): { live: number, difference: string | null } {
-  const live = Buffer.from(projectionDump(db))
+const ROW_KEYS: Record<string, string> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id' }
+const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...Object.keys(ROLE_FOLDS)])
+
+type ProjectionRow = Record<string, unknown>
+type Projection = Record<string, ProjectionRow[]>
+
+function lastReducedThrough(db: DatabaseSync): number {
+  const last = db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(REDUCED) as { payload: string } | undefined
+  return last === undefined ? Number.POSITIVE_INFINITY : Number((JSON.parse(last.payload) as { through_event_id: unknown }).through_event_id)
+}
+
+function rowsByKey(table: string, rows: ProjectionRow[]): Map<string, ProjectionRow> {
+  const key = ROW_KEYS[table]
+  return new Map(rows.map(row => [key === undefined ? JSON.stringify(row) : String(row[key]), row]))
+}
+
+function shown(value: unknown): string {
+  return JSON.stringify(value) ?? 'absent'
+}
+
+function fieldDifferences(live: ProjectionRow, replayed: ProjectionRow): string[] {
+  const fields = [...new Set([...Object.keys(live), ...Object.keys(replayed)])]
+  return fields.filter(field => shown(live[field]) !== shown(replayed[field])).map(field => `${field} live ${shown(live[field])}, replay ${shown(replayed[field])}`)
+}
+
+function rowDifferences(live: Projection, replayed: Projection): string[] {
+  const differences: string[] = []
+  for (const table of [...new Set([...Object.keys(live), ...Object.keys(replayed)])]) {
+    const liveRows = rowsByKey(table, live[table] ?? [])
+    const replayRows = rowsByKey(table, replayed[table] ?? [])
+    for (const [key, row] of liveRows) {
+      const other = replayRows.get(key)
+      if (other === undefined)
+        differences.push(`${table} ${key}: live only`)
+      else if (fieldDifferences(row, other).length > 0)
+        differences.push(`${table} ${key}: ${fieldDifferences(row, other).join('; ')}`)
+    }
+    for (const key of replayRows.keys()) {
+      if (!liveRows.has(key))
+        differences.push(`${table} ${key}: replay only`)
+    }
+  }
+  return differences
+}
+
+function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
+  const liveDump = projectionDump(db)
+  const live = Buffer.from(liveDump)
+  const through = lastReducedThrough(db)
   const replay = openBus(':memory:')
   try {
     const insert = replay.prepare(`INSERT INTO events (${ALL_EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    for (const row of db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all())
-      insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
+    for (const row of db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all()) {
+      if (Number(row.id) <= through || FOLDED_ON_APPEND.has(String(row.type)))
+        insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
+    }
     reduce(replay)
-    const replayed = Buffer.from(projectionDump(replay))
+    const replayDump = projectionDump(replay)
+    const replayed = Buffer.from(replayDump)
     if (replayed.equals(live))
-      return { live: live.length, difference: null }
+      return { live: live.length, differences: [] }
+    const differences = rowDifferences(JSON.parse(liveDump) as Projection, JSON.parse(replayDump) as Projection)
+    if (differences.length > 0)
+      return { live: live.length, differences }
     const at = [...live].findIndex((byte, index) => byte !== replayed[index])
-    return { live: live.length, difference: `differs from byte ${at === -1 ? Math.min(live.length, replayed.length) : at} (live ${live.length} bytes, replay ${replayed.length})` }
+    return { live: live.length, differences: [`differs from byte ${at === -1 ? Math.min(live.length, replayed.length) : at} (live ${live.length} bytes, replay ${replayed.length})`] }
   }
   finally {
     replay.close()
@@ -194,18 +249,18 @@ function replayDifference(db: DatabaseSync): { live: number, difference: string 
 }
 
 function replayLine(db: DatabaseSync): string {
-  const { live, difference } = replayDifference(db)
-  return `${EXIT_CRITERIA.replay}: ${difference ?? `none, ${live} bytes identical`}`
+  const { live, differences } = replayDifferences(db)
+  return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.join(' | ')}`
 }
 
 export function shadowProblems(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): string[] {
   const { mismatches, missing, headMismatches } = compared(db, gitHub, nowMs)
-  const { difference } = replayDifference(db)
+  const { differences } = replayDifferences(db)
   return [
     ...mismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
     ...missing.map(pr => `${EXIT_CRITERIA.prs}: ${pr} open on GitHub, missing here`),
     ...headMismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
-    ...(difference === null ? [] : [`${EXIT_CRITERIA.replay}: ${difference}`]),
+    ...differences.map(difference => `${EXIT_CRITERIA.replay}: ${difference}`),
   ]
 }
 
