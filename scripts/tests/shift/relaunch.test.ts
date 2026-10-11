@@ -6,14 +6,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HANDOFF_DIR_VARIABLE } from '../../board/run.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { DECISION_FORMAT } from '../../decisions/decisions.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
-import { ALREADY_RUNNING, BOUNDARY_EVENT, boundaryCommand, CHAIN_COMMAND, createExclusive, endedAtThreshold, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, BOUNDARY_EVENT, boundaryCommand, CHAIN_COMMAND, createExclusive, endedAtThreshold, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, RELAUNCH_ACTOR, relaunchEntries, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 import { operatorWork } from '../../shift/role-bus.js'
 import { MAIN_1 } from '../bus/github-fake.js'
 
@@ -26,6 +27,7 @@ interface World {
   root: string
   handoff: string
   journal: string
+  bus: string
   projects: string
   repo: string
 }
@@ -37,7 +39,7 @@ function newWorld(status: string | null = 'CONTINUE', fields = FIELDS): World {
   mkdirSync(repo)
   const handoff = path.join(root, 'handoff.md')
   writeFileSync(handoff, `${fields}\n${status === null ? '' : `STATUS: ${status}\n`}`)
-  return { root, handoff, journal: path.join(root, 'handoff-dir', 'ghosts.jsonl'), projects: path.join(root, 'projects'), repo }
+  return { root, handoff, journal: path.join(root, 'handoff-dir', 'ghosts.jsonl'), bus: path.join(root, 'bus.db'), projects: path.join(root, 'projects'), repo }
 }
 
 function setStatus(world: World, status: string): void {
@@ -71,7 +73,7 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
     ghToken: (account) => {
       throw new Error(`gh is not asked for ${account}`)
     },
-    journal: world.journal,
+    bus: world.bus,
     projectsDir: world.projects,
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),
@@ -96,8 +98,18 @@ function relaunchDeps(world: World, statuses: string[], seen: Seen): RelaunchDep
   }
 }
 
-function journalLines(world: World): Array<Record<string, unknown>> {
-  return existsSync(world.journal) ? readFileSync(world.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
+function busLines(world: World): Array<Record<string, unknown>> {
+  return relaunchEntries(world.bus) as Array<Record<string, unknown>>
+}
+
+function busRows(bus: string): Array<{ type: string, actor: string, legacy: number }> {
+  const db = openBus(bus)
+  try {
+    return db.prepare('SELECT type, actor, legacy FROM events ORDER BY id').all() as Array<{ type: string, actor: string, legacy: number }>
+  }
+  finally {
+    db.close()
+  }
 }
 
 async function relaunch(world: World, args: string[], statuses: string[] = []): Promise<Seen & { code: number }> {
@@ -107,6 +119,7 @@ async function relaunch(world: World, args: string[], statuses: string[] = []): 
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -218,7 +231,7 @@ describe('runRelaunch', () => {
     const code = await runRelaunch(['~/handoff.md', '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
-    expect(journalLines(world)[0]).toMatchObject({ event: 'relaunch-start', handoff: world.handoff })
+    expect(busLines(world)[0]).toMatchObject({ event: 'relaunch-start', handoff: world.handoff })
   })
 
   it('resolves a relative handoff path against the current directory before it reads, journals or names it', async () => {
@@ -227,7 +240,7 @@ describe('runRelaunch', () => {
     const code = await runRelaunch([path.relative(world.repo, world.handoff), '--model', 'claude-test'], relaunchDeps(world, ['DONE'], seen))
     expect(code).toBe(0)
     expect(seen.runs.map(run => run.prompt.split('\n')[0])).toEqual([promptFirstLine(world.handoff)])
-    expect(journalLines(world).map(line => line.handoff)).toEqual([world.handoff, world.handoff, world.handoff])
+    expect(busLines(world).map(line => line.handoff)).toEqual([world.handoff, world.handoff, world.handoff])
   })
 
   it.each([
@@ -262,7 +275,7 @@ describe('runRelaunch', () => {
     expect(result.runs).toHaveLength(1)
     expect(result.err).toContain('[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write')
     expect(result.err.at(-1)).toBe('[relaunch] handoff-invalid')
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'handoff-invalid', sessions: 1, refusals: expect.arrayContaining(['[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write']) })
+    expect(busLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'handoff-invalid', sessions: 1, refusals: expect.arrayContaining(['[handoff:check] STOP sections: 2; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write']) })
   })
 
   it('names pnpm handoff:write in the first line of the prompt and as the only way to write the handoff', () => {
@@ -301,7 +314,7 @@ describe('runRelaunch', () => {
     expect(result.runs).toHaveLength(0)
     expect(result.out.at(-1)).toBe('[relaunch] STATUS STOP')
     expect(result.stops).toEqual([])
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'STATUS STOP', sessions: 0 })
+    expect(busLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'STATUS STOP', sessions: 0 })
   })
 
   it('starts nothing on a handoff with no STATUS line', async () => {
@@ -360,7 +373,7 @@ describe('runRelaunch', () => {
   it('journals one relaunch-start line, one relaunch line per session and one relaunch-stop line', async () => {
     const world = newWorld()
     await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'DONE'])
-    const lines = journalLines(world)
+    const lines = busLines(world)
     expect(lines.map(line => line.event)).toEqual(['relaunch-start', 'relaunch', 'relaunch', 'relaunch-stop'])
     expect(lines[0]).toMatchObject({ handoff: world.handoff, max: MAX_RESTARTS })
     expect(lines[1]).toMatchObject({ handoff: world.handoff, session: '00000000-0000-4000-8000-000000000001', model: 'claude-test', n: 1, exit: 0, status: 'CONTINUE' })
@@ -386,7 +399,7 @@ describe('runRelaunch', () => {
     } })
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(1)
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'session 1 exited 2', sessions: 1 })
+    expect(busLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'session 1 exited 2', sessions: 1 })
   })
 
   it('stops after a session that could not start', async () => {
@@ -399,7 +412,7 @@ describe('runRelaunch', () => {
     } })
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(1)
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'session 1 could not start: ENOENT' })
+    expect(busLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: 'session 1 could not start: ENOENT' })
   })
 
   it('refuses a bad argv', async () => {
@@ -418,7 +431,7 @@ describe('runRelaunch', () => {
       return deps.run(run)
     } })
     expect(code).toBe(0)
-    const session = journalLines(world).filter(line => line.event === 'relaunch-session' || line.event === 'relaunch')
+    const session = busLines(world).filter(line => line.event === 'relaunch-session' || line.event === 'relaunch')
     expect(session).toMatchObject([
       { event: 'relaunch-session', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1, handoff: world.handoff },
       { event: 'relaunch', session: '00000000-0000-4000-8000-000000000001', pid: 4242, n: 1 },
@@ -433,7 +446,7 @@ describe('runRelaunch', () => {
     expect(code).toBe(1)
     expect(seen.runs).toHaveLength(0)
     expect(seen.err.at(-1)).toBe(`[relaunch] ${ALREADY_RUNNING} 7777`)
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `${ALREADY_RUNNING} 7777`, sessions: 0 })
+    expect(busLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `${ALREADY_RUNNING} 7777`, sessions: 0 })
     expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe('7777\n')
   })
 
@@ -452,7 +465,7 @@ describe('runRelaunch', () => {
     const result = await relaunch(world, ['--model', 'claude-test'])
     expect(result.code).toBe(1)
     expect(result.err.at(-1)).toBe(`[relaunch] no handoff at ${world.handoff}`)
-    expect(journalLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `no handoff at ${world.handoff}`, sessions: 0 })
+    expect(busLines(world).at(-1)).toMatchObject({ event: 'relaunch-stop', reason: `no handoff at ${world.handoff}`, sessions: 0 })
     expect(existsSync(lockPath(world.handoff))).toBe(false)
   })
 
@@ -511,6 +524,23 @@ describe('runRelaunch', () => {
     expect(readFileSync(lock, 'utf8')).toBe('1111\n')
   })
 
+  it('relaunch writes its events to the bus and nothing to the journal', async () => {
+    const world = newWorld()
+    vi.stubEnv(BUS_DB_VARIABLE, world.bus)
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, path.dirname(world.journal))
+    const real = realDeps()
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const deps = { ...real, ...relaunchDeps(world, ['DONE'], seen), bus: real.bus }
+    const code = await runRelaunch([world.handoff, '--model', 'claude-test'], { ...deps, run: async (run) => {
+      run.onSpawn?.(4242)
+      expect(await runRelaunch(['--boundary', run.sessionId!], deps)).toBe(0)
+      return deps.run(run)
+    } })
+    expect(code).toBe(0)
+    expect(busRows(world.bus)).toEqual(['relaunch-start', 'relaunch-session', 'relaunch-boundary', 'relaunch', 'relaunch-stop'].map(type => ({ type, actor: `${RELAUNCH_ACTOR}${RELAUNCH_PID}`, legacy: 0 })))
+    expect(existsSync(path.dirname(world.journal))).toBe(false)
+  })
+
   it('a relaunch writes its own pid into the lock beside the handoff', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'], ['DONE'])
@@ -518,19 +548,21 @@ describe('runRelaunch', () => {
     expect(readFileSync(lockPath(world.handoff), 'utf8')).toBe(`${RELAUNCH_PID}\n`)
   })
 
-  it('live sessions are read from the journal pid, not from the command text', async () => {
-    const line = (event: string, session: string, pid: number): string => JSON.stringify({ event, handoff: '/h.md', session, pid, n: 1, command: 'claude --permission-mode auto -p' })
-    const journal = [line('relaunch-session', 'running', 111), line('relaunch-session', 'ended', 222), line('relaunch', 'ended', 222), line('relaunch-session', 'dead', 333), 'not json'].join('\n')
+  it('live sessions are read from the bus pid, not from the command text', async () => {
+    const entry = (event: string, session: string, pid: number): Record<string, unknown> => ({ event, handoff: '/h.md', session, pid, n: 1, command: 'claude --permission-mode auto -p' })
+    const entries = [entry('relaunch-session', 'running', 111), entry('relaunch-session', 'ended', 222), entry('relaunch', 'ended', 222), entry('relaunch-session', 'dead', 333)]
     const asked: number[] = []
-    const live = liveSessions(journal, (pid) => {
+    const live = liveSessions(entries, (pid) => {
       asked.push(pid)
       return pid !== 333
     })
     expect(live).toEqual([{ session: 'running', pid: 111, n: 1, handoff: '/h.md' }])
     expect(asked.sort()).toEqual([111, 333])
     const world = newWorld()
-    mkdirSync(path.dirname(world.journal), { recursive: true })
-    writeFileSync(world.journal, `${journal}\n`)
+    const db = openBus(world.bus)
+    entries.forEach((payload, index) => appendEvent(db, { ts: '2026-10-07T00:00:00.000Z', type: String(payload.event), actor: 'worker:relaunch:1', cardId: null, pr: null, head: null, dedupeKey: `live:${index}`, payload, legacy: false }))
+    appendEvent(db, { ts: null, type: 'relaunch', actor: null, cardId: null, pr: null, head: null, dedupeKey: 'live:unreadable', payload: 'not json', legacy: true })
+    db.close()
     const seen: Seen = { runs: [], out: [], err: [], stops: [] }
     expect(await runRelaunch(['--live'], { ...relaunchDeps(world, [], seen), alive: pid => pid === 111 })).toBe(0)
     expect(seen.out).toEqual(['[relaunch] live: session 1 running pid 111 on /h.md'])
@@ -578,7 +610,7 @@ describe('the Operator at a task boundary', () => {
     expect(result.runs).toHaveLength(2)
     expect(result.taken).toEqual([2])
     expect(result.runs[1]!.prompt.split('\n')[0]).toBe(promptFirstLine(world.handoff))
-    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => line.status)).toEqual(['CONTINUE', 'DONE'])
+    expect(busLines(world).filter(line => line.event === 'relaunch').map(line => line.status)).toEqual(['CONTINUE', 'DONE'])
   })
 
   function idleOrThreshold(world: World, seen: Seen, plan: Array<'idle' | 'threshold' | 'done'>): RelaunchDeps['run'] {
@@ -623,7 +655,7 @@ describe('the Operator at a task boundary', () => {
     expect(code).toBe(0)
     expect(seen.runs).toHaveLength(2)
     expect(startsSeen).toEqual([1, 1, 1])
-    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.idle])).toEqual([['start', true], ['event', false]])
+    expect(busLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.idle])).toEqual([['start', true], ['event', false]])
   })
 
   it('a work event that arrives while the session is still running wakes the next session', async () => {
@@ -662,14 +694,14 @@ describe('the Operator at a task boundary', () => {
     expect(code).toBe(0)
     expect(seen.runs).toHaveLength(2)
     expect(seen.out.at(-1)).toBe('[relaunch] max 1 reached')
-    expect(journalLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.counted, line.idle])).toEqual([['start', 0, true], ['event', 1, false]])
+    expect(busLines(world).filter(line => line.event === 'relaunch').map(line => [line.trigger, line.counted, line.idle])).toEqual([['start', 0, true], ['event', 1, false]])
     expect(seen.stops).toMatchObject([{ reason: 'spend' }])
   })
 
   it('tells an idle exit from a threshold exit by the relaunch-boundary line the session wrote', () => {
-    const line = (session: string, move: string): string => JSON.stringify({ event: BOUNDARY_EVENT, session, move })
-    const journal = [line('s-1', 'end'), line('s-2', 'next'), line('s-3', 'end'), line('s-3', 'next')].join('\n')
-    expect(['s-1', 's-2', 's-3', 's-4'].map(session => endedAtThreshold(journal, session))).toEqual([true, false, false, false])
+    const entry = (session: string, move: string): Record<string, unknown> => ({ event: BOUNDARY_EVENT, session, move })
+    const entries = [entry('s-1', 'end'), entry('s-2', 'next'), entry('s-3', 'end'), entry('s-3', 'next')]
+    expect(['s-1', 's-2', 's-3', 's-4'].map(session => endedAtThreshold(entries, session))).toEqual([true, false, false, false])
   })
 
   it('names the boundary command with the session\'s own id in every session prompt', async () => {
