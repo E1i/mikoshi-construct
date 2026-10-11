@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { CHAIN_OBSERVED } from './chain.js'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
 import { LEASE_FOLDS } from './lease.js'
@@ -177,7 +178,7 @@ function rejectedLine(period: Period): string {
 }
 
 const ROW_KEYS: Record<string, string> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id' }
-const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...Object.keys(ROLE_FOLDS)])
+const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...Object.keys(ROLE_FOLDS), CHAIN_OBSERVED])
 
 type ProjectionRow = Record<string, unknown>
 type Projection = Record<string, ProjectionRow[]>

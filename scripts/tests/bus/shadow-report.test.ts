@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { observeChain } from '../../bus/chain.js'
 import { openBus } from '../../bus/db.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
@@ -60,6 +61,14 @@ describe('shadow report', () => {
   it('an event appended after the last reduce causes no replay divergence', () => {
     const { db, gitHub, clock } = reducedBus()
     db.prepare(`INSERT INTO events (ts, type, actor, pr, dedupe_key, payload) VALUES (?, 'pr.closed', 'netwatch', 930, 'pr:930:closed', '{"merged":true}')`).run(clock.now().toISOString())
+
+    expect(replayProblems(db, gitHub, clock)).toEqual([])
+    db.close()
+  })
+
+  it('a chain observed after the last reduce causes no replay divergence', () => {
+    const { db, gitHub, clock } = reducedBus()
+    observeChain(db, clock.now().toISOString(), 'worker:chain:1', { dir: '/w/lane-1', parking: '/p/lane-1', cardId: 930, sha: sha('a'), pid: 42, leader: null, boundary: true, state: 'running' })
 
     expect(replayProblems(db, gitHub, clock)).toEqual([])
     db.close()
