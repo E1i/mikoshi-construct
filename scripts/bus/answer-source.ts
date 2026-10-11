@@ -104,7 +104,10 @@ export function answerSourceOf(db: DatabaseSync, lease: Lease): AnswerSource | n
   return failedChecks === null ? null : { kind: 'ci', failedChecks, events }
 }
 
-export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | null {
+export const NO_RECORDED_SESSION = ''
+export const START_LINE = 'path'
+
+function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
   const row = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND type = '${CARD_STARTED}' AND legacy = 0 ORDER BY id DESC LIMIT 1`).get(cardId) as { payload: string } | undefined
   if (row === undefined)
     return null
@@ -113,4 +116,23 @@ export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | n
   const worktree = text(payload.worktree)
   const branch = text(payload.branch)
   return session === null || worktree === null || branch === null ? null : { session, worktree, branch }
+}
+
+function startLineOf(db: DatabaseSync, cardId: number): CardSession | null {
+  const row = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND type = '${START_LINE}' AND legacy = 1 AND json_type(payload, '$.worktree') = 'text' AND json_type(payload, '$.branch') = 'text' ORDER BY id DESC LIMIT 1`).get(cardId) as { payload: string } | undefined
+  if (row === undefined)
+    return null
+  const payload = parsed(row.payload)
+  const worktree = text(payload.worktree)
+  const branch = text(payload.branch)
+  return worktree === null || branch === null ? null : { session: text(payload.session) ?? NO_RECORDED_SESSION, worktree, branch }
+}
+
+export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | null {
+  return startedOf(db, cardId) ?? startLineOf(db, cardId)
+}
+
+export function openPrOfCard(db: DatabaseSync, cardId: number): number | null {
+  const row = db.prepare(`SELECT pr FROM prs WHERE card_id = ? AND state = 'open' ORDER BY pr DESC LIMIT 1`).get(cardId) as { pr: number } | undefined
+  return row === undefined ? null : Number(row.pr)
 }

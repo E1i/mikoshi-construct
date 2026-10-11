@@ -1,18 +1,20 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerRun } from '../../bus/answerer.js'
+import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { Queue } from '../../bus/identifiers.js'
 import type { Lease } from '../../bus/lease.js'
 import type { StoredEvent } from '../../bus/stored.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnswerExecutor, SCOPE_WIDENED } from '../../bus/answer-executor.js'
-import { answerSourceOf } from '../../bus/answer-source.js'
+import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
+import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { identityOf, TASK_ENQUEUED } from '../../bus/queue.js'
@@ -38,16 +40,27 @@ interface Tools {
   heads: (string | null)[]
   during: () => void
   published: { branch: string, commitMessage: string }[]
+  recreated: { worktree: string, branch: string }[]
 }
 
 function answerBench() {
   const bench = mergeBench()
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-trees-'))
   const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
+  const home = path.join(trees, 'worktrees')
   const answers = path.join(trees, 'answers')
-  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [] }
+  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [], recreated: [] }
+  const cardTrees: CardTreeTools = {
+    home,
+    exists: existsSync,
+    branchOf: pr => `feat/card-${pr + 100}`,
+    recreate: (worktree, branch) => {
+      mkdirSync(worktree, { recursive: true })
+      tools.recreated.push({ worktree, branch })
+    },
+  }
   const answerer = claudeAnswerer(answers, {
-    available: () => tools.available,
+    available: card => tools.available && card.session !== NO_RECORDED_SESSION,
     remoteHead: () => tools.heads.shift() ?? null,
     spawn: async (run) => {
       tools.runs.push(run)
@@ -59,13 +72,19 @@ function answerBench() {
       tools.published.push({ branch: card.branch, commitMessage })
     },
   })
-  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now })
+  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
     tools,
     treeOf,
+    home,
     answers,
+    startLine: (line: Record<string, unknown>): void => {
+      if (typeof line.worktree === 'string')
+        mkdirSync(line.worktree, { recursive: true })
+      importJournal(bench.db, JSON.stringify({ event: 'path', path: 'cheap', started: ts(), ...line, ts: ts() }))
+    },
     question: (cardId: number, pr?: number, head?: string): string => {
       const { stop } = bench.db.prepare(`SELECT max(id) AS stop FROM events WHERE type = '${CARD_STOPPED}' AND card_id = ?`).get(cardId) as { stop: number }
       return `${answer(cardId, pr, head)}:stop-${stop}`
@@ -376,29 +395,37 @@ describe('the answer queue', () => {
 })
 
 describe('the answer executor', () => {
-  it('a card with no card.started tree is a technical denial counted toward the third failure', async () => {
+  it('no_card_tree only when the card has neither a start line nor an open pull request', async () => {
     const bench = answerBench()
-    bench.gitHub.open({ number: 997, review: 'failure' })
+    bench.tools.heads = [sha('a'), PUSHED, sha('a'), PUSHED]
+    bench.startLine({ task: '931', worktree: bench.treeOf(931), branch: 'feat/card-931' })
+    bench.stopped(931, { reason: 'question.agent', detail: 'a card with a start line' })
+    bench.gitHub.open({ number: 932, review: 'failure' })
     bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: bench.question(931) })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1032, 932, sha('a')) })
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'no_card_tree' }, next: 'queued' })
+    bench.stopped(930, { reason: 'question.agent', detail: 'a card nobody started' })
+    bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: bench.question(930), denial: { reason: 'no_card_tree' }, next: 'queued' })
     expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ command: 'answer', kind: 'technical', reason: 'no_card_tree' }])
     expect(ownerInbox(bench.db)).toEqual([])
     bench.close()
   })
 
-  it('a card whose tree is gone is withdrawn with its own denial, spawns nothing and is not counted toward the third failure', async () => {
+  it('a card whose tree is gone and has no open pull request is withdrawn with its own denial, spawns nothing and is not counted toward the third failure', async () => {
     const bench = answerBench()
     bench.started(1099)
     rmSync(bench.treeOf(1099), { recursive: true })
-    bench.gitHub.open({ number: 999, review: 'failure' })
+    bench.stopped(1099, { reason: 'question.agent', detail: 'a question from a tree that is gone' })
     bench.tick()
 
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'card_tree_gone', detail: expect.stringContaining(bench.treeOf(1099)) }, next: 'withdrawn' })
     expect(bench.tools.runs).toEqual([])
+    expect(bench.tools.recreated).toEqual([])
     expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ command: 'answer', kind: 'technical', reason: 'card_tree_gone' }])
-    expect(taskState(bench.db, answer(1099, 999, sha('a'))).state).toBe('withdrawn')
-    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
+    expect(taskState(bench.db, bench.question(1099)).state).toBe('withdrawn')
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', detail: 'a question from a tree that is gone' }])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()
@@ -435,6 +462,68 @@ describe('the answer executor', () => {
     const inbox = ownerInbox(bench.db)
     expect(inbox.map(line => line.card_id)).toEqual([1097])
     expect(inboxText(inbox[0]!)).toContain(reason)
+    bench.close()
+  })
+})
+
+describe('the card tree of every start path', () => {
+  it('changes on a card started by launch still start a fix round from card.started', async () => {
+    const bench = answerBench()
+    bench.started(1110)
+    bench.startLine({ task: '1110', session: 'an-older-session', worktree: path.join(bench.home, 'mc-1110'), branch: 'feat/card-1110' })
+    bench.gitHub.open({ number: 1010, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', session: CARD_SESSION, resumed: true, head: PUSHED })
+    expect(bench.tools.runs[0]!.cwd).toBe(bench.treeOf(1110))
+    expect(bench.tools.recreated).toEqual([])
+    bench.close()
+  })
+
+  it('changes on a card started by a shift chain start a fix round without the Operator', async () => {
+    const bench = answerBench()
+    const tree = path.join(bench.home, 'mc-1111')
+    bench.startLine({ task: '1111', shift: '/shift/2026-10-11-f', worktree: tree, branch: 'feat/card-1111' })
+    bench.gitHub.open({ number: 1011, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1111, 1011, sha('a')), session: 'new-session-1', resumed: false, head: PUSHED })
+    expect(bench.tools.runs[0]!.cwd).toBe(tree)
+    expect(bench.tools.runs[0]!.argv.slice(-3, -1)).toEqual(['--session-id', 'new-session-1'])
+    expect(bench.tools.published).toEqual([{ branch: 'feat/card-1111', commitMessage: expect.stringContaining('answer for #1111 on PR #1011') }])
+    expect(bench.tools.recreated).toEqual([])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('changes on a card started by task:start start a fix round in its worktree', async () => {
+    const bench = answerBench()
+    const tree = path.join(bench.home, 'mc-1112')
+    bench.startLine({ task: '1112', card: { id: '1112' }, session: 'window-session-1', worktree: tree, branch: 'feat/card-1112' })
+    bench.startLine({ task: '1112', verification: 'run', ended: '2026-10-11T10:00:00.000Z' })
+    bench.gitHub.open({ number: 1012, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', session: 'window-session-1', resumed: true, head: PUSHED })
+    expect(bench.tools.runs[0]!.cwd).toBe(tree)
+    expect(bench.tools.runs[0]!.argv.slice(-3, -1)).toEqual(['--resume', 'window-session-1'])
+    expect(bench.tools.published.map(each => each.branch)).toEqual(['feat/card-1112'])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    bench.close()
+  })
+
+  it('changes on a card the Operator ran without launch or a chain start a fix round with no no_card_tree', async () => {
+    const bench = answerBench()
+    bench.gitHub.open({ number: 1013, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', session: 'new-session-1', resumed: false, head: PUSHED })
+    const tree = path.join(bench.home, 'mc-1113')
+    expect(bench.tools.recreated).toEqual([{ worktree: tree, branch: 'feat/card-1113' }])
+    expect(bench.tools.runs[0]!.cwd).toBe(tree)
+    expect(bench.tools.published.map(each => each.branch)).toEqual(['feat/card-1113'])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     bench.close()
   })
 })
