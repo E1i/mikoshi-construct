@@ -104,11 +104,11 @@ describe('the reducer of the prs projection', () => {
     db.close()
   })
 
-  it('main.advanced forgets the mergeable reading of every open pr on main until the next observation', () => {
-    const db = busWith(observed(800, 793), observed(801, 794, { base: 'release' }), observed(802, 795), closed(802, true))
+  it('main.advanced keeps the mergeable reading of every open pr until a new observation replaces it', () => {
+    const db = busWith(observed(800, 793, { mergeable: 'behind' }), observed(801, 794, { base: 'release' }), observed(802, 795), closed(802, true))
     appendEvent(db, event('main.advanced', { payload: { sha: MAIN, touches_mechanics: false } }))
     reduce(db)
-    expect(prs(db).map(row => [row.pr, row.state, row.mergeable])).toEqual([[800, 'open', null], [801, 'open', 'clean'], [802, 'merged', 'clean']])
+    expect(prs(db).map(row => [row.pr, row.state, row.mergeable])).toEqual([[800, 'open', 'behind'], [801, 'open', 'clean'], [802, 'merged', 'clean']])
     db.close()
   })
 
