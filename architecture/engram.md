@@ -87,10 +87,13 @@ Two more kinds of relation stand on a line the repository wrote, not on an impor
 `scripts` entry of a `package.json`, a `run` line of a step in `.github/workflows/*.yml`, a `command`
 of a hook in `.claude/settings.json` — `runs` every tracked file its command names, from the line of
 the declaration that holds it, so a module reached only from an entry point is not read as unused.
-A file channel joins two modules through a file instead of an import: a module that calls a write of
-`node:fs` and names a file, by a literal or by an exported constant it imports, `writes` it toward
-every other module that names the same file and calls a read, and that module `reads` it back; each
-side stands on its own path and line. Entry points come from those three declarations and channels
+A file channel is a candidate join between two modules through a file instead of an import: a module
+that calls a write of `node:fs` anywhere and names a string shaped like a file name anywhere, by a
+literal or by an exported constant it imports, `writes` it toward every other module that names the
+same last path segment and calls a read anywhere, and that module `reads` it back; each side stands on
+its own path and line. Discovery does not trace which call receives which name, and a dotted
+identifier such as `process.env` is shaped like a file name too, so a channel says two modules may
+share a file, not that one writes what the other reads. Entry points come from those three declarations and channels
 from `node:fs` calls only, never from a list of frameworks; the map draws its arrows from `imports`
 and `calls` alone and shows entry points and channels as layers of their own.
 

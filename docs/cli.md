@@ -1781,9 +1781,11 @@ points come from the repository's own declarations — the `scripts` of each `pa
 lines of the steps in `.github/workflows/*.yml`, and the hook commands in `.claude/settings.json`: each
 declaring file is a node that unfolds into its scripts, steps or hooks, and each of those has a `runs`
 arrow to every tracked file its command names, so a module reached only from an entry point no longer
-reads as unused. File channels join a module that writes a file through `node:fs` to a module that
-reads the same file name, as a `file` arrow whose hover gives the file and the `path:line` of both
-sides. A file's panel lists the entry points that run it and the files it writes and reads. Drag pans, the wheel zooms, a search by file name finds a file, and
+reads as unused. File channels are candidates: a module that calls a `node:fs` write and names a
+file name is joined to a module that calls a `node:fs` read and names the same last path segment, as a
+`file` arrow whose hover gives the name and the `path:line` of both sides. The join is by name only —
+discovery does not trace which call receives the name — so a channel says the two modules may share a
+file, not that one writes what the other reads. A file's panel lists the entry points that run it and the files it writes and reads. Drag pans, the wheel zooms, a search by file name finds a file, and
 `atlas.html#<path>` opens the page on that file.
 
 Where the Engram and the page go depends on what the repository already is, and the command never
