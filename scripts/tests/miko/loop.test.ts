@@ -185,13 +185,14 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     writeFileSync(operator, '## STOP — Operator\nSTATUS: CONTINUE\n')
     const hourAgo = new Date(Date.now() - 3_600_000)
     utimesSync(operator, hourAgo, hourAgo)
+    const settled = statSync(operator).mtimeMs
     const outcome = await endsWithin(startLoop(dir), 6 * PAUSE_MS)
     expect(outcome).not.toBe('still running')
     expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
     expect(CONTINUE_PROMPT).toContain(MIKO_HANDOFF_NAME)
     expect(readFileSync(operator, 'utf8')).toBe('## STOP — Operator\nSTATUS: CONTINUE\n')
-    expect(statSync(operator).mtimeMs).toBe(hourAgo.getTime())
+    expect(statSync(operator).mtimeMs).toBe(settled)
   }, 40_000)
 
   it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though miko.md says STATUS: CONTINUE', async () => {

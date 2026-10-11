@@ -112,7 +112,7 @@ describe('attach carries the browser lab into a repository that has no JavaScrip
   it('writes the skill and the script byte for byte as the templates are, records and hides both, and leaves the tree clean with no package.json', async () => {
     const dir = goRepository()
     try {
-      const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'go test ./...', yes: true })
+      const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'make check', yes: true })
       expect(result.status).toBe('done')
       const record = readAttachRecord(dir)
       const exclude = readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8').split('\n')
