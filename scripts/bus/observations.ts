@@ -26,6 +26,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     head: open.head,
     mergeable: open.mergeable,
     ci: open.ci,
+    ...(open.failedChecks.length === 0 ? {} : { failed_checks: open.failedChecks }),
     ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
     auto_merge: open.autoMerge,
     draft: open.draft,

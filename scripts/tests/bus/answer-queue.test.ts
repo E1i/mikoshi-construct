@@ -289,6 +289,53 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('a red CI on the head of a card PR queues one answer task with the failed checks', async () => {
+    const bench = answerBench()
+    bench.started(1101)
+    bench.gitHub.open({ number: 1001, required: 'failure', failed: ['lint', 'vitest (1/2)'] })
+    bench.tick()
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer'`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(queued).toEqual([answer(1101, 1001, sha('a'))])
+    const lease = bench.leaseAnswer()!
+    expect(answerSourceOf(bench.db, lease)).toMatchObject({ kind: 'ci', failedChecks: ['lint', 'vitest (1/2)'] })
+
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1101, 1001, sha('a')), head: PUSHED })
+    expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The failed checks: lint, vitest (1/2).')
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'ci', from: sha('a'), to: PUSHED }])
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
+    bench.close()
+  })
+
+  it('a changes verdict outranks a red CI on the same head', () => {
+    const bench = answerBench()
+    bench.started(1104)
+    bench.gitHub.open({ number: 1004, review: 'failure', required: 'failure', failed: ['lint'] })
+    bench.reviewed(1004, ['the lease is not renewed while the session runs'])
+    bench.tick()
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer'`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(queued).toEqual([answer(1104, 1004, sha('a'))])
+    expect(answerSourceOf(bench.db, bench.leaseAnswer()!)).toMatchObject({ kind: 'changes', findings: ['the lease is not renewed while the session runs'] })
+    bench.close()
+  })
+
+  it('a pending CI queues no answer', () => {
+    const bench = answerBench()
+    bench.started(1102)
+    bench.gitHub.open({ number: 1002, required: 'pending', failed: ['lint'] })
+    bench.started(1103)
+    bench.gitHub.open({ number: 1003, required: 'success' })
+    bench.tick()
+
+    expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer'`).all()).toEqual([])
+    expect(bench.leaseAnswer()).toBeNull()
+    bench.close()
+  })
+
   it('a stop suffix on a review, merge or update task key fails the identity check', () => {
     const stored = (queue: string, suffix: string): StoredEvent => {
       const key = `${taskKey({ queue: queue as Queue, cardId: 1090, pr: 990, head: sha('a') })}${suffix}`
