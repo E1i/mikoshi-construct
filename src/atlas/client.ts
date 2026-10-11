@@ -38,6 +38,9 @@ export const ATLAS_SCRIPT = `
       }
     }
   }
+  const entryOf = new Map(DATA.entries.map((entry) => [entry.id, entry]));
+  const sourceOf = new Map();
+  for (const source of DATA.entrySources) source.entries.forEach((id) => sourceOf.set(id, source));
   const counts = (entry) => STATES.map((state, at) => entry.counts[at] + ' ' + state).join(' · ');
   const href = (path) => {
     const encoded = path.split('/').filter((segment) => segment !== '').map(encodeURIComponent).join('/');
@@ -94,6 +97,69 @@ export const ATLAS_SCRIPT = `
     }).join('');
   }
 
+  function plainBox(id, kind, name, sub, x, y) {
+    boxes.set(id, { x, y, w: W, h: H });
+    return '<g class="box" data-node="' + esc(id) + '" data-kind="' + kind + '" data-layer="runs"' + (selected === id ? ' aria-current="true"' : '') + ' tabindex="0">'
+      + '<title>' + esc(name) + '</title>'
+      + '<rect x="' + x + '" y="' + y + '" width="' + W + '" height="' + H + '" rx="6"></rect>'
+      + '<text class="name" x="' + (x + 8) + '" y="' + (y + 20) + '">' + esc(name.length > 30 ? '…' + name.slice(-29) : name) + '</text>'
+      + '<text class="sub" x="' + (x + 8) + '" y="' + (y + 38) + '">' + esc(sub.length > 36 ? sub.slice(0, 35) + '…' : sub) + '</text></g>';
+  }
+
+  function entrySub(entry) {
+    return entry.runs.length === 0 ? entry.kind + ' · runs no tracked file' : entry.kind + ' · runs ' + entry.runs.length + (entry.runs.length === 1 ? ' file' : ' files');
+  }
+
+  function entryMarkup(place) {
+    let markup = '';
+    for (const source of DATA.entrySources) {
+      const members = source.entries.map((id) => entryOf.get(id));
+      if (!open.has(source.id)) {
+        const at = place(W, H);
+        markup += plainBox(source.id, 'entries', source.path, members.length + ' ' + source.kind + (members.length === 1 ? '' : 's'), at.x, at.y);
+        continue;
+      }
+      const columns = Math.max(1, Math.min(5, Math.ceil(Math.sqrt(members.length))));
+      const rows = Math.ceil(members.length / columns);
+      const width = PAD * 2 + columns * W + (columns - 1) * GAP;
+      const height = HEAD + PAD + rows * H + (rows - 1) * GAP + PAD;
+      const at = place(width, height);
+      markup += '<g class="frame" data-node="' + esc(source.id) + '" data-kind="entries" data-open="" data-layer="runs">'
+        + '<rect x="' + at.x + '" y="' + at.y + '" width="' + width + '" height="' + height + '" rx="10"></rect>'
+        + '<text class="name" x="' + (at.x + PAD) + '" y="' + (at.y + 18) + '">' + esc(source.path + ' · ' + members.length + ' ' + source.kind + 's') + '</text></g>';
+      members.forEach((entry, index) => {
+        markup += plainBox(entry.id, 'entry', entry.name, entrySub(entry), at.x + PAD + (index % columns) * (W + GAP), at.y + HEAD + PAD + Math.floor(index / columns) * (H + GAP));
+      });
+    }
+    return markup;
+  }
+
+  function nodeOfFile(path) {
+    const contour = contourOfFile.get(path);
+    if (!contour) return null;
+    const group = closedGroup(contour);
+    if (group) return group.id;
+    return open.has(contour.id) ? componentOfFile.get(path).id : contour.id;
+  }
+
+  function layerArrows() {
+    const found = new Map();
+    const add = (layer, from, to, example) => {
+      if (!from || !to || from === to) return;
+      const key = layer + '\\u0000' + from + '\\u0000' + to;
+      const arrow = found.get(key) || { from, to, layer, count: 0, examples: [] };
+      arrow.count += 1;
+      if (arrow.examples.length < 3) arrow.examples.push(example);
+      found.set(key, arrow);
+    };
+    for (const entry of DATA.entries) {
+      const from = open.has(sourceOf.get(entry.id).id) ? entry.id : sourceOf.get(entry.id).id;
+      entry.runs.forEach((index) => add('runs', from, nodeOfFile(file(index)), file(entry.source) + ':' + entry.line + ' ' + entry.name + ' → ' + file(index)));
+    }
+    for (const channel of DATA.channels) add('file', nodeOfFile(file(channel[0])), nodeOfFile(file(channel[2])), channel[4] + ': ' + file(channel[0]) + ':' + channel[1] + ' calls a write, ' + file(channel[2]) + ':' + channel[3] + ' calls a read — a candidate, not traced');
+    return Array.from(found.values());
+  }
+
   function layout() {
     boxes.clear();
     let markup = '';
@@ -105,6 +171,7 @@ export const ATLAS_SCRIPT = `
       rowHeight = Math.max(rowHeight, height);
       return at;
     };
+    markup += entryMarkup(place);
     const drawnGroups = new Set();
     for (const contour of DATA.contours) {
       const group = closedGroup(contour);
@@ -141,7 +208,7 @@ export const ATLAS_SCRIPT = `
       });
     }
     const shown = visible();
-    arrows = DATA.arrows.filter((arrow) => shown.has(arrow.from) && shown.has(arrow.to));
+    arrows = DATA.arrows.filter((arrow) => shown.has(arrow.from) && shown.has(arrow.to)).concat(layerArrows());
     const edges = arrows.map((arrow, index) => edgeMarkup(arrow, index)).join('');
     viewport.innerHTML = '<g class="edges">' + edges + '</g>' + markup;
     viewport.setAttribute('data-arrows', String(arrows.length));
@@ -163,16 +230,17 @@ export const ATLAS_SCRIPT = `
     const fromCentre = { x: from.x + from.w / 2, y: from.y + Math.min(from.h, H) / 2 };
     const toCentre = { x: to.x + to.w / 2, y: to.y + Math.min(to.h, H) / 2 };
     const start = border(from, toCentre), end = border(to, fromCentre);
-    const bend = (CROSSINGS.indexOf(arrow.crossing) + 1) * 14;
+    const bend = arrow.layer ? (arrow.layer === 'file' ? -28 : 0) : (CROSSINGS.indexOf(arrow.crossing) + 1) * 14;
     const mx = (start.x + end.x) / 2 - (end.y - start.y) * bend / 400;
     const my = (start.y + end.y) / 2 + (end.x - start.x) * bend / 400;
     const width = Math.min(6, 1 + Math.log2(arrow.count));
-    const label = arrow.crossing === 'through' ? arrow.count + ' · contract' : String(arrow.count);
-    return '<g class="edge" data-arrow="' + index + '" data-crossing="' + arrow.crossing + '">'
+    const label = arrow.layer ? arrow.count + ' · ' + arrow.layer : arrow.crossing === 'through' ? arrow.count + ' · contract' : String(arrow.count);
+    const kind = arrow.layer ? 'data-layer="' + arrow.layer + '"' : 'data-crossing="' + arrow.crossing + '"';
+    return '<g class="edge" data-arrow="' + index + '" ' + kind + '>'
       + '<path d="M ' + start.x + ' ' + start.y + ' Q ' + mx + ' ' + my + ' ' + end.x + ' ' + end.y + '" stroke-width="' + width + '"></path>'
       + '<path class="hit" d="M ' + start.x + ' ' + start.y + ' Q ' + mx + ' ' + my + ' ' + end.x + ' ' + end.y + '"></path>'
       + '<text x="' + mx + '" y="' + my + '">' + esc(label) + '</text>'
-      + '<title>' + esc(arrow.crossing + ': ' + arrow.count + ' — ' + arrow.examples.join(', ')) + '</title></g>';
+      + '<title>' + esc((arrow.layer || arrow.crossing) + ': ' + arrow.count + ' — ' + arrow.examples.join(', ')) + '</title></g>';
   }
 
   function transform() {
@@ -187,7 +255,23 @@ export const ATLAS_SCRIPT = `
       if (relation[1] === index) into.push(relation);
     }
     const unresolved = DATA.unresolved.filter((entry) => entry[0] === index);
-    return { out, into, unresolved };
+    const runBy = DATA.entries.filter((entry) => entry.runs.includes(index));
+    const writes = DATA.channels.filter((channel) => channel[0] === index);
+    const reads = DATA.channels.filter((channel) => channel[2] === index);
+    return { out, into, unresolved, runBy, writes, reads };
+  }
+
+  function sourceLink(path, line) {
+    const at = path + ':' + line;
+    return '<a href="' + esc(href(path)) + '" data-at="' + esc(at) + '">' + esc(at) + '</a>';
+  }
+
+  function channelItem(channel) {
+    return '<li data-layer="file" data-channel="' + esc(channel[4]) + '">' + esc(channel[4]) + ': ' + sourceLink(file(channel[0]), channel[1]) + ' calls a write, ' + sourceLink(file(channel[2]), channel[3]) + ' calls a read, both name it — a candidate, not traced</li>';
+  }
+
+  function entryItem(entry) {
+    return '<li data-entry="' + esc(entry.id) + '">' + sourceLink(file(entry.source), entry.line) + ' ' + esc(entry.kind + ' ' + entry.name) + '</li>';
   }
 
   function relationItem(relation, other) {
@@ -200,8 +284,19 @@ export const ATLAS_SCRIPT = `
     const group = DATA.groups.find((entry) => entry.id === id);
     const contour = DATA.contours.find((entry) => entry.id === id);
     const component = contour || group ? null : DATA.contours.flatMap((entry) => entry.components).find((entry) => entry.id === id);
+    const source = DATA.entrySources.find((entry) => entry.id === id);
+    const entry = entryOf.get(id);
     let body;
-    if (group) {
+    if (source) {
+      body = '<h2>' + esc(source.path) + '</h2><p>' + esc(source.entries.length + ' ' + source.kind + (source.entries.length === 1 ? '' : 's') + ' declared here') + '</p><ul>'
+        + source.entries.map((member) => entryItem(entryOf.get(member))).join('') + '</ul>';
+    }
+    else if (entry) {
+      body = '<h2>' + esc(entry.name) + '</h2><p>' + esc(entry.kind + ', declared at ') + sourceLink(file(entry.source), entry.line) + '</p>'
+        + '<h3>Runs (' + entry.runs.length + ')</h3>'
+        + (entry.runs.length === 0 ? '<p class="empty">Its command names no tracked file.</p>' : '<ul>' + entry.runs.map((index) => '<li data-runs="' + esc(file(index)) + '"><a href="' + esc(href(file(index))) + '">' + esc(file(index)) + '</a></li>').join('') + '</ul>');
+    }
+    else if (group) {
       body = '<h2>' + esc(group.name) + '</h2><p data-state="' + group.state + '">' + esc(counts(group)) + '</p><ul>'
         + group.contours.map((member) => '<li>' + esc(DATA.contours.find((entry) => entry.id === member).name) + '</li>').join('') + '</ul>';
     }
@@ -222,7 +317,10 @@ export const ATLAS_SCRIPT = `
       body = '<h2>' + esc(id) + '</h2><p data-state="' + state + '">' + esc(state + (reason ? ' — ' + reason : '')) + '</p>'
         + '<p><a href="' + esc(href(id)) + '" data-source="">Open the source</a></p>'
         + '<h3>Reaches (' + found.out.length + ')</h3><ul>' + found.out.map((relation) => relationItem(relation, '→ ' + file(relation[1]))).join('') + found.unresolved.map((entry) => '<li data-at="' + esc(id + ':' + entry[1]) + '" data-state="unknown">' + esc(id + ':' + entry[1] + ' → ' + entry[2] + ' (unresolved)') + '</li>').join('') + '</ul>'
-        + '<h3>Reached from (' + found.into.length + ')</h3><ul>' + found.into.map((relation) => relationItem(relation, '← ' + file(relation[0]))).join('') + '</ul>';
+        + '<h3>Reached from (' + found.into.length + ')</h3><ul>' + found.into.map((relation) => relationItem(relation, '← ' + file(relation[0]))).join('') + '</ul>'
+        + '<h3>Run by (' + found.runBy.length + ')</h3><ul>' + found.runBy.map(entryItem).join('') + '</ul>'
+        + '<h3>Candidate channels on the write side (' + found.writes.length + ')</h3><ul>' + found.writes.map(channelItem).join('') + '</ul>'
+        + '<h3>Candidate channels on the read side (' + found.reads.length + ')</h3><ul>' + found.reads.map(channelItem).join('') + '</ul>';
       panel.innerHTML = body;
       layout();
       return;
@@ -254,6 +352,7 @@ export const ATLAS_SCRIPT = `
     const node = event.target.closest('[data-node]');
     if (!node) return;
     const id = node.getAttribute('data-node');
+    if (node.getAttribute('data-kind') === 'entry') { show(id); return; }
     if (node.getAttribute('data-kind') !== 'component') {
       if (open.has(id)) open.delete(id); else open.add(id);
     }
@@ -268,8 +367,9 @@ export const ATLAS_SCRIPT = `
     const arrow = arrows[Number(edge.getAttribute('data-arrow'))];
     if (!arrow) return;
     tip.hidden = false;
-    tip.setAttribute('data-crossing', arrow.crossing);
-    tip.innerHTML = '<b>' + esc(arrow.count + ' ' + arrow.crossing) + '</b><ul>' + arrow.examples.map((example) => '<li data-at="' + esc(example) + '">' + esc(example) + '</li>').join('') + '</ul>';
+    tip.removeAttribute(arrow.layer ? 'data-crossing' : 'data-layer');
+    tip.setAttribute(arrow.layer ? 'data-layer' : 'data-crossing', arrow.layer || arrow.crossing);
+    tip.innerHTML = '<b>' + esc(arrow.count + ' ' + (arrow.layer || arrow.crossing)) + '</b><ul>' + arrow.examples.map((example) => '<li data-at="' + esc(example) + '">' + esc(example) + '</li>').join('') + '</ul>';
   });
   viewport.addEventListener('pointerout', (event) => {
     if (event.target.closest('[data-arrow]')) tip.hidden = true;

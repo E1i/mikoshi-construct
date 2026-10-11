@@ -83,12 +83,26 @@ are the tracked files its declaration names as public — `exports`, `main`, `mo
 of a manifest, or the documents of a contract — and a relation into a contour lands through one of
 them or past them. `contours` is part of `modelVersion` 6; a document without it reads as having none.
 
+Two more kinds of relation stand on a line the repository wrote, not on an import. An entry point — a
+`scripts` entry of a `package.json`, a `run` line of a step in `.github/workflows/*.yml`, a `command`
+of a hook in `.claude/settings.json` — `runs` every tracked file its command names, from the line of
+the declaration that holds it, so a module reached only from an entry point is not read as unused.
+A file channel is a candidate join between two modules through a file instead of an import: a module
+that calls a write of `node:fs` anywhere and names a string shaped like a file name anywhere, by a
+literal or by an exported constant it imports, `writes` it toward every other module that names the
+same last path segment and calls a read anywhere, and that module `reads` it back; each side stands on
+its own path and line. Discovery does not trace which call receives which name, and a dotted
+identifier such as `process.env` is shaped like a file name too, so a channel says two modules may
+share a file, not that one writes what the other reads. Entry points come from those three declarations and channels
+from `node:fs` calls only, never from a list of frameworks; the map draws its arrows from `imports`
+and `calls` alone and shows entry points and channels as layers of their own.
+
 | Property | Meaning |
 |----------|---------|
 | `identity` | The commit the observation was made at: `sha`, `status` and its command `source` |
 | `tree` | The tracked file list the components were read from: its `status` and command `source` |
 | `components` | Every tracked file, one per file, sorted by path |
-| `relations` | In `mechanics`, the imports and calls found between components, sorted by the file and line they stand on; on a component, `found` when discovery read its relations and `unknown` when it did not |
+| `relations` | In `mechanics`, the imports, calls, entry points and file channels found between components, sorted by the file and line they stand on; on a component, `found` when discovery read its relations and `unknown` when it did not |
 | `reason` | Why a component's relations are `unknown`: `type-not-scanned` for a file of a type discovery does not read, `unreadable` for a file it could not read as a regular file inside the repository |
 | `sha` | The full commit sha `git rev-parse HEAD` printed, or null when it exited other than 0 |
 | `status` | `found` when the source proves the statement, `unknown` when it does not |
@@ -101,12 +115,12 @@ them or past them. `contours` is part of `modelVersion` 6; a document without it
 | `path` | The repository-relative path a component or a line source names |
 | `from` | The `id` of the component a relation leaves |
 | `to` | The `id` of the component a relation arrives at, or null when its specifier resolves to no tracked file |
-| `kind` | On a relation, `imports` for an import or re-export of a relative specifier, `calls` for a call of a name it imported; on a contour, what declared it: `package`, `workspace`, `reference` or `contract` |
+| `kind` | On a relation, `imports` for an import or re-export of a relative specifier, `calls` for a call of a name it imported, `runs` from an entry point's declaration to a file its command names, `writes` from a module that calls a `node:fs` write to a module that calls a `node:fs` read, both naming the same file name (a candidate, not traced), `reads` back the other way; on a contour, what declared it: `package`, `workspace`, `reference` or `contract` |
 | `contours` | In `mechanics`, every declared boundary, sorted by `id`; the root contour has the `id` `.` |
 | `name` | A contour's name: the `name` of its manifest, else its directory |
 | `declaredBy` | The tracked file that declares the contour, or `git ls-files -z` for a root no manifest names |
 | `entries` | The tracked files a contour's declaration names as its public entry or contract, sorted |
-| `specifier` | The module specifier exactly as the source wrote it |
+| `specifier` | On `imports` and `calls`, the module specifier exactly as the source wrote it; on `runs`, the name of the script, step or hook; on `writes` and `reads`, the file name both modules name |
 
 A relation whose relative specifier names no tracked file has `to: null` and `status: unknown`. A
 bare specifier (a package, `node:fs`) is outside the repository and is not recorded.

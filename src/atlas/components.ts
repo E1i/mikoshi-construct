@@ -1,4 +1,4 @@
-import type { ComponentReason, Contour, ContourKind, InterpretedComponent, Mechanics, Relation } from '../model/schema.js'
+import type { ComponentReason, Contour, ContourKind, InterpretedComponent, Mechanics, Relation, RelationKind } from '../model/schema.js'
 import path from 'node:path'
 import { contourOf, ROOT_CONTOUR } from '../model/contours.js'
 
@@ -9,6 +9,12 @@ export type MapState = (typeof MAP_STATES)[number]
 
 export const CROSSINGS = ['inside', 'through', 'bypass', 'direct'] as const
 export type Crossing = (typeof CROSSINGS)[number]
+
+const CODE_RELATIONS: ReadonlySet<RelationKind> = new Set(['imports', 'calls'])
+
+export function isCodeRelation(relation: Pick<Relation, 'kind'>): boolean {
+  return CODE_RELATIONS.has(relation.kind)
+}
 
 export const MAX_DEFAULT_NODES = 30
 export const COMPONENT_LIMIT = 24
@@ -349,7 +355,7 @@ export function componentMap(mechanics: MapMechanics, interpreted: readonly Inte
   }
   const entries = new Map(contours.map(contour => [contour.id, new Set(contour.entries)]))
   const relations: MapRelation[] = mechanics.relations
-    .filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null)
+    .filter((relation): relation is Relation & { to: string } => relation.status === 'found' && relation.to != null && isCodeRelation(relation))
     .map(relation => ({ from: relation.from, to: relation.to, at: `${relation.source.path}:${relation.source.line}`, crossing: crossingOf(relation, owner, entries) }))
   return { groups, contours: mapContours, relations, arrows: arrowsOf(relations, chainOf), open: defaultOpen(groups, mapContours) }
 }
