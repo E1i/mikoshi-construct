@@ -190,6 +190,37 @@ describe('review queue', () => {
     db.close()
   })
 
+  it('an edit of the pull request body after changes with no new head gives a review within two ticks', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const body = cardBody(930)
+    const edited = `${body}\n\nThe ladder: the rule is named in the body.`
+    const keyOf = (prBody: string): string => taskKey({ queue: 'review', cardId: 1030, pr: 930, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: null } })
+    const worker = new ReviewWorker({
+      db,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        gitHub.pulls.get(930)!.review = status.state
+      },
+      reviewer: async () => ({ verdict: 'changes', findings: ['the body names no rule'], session: 'reviewer-1' }),
+      plan: () => fullReview('a fixed plan'),
+      clock: clock.now,
+      session: 'worker-1',
+    })
+    gitHub.open({ number: 930, body })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes', taskKey: keyOf(body) })
+
+    gitHub.open({ number: 930, body: edited, review: 'failure' })
+    let ticks = 0
+    while (ticks < 2 && !tasks(db).some(task => task.task_key === keyOf(edited))) {
+      tick()
+      ticks += 1
+    }
+    expect(tasks(db)).toContainEqual({ task_key: keyOf(edited), state: 'queued' })
+    expect(gitHub.pulls.get(930)!.head).toBe(sha('a'))
+    db.close()
+  })
+
   it('a review queued under one body is superseded when the body changes before it runs', () => {
     const { db, gitHub, tick } = setUp()
     const body = cardBody(926)

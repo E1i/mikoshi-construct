@@ -6,7 +6,7 @@ import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
+import { answeredByDecision, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
 import { unspentShardsOf } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -17,13 +17,18 @@ export const TASK_SUPERSEDED = 'task.superseded'
 export const TASK_REQUEUED = 'task.requeued'
 export const QUEUE_ACTOR = 'policy'
 export const CARD_CLOSED = 'card.closed'
+export const BOARD_ALARM = 'board.alarm'
+export const FAILURES_TO_STOP = 3
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
 export const WITHDRAWN = 'withdrawn'
+export const COMPLETED = 'completed'
+export const STOPPED = 'stopped'
 const SUPERSEDED = 'superseded'
-const STOPPED = 'stopped'
+const FAULT = 'fault'
 const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
+const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
 const NO_CARD_TREE = 'no_card_tree'
 
 function cardBodyShaOf(card: string): string {
@@ -122,13 +127,18 @@ const QUESTION_CANDIDATES = `
   ORDER BY stop.card_id
 `
 
+const AN_OPEN_QUESTION = `(
+  json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
+  OR (json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${answeredByDecision('stop')})
+)`
+
 function answerCandidatesWhere(condition: string): string {
   return `
   SELECT pr, card_id, head FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
-        AND stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') IN ('${QUESTION_OWNER}', '${QUESTION_AGENT}')
+        AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION}
     )
   ORDER BY pr
 `
@@ -211,6 +221,18 @@ const WITHDRAWN_MERGES_A_LATER_SHARD_NAMES = `
   ORDER BY tasks.task_key
 `
 
+const ANSWERS_WHOSE_STOP_NO_LONGER_HOLDS = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.failures, stop.id AS failure,
+    json_extract(stop.payload, '$.reason') = '${FAULT}' AS fault FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  JOIN events AS stop ON stop.dedupe_key = '${CARD_STOPPED}:' || tasks.task_key || ':' || tasks.lease_gen
+  WHERE tasks.queue = 'answer' AND tasks.state = '${COMPLETED}' AND tasks.task_key NOT LIKE '%:stop-%'
+    AND prs.state = 'open' AND prs.head = tasks.head
+    AND stop.id = ${latestTurnOf('tasks.card_id')}
+    AND json_extract(stop.payload, '$.reason') IN ('${FAULT}', '${QUESTION_OWNER}') AND NOT ${AN_OPEN_QUESTION}
+  ORDER BY tasks.task_key
+`
+
 interface TaskRow {
   task_key: string
   queue: Queue
@@ -229,6 +251,11 @@ interface ReviewRow extends TaskRow {
 }
 
 type SupersededReviewRow = ReviewRow & StoppedRow
+
+interface StoppedAnswerRow extends StoppedRow {
+  failures: number
+  fault: number
+}
 
 interface QueuedTask extends TaskIdentity {
   stop?: number
@@ -287,11 +314,13 @@ function foldSuperseded(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function foldRequeued(db: DatabaseSync, event: StoredEvent): void {
-  const { key } = identityOf(event)
+  const { key, queue } = identityOf(event)
   const task = taskRow(db, key) ?? reject(`task ${key} was never queued`)
-  if (!REQUEUABLE.has(task.state))
-    reject(`task ${key} is ${task.state}, not ${[...REQUEUABLE].join(' or ')}`)
-  db.prepare('UPDATE tasks SET state = ?, failures = 0, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, key)
+  const requeuable = queue === 'answer' ? REQUEUABLE_ANSWER : REQUEUABLE
+  if (!requeuable.has(task.state))
+    reject(`task ${key} is ${task.state}, not ${[...requeuable].join(' or ')}`)
+  const failures = payloadOf(event).fault === true ? 'failures + 1' : '0'
+  db.prepare(`UPDATE tasks SET state = ?, failures = ${failures}, event_id = ? WHERE task_key = ?`).run(QUEUED, event.id, key)
 }
 
 export const TASK_FOLDS: Record<string, Fold> = {
@@ -304,9 +333,9 @@ export function generationField(generation: string | undefined): { generation?: 
   return generation === undefined ? {} : { generation }
 }
 
-function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number, state?: number): BusEvent {
+function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number, state?: number, fault = false): BusEvent {
   const key = keyOf(task)
-  const after = failure === undefined ? {} : { failure }
+  const after = failure === undefined ? {} : fault ? { failure, fault } : { failure }
   const plain = failure === undefined ? `${type}:${key}` : `${type}:${key}:${failure}`
   const dedupeKey = state === undefined ? plain : `${plain}:after-${state}`
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey, payload: { task_key: key, queue: task.queue, ...generationField(task.generation), ...after }, legacy: false }
@@ -372,8 +401,23 @@ function underCurrentInput(row: ReviewRow): boolean {
   return current.input === undefined || keyOf(current) === row.task_key
 }
 
-function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow): boolean {
-  return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure))
+function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow, fault = false): boolean {
+  return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
+}
+
+function alarmed(db: DatabaseSync, ts: string, row: StoppedAnswerRow): void {
+  const failures = row.failures + 1
+  const detail = `${failures} failures in a row on ${row.task_key}, the last a ${FAULT} stop`
+  appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${row.task_key}`, payload: { task_key: row.task_key, reason: FAULT, failures, detail }, legacy: false })
+}
+
+function setAgainAfterItsStop(db: DatabaseSync, ts: string, row: StoppedAnswerRow): boolean {
+  const fault = row.fault === 1
+  if (fault && row.failures + 1 >= FAILURES_TO_STOP) {
+    alarmed(db, ts, row)
+    return false
+  }
+  return requeueTask(db, ts, row, fault)
 }
 
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
@@ -394,6 +438,10 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const row of reviewsOfTheCurrentInputAgain(db)) {
     if (requeueTask(db, ts, row))
+      derived.queued.push(row.task_key)
+  }
+  for (const row of db.prepare(ANSWERS_WHOSE_STOP_NO_LONGER_HOLDS).all() as unknown as StoppedAnswerRow[]) {
+    if (setAgainAfterItsStop(db, ts, row))
       derived.queued.push(row.task_key)
   }
   for (const [queue, query, admits] of candidates(db)) {
