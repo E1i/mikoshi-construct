@@ -14,6 +14,7 @@ import { payloadOf, reject, Rejection, STORED_COLUMNS } from './stored.js'
 
 export const PREFIX = '[bus:reduce] '
 export const REJECTED = 'reducer.rejected'
+export const REDUCED = 'reducer.reduced'
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])

@@ -3,6 +3,7 @@ import type { Priority } from '../../src/card/parking.js'
 import type { AnswerOutcome } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
+import type { LeaseOrder } from './lease.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -29,6 +30,10 @@ export function priorityOf(cardText: CardText, cardId: number): Priority | null 
     return null
   const parsed = parseParkingFile(`${cardId}.md`, text)
   return parsed.kind === 'parked' ? parsed.parked.priority : null
+}
+
+export function answerLeaseOrder(db: DatabaseSync, cardText: CardText): LeaseOrder {
+  return { onePerCard: true, firstCards: queuedCards(db, 'answer').filter(cardId => priorityOf(cardText, cardId) === 'p0') }
 }
 
 export type AnswerStep = { kind: 'idle' } | AnswerOutcome
@@ -59,8 +64,7 @@ export class AnswerWorker {
   async step(): Promise<AnswerStep> {
     const { db } = this.parts
     expireLeases(db, this.ts())
-    const firstCards = queuedCards(db, 'answer').filter(cardId => priorityOf(this.parts.cardText, cardId) === 'p0')
-    const lease = leaseNext(db, this.ts(), 'answer', this.actor, { onePerCard: true, firstCards })
+    const lease = leaseNext(db, this.ts(), 'answer', this.actor, answerLeaseOrder(db, this.parts.cardText))
     if (lease === null)
       return { kind: 'idle' }
     const heartbeat = setInterval(() => {
