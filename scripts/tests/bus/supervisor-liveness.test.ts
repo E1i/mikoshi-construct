@@ -90,6 +90,36 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     expect(s.journal).toEqual([])
   })
 
+  it('a worker seen running again resets the count, though the keeper did not start it', () => {
+    const merge = workerLaunches(() => []).merge
+    const s = kept([merge], () => ({ stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 }))
+
+    s.keeper.step()
+    s.clock.now += backoffMs(1)
+    s.keeper.step()
+    s.clock.now += backoffMs(2)
+    s.alive.push({ pid: 1, args: 'node pnpm.cjs --silent bus:merge --on' })
+    expect(s.keeper.step()).toEqual([])
+
+    s.clock.now += 60 * 60_000
+    s.alive = []
+    const lines = s.keeper.step()
+    expect(lines.at(-1)).toContain(`failed to start 1 time(s) in a row; the next attempt in ${backoffMs(1) / 1000}s`)
+    expect(lines.join('\n')).not.toContain('needs the owner')
+    expect(s.journal).toEqual([])
+  })
+
+  it('a start that finds the worker already running counts as a success', () => {
+    const merge = workerLaunches(() => []).merge
+    const running = { pid: 7, args: 'node pnpm.cjs --silent bus:merge --on' }
+    const s = kept([merge], () => ({ stdout: [], stderr: [`${PREFIX}bus:merge is already running as pid 7 (${running.args}); nothing started`], exitCode: 1, alreadyRunning: running }))
+
+    for (let attempt = 1; attempt <= FAILURES_REPORTED; attempt++)
+      expect(s.keeper.step().join('\n')).not.toContain('failed to start')
+    expect(s.starts).toHaveLength(FAILURES_REPORTED)
+    expect(s.journal).toEqual([])
+  })
+
   it('a start refused by the projection preflight runs the reducer and comes back', () => {
     let shadow = [NOT_CLEAN]
     const review = reviewLaunch(() => shadow)

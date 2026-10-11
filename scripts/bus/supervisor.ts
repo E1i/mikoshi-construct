@@ -224,9 +224,12 @@ export class WorkerKeeper {
   step(): string[] {
     try {
       const processes = this.parts.processes()
-      return this.parts.wanted()
-        .filter(launch => runningInstance(processes, launch.markers) === undefined)
-        .flatMap(launch => this.revive(launch))
+      return this.parts.wanted().flatMap((launch) => {
+        if (runningInstance(processes, launch.markers) === undefined)
+          return this.revive(launch)
+        this.streaks.delete(launchName(launch))
+        return []
+      })
     }
     catch (error) {
       return [`${PREFIX}keeping the workers alive failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
@@ -245,7 +248,7 @@ export class WorkerKeeper {
       started = this.parts.start(launch)
     }
     lines.push(...started.stdout, ...started.stderr)
-    if (started.exitCode === 0) {
+    if (started.exitCode === 0 || started.alreadyRunning !== undefined) {
       this.streaks.delete(name)
       return lines
     }
