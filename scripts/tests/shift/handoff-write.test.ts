@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
-import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, withPrev } from '../../shift/handoff-write.js'
+import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
 import { statusOf } from '../../shift/relaunch.js'
 
 const roots: string[] = []
@@ -37,12 +37,13 @@ function world(): { dir: string, handoff: string, draft: string } {
   return { dir, handoff: path.join(dir, 'handoff.md'), draft: path.join(dir, 'draft.md') }
 }
 
-function write(args: string[], handoffDir?: string): { code: number, out: string[], err: string[] } {
+function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[] } {
   const out: string[] = []
   const err: string[] = []
   const code = runHandoffWrite(args, {
     cwd: '/nowhere',
     handoffDir,
+    sessionHandoff,
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
     listDir: readdirSync,
@@ -125,6 +126,53 @@ describe('handoff:write', () => {
     expect(readFileSync(path.join(ghostDir, 'archive', '0001.md'), 'utf8')).toBe('old\n')
     expect(readFileSync(path.join(ghostDir, 'handoff.md'), 'utf8')).toContain('prev: archive/0001.md\n')
     expect(existsSync(path.join(dir, 'archive'))).toBe(false)
+  })
+
+  it('refuses a new handoff file that is not the session handoff, writes the session handoff and an existing file', () => {
+    const { dir, handoff, draft: file } = world()
+    const session = path.join(dir, 'mikoshi.md')
+    writeFileSync(file, draft())
+    const refused = write([handoff, file], undefined, session)
+    expect(refused.code).toBe(1)
+    expect(refused.err.join('\n')).toContain(session)
+    expect(existsSync(handoff)).toBe(false)
+    expect(write([session, file], undefined, session).code).toBe(0)
+    expect(existsSync(session)).toBe(true)
+    writeFileSync(handoff, 'old\n')
+    expect(write([handoff, file], undefined, session).code).toBe(0)
+  })
+
+  it('lets a card session with no CONSTRUCT_HANDOFF create its task handoff', () => {
+    const { dir, draft: file } = world()
+    const task = path.join(dir, '866-handoff.md')
+    writeFileSync(file, draft())
+    const session = sessionHandoffOf({ CONSTRUCT_CARD: '866', CONSTRUCT_HANDOFF_DIR: dir }, '/home')
+    expect(session).toBeNull()
+    expect(write([task, file], undefined, session).code).toBe(0)
+    expect(existsSync(task)).toBe(true)
+  })
+
+  it('lets a card session that inherited the Operator CONSTRUCT_HANDOFF create its task handoff', () => {
+    const { dir, draft: file } = world()
+    const operator = path.join(dir, 'operator.md')
+    const task = path.join(dir, '866-handoff.md')
+    writeFileSync(file, draft())
+    const session = sessionHandoffOf({ CONSTRUCT_CARD: '866', CONSTRUCT_HANDOFF: operator, CONSTRUCT_HANDOFF_DIR: dir }, '/home')
+    expect(session).toBeNull()
+    expect(write([task, file], undefined, session).code).toBe(0)
+    expect(existsSync(task)).toBe(true)
+    expect(existsSync(operator)).toBe(false)
+  })
+
+  it.each([
+    ['unset variables', {}, '/home/.construct/handoff/mikoshi.md'],
+    ['empty variables', { CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CONSTRUCT_CARD: '' }, '/home/.construct/handoff/mikoshi.md'],
+    ['a handoff dir', { CONSTRUCT_HANDOFF_DIR: '/d' }, '/d/mikoshi.md'],
+    ['CONSTRUCT_HANDOFF over the dir', { CONSTRUCT_HANDOFF: '/r/h.md', CONSTRUCT_HANDOFF_DIR: '/d' }, '/r/h.md'],
+    ['a card session with an inherited CONSTRUCT_HANDOFF', { CONSTRUCT_HANDOFF: '/r/operator.md', CONSTRUCT_HANDOFF_DIR: '/d', CONSTRUCT_CARD: '1' }, null],
+    ['a card session with no CONSTRUCT_HANDOFF', { CONSTRUCT_CARD: '866', CONSTRUCT_HANDOFF: '' }, null],
+  ] as const)('reads the session handoff from %s', (_, env, expected) => {
+    expect(sessionHandoffOf(env, '/home')).toBe(expected)
   })
 
   it('numbers the archive after the highest archive already there', () => {

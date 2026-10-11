@@ -46,7 +46,7 @@ Mikoshi, the interactive window the owner opens, runs under `pnpm miko`: a loop 
 the one built into VS Code included) that starts `claude` (`$MIKO_CLAUDE`, default `claude --permission-mode auto`). At
 the limit Mikoshi writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff:write`, under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. `pnpm miko:exit`
+process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (`pnpm relaunch` sets it to the handoff it watches; unset or empty it is `mikoshi.md` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `mikoshi.md`. `pnpm miko:exit`
 (`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors only when a `scripts/miko/loop.ts` process stands
 above that claude and `mikoshi.md` was written in the last two minutes (`FRESH_MS`); otherwise it refuses with the reason
 (the file's age, when that is the reason) and ends nothing. When the mtime of `mikoshi.md` changed during the session, the loop at once
