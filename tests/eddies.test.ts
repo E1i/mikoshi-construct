@@ -267,6 +267,16 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(window.stdout).not.toContain('to continue in a new window')
   })
 
+  it('reads an empty CONSTRUCT_CARD and CONSTRUCT_HANDOFF as unset: mikoshi.md and the new-window line, not the task continuation', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    s.env = { CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '' }
+    taskStarted(s, '866-x', SESSION)
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout.endsWith(continueLine(s))).toBe(true)
+    expect(window.stdout).not.toContain(CONTINUE_PROMPT)
+  })
+
   it('keeps the task continuation line for a card session', () => {
     const s = scratch(LIMITS, [{ input: 127500 }])
     s.env = { CONSTRUCT_CARD: '866' }
