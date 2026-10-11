@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { CardTreeRemover } from '../../bus/close-executor.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -34,9 +35,10 @@ function listed(repo: string): string[] {
   return git(repo, ['worktree', 'list', '--porcelain']).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length))
 }
 
-function closeOnce(trees: CardTreeRemover, worktree: string | null) {
+function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRemover), worktree: string | null, closedEarlier = false) {
   const bench = mergeBench()
   const root = mkdtempSync(path.join(tmpdir(), 'bus-close-tree-'))
+  const trees = typeof treesOf === 'function' ? treesOf(bench.db) : treesOf
   try {
     if (worktree !== null)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${CARD}`, payload: { session: 's', worktree, branch: `feat/card-${CARD}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
@@ -44,6 +46,8 @@ function closeOnce(trees: CardTreeRemover, worktree: string | null) {
     bench.tick()
     bench.gitHub.close(PR, true)
     bench.tick()
+    if (closedEarlier)
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
     const executor = new CloseExecutor({ db: bench.db, reported: () => 'run', clock: bench.clock.now, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees })
     const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'close', CLOSER)!
     const outcome = executor.close(lease)
@@ -101,6 +105,29 @@ describe('the close executor removes the card tree it closed', () => {
     } }, null)
 
     expect(run.outcome).toMatchObject({ kind: 'closed' })
+    expect(asked).toEqual([])
+    expect(run.removed).toEqual([])
+  })
+
+  it('the remover is asked only once card.closed is recorded in the bus', () => {
+    const closedWhenAsked: number[] = []
+    const run = closeOnce(db => ({ remove: () => {
+      closedWhenAsked.push(eventsOf(db, CARD_CLOSED).length)
+      return null
+    } }), '/trees/mc-recorded')
+
+    expect(run.outcome).toMatchObject({ kind: 'closed' })
+    expect(closedWhenAsked).toEqual([1])
+  })
+
+  it('a close denied because the card is already closed never asks the remover', () => {
+    const asked: string[] = []
+    const run = closeOnce({ remove: (worktree) => {
+      asked.push(worktree)
+      return null
+    } }, '/trees/mc-recorded', true)
+
+    expect(run.outcome).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' } })
     expect(asked).toEqual([])
     expect(run.removed).toEqual([])
   })
