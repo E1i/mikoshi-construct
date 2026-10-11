@@ -3,8 +3,8 @@ import type { CardTreeTools } from '../../bus/card-tree.js'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { AnswerWorker, priorityOf, startAnswerWorkers } from '../../bus/answer-worker.js'
+import { describe, expect, it, vi } from 'vitest'
+import { AnswerWorker, priorityOf, settledStep, startAnswerWorkers } from '../../bus/answer-worker.js'
 import { claudeAnswerer } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
@@ -175,6 +175,23 @@ describe('answer slots', () => {
     expect(prompt).toContain(admitted)
     expect(prompt).toContain('scripts/tests/bus/first.test.ts')
     expect(prompt).toContain('a question on card #903')
+    bench.close()
+  })
+
+  it('a round that throws in one slot settles as faulted and its peer slot finishes its own round', async () => {
+    const bench = slotsBench()
+    bench.asked(901)
+    bench.tick()
+    const [faulty, peer] = bench.workers(2)
+    vi.spyOn(faulty!, 'step').mockRejectedValue(new Error('a fault on card #900'))
+
+    const one = bench.whenInFlight(1)
+    const peerStep = settledStep(peer!)
+    await one
+    expect(await settledStep(faulty!)).toEqual({ kind: 'faulted', detail: 'a fault on card #900' })
+    bench.finishAll()
+    expect(await peerStep).toMatchObject({ kind: 'answered', taskKey: expect.stringContaining('answer:901:') })
+    vi.restoreAllMocks()
     bench.close()
   })
 })

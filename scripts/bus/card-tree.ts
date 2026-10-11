@@ -36,6 +36,8 @@ export function gitCardTrees(repo: string, home: string, install: (cwd: string) 
   }
 }
 
+export class CardTreeRefused extends Error {}
+
 function isAncestor(worktree: string, at: string, head: string): boolean {
   try {
     git(worktree, ['merge-base', '--is-ancestor', at, head])
@@ -53,11 +55,11 @@ function bringToHead(worktree: string, branch: string, head: string): void {
     return
   const current = git(worktree, ['branch', '--show-current']).trim()
   if (current !== branch)
-    throw new Error(`the card tree ${worktree} is on ${current || 'a detached head'}, not ${branch}; it is not brought to the task head ${head}`)
+    throw new CardTreeRefused(`the card tree ${worktree} is on ${current || 'a detached head'}, not ${branch}; it is not brought to the task head ${head}`)
   if (git(worktree, ['status', '--porcelain']).trim() !== '')
-    throw new Error(`the card tree ${worktree} at ${at} has uncommitted changes; it is not brought to the task head ${head}`)
+    throw new CardTreeRefused(`the card tree ${worktree} at ${at} has uncommitted changes; it is not brought to the task head ${head}`)
   if (!isAncestor(worktree, at, head))
-    throw new Error(`the card tree ${worktree} at ${at} is not behind the task head ${head}, it has commits the head lacks; it is not brought to it`)
+    throw new CardTreeRefused(`the card tree ${worktree} at ${at} is not behind the task head ${head}, it has commits the head lacks; it is not brought to it`)
   git(worktree, ['merge', '-q', '--ff-only', head])
 }
 

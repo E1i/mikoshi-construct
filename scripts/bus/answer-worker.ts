@@ -87,12 +87,22 @@ export function startAnswerWorkers(parts: AnswerWorkerParts, slots: number): Ans
   return Array.from({ length: slots }, (_, slot) => new AnswerWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))
 }
 
+export async function settledStep(worker: AnswerWorker): Promise<AnswerStep | { kind: 'faulted', detail: string }> {
+  try {
+    return await worker.step()
+  }
+  catch (error) {
+    return { kind: 'faulted', detail: messageOf(error) }
+  }
+}
+
 async function keepAnswering(worker: AnswerWorker, pause: (ms: number) => Promise<unknown>): Promise<never> {
   for (;;) {
-    const step = await worker.step()
-    const line = answerStepLine(step)
-    if (line !== null)
-      console.log(line)
+    const step = await settledStep(worker)
+    if (step.kind === 'faulted')
+      console.error(`${PREFIX}${worker.actor}: the round threw, its lease lapses and is expired as a failure; this loop and its peers go on: ${step.detail}`)
+    else if (step.kind !== 'idle')
+      console.log(answerStepLine(step))
     await pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
   }
 }

@@ -189,11 +189,16 @@ describe('the card tree', () => {
     round.close()
   })
 
-  it('an existing card tree with commits the task head lacks is refused, naming the gap, and no session runs', async () => {
-    const round = await roundInAnExistingTree(tree => commit(tree, 'local.txt'))
+  it.each([
+    { gap: 'commits the task head lacks', prepare: (tree: string) => commit(tree, 'local.txt'), detail: /^the card tree \S+ at [0-9a-f]{40} is not behind the task head [0-9a-f]{40}, it has commits the head lacks; it is not brought to it$/ },
+    { gap: 'uncommitted changes', prepare: (tree: string) => writeFileSync(path.join(tree, 'stray.txt'), 'a stray edit\n'), detail: /^the card tree \S+ at [0-9a-f]{40} has uncommitted changes; it is not brought to the task head [0-9a-f]{40}$/ },
+    { gap: 'another branch checked out', prepare: (tree: string) => git(tree, 'checkout', '-q', '-b', 'feat/elsewhere'), detail: /^the card tree \S+ is on feat\/elsewhere, not feat\/card-1199; it is not brought to the task head [0-9a-f]{40}$/ },
+  ])('an existing card tree with $gap is refused, the detail naming that gap alone, and no session runs', async ({ prepare, detail }) => {
+    const round = await roundInAnExistingTree(prepare)
     expect(round.headsAtSpawn).toEqual([])
     expect(round.outcome).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
-    expect(String(round.denials[0]?.detail)).toContain(`is not behind the task head ${round.head}`)
+    expect(String(round.denials[0]?.detail)).toMatch(detail)
+    expect(String(round.denials[0]?.detail)).toContain(round.head)
     round.close()
   })
 })
