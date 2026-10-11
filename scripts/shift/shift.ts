@@ -3,6 +3,7 @@ import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { ChainState } from '../bus/chain.js'
+import type { BusEvent } from '../bus/db.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { SweepResult } from '../worktrees/sweep.js'
 import type { ChainMoment } from './chain-bus.js'
@@ -61,7 +62,7 @@ import { openPrWarnings, taskConflicts } from './overlap.js'
 import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, standingStops } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
-import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
+import { delegatedMerge, recordInBus, shardRefusal, slotRefusal, usedEvent, usedLine } from './shard.js'
 import { shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift] '
@@ -161,6 +162,7 @@ export interface ShiftDeps {
   sweep?: (card: string) => SweepResult
   observeChain?: (moment: ChainMoment) => void
   busMerge?: (pr: number, head: string) => BusMerge
+  recordBus?: (event: BusEvent) => void
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -1144,6 +1146,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const parked = read.choice === undefined ? {} : { parking, left: read.choice.left }
   if (shard !== undefined) {
     deps.append(ghostJournal, usedLine(shard, dir, deps.now()))
+    deps.recordBus?.(usedEvent(shard, dir, deps.now()))
     deps.out(`${PREFIX}shard ${shard} used by this run: an owner pull request the guards and the checks pass goes to the bus`)
   }
   if (read.choice !== undefined) {
@@ -1286,6 +1289,7 @@ function realDeps(): ShiftDeps {
     sweep: card => runSweep(['--apply', '--card', card], realSweepDeps()),
     observeChain: realChainObserver(process.cwd(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     busMerge: chainBusMerge(defaultBusPath(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
+    recordBus: recordInBus,
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),

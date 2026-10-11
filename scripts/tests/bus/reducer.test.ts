@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { reduce, REJECTED } from '../../bus/reducer.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -104,11 +105,11 @@ describe('the reducer of the prs projection', () => {
     db.close()
   })
 
-  it('main.advanced forgets the mergeable reading of every open pr on main until the next observation', () => {
-    const db = busWith(observed(800, 793), observed(801, 794, { base: 'release' }), observed(802, 795), closed(802, true))
+  it('main.advanced keeps the mergeable reading of every open pr until a new observation replaces it', () => {
+    const db = busWith(observed(800, 793, { mergeable: 'behind' }), observed(801, 794, { base: 'release' }), observed(802, 795), closed(802, true))
     appendEvent(db, event('main.advanced', { payload: { sha: MAIN, touches_mechanics: false } }))
     reduce(db)
-    expect(prs(db).map(row => [row.pr, row.state, row.mergeable])).toEqual([[800, 'open', null], [801, 'open', 'clean'], [802, 'merged', 'clean']])
+    expect(prs(db).map(row => [row.pr, row.state, row.mergeable])).toEqual([[800, 'open', 'behind'], [801, 'open', 'clean'], [802, 'merged', 'clean']])
     db.close()
   })
 
@@ -198,6 +199,17 @@ describe('the minimal cards projection', () => {
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: HEAD, state: 'open', mergeable: 'clean', ci: 'green' }])
     expect(cards(db).map(row => row.card_id)).toEqual([793])
     expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual(['pr 800 belongs to card 793, not 794'])
+    db.close()
+  })
+
+  it('a pull request is linked to its card whether body line 1 carries the card prefix or only the number', () => {
+    const db = busWith(
+      observed(753, cardIdOfDescription('card: #764 lane-guard [implement/bus/S/cheap/auto]\nbranch: feat/x')),
+      observed(754, cardIdOfDescription('#765 lane-guard [implement/bus/S/cheap/auto]')),
+    )
+    reduce(db)
+    expect(cards(db).map(row => [row.card_id, row.pr])).toEqual([[764, 753], [765, 754]])
+    expect(prs(db).map(row => [row.pr, row.card_id])).toEqual([[753, 764], [754, 765]])
     db.close()
   })
 })

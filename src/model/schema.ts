@@ -78,7 +78,7 @@ export interface Link {
   to: string
 }
 
-export const RELATION_KINDS = ['imports', 'calls'] as const
+export const RELATION_KINDS = ['imports', 'calls', 'runs', 'writes', 'reads'] as const
 export type RelationKind = (typeof RELATION_KINDS)[number]
 
 export const OBSERVED_STATUSES = ['found', 'unknown'] as const

@@ -36,6 +36,11 @@ function world(files: readonly string[], ownerMerges = true): World {
   return { parking: path.join(root, 'parking'), journal: path.join(root, 'handoff', 'ghosts.jsonl'), repo }
 }
 
+function publishingDist(w: World): World {
+  writeFileSync(path.join(w.repo, 'package.json'), JSON.stringify({ files: ['dist'] }))
+  return w
+}
+
 function park(w: World, id: number, decision: string, touches: string): string {
   mkdirSync(w.parking, { recursive: true })
   const file = path.join(w.parking, `${id}.md`)
@@ -55,11 +60,11 @@ describe('construct intake --admit derives the decision from architecture/owner-
   it('an ordinary card with no R1 and no owner path still gets auto', () => {
     const touches = ['src/board/run.ts', 'tests/board/run.test.ts']
     const files = [...touches, '.changeset/config.json']
-    const draft = drafted(world(files), undefined, touches)
+    const draft = drafted(publishingDist(world(files)), undefined, touches)
     expect(draftedLine(draft)).toContain('/auto]')
     expect(draft.status !== 'refused' && draft.cards[0]!.text).toContain('touches: src/board/run.ts, tests/board/run.test.ts, .changeset/**')
     expect(draft.status !== 'refused' && draft.cards[0]!.text).not.toMatch(/^risk: R1 /m)
-    const w = world(files)
+    const w = publishingDist(world(files))
     const file = park(w, 80, 'auto', [...touches, '.changeset/**'].join(', '))
     expect(admit(w, file).status).toBe('admitted')
     expect(cardOf(file)).toBe('card: #80 card-80 [implement/runner/S/cheap/auto] · depends — · blocks —')

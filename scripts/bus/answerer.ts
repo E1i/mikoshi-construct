@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ghosts/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
+import { parkedCardFile } from './card-archive.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
@@ -39,7 +40,17 @@ export interface AnswerRun {
   env: NodeJS.ProcessEnv
 }
 
+export type CardText = (cardId: number) => string | null
+
+export function parkedCardText(parking: string): CardText {
+  return (cardId) => {
+    const file = parkedCardFile(parking, cardId)
+    return file === undefined ? null : readFileSync(file, 'utf8')
+  }
+}
+
 export interface AnswererTools {
+  cardText: CardText
   available: (card: CardSession) => boolean
   remoteHead: (card: CardSession) => string | null
   spawn: (run: AnswerRun) => Promise<number>
@@ -91,11 +102,18 @@ function ownerQuestionIn(file: string): string | null {
   return reason === '' ? null : reason
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string): string {
+function cardLines(cardId: number, cardText: string | null): string[] {
+  if (cardText === null)
+    return [`Card #${cardId} has no file in parking; read the card from the pull request.`]
+  return [`The card as it stands in parking now, witnesses admitted after the verdict included:`, cardText.trim()]
+}
+
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
     `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
+    ...cardLines(lease.cardId, cardText),
     ...sourceLines(source),
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
@@ -144,15 +162,18 @@ export class CardTreeGone extends Error {
   }
 }
 
-export const REAL_TOOLS: AnswererTools = {
-  available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
-  remoteHead,
-  spawn: spawnClaude,
-  newSession: randomUUID,
-  publish: publishTree,
+export function realAnswererTools(parking: string): AnswererTools {
+  return {
+    cardText: parkedCardText(parking),
+    available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
+    remoteHead,
+    spawn: spawnClaude,
+    newSession: randomUUID,
+    publish: publishTree,
+  }
 }
 
-export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): Answerer {
+export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
   return async (request) => {
     const { card } = request
     if (!existsSync(card.worktree))
@@ -160,7 +181,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools = REAL_TOOLS): 
     const resumed = tools.available(card)
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
-    const prompt = answerPrompt(request, ownerQuestion)
+    const prompt = answerPrompt(request, ownerQuestion, tools.cardText(request.lease.cardId))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)

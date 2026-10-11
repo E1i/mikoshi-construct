@@ -6,17 +6,23 @@ import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, taskKey } from './identifiers.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
+import { unspentShardsOf } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
+export const TASK_REQUEUED = 'task.requeued'
 export const QUEUE_ACTOR = 'policy'
 export const CARD_CLOSED = 'card.closed'
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
+export const WITHDRAWN = 'withdrawn'
 const SUPERSEDED = 'superseded'
+const STOPPED = 'stopped'
+const REQUEUABLE = new Set([STOPPED, WITHDRAWN])
+const NO_CARD_TREE = 'no_card_tree'
 
 const REVIEW_CANDIDATES = `
   SELECT pr, card_id, head FROM prs
@@ -132,12 +138,44 @@ const TASKS_OF_AN_OLD_HEAD = `
   ORDER BY task_key
 `
 
+const CARD_TREE_CAN_BE_BROUGHT_UP = `(
+  EXISTS (SELECT 1 FROM prs AS open WHERE open.card_id = tasks.card_id AND open.state = 'open')
+  OR EXISTS (
+    SELECT 1 FROM events AS start WHERE start.card_id = tasks.card_id
+      AND ((start.type = '${CARD_STARTED}' AND start.legacy = 0) OR (start.type = 'path' AND start.legacy = 1))
+      AND json_type(start.payload, '$.worktree') = 'text' AND json_type(start.payload, '$.branch') = 'text'
+  )
+)`
+
+const STOPPED_ON_NO_CARD_TREE = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, failure.id AS failure FROM tasks
+  JOIN events AS failure ON failure.id = tasks.event_id
+  LEFT JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = 'answer' AND tasks.state = '${STOPPED}' AND json_extract(failure.payload, '$.reason') = '${NO_CARD_TREE}'
+    AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
+    AND ${CARD_TREE_CAN_BE_BROUGHT_UP}
+  ORDER BY tasks.task_key
+`
+
+const WITHDRAWN_MERGES_A_LATER_SHARD_NAMES = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = 'merge' AND tasks.state = '${WITHDRAWN}' AND prs.state = 'open' AND prs.head = tasks.head
+    AND NOT EXISTS (SELECT 1 FROM events AS requeued WHERE requeued.type = '${TASK_REQUEUED}' AND json_extract(requeued.payload, '$.task_key') = tasks.task_key)
+    AND EXISTS (SELECT 1 FROM (${unspentShardsOf('tasks.card_id', 'tasks.pr')}) AS shard WHERE shard.event_id > tasks.event_id)
+  ORDER BY tasks.task_key
+`
+
 interface TaskRow {
   task_key: string
   queue: Queue
   card_id: number
   pr: number | null
   head: string | null
+}
+
+interface StoppedRow extends TaskRow {
+  failure: number
 }
 
 interface QueuedTask extends TaskIdentity {
@@ -193,18 +231,29 @@ function foldSuperseded(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE tasks SET state = ?, event_id = ? WHERE task_key = ?').run(SUPERSEDED, event.id, key)
 }
 
+function foldRequeued(db: DatabaseSync, event: StoredEvent): void {
+  const { key } = identityOf(event)
+  const task = taskRow(db, key) ?? reject(`task ${key} was never queued`)
+  if (!REQUEUABLE.has(task.state))
+    reject(`task ${key} is ${task.state}, not ${[...REQUEUABLE].join(' or ')}`)
+  db.prepare('UPDATE tasks SET state = ?, failures = 0, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, key)
+}
+
 export const TASK_FOLDS: Record<string, Fold> = {
   [TASK_ENQUEUED]: foldEnqueued,
   [TASK_SUPERSEDED]: foldSuperseded,
+  [TASK_REQUEUED]: foldRequeued,
 }
 
 export function generationField(generation: string | undefined): { generation?: string } {
   return generation === undefined ? {} : { generation }
 }
 
-function taskEvent(ts: string, type: string, task: QueuedTask): BusEvent {
+function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number): BusEvent {
   const key = keyOf(task)
-  return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${type}:${key}`, payload: { task_key: key, queue: task.queue, ...generationField(task.generation) }, legacy: false }
+  const after = failure === undefined ? {} : { failure }
+  const dedupeKey = failure === undefined ? `${type}:${key}` : `${type}:${key}:${failure}`
+  return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey, payload: { task_key: key, queue: task.queue, ...generationField(task.generation), ...after }, legacy: false }
 }
 
 function appended(db: DatabaseSync, event: BusEvent): boolean {
@@ -235,11 +284,21 @@ function identity(row: TaskRow): QueuedTask {
   return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key) }
 }
 
+function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow): boolean {
+  return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure))
+}
+
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   const derived: Derived = { queued: [], superseded: [] }
   for (const row of db.prepare(TASKS_OF_AN_OLD_HEAD).all() as unknown as TaskRow[]) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
+  }
+  for (const query of [STOPPED_ON_NO_CARD_TREE, WITHDRAWN_MERGES_A_LATER_SHARD_NAMES]) {
+    for (const row of db.prepare(query).all() as unknown as StoppedRow[]) {
+      if (requeueTask(db, ts, row))
+        derived.queued.push(row.task_key)
+    }
   }
   for (const [queue, query, admits] of candidates(db)) {
     for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {

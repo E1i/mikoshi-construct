@@ -10,7 +10,7 @@ import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { defaultParking, INTAKE_EXIT } from './index.js'
@@ -155,11 +155,14 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   let text: string
   let journal: string | null
   let ownerMerges: string | null
+  let published: string[] | undefined
   try {
     text = readFileSync(options.file, 'utf8')
     journal = existsSync(options.journal) ? readFileSync(options.journal, 'utf8') : null
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
+    const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+    published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   }
   catch (error) {
     return { status: 'refused', why: error instanceof Error ? error.message : String(error) }
@@ -180,6 +183,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     merged: mergedTasks(journal),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
+    ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {

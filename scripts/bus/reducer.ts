@@ -127,7 +127,6 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
     reject('sha is not a full sha')
   const touches = boolean(payload, 'touches_mechanics')
   db.prepare('INSERT INTO mains (sha, touches_mechanics, event_id) VALUES (?, ?, ?)').run(payload.sha, touches ? 1 : 0, event.id)
-  db.prepare(`UPDATE prs SET mergeable = NULL, event_id = ? WHERE state = 'open' AND base = 'main'`).run(event.id)
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
@@ -184,9 +183,15 @@ function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
   }
 }
 
+export function reducedThrough(db: DatabaseSync): number {
+  return Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
+}
+
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
     db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM decisions; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+    db.exec(`PRAGMA user_version = ${through}`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
     const count: ReduceCount = { applied: 0, rejected: 0 }
     for (const event of events) {

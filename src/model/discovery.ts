@@ -1,4 +1,5 @@
 import type { CommandReading } from '../detect/git.js'
+import type { ReadModule, ResolveImport } from './channels.js'
 import type { SpecifierTargets } from './imports/specifiers.js'
 import type { ModuleReading } from './scan.js'
 import type { CommandSource, Component, Mechanics, Relation, RepositoryModel } from './schema.js'
@@ -6,7 +7,9 @@ import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { readHead, readTrackedFiles } from '../detect/git.js'
+import { fileChannels } from './channels.js'
 import { discoverContours } from './contours.js'
+import { discoverEntries } from './entries/index.js'
 import { importReaderFor } from './imports/index.js'
 import { readPathAliases } from './imports/path-aliases.js'
 import { readWorkspaces } from './imports/workspaces.js'
@@ -82,16 +85,25 @@ function readInside(root: string, file: string): string | null {
 interface ComponentReading {
   component: Component
   relations: Relation[]
+  module: ReadModule | null
 }
 
 function readComponent(root: string, file: string, resolution: Resolution): ComponentReading {
   const reader = importReaderFor(file)
   if (reader === undefined)
-    return { component: { id: file, path: file, relations: 'unknown', reason: 'type-not-scanned' }, relations: [] }
+    return { component: { id: file, path: file, relations: 'unknown', reason: 'type-not-scanned' }, relations: [], module: null }
   const source = readInside(root, file)
   if (source == null)
-    return { component: { id: file, path: file, relations: 'unknown', reason: 'unreadable' }, relations: [] }
-  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(reader.read(source), file, resolution) }
+    return { component: { id: file, path: file, relations: 'unknown', reason: 'unreadable' }, relations: [], module: null }
+  const reading = reader.read(source)
+  return { component: { id: file, path: file, relations: 'found' }, relations: relationsOf(reading, file, resolution), module: { path: file, reading } }
+}
+
+function importResolver(resolution: Resolution): ResolveImport {
+  return (from, specifier) => {
+    const targets = targetsOf(from, specifier, resolution)
+    return targets == null ? null : resolve(targets, resolution.tracked)
+  }
 }
 
 function relationsOf(reading: ModuleReading, file: string, resolution: Resolution): Relation[] {
@@ -129,11 +141,10 @@ export function discoverMechanics(root: string, readings: GitReadings = readGit(
   const resolution: Resolution = { tracked, nonRelative: [readPathAliases(tracked, readFile), readWorkspaces(files, readFile)] }
   const read = [...files].sort(compare).map(file => readComponent(root, file, resolution))
   const components: Component[] = read.map(reading => reading.component)
+  const modules = read.flatMap(reading => reading.module == null ? [] : [reading.module])
   const unique = new Map<string, Relation>()
-  for (const reading of read) {
-    for (const relation of reading.relations)
-      unique.set(relationKey(relation), relation)
-  }
+  for (const relation of [...read.flatMap(reading => reading.relations), ...discoverEntries(files, readFile), ...fileChannels(modules, importResolver(resolution))])
+    unique.set(relationKey(relation), relation)
   return {
     identity: { sha: shaFound ? sha : null, status: shaFound ? 'found' : 'unknown', source: sourceOf(readings.head) },
     tree: { status: treeFound ? 'found' : 'unknown', source: sourceOf(readings.tracked) },

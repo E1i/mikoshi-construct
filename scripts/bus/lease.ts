@@ -5,7 +5,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED } from './inbox.js'
-import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin } from './queue.js'
+import { generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, WITHDRAWN } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_LEASED = 'task.leased'
@@ -21,7 +21,6 @@ export const RENEW_MS = 10 * 60_000
 export const FAILURES_TO_STOP = 3
 
 export const COMPLETED = 'completed'
-export const WITHDRAWN = 'withdrawn'
 export const STOPPED = 'stopped'
 
 const NEXT_STATES = new Set([QUEUED, WITHDRAWN, STOPPED])
@@ -63,8 +62,18 @@ interface LeaseRow {
 const NEXT_LEASABLE = `
   SELECT tasks.* FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = ? AND prs.head = tasks.head))
-  ORDER BY CASE WHEN tasks.queue = '${REQUEUED_TO_THE_BACK}' THEN tasks.event_id ELSE tasks.id END LIMIT 1
+    AND NOT (? AND EXISTS (SELECT 1 FROM tasks AS held WHERE held.queue = tasks.queue AND held.state = '${LEASED}' AND held.card_id = tasks.card_id))
+  ORDER BY tasks.card_id IN (SELECT value FROM json_each(?)) DESC, CASE WHEN tasks.queue = '${REQUEUED_TO_THE_BACK}' THEN tasks.event_id ELSE tasks.id END LIMIT 1
 `
+
+const QUEUED_CARDS = `SELECT DISTINCT card_id FROM tasks WHERE queue = ? AND state = '${QUEUED}' ORDER BY card_id`
+
+export interface LeaseOrder {
+  onePerCard: boolean
+  firstCards: readonly number[]
+}
+
+const IN_ARRIVAL_ORDER: LeaseOrder = { onePerCard: false, firstCards: [] }
 
 const PR_STATE_OF_QUEUE: Partial<Record<Queue, string>> = { close: 'merged' }
 
@@ -159,9 +168,13 @@ export function assertHeld(db: DatabaseSync, lease: Lease): void {
   held(db, lease)
 }
 
-export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string): Lease | null {
+export function queuedCards(db: DatabaseSync, queue: Queue): number[] {
+  return (db.prepare(QUEUED_CARDS).all(queue) as { card_id: number }[]).map(row => Number(row.card_id))
+}
+
+export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER): Lease | null {
   return inTransaction(db, () => {
-    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open') as LeaseRow | undefined
+    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, JSON.stringify(order.firstCards)) as LeaseRow | undefined
     return row === undefined ? null : leased(db, ts, row, actor)
   })
 }

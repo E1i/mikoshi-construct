@@ -78,6 +78,16 @@ describe('pnpm decisions:add appends one owner decision', () => {
     expect(add({ [FILE]: before }, ['--card', 'x', '[owner] y.']).code).toBe(2)
   })
 
+  it('writes --until as the until tail of the line and of the recorded text, and refuses a term that is not a calendar instant', () => {
+    const before = decisionsFile('- D-1 · 2026-10-08 — one.')
+    const result = add({ [FILE]: before }, ['--card', '#837', '--until', '2026-10-12T04:30Z', '[owner] delegated.'])
+    expect(result.out).toEqual(['- D-2 · 2026-10-09 ~09:12Z — [owner] delegated. · card #837 · until 2026-10-12T04:30Z · decisions:add'])
+    expect(result.recorded.map(decision => decision.text)).toEqual(['delegated. · until 2026-10-12T04:30Z'])
+    expect(decisionsRead(result.files)).toMatchObject({ code: 0, err: [] })
+    for (const until of ['2026-10-12', '2026-02-30T00:00Z', '2026-10-12T04:30Z.'])
+      expect(add({ [FILE]: before }, ['--until', until, '[owner] y.']).code).toBe(2)
+  })
+
   it('a line the check refuses leaves the file unchanged', () => {
     const before = decisionsFile('- D-1 · 2026-10-08 — one. · superseded-by D-2', '- D-2 · 2026-10-08 — two.')
     const result = add({ [FILE]: before }, ['[owner] three, superseded-by D-1 later.'])

@@ -22,6 +22,7 @@ function digestOf(payloadText: string): string {
 
 export function prObserved(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent {
   const payload = {
+    card_id: open.cardId,
     base: open.base,
     head: open.head,
     mergeable: open.mergeable,
