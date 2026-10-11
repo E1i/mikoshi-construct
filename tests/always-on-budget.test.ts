@@ -11,7 +11,7 @@ const BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR: Record<string, number> = {
   '.claude/rules/conventions.md': 4_176,
   '.claude/rules/secrets.md': 612,
   '.claude/rules/tests.md': 382,
-  'architecture/window-core.md': 3_700,
+  'architecture/window-core.md': 3_695,
 }
 
 function read(file: string): string {
