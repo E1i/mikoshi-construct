@@ -287,7 +287,7 @@ describe('handoff:write', () => {
     const bus = path.join(dir, 'bus.db')
     make(bus)
     writeFileSync(file, source === 'from the bus state' ? withoutStateFields(draft()) : draft().replace(/queue: .*/, 'queue: none'))
-    const run = spawnSync(process.execPath, ['--import', 'tsx', HANDOFF_WRITE, handoff, file, '--parking', path.join(dir, 'parking')], { encoding: 'utf8', env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '843', CONSTRUCT_HANDOFF_DIR: dir } })
+    const run = spawnSync(process.execPath, ['--import', 'tsx', HANDOFF_WRITE, handoff, file, '--parking', path.join(dir, 'parking')], { encoding: 'utf8', env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '843', CONSTRUCT_HANDOFF_DIR: dir, NODE_NO_WARNINGS: '1' } })
     expect(run.stderr).toBe('')
     expect(run.status).toBe(0)
     expect(run.stdout).toContain(source)
