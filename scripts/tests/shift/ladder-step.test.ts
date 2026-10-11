@@ -185,11 +185,18 @@ describe('the shift finishes a brief its session could not', () => {
     expect(after.branches).toBe('')
   })
 
+  it('a sketch the shift just committed is sampled with --sketch yes and the brief\'s Effort: line in lower case', async () => {
+    const after = await briefAfterSession({ written: `${NO_EXPECT}Effort: Medium\n`, dirty: true })
+    expect(after.sampled).toEqual([['ghosts:expect-sample', '--effort', 'medium', '--sketch', 'yes']])
+    expect(after.brief).toMatch(new RegExp(`^/implement stub brief\nSketch: sketch/task-1 @ [0-9a-f]{40}\n${EXPECT_LINE}\nEffort: Medium\n$`))
+  })
+
   it('a failing ghosts:expect-sample stops at hash with its first line, before MORSE, and the committed sketch stays named', async () => {
     const after = await briefAfterSession({ written: NO_EXPECT, dirty: true, sample: { code: 1, stdout: `${EXPECT_LINE}\n`, stderr: 'no runs to sample\nsecond line\n' } })
     expect(after.stops).toMatchObject([{ task: '1', at: 'hash' }])
     expect(String(after.stops[0]?.why)).toContain('no runs to sample')
     expect(String(after.stops[0]?.why)).not.toContain('second line')
+    expect(after.sampled).toEqual([['ghosts:expect-sample', '--sketch', 'yes']])
     expect(after.hashed).toBe(0)
     expect(after.brief).toMatch(/^\/implement stub brief\nSketch: sketch\/task-1 @ [0-9a-f]{40}\n$/)
     expect(after.head).toBe('feat/1')
@@ -199,6 +206,7 @@ describe('the shift finishes a brief its session could not', () => {
   it('a failing sketch commit stops at hash and returns the tree to its branch with the sketch unstaged and no sketch branch left', async () => {
     const after = await briefAfterSession({ written: NO_EXPECT, dirty: true, hook: 'hook refuses the sketch' })
     expect(after.stops).toMatchObject([{ task: '1', at: 'hash' }])
+    expect(String(after.stops[0]?.why)).toMatch(/: hook refuses the sketch$/)
     expect(after.hashed).toBe(0)
     expect(after.sampled).toEqual([])
     expect(after.brief).toBe(NO_EXPECT)

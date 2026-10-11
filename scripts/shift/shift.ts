@@ -42,6 +42,7 @@ import { MERGE_DONE } from '../bus/executor.js'
 import { POLICY_DENIED } from '../bus/inbox.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
+import { briefEffort, EXPECT_LINE_INDEX, parseExpect } from '../ghosts/expect.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
 import { parseSketch } from '../ghosts/sketch.js'
@@ -710,10 +711,6 @@ function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { fil
   return { file }
 }
 
-const EXPECT_LINE_INDEX = 2
-const LOOKS_LIKE_EXPECT = /^\s*expect:/im
-const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m
-
 function commitSketch(deps: ShiftDeps, tree: string, name: string): string {
   const original = deps.git(tree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
   const branch = `sketch/${name}`
@@ -733,6 +730,20 @@ function commitSketch(deps: ShiftDeps, tree: string, name: string): string {
   }
 }
 
+function failureLine(error: unknown): string {
+  const stderr = typeof error === 'object' && error !== null && 'stderr' in error ? String(error.stderr) : ''
+  return firstLine(stderr) || firstLine(error instanceof Error ? error.message : String(error))
+}
+
+function hasExpect(text: string): boolean {
+  try {
+    return parseExpect(text) !== null
+  }
+  catch {
+    return true
+  }
+}
+
 function finishBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], brief: string): string | null {
   try {
     const text = deps.read(brief)
@@ -749,9 +760,9 @@ function finishBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], bri
       lines[1] = `Sketch: ${commitSketch(deps, tree, card.name)}`
       writeFileSync(brief, lines.join('\n'))
     }
-    if (LOOKS_LIKE_EXPECT.test(text))
+    if (hasExpect(text))
       return null
-    const effort = EFFORT_LINE.exec(text)?.[1]?.toLowerCase()
+    const effort = briefEffort(text)?.toLowerCase()
     const sampled = runPnpm(deps, ['ghosts:expect-sample', ...(effort === undefined ? [] : ['--effort', effort]), '--sketch', dirty || sketch.kind === 'branch' ? 'yes' : 'no'])
     if (sampled === null)
       return NO_PNPM_RUNNER
@@ -763,7 +774,7 @@ function finishBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], bri
     return null
   }
   catch (error) {
-    return firstLine(error instanceof Error ? error.message : String(error))
+    return failureLine(error)
   }
 }
 
