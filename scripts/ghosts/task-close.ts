@@ -116,6 +116,11 @@ function journalLines(journal: string): Record<string, unknown>[] {
   })
 }
 
+export function closingVerificationOf(journal: string, id: string, pr: number): string | null {
+  const closing = journalLines(journal).filter(line => line.event === 'path' && line.task === id && line.pr === pr && typeof line.verification === 'string').at(-1)
+  return closing === undefined ? null : closing.verification as string
+}
+
 function hasCard(line: Record<string, unknown>): line is Record<string, unknown> & { card: Card } {
   return typeof line.card === 'object' && line.card !== null
 }
