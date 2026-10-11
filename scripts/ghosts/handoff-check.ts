@@ -140,6 +140,10 @@ function blocksOf(text: string): Block[] {
   return blocks
 }
 
+export function labelsOf(text: string): string[] {
+  return blocksOf(text).map(block => block.label)
+}
+
 function blockOf(blocks: readonly Block[], label: string): Block | undefined {
   return blocks.find(block => block.label === label)
 }

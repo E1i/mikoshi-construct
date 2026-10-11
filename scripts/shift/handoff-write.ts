@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { parkingLanes, readBoard } from '../bus/board.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
-import { defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
+import { journalPath } from '../bus/import.js'
+import { defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
 import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
@@ -24,12 +25,10 @@ const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
 const PREV_LINE = new RegExp(`^\\s*(?:[-*+]\\s+)?${PREV_LABEL}:`, 'i')
 const NAMED_BOUNDARY = /\s—\s*boundary:\s*(\S+)\s*$/
-const STATE_LINE = new RegExp(`^\\s*(?:[-*+]\\s+)?(?:${STATE_LABELS.join('|')}):`, 'i')
-const ANY_LABEL_LINE = /^\s*(?:[-*+]\s+)?[a-z][\w -]{0,30}:/i
-const HEADING_LINE = /^#{1,6} /
 const NOTHING = 'none'
 
 export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'lanes' | 'execution'>
+export type StateReading = { kind: 'read', state: HandoffState } | { kind: 'unread', why: string }
 
 export interface HandoffWriteDeps {
   cwd: string
@@ -43,7 +42,7 @@ export interface HandoffWriteDeps {
   writeNew: (file: string, text: string) => void
   rename: (from: string, to: string) => void
   parked: (parking: string) => ParkedDepends
-  state: () => HandoffState | null
+  state: (parking: string) => StateReading
   home: string
   out: (line: string) => void
   err: (line: string) => void
@@ -91,21 +90,20 @@ export function stateLines(state: HandoffState): string[] {
 }
 
 export function withState(draft: string, generated: readonly string[]): string {
-  let dropping = false
-  const lines = draft.split(/\r?\n/).filter((line) => {
-    if (STATE_LINE.test(line)) {
-      dropping = true
-      return false
-    }
-    if (dropping && line.trim() !== '' && !HEADING_LINE.test(line) && !ANY_LABEL_LINE.test(line))
-      return false
-    if (line.trim() !== '')
-      dropping = false
-    return true
-  })
+  const lines = draft.split(/\r?\n/)
   const stop = lines.findIndex(line => STOP_HEADING.test(line))
   lines.splice(stop + 1, 0, ...generated)
   return lines.join('\n')
+}
+
+export function draftStateRefusals(draft: string): string[] {
+  const labels = new Set(labelsOf(draft))
+  return STATE_LABELS.filter(label => labels.has(label)).map(label => `${PREFIX}${label}: generated from the bus state; drop it from the draft, which carries the stop reason and the next task`)
+}
+
+function stateSource(reading: StateReading): string {
+  const labels = STATE_LABELS.join(', ')
+  return reading.kind === 'read' ? `${labels} from the bus state` : `${reading.why}: ${labels} as the draft wrote them`
 }
 
 export function ownerStatusRefusal(text: string): string | null {
@@ -147,16 +145,18 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const previous = deps.exists(handoff) ? deps.read(handoff) : null
   const archived = previous === null ? null : path.join(archiveDir, nextArchive(deps.exists(archiveDir) ? deps.listDir(archiveDir) : []))
   const prev = archived === null ? NO_PREV : path.relative(path.dirname(handoff), archived)
-  const state = deps.state()
+  const parking = parsed.parking ?? defaultParking(deps.home)
+  const reading = deps.state(parking)
   const drafted = deps.read(draft)
-  const text = withPrev(state === null ? drafted : withState(drafted, stateLines(state)), prev)
+  const text = withPrev(reading.kind === 'read' ? withState(drafted, stateLines(reading.state)) : drafted, prev)
   const ownerRefusal = ownerStatusRefusal(text)
   const refusals = [
+    ...(reading.kind === 'read' ? draftStateRefusals(drafted) : []),
     ...handoffRefusals(text, {
       file: handoff,
       home: deps.home,
       exists: file => file === archived || deps.exists(file),
-      parked: deps.parked(parsed.parking ?? defaultParking(deps.home)),
+      parked: deps.parked(parking),
     }),
     ...(ownerRefusal === null ? [] : [ownerRefusal]),
   ]
@@ -173,29 +173,36 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const staged = `${handoff}.writing`
   deps.write(staged, text.endsWith('\n') ? text : `${text}\n`)
   deps.rename(staged, handoff)
-  const source = state === null ? `no bus state read, ${STATE_LABELS.join(', ')} as the draft wrote them` : `${STATE_LABELS.join(', ')} from the bus state`
-  deps.out(`${PREFIX}${handoff}: ${handoffBytes(text)} bytes, ${PREV_LABEL}: ${prev}, ${source}`)
+  deps.out(`${PREFIX}${handoff}: ${handoffBytes(text)} bytes, ${PREV_LABEL}: ${prev}, ${stateSource(reading)}`)
   return 0
 }
 
-function busState(home: string, handoffDir: string): HandoffState | null {
-  const busPath = defaultBusPath()
+function errorLine(error: unknown): string {
+  return error instanceof Error ? error.message.split('\n')[0]! : String(error)
+}
+
+function busState(busPath: string, parking: string): StateReading {
   if (!existsSync(busPath))
-    return null
-  const db = openBus(busPath)
-  try {
-    const reads: ParkingReads = {
-      cwd: process.cwd(),
-      handoffDir,
-      listDir: dir => readdirSync(dir),
-      read: file => readFileSync(file, 'utf8'),
-      exists: existsSync,
-      git: (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8' }),
-    }
-    return readBoard({ db, now: new Date(), watched: [], parking: parkingLanes(reads, defaultParking(home)), leaseOrders: {} })
+    return { kind: 'unread', why: `no bus at ${busPath}` }
+  const reads: ParkingReads = {
+    cwd: process.cwd(),
+    handoffDir: path.dirname(journalPath()),
+    listDir: dir => readdirSync(dir),
+    read: file => readFileSync(file, 'utf8'),
+    exists: existsSync,
+    git: (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8' }),
   }
-  finally {
-    db.close()
+  try {
+    const db = openBus(busPath)
+    try {
+      return { kind: 'read', state: readBoard({ db, now: new Date(), watched: [], parking: parkingLanes(reads, parking), leaseOrders: {} }) }
+    }
+    finally {
+      db.close()
+    }
+  }
+  catch (error) {
+    return { kind: 'unread', why: `bus state at ${busPath} unreadable (${errorLine(error)})` }
   }
 }
 
@@ -212,7 +219,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     writeNew: (file, text) => writeFileSync(file, text, { flag: 'wx' }),
     rename: renameSync,
     parked: parkedDepends,
-    state: () => busState(os.homedir(), setOrNull(process.env[HANDOFF_DIR_VARIABLE]) ?? path.join(os.homedir(), '.construct', 'handoff')),
+    state: parking => busState(defaultBusPath(), parking),
     home: os.homedir(),
     out: line => console.log(line),
     err: line => console.error(line),
