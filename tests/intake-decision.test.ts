@@ -58,6 +58,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
     const draft = drafted(world(files), undefined, touches)
     expect(draftedLine(draft)).toContain('/auto]')
     expect(draft.status !== 'refused' && draft.cards[0]!.text).toContain('touches: src/board/run.ts, tests/board/run.test.ts, .changeset/**')
+    expect(draft.status !== 'refused' && draft.cards[0]!.text).not.toMatch(/^risk: R1 /m)
     const w = world(files)
     const file = park(w, 80, 'auto', [...touches, '.changeset/**'].join(', '))
     expect(admit(w, file).status).toBe('admitted')

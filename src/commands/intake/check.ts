@@ -3,7 +3,7 @@ import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
-import { RISK_LEVELS, riskOf } from '../../card/risk.js'
+import { CHANGESET_COMPANION, RISK_LEVELS, riskOf } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
 import { commandWord } from './command-word.js'
@@ -17,7 +17,6 @@ const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'dep
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
 const TESTS_ROOT = 'tests'
 const SOURCE_MODULE = /^src\/(.+)\.ts$/
-const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 const OWNER_KINDS_HEADER = '| kind |'
@@ -171,8 +170,7 @@ function contourCorrection(card: DraftCard): Correction[] {
   return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
 }
 
-function ownerReason(cardTouches: readonly string[], owner: OwnerPaths): string | undefined {
-  const touches = cardTouches.filter(touch => touch !== CHANGESET_COMPANION)
+function ownerReason(touches: readonly string[], owner: OwnerPaths): string | undefined {
   const hold = ownerHold(touches, owner)
   if (hold !== undefined)
     return `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}`

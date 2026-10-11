@@ -114,6 +114,14 @@ describe('a path AGENTS.md names always high or a publish reads R1, never R3 or 
   })
 })
 
+it('the changeset companion glob reads no R1 and the release config does', () => {
+  expect(riskOf('.changeset/**').level).toBe('R4')
+  expect(riskOf('.changeset/config.json').level).toBe('R1')
+  const card = only(intake(['src/board/run.ts', 'tests/board/run.test.ts', '.changeset/**']))
+  expect(linesOf(card.text, RISK_PREFIX)[0]).not.toMatch(/^risk: R1 /)
+  expect(linesOf(card.text, SLICE_PREFIX)).toEqual([])
+})
+
 describe('intake writes the risk line into the card', () => {
   it('r4 for docs and tests only', () => {
     const card = only(intake(['docs/cli.md', 'architecture/intake.md', 'tests/intake-risk.test.ts', '.changeset/risk.md', 'README.md']))
