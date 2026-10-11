@@ -76,6 +76,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     s.clock.now = backoffMs(1)
     expect(s.keeper.step().at(-1)).toContain(`failed to start 2 time(s) in a row; the next attempt in ${backoffMs(2) / 1000}s`)
     expect(backoffMs(2)).toBe(2 * backoffMs(1))
+    expect(backoffMs(3)).toBe(4 * backoffMs(1))
     s.clock.now += backoffMs(2)
     s.keeper.step()
     expect(s.starts).toHaveLength(3)
@@ -109,6 +110,38 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     expect(lines.at(-1)).toContain(`failed to start 1 time(s) in a row; the next attempt in ${backoffMs(1) / 1000}s`)
     expect(lines.join('\n')).not.toContain('needs the owner')
     expect(s.journal).toEqual([])
+  })
+
+  it('a worker switched off and on again starts at once with a fresh count', () => {
+    const merge = workerLaunches(() => []).merge
+    const wanted = [merge]
+    let failing = false
+    const s = kept(wanted, launch => failing ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : ok(launch))
+
+    s.keeper.step()
+    expect(s.starts).toEqual([launchName(merge)])
+    s.alive = []
+    wanted.length = 0
+    expect(s.keeper.step()).toEqual([])
+
+    s.clock.now = 60 * 60_000
+    wanted.push(merge)
+    const lines = s.keeper.step()
+    expect(s.starts).toEqual([launchName(merge), launchName(merge)])
+    expect(lines.join('\n')).not.toContain('failed to start')
+    expect(s.keeper.step()).toEqual([])
+
+    s.alive = []
+    failing = true
+    const reports: string[] = []
+    for (let attempt = 1; attempt <= FAILURES_REPORTED; attempt++) {
+      reports.push(...s.keeper.step())
+      s.clock.now += backoffMs(attempt)
+    }
+    expect(s.starts).toHaveLength(2 + FAILURES_REPORTED)
+    expect(s.journal).toHaveLength(1)
+    expect(s.journal[0]).toMatchObject({ event: 'worker.down', worker: launchName(merge) })
+    expect(reports.filter(line => line.includes('needs the owner'))).toHaveLength(1)
   })
 
   it('a start that finds the worker already running counts as a success', () => {

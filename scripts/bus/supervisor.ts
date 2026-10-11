@@ -227,7 +227,13 @@ export class WorkerKeeper {
   step(): string[] {
     try {
       const processes = this.parts.processes()
-      return this.parts.wanted().flatMap((launch) => {
+      const wanted = this.parts.wanted()
+      const wantedNames = new Set(wanted.map(launchName))
+      for (const name of this.streaks.keys()) {
+        if (!wantedNames.has(name))
+          this.streaks.delete(name)
+      }
+      return wanted.flatMap((launch) => {
         if (runningInstance(processes, launch.markers) === undefined)
           return this.revive(launch)
         this.streaks.delete(launchName(launch))
