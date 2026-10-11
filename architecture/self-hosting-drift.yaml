@@ -11,24 +11,6 @@ differences:
       The brief skeleton here carries the Sketch: line the Ghost launcher reads, and a factory block
       explains it; a generated repository has no launcher, so the template ships without both.
       tests/plan-factory-twin.test.ts holds the rest of the file byte-identical to the template.
-  - path: .claude/rules/conventions.md
-    kind: absent-at-root
-    reason: >-
-      Every session here already loads the same conventions from the owner's account-wide CLAUDE.md,
-      so a second always-on copy only spent context; a generated repository has no such file, so the
-      template keeps the rule.
-  - path: .claude/rules/secrets.md
-    kind: absent-at-root
-    reason: >-
-      Every session here already loads the same secrets rule from the owner's account-wide CLAUDE.md,
-      so a second always-on copy only spent context; a generated repository has no such file, so the
-      template keeps the rule.
-  - path: .claude/rules/tests.md
-    kind: absent-at-root
-    reason: >-
-      Every session here already loads the same test-placement rule from the owner's account-wide
-      CLAUDE.md, so a second always-on copy only spent context; a generated repository has no such
-      file, so the template keeps the rule.
   - path: .github/workflows/ci.yml
     kind: content
     reason: >-
