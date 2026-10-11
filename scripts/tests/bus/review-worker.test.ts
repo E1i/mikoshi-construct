@@ -280,7 +280,10 @@ describe('review worker', () => {
 
     db.prepare(`INSERT INTO events (ts, type, actor, pr, head, dedupe_key, payload) VALUES (?, 'pr.observed', 'netwatch', 947, ?, 'pr:947:unreduced', ?)`)
       .run(clock.now().toISOString(), sha('d'), JSON.stringify({ base: 'main', head: sha('d'), mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }))
-    expect(() => startReviewWorkers(parts, 1)).toThrow(/replay byte-diff: differs/)
+    expect(startReviewWorkers(parts, 1).map(worker => worker.actor)).toEqual(['worker:review:worker-1-1'])
+
+    db.prepare(`UPDATE prs SET state = 'closed' WHERE pr = 947`).run()
+    expect(() => startReviewWorkers(parts, 1)).toThrow(/replay byte-diff: prs 947: state live "closed", replay "open"/)
     db.close()
   })
 
