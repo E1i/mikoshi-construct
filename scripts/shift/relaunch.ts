@@ -22,6 +22,7 @@ import { GHOST_JOURNAL } from './places.js'
 import { realOperatorWork, realRoleStopObserver } from './role-bus.js'
 
 export const PREFIX = '[relaunch] '
+export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
 export const OPERATOR_CLAUDE = 'claude --permission-mode dontAsk'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
@@ -431,7 +432,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: deps.env, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: { ...deps.env, [HANDOFF_VARIABLE]: handoff }, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
     const after = statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none'
     const idle = after === 'CONTINUE' && !endedAtThreshold(readIfPresent(deps, deps.journal) ?? '', session)
