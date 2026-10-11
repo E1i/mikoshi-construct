@@ -267,7 +267,7 @@ export const ATLAS_SCRIPT = `
   }
 
   function channelItem(channel) {
-    return '<li data-layer="file" data-channel="' + esc(channel[4]) + '">' + esc(channel[4]) + ': ' + sourceLink(file(channel[0]), channel[1]) + ' writes → ' + sourceLink(file(channel[2]), channel[3]) + ' reads</li>';
+    return '<li data-layer="file" data-channel="' + esc(channel[4]) + '">' + esc(channel[4]) + ': ' + sourceLink(file(channel[0]), channel[1]) + ' calls a write, ' + sourceLink(file(channel[2]), channel[3]) + ' calls a read, both name it — a candidate, not traced</li>';
   }
 
   function entryItem(entry) {
@@ -319,8 +319,8 @@ export const ATLAS_SCRIPT = `
         + '<h3>Reaches (' + found.out.length + ')</h3><ul>' + found.out.map((relation) => relationItem(relation, '→ ' + file(relation[1]))).join('') + found.unresolved.map((entry) => '<li data-at="' + esc(id + ':' + entry[1]) + '" data-state="unknown">' + esc(id + ':' + entry[1] + ' → ' + entry[2] + ' (unresolved)') + '</li>').join('') + '</ul>'
         + '<h3>Reached from (' + found.into.length + ')</h3><ul>' + found.into.map((relation) => relationItem(relation, '← ' + file(relation[0]))).join('') + '</ul>'
         + '<h3>Run by (' + found.runBy.length + ')</h3><ul>' + found.runBy.map(entryItem).join('') + '</ul>'
-        + '<h3>Writes for others (' + found.writes.length + ')</h3><ul>' + found.writes.map(channelItem).join('') + '</ul>'
-        + '<h3>Reads from others (' + found.reads.length + ')</h3><ul>' + found.reads.map(channelItem).join('') + '</ul>';
+        + '<h3>Candidate channels on the write side (' + found.writes.length + ')</h3><ul>' + found.writes.map(channelItem).join('') + '</ul>'
+        + '<h3>Candidate channels on the read side (' + found.reads.length + ')</h3><ul>' + found.reads.map(channelItem).join('') + '</ul>';
       panel.innerHTML = body;
       layout();
       return;

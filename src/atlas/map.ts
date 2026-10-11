@@ -24,7 +24,7 @@ const WORDS = {
   },
   layers: {
     runs: 'an entry point — a package.json script, a workflow step or a hook — and the files its command names',
-    file: 'a file one module writes and another reads, named in both',
+    file: 'a file name that a module calling a node:fs write and a module calling a node:fs read both name; a candidate, not traced',
   },
 }
 

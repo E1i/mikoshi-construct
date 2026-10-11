@@ -1785,7 +1785,7 @@ reads as unused. File channels are candidates: a module that calls a `node:fs` w
 file name is joined to a module that calls a `node:fs` read and names the same last path segment, as a
 `file` arrow whose hover gives the name and the `path:line` of both sides. The join is by name only —
 discovery does not trace which call receives the name — so a channel says the two modules may share a
-file, not that one writes what the other reads. A file's panel lists the entry points that run it and the files it writes and reads. Drag pans, the wheel zooms, a search by file name finds a file, and
+file, not that one writes what the other reads. A file's panel lists the entry points that run it and its candidate channels, on the write side and on the read side. Drag pans, the wheel zooms, a search by file name finds a file, and
 `atlas.html#<path>` opens the page on that file.
 
 Where the Engram and the page go depends on what the repository already is, and the command never
