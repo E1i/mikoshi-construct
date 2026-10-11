@@ -96,7 +96,7 @@
     "morse:predict": "tsx scripts/morse/cli.ts predict",
     "prepublishOnly": "pnpm build",
     "privacy:check": "tsx scripts/privacy/check.ts",
-    "quality": "tsx scripts/quality/lock.ts pnpm run quality:steps",
+    "quality": "tsx scripts/quality/lock.ts tsx scripts/scratch/run.ts pnpm run quality:steps",
     "quality:steps": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:pending && pnpm docs:anchors",
     "release": "pnpm build && tsx scripts/release/stage-publish.ts && changeset tag",
     "relaunch": "tsx scripts/shift/relaunch.ts",
