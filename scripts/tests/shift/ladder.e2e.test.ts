@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { approvedHashPath } from '../../ghosts/approval.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
-import { approvalLine, approve, approvedFile, BRIEF_TEXT, briefOf, briefWritten, cardNameOf, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
+import { approvalLine, approve, approvedFile, BRIEF_TEXT, briefOf, briefWritten, cardNameOf, EXPECT_LINE, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
 
 const BODY = 'do 1 STUB-BRIEF-WRITE STUB-VERIFIED-run STUB-PR-101'
 const PR_CARDS = { 101: cardLine(1, LADDER) }
@@ -21,16 +21,14 @@ interface Run {
   calls: string[][]
 }
 
-const EXPECT_LINE = 'expect: tokens ≈ 1k, minutes ≈ 1 — effort low, n=9, median, p25–p75 1k–2k'
-
-function sampling(world: World, id: number, ladder: Ladder, strict = false): Ladder {
+function sampling(world: World, id: number, ladder: Ladder): Ladder {
   const pnpm = (cwd: string, args: string[], input?: string): PnpmResult => {
     if (args[0] === 'ghosts:expect-sample')
       return { code: 0, stdout: `${EXPECT_LINE}\nsources\n`, stderr: '' }
     if (args[0] === 'ghosts:hash') {
       const brief = briefOf(world, id)
       const lines = readFileSync(brief, 'utf8').split('\n')
-      if (strict && !(lines[2]?.startsWith('expect: ') === true && /^Sketch: \S+ @ [0-9a-f]{40}$/.test(lines[1] ?? '')))
+      if (!(lines[2] === EXPECT_LINE && /^Sketch: \S+ @ [0-9a-f]{40}$/.test(lines[1] ?? '')))
         return { code: 1, stdout: '', stderr: 'the /implement text has no expect: line\n' }
       writeFileSync(brief, BRIEF_TEXT)
     }
@@ -40,7 +38,7 @@ function sampling(world: World, id: number, ladder: Ladder, strict = false): Lad
 }
 
 async function shiftOver(world: World, behaviour: { morse?: Morse, launch?: Launch, ghostWrites?: boolean } = {}, dir = world.shift): Promise<Run> {
-  const ladder = sampling(world, 1, ladderPnpm(world, 1, behaviour))
+  const ladder = ladderPnpm(world, 1, behaviour)
   const { gh, calls } = fakeGh(PR_CARDS)
   const io = captured()
   const code = await runShift([dir, '--parking', world.parking], ladderDeps(world, gh, io, ladder))
@@ -135,8 +133,8 @@ describe('a ladder card in a shift', () => {
     const world = newLadderWorld()
     const script = path.join(world.stubOut, 'sketching.sh')
     const stub = path.join(import.meta.dirname, 'fixtures', 'claude-stub-ladder.sh')
-    writeFileSync(script, `prompt=$(cat)\nprintf '%s\\n' "$prompt" | sh ${stub} "$@" || exit $?\nprintf 'sketch\\n' > sketch.txt\n`)
-    const ladder = sampling(world, 1, ladderPnpm(world, 1), true)
+    writeFileSync(script, `prompt=$(cat)\nprintf '%s\\n' "$prompt" | sh ${stub} "$@" || exit $?\nprintf '/implement stub brief\\nSketch: none — stub\\n' > ${briefOf(world, 1)}\nprintf 'sketch\\n' > sketch.txt\n`)
+    const ladder = sampling(world, 1, ladderPnpm(world, 1))
     const { gh } = fakeGh(PR_CARDS)
     const claude = `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${script}`
     await runShift([world.shift, '--parking', world.parking], ladderDeps(world, gh, captured(), ladder, { claude }))
@@ -144,6 +142,7 @@ describe('a ladder card in a shift', () => {
     const tree = path.join(world.root, 'mc-1')
     const sha = execFileSync('git', ['-C', world.repo, 'rev-parse', 'refs/heads/sketch/task-1'], { encoding: 'utf8' }).trim()
     expect(execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8' })).toBe('')
+    expect(execFileSync('git', ['-C', tree, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim()).toBe('feat/1')
     expect(execFileSync('git', ['-C', world.repo, 'show', `${sha}:sketch.txt`], { encoding: 'utf8' })).toBe('sketch\n')
     expect(eventsOf(world, 'stop').filter(line => line.at === 'hash')).toEqual([])
   })

@@ -717,47 +717,49 @@ const EFFORT_LINE = /^Effort:[^\w\n]*(\w+)/m
 function commitSketch(deps: ShiftDeps, tree: string, name: string): string {
   const original = deps.git(tree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
   const branch = `sketch/${name}`
-  deps.git(tree, ['checkout', '-b', branch])
-  deps.git(tree, ['add', '-A'])
-  deps.git(tree, ['commit', '-m', `sketch: ${name}`])
-  const sha = deps.git(tree, ['rev-parse', 'HEAD']).trim()
-  deps.git(tree, ['checkout', original])
-  return `${branch} @ ${sha}`
-}
-
-function finishedBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], text: string): { text: string } | { problem: string } {
-  let sketch: ReturnType<typeof parseSketch>
+  deps.git(tree, ['checkout', '-B', branch])
   try {
-    sketch = parseSketch(text)
+    deps.git(tree, ['add', '-A'])
+    deps.git(tree, ['commit', '-m', `sketch: ${name}`])
+    const sha = deps.git(tree, ['rev-parse', 'HEAD']).trim()
+    deps.git(tree, ['checkout', original])
+    return `${branch} @ ${sha}`
   }
-  catch {
-    return { text }
+  catch (error) {
+    deps.git(tree, ['reset', '--quiet'])
+    deps.git(tree, ['checkout', original])
+    deps.git(tree, ['branch', '-D', branch])
+    throw error
   }
-  const lines = text.split('\n')
-  const dirty = sketch.kind === 'none' && deps.git(tree, ['status', '--porcelain']).trim() !== ''
-  if (dirty)
-    lines[1] = `Sketch: ${commitSketch(deps, tree, card.name)}`
-  if (LOOKS_LIKE_EXPECT.test(text))
-    return { text: lines.join('\n') }
-  const effort = EFFORT_LINE.exec(text)?.[1]?.toLowerCase()
-  const sampled = runPnpm(deps, ['ghosts:expect-sample', ...(effort === undefined ? [] : ['--effort', effort]), '--sketch', dirty || sketch.kind === 'branch' ? 'yes' : 'no'])
-  if (sampled === null)
-    return { problem: NO_PNPM_RUNNER }
-  const line = sampled.stdout.split('\n').find(candidate => candidate.startsWith('expect: '))
-  if (sampled.code !== 0 || line === undefined)
-    return { problem: firstLine(sampled.stderr) || `ghosts:expect-sample exit ${sampled.code}` }
-  lines.splice(EXPECT_LINE_INDEX, 0, line)
-  return { text: lines.join('\n') }
 }
 
 function finishBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], brief: string): string | null {
   try {
-    const before = deps.read(brief)
-    const finished = finishedBrief(deps, tree, card, before)
-    if ('problem' in finished)
-      return finished.problem
-    if (finished.text !== before)
-      writeFileSync(brief, finished.text)
+    const text = deps.read(brief)
+    let sketch: ReturnType<typeof parseSketch>
+    try {
+      sketch = parseSketch(text)
+    }
+    catch {
+      return null
+    }
+    const lines = text.split('\n')
+    const dirty = sketch.kind === 'none' && deps.git(tree, ['status', '--porcelain']).trim() !== ''
+    if (dirty) {
+      lines[1] = `Sketch: ${commitSketch(deps, tree, card.name)}`
+      writeFileSync(brief, lines.join('\n'))
+    }
+    if (LOOKS_LIKE_EXPECT.test(text))
+      return null
+    const effort = EFFORT_LINE.exec(text)?.[1]?.toLowerCase()
+    const sampled = runPnpm(deps, ['ghosts:expect-sample', ...(effort === undefined ? [] : ['--effort', effort]), '--sketch', dirty || sketch.kind === 'branch' ? 'yes' : 'no'])
+    if (sampled === null)
+      return NO_PNPM_RUNNER
+    const line = sampled.stdout.split('\n').find(candidate => candidate.startsWith('expect: '))
+    if (sampled.code !== 0 || line === undefined)
+      return firstLine(sampled.stderr) || `ghosts:expect-sample exit ${sampled.code}`
+    lines.splice(EXPECT_LINE_INDEX, 0, line)
+    writeFileSync(brief, lines.join('\n'))
     return null
   }
   catch (error) {
