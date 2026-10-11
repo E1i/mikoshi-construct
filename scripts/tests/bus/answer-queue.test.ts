@@ -41,6 +41,7 @@ interface Tools {
   during: () => void
   published: { branch: string, commitMessage: string }[]
   recreated: { worktree: string, branch: string }[]
+  recreating: () => void
 }
 
 function answerBench() {
@@ -49,12 +50,13 @@ function answerBench() {
   const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
   const home = path.join(trees, 'worktrees')
   const answers = path.join(trees, 'answers')
-  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [], recreated: [] }
+  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [], recreated: [], recreating: () => {} }
   const cardTrees: CardTreeTools = {
     home,
     exists: existsSync,
     branchOf: pr => `feat/card-${pr + 100}`,
     recreate: (worktree, branch) => {
+      tools.recreating()
       mkdirSync(worktree, { recursive: true })
       tools.recreated.push({ worktree, branch })
     },
@@ -431,6 +433,21 @@ describe('the answer executor', () => {
     bench.close()
   })
 
+  it('a failed recreation of the card tree is a technical answer_failed denial and the task is queued again', async () => {
+    const bench = answerBench()
+    bench.tools.recreating = () => {
+      throw new Error('git worktree add failed')
+    }
+    bench.gitHub.open({ number: 996, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: answer(1096, 996, sha('a')), denial: { kind: 'technical', reason: 'answer_failed', detail: expect.stringContaining('git worktree add failed') }, next: 'queued' })
+    expect(bench.tools.runs).toEqual([])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ command: 'answer', kind: 'technical', reason: 'answer_failed' }])
+    expect(taskState(bench.db, answer(1096, 996, sha('a'))).state).toBe('queued')
+    bench.close()
+  })
+
   it('a session that pushes no new head stops the card with fault', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]
@@ -505,9 +522,10 @@ describe('the card tree of every start path', () => {
     bench.gitHub.open({ number: 1012, review: 'failure' })
     bench.tick()
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', session: 'window-session-1', resumed: true, head: PUSHED })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', session: 'new-session-1', resumed: false, head: PUSHED })
     expect(bench.tools.runs[0]!.cwd).toBe(tree)
-    expect(bench.tools.runs[0]!.argv.slice(-3, -1)).toEqual(['--resume', 'window-session-1'])
+    expect(bench.tools.runs[0]!.argv).not.toContain('--resume')
+    expect(bench.tools.runs[0]!.argv.slice(-3, -1)).toEqual(['--session-id', 'new-session-1'])
     expect(bench.tools.published.map(each => each.branch)).toEqual(['feat/card-1112'])
     expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     bench.close()

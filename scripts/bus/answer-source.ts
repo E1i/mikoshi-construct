@@ -118,6 +118,11 @@ function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
   return session === null || worktree === null || branch === null ? null : { session, worktree, branch }
 }
 
+function chainSessionOf(payload: Record<string, unknown>): string {
+  const windowSession = text(payload.shift) === null
+  return windowSession ? NO_RECORDED_SESSION : text(payload.session) ?? NO_RECORDED_SESSION
+}
+
 function startLineOf(db: DatabaseSync, cardId: number): CardSession | null {
   const row = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND type = '${START_LINE}' AND legacy = 1 AND json_type(payload, '$.worktree') = 'text' AND json_type(payload, '$.branch') = 'text' ORDER BY id DESC LIMIT 1`).get(cardId) as { payload: string } | undefined
   if (row === undefined)
@@ -125,7 +130,7 @@ function startLineOf(db: DatabaseSync, cardId: number): CardSession | null {
   const payload = parsed(row.payload)
   const worktree = text(payload.worktree)
   const branch = text(payload.branch)
-  return worktree === null || branch === null ? null : { session: text(payload.session) ?? NO_RECORDED_SESSION, worktree, branch }
+  return worktree === null || branch === null ? null : { session: chainSessionOf(payload), worktree, branch }
 }
 
 export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | null {
