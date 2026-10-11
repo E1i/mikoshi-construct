@@ -23,6 +23,7 @@ const OWNER_KINDS_HEADER = '| kind |'
 const OWNER_BY_RISK_HEADER = '| by risk |'
 const OWNER_DECISION = 'owner'
 const AUTO_DECISION = 'auto'
+const OWNER_RISK = 'R1'
 export const NO_OWNER_PATH = `no touch meets an owner path of ${OWNER_MERGES}`
 const UNDER_PREFIX = 'x'
 
@@ -169,17 +170,27 @@ function contourCorrection(card: DraftCard): Correction[] {
   return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
 }
 
-function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+function ownerReason(touches: readonly string[], owner: OwnerPaths): string | undefined {
   const hold = ownerHold(touches, owner)
-  if (hold === undefined)
+  if (hold !== undefined)
+    return `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}`
+  const critical = touches.map(riskOf).find(reading => reading.level === OWNER_RISK)
+  return critical === undefined ? undefined : `${critical.touch} is risk ${OWNER_RISK}, ${critical.why}`
+}
+
+function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+  if (decision === OWNER_DECISION)
+    return []
+  const reason = ownerReason(touches, owner)
+  if (reason === undefined)
     return decision === AUTO_DECISION ? [] : [{ field: 'decision', was: decision, now: AUTO_DECISION, reason: NO_OWNER_PATH }]
-  return decision === OWNER_DECISION ? [] : [{ field: 'decision', was: decision, now: OWNER_DECISION, reason: `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}` }]
+  return [{ field: 'decision', was: decision, now: OWNER_DECISION, reason }]
 }
 
 function unstatedDecision(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): string | undefined {
   if (card.decision !== undefined || owner === undefined || !includes(KINDS, card.kind) || !includes(decisionsOf(card.kind as Kind), OWNER_DECISION))
     return undefined
-  return ownerHold(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
+  return ownerReason(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
 }
 
 function decisionCorrection(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): Correction[] {
