@@ -1,3 +1,4 @@
+import type { Preflight } from '../../ghosts/preflight.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -7,7 +8,7 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { approvedHashPath, checkApproval } from '../../ghosts/approval.js'
-import { approvalLine, checkAcceptanceBuild, hashBrief, resolveApprover } from '../../ghosts/hash.js'
+import { approvalLine, checkAcceptanceBuild, hashBrief, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover } from '../../ghosts/hash.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
@@ -88,6 +89,67 @@ describe('approvalLine', () => {
     const brief = briefWith(SOUND_TEXT.replace(/^Sketch: .*$/m, `Sketch: sketch/t @ ${HEAD_SHA}`))
 
     expect(approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, GREEN_PREFLIGHT)).toBe(`approved /implement text sha256: ${hashBrief(brief)} sketch: ${HEAD_SHA} (2026-10-04, ${APPROVER})`)
+  })
+})
+
+describe('rememberedPreflight', () => {
+  const BASE_A = 'a'.repeat(40)
+  const BASE_B = 'b'.repeat(40)
+
+  function remembering(journalPath: string, base: () => string): { preflight: Preflight, runs: (string | undefined)[], logged: string[] } {
+    const runs: (string | undefined)[] = []
+    const logged: string[] = []
+    const counted: Preflight = (input) => {
+      runs.push(input.base)
+    }
+    const preflight = rememberedPreflight(counted, { journalPath, base, log: line => logged.push(line), now: () => NOW })
+    return { preflight, runs, logged }
+  }
+
+  function inputOf(brief: string): Parameters<Preflight>[0] {
+    return { briefPath: brief, text: readFileSync(brief, 'utf8'), sketch: { kind: 'none', reason: 'independent implementation is the witness' }, buildStdout: '' }
+  }
+
+  it('a repeat on the same text and base does not run the preflight', () => {
+    const journalPath = path.join(worldDir(), 'handoff', 'ghosts.jsonl')
+    const brief = briefWith(SOUND_TEXT)
+    const { preflight, runs, logged } = remembering(journalPath, () => BASE_A)
+
+    expect(approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, preflight)).toBe(approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, preflight))
+    expect(runs).toEqual([BASE_A])
+    expect(logged).toEqual([`preflight: base ${BASE_A.slice(0, 7)}; green on this text and base in ${journalPath}, not run again`])
+    expect(readFileSync(journalPath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)).toEqual([
+      { event: PREFLIGHT_EVENT, sha256: hashBrief(brief), base: BASE_A, ok: true, ts: NOW.toISOString() },
+    ])
+  })
+
+  it('a new text or a new base runs the preflight', () => {
+    const journalPath = path.join(worldDir(), 'ghosts.jsonl')
+    let base = BASE_A
+    const { preflight, runs } = remembering(journalPath, () => base)
+    const brief = briefWith(SOUND_TEXT)
+    const changed = briefWith(SOUND_TEXT.replace('Print the name.', 'Print the whole name.'))
+
+    preflight(inputOf(brief))
+    preflight(inputOf(changed))
+    base = BASE_B
+    preflight(inputOf(brief))
+    expect(runs).toEqual([BASE_A, BASE_A, BASE_B])
+  })
+
+  it('remembers no preflight that refused, so the next run tries again', () => {
+    const journalPath = path.join(worldDir(), 'ghosts.jsonl')
+    let refusals = 0
+    const refusing = rememberedPreflight(() => {
+      refusals += 1
+      throw new Error('preflight P7: refused')
+    }, { journalPath, base: () => BASE_A, log: () => {}, now: () => NOW })
+    const input = inputOf(briefWith(SOUND_TEXT))
+
+    expect(() => refusing(input)).toThrow('preflight P7: refused')
+    expect(() => refusing(input)).toThrow('preflight P7: refused')
+    expect(refusals).toBe(2)
+    expect(existsSync(journalPath)).toBe(false)
   })
 })
 

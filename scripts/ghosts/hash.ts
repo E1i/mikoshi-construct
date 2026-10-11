@@ -4,7 +4,7 @@ import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,7 +16,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
 import { appendJournalEvent } from './journal.js'
-import { runPreflight } from './preflight.js'
+import { pinnedBaseAtCwd, runPreflight } from './preflight.js'
 import { parseSketch } from './sketch.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -63,6 +63,37 @@ function refuseUnlessBuilt(briefPath: string, text: string, runBuild: BuildRunne
   finally {
     rmSync(dir, { recursive: true, force: true })
   }
+}
+
+export const PREFLIGHT_EVENT = 'preflight'
+
+export interface PreflightMemory {
+  journalPath: string
+  base: () => string
+  log: (line: string) => void
+  now: () => Date
+}
+
+function passedOn(events: JournalEvent[], sha256: string, base: string): boolean {
+  return events.some(event => event.event === PREFLIGHT_EVENT && event.sha256 === sha256 && event.base === base && event.ok === true)
+}
+
+export function rememberedPreflight(preflight: Preflight, memory: PreflightMemory): Preflight {
+  return (input) => {
+    const sha256 = approvalSha256(input.text)
+    const base = memory.base()
+    if (passedOn(journalEvents(memory.journalPath), sha256, base)) {
+      memory.log(`preflight: base ${base.slice(0, 7)}; green on this text and base in ${memory.journalPath}, not run again`)
+      return
+    }
+    preflight({ ...input, base })
+    mkdirSync(path.dirname(memory.journalPath), { recursive: true })
+    appendFileSync(memory.journalPath, `${JSON.stringify({ event: PREFLIGHT_EVENT, sha256, base, ok: true, ts: memory.now().toISOString() })}\n`)
+  }
+}
+
+function journalPreflight(): Preflight {
+  return rememberedPreflight(runPreflight, { journalPath: handoffJournalPath(), base: pinnedBaseAtCwd, log: line => console.error(line), now: () => new Date() })
 }
 
 function approvedSketchOf(sketch: Sketch): string {
@@ -266,13 +297,13 @@ async function main(): Promise<void> {
 
   try {
     if (args.card !== undefined) {
-      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date() })
+      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date(), preflight: journalPreflight() })
       console.log(approval.line)
       if (approval.suggestion !== undefined)
         console.log(approval.suggestion)
       return
     }
-    console.log(approvalLine(args.briefPath, new Date(), resolveApprover(args.by)))
+    console.log(approvalLine(args.briefPath, new Date(), resolveApprover(args.by), checkAcceptanceBuild, journalPreflight()))
   }
   catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
