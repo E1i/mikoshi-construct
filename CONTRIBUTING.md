@@ -81,6 +81,36 @@ Point every range in a template at the previous release, not the latest. Users r
 `minimumReleaseAge`; a range that only matches today's publish fails their first install. The
 places a bump touches are listed in CLAUDE.md.
 
+## One run, one temp root
+
+Every temp directory a run creates lives inside that run's root, and the run removes the root. The root
+is `mkr-<pid>-<random>`, directly in the system `$TMPDIR`, opened by `RunRoot` in
+`scripts/scratch/run-root.ts`; while it is open, `TMPDIR` and `CONSTRUCT_RUN_ROOT` point at it, so
+`os.tmpdir()`, `mktemp -d` and every child process that inherits the environment create inside it.
+`scratchDir(<prefix>)` there is the one way to make a temp directory: it creates it inside the
+current root, and a process that runs outside any root opens its own on first use. The prefix only
+names the directory for a person reading a listing; nothing checks it.
+
+`pnpm run quality` runs its steps under `scripts/scratch/run.ts`, and `vitest` opens a root in its
+global setup unless it already runs inside one. When the run ends, the root is removed, then
+`run.ts` waits a second and checks again: a root that still exists — a process the run left behind
+kept writing into it — turns the run red with `[run-root] <root> still exists after the run`, even
+when every step passed.
+
+The guarantee, as far as it goes:
+
+- A normal exit, a failure, a test timeout and the catchable signals `SIGINT`, `SIGTERM` and `SIGHUP`
+  remove the root at once.
+- `SIGKILL`, a crash of node itself and a power loss cannot run any cleanup. Their root stays until
+  the next root is opened in the same `$TMPDIR`: opening a root first removes every
+  `mkr-<pid>-*` whose pid is no longer alive.
+- A process that clears `TMPDIR` from its child's environment sends that child outside the root.
+
+A Unix socket path on macOS is limited to 104 bytes, and a tool that opens a socket under
+`os.tmpdir()` — the `tsx` CLI does — fails with `listen EINVAL` past it. The root's name is short so
+that it sits one level below `$TMPDIR`, and `RunRoot.open` refuses at once, creating nothing, a root
+whose path does not leave 24 bytes for a socket name below that limit.
+
 ## Scripts
 
 Every script in `package.json` has a row here, and `tests/contributing-scripts.test.ts` fails when a
@@ -93,7 +123,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 
 | Script | What it does | How to run it |
 |---|---|---|
-| `pnpm run quality` | The harness: runs `quality:steps` under `scripts/quality/lock.ts`, one lock per machine in `~/.construct/quality` (`CONSTRUCT_QUALITY_LOCK_DIR` moves it), so a second run in any worktree waits for the first; `lock.log` there records each `wait`, `start` and `end`, and a holder whose pid is gone is released as `stale`. | `pnpm run quality` |
+| `pnpm run quality` | The harness: runs `quality:steps` inside one temp root ([One run, one temp root](#one-run-one-temp-root)), under `scripts/quality/lock.ts`, one lock per machine in `~/.construct/quality` (`CONSTRUCT_QUALITY_LOCK_DIR` moves it), so a second run in any worktree waits for the first; `lock.log` there records each `wait`, `start` and `end`, and a holder whose pid is gone is released as `stale`. | `pnpm run quality` |
 | `pnpm quality:steps` | In the harness. `composition:check`, `model:check`, `privacy:check`, `lint`, `typecheck`, `test`, `docs:build`, `docs:pending` and `docs:anchors`, in that order, stopping at the first failure, without the lock. | `pnpm quality:steps` |
 | `pnpm run ci` | An alias of `quality`; `run` is needed because bare `pnpm ci` is pnpm's install builtin. | `pnpm run ci` |
 | `pnpm composition:check` | In the harness. Checks each composition model under `architecture/composition/`: named after its id, every path it names exists, its rendered doc current. | `pnpm composition:check` |
