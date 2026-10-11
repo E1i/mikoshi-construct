@@ -40,7 +40,7 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
-  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}) {}
+  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}) {}
 
   run(): Tick | null {
     const poll = this.netWatch.poll()
@@ -53,7 +53,9 @@ export class BusTick {
     const through = lastEventId(this.db)
     const reduced = reduce(this.db)
     appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...reduced }, legacy: false })
-    return { poll, reduced, derived: deriveQueues(this.db, ts) }
+    const derived = deriveQueues(this.db, ts)
+    this.project(this.clock())
+    return { poll, reduced, derived }
   }
 }
 
@@ -72,11 +74,13 @@ async function main(): Promise<number> {
   const clock = (): Date => new Date()
   const journal = journalIntake(db, journalPath(), parkingLane(defaultParking(os.homedir())), clock)
   const decisions = decisionsIntake(db, defaultDecisions(os.homedir()), clock)
+  const { boardProjection } = await import('./board-page.js')
+  const board = boardProjection(db, busPath)
   const busTick = new BusTick(db, new NetWatch(db, ghApi(process.cwd()), clock), clock, () => {
     journal()
     decisions()
-  })
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the journal and owner decisions import, the reducer and the queues every ${TICK_MS / 1000} s; no workers`)
+  }, board.project)
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the journal and owner decisions import, the reducer, the queues and ${board.file} every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
       const tick = busTick.run()

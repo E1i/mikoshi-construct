@@ -73,6 +73,18 @@ const PAST_THE_CEILING = `
   ORDER BY role LIMIT 1
 `
 
+export interface RoleReading {
+  role: Role
+  state: string
+  lease_until: string | null
+  pid: number | null
+  ts: string
+}
+
+export function roleReadings(db: DatabaseSync): RoleReading[] {
+  return db.prepare('SELECT roles.role, roles.state, roles.lease_until, roles.pid, events.ts FROM roles JOIN events ON events.id = roles.event_id ORDER BY roles.role').all() as unknown as RoleReading[]
+}
+
 export function raisedByTheBus(env: NodeJS.ProcessEnv): boolean {
   return env[RAISED_VARIABLE] === '1'
 }
