@@ -124,11 +124,11 @@ describe('a pipeline of two cards', () => {
     const chain = chainGh()
     expect(await chainRun(world, chain, (slept) => {
       if (slept === 1)
-        review(world, 102, 'pass')
-      if (slept === 3)
         review(world, 101, 'pass')
+      if (slept === 3)
+        review(world, 102, 'pass')
     })).toBe(0)
-    expect(merges(chain)).toEqual(['102', '101'])
+    expect(merges(chain)).toEqual(['101', '102'])
     const journal = lines(world.journal)
     for (const task of ['1', '2']) {
       const reviewed = journal.findIndex(line => line.event === PR_REVIEW_EVENT && line.task === task)
@@ -136,7 +136,7 @@ describe('a pipeline of two cards', () => {
       expect(reviewed).toBeGreaterThan(-1)
       expect(merged).toBeGreaterThan(reviewed)
     }
-    expect(eventsOf(world, 'chain').map(line => `${String(line.step)} ${String(line.task ?? line.reason)}`)).toEqual(['wait 1', 'next 2', 'wait 2', 'reviewed 2', 'merged 2', 'reviewed 1', 'merged 1', 'end no-eligible'])
+    expect(eventsOf(world, 'chain').map(line => `${String(line.step)} ${String(line.task ?? line.reason)}`)).toEqual(['wait 1', 'reviewed 1', 'merged 1', 'next 2', 'wait 2', 'reviewed 2', 'merged 2', 'end no-eligible'])
   })
 })
 

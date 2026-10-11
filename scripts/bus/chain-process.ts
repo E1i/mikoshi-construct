@@ -1,4 +1,4 @@
-import type { ChainRow } from './chain.js'
+import type { ChainRow, ChainState } from './chain.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
 
@@ -8,6 +8,8 @@ export interface ProcessTable {
   commandLine: (pid: number) => string | null
   signalGroup: (leader: number) => void
 }
+
+const LIVE_STATES: ReadonlySet<ChainState> = new Set(['running', 'waiting'])
 
 const SHIFT_WORDS = new Set(['shift', 'shift.ts'])
 
@@ -24,7 +26,7 @@ export function chainProcess(chain: ChainRow, table: ProcessTable): ChainProcess
 }
 
 export function stopChain(chain: ChainRow, table: ProcessTable): void {
-  if (chain.state !== 'running')
+  if (!LIVE_STATES.has(chain.state))
     return
   const found = chainProcess(chain, table)
   if (found === 'gone')
