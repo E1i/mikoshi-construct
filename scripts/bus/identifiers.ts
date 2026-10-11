@@ -8,6 +8,7 @@ const FIXED_ACTORS = new Set(['netwatch', 'reducer', 'owner', 'policy'])
 const WORKER_ACTOR = /^worker:[a-z][a-z-]*:[^:\s]+$/
 const FULL_SHA = /^[0-9a-f]{40}$/
 const LEADING_NUMBER = /^#?(\d+)(?!\d)/
+const CARD_PREFIX = /^card:\s*/
 
 export interface TaskIdentity {
   queue: Queue
@@ -42,7 +43,7 @@ export function cardIdOf(value: unknown): number | null {
 }
 
 export function cardIdOfDescription(description: string | null | undefined): number | null {
-  return cardIdOf((description ?? '').split('\n')[0] ?? '')
+  return cardIdOf((description ?? '').split('\n')[0]?.trim().replace(CARD_PREFIX, '') ?? '')
 }
 
 export function prOf(value: unknown): number | null {
