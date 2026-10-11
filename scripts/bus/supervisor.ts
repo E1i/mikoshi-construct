@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { appendFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -184,6 +184,92 @@ export class BusSupervisor {
   }
 }
 
+export const KEEP_BASE_MS = CHECK_MS
+export const KEEP_MAX_MS = 10 * 60_000
+export const FAILURES_REPORTED = 3
+export const SUPERVISOR_JOURNAL = 'supervisor.jsonl'
+export const REDUCE_SCRIPT = 'bus:reduce'
+
+export interface KeeperParts {
+  wanted: () => DetachedLaunch[]
+  start: (launch: DetachedLaunch) => BgResult
+  processes: ProcessList
+  reduce: () => string[]
+  journal: (entry: Record<string, unknown>) => void
+  now: () => number
+}
+
+interface Streak {
+  causes: string[]
+  retryAt: number
+}
+
+export function backoffMs(failures: number): number {
+  return Math.min(KEEP_BASE_MS * 2 ** (failures - 1), KEEP_MAX_MS)
+}
+
+function refusedByPreflight(launch: DetachedLaunch, started: BgResult): boolean {
+  return launch.preflight !== undefined && started.stderr[0] === `${launch.prefix}refused to start ${launch.script}:`
+}
+
+function causeOf(started: BgResult): string {
+  return started.stderr.map(line => line.trim()).join(' ') || `exit ${started.exitCode} with nothing on stderr`
+}
+
+export class WorkerKeeper {
+  private readonly streaks = new Map<string, Streak>()
+
+  constructor(private readonly parts: KeeperParts) {}
+
+  step(): string[] {
+    try {
+      const processes = this.parts.processes()
+      return this.parts.wanted()
+        .filter(launch => runningInstance(processes, launch.markers) === undefined)
+        .flatMap(launch => this.revive(launch))
+    }
+    catch (error) {
+      return [`${PREFIX}keeping the workers alive failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
+    }
+  }
+
+  private revive(launch: DetachedLaunch): string[] {
+    const name = launchName(launch)
+    const streak = this.streaks.get(name)
+    if (streak !== undefined && this.parts.now() < streak.retryAt)
+      return []
+    const lines = [`${PREFIX}${name} is switched on and not running; starting it`]
+    let started = this.parts.start(launch)
+    if (started.exitCode !== 0 && refusedByPreflight(launch, started)) {
+      lines.push(...started.stderr, `${PREFIX}${name} was refused by the projection preflight; running ${REDUCE_SCRIPT} once and starting it again`, ...this.parts.reduce())
+      started = this.parts.start(launch)
+    }
+    lines.push(...started.stdout, ...started.stderr)
+    if (started.exitCode === 0) {
+      this.streaks.delete(name)
+      return lines
+    }
+    return [...lines, ...this.failed(name, streak, causeOf(started))]
+  }
+
+  private failed(name: string, streak: Streak | undefined, cause: string): string[] {
+    const causes = [...streak?.causes ?? [], cause]
+    const wait = backoffMs(causes.length)
+    this.streaks.set(name, { causes, retryAt: this.parts.now() + wait })
+    const next = `${PREFIX}${name} failed to start ${causes.length} time(s) in a row; the next attempt in ${Math.round(wait / 1000)}s`
+    if (causes.length !== FAILURES_REPORTED)
+      return [next]
+    this.parts.journal({ ts: new Date(this.parts.now()).toISOString(), event: 'worker.down', worker: name, failures: causes.slice(-FAILURES_REPORTED) })
+    return [next, `${PREFIX}${name} failed ${FAILURES_REPORTED} starts in a row and needs the owner: ${causes.slice(-FAILURES_REPORTED).map((failure, index) => `${index + 1}) ${failure}`).join('; ')}; the supervisor keeps backing off and retrying`]
+  }
+}
+
+export function runReducer(cwd: string): string[] {
+  const run = spawnSync('pnpm', ['--silent', REDUCE_SCRIPT], { cwd, encoding: 'utf8' })
+  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`.split('\n').filter(line => line !== '')
+  return run.status === 0 ? output : [...output, `${PREFIX}${REDUCE_SCRIPT} exited ${run.status ?? run.error?.message ?? 'without a status'}`]
+}
+
 export type BgCommand
   = | { kind: 'start' }
     | { kind: 'supervise' }
@@ -220,10 +306,20 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code: gitCode(cwd),
   }, lastMainAdvance(db))
-  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them once ${cwd} holds it`)
+  const keeper = new WorkerKeeper({
+    wanted: () => wantedLaunches(busDir, reviewPreflight),
+    start: launch => startDetached(launch, busDir, process.env, processes),
+    processes,
+    reduce: () => runReducer(cwd),
+    journal: (entry) => {
+      appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
+    },
+    now: () => Date.now(),
+  })
+  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them once ${cwd} holds it, and a switched-on worker that is not running is started again`)
   try {
     for (;;) {
-      for (const line of await supervisor.step())
+      for (const line of [...await supervisor.step(), ...keeper.step()])
         console.log(line)
       await sleep(CHECK_MS)
     }
