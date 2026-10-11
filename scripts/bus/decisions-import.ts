@@ -17,7 +17,7 @@ export function importOwnerDecisions(db: DatabaseSync, text: string, ts: string)
   const sha256 = createHash('sha256').update(text).digest('hex')
   if (lastImportedSha(db) === sha256)
     return false
-  const decisions = inForce(parseDecisions(text).decisions).map(decision => ({ decision_id: decision.number, text: decision.body, scope: decision.cards }))
+  const decisions = inForce(parseDecisions(text).decisions, new Date(ts)).map(decision => ({ decision_id: decision.number, text: decision.body, scope: decision.cards }))
   return appendEvent(db, { ts, type: DECISIONS_IMPORTED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISIONS_IMPORTED}:${sha256}:${ts}`, payload: { sha256, decisions }, legacy: false })
 }
 

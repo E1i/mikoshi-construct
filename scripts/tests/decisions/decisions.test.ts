@@ -65,6 +65,19 @@ describe('owner decisions are a numbered record', () => {
     expect(result.out.join('\n')).not.toContain('after #697')
   })
 
+  it('any decision D-N is in force when it has no superseded-by and its until has not passed', () => {
+    const { decisions } = parseDecisions(file(
+      '- D-1 · 2026-10-08 — #686 stays whole.',
+      '- D-2 · 2026-10-08 — The delegation holds. until 2026-10-12T04:30Z',
+      '- D-3 · 2026-10-08 — An older delegation. until 2026-10-10T00:00Z',
+      '- D-4 · 2026-10-08 — A replaced delegation. until 2026-10-12T04:30Z · superseded-by D-5',
+      '- D-5 · 2026-10-08 — The replacement.',
+    ))
+    const numbers = (now: Date): number[] => inForce(decisions, now).map(decision => decision.number)
+    expect(numbers(new Date('2026-10-11T12:00:00.000Z'))).toEqual([1, 2, 5])
+    expect(numbers(new Date('2026-10-12T04:30:00.000Z'))).toEqual([1, 5])
+  })
+
   it('reads the home decisions file when none is named', () => {
     expect(read(file('- D-1 · 2026-10-08 — one.'), []).out).toEqual(['- D-1 · 2026-10-08 — one.'])
   })

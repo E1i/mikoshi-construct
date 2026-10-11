@@ -19,6 +19,7 @@ const OPTIONAL_TAIL = / \[([^\]]+)\]/g
 const LIST_START = /^\s*(?:[-*+]|\d+[.)])\s|^\s*D-/
 const NUMBER_ATTEMPT = /^\s*(?:[-*+]\s+)?D-/
 const SUPERSEDED_MENTION = /superseded-by/i
+const UNTIL = /\buntil (?<until>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)(?!\S)/
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -89,8 +90,18 @@ export function parseDecisions(text: string): Decisions {
   return { decisions, offFormat }
 }
 
-export function inForce(decisions: readonly Decision[]): Decision[] {
-  return decisions.filter(decision => decision.supersededBy === null)
+export function untilOf(body: string): Date | null {
+  const until = UNTIL.exec(body)?.groups?.until
+  return until === undefined ? null : new Date(until)
+}
+
+export function expired(body: string, now: Date): boolean {
+  const until = untilOf(body)
+  return until !== null && until.getTime() <= now.getTime()
+}
+
+export function inForce(decisions: readonly Decision[], now: Date = new Date()): Decision[] {
+  return decisions.filter(decision => decision.supersededBy === null && !expired(decision.body, now))
 }
 
 export function inForceBytes(decisions: readonly Decision[]): number {

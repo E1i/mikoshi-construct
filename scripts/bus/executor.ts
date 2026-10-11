@@ -5,17 +5,15 @@ import type { AfterFailure, Lease } from './lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts } from './policy.js'
 import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
-import { inForceDecisions } from './decisions.js'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { mergePolicy, VERSION_BRANCH } from './policy.js'
+import { decisionsInForceAt, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const MERGE_DONE = 'merge.done'
-export const SHARD_ISSUED = 'shard.issued'
-export const SHARD_USED = 'shard.used'
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const MERGE_METHOD = 'squash'
 export const STALE_HEAD_STATUS = 409
@@ -64,22 +62,6 @@ function technical(reason: MergeTechnicalReason, detail: string): Checked {
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-export function shardActive(db: DatabaseSync, run: string | null): boolean {
-  if (run === null)
-    return false
-  return db.prepare(`SELECT 1 FROM events WHERE type = '${SHARD_USED}' AND json_extract(payload, '$.run') = ? LIMIT 1`).get(run) !== undefined
-}
-
-export function unspentShard(db: DatabaseSync, cardId: number, pr: number | null): string | null {
-  const row = db.prepare(`
-    SELECT json_extract(issued.payload, '$.id') AS id FROM events issued
-    WHERE issued.type = '${SHARD_ISSUED}' AND (issued.card_id = ? OR issued.pr = ?)
-      AND NOT EXISTS (SELECT 1 FROM events used WHERE used.type = '${SHARD_USED}' AND json_extract(used.payload, '$.id') = json_extract(issued.payload, '$.id'))
-    ORDER BY issued.id LIMIT 1
-  `).get(cardId, pr) as { id: unknown } | undefined
-  return typeof row?.id === 'string' ? row.id : null
 }
 
 function changedFiles(meter: Meter, pr: number): string[] {
@@ -159,12 +141,13 @@ export class MergeExecutor {
         if (verdict !== 'pass')
           return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
       }
+      const decisions = decisionsInForceAt(this.parts.db, this.parts.clock())
       const runShard = shardActive(this.parts.db, this.parts.run)
-      const shard = runShard ? null : unspentShard(this.parts.db, lease.cardId, lease.pr)
+      const shard = runShard ? null : unspentShard(this.parts.db, lease.cardId, lease.pr, decisions)
       return {
         kind: 'ready',
         mergedCommit,
-        shard,
+        shard: shard?.id ?? null,
         facts: {
           cardId: lease.cardId,
           description: pull.body ?? '',
@@ -173,7 +156,8 @@ export class MergeExecutor {
           files: changedFiles(meter, lease.pr!),
           ownerMergesText: ownerMergesText(meter),
           shardActive: runShard || shard !== null,
-          decisions: inForceDecisions(this.parts.db),
+          shardUnder: shard?.under ?? null,
+          decisions,
         },
       }
     }

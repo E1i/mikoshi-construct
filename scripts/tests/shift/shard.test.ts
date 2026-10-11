@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from '../../bus/db.js'
 import type { ShardDeps } from '../../shift/shard.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { SHARD_ISSUED } from '../../bus/executor.js'
+import { SHARD_ISSUED, SHARD_USED } from '../../bus/shards.js'
 import { runShard, USAGE } from '../../shift/shard.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
@@ -44,7 +45,7 @@ function ownerGh(pr: Pr = {}): { gh: (args: string[]) => string, calls: string[]
 }
 
 function shardDeps(world: World, io: ReturnType<typeof captured>, record: ShardDeps['record'] = () => {}): ShardDeps {
-  return { cwd: world.repo, handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), record, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
+  return { cwd: world.repo, handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), record, inForce: () => false, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
 }
 
 function issue(world: World): string {
@@ -99,6 +100,29 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(recorded).toEqual([])
     expect(eventsOf(world, 'shard')).toEqual([])
     expect(io.err.every(line => line.includes(USAGE))).toBe(true)
+  })
+
+  it('pnpm shard --under D-N issues a card or pull request shard only while D-N is in force, and names the decision when it refuses', () => {
+    const world = initWorld('do 1')
+    const io = captured()
+    const recorded: BusEvent[] = []
+    const deps = { ...shardDeps(world, io, event => recorded.push(event)), inForce: (decisionId: number) => decisionId === 82 }
+    expect(runShard(['--pr', '626', '--under', 'D-82', '--by', 'Eli'], deps)).toBe(0)
+    expect(recorded).toMatchObject([{ type: SHARD_ISSUED, pr: 626, payload: { id: SHARD, by: 'Eli', run: null, under: 82 } }])
+    expect(runShard(['--pr', '626', '--under', 'D-80', '--by', 'Eli'], deps)).toBe(1)
+    expect(io.err.at(-1)).toContain('D-80 is not in force')
+    for (const argv of [[world.shift, '--under', 'D-82'], ['--pr', '626', '--under', '82'], ['--pr', '626', '--under']])
+      expect(runShard(argv, deps)).toBe(1)
+    expect(recorded).toHaveLength(1)
+  })
+
+  it('the run path writes shard.used to the bus when the run spends its shard', async () => {
+    const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const { gh } = ownerGh()
+    const recorded: BusEvent[] = []
+    await runShift([world.shift, '--parking', world.parking, '--slot', shard], { ...depsOf(world, gh, captured()), recordBus: event => recorded.push(event) })
+    expect(recorded).toMatchObject([{ type: SHARD_USED, payload: { id: shard, run: world.shift } }])
   })
 
   it('without a shard an owner PR stops at the owner', async () => {
