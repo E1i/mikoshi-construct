@@ -8,10 +8,13 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, MIKO_HANDOFF_NAME, mikoHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
+import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
 const KEY_PRESS_GAP_MS = 300
+const READY_DEADLINE_MS = 15_000
+const PAUSE_LINE = 'next session in'
 const STUB_CLAUDE = `#!/bin/sh
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$STUB_DIR/count"
@@ -84,9 +87,12 @@ function startPnpmMiko(dir: string): { exited: Promise<number | null>, done: Pro
   return { exited, done, pid: child.pid!, stderr: () => stderr }
 }
 
-async function until(condition: () => boolean): Promise<void> {
-  for (let tries = 0; tries < 200 && !condition(); tries++)
-    await new Promise(resolve => setTimeout(resolve, 50))
+async function sessionReady(dir: string): Promise<void> {
+  await waitFor(() => existsSync(path.join(dir, 'ready')), () => 'the stub session to write its ready file', READY_DEADLINE_MS)
+}
+
+async function pauseLine(stderr: () => string, deadlineMs = READY_DEADLINE_MS): Promise<void> {
+  await waitFor(() => stderr().includes(PAUSE_LINE), () => `"${PAUSE_LINE}" on stderr (stderr so far: ${JSON.stringify(stderr())})`, deadlineMs)
 }
 
 async function endsWithin(loop: ReturnType<typeof startLoop>, ms: number): Promise<{ code: number | null, stderr: string } | 'still running'> {
@@ -126,18 +132,34 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     loop.stderr.on('data', (chunk: string) => {
       stderr += chunk
     })
-    await until(() => existsSync(path.join(dir, 'ready')))
+    await sessionReady(dir)
     process.kill(-loop.pid, 'SIGINT')
-    await until(() => stderr.includes('next session in'))
+    await pauseLine(() => stderr)
     process.kill(-loop.pid, 'SIGINT')
     const { code } = await loop.done
     expect({ code, calls: lines(dir, 'calls'), stderr }).toMatchObject({ code: 0, calls: ['0|'], stderr: expect.stringContaining('Ctrl+C in the pause: no next session') })
   }, 20_000)
 
+  it('a readiness line that never comes fails the wait instead of passing it silently', async () => {
+    const dir = home(['hang', 'owner 0'])
+    const loop = startLoop(dir)
+    let stderr = ''
+    loop.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    try {
+      await sessionReady(dir)
+      await expect(pauseLine(() => stderr, PAUSE_MS)).rejects.toThrow(`"${PAUSE_LINE}" on stderr`)
+    }
+    finally {
+      process.kill(-loop.pid, 'SIGKILL')
+    }
+  }, 20_000)
+
   it('a Ctrl-C that ends the session leaves the loop running, and STATUS: CONTINUE starts the next one', async () => {
     const dir = home(['hang', 'owner 0'])
     const loop = startLoop(dir)
-    await until(() => existsSync(path.join(dir, 'ready')))
+    await sessionReady(dir)
     process.kill(-loop.pid, 'SIGINT')
     const { code, stderr } = await loop.done
     expect({ code, calls: lines(dir, 'calls'), stderr }).toMatchObject({ code: 0, calls: ['0|', `1|${CONTINUE_PROMPT}`], stderr: expect.stringContaining('STATUS: OWNER: no next session') })
@@ -146,7 +168,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
   it('a double Ctrl-C ends the loop', async () => {
     const dir = home(['deaf', 'owner 0'])
     const loop = startLoop(dir)
-    await until(() => existsSync(path.join(dir, 'ready')))
+    await sessionReady(dir)
     process.kill(-loop.pid, 'SIGINT')
     await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
     process.kill(-loop.pid, 'SIGINT')
@@ -159,7 +181,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const dir = home(['continue 0', 'owner 0'])
     const miko = startPnpmMiko(dir)
     try {
-      await until(() => miko.stderr().includes('next session in'))
+      await pauseLine(miko.stderr)
       await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
       process.kill(-miko.pid, 'SIGINT')
       await miko.exited

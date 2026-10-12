@@ -11,6 +11,7 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
+import { waitFor } from '../wait-for.js'
 
 const roots: string[] = []
 const started: number[] = []
@@ -76,13 +77,17 @@ function detachedSleep(): number {
   return child.pid!
 }
 
-async function argvLines(w: World, count: number): Promise<string[]> {
+const ARGV_DEADLINE_MS = 5000
+
+function readArgv(w: World): string[] {
   const file = path.join(w.out, 'pnpm.argv')
-  const read = (): string[] => existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : []
-  for (let attempt = 0; attempt < 200 && read().length < count; attempt++)
-    await new Promise(resolve => setTimeout(resolve, 25))
+  return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : []
+}
+
+async function argvLines(w: World, count: number, deadlineMs = ARGV_DEADLINE_MS): Promise<string[]> {
+  await waitFor(() => readArgv(w).length >= count, () => `${count} pnpm.argv lines (read: ${JSON.stringify(readArgv(w))})`, deadlineMs)
   await new Promise(resolve => setTimeout(resolve, 200))
-  return read()
+  return readArgv(w)
 }
 
 function deadPid(): number {
@@ -199,7 +204,8 @@ describe('pnpm bus:bg', () => {
     expect(pidsOf(second)).toEqual([])
     expect(second.stdout).toHaveLength(3)
     expect(second.stdout.every(line => line.endsWith('; left alone'))).toBe(true)
-    expect(await argvLines(w, 3)).toHaveLength(2)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    expect(readArgv(w)).toHaveLength(2)
   })
 
   it('a worker that is switched off is not started', async () => {
@@ -213,7 +219,8 @@ describe('pnpm bus:bg', () => {
     started.push(...pidsOf(result))
     expect(result.exitCode).toBe(0)
     expect(pidsOf(result)).toHaveLength(1)
-    expect(await argvLines(w, 2)).toEqual(['--silent bus:run'])
+    expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
+    await expect(argvLines(w, 2, 300)).rejects.toThrow('2 pnpm.argv lines (read: ["--silent bus:run"])')
     for (const worker of ['review', 'merge', 'update'])
       expect(existsSync(path.join(w.busDir, `bus-${worker}.pid`))).toBe(false)
   })
