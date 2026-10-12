@@ -11,7 +11,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { parkingLanes, readBoard } from '../bus/board.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { journalPath } from '../bus/import.js'
-import { defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
+import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
 import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
@@ -85,7 +85,7 @@ export function stateLines(state: HandoffState): string[] {
     `current card: ${joinedOrNothing(current, '; ')}`,
     `queue: ${joinedOrNothing(state.ready.map(card => `#${card.card}`), ' → ')}`,
     ...(state.execution.length === 0 ? [`${IN_FLIGHT_LABEL}: ${NOTHING}`] : [`${IN_FLIGHT_LABEL}:`, ...state.execution.map(inFlightEntry)]),
-    `owner waits: ${joinedOrNothing(state.blocked.map(card => `#${card.card} ${card.reason}`), '; ')}`,
+    `${BLOCKED_LABEL}: ${joinedOrNothing(state.blocked.map(card => `#${card.card} ${card.reason}`), '; ')}`,
   ]
 }
 

@@ -25,7 +25,7 @@ const UNBOUNDED_OWNER_STATUSES = [
 const DECISIONS = fileURLToPath(import.meta.url)
 const PARKED = new Map<number, number[]>([[650, []], [652, [650]]])
 const NO_BUS: StateReading = { kind: 'unread', why: 'no bus at /nowhere/bus.db' }
-const STATE_FIELDS = ['current card', 'queue', 'in-flight', 'owner waits']
+const STATE_FIELDS = ['current card', 'queue', 'in-flight', 'blocked']
 const BUS_STATE: HandoffState = {
   ready: [{ card: '650', lane: 'lane-1', reason: null }, { card: '652', lane: 'lane-1', reason: null }],
   blocked: [{ card: '653', lane: 'lane-2', reason: 'waits question' }],
@@ -237,7 +237,7 @@ describe('handoff:write', () => {
     expect(result.err).toEqual([])
     expect(result.code).toBe(0)
     const written = readFileSync(handoff, 'utf8')
-    expect(written).toContain('## STOP — window 2\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\nowner waits: #653 waits question\n')
+    expect(written).toContain('## STOP — window 2\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\nblocked: #653 waits question\n')
     expect(written).toContain('stop reason: stop-reason value\n')
     expect(written).toContain('continue when: continue-when value\n')
     expect(result.out[0]).toContain(`${STATE_FIELDS.join(', ')} from the bus state`)
@@ -249,12 +249,12 @@ describe('handoff:write', () => {
     expect(write([handoff, file]).code).toBe(1)
     busState = { kind: 'read', state: { ready: [], blocked: [], lanes: [], execution: [] } }
     expect(write([handoff, file]).code).toBe(0)
-    expect(readFileSync(handoff, 'utf8')).toContain('current card: none\nqueue: none\nin-flight: none\nowner waits: none\n')
+    expect(readFileSync(handoff, 'utf8')).toContain('current card: none\nqueue: none\nin-flight: none\nblocked: none\n')
   })
 
   it.each([
     ['a state field in the STOP section', (text: string) => text, 'queue'],
-    ['a state field as a heading with prose under it', (text: string) => `${withoutStateFields(text)}\n## owner waits\n\nWhy I stopped, in prose.\n`, 'owner waits'],
+    ['a state field as a heading with prose under it', (text: string) => `${withoutStateFields(text)}\n## blocked\n\nWhy I stopped, in prose.\n`, 'blocked'],
     ['a state field above the STOP section', (text: string) => `in-flight: #999 brief\n${withoutStateFields(text)}`, 'in-flight'],
   ])('refuses a draft that carries %s when the bus state is read, so no word of the draft is dropped', (_, shape, label) => {
     const { dir, handoff, draft: file } = world()
@@ -267,6 +267,18 @@ describe('handoff:write', () => {
     expect(result.err.at(-1)).toContain('nothing archived')
     expect(readFileSync(handoff, 'utf8')).toBe('old\n')
     expect(existsSync(path.join(dir, 'archive'))).toBe(false)
+  })
+
+  it('writes the owner waits the draft names, the version PR among them, beside the blocked cards the bus state holds', () => {
+    const { handoff, draft: file } = world()
+    writeFileSync(file, withoutStateFields(draft({ 'owner waits': 'version PR #900 needs the owner\'s approval' })))
+    busState = { kind: 'read', state: BUS_STATE }
+    const result = write([handoff, file])
+    expect(result.err).toEqual([])
+    expect(result.code).toBe(0)
+    const written = readFileSync(handoff, 'utf8')
+    expect(written).toContain('owner waits: version PR #900 needs the owner\'s approval\n')
+    expect(written).toContain('blocked: #653 waits question\n')
   })
 
   it('keeps the draft fields and names why when no bus state is read', () => {
