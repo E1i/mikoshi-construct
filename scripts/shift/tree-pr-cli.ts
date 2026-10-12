@@ -6,13 +6,44 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { execGh } from '../board/gh.js'
+import { PR_OPENED } from '../bus/card-automaton.js'
+import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
 
-const REAL_PORTS: TreePrPorts = {
+export interface TreePrCliPorts extends TreePrPorts {
+  opened: (cardId: number, pr: number) => void
+}
+
+export interface PrOpenedBus {
+  busPath: string
+  pid: number
+  now: () => Date
+  err: (line: string) => void
+}
+
+export function busPrOpened(bus: PrOpenedBus): TreePrCliPorts['opened'] {
+  return (cardId, pr) => {
+    try {
+      const db = openBus(bus.busPath)
+      try {
+        appendEvent(db, { ts: bus.now().toISOString(), type: PR_OPENED, actor: `worker:shift:${bus.pid}`, cardId, pr, head: null, dedupeKey: `${PR_OPENED}:${cardId}:${pr}`, payload: { pr }, legacy: false })
+      }
+      finally {
+        db.close()
+      }
+    }
+    catch (error) {
+      bus.err(`${PREFIX}${PR_OPENED} of PR #${pr} not written to ${bus.busPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
+const REAL_PORTS: TreePrCliPorts = {
   git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
   gh: execGh,
+  opened: busPrOpened({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => process.stderr.write(`${line}\n`) }),
 }
 
 function outcomeLine(cardFile: string, outcome: TreePr): string {
@@ -23,7 +54,7 @@ function outcomeLine(cardFile: string, outcome: TreePr): string {
   return `${PREFIX}${path.basename(cardFile)}: ${outcome.why}`
 }
 
-export function runTreePr(argv: string[], ports: TreePrPorts = REAL_PORTS, out: (line: string) => void = line => process.stdout.write(`${line}\n`)): number {
+export function runTreePr(argv: string[], ports: TreePrCliPorts = REAL_PORTS, out: (line: string) => void = line => process.stdout.write(`${line}\n`)): number {
   const [cardFile, worktree, report] = argv
   if (cardFile === undefined || worktree === undefined) {
     out(`${PREFIX}usage: tree-pr <parking card file> <worktree> [<session report>]`)
@@ -39,6 +70,8 @@ export function runTreePr(argv: string[], ports: TreePrPorts = REAL_PORTS, out: 
     return 1
   }
   const outcome = treePr(ports, shiftTreeCard(parsed.parked.task), worktree, report !== undefined && existsSync(report) ? readFileSync(report, 'utf8') : null)
+  if (outcome.kind === 'pr')
+    ports.opened(Number(parsed.parked.task.id), Number(outcome.number))
   out(outcomeLine(cardFile, outcome))
   return outcome.kind === 'problem' ? 1 : 0
 }

@@ -5,12 +5,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { decisionsIntake } from '../../bus/decisions-import.js'
-import { MERGE_DONE } from '../../bus/executor.js'
 import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { firstLiveVerdict, NoLiveVerdict, runMergeWorker, startMergeWorker } from '../../bus/merge-worker.js'
-import { DRY_RUN_ACTOR, REVIEW_RECORDED } from '../../bus/review-worker.js'
+import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
 import { decisionsInForceAt, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
 import { runShard } from '../../shift/shard.js'
 import { cardBody, sha } from './github-fake.js'
@@ -246,6 +247,20 @@ describe('the merge worker', () => {
     expect(mergeTaskState(bench, 980)).toBe('withdrawn')
     expect(worker.step()).toEqual({ kind: 'idle' })
     expect(bench.gitHub.puts).toEqual([])
+    bench.close()
+  })
+
+  it('a pull request whose card depends on a card with no merge.done is not a merge candidate, and becomes one after that merge.done', () => {
+    const bench = mergeBench()
+    const ts = bench.clock.now().toISOString()
+    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'reducer', cardId: 826, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:826`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [838] }, legacy: false })
+    bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'auto') })
+    bench.tick()
+    expect(bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'merge' AND pr = 726`).get()).toEqual({ n: 0 })
+
+    appendEvent(bench.db, { ts, type: MERGE_DONE, actor: 'worker:merge:worker-0', cardId: 838, pr: 738, head: sha('e'), dedupeKey: `${MERGE_DONE}:738`, payload: { commit: sha('f'), rule: 'auto' }, legacy: false })
+    bench.tick()
+    expect(mergeTaskState(bench, 726)).toBe('queued')
     bench.close()
   })
 

@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { CHAIN_OBSERVED } from './chain.js'
-import { MERGE_DONE } from './executor.js'
-import { REVIEW_RECORDED } from './review-worker.js'
 
 export const CARD_ADMITTED = 'card.admitted'
 export const PR_OBSERVED = 'pr.observed'

@@ -2,9 +2,9 @@ import type { ChainObservation } from '../bus/chain.js'
 import type { BusMerge } from './merge.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
+import { MERGE_DONE } from '../bus/card-automaton.js'
 import { observeChain } from '../bus/chain.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
-import { MERGE_DONE } from '../bus/executor.js'
 import { busMerge } from './merge.js'
 
 export type ChainMoment = Omit<ChainObservation, 'sha' | 'pid' | 'leader'>

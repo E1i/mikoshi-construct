@@ -5,23 +5,22 @@ import type { LeaseOrder } from './lease.js'
 import path from 'node:path'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
+import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
 import { CHAIN_OBSERVED, WAITING } from './chain.js'
-import { MERGE_DONE } from './executor.js'
 import { QUEUES } from './identifiers.js'
-import { CARD_STARTED } from './inbox.js'
+import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { grantOrder, RENEW_MS, TASK_COMPLETED, TASK_LEASED } from './lease.js'
 import { CARD_ADMITTED } from './operator-work.js'
 import { CARD_CLOSED, LEASED } from './queue.js'
-import { REJECTED } from './reducer.js'
+import { REJECTED } from './rejection.js'
 import { replayDifferences } from './report.js'
-import { REVIEW_RECORDED } from './review-worker.js'
 import { roleReadings } from './role.js'
 
 export const BOARD_FILE = 'board.html'
 export const FRESH_MS = RENEW_MS
 export const NO_PROGRESS_MS = 30 * 60_000
 export const CUTOVER = 'bus.cutover'
-export const PROGRESS_EVENTS = [REVIEW_RECORDED, MERGE_DONE, 'pr.opened', 'pr.closed', CARD_STARTED, CARD_ADMITTED, CARD_CLOSED, TASK_COMPLETED] as const
+export const PROGRESS_EVENTS = [REVIEW_RECORDED, MERGE_DONE, PR_OPENED, 'pr.closed', CARD_STARTED, CARD_ADMITTED, CARD_CLOSED, TASK_COMPLETED] as const
 export const MERGE_PAST_THE_BUS = 'merge past the bus'
 
 export type Health = 'alive' | 'down' | 'unknown' | 'off'
@@ -153,7 +152,10 @@ const OPEN_PRS = `
     (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = 'pr.observed' AND seen.pr = prs.pr AND seen.head = prs.head
       AND json_extract(seen.payload, '$.ci') = prs.ci AND json_extract(seen.payload, '$.verdict_on_head') IS prs.verdict_on_head) AS since,
     (SELECT json_extract(recorded.payload, '$.verdict') || ' · ' || json_extract(recorded.payload, '$.depth') || CASE WHEN recorded.head = prs.head THEN '' ELSE ' (an earlier head)' END
-      FROM events AS recorded WHERE recorded.type = '${REVIEW_RECORDED}' AND recorded.pr = prs.pr AND recorded.legacy = 0 ORDER BY recorded.id DESC LIMIT 1) AS review
+      FROM events AS recorded WHERE recorded.type = '${REVIEW_RECORDED}' AND recorded.pr = prs.pr AND recorded.legacy = 0 ORDER BY recorded.id DESC LIMIT 1) AS review,
+    (SELECT 'stopped ' || json_extract(stop.payload, '$.reason') || coalesce(': ' || json_extract(stop.payload, '$.detail'), '')
+      FROM cards JOIN events AS stop ON stop.card_id = cards.card_id AND stop.type = '${CARD_STOPPED}' AND stop.legacy = 0
+      WHERE cards.card_id = prs.card_id AND cards.state = '${STOPPED_CARD}' ORDER BY stop.id DESC LIMIT 1) AS stop
   FROM prs WHERE prs.state = 'open' AND prs.card_id IS NOT NULL ORDER BY prs.pr
 `
 
@@ -250,6 +252,7 @@ interface OpenPrRow {
   verdict_on_head: string | null
   since: string | null
   review: string | null
+  stop: string | null
 }
 
 function stageOf(row: OpenPrRow): string {
@@ -281,7 +284,7 @@ function executionBlock(db: DatabaseSync, chains: readonly ChainLane[], down: Re
     .map(chain => ({ card: chain.card_id, pr: null, stage: stageOfChain(chain), since: chain.since, review: null, markers: [] }))
   const reviewed = open.map((row) => {
     const stage = stageOf(row)
-    return { card: row.card_id, pr: row.pr, stage, since: row.since, review: row.review, markers: markersOf(stage, down) }
+    return { card: row.card_id, pr: row.pr, stage, since: row.since, review: row.review, markers: [...markersOf(stage, down), ...(row.stop === null ? [] : [row.stop])] }
   })
   const past = (db.prepare(MERGED_PAST_THE_BUS).all() as { pr: number, ts: string, card_id: number | null, commit_sha: string | null }[])
     .filter(row => row.card_id !== null)
@@ -331,7 +334,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
   const started = count(db, `SELECT count(*) AS n FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0`)
   const answered = count(db, `SELECT count(*) AS n FROM events WHERE type = '${TASK_COMPLETED}' AND legacy = 0 AND json_extract(payload, '$.queue') = 'answer'`)
   const shards = count(db, `SELECT count(*) AS n FROM events WHERE type = '${MERGE_DONE}' AND legacy = 0 AND json_extract(payload, '$.rule') != 'auto'`)
-  const opened = count(db, `SELECT count(*) AS n FROM events WHERE type = 'pr.opened' AND legacy = 0`)
+  const opened = count(db, `SELECT count(*) AS n FROM events WHERE type = '${PR_OPENED}' AND legacy = 0`)
   const stateless = count(db, 'SELECT count(*) AS n FROM cards WHERE state IS NULL')
   const replayed = replayDifferences(db).differences.length === 0
   const rejected = count(db, `SELECT count(*) AS n FROM events WHERE type = '${REJECTED}'`)

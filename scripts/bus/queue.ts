@@ -4,10 +4,11 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
+import { MERGE_DONE } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { answeredByDecision, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
-import { launchCandidates } from './launch-candidates.js'
+import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
 import { unspentShardsOf } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
@@ -75,9 +76,26 @@ const REVIEWS_OF_AN_OLD_INPUT = `
   ORDER BY tasks.task_key
 `
 
+const LATEST_ADMISSION_DEPENDS = `
+  SELECT depends.value AS card_id FROM json_each((
+    SELECT admitted.payload FROM events AS admitted
+    WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id = prs.card_id
+    ORDER BY admitted.id DESC LIMIT 1
+  ), '$.depends') AS depends
+  WHERE depends.type = 'integer'
+`
+
+const A_DEPENDENCY_UNMERGED = `EXISTS (
+  SELECT 1 FROM (${LATEST_ADMISSION_DEPENDS}) AS dependency
+  WHERE NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${MERGE_DONE}' AND done.legacy = 0 AND done.card_id = dependency.card_id)
+    AND NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = dependency.card_id AND merged.state = 'merged')
+    AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
+)`
+
 const MERGE_CANDIDATES = `
   SELECT pr, card_id, head FROM prs
   WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND verdict_on_head = 'pass' AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+    AND NOT ${A_DEPENDENCY_UNMERGED}
   ORDER BY pr
 `
 

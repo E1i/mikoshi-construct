@@ -1,12 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
+import { QUEUED_CARD, STOPPED_CARD } from './card-automaton.js'
 import { appendEvent } from './db.js'
 import { CARD_STOPPED, DECISION_RECORDED, OWNER, QUESTION_OWNER } from './inbox.js'
 import { NETWATCH } from './observations.js'
 import { payloadOf, reject } from './stored.js'
 
-export const STOPPED_CARD = 'stopped'
-export const QUEUED_CARD = 'queued'
 export const DECISIONS_IMPORTED = 'decisions.imported'
 export const OWNER_DECISIONS_FILE = 'owner-decisions.md'
 
@@ -15,8 +14,6 @@ export interface InForceDecision {
   text: string
   cards: number[]
 }
-
-const STOP_REASONS = new Set(['question.agent', QUESTION_OWNER, 'review', 'conflict', 'fault', 'ci'])
 
 export interface OwnerDecision {
   ts: string
@@ -68,17 +65,6 @@ function answerQuestions(db: DatabaseSync, cards: readonly number[], eventId: nu
     if (cardState(db, cardId) === STOPPED_CARD && lastStopReason(db, cardId, eventId) === QUESTION_OWNER)
       db.prepare('UPDATE cards SET state = ?, event_id = ? WHERE card_id = ?').run(QUEUED_CARD, eventId, cardId)
   }
-}
-
-function foldCardStopped(db: DatabaseSync, event: StoredEvent): void {
-  const cardId = event.card_id ?? reject(`${CARD_STOPPED} needs a card_id`)
-  const reason = payloadOf(event).reason
-  if (typeof reason !== 'string' || !STOP_REASONS.has(reason))
-    reject(`reason is not one of ${[...STOP_REASONS].join(' | ')}`)
-  db.prepare(`
-    INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, '${STOPPED_CARD}', NULL, ?)
-    ON CONFLICT (card_id) DO UPDATE SET state = excluded.state, event_id = excluded.event_id
-  `).run(cardId, event.id)
 }
 
 function scopeOf(payload: Record<string, unknown>): number[] {
@@ -145,7 +131,6 @@ export function inForceDecisions(db: DatabaseSync): InForceDecision[] {
 }
 
 export const DECISION_FOLDS: Record<string, Fold> = {
-  [CARD_STOPPED]: foldCardStopped,
   [DECISION_RECORDED]: foldDecisionRecorded,
   [DECISIONS_IMPORTED]: foldDecisionsImported,
 }
