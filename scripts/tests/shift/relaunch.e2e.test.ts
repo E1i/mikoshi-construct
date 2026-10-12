@@ -33,7 +33,7 @@ function brainWorld(): { deps: RelaunchDeps, handoff: string, stubOut: string } 
     ghToken: (account) => {
       throw new Error(`gh is not asked for ${account}`)
     },
-    journal: path.join(root, 'handoff-dir', 'ghosts.jsonl'),
+    bus: path.join(root, 'bus.db'),
     projectsDir: path.join(root, 'projects'),
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),

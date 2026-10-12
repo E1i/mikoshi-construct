@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
+import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { CHECK_MS } from './netwatch.js'
 import { busShadowProblems } from './review-bg.js'
 import { busLaunches, isBusWorker, switchWorker, wantedLaunches, WORKERS } from './workers.js'
@@ -100,6 +101,7 @@ export interface SupervisorParts {
   wanted: () => DetachedLaunch[]
   start: (launch: DetachedLaunch) => BgResult
   stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
+  freeLeases?: (stopped: DetachedLaunch[]) => string[]
   processes: ProcessList
   mainSince: (afterId: number) => MainAdvance[]
   code: BusCode
@@ -108,9 +110,14 @@ export interface SupervisorParts {
 export class BusSupervisor {
   private codeSha: string
   private pending: string | null = null
+  private outdatedBy: string | null = null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
     this.codeSha = parts.code.head()
+  }
+
+  get ownCodeBehind(): string | null {
+    return this.outdatedBy
   }
 
   async step(): Promise<string[]> {
@@ -150,6 +157,7 @@ export class BusSupervisor {
     const wanted = this.parts.wanted()
     const restarted = await this.restart(wanted)
     this.settle(head)
+    this.outdatedBy = head
     return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}`, ...restarted]
   }
 
@@ -176,12 +184,20 @@ export class BusSupervisor {
     })
     for (const { launch, instance } of running)
       await this.parts.stop(instance, launch)
-    const again = [...wanted, ...running.map(({ launch }) => launch).filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
-    return again.flatMap((launch) => {
+    const stopped = running.map(({ launch }) => launch)
+    const freed = this.parts.freeLeases?.(stopped) ?? []
+    const again = [...wanted, ...stopped.filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
+    return [...freed, ...again.flatMap((launch) => {
       const started = this.parts.start(launch)
       return [...started.stdout, ...started.stderr]
-    })
+    })]
   }
+}
+
+export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
+  const kinds = stopped.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
+  const freed = expireLeasesHeldBy(db, ts, kinds)
+  return freed.length === 0 ? [] : [`${PREFIX}freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${freed.join(', ')}`]
 }
 
 export const KEEP_BASE_MS = CHECK_MS
@@ -203,6 +219,7 @@ interface Streak {
   causes: string[]
   retryAt: number
   awaitingSight: boolean
+  refused: boolean
 }
 
 const EXITED_AFTER_START = 'exited after start'
@@ -236,7 +253,7 @@ export class WorkerKeeper {
       return wanted.flatMap((launch) => {
         if (runningInstance(processes, launch.markers) === undefined)
           return this.revive(launch)
-        this.streaks.delete(launchName(launch))
+        this.seenRunning(launchName(launch))
         return []
       })
     }
@@ -245,41 +262,101 @@ export class WorkerKeeper {
     }
   }
 
+  private seenRunning(name: string): void {
+    const streak = this.streaks.get(name)
+    if (streak?.refused === true && streak.awaitingSight)
+      this.streaks.set(name, { ...streak, retryAt: this.parts.now(), awaitingSight: false })
+    else
+      this.streaks.delete(name)
+  }
+
   private revive(launch: DetachedLaunch): string[] {
     const name = launchName(launch)
     const streak = this.streaks.get(name)
     if (streak?.awaitingSight === true)
-      return this.failed(name, streak, EXITED_AFTER_START)
+      return this.failed(name, streak, EXITED_AFTER_START, streak.refused)
     if (streak !== undefined && this.parts.now() < streak.retryAt)
       return []
     const lines = [`${PREFIX}${name} is switched on and not running; starting it`]
     let started = this.parts.start(launch)
-    if (started.exitCode !== 0 && refusedByPreflight(launch, started)) {
+    const refusal = started.exitCode !== 0 && refusedByPreflight(launch, started) ? causeOf(started) : null
+    if (refusal !== null) {
       lines.push(...started.stderr, `${PREFIX}${name} was refused by the projection preflight; running ${REDUCE_SCRIPT} once and starting it again`, ...this.parts.reduce())
       started = this.parts.start(launch)
     }
     lines.push(...started.stdout, ...started.stderr)
-    if (started.alreadyRunning !== undefined) {
+    const up = started.exitCode === 0 || started.alreadyRunning !== undefined
+    if (!up)
+      return [...lines, ...this.failed(name, streak, causeOf(started), refusal !== null)]
+    if (refusal !== null)
+      return [...lines, ...this.counted(name, { causes: [...streak?.causes ?? [], refusal], retryAt: this.parts.now(), awaitingSight: true, refused: true })]
+    if (started.alreadyRunning !== undefined)
       this.streaks.delete(name)
-      return lines
-    }
-    if (started.exitCode === 0) {
-      this.streaks.set(name, { causes: streak?.causes ?? [], retryAt: this.parts.now(), awaitingSight: true })
-      return lines
-    }
-    return [...lines, ...this.failed(name, streak, causeOf(started))]
+    else
+      this.streaks.set(name, { causes: streak?.causes ?? [], retryAt: this.parts.now(), awaitingSight: true, refused: false })
+    return lines
   }
 
-  private failed(name: string, streak: Streak | undefined, cause: string): string[] {
+  private failed(name: string, streak: Streak | undefined, cause: string, refused: boolean): string[] {
     const causes = [...streak?.causes ?? [], cause]
     const wait = backoffMs(causes.length)
-    this.streaks.set(name, { causes, retryAt: this.parts.now() + wait, awaitingSight: false })
-    const next = `${PREFIX}${name} failed to start ${causes.length} time(s) in a row; the next attempt in ${Math.round(wait / 1000)}s`
-    if (causes.length !== FAILURES_REPORTED)
-      return [next]
-    this.parts.journal({ ts: new Date(this.parts.now()).toISOString(), event: 'worker.down', worker: name, failures: causes.slice(-FAILURES_REPORTED) })
-    return [next, `${PREFIX}${name} failed ${FAILURES_REPORTED} starts in a row and needs the owner: ${causes.slice(-FAILURES_REPORTED).map((failure, index) => `${index + 1}) ${failure}`).join('; ')}; the supervisor keeps backing off and retrying`]
+    return [
+      `${PREFIX}${name} failed to start ${causes.length} time(s) in a row; the next attempt in ${Math.round(wait / 1000)}s`,
+      ...this.counted(name, { causes, retryAt: this.parts.now() + wait, awaitingSight: false, refused }),
+    ]
   }
+
+  private counted(name: string, streak: Streak): string[] {
+    this.streaks.set(name, streak)
+    const { causes } = streak
+    if (causes.length !== FAILURES_REPORTED)
+      return []
+    this.parts.journal({ ts: new Date(this.parts.now()).toISOString(), event: 'worker.down', worker: name, failures: causes.slice(-FAILURES_REPORTED) })
+    return [`${PREFIX}${name} failed ${FAILURES_REPORTED} starts in a row and needs the owner: ${causes.slice(-FAILURES_REPORTED).map((failure, index) => `${index + 1}) ${failure}`).join('; ')}; the supervisor keeps backing off and retrying`]
+  }
+}
+
+export interface SupervisingParts {
+  supervisor: BusSupervisor
+  keeper: WorkerKeeper
+  relaunch: () => BgResult
+  print: (line: string) => void
+  pause: () => Promise<unknown>
+}
+
+function replacedBy(head: string, started: BgResult): { lines: string[], replaced: boolean } {
+  if (started.exitCode === 0)
+    return { replaced: true, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor ran the code it started with; a fresh supervisor runs on ${head} and this one exits`] }
+  return { replaced: false, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
+}
+
+export async function superviseUntilReplaced(parts: SupervisingParts): Promise<void> {
+  for (;;) {
+    const lines = await parts.supervisor.step()
+    const head = parts.supervisor.ownCodeBehind
+    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
+    for (const line of [...lines, ...replacement.lines, ...replacement.replaced ? [] : parts.keeper.step()])
+      parts.print(line)
+    if (replacement.replaced)
+      return
+    await parts.pause()
+  }
+}
+
+export interface GroupedProcess extends RunningProcess {
+  group: number
+}
+
+export function outsideGroup(processes: GroupedProcess[], group: number): RunningProcess[] {
+  return processes.filter(candidate => candidate.group !== group).map(({ pid, args }) => ({ pid, args }))
+}
+
+function psOutsideOwnGroup(): ProcessList {
+  const own = Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim())
+  return () => outsideGroup(execFileSync('ps', ['-axo', 'pid=,pgid=,args='], { encoding: 'utf8' }).split('\n').flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line)
+    return match === null ? [] : [{ pid: Number(match[1]), group: Number(match[2]), args: match[3]! }]
+  }), own)
 }
 
 export function runReducer(cwd: string): string[] {
@@ -320,6 +397,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: launch => startDetached(launch, busDir, process.env, processes),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
+    freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code: gitCode(cwd),
@@ -334,13 +412,16 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     },
     now: () => Date.now(),
   })
-  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them once ${cwd} holds it, and a switched-on worker that is not running is started again`)
+  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and a switched-on worker that is not running is started again`)
   try {
-    for (;;) {
-      for (const line of [...await supervisor.step(), ...keeper.step()])
-        console.log(line)
-      await sleep(CHECK_MS)
-    }
+    await superviseUntilReplaced({
+      supervisor,
+      keeper,
+      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),
+      print: line => console.log(line),
+      pause: () => sleep(CHECK_MS),
+    })
+    return 0
   }
   finally {
     db.close()

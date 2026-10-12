@@ -5,7 +5,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { defaultBusPath, openBus } from '../bus/db.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
+import { STOP_EVENT } from '../shift/relaunch.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
 export const POLL_MS = 500
@@ -14,12 +16,20 @@ export const USAGE = 'usage: pnpm miko:watch [--pid <pid>…]'
 export interface WatchState {
   offset: number
   rest: string
+  busId: number
   pids: Set<number>
+}
+
+export interface BusStop {
+  id: number
+  payload: string
 }
 
 export interface WatchDeps {
   size: () => number
   readFrom: (offset: number, end: number) => string
+  lastBusId: () => number
+  busStopsAfter: (id: number) => BusStop[]
   alive: (pid: number) => boolean
 }
 
@@ -50,7 +60,7 @@ export function wakingEvent(line: string): string | undefined {
 }
 
 export function watchState(deps: WatchDeps, pids: number[]): WatchState {
-  return { offset: deps.size(), rest: '', pids: new Set(pids) }
+  return { offset: deps.size(), rest: '', busId: deps.lastBusId(), pids: new Set(pids) }
 }
 
 function journalLines(state: WatchState, deps: WatchDeps): string[] {
@@ -68,6 +78,13 @@ function journalLines(state: WatchState, deps: WatchDeps): string[] {
   return lines.filter(line => wakingEvent(line) !== undefined).map(line => `journal ${line}`)
 }
 
+function busStops(state: WatchState, deps: WatchDeps): string[] {
+  const stops = deps.busStopsAfter(state.busId)
+  for (const stop of stops)
+    state.busId = Math.max(state.busId, stop.id)
+  return stops.map(stop => `bus ${stop.payload}`)
+}
+
 function exitedPids(state: WatchState, deps: WatchDeps): string[] {
   const exited = [...state.pids].filter(pid => !deps.alive(pid))
   for (const pid of exited)
@@ -76,7 +93,7 @@ function exitedPids(state: WatchState, deps: WatchDeps): string[] {
 }
 
 export function tick(state: WatchState, deps: WatchDeps): string[] {
-  return [...journalLines(state, deps), ...exitedPids(state, deps)]
+  return [...journalLines(state, deps), ...busStops(state, deps), ...exitedPids(state, deps)]
 }
 
 function sizeOf(file: string): number {
@@ -103,6 +120,28 @@ function readFrom(file: string, offset: number, end: number): string {
   }
 }
 
+function lastBusId(bus: string): number {
+  const db = openBus(bus)
+  try {
+    const row = db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM events').get() as { id: number }
+    return Number(row.id)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function busStopsAfter(bus: string, id: number): BusStop[] {
+  const db = openBus(bus)
+  try {
+    const rows = db.prepare('SELECT id, payload FROM events WHERE type = ? AND id > ? ORDER BY id').all(STOP_EVENT, id) as Array<{ id: number, payload: string }>
+    return rows.map(row => ({ id: Number(row.id), payload: row.payload }))
+  }
+  finally {
+    db.close()
+  }
+}
+
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -120,7 +159,14 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     process.exit(2)
   }
   const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
-  const deps: WatchDeps = { size: () => sizeOf(journal), readFrom: (offset, end) => readFrom(journal, offset, end), alive }
+  const bus = defaultBusPath()
+  const deps: WatchDeps = {
+    size: () => sizeOf(journal),
+    readFrom: (offset, end) => readFrom(journal, offset, end),
+    lastBusId: () => lastBusId(bus),
+    busStopsAfter: id => busStopsAfter(bus, id),
+    alive,
+  }
   const state = watchState(deps, pids)
   for (;;) {
     for (const line of tick(state, deps))
