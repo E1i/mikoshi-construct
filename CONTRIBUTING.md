@@ -91,11 +91,15 @@ is `mkr-<pid>-<random>`, directly in the system `$TMPDIR`, opened by `RunRoot` i
 current root, and a process that runs outside any root opens its own on first use. The prefix only
 names the directory for a person reading a listing; nothing checks it.
 
-`pnpm run quality` runs its steps under `scripts/scratch/run.ts`, and `vitest` opens a root in its
-global setup unless it already runs inside one. When the run ends, the root is removed, then
-`run.ts` waits a second and checks again: a root that still exists — a process the run left behind
-kept writing into it — turns the run red with `[run-root] <root> still exists after the run`, even
-when every step passed.
+`pnpm run quality` runs its steps under `scripts/scratch/run.ts`, and so do `pnpm test` and
+`pnpm test:watch`, so Vitest starts inside a root and its own temp directory dies with it. `run.ts`
+opens a root only when it does not already run inside one; inside an inherited root (`pnpm test` as a
+step of `quality`) it runs the command there and leaves the check below to the run that opened the
+root. `vitest` started some other way opens a root in its global setup unless it already runs inside
+one, but by then Vitest has made its own temp directory in the outer `$TMPDIR`. When the run ends, the
+root is removed, then `run.ts` waits a second and checks again: a root that still exists — a process
+the run left behind kept writing into it — turns the run red with
+`[run-root] <root> still exists after the run`, even when every step passed.
 
 The guarantee, as far as it goes:
 
@@ -104,6 +108,9 @@ The guarantee, as far as it goes:
 - `SIGKILL`, a crash of node itself and a power loss cannot run any cleanup. Their root stays until
   the next root is opened in the same `$TMPDIR`: opening a root first removes every
   `mkr-<pid>-*` whose pid is no longer alive.
+- A bare `pnpm exec vitest` or a killed Vitest leaves its own temp directory in the outer `$TMPDIR`.
+  Opening a root also removes every directory there whose name is 21 characters of `[A-Za-z0-9_-]`,
+  which holds only `ssr` or `client` and nothing written for six hours (`VITEST_LEFTOVER_AGE_MS`).
 - A process that clears `TMPDIR` from its child's environment sends that child outside the root.
 
 A Unix socket path on macOS is limited to 104 bytes, and a tool that opens a socket under
@@ -139,8 +146,8 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm morse:approve` | Takes only the MORSE path of `ghosts:hash --by morse --card`, so it can be allowed to the Operator without the right to write an owner approval: no `--by`, no other approver. It reads the card from the parking directory, refuses on an unclear field, a fall, a revoked hash, a forecast with no band or above its p75, or a text restating the card, runs the build and the hard preflight, and only then appends an `event:approval` line by `morse` and writes the brief's `.approved-sha256`. An approval the owner wrote on the same hash is left as it is. When the `.approved-sha256` already holds this hash signed `morse`, the journal holds its MORSE approval and the brief now names another sketch — a clean rebase or merge onto `main` with the `/implement` text unchanged — the approval carries to the new sketch once the hard preflight is green: the file names the new sketch and the `event:approval` line carries `carriedFrom`; a changed text is a new approval, never a carry, and a red preflight writes nothing. | `pnpm morse:approve <scratchpad>/brief-<task>.md <card> [--parking <dir>]` |
 | `pnpm morse:predict` | Classifies the diff `<base>..<head>` of a repository (default the current directory) as `cheap` or `ladder` by the MORSE rules in `scripts/morse/rules.ts`, appends one line (`task`, `base`, `head`, `verdict`, `rule`, `why`) to the journal and prints it. A journal inside the repository, an unknown revision or an empty diff is refused (exit 1) and writes nothing. The review worker calls the same prediction in process for each first review and journals it to `~/.construct/bus/morse.jsonl`. | `pnpm morse:predict --task <id> --base <rev> --head <rev> --journal <path> [--repo <dir>]` |
 | `pnpm typecheck` | In the harness. `tsc --noEmit`. | `pnpm typecheck` |
-| `pnpm test` | In the harness. Vitest over `tests/` and `scripts/tests/`, once. | `pnpm test [<file>]` |
-| `pnpm test:watch` | The same tests in watch mode. | `pnpm test:watch [<file>]` |
+| `pnpm test` | In the harness. Vitest over `tests/` and `scripts/tests/`, once, under `scripts/scratch/run.ts` ([One run, one temp root](#one-run-one-temp-root)): in a root of its own, or in the root it inherits from `quality`. | `pnpm test [<file>]` |
+| `pnpm test:watch` | The same tests in watch mode, under `scripts/scratch/run.ts` the same way. | `pnpm test:watch [<file>]` |
 | `pnpm test:weights` | Rewrites `scripts/ci/test-weights.json`, the per-file durations CI balances its vitest shards by, from a Vitest JSON report. Run it when one shard's job runs noticeably longer than the other. | `pnpm test:weights [<report>]` (default `.construct/reports/vitest.json`) |
 | `pnpm docs:build` | In the harness. Builds the VitePress site in `docs/`. | `pnpm docs:build` |
 | `pnpm docs:pending` | In the harness. Builds a copy of the docs with the pending changesets rendered into the release index, so a changeset that breaks the site fails before the release does. | `pnpm docs:pending` |

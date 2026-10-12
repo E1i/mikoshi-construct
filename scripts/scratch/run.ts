@@ -4,7 +4,7 @@ import os from 'node:os'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { RunRoot } from './run-root.js'
+import { inheritedRunRoot, RunRoot } from './run-root.js'
 
 const PREFIX = '[run-root] '
 const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
@@ -35,6 +35,12 @@ export async function inRunRoot(argv: string[], run: Exit, say: (line: string) =
   return exitCode
 }
 
+export async function inOwnOrInheritedRoot(argv: string[], run: Exit, say: (line: string) => void, env: NodeJS.ProcessEnv = process.env): Promise<number> {
+  if (inheritedRunRoot(env) !== undefined)
+    return run(argv, env)
+  return inRunRoot(argv, run, say)
+}
+
 function runCommand(argv: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(argv[0]!, argv.slice(1), { stdio: 'inherit', env })
@@ -49,5 +55,5 @@ function runCommand(argv: string[], env: NodeJS.ProcessEnv): Promise<number> {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = await inRunRoot(process.argv.slice(2), runCommand, line => process.stderr.write(`${line}\n`))
+  process.exitCode = await inOwnOrInheritedRoot(process.argv.slice(2), runCommand, line => process.stderr.write(`${line}\n`))
 }
