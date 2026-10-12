@@ -1,6 +1,8 @@
+import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseTasksFile, startedTree } from '../../ghosts/tasks.js'
+import { defaultBusPath } from '../../bus/db.js'
+import { cardStartedLines, parseTasksFile, startedTree } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
 const CARD = '#160 window-close [implement/ghosts/S/ladder/owner] · depends — · blocks —'
@@ -157,5 +159,14 @@ describe('startedTree reads card.started from the bus', () => {
     finally {
       bus.remove()
     }
+  })
+})
+
+describe('the test environment', () => {
+  it('points the bus at an empty temporary bus of this test file, so a reader given no bus path never reads the bus of this machine', () => {
+    const bus = defaultBusPath()
+    expect(bus).not.toBe(path.join(os.homedir(), '.construct', 'bus.db'))
+    expect(path.relative(os.tmpdir(), bus).startsWith('..')).toBe(false)
+    expect(cardStartedLines(bus)).toEqual([])
   })
 })
