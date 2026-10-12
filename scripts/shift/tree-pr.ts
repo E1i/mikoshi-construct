@@ -4,6 +4,7 @@ import type { GhRunner } from '../board/gh.js'
 import type { ChangedFile, Prediction } from '../morse/rules.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
+import { pathWithoutMatrix } from './merge.js'
 
 export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
 
@@ -37,6 +38,9 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
 }
 
 const SHIFTED_RANGE = 'origin/main...HEAD'
+const PUBLISHED_UNDER = ['src/', 'templates/']
+const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
+const UNNAMED_REASON = 'the cheap path is held without a named reason'
 const REMOVED_LINE = /^-(?!--)(.*)$/gm
 const IMPORT_OR_BLANK = /^\s*(?:import\s.*)?$/
 
@@ -59,19 +63,43 @@ function pathReason(git: TreePrPorts['git'], worktree: string, contour: Contour,
     return 'the card takes the ladder by its contour where MORSE predicts cheap'
   if (prediction.rule === 'tests-shrunk' && removesOnlyImportsOrBlanks(git, worktree, prediction.why))
     return `cheap holds: the shrunk test files are ${prediction.why.join(', ')}, and every line the diff removes from them is an import or blank`
-  return 'the cheap path is held without a named reason'
+  return UNNAMED_REASON
 }
 
-function pathLine(git: TreePrPorts['git'], worktree: string, contour: Contour): string {
+interface ShiftedPath {
+  line: string
+  files: ChangedFile[]
+  cheapAgainstLadderUnreasoned: boolean
+}
+
+function shiftedPath(git: TreePrPorts['git'], worktree: string, contour: Contour): ShiftedPath {
   try {
-    const prediction = classify(changedFilesOf(git, worktree))
-    return `Path: ${contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${pathReason(git, worktree, contour, prediction)}`
+    const files = changedFilesOf(git, worktree)
+    const prediction = classify(files)
+    const reason = pathReason(git, worktree, contour, prediction)
+    return {
+      line: `Path: ${contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${reason}`,
+      files,
+      cheapAgainstLadderUnreasoned: prediction.verdict === 'ladder' && reason === UNNAMED_REASON,
+    }
   }
   catch (error) {
     if (!(error instanceof MorseRefusal))
       throw error
-    return `Path: ${contour} · MORSE gave no prediction: ${error.message} · the ${contour} path is held without a named reason`
+    return { line: `Path: ${contour} · MORSE gave no prediction: ${error.message} · the ${contour} path is held without a named reason`, files: [], cheapAgainstLadderUnreasoned: false }
   }
+}
+
+function formatGaps(body: string, shifted: ShiftedPath): string[] {
+  const paths = shifted.files.map(file => file.path)
+  const unmatrixed = pathWithoutMatrix(body, paths)
+  const published = paths.find(file => PUBLISHED_UNDER.some(root => file.startsWith(root)))
+  const changeset = shifted.files.some(file => file.status !== 'D' && CHANGESET_FILE.test(file.path))
+  return [
+    ...(unmatrixed === undefined ? [] : [`the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`]),
+    ...(shifted.cheapAgainstLadderUnreasoned ? ['the D-76 reason the card holds the cheap path where MORSE predicts the ladder'] : []),
+    ...(published === undefined || changeset ? [] : [`the changeset its change to the published ${published} requires`]),
+  ]
 }
 
 function prBodyOf(card: TreeCard, path: string): string {
@@ -103,7 +131,11 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string): Tr
     const open = openPrOf(ports, card.branch)
     if (open !== null)
       return { kind: 'pr', number: open }
-    const body = prBodyOf(card, pathLine(ports.git, worktree, card.contour))
+    const shifted = shiftedPath(ports.git, worktree, card.contour)
+    const body = prBodyOf(card, shifted.line)
+    const gaps = formatGaps(body, shifted)
+    if (gaps.length > 0)
+      return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.join('; ')}` }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
     return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }
