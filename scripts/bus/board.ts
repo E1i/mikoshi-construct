@@ -142,12 +142,14 @@ const CHAINS = `
 `
 
 const CARDS_IN_WORK = `
-  SELECT card_id FROM chains WHERE state IN ('running', 'fault')
-  UNION
-  SELECT started.card_id FROM events AS started
-  WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
-    AND NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = started.card_id AND cards.state = '${DROPPED_CARD}')
+  SELECT card_id FROM (
+    SELECT card_id FROM chains WHERE state IN ('running', 'fault')
+    UNION
+    SELECT started.card_id FROM events AS started
+    WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
+  ) AS work
+  WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = work.card_id AND cards.state = '${DROPPED_CARD}')
 `
 
 const OPEN_PRS = `

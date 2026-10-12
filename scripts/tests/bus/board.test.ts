@@ -264,4 +264,18 @@ describe('the factory board', () => {
     appendEvent(bench.db, { ts: bench.ts(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId: 916, pr: null, head: null, dedupeKey: `${CARD_MOVED}:916`, payload: { lane: DROPPED_LANE }, legacy: false })
     expect(bench.tick().execution.map(row => row.card)).toEqual([917])
   })
+
+  it('a dropped card is not in work, with or without its chain, so its silence stalls nothing', () => {
+    for (const withChain of [true, false]) {
+      const bench = boardBench()
+      appendEvent(bench.db, { ts: bench.ts(), type: CARD_ADMITTED, actor: 'policy', cardId: 916, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:916`, payload: { lane: 'lane-1', depends: [] }, legacy: false })
+      appendEvent(bench.db, { ts: bench.ts(), type: CARD_STARTED, actor: 'worker:launch:s1', cardId: 916, pr: null, head: null, dedupeKey: `${CARD_STARTED}:916`, payload: {}, legacy: false })
+      if (withChain)
+        observeChain(bench.db, bench.ts(), 'worker:chain:1', { dir: '/trees/916', parking: '/parking/lane-1', cardId: 916, sha: sha('e'), pid: 916, leader: null, boundary: false, state: 'running' })
+      appendEvent(bench.db, { ts: bench.ts(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId: 916, pr: null, head: null, dedupeKey: `${CARD_MOVED}:916`, payload: { lane: DROPPED_LANE }, legacy: false })
+      for (let minute = 0; minute < 31; minute++)
+        bench.tick()
+      expect(bench.tick().progress).toMatchObject({ stalled: false, cause: null })
+    }
+  })
 })
