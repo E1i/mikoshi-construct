@@ -1,13 +1,16 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
+import type { BusCode, MainAdvance, SupervisingParts } from '../../bus/supervisor.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_RUN_LAUNCH, launchName, PREFIX, startDetached } from '../../bus/bg.js'
+import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
+import { openBus } from '../../bus/db.js'
+import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, FAILURES_REPORTED, KEEP_MAX_MS, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, outsideGroup, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -248,7 +251,258 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     expect(owner[0]).toContain(`${launchName(merge)} failed ${FAILURES_REPORTED} starts in a row and needs the owner: 1) exited after start`)
   })
 
+  it('three preflight refusals of one worker in a row raise worker.down although a start succeeded between them', () => {
+    let shadow = [NOT_CLEAN]
+    let reduceRepairs = false
+    const review = reviewLaunch(() => shadow)
+    const s = kept([review], preflighted, () => {
+      if (reduceRepairs)
+        shadow = []
+      return []
+    })
+
+    expect(s.keeper.step().at(-1)).toContain('failed to start 1 time(s) in a row')
+    s.clock.now += backoffMs(1)
+    reduceRepairs = true
+    expect(s.keeper.step().join('\n')).not.toContain('needs the owner')
+    expect(s.alive).toHaveLength(1)
+    expect(s.keeper.step()).toEqual([])
+
+    s.alive = []
+    shadow = [NOT_CLEAN]
+    reduceRepairs = false
+    const lines = s.keeper.step()
+    expect(s.reduces).toHaveLength(FAILURES_REPORTED)
+    expect(s.journal).toHaveLength(1)
+    expect(s.journal[0]).toMatchObject({ event: 'worker.down', worker: launchName(review) })
+    expect(lines.at(-1)).toContain(`${launchName(review)} failed ${FAILURES_REPORTED} starts in a row and needs the owner`)
+  })
+
+  it('a refused worker repaired by the reducer that then keeps running ends its episode, and a later refusal counts 1', () => {
+    let shadow = [NOT_CLEAN]
+    let reduceRepairs = true
+    const review = reviewLaunch(() => shadow)
+    const s = kept([review], preflighted, () => {
+      if (reduceRepairs)
+        shadow = []
+      return []
+    })
+
+    for (let episode = 1; episode <= FAILURES_REPORTED; episode++) {
+      s.alive = []
+      shadow = [NOT_CLEAN]
+      expect(s.keeper.step().join('\n')).not.toContain('needs the owner')
+      for (let tick = 0; tick < 5; tick++)
+        expect(s.keeper.step()).toEqual([])
+      s.clock.now += 7 * 24 * 60 * 60_000
+    }
+    expect(s.reduces).toHaveLength(FAILURES_REPORTED)
+    expect(s.journal).toEqual([])
+
+    s.alive = []
+    shadow = [NOT_CLEAN]
+    reduceRepairs = false
+    expect(s.keeper.step().at(-1)).toContain('failed to start 1 time(s) in a row')
+  })
+
   it('the backoff stops growing at its ceiling', () => {
     expect(backoffMs(100)).toBe(KEEP_MAX_MS)
+  })
+})
+
+function preflighted(launch: DetachedLaunch): BgResult {
+  const problems = launch.preflight?.() ?? []
+  return problems.length > 0 ? { stdout: [], stderr: [`${launch.prefix}refused to start ${launch.script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 } : ok(launch)
+}
+
+const OLD_MAIN = 'a'.repeat(40)
+const NEW_MAIN = 'b'.repeat(40)
+const SUPERVISOR_ARGS = 'node pnpm.cjs --silent bus:bg --supervise'
+const PAUSES_ALLOWED = 10
+
+interface Machine {
+  alive: RunningProcess[]
+  events: MainAdvance[]
+  boots: { pid: number, head: string }[]
+  reduces: string[]
+  lines: string[]
+  projection: string
+  boot: (pid: number) => SupervisingParts
+  merge: () => void
+}
+
+function machine(): Machine {
+  let head = OLD_MAIN
+  let pid = 500
+  let pauses = 0
+  const code: BusCode = {
+    head: () => head,
+    holds: sha => sha === head,
+    pull: () => {
+      head = NEW_MAIN
+    },
+    busChangedSince: sha => sha !== head,
+  }
+  const m: Machine = {
+    alive: [{ pid, args: SUPERVISOR_ARGS }, { pid: 600, args: `node pnpm.cjs --silent ${launchName(reviewLaunch(() => []))}` }],
+    events: [],
+    boots: [],
+    reduces: [],
+    lines: [],
+    projection: OLD_MAIN,
+    merge: () => {
+      m.events.push({ id: m.events.length + 1, sha: NEW_MAIN })
+      m.projection = 'torn by the new workers'
+    },
+    boot: (self) => {
+      const bootedOn = head
+      m.boots.push({ pid: self, head: bootedOn })
+      const review = reviewLaunch(() => m.projection === bootedOn ? [] : [NOT_CLEAN])
+      const start = (launch: DetachedLaunch): BgResult => {
+        const started = preflighted(launch)
+        if (started.exitCode === 0)
+          m.alive.push({ pid: ++pid + 100, args: `node pnpm.cjs --silent ${launchName(launch)}` })
+        return started
+      }
+      return {
+        supervisor: new BusSupervisor({
+          known: [review],
+          wanted: () => [review],
+          start,
+          stop: async (instance) => {
+            m.alive = m.alive.filter(candidate => candidate.pid !== instance.pid)
+          },
+          processes: () => m.alive,
+          mainSince: afterId => m.events.filter(event => event.id > afterId),
+          code,
+        }, m.events.at(-1)?.id ?? 0),
+        keeper: new WorkerKeeper({
+          wanted: () => [review],
+          start,
+          processes: () => m.alive,
+          reduce: () => {
+            m.reduces.push(bootedOn)
+            m.projection = bootedOn
+            return []
+          },
+          journal: () => {},
+          now: () => 0,
+        }),
+        relaunch: () => {
+          const fresh = ++pid
+          m.alive.push({ pid: fresh, args: SUPERVISOR_ARGS })
+          return { stdout: [String(fresh)], stderr: [], exitCode: 0 }
+        },
+        print: line => m.lines.push(line),
+        pause: async () => {
+          if (++pauses > PAUSES_ALLOWED)
+            throw new Error(`the supervisor booted as pid ${self} is still running after ${PAUSES_ALLOWED} ticks`)
+          if (pauses === 1)
+            m.merge()
+        },
+      }
+    },
+  }
+  return m
+}
+
+async function runUntilReplaced(m: Machine, self: number): Promise<void> {
+  await superviseUntilReplaced(m.boot(self))
+  m.alive = m.alive.filter(candidate => candidate.pid !== self)
+}
+
+function supervisors(m: Machine): number[] {
+  return m.alive.filter(candidate => candidate.args === SUPERVISOR_ARGS).map(candidate => candidate.pid)
+}
+
+describe('the supervisor restarts itself after a merge under scripts/bus', () => {
+  it('after a merge under scripts/bus the supervisor restarts itself on the new main without a hand kill', async () => {
+    const m = machine()
+    await runUntilReplaced(m, 500)
+
+    const [fresh] = supervisors(m)
+    expect(supervisors(m)).toEqual([fresh])
+    expect(fresh).not.toBe(500)
+    expect(m.lines.join('\n')).toContain(`a fresh supervisor runs on ${NEW_MAIN} and this one exits`)
+
+    m.boot(fresh!)
+    expect(m.boots.map(boot => boot.head)).toEqual([OLD_MAIN, NEW_MAIN])
+  })
+
+  it('after a merge under scripts/bus the restarted supervisor reduces with the new reducer', async () => {
+    const m = machine()
+    await runUntilReplaced(m, 500)
+    expect(m.reduces).toEqual([])
+
+    const fresh = m.boot(supervisors(m)[0]!)
+    expect(await fresh.supervisor.step()).toEqual([])
+    fresh.keeper.step()
+    expect(m.reduces).toEqual([NEW_MAIN])
+    expect(m.alive.some(candidate => candidate.args.includes(launchName(reviewLaunch(() => []))))).toBe(true)
+  })
+
+  it('a supervisor that cannot start its replacement keeps running and tries again on the next tick', async () => {
+    const m = machine()
+    const parts = m.boot(500)
+    let attempts = 0
+    await superviseUntilReplaced({
+      ...parts,
+      relaunch: () => ++attempts < 2 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : parts.relaunch(),
+    })
+    expect(attempts).toBe(2)
+    expect(m.lines.join('\n')).toContain(`could not start a fresh supervisor on ${NEW_MAIN}`)
+  })
+
+  it('a worker restart frees the leases of the killed process at once with fencing', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-leases-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const killedAt = '2026-10-11T06:44:00.000Z'
+    const killed = leaseWhileFree(db, killedAt, { queue: 'launch', cardId: 845, generation: 'g1' }, 'worker:launch:killed', 1)!
+    const elsewhere = leaseWhileFree(db, killedAt, { queue: 'answer', cardId: 745 }, 'worker:answer:alive', 1)!
+    const launch = workerLaunches(() => []).launch
+    let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(launch)} --on` }]
+    let aliveWhenFreed: RunningProcess[] | undefined
+    const supervisor = new BusSupervisor({
+      known: [launch],
+      wanted: () => [launch],
+      start: ok,
+      stop: async (instance) => {
+        alive = alive.filter(candidate => candidate.pid !== instance.pid)
+      },
+      freeLeases: (stopped) => {
+        aliveWhenFreed = alive
+        return freeLeasesOf(db, killedAt, stopped)
+      },
+      processes: () => alive,
+      mainSince: () => [{ id: 1, sha: NEW_MAIN }],
+      code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => true },
+    }, 0)
+
+    const lines = await supervisor.step()
+
+    expect(aliveWhenFreed).toEqual([])
+    expect(lines.join('\n')).toContain(`freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${killed.taskKey}`)
+    const expired = db.prepare('SELECT ts, actor, payload FROM events WHERE type = ?').all(TASK_EXPIRED).map(row => ({ ts: row.ts, actor: row.actor, payload: JSON.parse(String(row.payload)) as Record<string, unknown> }))
+    expect(expired).toEqual([{ ts: killedAt, actor: 'policy', payload: expect.objectContaining({ task_key: killed.taskKey, lease_gen: killed.leaseGen, reason: 'holder_stopped', next: 'queued' }) }])
+    const state = (key: string): unknown => db.prepare('SELECT state, lease_gen FROM tasks WHERE task_key = ?').get(key)
+    expect(state(killed.taskKey)).toEqual({ state: 'queued', lease_gen: 1 })
+    expect(state(elsewhere.taskKey)).toEqual({ state: 'leased', lease_gen: 1 })
+
+    expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
+    const fresh = leaseNext(db, killedAt, 'launch', 'worker:launch:fresh')!
+    expect(fresh.leaseGen).toBe(killed.leaseGen + 1)
+    expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
+    completeTask(db, killedAt, fresh, [])
+    expect(state(killed.taskKey)).toEqual({ state: 'completed', lease_gen: 2 })
+    db.close()
+  })
+
+  it('the replacement does not see its own supervisor as already running', () => {
+    const own = [{ pid: 500, group: 500, args: SUPERVISOR_ARGS }, { pid: 501, group: 500, args: 'node tsx scripts/bus/supervisor.ts --supervise' }]
+    const other = { pid: 700, group: 700, args: 'node pnpm.cjs --silent bus:run' }
+    expect(runningInstance(outsideGroup([...own, other], 500), SUPERVISOR_LAUNCH.markers)).toBeUndefined()
+    expect(outsideGroup([...own, other], 500)).toEqual([{ pid: 700, args: other.args }])
+    expect(runningInstance(outsideGroup(own, 700), SUPERVISOR_LAUNCH.markers)?.pid).toBe(500)
   })
 })
