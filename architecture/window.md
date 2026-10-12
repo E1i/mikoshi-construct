@@ -50,9 +50,11 @@ process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm mik
 (`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors only when a `scripts/miko/loop.ts` process stands
 above that claude and `miko.md` was written in the last two minutes (`FRESH_MS`); otherwise it refuses with the reason
 (the file's age, when that is the reason) and ends nothing. When the mtime of `miko.md` changed during the session, the loop at once
-starts a new session with the prompt `прочитай miko.md`, whatever the exit code, which it never reads. A session that
+starts a new session with the prompt `CONTINUE_PROMPT` (`scripts/miko/loop.ts`), whatever the exit code, which it never reads. A session that
 ended without writing `miko.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
-`pnpm miko` starts gets the prompt `прочитай miko.md` when `miko.md` exists, and no prompt when it does not.
+`pnpm miko` starts gets that prompt when `miko.md` exists, and no prompt when it does not. The prompt carries what the
+STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` is continued from its next task with no
+question to the owner.
 
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
 `pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a

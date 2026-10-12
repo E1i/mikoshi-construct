@@ -251,6 +251,12 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
     expect(run.pauses).toEqual(Array.from({ length: prompts.length - 1 }).fill(PAUSE_MS))
   })
 
+  it('continues a STATUS: CONTINUE handoff without asking the owner', () => {
+    expect(CONTINUE_PROMPT).toContain(`прочитай ${MIKO_HANDOFF_NAME}`)
+    expect(CONTINUE_PROMPT).toContain('последняя строка STATUS: в нём — CONTINUE')
+    expect(CONTINUE_PROMPT).toContain('не спрашивая владельца')
+  })
+
   it('stops when miko.md carries no STATUS line', async () => {
     const run = await drive({ statuses: [undefined, null] })
     expect(run.prompts).toEqual([undefined])
