@@ -1,5 +1,7 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseTasksFile, startedTree } from '../../ghosts/tasks.js'
+import { busWithCardStarted } from './card-started-bus.js'
 
 const CARD = '#160 window-close [implement/ghosts/S/ladder/owner] · depends — · blocks —'
 
@@ -118,5 +120,42 @@ describe('startedTree', () => {
   it('skips a later line of the card that carries no tree', () => {
     const journal = line({ task: '160', worktree: '/w/mc-160', branch: 'feat/window-close' }) + line({ task: '160', pr: 7 })
     expect(startedTree(journal, card)).toEqual({ worktree: '/w/mc-160', branch: 'feat/window-close' })
+  })
+})
+
+describe('startedTree reads card.started from the bus', () => {
+  const card = parseTasksFile(VALID).tasks[0]!.card
+  const line = (fields: object): string => `${JSON.stringify({ event: 'path', path: 'ladder', ts: '2026-10-06T08:00:00Z', task: '160', ...fields })}\n`
+
+  it('finds the tree of a card that has card.started and no path line', () => {
+    const bus = busWithCardStarted([{ cardId: 160, ts: '2026-10-06T09:00:00Z', payload: { session: 's', worktree: '/w/bus-160', branch: 'feat/bus' } }])
+    try {
+      expect(startedTree('', card, bus.file)).toEqual({ worktree: '/w/bus-160', branch: 'feat/bus' })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('prefers card.started over a path line of the same card', () => {
+    const bus = busWithCardStarted([{ cardId: 160, ts: '2026-10-06T07:00:00Z', payload: { worktree: '/w/bus-160', branch: 'feat/bus' } }])
+    try {
+      expect(startedTree(line({ worktree: '/w/journal-160', branch: 'feat/journal' }), card, bus.file)).toEqual({ worktree: '/w/bus-160', branch: 'feat/bus' })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('falls back to the path line of a card started by a chain before card.started, and when there is no bus', () => {
+    const bus = busWithCardStarted([{ cardId: 161, ts: '2026-10-06T09:00:00Z', payload: { worktree: '/w/bus-161', branch: 'feat/other' } }])
+    try {
+      const journal = line({ worktree: '/w/journal-160', branch: 'feat/journal' })
+      expect(startedTree(journal, card, bus.file)).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
+      expect(startedTree(journal, card, path.join(path.dirname(bus.file), 'absent.db'))).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
+    }
+    finally {
+      bus.remove()
+    }
   })
 })
