@@ -1,9 +1,9 @@
 import type { Card } from '../../src/card/grammar.js'
 import { existsSync, readFileSync } from 'node:fs'
-import { DatabaseSync } from 'node:sqlite'
 import { parseCard } from '../../src/card/grammar.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
 import { CARD_STARTED } from '../bus/inbox.js'
+import { openDatabase } from '../bus/sqlite.js'
 
 export interface Task {
   id: string
@@ -115,7 +115,7 @@ function jsonObject(text: string): Record<string, unknown> | undefined {
 export function cardStartedLines(busPath: string): StartRecord[] {
   if (!existsSync(busPath))
     return []
-  const db = new DatabaseSync(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
     const rows = db.prepare(CARD_STARTED_ROWS).all() as unknown as { card_id: number, ts: string | null, payload: string }[]
     return rows.flatMap((row) => {
