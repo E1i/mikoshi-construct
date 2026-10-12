@@ -152,7 +152,7 @@ describe('intake confirmation gate', () => {
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '81', source: ADMIT_SOURCE }])
   })
 
-  it.each([['notes', 'a parking subdirectory that is no lane'], ['../elsewhere', 'a directory outside the parking tree'], ['lane-2/inner', 'a directory below a lane']])('a card admitted from %s (%s) hands the bus no card.admitted', (relative) => {
+  it.each([['notes', 'a parking subdirectory that is no lane'], ['../elsewhere', 'a directory outside the parking tree'], ['lane-2/inner', 'a directory below a lane'], ['../lane-2', 'a lane-named directory outside the parking tree'], ['lane-2/lane-3', 'a lane-named directory below a lane']])('a card admitted from %s (%s) hands the bus no card.admitted', (relative) => {
     const w = world([card()])
     const dir = path.resolve(w.parking, relative)
     mkdirSync(dir, { recursive: true })
