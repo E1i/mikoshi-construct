@@ -75,14 +75,14 @@ export function sessionParams(task: PreparedTask): SpawnSessionParams {
 
 const LADDER_STOPS_THAT_ARE_NOT_FALLS = new Set(['done', 'base moved'])
 
-export const FALL_ACTOR = 'worker:ladder'
+export const FALL_ACTOR_PREFIX = 'worker:ladder:'
 
 export function fallEvent(card: number, kind: FallKind, ts: string = new Date().toISOString()): object {
   return { event: 'fall', card, kind, ts }
 }
 
-export function cardFellEvent(card: number, kind: FallKind, ts: string): BusEvent {
-  return { ts, type: CARD_FELL, actor: FALL_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${CARD_FELL}:${card}:${kind}:${ts}`, payload: { kind }, legacy: false }
+export function cardFellEvent(card: number, kind: FallKind, ts: string, session: string): BusEvent {
+  return { ts, type: CARD_FELL, actor: `${FALL_ACTOR_PREFIX}${session}`, cardId: card, pr: null, head: null, dedupeKey: `${CARD_FELL}:${card}:${kind}:${ts}`, payload: { kind }, legacy: false }
 }
 
 function writeCardFell(event: BusEvent): void {
@@ -100,10 +100,10 @@ function writeCardFell(event: BusEvent): void {
   }
 }
 
-async function recordFall(journalPath: string, card: number, kind: FallKind): Promise<void> {
+export async function recordFall(journalPath: string, card: number, kind: FallKind, session: string): Promise<void> {
   const ts = new Date().toISOString()
   await appendJournalEvent(journalPath, fallEvent(card, kind, ts))
-  writeCardFell(cardFellEvent(card, kind, ts))
+  writeCardFell(cardFellEvent(card, kind, ts, session))
 }
 
 export function errorMessage(error: unknown): string {
@@ -249,7 +249,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   })
 
   if (!LADDER_STOPS_THAT_ARE_NOT_FALLS.has(ladder.status))
-    await recordFall(ctx.journalPath, task.card.id, 'ladder-not-done')
+    await recordFall(ctx.journalPath, task.card.id, 'ladder-not-done', task.sessionId)
 
   const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
   const ok = code === 0 && ladder.status === 'done'

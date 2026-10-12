@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { renderBoard } from '../../bus/board-page.js'
 import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
-import { MERGE_DONE } from '../../bus/card-automaton.js'
+import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { importJournal } from '../../bus/import.js'
@@ -250,5 +251,17 @@ describe('the factory board', () => {
     const execution = bench.tick().execution
     expect(execution.find(row => row.pr === 753)).toMatchObject({ card: 853, stage: `merged 1e18f06c${'0'.repeat(32)}`, markers: [MERGE_PAST_THE_BUS] })
     expect(execution.find(row => row.pr === 754)).toBeUndefined()
+  })
+
+  it('a dropped card is not in flight', () => {
+    const bench = boardBench()
+    for (const card of [916, 917]) {
+      appendEvent(bench.db, { ts: bench.ts(), type: CARD_ADMITTED, actor: 'policy', cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${card}`, payload: { lane: 'lane-1', depends: [] }, legacy: false })
+      appendEvent(bench.db, { ts: bench.ts(), type: CARD_STARTED, actor: 'worker:launch:s1', cardId: card, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${card}`, payload: {}, legacy: false })
+      observeChain(bench.db, bench.ts(), 'worker:chain:1', { dir: `/trees/${card}`, parking: '/parking/lane-1', cardId: card, sha: sha('e'), pid: card, leader: null, boundary: false, state: 'running' })
+    }
+    expect(bench.tick().execution.map(row => row.card)).toEqual([916, 917])
+    appendEvent(bench.db, { ts: bench.ts(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId: 916, pr: null, head: null, dedupeKey: `${CARD_MOVED}:916`, payload: { lane: DROPPED_LANE }, legacy: false })
+    expect(bench.tick().execution.map(row => row.card)).toEqual([917])
   })
 })

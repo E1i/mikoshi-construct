@@ -5,7 +5,7 @@ import type { LeaseOrder } from './lease.js'
 import path from 'node:path'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
-import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
+import { DROPPED_CARD, MERGE_DONE, PR_OPENED, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
 import { CHAIN_OBSERVED, WAITING } from './chain.js'
 import { QUEUES } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
@@ -136,7 +136,9 @@ const CHAINS = `
   SELECT chains.dir, chains.parking, chains.card_id, chains.state,
     (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = '${CHAIN_OBSERVED}' AND seen.card_id = chains.card_id AND json_extract(seen.payload, '$.dir') = chains.dir) AS since,
     (SELECT json_extract(folded.payload, '$.waitingOn') FROM events AS folded WHERE folded.id = chains.event_id) AS waiting_on
-  FROM chains ORDER BY chains.dir
+  FROM chains
+  WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = chains.card_id AND cards.state = '${DROPPED_CARD}')
+  ORDER BY chains.dir
 `
 
 const CARDS_IN_WORK = `
@@ -145,6 +147,7 @@ const CARDS_IN_WORK = `
   SELECT started.card_id FROM events AS started
   WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
+    AND NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = started.card_id AND cards.state = '${DROPPED_CARD}')
 `
 
 const OPEN_PRS = `
