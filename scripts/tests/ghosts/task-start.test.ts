@@ -146,6 +146,23 @@ describe('task:start reads the admission from the bus and writes the start to it
     expect(starts(world)).toEqual([])
   })
 
+  it('a card re-admitted with a changed line starts on the latest admission, and its old line is refused naming the new one', () => {
+    const world = newWorld()
+    const first = card(85, 'implement/ghosts/M/cheap/auto')
+    const second = card(85)
+    recordIntake(world.bus, 85, first)
+    admit(world.bus, [85])
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: INTAKE_EVENT, actor: 'journal', cardId: 85, pr: null, head: null, dedupeKey: 'intake:85:again', payload: { event: INTAKE_EVENT, task: '85', card: second }, legacy: true })
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'reducer', cardId: 85, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:intake:85:again`, payload: { lane: 'lane-1', depends: [], decision: null, contour: null, admission: 'intake:85:again' }, legacy: false })
+    db.close()
+    const old = runTaskStart(['feat/a10', '--card', first], depsOf(world))
+    expect(old.exitCode).toBe(1)
+    expect(old.stderr).toEqual([`[task:start] card #85 was admitted in the bus ${world.bus} as a different card (${second}) by ${CARD_ADMITTED}:intake:85:again: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(runTaskStart(['feat/a10', '--card', second], depsOf(world)).exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:85:again` } }])
+  })
+
   it('a card with no card.admitted is refused naming the bus', () => {
     const world = newWorld()
     const result = runTaskStart(['feat/a2', '--card', card(77)], depsOf(world))
