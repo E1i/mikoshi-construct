@@ -12,7 +12,7 @@ export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const MIKO_HANDOFF_NAME = 'miko.md'
-export const CONTINUE_PROMPT = `прочитай ${MIKO_HANDOFF_NAME}`
+export const CONTINUE_PROMPT = `прочитай ${MIKO_HANDOFF_NAME}; если его последняя строка STATUS: CONTINUE, продолжай с его следующей задачи, не спрашивая владельца`
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 
