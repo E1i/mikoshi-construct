@@ -66,12 +66,14 @@ function newWorld(): World {
   return { root, repo, handoff: path.join(root, 'handoff'), shift, stubOut }
 }
 
+const CHEAP_PATH = 'Path (D-76): cheap, a fixture card the stub closes in one run'
+
 function cardOf(id: string, kind: 'implement' | 'probe' = 'implement'): string {
   return `#${id} task-${id} [${kind}/runner/S/cheap/${kind === 'probe' ? 'none' : 'auto'}] · depends — · blocks —`
 }
 
 function taskFile(world: World, file: string, id: string, touches: string, body: string, kind: 'implement' | 'probe' = 'implement', extraHeader = ''): void {
-  writeFileSync(path.join(world.shift, file), `card: ${cardOf(id, kind)}\nbranch: feat/${id}\ntouches: ${touches}\n${extraHeader}\n${body}\n`)
+  writeFileSync(path.join(world.shift, file), `card: ${cardOf(id, kind)}\nbranch: feat/${id}\ntouches: ${touches}\n${extraHeader}\n${body}\n${kind === 'implement' ? `${CHEAP_PATH}\n` : ''}`)
 }
 
 function continuingTask(world: World, file: string, id: string, body: string, mode: 'auto' | 'stop' = 'auto'): void {
@@ -225,7 +227,7 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     expect(prompt).toContain('declares: `scripts/a/**`, `docs/a.md`.')
     expect(prompt).toContain('Run no background command, no monitor and no wait for a notification')
     expect(prompt).not.toContain('{{')
-    expect(prompt.endsWith('---\n\ndo a')).toBe(true)
+    expect(prompt.endsWith(`---\n\ndo a\n${CHEAP_PATH}`)).toBe(true)
   })
 })
 
@@ -338,7 +340,7 @@ describe('w5: touches that meet an open pull request warn, and the shift starts'
 
 function parkedCard(dir: string, id: string, header: string, touches = `scripts/${id}/**`): void {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n`)
+  writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n${CHEAP_PATH}\n`)
 }
 
 describe('the shift prints a forecast table before it starts', () => {
@@ -445,7 +447,7 @@ describe('w9: with --parking the shift takes the cards whose who is shift', () =
     for (let index = 0; index < 10; index++)
       parkedCard(parking, String(200 + index), 'who: window')
     for (let index = 0; index < 5; index++)
-      writeFileSync(path.join(parking, `${300 + index}.md`), `card: #${300 + index} task-${300 + index} [implement/runner/S/cheap/auto] · depends #999 · blocks —\nbranch: feat/${300 + index}\ntouches: scripts/${300 + index}/**\nwho: shift\n\ndo it\n`)
+      writeFileSync(path.join(parking, `${300 + index}.md`), `card: #${300 + index} task-${300 + index} [implement/runner/S/cheap/auto] · depends #999 · blocks —\nbranch: feat/${300 + index}\ntouches: scripts/${300 + index}/**\nwho: shift\n\ndo it\n${CHEAP_PATH}\n`)
     parkedCard(parking, '400', 'who: shift', 'scripts/1/**')
     parkedCard(parking, '401', 'who: shift', 'scripts/1/x.ts')
     mkdirSync(world.handoff, { recursive: true })
@@ -758,7 +760,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
   }
 
   function decisionTask(world: World, file: string, id: string, decision: 'auto' | 'owner', body: string): void {
-    writeFileSync(path.join(world.shift, file), `card: #${id} task-${id} [implement/runner/S/cheap/${decision}] · depends — · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n\n${body}\n`)
+    writeFileSync(path.join(world.shift, file), `card: #${id} task-${id} [implement/runner/S/cheap/${decision}] · depends — · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n\n${body}\n${CHEAP_PATH}\n`)
   }
 
   interface GhCall { args: string[], stubRuns: number, report: boolean }
