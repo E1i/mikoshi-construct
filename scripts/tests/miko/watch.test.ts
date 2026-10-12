@@ -7,12 +7,15 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { parseWatchArgs, tick, watchState } from '../../miko/watch.js'
+import { parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
+import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const WATCH = path.join(REPO_ROOT, 'scripts', 'miko', 'watch.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
+const DEADLINE_MS = 15_000
+const QUIET_MS = 1000
 
 const roots: string[] = []
 
@@ -57,6 +60,25 @@ function writeStop(bus: string, pid: number): string {
   return payload
 }
 
+function startWatch(file: string, args: string[] = [], bus = path.join(path.dirname(file), 'bus.db')): { child: ReturnType<typeof spawn>, stdout: () => string, watching: () => Promise<void> } {
+  const child = spawn(TSX, [WATCH, ...args], {
+    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout!.setEncoding('utf8')
+  child.stdout!.on('data', (chunk: string) => {
+    stdout += chunk
+  })
+  child.stderr!.setEncoding('utf8')
+  child.stderr!.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+  const watching = (): Promise<void> => waitFor(() => stderr.includes(WATCHING), () => `"${WATCHING}" on stderr (stderr so far: ${JSON.stringify(stderr)})`, DEADLINE_MS)
+  return { child, stdout: () => stdout, watching }
+}
+
 function append(file: string, event: object): string {
   const line = JSON.stringify(event)
   appendFileSync(file, `${line}\n`)
@@ -84,29 +106,36 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     expect(tick(state, deps)).toEqual([])
   })
 
+  it('the second event is written only after the watcher says it is watching', async () => {
+    const file = journal()
+    append(file, { event: 'fall', task: '903' })
+    const watch = startWatch(file)
+    try {
+      await watch.watching()
+      const second = append(file, { event: 'merge', task: '904' })
+      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the second event, written after the watcher said it is watching', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`journal ${second}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
   it('a relaunch-stop written to the bus wakes miko', async () => {
     const file = journal()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
-    const child = spawn(TSX, [WATCH], {
-      env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
-    })
+    const watch = startWatch(file, [], bus)
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await watch.watching()
       const payload = writeStop(bus, 2)
-      for (let tries = 0; tries < 200 && !stdout.includes('\n'); tries++)
-        await new Promise(resolve => setTimeout(resolve, 50))
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      expect(stdout).toBe(`bus ${payload}\n`)
+      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the relaunch-stop', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`bus ${payload}\n`)
     }
     finally {
-      child.kill()
+      watch.child.kill()
     }
   }, 20_000)
 
@@ -155,32 +184,20 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const file = journal()
     const sleeper = spawn('sleep', ['30'], { stdio: 'ignore' })
     const sleeperGone = new Promise(resolve => sleeper.on('close', resolve))
-    const child = spawn(TSX, [WATCH, '--pid', String(sleeper.pid), String(process.pid)], {
-      env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: path.join(path.dirname(file), 'bus.db') },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    const until = async (condition: () => boolean): Promise<void> => {
-      for (let tries = 0; tries < 200 && !condition(); tries++)
-        await new Promise(resolve => setTimeout(resolve, 50))
-    }
+    const watch = startWatch(file, ['--pid', String(sleeper.pid), String(process.pid)])
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await watch.watching()
       append(file, { event: 'path', task: '709' })
       const merge = append(file, { event: 'merge', task: '709' })
-      await until(() => stdout.includes('\n'))
+      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the merge', DEADLINE_MS)
       sleeper.kill()
       await sleeperGone
-      await until(() => stdout.split('\n').length > 2)
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      expect(stdout).toBe(`journal ${merge}\npid ${sleeper.pid} exited\n`)
+      await waitFor(() => watch.stdout().split('\n').length > 2, () => `the line for the exit of pid ${sleeper.pid}`, DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`journal ${merge}\npid ${sleeper.pid} exited\n`)
     }
     finally {
-      child.kill()
+      watch.child.kill()
       sleeper.kill()
     }
   }, 20_000)

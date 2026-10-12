@@ -12,6 +12,7 @@ import { STOP_EVENT } from '../shift/relaunch.js'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--pid <pid>…]'
+export const WATCHING = 'miko:watch: what is already there is read; watching for what comes next'
 
 export interface WatchState {
   offset: number
@@ -168,6 +169,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     alive,
   }
   const state = watchState(deps, pids)
+  console.error(WATCHING)
   for (;;) {
     for (const line of tick(state, deps))
       process.stdout.write(`${line}\n`)
