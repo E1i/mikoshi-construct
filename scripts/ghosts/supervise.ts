@@ -1,3 +1,4 @@
+import type { BusEvent } from '../bus/db.js'
 import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
 import type { JournalEntry, RangeDiffOutcome } from './journal.js'
@@ -11,6 +12,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
+import { CARD_FELL } from '../bus/card-automaton.js'
+import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { writeAgreedText } from './agreed.js'
 import { tiedArgsSha256 } from './args-chain.js'
 import { runInstall } from './install.js'
@@ -72,8 +75,35 @@ export function sessionParams(task: PreparedTask): SpawnSessionParams {
 
 const LADDER_STOPS_THAT_ARE_NOT_FALLS = new Set(['done', 'base moved'])
 
-export function fallEvent(card: number, kind: FallKind): object {
-  return { event: 'fall', card, kind, ts: new Date().toISOString() }
+export const FALL_ACTOR = 'worker:ladder'
+
+export function fallEvent(card: number, kind: FallKind, ts: string = new Date().toISOString()): object {
+  return { event: 'fall', card, kind, ts }
+}
+
+export function cardFellEvent(card: number, kind: FallKind, ts: string): BusEvent {
+  return { ts, type: CARD_FELL, actor: FALL_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${CARD_FELL}:${card}:${kind}:${ts}`, payload: { kind }, legacy: false }
+}
+
+function writeCardFell(event: BusEvent): void {
+  try {
+    const db = openBus(defaultBusPath())
+    try {
+      appendEvent(db, event)
+    }
+    finally {
+      db.close()
+    }
+  }
+  catch (error) {
+    console.error(`${CARD_FELL} for #${event.cardId} could not be written to the bus ${defaultBusPath()}: ${errorMessage(error)}`)
+  }
+}
+
+async function recordFall(journalPath: string, card: number, kind: FallKind): Promise<void> {
+  const ts = new Date().toISOString()
+  await appendJournalEvent(journalPath, fallEvent(card, kind, ts))
+  writeCardFell(cardFellEvent(card, kind, ts))
 }
 
 export function errorMessage(error: unknown): string {
@@ -219,7 +249,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   })
 
   if (!LADDER_STOPS_THAT_ARE_NOT_FALLS.has(ladder.status))
-    await appendJournalEvent(ctx.journalPath, fallEvent(task.card.id, 'ladder-not-done'))
+    await recordFall(ctx.journalPath, task.card.id, 'ladder-not-done')
 
   const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
   const ok = code === 0 && ladder.status === 'done'
