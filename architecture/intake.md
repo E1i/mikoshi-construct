@@ -143,8 +143,8 @@ the card or keeps it whole with the reason written.
 
 ## A card parked before the door is admitted, not re-sliced
 
-`task:start` and the shift take only a card with an `intake` line, and a card parked before that door
-has none. `construct intake --admit <parking>/<id>.md` gives it one without slicing it again: the card
+`task:start` and the shift take only a card the bus holds a `card.admitted` event for, and a card parked
+before that door has none. `pnpm intake --admit <parking>/<id>.md` writes it without slicing the card again: the card
 keeps its number and its file, the same facts check runs under that number, and a correction is held
 behind the same token until a person confirms it. Only the card line and the `touches` line change,
 and only by a correction; the `corrected:` and `unclear:` lines are appended, and `who` stays as the
