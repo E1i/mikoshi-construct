@@ -300,7 +300,7 @@ export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBus
 
   const windowBudgetLines = readBudgetLines(repoRoot)
   const attempts = [...named].map(([id, facts]): Attempt => {
-    const pathEvent = foldPath([...journal, ...starts], task => attemptOf(task) === id)
+    const pathEvent = foldPath([...starts, ...journal], task => attemptOf(task) === id)
     const worktree = pathEvent?.worktree === undefined ? undefined : path.resolve(dir, pathEvent.worktree)
     const session = pathEvent?.session
     const ghost = facts.ghost ?? id

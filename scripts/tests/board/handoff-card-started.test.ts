@@ -23,6 +23,20 @@ describe('board: a card started through card.started in the bus', () => {
     }
   })
 
+  it('keeps the closing line of the journal on top of card.started for every field both carry', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-card-started-'))
+    const bus = busWithCardStarted([{ cardId: 893, ts: '2026-10-12T10:00:00.000Z', payload: { path: 'ladder', session: 'start-session', worktree: path.join(dir, 'mc-893'), branch: 'feat/893' } }])
+    try {
+      writeFileSync(path.join(dir, 'ghosts.jsonl'), `${JSON.stringify({ event: 'path', task: '893', path: 'cheap', session: 'close-session', report: 'report-893.md', verification: 'run', ts: '2026-10-12T15:00:00.000Z' })}\n`)
+      const attempt = readHandoff(dir, undefined, bus.file).attempts.find(candidate => candidate.id === '893')
+      expect(attempt!.pathEvent).toMatchObject({ ts: '2026-10-12T15:00:00.000Z', path: 'cheap', session: 'close-session', report: 'report-893.md', worktree: path.join(dir, 'mc-893') })
+    }
+    finally {
+      bus.remove()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('names an attempt for a card whose only start is card.started', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'board-card-started-'))
     const bus = busWithCardStarted([{ cardId: 892, ts: '2026-10-12T10:00:00.000Z', payload: { worktree: path.join(dir, 'mc-892'), branch: 'feat/892' } }])
