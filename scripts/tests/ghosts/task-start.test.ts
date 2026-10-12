@@ -17,7 +17,7 @@ function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
 
 const W1_CARD = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 · blocks #124 the board card'
 const INTAKE_TS = '2026-10-01T08:00:00.000Z'
-const ADMITTED = [W1_CARD, card(2), card(3), card(4), card(5), card(8, 'implement/ghosts/M/cheap/owner'), card(9, 'implement/ghosts/M/cheap/owner'), card(21, 'implement/ghosts/L/ladder/owner'), card(31), card(32), card(41), card(42)]
+const ADMITTED = [W1_CARD, card(2), card(3), card(4), card(5), card(8, 'implement/ghosts/M/cheap/owner'), card(9, 'implement/ghosts/M/cheap/owner'), card(21, 'implement/ghosts/L/ladder/owner'), card(31), card(32), card(41), card(42), card(51), card(52)]
 
 function intakeJournal(cards: readonly string[]): string {
   return cards.map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: INTAKE_TS })}\n`).join('')
@@ -276,6 +276,75 @@ describe('the journal path follows the card contour', () => {
     const world = newWorld()
     expect(runTaskStart(['feat/l', '--card', card(21, 'implement/ghosts/L/ladder/owner')], depsOf(world)).exitCode).toBe(0)
     expect(lines(world)[0]).toMatchObject({ task: '21', path: 'ladder' })
+  })
+})
+
+describe('task:start --adopt takes an existing tree instead of cutting one', () => {
+  function released(world: World, id: number, branch: string): string {
+    const tree = path.join(world.root, `mc-${id}`)
+    git(world.repo, ['worktree', 'add', '-q', '-b', branch, tree, 'origin/main'])
+    return tree
+  }
+
+  function recording(world: World, calls: string[][], installs: [string, string[]][] = []): TaskStartDeps {
+    const deps = depsOf(world, SESSION, installs)
+    return { ...deps, git: (cwd, args) => {
+      calls.push(args)
+      return deps.git(cwd, args)
+    } }
+  }
+
+  it('adopts an existing tree: the start line and the entry line say adopts <tree>, and nothing is cut or installed', () => {
+    const world = newWorld()
+    const tree = released(world, 51, 'feat/a1')
+    const calls: string[][] = []
+    const installs: [string, string[]][] = []
+    const result = runTaskStart(['feat/a1', '--card', card(51), '--adopt', tree], recording(world, calls, installs))
+    expect(result.exitCode).toBe(0)
+    expect(result.worktree).toBe(tree)
+    expect(installs).toEqual([])
+    expect(calls).toEqual([['rev-parse', '--abbrev-ref', 'HEAD']])
+    const [start, entry] = lines(world)
+    expect(start).toMatchObject({ event: 'path', task: '51', worktree: tree, adopts: tree, branch: 'feat/a1', admission: { by: 'intake' } })
+    expect(entry).toMatchObject({ event: 'entry', task: '51', ACTION: `task:start feat/a1 #51: adopts ${tree}; start line written to ${world.journal}` })
+    expect(result.stdout.join('\n')).toContain(`adopts ${tree}`)
+    expect(result.stdout.join('\n')).not.toContain('from origin/main')
+  })
+
+  it('refuses to adopt a tree whose HEAD is not on the card\'s branch, and writes nothing', () => {
+    const world = newWorld()
+    const tree = released(world, 52, 'feat/other')
+    const result = runTaskStart(['feat/a2', '--card', card(52), '--adopt', tree], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] cannot adopt ${tree}: its HEAD is on feat/other, not on the card's branch feat/a2; nothing written`])
+    expect(existsSync(world.journal)).toBe(false)
+  })
+
+  it('refuses to adopt a path that is not a git tree, and writes nothing', () => {
+    const world = newWorld()
+    const tree = path.join(world.root, 'mc-51')
+    mkdirSync(tree)
+    const result = runTaskStart(['feat/a3', '--card', card(51), '--adopt', tree], { ...depsOf(world), cwd: world.root })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toMatch(/^\[task:start\] cannot adopt .*mc-51: it is not a git tree/)
+    expect(existsSync(world.journal)).toBe(false)
+  })
+
+  it('refuses to adopt for a card whose line differs from its latest intake line, and writes nothing', () => {
+    const world = newWorld()
+    const tree = released(world, 53, 'feat/a4')
+    const calls: string[][] = []
+    const deps = { ...recording(world, calls), readJournal: () => intakeJournal([card(53, 'implement/ghosts/M/cheap/auto')]) }
+    const result = runTaskStart(['feat/a4', '--card', card(53), '--adopt', tree], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toMatch(/^\[task:start\] card #53 differs from the card its intake line confirmed/)
+    expect(calls).toEqual([])
+    expect(existsSync(world.journal)).toBe(false)
+  })
+
+  it('refuses --adopt with no tree', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/a5', '--card', card(51), '--adopt'], depsOf(world)).stderr[0]).toMatch(/^\[task:start\] usage:/)
   })
 })
 
