@@ -15,25 +15,41 @@ export const PREFIX = '[bus:inbox] '
 
 const BLOCKS_LIST = ' · blocks '
 
+function cardLineIn(event: string): string {
+  return `coalesce(json_extract(${event}.payload, '$.card.line'), json_extract(${event}.payload, '$.card'))`
+}
+
 function latestCardLineOf(card: string): string {
-  return `(SELECT coalesce(json_extract(line.payload, '$.card.line'), json_extract(line.payload, '$.card')) FROM events AS line
+  return `(SELECT ${cardLineIn('line')} FROM events AS line
       WHERE line.card_id = ${card} AND json_extract(line.payload, '$.card') IS NOT NULL ORDER BY line.id DESC LIMIT 1)`
 }
 
-function blockersMergedAfter(stop: string): string {
-  return `EXISTS (
-      SELECT 1 FROM prs AS blocker
-      WHERE blocker.state = 'merged' AND blocker.event_id > ${stop}.id AND blocker.card_id IS NOT NULL
-        AND ', ' || substr(${latestCardLineOf('blocker.card_id')}, instr(${latestCardLineOf('blocker.card_id')}, '${BLOCKS_LIST}') + ${BLOCKS_LIST.length}) || ','
-          LIKE '%, #' || ${stop}.card_id || ',%'
-    )`
+function blocksTheStoppedCard(cardLine: string, stop: string): string {
+  return `', ' || substr(${cardLine}, instr(${cardLine}, '${BLOCKS_LIST}') + ${BLOCKS_LIST.length}) || ',' LIKE '%, #' || ${stop}.card_id || ',%'`
+}
+
+function blockersOf(stop: string): string {
+  return `SELECT DISTINCT named.card_id FROM events AS named
+      WHERE named.card_id IS NOT NULL AND named.payload LIKE '%${BLOCKS_LIST.trim()}%#' || ${stop}.card_id || '%' AND json_extract(named.payload, '$.card') IS NOT NULL
+        AND ${blocksTheStoppedCard(cardLineIn('named'), stop)}
+        AND ${blocksTheStoppedCard(latestCardLineOf('named.card_id'), stop)}`
+}
+
+function everyBlockerMergedAfter(stop: string): string {
+  return `(EXISTS (
+      SELECT 1 FROM (${blockersOf(stop)}) AS blocking
+      JOIN prs AS blocker ON blocker.card_id = blocking.card_id AND blocker.state = 'merged' AND blocker.event_id > ${stop}.id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM (${blockersOf(stop)}) AS waiting
+      WHERE NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = waiting.card_id AND merged.state = 'merged')
+    ))`
 }
 
 export function answeredByDecision(stop: string): string {
   return `(EXISTS (
       SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
       WHERE answer.event_id > ${stop}.id AND named.value = ${stop}.card_id
-    ) OR ${blockersMergedAfter(stop)})`
+    ) OR ${everyBlockerMergedAfter(stop)})`
 }
 
 const OWNER_INBOX = `
