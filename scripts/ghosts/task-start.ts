@@ -22,6 +22,8 @@ export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]'
 const CARD_FLAG = '--card'
 const PARKING_FLAG = '--parking'
+const ADOPT_FLAG = '--adopt'
+export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--parking <dir>] [--without-intake "<reason>"]'
 const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
@@ -139,17 +141,22 @@ function flagValue(argv: string[], flag: string): { at: number, value: string | 
   return { at, value: at === -1 ? undefined : argv[at + 1] }
 }
 
-function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined, parking: string | undefined } | null {
+function pathFlagMissing(flag: { at: number, value: string | undefined }): boolean {
+  return flag.at !== -1 && (flag.value === undefined || flag.value.startsWith('-'))
+}
+
+function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined, parking: string | undefined, adopt: string | undefined } | null {
   const card = flagValue(argv, CARD_FLAG)
   const waiver = flagValue(argv, WITHOUT_INTAKE_FLAG)
   const parking = flagValue(argv, PARKING_FLAG)
+  const adopt = flagValue(argv, ADOPT_FLAG)
   if (card.value === undefined || (waiver.at !== -1 && (waiver.value === undefined || waiver.value.trim() === '')))
     return null
-  if (parking.at !== -1 && (parking.value === undefined || parking.value.startsWith('-')))
+  if (pathFlagMissing(parking) || pathFlagMissing(adopt))
     return null
-  const taken = new Set([card.at, card.at + 1, ...(waiver.at === -1 ? [] : [waiver.at, waiver.at + 1]), ...(parking.at === -1 ? [] : [parking.at, parking.at + 1])])
+  const taken = new Set([card, waiver, parking, adopt].flatMap(flag => flag.at === -1 ? [] : [flag.at, flag.at + 1]))
   const positional = argv.filter((_, index) => !taken.has(index))
-  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim(), parking: parking.value } : null
+  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim(), parking: parking.value, adopt: adopt.value } : null
 }
 
 type Contract = Pick<Signal, 'CONTRACT' | 'EXPECT'>
@@ -231,33 +238,37 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
-export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
-  if (!argv.includes(CARD_FLAG))
-    return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
-  const args = cardArgs(argv)
-  if (args === null)
-    return refuse(USAGE)
-  const { branch } = args
-  const parsed = parseCard(args.card)
-  if (parsed.kind === 'refused')
-    return refuse(`card refused: ${parsed.reason}; nothing written`)
-  const { card } = parsed
-  const id = String(card.id)
-  if (!SAFE_BRANCH.test(branch))
-    return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
-  const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const journalText = deps.readJournal(journal)
-  const merged = mergedTasks(journalText)
-  const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
-  if (unmerged.length > 0)
-    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
-  const admitted = admission(card, journalText, args.waiver)
-  if (admitted.kind === 'refused')
-    return refuse(`${admitted.reason}; nothing written`)
-  const cardFile = readCardFile(deps, card, args.parking)
-  const contract = handed === undefined ? manualContract(card, cardFile) : { CONTRACT: handed.CONTRACT, EXPECT: handed.EXPECT }
-  if (typeof contract === 'string')
-    return refuse(contract)
+interface ReadyTree {
+  worktree: string
+  how: string
+  failedAppend: string
+}
+
+function adoptTree(deps: TaskStartDeps, tree: string, branch: string): ReadyTree | TaskStartResult {
+  const worktree = path.resolve(deps.cwd, tree)
+  let toplevel: string, commonDir: string, head: string, repoCommonDir: string
+  try {
+    [toplevel = '', commonDir = '', head = ''] = deps.git(worktree, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir', '--abbrev-ref', 'HEAD']).trim().split('\n')
+  }
+  catch (error) {
+    return refuse(`cannot adopt ${worktree}: it is not a git tree (${firstLine(error)}); nothing written`)
+  }
+  if (toplevel !== worktree)
+    return refuse(`cannot adopt ${worktree}: it is not the top of a tree, ${toplevel} is; nothing written`)
+  try {
+    repoCommonDir = deps.git(deps.cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+  }
+  catch (error) {
+    return refuse(`not inside a git repository: ${firstLine(error)}`)
+  }
+  if (commonDir !== repoCommonDir)
+    return refuse(`cannot adopt ${worktree}: it belongs to the repository at ${commonDir}, not to ${repoCommonDir}; nothing written`)
+  if (head !== branch)
+    return refuse(`cannot adopt ${worktree}: its HEAD is on ${head}, not on the card's branch ${branch}; nothing written`)
+  return { worktree, how: `adopts ${worktree}`, failedAppend: `${worktree} was adopted on ${branch}` }
+}
+
+function cutTree(deps: TaskStartDeps, id: string, branch: string): ReadyTree | TaskStartResult {
   let repo: string
   try {
     repo = deps.git(deps.cwd, ['rev-parse', '--show-toplevel']).trim()
@@ -283,19 +294,53 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   catch (error) {
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
+  return { worktree, how: `cut ${worktree} from origin/main`, failedAppend: `${worktree} was cut on ${branch}` }
+}
+
+export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
+  if (!argv.includes(CARD_FLAG))
+    return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
+  const args = cardArgs(argv)
+  if (args === null)
+    return refuse(argv.includes(ADOPT_FLAG) ? ADOPT_USAGE : USAGE)
+  const { branch } = args
+  const parsed = parseCard(args.card)
+  if (parsed.kind === 'refused')
+    return refuse(`card refused: ${parsed.reason}; nothing written`)
+  const { card } = parsed
+  const id = String(card.id)
+  if (!SAFE_BRANCH.test(branch))
+    return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
+  const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
+  const journalText = deps.readJournal(journal)
+  const merged = mergedTasks(journalText)
+  const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
+  if (unmerged.length > 0)
+    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
+  const admitted = admission(card, journalText, args.waiver)
+  if (admitted.kind === 'refused')
+    return refuse(`${admitted.reason}; nothing written`)
+  const cardFile = readCardFile(deps, card, args.parking)
+  const contract = handed === undefined ? manualContract(card, cardFile) : { CONTRACT: handed.CONTRACT, EXPECT: handed.EXPECT }
+  if (typeof contract === 'string')
+    return refuse(contract)
+  const ready = args.adopt === undefined ? cutTree(deps, id, branch) : adoptTree(deps, args.adopt, branch)
+  if ('exitCode' in ready)
+    return ready
+  const { worktree } = ready
   const at = deps.now().toISOString()
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted), ts: at }
+  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted), ts: at }
   const written = `start line written to ${journal}`
   const signal = {
     ...contract,
-    ACTION: `task:start ${branch} #${id}: cut ${worktree} from origin/main; ${written}${deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''}`,
+    ACTION: `task:start ${branch} #${id}: ${ready.how}; ${written}${deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''}`,
     RESULT: ENTRY_RESULT,
   }
   try {
     deps.append(journal, `${JSON.stringify(line)}\n${entryLine(id, signal, at)}`)
   }
   catch (error) {
-    return refuse(`${worktree} was cut on ${branch} but the start line could not be written to ${journal}: ${firstLine(error)}`)
+    return refuse(`${ready.failedAppend} but the start line could not be written to ${journal}: ${firstLine(error)}`)
   }
   const stdout = renderSignal(`task:start #${id} ${card.name}`, signal, deps.style ?? PLAIN_STYLE)
   return { stdout, stderr: [], exitCode: 0, worktree }
