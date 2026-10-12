@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { defaultBusPath, openBus } from './db.js'
+import { CARD_BLOCKS, defaultBusPath, openBus } from './db.js'
 
 export const POLICY_DENIED = 'policy.denied'
 export const CARD_STOPPED = 'card.stopped'
@@ -13,18 +13,43 @@ export const QUESTION_OWNER = 'question.owner'
 export const OWNER = 'owner'
 export const PREFIX = '[bus:inbox] '
 
-export function answeredByDecision(stop: string): string {
-  return `EXISTS (
+function blocksIn(event: string): string {
+  return `coalesce(json_extract(${event}.payload, '$.card.blocks'), ${CARD_BLOCKS}(json_extract(${event}.payload, '$.card')))`
+}
+
+function latestBlocksOf(card: string): string {
+  return `(SELECT ${blocksIn('line')} FROM events AS line
+      WHERE line.card_id = ${card} AND ${blocksIn('line')} IS NOT NULL ORDER BY line.id DESC LIMIT 1)`
+}
+
+function blockersOf(stop: string): string {
+  return `SELECT DISTINCT named.card_id FROM events AS named
+      WHERE named.card_id IS NOT NULL AND named.payload LIKE '%#' || ${stop}.card_id || '%'
+        AND EXISTS (SELECT 1 FROM json_each(${latestBlocksOf('named.card_id')}) AS blocked WHERE blocked.value = ${stop}.card_id)`
+}
+
+function everyBlockerMergedAfter(stop: string): string {
+  return `(EXISTS (
+      SELECT 1 FROM (${blockersOf(stop)}) AS blocking
+      JOIN prs AS blocker ON blocker.card_id = blocking.card_id AND blocker.state = 'merged' AND blocker.event_id > ${stop}.id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM (${blockersOf(stop)}) AS waiting
+      WHERE NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = waiting.card_id AND merged.state = 'merged')
+    ))`
+}
+
+export function ownerQuestionAnswered(stop: string): string {
+  return `(EXISTS (
       SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
       WHERE answer.event_id > ${stop}.id AND named.value = ${stop}.card_id
-    )`
+    ) OR ${everyBlockerMergedAfter(stop)})`
 }
 
 const OWNER_INBOX = `
   SELECT id, type, card_id, pr, head, payload FROM events AS item
   WHERE item.legacy = 0 AND (
     (item.type = '${POLICY_DENIED}' AND json_extract(item.payload, '$.kind') = 'authority')
-    OR (item.type = '${CARD_STOPPED}' AND json_extract(item.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${answeredByDecision('item')})
+    OR (item.type = '${CARD_STOPPED}' AND json_extract(item.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('item')})
   )
   ORDER BY id
 `

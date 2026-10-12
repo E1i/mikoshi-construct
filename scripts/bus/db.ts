@@ -3,11 +3,13 @@ import { mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { parseCard } from '../../src/card/grammar.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
 export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
 export const BUSY_TIMEOUT_MS = 30_000
+export const CARD_BLOCKS = 'card_blocks'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -124,12 +126,20 @@ export function defaultBusPath(): string {
   return process.env[BUS_DB_VARIABLE] ?? path.join(os.homedir(), '.construct', 'bus.db')
 }
 
+function blocksOfCardLine(line: unknown): string | null {
+  if (typeof line !== 'string')
+    return null
+  const parsed = parseCard(line)
+  return parsed.kind === 'card' ? JSON.stringify(parsed.card.blocks) : null
+}
+
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = openDatabase(file)
   db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
   addMissingColumns(db)
+  db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)
   return db
 }
 
