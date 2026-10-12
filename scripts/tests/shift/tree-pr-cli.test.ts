@@ -26,7 +26,7 @@ const SHRUNK_TEST = 'scripts/tests/shift/x.test.ts'
 const CARD_TAIL = '· depends — · blocks —'
 const OPENED = `Opened by the shift from the card's worktree and branch after its session ended.`
 
-const PATH_LINES: Record<string, { diff: ShiftedDiff, line: string }> = {
+const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: string }> = {
   'tests shrunk on a cheap card with no assertion removed': {
     diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 4, deletions: 1 }, { path: 'scripts/shift/x.ts', additions: 2, deletions: 0 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -3 +3,4 @@\n-import { a } from './a.js'\n+import { a, b } from './a.js'\n` },
     line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · cheap holds: the shrunk test files are ${SHRUNK_TEST}, and every line the diff removes from them is an import or blank`,
@@ -38,6 +38,11 @@ const PATH_LINES: Record<string, { diff: ShiftedDiff, line: string }> = {
   'scripts on a ladder card': {
     diff: { contour: 'ladder', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
     line: `Path: ladder · MORSE predicts ladder by rule doubt (scripts/shift/x.ts) · the card's contour and MORSE agree`,
+  },
+  'scripts on a cheap card that names its D-76 reason': {
+    diff: { contour: 'cheap', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    cardBody: 'Do x.\nPath (D-76): cheap, one guard line the witness covers',
+    line: `Path: cheap · MORSE predicts ladder by rule doubt (scripts/shift/x.ts) · cheap holds by the card's D-76 reason: cheap, one guard line the witness covers`,
   },
   'docs only on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'docs/x.md', additions: 1, deletions: 0 }], patch: '' },
@@ -109,11 +114,11 @@ function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
   }
 }
 
-function parkCard(root: string, contour: ShiftedDiff['contour']): { cardFile: string, cardLine: string } {
+function parkCard(root: string, contour: ShiftedDiff['contour'], body = 'Do x.'): { cardFile: string, cardLine: string } {
   const cardLine = `#951 x [implement/netwatch/S/${contour}/auto] ${CARD_TAIL}`
   const cardFile = path.join(root, 'lane-q', '951.md')
   mkdirSync(path.dirname(cardFile), { recursive: true })
-  writeFileSync(cardFile, `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts\ncontinue: stop\nwho: shift\n\nDo x.\n`)
+  writeFileSync(cardFile, `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts\ncontinue: stop\nwho: shift\n\n${body}\n`)
   return { cardFile, cardLine }
 }
 
@@ -130,10 +135,10 @@ describe('tree-pr for a finished card session', () => {
   })
 
   it('the PR body names the path and its reason after the card line', () => {
-    const observed = Object.fromEntries(Object.entries(PATH_LINES).map(([name, { diff }]) => {
+    const observed = Object.fromEntries(Object.entries(PATH_LINES).map(([name, { diff, cardBody }]) => {
       const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
       roots.push(root)
-      const { cardFile, cardLine } = parkCard(root, diff.contour)
+      const { cardFile, cardLine } = parkCard(root, diff.contour, cardBody)
       const bodies: string[] = []
       const lines: string[] = []
 
@@ -159,5 +164,29 @@ describe('tree-pr for a finished card session', () => {
     }))
 
     expect(observed).toEqual(Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { gaps }]) => [name, { code: 1, lines: [`${PREFIX}951.md: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`], bodies: [] }])))
+  })
+
+  it('the PR body carries the matrix count line of the session report', () => {
+    const { diff, line } = PATH_LINES['scripts on a ladder card']!
+    const reports: Record<string, { report: string | null, tail: string }> = {
+      'a report with the matrix': { report: 'contract: x\n\n| | M1 | M2 |\n| M1 | ■ | □ |\n\n■ 3 □ 1 · 6\n\nverification: run\n', tail: '\n\n■ 3 □ 1 · 6' },
+      'a report without the matrix': { report: 'contract: x\nverification: run\n', tail: '' },
+      'no report on disk': { report: null, tail: '' },
+    }
+    const observed = Object.fromEntries(Object.entries(reports).map(([name, { report }]) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+      roots.push(root)
+      const { cardFile, cardLine } = parkCard(root, diff.contour)
+      const reportFile = path.join(root, 'report-951.md')
+      if (report !== null)
+        writeFileSync(reportFile, report)
+      const bodies: string[] = []
+
+      runTreePr([cardFile, root, reportFile], shiftedPorts(diff, bodies), () => {})
+
+      return [name, bodies.map(body => body.replace(cardLine, '<card>'))]
+    }))
+
+    expect(observed).toEqual(Object.fromEntries(Object.entries(reports).map(([name, { tail }]) => [name, [`<card>\n\n${line}\n\n${OPENED}${tail}`]])))
   })
 })
