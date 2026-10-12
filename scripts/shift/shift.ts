@@ -637,20 +637,41 @@ function startDeps(deps: ShiftDeps, dir: string, session: string, parking: strin
   return { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
 }
 
-function taskTree(deps: ShiftDeps, dir: string, task: ShiftTask, session: string, handed: HandedContract, parking: string | undefined): { worktree: string } | { refused: string } {
-  const resumed = amendedTree(deps.readJournal(path.join(deps.handoffDir, GHOST_JOURNAL)), task.id, deps.exists)
-  if (resumed !== null) {
-    deps.out(`${PREFIX}${task.file} ${task.id}: resumes ${resumed}, its stop answered by an amend`)
-    return { worktree: resumed }
+const ADOPTED_GIT = new Set(['fetch', 'worktree'])
+const BRANCH_LOOKUP = 'show-ref'
+
+function adoptingDeps(start: TaskStartDeps, tree: string): TaskStartDeps {
+  return {
+    ...start,
+    worktreeHome: path.dirname(tree),
+    exists: target => target !== tree && start.exists(target),
+    git: (cwd, args) => {
+      if (args[0] === BRANCH_LOOKUP)
+        throw new Error(`${tree} is adopted with its branch`)
+      return ADOPTED_GIT.has(args[0]!) ? '' : start.git(cwd, args)
+    },
+    install: () => {},
   }
-  const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
-  return start.exitCode !== 0 || start.worktree === undefined ? { refused: start.stderr.join(' ') } : { worktree: start.worktree }
 }
 
-async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined, afterReview: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
+function resumedTree(deps: Pick<ShiftDeps, 'readJournal' | 'handoffDir' | 'exists'>, task: ShiftTask): string | null {
+  return amendedTree(deps.readJournal(path.join(deps.handoffDir, GHOST_JOURNAL)), task.id, deps.exists)
+}
+
+function taskTree(deps: ShiftDeps, dir: string, task: ShiftTask, resumes: string | null, session: string, handed: HandedContract, parking: string | undefined): { worktree: string } | { refused: string } {
+  const plain = startDeps(deps, dir, session, parking)
+  const start = runTaskStart([task.branch, '--card', task.card.line], resumes === null ? plain : adoptingDeps(plain, resumes), handed)
+  if (start.exitCode !== 0 || start.worktree === undefined)
+    return { refused: start.stderr.join(' ') }
+  if (resumes !== null && start.worktree !== resumes)
+    return { refused: `task:start named ${start.worktree}, not the tree ${resumes} the stop recorded` }
+  return { worktree: start.worktree }
+}
+
+async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, resumes: string | null, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined, afterReview: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
-  const tree = taskTree(deps, dir, task, session, handed, parking)
+  const tree = taskTree(deps, dir, task, resumes, session, handed, parking)
   if ('refused' in tree) {
     return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: tree.refused }, stop: null }
   }
@@ -878,11 +899,11 @@ function startContract(task: ShiftTask, expected: string): Pick<Signal, 'CONTRAC
   }
 }
 
-function startBlock(task: ShiftTask, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, style: SignalStyle): string[] {
+function startBlock(task: ShiftTask, resumes: string | null, handed: Pick<Signal, 'CONTRACT' | 'EXPECT'>, style: SignalStyle): string[] {
   return renderSignal(`shift ${task.file} #${task.id} ${task.card.name}`, {
     CONTRACT: handed.CONTRACT,
     EXPECT: handed.EXPECT,
-    ACTION: `task:start ${task.branch} #${task.id}, then a headless claude session in its tree`,
+    ACTION: resumes === null ? `task:start ${task.branch} #${task.id}, then a headless claude session in its tree` : `resumes ${resumes} on ${task.branch} #${task.id}, its stop answered by an amend: task:start admits the card and records the new session, then a headless claude session in that tree`,
     RESULT: `— running; the outcome line ${PREFIX}${task.file} ${task.id}: … follows`,
   }, style)
 }
@@ -1262,9 +1283,11 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
         deps.out(`${PREFIX}${task.file} ${task.id}: not taken, not confirmed (--manual)`)
         continue
       }
-      for (const line of startBlock(task, handed, deps.style ?? PLAIN_STYLE))
+      const ladder = parking !== undefined && isLadder(task.card)
+      const resumes = ladder ? null : resumedTree(deps, task)
+      for (const line of startBlock(task, resumes, handed, deps.style ?? PLAIN_STYLE))
         deps.out(line)
-      const finished = parking !== undefined && isLadder(task.card) ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, claude, handed, parking, manual, shard, chain !== undefined)
+      const finished = ladder ? await runLadder(sessionDeps, dir, task, claude, handed, parking, manual, shard) : await runTask(sessionDeps, dir, task, resumes, claude, handed, parking, manual, shard, chain !== undefined)
       const ran = { line: finished.line, stop: failedStop(deps, dir, finished) }
       last = { task, stop: ran.stop }
       deps.append(journal, `${JSON.stringify(ran.line)}\n`)
