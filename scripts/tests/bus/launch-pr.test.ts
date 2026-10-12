@@ -58,7 +58,7 @@ async function exited(pid: number): Promise<void> {
     await sleep(50)
 }
 
-function launchWorld(claudeExit: number) {
+function launchWorld(claudeExit: number, report = '') {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-pr-'))
   roots.push(root)
   const origin = path.join(root, 'origin.git')
@@ -84,11 +84,13 @@ function launchWorld(claudeExit: number) {
   mkdirSync(bin)
   const ghArgs = path.join(root, 'gh-args.txt')
   script(path.join(bin, 'gh'), `#!/bin/sh\nif [ "$1 $2" = "pr list" ]; then echo '[]'; exit 0; fi\nif [ "$1 $2" = "pr create" ]; then printf '%s\\n' "$@" > '${ghArgs}.tmp'; mv '${ghArgs}.tmp' '${ghArgs}'; echo https://github.com/x/y/pull/77; exit 0; fi\nexit 1\n`)
-  const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\nexit ${claudeExit}\n`)
+  const launchDir = path.join(root, 'launch')
+  const writeReport = report === '' ? '' : `printf '%s\\n' ${shellWord(report)} > ${shellWord(path.join(launchDir, `report-${CARD_ID}.md`))}\n`
+  const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
   const starter = new ShiftCardStarter(
-    { parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }, claude, treePr },
+    { parking, launchDir, header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }, claude, treePr },
     {
       read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
       cut: () => worktree,
@@ -116,6 +118,16 @@ describe('a card the bus launches', () => {
     expect(args[args.indexOf('--body') + 1]).toBe(CARD_LINE)
     expect(git(world.origin, ['show', `${BRANCH}:x.txt`])).toBe('green\n')
     expect(git(world.worktree, ['status', '--porcelain'])).toBe('')
+  })
+
+  it('a launched card\'s PR body carries the matrix count line of its session report', async () => {
+    const world = launchWorld(0, 'verification: run\n\n■ 2 □ 0 · 1')
+    expect(world.start()).toMatchObject({ kind: 'started' })
+
+    const args = await settledFile(world.ghArgs)
+    expect(args.split('\n').slice(0, 2)).toEqual(['pr', 'create'])
+    const body = args.slice(args.indexOf('--body\n') + '--body\n'.length).trimEnd().split('\n')
+    expect({ first: body[0], last: body.slice(-2) }).toEqual({ first: CARD_LINE, last: ['', '■ 2 □ 0 · 1'] })
   })
 
   it('a launched session that exits non-zero leaves its tree uncommitted', async () => {
