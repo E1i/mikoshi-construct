@@ -133,6 +133,8 @@ function foldClosed(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function foldFell(db: DatabaseSync, event: StoredEvent): void {
+  if (event.card_id !== null && stateOf(db, event.card_id) === DROPPED_CARD)
+    return
   claimed(db, event, FALLS, FALLEN_CARD)
 }
 

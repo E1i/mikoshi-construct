@@ -329,6 +329,14 @@ describe('the card automaton', () => {
     db.close()
   })
 
+  it('a fall written after the card was dropped leaves it dropped without a rejection', () => {
+    const db = busWith(admitted(916), started(916), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 916, payload: { lane: 'dropped' } }), event('card.fell', { actor: 'worker:ladder:s916', cardId: 916, payload: { kind: 'ladder-not-done' } }))
+    reduce(db)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[916, 'dropped']])
+    expect(rejections(db)).toEqual([])
+    db.close()
+  })
+
   it('facts imported after the card moved on are folded without a rejection', () => {
     const db = busWith(observed(800, 793), closed(800, true), event('card.closed', { actor: 'worker:close:c1', cardId: 793, payload: { verification: 'run' } }), admitted(793), event('review.recorded', { actor: 'worker:review:r1', cardId: 794, payload: { verdict: 'pass' } }))
     expect(reduce(db)).toEqual({ applied: 5, rejected: 0 })
