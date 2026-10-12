@@ -284,10 +284,10 @@ describe('the card automaton', () => {
     db.close()
   })
 
-  it('an imported admission of a card merged before the cutover leaves it merged, and of a card never merged queues it', () => {
-    const legacyMerge = event('merge', { actor: null as unknown as string, cardId: 795, dedupeKey: 'legacy:1:merge', payload: { event: 'merge', task: '795', by: 'owner' }, legacy: true })
-    const imported = (cardId: number): BusEvent => event('card.admitted', { actor: 'reducer', cardId, payload: { lane: 'archive', depends: [], admission: `legacy:${cardId}:sha` } })
-    const db = busWith(legacyMerge, imported(795), imported(796))
+  it('an admission of a card the journal merged before it leaves the card merged, and of a card never merged queues it', () => {
+    const journalMerge = event('merge', { actor: null as unknown as string, cardId: 795, dedupeKey: 'legacy:1:merge', payload: { event: 'merge', task: '795', by: 'owner' }, legacy: true })
+    const admission = (cardId: number): BusEvent => event('card.admitted', { actor: 'reducer', cardId, payload: { lane: 'archive', depends: [], admission: `legacy:${cardId}:sha` } })
+    const db = busWith(journalMerge, admission(795), admission(796))
     expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[795, 'merged'], [796, 'queued']])
     db.close()

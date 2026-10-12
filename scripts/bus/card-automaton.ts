@@ -82,9 +82,7 @@ export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, linke
   moveCard(db, cardId, IN_REVIEW_CARD, eventId)
 }
 
-const LEGACY_ADMISSION = 'legacy:'
-
-function mergedBeforeTheCutover(db: DatabaseSync, cardId: number, before: number): boolean {
+function mergedInTheJournalBefore(db: DatabaseSync, cardId: number, before: number): boolean {
   return db.prepare(`SELECT 1 FROM events WHERE legacy = 1 AND type = 'merge' AND card_id = ? AND id < ? LIMIT 1`).get(cardId, before) !== undefined
 }
 
@@ -92,8 +90,7 @@ function foldAdmitted(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_ADMITTED} needs a card_id`)
   if (!ADMITTED_AGAIN.has(stateOf(db, cardId)))
     return
-  const imported = String(payloadOf(event).admission ?? '').startsWith(LEGACY_ADMISSION)
-  moveCard(db, cardId, imported && mergedBeforeTheCutover(db, cardId, event.id) ? MERGED_CARD : QUEUED_CARD, event.id)
+  moveCard(db, cardId, mergedInTheJournalBefore(db, cardId, event.id) ? MERGED_CARD : QUEUED_CARD, event.id)
 }
 
 function foldReviewRecorded(db: DatabaseSync, event: StoredEvent): void {
