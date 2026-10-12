@@ -1,7 +1,9 @@
 import type { Contour } from '../../src/card/grammar.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
+import type { CompanionRow } from '../../src/commands/intake/check.js'
 import type { GhRunner } from '../board/gh.js'
 import type { ChangedFile, Prediction } from '../morse/rules.js'
+import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../src/commands/intake/check.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from './merge.js'
@@ -42,7 +44,7 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
 }
 
 const SHIFTED_RANGE = 'origin/main...HEAD'
-const PUBLISHED_UNDER = ['src/', 'templates/']
+const PUBLISHED_CODE = COMPANION_TABLE.find(row => row.kind === 'published code') as CompanionRow
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
 const UNNAMED_REASON = 'the cheap path is held without a named reason'
 const REMOVED_LINE = /^-(?!--)(.*)$/gm
@@ -96,10 +98,21 @@ function shiftedPath(git: TreePrPorts['git'], worktree: string, card: TreeCard):
   }
 }
 
-function formatGaps(body: string, shifted: ShiftedPath): string[] {
+function publishedRootsAt(git: TreePrPorts['git'], worktree: string): string[] {
+  let manifest: string
+  try {
+    manifest = git(worktree, ['show', `HEAD:${PACKAGE_MANIFEST}`])
+  }
+  catch {
+    return []
+  }
+  return publishedRootsOf(manifest) ?? []
+}
+
+function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[]): string[] {
   const paths = shifted.files.map(file => file.path)
   const unmatrixed = pathWithoutMatrix(body, paths)
-  const published = paths.find(file => PUBLISHED_UNDER.some(root => file.startsWith(root)))
+  const published = paths.find(file => PUBLISHED_CODE.touched(file, publishedRoots))
   const changeset = shifted.files.some(file => file.status !== 'D' && CHANGESET_FILE.test(file.path))
   return [
     ...(unmatrixed === undefined ? [] : [`the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`]),
@@ -144,7 +157,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
       return { kind: 'pr', number: open }
     const shifted = shiftedPath(ports.git, worktree, card)
     const body = prBodyOf(card, shifted.line, matrixCountLineOf(report))
-    const gaps = formatGaps(body, shifted)
+    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree))
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.join('; ')}` }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])

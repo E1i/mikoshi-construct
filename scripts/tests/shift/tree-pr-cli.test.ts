@@ -68,6 +68,10 @@ const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
     diff: { contour: 'ladder', files: [{ path: '.changeset/x.md', additions: 5, deletions: 0, status: 'A' }, { path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
     gaps: [MATRIX_GAP('src/x.ts')],
   },
+  'src on a ladder card whose only changeset file is the readme': {
+    diff: { contour: 'ladder', files: [{ path: '.changeset/README.md', additions: 1, deletions: 0, status: 'A' }, { path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    gaps: [MATRIX_GAP('src/x.ts'), CHANGESET_GAP('src/x.ts')],
+  },
   'templates on a ladder card whose changeset is deleted': {
     diff: { contour: 'ladder', files: [{ path: '.changeset/x.md', additions: 0, deletions: 5, status: 'D' }, { path: 'templates/base/x.eta', additions: 1, deletions: 0 }], patch: '' },
     gaps: [MATRIX_GAP('templates/base/x.eta'), CHANGESET_GAP('templates/base/x.eta')],
@@ -97,6 +101,8 @@ function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
         return ''
       if (args[0] === 'rev-list')
         return '1\n'
+      if (args[0] === 'show' && args[1] === 'HEAD:package.json')
+        return JSON.stringify({ files: ['dist', 'templates'] })
       if (args.includes('--name-status'))
         return diff.files.map(file => `${file.status ?? 'M'}\0${file.path}\0`).join('')
       if (args.includes('--numstat'))
