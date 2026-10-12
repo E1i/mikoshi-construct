@@ -214,7 +214,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), path.dirname(options.file), source)], source === ADMIT_SOURCE ? options.events : undefined)
+  const laneDir = path.dirname(options.file)
+  const inLane = path.resolve(laneDir) !== path.resolve(options.parkingRoot ?? defaultParking())
+  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), laneDir, source)], source === ADMIT_SOURCE && inLane ? options.events : undefined)
   return { ...base, status: 'admitted' }
 }
 
