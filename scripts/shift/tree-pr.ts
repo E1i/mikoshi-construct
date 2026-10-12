@@ -37,7 +37,8 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
 }
 
 const SHIFTED_RANGE = 'origin/main...HEAD'
-const REMOVED_ASSERTION = /^-(?!--).*\b(?:expect|assert)\w*\s*[(.]/m
+const REMOVED_LINE = /^-(?!--)(.*)$/gm
+const IMPORT_OR_BLANK = /^\s*(?:import\s.*)?$/
 
 function changedFilesOf(git: TreePrPorts['git'], worktree: string): ChangedFile[] {
   return changedFilesFrom(
@@ -46,8 +47,9 @@ function changedFilesOf(git: TreePrPorts['git'], worktree: string): ChangedFile[
   )
 }
 
-function removesAnAssertion(git: TreePrPorts['git'], worktree: string, files: string[]): boolean {
-  return REMOVED_ASSERTION.test(git(worktree, ['diff', '--no-renames', '-U0', SHIFTED_RANGE, '--', ...files]))
+function removesOnlyImportsOrBlanks(git: TreePrPorts['git'], worktree: string, files: string[]): boolean {
+  const patch = git(worktree, ['diff', '--no-renames', '-U0', SHIFTED_RANGE, '--', ...files])
+  return [...patch.matchAll(REMOVED_LINE)].every(([, line]) => IMPORT_OR_BLANK.test(line!))
 }
 
 function pathReason(git: TreePrPorts['git'], worktree: string, contour: Contour, prediction: Prediction): string {
@@ -55,8 +57,8 @@ function pathReason(git: TreePrPorts['git'], worktree: string, contour: Contour,
     return `the card's contour and MORSE agree`
   if (contour === 'ladder')
     return 'the card takes the ladder by its contour where MORSE predicts cheap'
-  if (prediction.rule === 'tests-shrunk' && !removesAnAssertion(git, worktree, prediction.why))
-    return `cheap holds: the shrunk test files are ${prediction.why.join(', ')}, and the diff removes no assertion from them`
+  if (prediction.rule === 'tests-shrunk' && removesOnlyImportsOrBlanks(git, worktree, prediction.why))
+    return `cheap holds: the shrunk test files are ${prediction.why.join(', ')}, and every line the diff removes from them is an import or blank`
   return 'the cheap path is held without a named reason'
 }
 

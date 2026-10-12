@@ -18,7 +18,7 @@ function untouchable(): never {
 
 interface ShiftedDiff {
   contour: 'cheap' | 'ladder'
-  files: { path: string, additions: number, deletions: number }[]
+  files: { path: string, additions: number, deletions: number, status?: string }[]
   patch: string
 }
 
@@ -29,11 +29,27 @@ const OPENED = `Opened by the shift from the card's worktree and branch after it
 const PATH_LINES: Record<string, { diff: ShiftedDiff, line: string }> = {
   'tests shrunk on a cheap card with no assertion removed': {
     diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 4, deletions: 1 }, { path: 'scripts/shift/x.ts', additions: 2, deletions: 0 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -3 +3,4 @@\n-import { a } from './a.js'\n+import { a, b } from './a.js'\n` },
-    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · cheap holds: the shrunk test files are ${SHRUNK_TEST}, and the diff removes no assertion from them`,
+    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · cheap holds: the shrunk test files are ${SHRUNK_TEST}, and every line the diff removes from them is an import or blank`,
   },
   'tests shrunk on a cheap card with an assertion removed': {
     diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -9 +8,0 @@\n-    expect(code).toBe(0)\n` },
     line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · the cheap path is held without a named reason`,
+  },
+  'tests shrunk on a cheap card by a removed expectation-table row': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -20 +19,0 @@\n-  'src on a cheap card': { diff: d, line: 'x' },\n` },
+    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · the cheap path is held without a named reason`,
+  },
+  'tests shrunk on a cheap card by a skipped test': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 1, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -30 +30 @@\n-  it('x', () => {\n+  it.skip('x', () => {\n` },
+    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · the cheap path is held without a named reason`,
+  },
+  'src on a ladder card': {
+    diff: { contour: 'ladder', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    line: `Path: ladder · MORSE predicts ladder by rule src (src/x.ts) · the card's contour and MORSE agree`,
+  },
+  'a diff MORSE refuses on a cheap card': {
+    diff: { contour: 'cheap', files: [{ path: 'scripts/x.sh', additions: 0, deletions: 0, status: 'T' }], patch: '' },
+    line: 'Path: cheap · MORSE gave no prediction: unhandled git status T for scripts/x.sh · the cheap path is held without a named reason',
   },
   'src on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
@@ -57,7 +73,7 @@ function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
       if (args[0] === 'rev-list')
         return '1\n'
       if (args.includes('--name-status'))
-        return diff.files.map(file => `M\0${file.path}\0`).join('')
+        return diff.files.map(file => `${file.status ?? 'M'}\0${file.path}\0`).join('')
       if (args.includes('--numstat'))
         return diff.files.map(file => `${file.additions}\t${file.deletions}\t${file.path}\0`).join('')
       if (args.includes('-U0'))
