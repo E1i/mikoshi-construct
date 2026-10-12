@@ -1,11 +1,11 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
 import { Buffer } from 'node:buffer'
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { deriveQueues, queueTask, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../bus/queue.js'
@@ -14,7 +14,6 @@ import { projectionDump, reduce } from '../../bus/reducer.js'
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
 const MAIN = 'fedcba9876543210fedcba9876543210fedcba98'
 const roots: string[] = []
-const LIVE_BUS = defaultBusPath()
 const WITNESS = 'a replay of the whole live journal on a copy of bus.db after the review-key format change gives the same projection as before, and review tasks with old keys are neither duplicated nor lost'
 
 afterEach(() => {
@@ -158,15 +157,18 @@ describe('replay determinism', () => {
     copy.close()
   })
 
-  it.skipIf(!existsSync(LIVE_BUS))(`${WITNESS}, on a snapshot of the live bus.db of this machine`, () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-live-'))
+  it(`${WITNESS}, on a VACUUM INTO snapshot of a bus that holds events`, () => {
+    const source = newBus()
+    appendEvent(source, observed(960, 860, HEADS[0]!, 'green'))
+    reduce(source)
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-snapshot-'))
     roots.push(root)
     const snapshot = path.join(root, 'bus.db')
-    const live = new DatabaseSync(LIVE_BUS, { readOnly: true })
-    live.prepare('VACUUM INTO ?').run(snapshot)
-    live.close()
+    source.prepare('VACUUM INTO ?').run(snapshot)
+    source.close()
 
     const copy = openBus(snapshot)
+    expect(copy.prepare('SELECT count(*) AS events FROM events').get()).not.toEqual({ events: 0 })
     expectReplayKeepsOldReviews(copy)
     copy.close()
   })

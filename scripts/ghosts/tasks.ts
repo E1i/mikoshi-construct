@@ -1,6 +1,9 @@
 import type { Card } from '../../src/card/grammar.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { parseCard } from '../../src/card/grammar.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
+import { CARD_STARTED } from '../bus/inbox.js'
+import { openDatabase } from '../bus/sqlite.js'
 
 export interface Task {
   id: string
@@ -95,18 +98,43 @@ export function readTasksFile(filePath: string): TasksFile {
   return parseTasksFile(readFileSync(filePath, 'utf8'))
 }
 
-function startedTreeOf(line: string, task: string): StartedTree | undefined {
+export type StartRecord = Record<string, unknown> & { event: 'path', task: string }
+
+const CARD_STARTED_ROWS = `SELECT card_id, ts, payload FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
+
+function jsonObject(text: string): Record<string, unknown> | undefined {
   try {
-    const parsed = JSON.parse(line) as { event?: unknown, task?: unknown, worktree?: unknown, branch?: unknown }
-    return parsed.event === 'path' && parsed.task === task && typeof parsed.worktree === 'string' && typeof parsed.branch === 'string'
-      ? { worktree: parsed.worktree, branch: parsed.branch }
-      : undefined
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   }
   catch {
     return undefined
   }
 }
 
-export function startedTree(journalText: string, card: Card): StartedTree | undefined {
-  return journalText.split('\n').map(line => startedTreeOf(line, String(card.id))).filter(tree => tree !== undefined).at(-1)
+export function cardStartedLines(busPath: string): StartRecord[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(CARD_STARTED_ROWS).all() as unknown as { card_id: number, ts: string | null, payload: string }[]
+    return rows.flatMap((row) => {
+      const payload = jsonObject(row.payload)
+      return payload === undefined ? [] : [{ ...payload, event: 'path' as const, task: String(row.card_id), ...(row.ts === null ? {} : { ts: row.ts }) }]
+    })
+  }
+  finally {
+    db.close()
+  }
+}
+
+function startedTreeOf(line: Record<string, unknown>, task: string): StartedTree | undefined {
+  return line.event === 'path' && line.task === task && typeof line.worktree === 'string' && typeof line.branch === 'string'
+    ? { worktree: line.worktree, branch: line.branch }
+    : undefined
+}
+
+export function startedTree(journalText: string, card: Card, busPath = defaultBusPath()): StartedTree | undefined {
+  const journal = journalText.split('\n').map(jsonObject).filter(line => line !== undefined)
+  return [...journal, ...cardStartedLines(busPath)].map(line => startedTreeOf(line, String(card.id))).filter(tree => tree !== undefined).at(-1)
 }

@@ -8,11 +8,12 @@ import type { ModelMismatch } from './roles.js'
 import type { Window } from './window.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { defaultBusPath } from '../bus/db.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { entryOf } from '../ghosts/entry.js'
 import { lookupMatrixRow } from '../ghosts/matrix.js'
 import { ghostRowState } from '../ghosts/status.js'
-import { readTasksFile } from '../ghosts/tasks.js'
+import { cardStartedLines, readTasksFile } from '../ghosts/tasks.js'
 import { readLedgerStage } from '../ghosts/watch-ledger.js'
 import { readBudgetLines } from './eddies.js'
 import { handLadderRows } from './policy.js'
@@ -258,10 +259,11 @@ function handoffFileOf(dir: string, id: string): string | undefined {
   return readdirSync(dir).find(file => file.startsWith('handoff-') && file.endsWith('.md') && token.test(file.slice('handoff-'.length, -'.md'.length)))
 }
 
-export function readHandoff(dir: string, repoRoot?: string): Handoff {
+export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBusPath()): Handoff {
   const warnings: string[] = []
   const journalPath = path.join(dir, 'ghosts.jsonl')
   const { lines: journal, text: journalText } = readJournal(journalPath, warnings)
+  const starts = cardStartedLines(busPath) as unknown as PathEvent[]
   const tasksFiles = readTasksFiles(dir, warnings)
   const statusPath = path.join(dir, 'status.md')
   const statusText = existsSync(statusPath) ? readFileSync(statusPath, 'utf8') : undefined
@@ -278,7 +280,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
     for (const task of data.tasks)
       Object.assign(name(task.id), { ghost: task.id, brief: path.resolve(dir, task.brief), tasksFileMtime: mtime })
   }
-  for (const line of journal) {
+  for (const line of [...journal, ...starts]) {
     if (typeof line.task === 'string')
       name(line.task)
   }
@@ -298,7 +300,7 @@ export function readHandoff(dir: string, repoRoot?: string): Handoff {
 
   const windowBudgetLines = readBudgetLines(repoRoot)
   const attempts = [...named].map(([id, facts]): Attempt => {
-    const pathEvent = foldPath(journal, task => attemptOf(task) === id)
+    const pathEvent = foldPath([...starts, ...journal], task => attemptOf(task) === id)
     const worktree = pathEvent?.worktree === undefined ? undefined : path.resolve(dir, pathEvent.worktree)
     const session = pathEvent?.session
     const ghost = facts.ghost ?? id

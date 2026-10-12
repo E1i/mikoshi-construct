@@ -1,9 +1,10 @@
+import type { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { DatabaseSync } from 'node:sqlite'
 import { isActor, isFullSha, prOf } from './identifiers.js'
+import { openDatabase } from './sqlite.js'
 
 export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
 export const BUSY_TIMEOUT_MS = 30_000
@@ -125,7 +126,7 @@ export function defaultBusPath(): string {
 
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
-  const db = new DatabaseSync(file)
+  const db = openDatabase(file)
   db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
   addMissingColumns(db)
