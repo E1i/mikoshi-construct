@@ -2,6 +2,7 @@ import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
+import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
 import type { CardEventPort } from './index.js'
 import type { SlicedCard } from './slice.js'
@@ -126,7 +127,7 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-interface RecordedIntake { card: string, bodySha: unknown, ts: unknown }
+interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown }
 
 function latestIntake(journal: string | null, card: Card): RecordedIntake | null {
   let latest: RecordedIntake | null = null
@@ -134,7 +135,7 @@ function latestIntake(journal: string | null, card: Card): RecordedIntake | null
     try {
       const entry = JSON.parse(text) as Record<string, unknown> | null
       if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string')
-        latest = { card: entry.card, bodySha: entry.bodySha, ts: entry.ts }
+        latest = { card: entry.card, bodySha: entry.bodySha, ts: entry.ts, confirmation: entry.confirmation, source: entry.source }
     }
     catch {}
   }
@@ -146,6 +147,17 @@ function sameCardLine(recorded: string, line: string): boolean {
   const wanted = parsed.kind === 'card' ? cardLine(parsed.card) : line
   const recordedCard = parseCard(recorded)
   return recordedCard.kind === 'card' && cardLine(recordedCard.card) === wanted
+}
+
+const RECORDED_CONFIRMATION: Record<Confirmation, Confirmation> = { auto: 'auto', person: 'person', none: 'none' }
+
+function recordedConfirmation(recorded: RecordedIntake, card: SlicedCard, autoConfirm: boolean): Confirmation {
+  const { confirmation } = recorded
+  return typeof confirmation === 'string' && Object.hasOwn(RECORDED_CONFIRMATION, confirmation) ? RECORDED_CONFIRMATION[confirmation as Confirmation] : confirmationOf(card, autoConfirm)
+}
+
+function recordedSource(recorded: RecordedIntake): string | undefined {
+  return typeof recorded.source === 'string' ? recorded.source : undefined
 }
 
 function admittedAt(recorded: RecordedIntake, now: () => Date): Date {
@@ -219,7 +231,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
     if (!options.dryRun)
-      options.events?.(admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), admittedAt(recorded, now), lane, source).event)
+      options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)).event)
     return { ...base, status: 'alreadyAdmitted' }
   }
   const reparsed = parseParkingFile(file, admitted.text)

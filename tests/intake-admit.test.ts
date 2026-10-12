@@ -15,6 +15,8 @@ import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const NOW = new Date('2026-10-05T09:00:00.000Z')
+const A_MINUTE_LATER = new Date(NOW.getTime() + 60_000)
+const AN_HOUR_LATER = new Date(NOW.getTime() + 3_600_000)
 const roots: string[] = []
 
 afterEach(() => {
@@ -53,14 +55,32 @@ function busOf(w: World): string {
   return path.join(path.dirname(w.journal), 'bus.db')
 }
 
-function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
+function admit(w: World, file: string, options: Partial<AdmitOptions> = {}, at: Date = NOW): AdmitResult {
   const db = openBus(busOf(w))
   try {
-    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), ...options }, () => NOW)
+    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), ...options }, () => at)
   }
   finally {
     db.close()
   }
+}
+
+function admittedRows(w: World): { ts: string, payload: string }[] {
+  const db = openBus(busOf(w))
+  try {
+    return db.prepare(`SELECT ts, payload FROM events WHERE type = 'card.admitted' ORDER BY id`).all() as unknown as { ts: string, payload: string }[]
+  }
+  finally {
+    db.close()
+  }
+}
+
+function admittedPayloads(w: World): Record<string, unknown>[] {
+  return admittedRows(w).map(row => JSON.parse(row.payload) as Record<string, unknown>)
+}
+
+function admittedTimes(w: World): string[] {
+  return admittedRows(w).map(row => row.ts)
 }
 
 function admittedEvents(w: World): number {
@@ -348,9 +368,18 @@ describe('construct intake --admit says whether task:start will take the card', 
     const w = world()
     const file = park(w, 80, CLEAN)
     admit(w, file)
-    admit(w, file)
-    admit(w, file)
+    admit(w, file, {}, A_MINUTE_LATER)
+    admit(w, file, {}, AN_HOUR_LATER)
     expect(admittedEvents(w)).toBe(1)
+  })
+
+  it('the card.admitted a bus-wired --admit writes for a journal-admitted card carries the journal line\'s ts, source and confirmation', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    admit(w, file, { events: undefined, autoConfirm: true })
+    admit(w, file, {}, AN_HOUR_LATER)
+    expect(admittedPayloads(w)).toEqual([expect.objectContaining({ source: 'admit', confirmation: 'auto' })])
+    expect(admittedTimes(w)).toEqual([NOW.toISOString()])
   })
 
   it('an unwired --admit of an admitted card says nothing was written', () => {
