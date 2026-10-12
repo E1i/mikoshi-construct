@@ -253,7 +253,7 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
 
   it('continues a STATUS: CONTINUE handoff without asking the owner', () => {
     expect(CONTINUE_PROMPT).toContain(`прочитай ${MIKO_HANDOFF_NAME}`)
-    expect(CONTINUE_PROMPT).toContain('STATUS: CONTINUE')
+    expect(CONTINUE_PROMPT).toContain('последняя строка STATUS: в нём — CONTINUE')
     expect(CONTINUE_PROMPT).toContain('не спрашивая владельца')
   })
 
