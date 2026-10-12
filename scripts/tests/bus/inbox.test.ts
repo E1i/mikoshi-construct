@@ -78,6 +78,11 @@ describe('pnpm bus:inbox, the owner inbox', () => {
     expect(inbox(stopped(807, 'question.owner'), answered([806, 807]))).toEqual(['[bus:inbox] the owner inbox is empty'])
   })
 
+  it('an owner question leaves the inbox only for a decision recorded after it, whatever the other cards in its scope', () => {
+    expect(inbox(stopped(807, 'question.owner'), stopped(808, 'question.owner'), answered([807, 809]))).toEqual(['[bus:inbox] card.stopped question.owner · card #808 · which way for #808'])
+    expect(inbox(answered([807]), stopped(807, 'question.owner'), answered([807]))).toEqual(['[bus:inbox] the owner inbox is empty'])
+  })
+
   it('an owner question stays in the inbox when the reducer rejects its answer', () => {
     expect(inbox(stopped(807, 'question.owner'), answered([807], 'owner', 'agent'))).toEqual(['[bus:inbox] card.stopped question.owner · card #807 · which way for #807'])
   })

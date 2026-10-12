@@ -202,6 +202,15 @@ describe('runRelaunch', () => {
     expect(keyless.out.filter(line => line.includes(GH_ACCOUNT_KEY))).toHaveLength(1)
   })
 
+  it('gives every session it spawns CONSTRUCT_HANDOFF set to the handoff path without touching the shared env', async () => {
+    const world = newWorld()
+    const seen: Seen = { runs: [], out: [], err: [], stops: [] }
+    const deps = relaunchDeps(world, ['CONTINUE', 'DONE'], seen)
+    await runRelaunch([world.handoff, '--model', 'claude-test'], deps)
+    expect(seen.runs.map(run => run.env?.CONSTRUCT_HANDOFF)).toEqual([world.handoff, world.handoff])
+    expect(deps.env).toEqual({})
+  })
+
   it('runs a session per CONTINUE and stops at DONE', async () => {
     const world = newWorld()
     const result = await relaunch(world, ['--model', 'claude-test'], ['CONTINUE', 'CONTINUE', 'DONE'])

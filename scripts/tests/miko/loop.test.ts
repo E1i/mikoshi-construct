@@ -1,12 +1,13 @@
 import type { PauseEnd, SessionEnd } from '../../miko/loop.js'
 import type { Status } from '../../shift/relaunch.js'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, mikoshiHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
+import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
+import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, MIKO_HANDOFF_NAME, mikoHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
@@ -18,10 +19,14 @@ printf '%s|%s\\n' "$#" "$*" >> "$STUB_DIR/calls"
 ps -o pgid= -p $$ | tr -d ' ' >> "$STUB_DIR/groups"
 set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
-  continue|owner|stop) echo "STATUS: $(echo "$1" | tr a-z A-Z)" > "$HOME/.construct/handoff/mikoshi.md"; exit "$2" ;;
+  continue|owner|stop) echo "STATUS: $(echo "$1" | tr a-z A-Z)" > "$HOME/.construct/handoff/miko.md"; exit "$2" ;;
   quiet) exit "$2" ;;
-  deaf) trap '' INT; echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; : > "$STUB_DIR/ready"; exec sleep 2 ;;
-  hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
+  deaf) trap '' INT; echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 2 ;;
+  hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
+  threshold)
+    node --disable-warning=ExperimentalWarning --import tsx scripts/shift/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" --parking "$STUB_DIR/parking" >> "$STUB_DIR/threshold.log" 2>&1
+    node --disable-warning=ExperimentalWarning --import tsx scripts/miko/exit.ts >> "$STUB_DIR/threshold.log" 2>&1
+    exec sleep 30 ;;
 esac
 exit 0
 `
@@ -92,7 +97,7 @@ async function endsWithin(loop: ReturnType<typeof startLoop>, ms: number): Promi
   return outcome
 }
 
-describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STATUS: CONTINUE', () => {
+describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS: CONTINUE', () => {
   it('a session that exits with STATUS: CONTINUE starts the next session in the same terminal after a pause', async () => {
     const dir = home(['continue 3', 'owner 0'])
     const started = Date.now()
@@ -107,7 +112,7 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
 
   it.each(['owner', 'stop'])('a session that exits with STATUS: OWNER or STOP ends the loop, here %s', async (status) => {
     const dir = home([`${status} 0`, 'continue 0'])
-    writeFileSync(mikoshiHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
     const { code, stderr } = await startLoop(dir).done
     expect(code).toBe(0)
     expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
@@ -170,21 +175,41 @@ describe('pnpm miko restarts Miko in its own terminal while mikoshi.md says STAT
     }
   }, 30_000)
 
-  it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though mikoshi.md says STATUS: CONTINUE', async () => {
+  it('own handoff: at the context threshold the window writes miko.md with handoff:write, miko:exit ends it, the loop raises the next session on miko.md, and the Operator mikoshi.md is untouched', async () => {
+    const dir = home(['threshold', 'owner 0'])
+    mkdirSync(path.join(dir, 'parking'))
+    const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none' }
+    const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
+    writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\n## STOP — Miko\n${fields.join('\n')}\n\nSTATUS: CONTINUE\n`)
+    const operator = path.join(dir, '.construct', 'handoff', 'mikoshi.md')
+    writeFileSync(operator, '## STOP — Operator\nSTATUS: CONTINUE\n')
+    const hourAgo = new Date(Date.now() - 3_600_000)
+    utimesSync(operator, hourAgo, hourAgo)
+    const settled = statSync(operator).mtimeMs
+    const outcome = await endsWithin(startLoop(dir), 6 * PAUSE_MS)
+    expect(outcome).not.toBe('still running')
+    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
+    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
+    expect(CONTINUE_PROMPT).toContain(MIKO_HANDOFF_NAME)
+    expect(readFileSync(operator, 'utf8')).toBe('## STOP — Operator\nSTATUS: CONTINUE\n')
+    expect(statSync(operator).mtimeMs).toBe(settled)
+  }, 40_000)
+
+  it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though miko.md says STATUS: CONTINUE', async () => {
     const dir = home([])
-    writeFileSync(mikoshiHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
     const outcome = await endsWithin(startLoop(dir, path.join(dir, 'no-such-claude')), 2 * PAUSE_MS)
     expect(outcome).not.toBe('still running')
     expect(outcome).toMatchObject({ code: 1, stderr: expect.stringContaining('the session did not start') })
   }, 20_000)
 
-  it('a session that exits without rewriting mikoshi.md ends the loop, though the previous STATUS: CONTINUE is still there', async () => {
+  it('a session that exits without rewriting miko.md ends the loop, though the previous STATUS: CONTINUE is still there', async () => {
     const dir = home(['quiet 0', 'quiet 0'])
-    writeFileSync(mikoshiHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
     const outcome = await endsWithin(startLoop(dir), 2 * PAUSE_MS)
     expect(outcome).not.toBe('still running')
     expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
-    expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('without rewriting mikoshi.md') })
+    expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('without rewriting miko.md') })
   }, 20_000)
 })
 
@@ -215,18 +240,18 @@ async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): P
   return { code, prompts, pauses, lines }
 }
 
-describe('runMikoLoop decides from STATUS in mikoshi.md and a Ctrl+C in the pause', () => {
+describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause', () => {
   it.each([
     { name: 'absent', statuses: [undefined, 'CONTINUE', 'CONTINUE', 'OWNER'] as const, prompts: [undefined, CONTINUE_PROMPT, CONTINUE_PROMPT] },
     { name: 'present', statuses: ['OWNER', 'CONTINUE', 'DONE'] as const, prompts: [CONTINUE_PROMPT, CONTINUE_PROMPT] },
-  ])('with mikoshi.md $name at the start, pauses and restarts on each CONTINUE and stops on the first other STATUS', async ({ statuses, prompts }) => {
+  ])('with miko.md $name at the start, pauses and restarts on each CONTINUE and stops on the first other STATUS', async ({ statuses, prompts }) => {
     const run = await drive({ statuses: [...statuses] })
     expect(run.code).toBe(0)
     expect(run.prompts).toEqual(prompts)
     expect(run.pauses).toEqual(Array.from({ length: prompts.length - 1 }).fill(PAUSE_MS))
   })
 
-  it('stops when mikoshi.md carries no STATUS line', async () => {
+  it('stops when miko.md carries no STATUS line', async () => {
     const run = await drive({ statuses: [undefined, null] })
     expect(run.prompts).toEqual([undefined])
     expect(run.lines.join('\n')).toContain('STATUS: none')

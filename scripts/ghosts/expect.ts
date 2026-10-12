@@ -13,7 +13,7 @@ export interface TokenBand {
   p75: number
 }
 
-const EXPECT_LINE_INDEX = 2
+export const EXPECT_LINE_INDEX = 2
 const EXPECT_PREFIX = 'expect: '
 const LOOKS_LIKE_EXPECT = /^\s*expect:/i
 const FORECAST = /^tokens ≈ (\d+(?:\.\d+)?)([kM]?), minutes ≈ (\d+(?:\.\d+)?) — effort (low|medium|high), n=(\d+), median(?:, p25–p75 (\d+(?:\.\d+)?)([kM]?)–(\d+(?:\.\d+)?)([kM]?))?(?:; .+)?$/

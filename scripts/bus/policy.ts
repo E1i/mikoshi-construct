@@ -9,7 +9,7 @@ export const VERSION_BRANCH = /^changeset-release\//
 export const RELEASE_KIND = 'release'
 const KINDS_NO_SHARD_MERGES = ['security-invariants']
 export const OWNER_PR_MERGED_BY_THE_BUS = 77
-const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
+export const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
 
 export type AuthorityRule
   = | 'version_pr'

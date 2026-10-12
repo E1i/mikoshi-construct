@@ -1,9 +1,10 @@
 import type { Ui } from '../../ui/console.js'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
+import type { CardEventPort } from './index.js'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
 import path from 'node:path'
 import { parseParkingFile } from '../../card/parking.js'
 import { bodySha } from './confirm.js'
-import { INTAKE_EXIT } from './index.js'
+import { CARD_MOVED, INTAKE_EXIT, recordIntake } from './index.js'
 
 export const INTAKE_MOVE_EVENT = 'intake-move'
 
@@ -17,6 +18,7 @@ export interface MoveOptions {
   admit: string | undefined
   parking: string
   journal: string
+  events?: CardEventPort
 }
 
 export type MoveResult
@@ -67,15 +69,12 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
     return refused(ui => ui.lore.intakeRefusedUnreadable(`${from}: ${parsed.reason}`))
   mkdirSync(targetDir, { recursive: true })
   renameSync(from, target)
-  mkdirSync(path.dirname(options.journal), { recursive: true })
-  appendFileSync(options.journal, `${JSON.stringify({
-    event: INTAKE_MOVE_EVENT,
-    task: String(number),
-    from: path.dirname(from),
-    to: targetDir,
-    bodySha: bodySha(text),
-    ts: now().toISOString(),
-  })}\n`)
+  const ts = now().toISOString()
+  const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
+  recordIntake(options.journal, [{
+    journalLine: JSON.stringify({ event: INTAKE_MOVE_EVENT, task: String(number), ...moved, ts }),
+    event: { type: CARD_MOVED, cardId: number, ts, dedupeKey: `${CARD_MOVED}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane: path.basename(targetDir) } },
+  }], options.events)
   return { status: 'moved', from, to: target }
 }
 

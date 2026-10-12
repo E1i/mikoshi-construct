@@ -3,7 +3,7 @@ import type { BusEvent } from './db.js'
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { parseCard } from '../../src/card/grammar.js'
-import { ADMIT_SOURCE } from '../../src/commands/intake/admit.js'
+import { ADMIT_SOURCE, isLaneName } from '../../src/commands/intake/admit.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
 import { appendEvent } from './db.js'
@@ -53,12 +53,6 @@ function cardOf(line: Record<string, unknown>): Omit<Admission, 'lane'> | null {
     return null
   const parsed = parseCard(line.card)
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : null
-}
-
-const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
-
-export function isLaneName(name: string): boolean {
-  return LANE_NAME.test(name)
 }
 
 export function parkingLane(parking: string): LaneOnDisk {

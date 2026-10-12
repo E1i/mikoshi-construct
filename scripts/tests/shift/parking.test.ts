@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, leftSummary, nextInPipeline, queueText } from '../../shift/parking.js'
+import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, waitingLine } from '../../shift/parking.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
 
@@ -135,13 +135,16 @@ function overlapCardTwo(world: World): void {
 }
 
 describe('the chain as a pipeline', () => {
-  it('takes the next card while the previous PR is open', async () => {
+  it('takes the next card only after the previous PR merges, though their touches do not overlap', async () => {
     const world = newWorld(TWO)
+    const startedWhileOpen: boolean[] = []
     expect(await pipelineRun(world, () => {
+      startedWhileOpen.push(existsSync(path.join(world.root, 'mc-2')))
       reviewPasses(world, 101)
       reviewPasses(world, 102)
     })).toBe(0)
-    expect(steps(world)).toEqual(['wait 1', 'next 2', 'wait 2', 'reviewed 1', 'reviewed 2', 'merged 1', 'merged 2', 'end no-eligible'])
+    expect(startedWhileOpen[0]).toBe(false)
+    expect(steps(world)).toEqual(['wait 1', 'reviewed 1', 'merged 1', 'next 2', 'wait 2', 'reviewed 2', 'merged 2', 'end no-eligible'])
     expect(eventsOf(world, 'stop')).toEqual([])
   })
 
@@ -167,15 +170,45 @@ describe('the chain as a pipeline', () => {
   })
 })
 
+describe('dependencyWaits', () => {
+  const started = (task: string): string => `${JSON.stringify({ event: 'path', task, path: 'cheap', started: '2026-10-11T00:00:00.000Z' })}\n`
+  const merged = (task: string): string => `${JSON.stringify({ event: 'merge', task, pr: 100 + Number(task) })}\n`
+
+  it('names every card left on open depends, and says whether one of them is in work: started and not merged', () => {
+    const left = [
+      { id: '7', reason: 'depends #5, #6 not merged' },
+      { id: '8', reason: 'depends #6 not merged' },
+      { id: '9', reason: 'depends #4 not merged' },
+      { id: '10', reason: 'depends failed #5' },
+      { id: '11', reason: 'who window' },
+    ]
+    expect(dependencyWaits(left, `${started('5')}${started('4')}${merged('4')}not json\n`)).toEqual([
+      { id: '7', on: ['5', '6'], inWork: true },
+      { id: '8', on: ['6'], inWork: false },
+      { id: '9', on: ['4'], inWork: false },
+    ])
+    expect(waitingLine({ id: '7', on: ['5', '6'], inWork: true })).toBe('waiting on #5, #6')
+  })
+
+  it('reads a close line without started as no start', () => {
+    const closed = `${JSON.stringify({ event: 'path', task: '5', path: 'cheap', verification: 'run' })}\n`
+    expect(dependencyWaits([{ id: '7', reason: 'depends #5 not merged' }], closed)).toEqual([{ id: '7', on: ['5'], inWork: false }])
+  })
+})
+
 describe('nextInPipeline', () => {
   const task = (id: number, touches: string[]): ParkedTask['task'] => ({ ...parked(id, 'who: shift').task, touches })
 
-  it('takes the first card whose touches overlap no card in review', () => {
+  it('takes no card while one is in review, whatever its touches, and names the review each card waits on', () => {
     const inReview = [{ task: task(1, ['scripts/1/**']), pr: 101 }]
     expect(nextInPipeline([task(2, ['scripts/1/x.ts']), task(3, ['scripts/3/**'])], new Set(), inReview)).toEqual({
-      next: task(3, ['scripts/3/**']),
-      held: [{ id: '2', reason: 'waits PR #101 of #1 in review' }],
+      next: undefined,
+      held: [{ id: '2', reason: 'waits PR #101 of #1 in review' }, { id: '3', reason: 'waits PR #101 of #1 in review' }],
     })
+  })
+
+  it('takes the first card not taken when nothing is in review', () => {
+    expect(nextInPipeline([task(1, ['scripts/1/**']), task(2, ['scripts/2/**'])], new Set(['1']), [])).toEqual({ next: task(2, ['scripts/2/**']), held: [] })
   })
 
   it('takes nothing when every card left overlaps one in review, and skips the cards already taken', () => {

@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ancestors, exitDecision, FRESH_MS, parsePs, runMikoExit } from '../../miko/exit.js'
-import { mikoshiHandoff } from '../../miko/loop.js'
+import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
@@ -18,8 +18,8 @@ echo "$n" > "$STUB_DIR/count"
 echo "$n" >> "$STUB_DIR/calls"
 set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
-  write) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/mikoshi.md" ;;
-  owner) echo 'STATUS: OWNER' > "$HOME/.construct/handoff/mikoshi.md" ;;
+  write) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md" ;;
+  owner) echo 'STATUS: OWNER' > "$HOME/.construct/handoff/miko.md" ;;
 esac
 case "$2" in
   exit)
@@ -75,16 +75,16 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
     expect(stderr).toContain('STATUS: CONTINUE: next session')
   }, 20_000)
 
-  it('refuses when mikoshi.md is older than two minutes', async () => {
+  it('refuses when miko.md is older than two minutes', async () => {
     const dir = home(['quiet exit 1'])
-    writeFileSync(mikoshiHandoff(dir), 'old handoff')
+    writeFileSync(mikoHandoff(dir), 'old handoff')
     const threeMinutesAgo = (Date.now() - 3 * 60 * 1000) / 1000
-    utimesSync(mikoshiHandoff(dir), threeMinutesAgo, threeMinutesAgo)
+    utimesSync(mikoHandoff(dir), threeMinutesAgo, threeMinutesAgo)
     const { code } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
     expect(read(dir, 'exit.code').trim()).toBe('1')
     expect(read(dir, 'survived').trim()).toBe('survived')
-    const age = Number(/mikoshi\.md was written (\d+)s ago/.exec(read(dir, 'exit.err'))?.[1])
+    const age = Number(/miko\.md was written (\d+)s ago/.exec(read(dir, 'exit.err'))?.[1])
     expect(age).toBeGreaterThanOrEqual(180)
   }, 20_000)
 
@@ -98,14 +98,14 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
   }, 20_000)
 })
 
-describe('exitDecision reads the process chain and the age of mikoshi.md', () => {
+describe('exitDecision reads the process chain and the age of miko.md', () => {
   const now = 1_000_000_000
   const loop = { pid: 10, ppid: 1, args: 'node /x/node_modules/tsx/dist/cli.mjs /x/scripts/miko/loop.ts' }
   const shell = { pid: 11, ppid: 10, args: 'sh -c claude --permission-mode auto "$@" miko' }
   const claude = { pid: 12, ppid: 11, args: 'claude --permission-mode auto' }
   const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval pnpm miko:exit' }
 
-  it('kills the nearest claude when the loop is above it and mikoshi.md is fresh', () => {
+  it('kills the nearest claude when the loop is above it and miko.md is fresh', () => {
     expect(exitDecision([zsh, claude, shell, loop], now - 1000, now)).toMatchObject({ kill: 12 })
   })
 
@@ -126,7 +126,7 @@ describe('exitDecision reads the process chain and the age of mikoshi.md', () =>
   it.each([
     { name: 'absent', mtime: undefined, says: 'does not exist' },
     { name: 'older than two minutes', mtime: now - FRESH_MS - 1000, says: 'written 121s ago' },
-  ])('refuses when mikoshi.md is $name', ({ mtime, says }) => {
+  ])('refuses when miko.md is $name', ({ mtime, says }) => {
     expect(exitDecision([zsh, claude, shell, loop], mtime, now)).toMatchObject({ refuse: expect.stringContaining(says) })
   })
 })
@@ -137,12 +137,12 @@ describe('a Miko window outside the pnpm miko loop that stops at a threshold', (
   const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval pnpm miko:exit' }
   const table = parsePs('  1     0 /sbin/launchd\n 12     1 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
 
-  it('with STATUS: CONTINUE in a fresh mikoshi.md writes role.stopped for miko and ends its claude', () => {
+  it('with STATUS: CONTINUE in a fresh miko.md writes role.stopped for miko and ends its claude', () => {
     const kills: number[] = []
     const stops: RoleStop[] = []
     const lines: string[] = []
-    expect(runMikoExit({ pid: 14, table: () => table, handoffMtime: () => 0, now: () => 0, kill: pid => kills.push(pid), err: line => lines.push(line), handoff: '/h/mikoshi.md', status: () => 'CONTINUE', raised: false, observeStop: stop => stops.push(stop) })).toBe(0)
-    expect(stops).toEqual([{ role: 'miko', handoff: '/h/mikoshi.md', status: 'CONTINUE', reason: 'context', raised: false }])
+    expect(runMikoExit({ pid: 14, table: () => table, handoffMtime: () => 0, now: () => 0, kill: pid => kills.push(pid), err: line => lines.push(line), handoff: '/h/miko.md', status: () => 'CONTINUE', raised: false, observeStop: stop => stops.push(stop) })).toBe(0)
+    expect(stops).toEqual([{ role: 'miko', handoff: '/h/miko.md', status: 'CONTINUE', reason: 'context', raised: false }])
     expect(kills).toEqual([12])
     expect(lines[0]).toContain('role.stopped goes to the bus')
   })
@@ -150,7 +150,7 @@ describe('a Miko window outside the pnpm miko loop that stops at a threshold', (
   it.each([
     { name: 'another STATUS', status: 'OWNER', mtime: now },
     { name: 'no STATUS', status: null, mtime: now },
-    { name: 'a stale mikoshi.md', status: 'CONTINUE', mtime: now - FRESH_MS - 1000 },
+    { name: 'a stale miko.md', status: 'CONTINUE', mtime: now - FRESH_MS - 1000 },
   ])('with $name refuses as before and writes nothing', ({ status, mtime }) => {
     expect(exitDecision([zsh, claude], mtime, now, status)).toMatchObject({ refuse: expect.stringContaining('does not run under the pnpm miko loop') })
   })
@@ -166,7 +166,7 @@ describe('runMikoExit kills only on a kill decision', () => {
   it.each([
     { mtime: 0, killed: [12], code: 0 },
     { mtime: undefined, killed: [], code: 1 },
-  ])('with mikoshi.md at $mtime exits $code and kills $killed', ({ mtime, killed, code }) => {
+  ])('with miko.md at $mtime exits $code and kills $killed', ({ mtime, killed, code }) => {
     const kills: number[] = []
     const lines: string[] = []
     expect(runMikoExit({ pid: 14, table: () => table, handoffMtime: () => mtime, now: () => 0, kill: pid => kills.push(pid), err: line => lines.push(line) })).toBe(code)

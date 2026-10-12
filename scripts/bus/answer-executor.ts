@@ -4,14 +4,19 @@ import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { riskOf } from '../../src/card/risk.js'
+import { matchGlob } from '../shredder/glob.js'
 import { answerSourceOf } from './answer-source.js'
 import { CardTreeGone } from './answerer.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
 import { messageOf } from './executor.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
-import { QUESTION_OWNER } from './queue.js'
-import { wideningOf } from './widening.js'
+import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
+import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
+import { decisionsInForceAt, unspentShard } from './shards.js'
+import { MAIN_BRANCH } from './snapshot.js'
+import { ownerGlobs, wideningOf } from './widening.js'
 
 export const SCOPE_WIDENED = 'scope.widened'
 
@@ -42,6 +47,16 @@ interface Widened {
   reason: string
 }
 
+const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
+const TRAILING_DOTS = /\.+$/
+const FILE_EXTENSION = /\.[a-z][\w-]*$/i
+
+function pathsIn(question: string): string[] {
+  return question.split(WORD_BOUNDARY).map(word => word.replace(TRAILING_DOTS, '')).filter(word => word.includes('/') || FILE_EXTENSION.test(word))
+}
+
+const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
+
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
 
 export class AnswerExecutor {
@@ -58,9 +73,9 @@ export class AnswerExecutor {
   async answer(lease: Lease): Promise<AnswerOutcome> {
     try {
       assertHeld(this.parts.db, lease)
-      const source = answerSourceOf(this.parts.db, lease)
+      const source = answerSourceOf(this.parts.db, lease) ?? this.conflict(lease)
       if (source === null)
-        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict and no red CI on ${lease.head ?? 'its head'}` })
+        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
       let widened: Widened | null = null
       if (source.kind === 'question' && source.widen !== null) {
         const widening = wideningOf(source.widen.paths, source.widen.touches, this.parts.ownerMerges())
@@ -83,6 +98,12 @@ export class AnswerExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private conflict(lease: Lease): AnswerSource | null {
+    if (lease.pr === null || lease.head === null || this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) === undefined)
+      return null
+    return { kind: 'changes', findings: [`pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}: merge origin/${MAIN_BRANCH} into the branch and resolve every conflict, keeping what the card asks for`], events: [] }
   }
 
   private tree(lease: Lease): CardSession | AnswerDenial | null {
@@ -109,13 +130,23 @@ export class AnswerExecutor {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.stopped(lease, QUESTION_OWNER, answered.owner, scope)
+        return this.stopped(lease, this.ownersQuestion(lease, answered.owner) ? QUESTION_OWNER : QUESTION_AGENT, answered.owner, scope)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
     const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
+  }
+
+  private ownersQuestion(lease: Lease, question: string): boolean {
+    const decisions = decisionsInForceAt(this.parts.db, this.parts.clock())
+    if ([question, ...decisions.map(decision => decision.text)].some(text => reservationOf(lease.cardId, text)))
+      return true
+    if (unspentShard(this.parts.db, lease.cardId, lease.pr, decisions) !== null)
+      return false
+    const globs = ownerGlobs(this.parts.ownerMerges())
+    return pathsIn(question).some(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION || globs.some(glob => matchGlob(glob, file)))
   }
 
   private stopped(lease: Lease, reason: string, detail: string, scope: BusEvent[] = []): AnswerOutcome {

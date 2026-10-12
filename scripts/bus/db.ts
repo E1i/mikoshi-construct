@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 
 export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
+export const BUSY_TIMEOUT_MS = 30_000
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -42,7 +43,8 @@ CREATE TABLE IF NOT EXISTS prs (
   verdict_on_head TEXT,
   auto_merge INTEGER,
   draft INTEGER,
-  event_id INTEGER NOT NULL REFERENCES events(id)
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  body_sha TEXT
 );
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +97,16 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 `
 
+const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT']]
+
+function addMissingColumns(db: DatabaseSync): void {
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    if (!columns.some(each => each.name === column))
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  }
+}
+
 export interface BusEvent {
   ts: string | null
   type: string
@@ -114,8 +126,9 @@ export function defaultBusPath(): string {
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
+  addMissingColumns(db)
   return db
 }
 

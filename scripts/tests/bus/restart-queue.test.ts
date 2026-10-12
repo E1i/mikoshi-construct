@@ -5,11 +5,13 @@ import type { World } from '../shift/fixtures/autopilot-world.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { observeChain } from '../../bus/chain.js'
 import { taskKey } from '../../bus/identifiers.js'
-import { expireLeases, FAILURES_TO_STOP, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
 import { MIKO_LAUNCH_OFF, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
 import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
+import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
 import { chainObserver } from '../../shift/chain-bus.js'
 import { CLAUDE_VARIABLE } from '../../shift/claude.js'
 import { runRelaunchBg } from '../../shift/relaunch-bg.js'
@@ -31,7 +33,7 @@ const DIR = '/shift/lane-1'
 const NEW_PID = 5151
 const ROLE_PIDS: Record<Role, number> = { operator: 6161, miko: 7171 }
 const OPERATOR_HANDOFF = '/handoff/operator.md'
-const MIKO_HANDOFF = '/handoff/mikoshi.md'
+const MIKO_HANDOFF = `/handoff/${MIKO_HANDOFF_NAME}`
 const restart = (head = MAIN_2, cardId = CARD): string => taskKey({ queue: 'restart', cardId, head })
 
 function restartBench() {
@@ -187,6 +189,29 @@ describe('the restart queue', () => {
     bench.observe({ boundary: true })
     bench.observe({ boundary: false })
     expect(bench.db.prepare('SELECT boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ boundary: 0 })
+    bench.close()
+  })
+
+  it('a chain waiting on #N sits at its boundary under the card it waits for, restarts on a mechanism merge, and replays the same', () => {
+    const bench = restartBench()
+    bench.observe({ cardId: 812, state: 'waiting', boundary: true, waitingOn: [809] })
+    expect(bench.db.prepare('SELECT card_id, state, boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ card_id: 812, state: 'waiting', boundary: 1 })
+    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.tick()
+    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'restarted', fromDir: DIR, from: MAIN_1, to: MAIN_2 })
+    bench.tick()
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a chain.observed is refused when it waits without naming on what, or names what it waits on without waiting', () => {
+    const bench = restartBench()
+    expect(() => bench.observe({ state: 'waiting' })).toThrow('waitingOn')
+    expect(() => bench.observe({ state: 'waiting', waitingOn: [0] })).toThrow('waitingOn')
+    expect(() => bench.observe({ state: 'running', waitingOn: [809] })).toThrow('waitingOn')
+    expect(bench.db.prepare('SELECT count(*) AS n FROM chains').get()).toEqual({ n: 0 })
     bench.close()
   })
 

@@ -175,14 +175,47 @@ export function heldReason(review: InReview): string {
 }
 
 export function nextInPipeline(chosen: readonly ShiftTask[], taken: ReadonlySet<string>, inReview: readonly InReview[]): PipelineChoice {
-  const held: LeftCard[] = []
-  for (const card of chosen.filter(candidate => !taken.has(candidate.id))) {
-    const overlapping = inReview.find(review => taskConflicts([review.task, card]).length > 0)
-    if (overlapping === undefined)
-      return { next: card, held }
-    held.push({ id: card.id, reason: heldReason(overlapping) })
-  }
-  return { next: undefined, held }
+  const candidates = chosen.filter(candidate => !taken.has(candidate.id))
+  const inWork = inReview[0]
+  if (inWork === undefined)
+    return { next: candidates[0], held: [] }
+  return { next: undefined, held: candidates.map(card => ({ id: card.id, reason: heldReason(inWork) })) }
+}
+
+const DEPENDS_OPEN = /^depends (#\d+(?:, #\d+)*) not merged$/
+
+export interface DependencyWait {
+  id: string
+  on: string[]
+  inWork: boolean
+}
+
+function startedTasks(journal: string | null): Set<string> {
+  return new Set((journal ?? '').split('\n').flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, started?: unknown } | null
+      return entry?.event === 'path' && typeof entry.task === 'string' && typeof entry.started === 'string' ? [entry.task] : []
+    }
+    catch {
+      return []
+    }
+  }))
+}
+
+export function dependencyWaits(left: readonly LeftCard[], journal: string | null): DependencyWait[] {
+  const started = startedTasks(journal)
+  const merged = mergedTasks(journal)
+  return left.flatMap((card) => {
+    const open = DEPENDS_OPEN.exec(card.reason)
+    if (open === null)
+      return []
+    const on = open[1]!.split(', ').map(id => id.slice(1))
+    return [{ id: card.id, on, inWork: on.some(id => started.has(id) && !merged.has(id)) }]
+  })
+}
+
+export function waitingLine(wait: DependencyWait): string {
+  return `waiting on ${wait.on.map(id => `#${id}`).join(', ')}`
 }
 
 export const QUEUE_FILE = 'queue.txt'
