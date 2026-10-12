@@ -23,6 +23,7 @@ export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--parking
 const CARD_FLAG = '--card'
 const PARKING_FLAG = '--parking'
 const ADOPT_FLAG = '--adopt'
+export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--parking <dir>] [--without-intake "<reason>"]'
 const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
@@ -245,13 +246,23 @@ interface ReadyTree {
 
 function adoptTree(deps: TaskStartDeps, tree: string, branch: string): ReadyTree | TaskStartResult {
   const worktree = path.resolve(deps.cwd, tree)
-  let head: string
+  let toplevel: string, commonDir: string, head: string, repoCommonDir: string
   try {
-    head = deps.git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+    [toplevel = '', commonDir = '', head = ''] = deps.git(worktree, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir', '--abbrev-ref', 'HEAD']).trim().split('\n')
   }
   catch (error) {
     return refuse(`cannot adopt ${worktree}: it is not a git tree (${firstLine(error)}); nothing written`)
   }
+  if (toplevel !== worktree)
+    return refuse(`cannot adopt ${worktree}: it is not the top of a tree, ${toplevel} is; nothing written`)
+  try {
+    repoCommonDir = deps.git(deps.cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+  }
+  catch (error) {
+    return refuse(`not inside a git repository: ${firstLine(error)}`)
+  }
+  if (commonDir !== repoCommonDir)
+    return refuse(`cannot adopt ${worktree}: it belongs to the repository at ${commonDir}, not to ${repoCommonDir}; nothing written`)
   if (head !== branch)
     return refuse(`cannot adopt ${worktree}: its HEAD is on ${head}, not on the card's branch ${branch}; nothing written`)
   return { worktree, how: `adopts ${worktree}`, failedAppend: `${worktree} was adopted on ${branch}` }
@@ -291,7 +302,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
   const args = cardArgs(argv)
   if (args === null)
-    return refuse(USAGE)
+    return refuse(argv.includes(ADOPT_FLAG) ? ADOPT_USAGE : USAGE)
   const { branch } = args
   const parsed = parseCard(args.card)
   if (parsed.kind === 'refused')
