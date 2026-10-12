@@ -3,17 +3,18 @@ import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
 import type { DraftCard } from './draft.js'
+import type { CardEventPort } from './index.js'
 import type { SlicedCard } from './slice.js'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
-import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, intakeJournalLine, TOUCHES_HEADER } from './confirm.js'
+import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
-import { defaultParking, INTAKE_EXIT } from './index.js'
+import { admittedRecord, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
@@ -23,6 +24,15 @@ const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 const CARD_HEADER = 'card: '
 export const ADMIT_SOURCE = 'admit'
+const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
+
+export function isLaneName(name: string): boolean {
+  return LANE_NAME.test(name)
+}
+
+function isLaneOf(root: string, dir: string): boolean {
+  return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(path.basename(dir))
+}
 export const AMEND_SOURCE = 'amend'
 
 type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE
@@ -35,6 +45,7 @@ export interface AdmitOptions {
   confirm?: string
   autoConfirm: boolean
   parkingRoot?: string
+  events?: CardEventPort
 }
 
 export type AdmitResult
@@ -212,8 +223,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  mkdirSync(path.dirname(options.journal), { recursive: true })
-  appendFileSync(options.journal, `${intakeJournalLine(admitted, confirmationOf(admitted, options.autoConfirm), now(), source)}\n`)
+  const laneDir = path.dirname(options.file)
+  const inLane = isLaneOf(options.parkingRoot ?? defaultParking(), laneDir)
+  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), laneDir, source)], source === ADMIT_SOURCE && inLane ? options.events : undefined)
   return { ...base, status: 'admitted' }
 }
 
