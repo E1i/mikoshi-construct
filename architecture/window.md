@@ -80,7 +80,7 @@ into prose that a session has to reconcile, and no cycle of `superseded-by` can 
 Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
 foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of
 substance; whatever a reference cannot carry is written into its record first (a decision into the decisions file, a
-card change through `construct intake --admit`), and the message names it.
+card change through `pnpm intake --admit`), and the message names it.
 
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
 the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
@@ -105,7 +105,7 @@ It starts the `who: shift` cards as a shift chain (`pnpm shift:bg <dir> --parkin
 `pnpm task:start` for them; the chain takes them in its own order (`p0` first, then by id, once their `depends` are
 merged), not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
 and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
-stopped — restarts the card, corrects it with `construct intake --admit`, answers the session; writes the handoff
+stopped — restarts the card, corrects it with `pnpm intake --admit`, answers the session; writes the handoff
 through `pnpm handoff:write`; and ends its session by size, not by the Eddies warning: at every task boundary it runs
 `pnpm relaunch --boundary <session>`, the session id its prompt names, which finds `<session>.jsonl` by that id in
 any project directory under `~/.claude/projects/`, whatever directory it runs from, reads the context of the last
@@ -237,11 +237,12 @@ merged or closed card's, clean and with every commit pushed, a squash-merged bra
 as pushed — and every other tree with the reason it is kept, a closed card whose pull request is still open among them;
 `--apply` removes those trees and their branches, and a shift runs it for its own card's tree alone once it records
 that card's merge. Before it cuts anything, `task:start` passes the card through the intake
-door: it takes a card only when `ghosts.jsonl` holds an `intake` line whose card is this one, written by `construct
-intake` when it sliced and confirmed the card, or by `construct intake --admit <parking>/<id>.md` for a card parked
-before the door; a card with no such line, or one that changed since its line, is refused with nothing written. The one
-exception is `--without-intake "<reason>"`, which admits the card and records the flag and its reason on the start line
-as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: intake}` with its confirmation.
+door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
+sliced and confirmed the card, by `pnpm intake --admit <parking>/<id>.md` for a card parked before the door, or by a
+move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused
+with nothing written. The one exception is `--without-intake "<reason>"`, which admits the card and records the flag and
+its reason on the start line as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: bus}`
+with the event.
 Waived or admitted, the entry line's `CONTRACT` takes the card's `touches` from `~/.construct/parking/<id>.md`, or
 from `<dir>/<id>.md` under `--parking <dir>`; a missing file is named in it (`touches not recorded on the card: no
 parking file for #<id>`), and a file whose card line is not the `--card` given is refused with nothing written. That

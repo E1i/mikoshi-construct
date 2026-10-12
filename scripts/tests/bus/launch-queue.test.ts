@@ -13,14 +13,13 @@ import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
-import { importJournal, legacyEventOf } from '../../bus/import.js'
+import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { LaunchWorker } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
-import { journalIntake } from '../../bus/run.js'
 import { blockFor } from '../../bus/update-worker.js'
 import { busLaunches } from '../../bus/workers.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
@@ -382,7 +381,7 @@ function journalBench(starter: CardStarter = new FakeStarter()) {
   const journal = path.join(root, 'ghosts.jsonl')
   writeFileSync(journal, '')
   const lines: string[] = []
-  const bench = launchBench(starter, (db, clock) => journalIntake(db, journal, parkingLane(parking), clock.now))
+  const bench = launchBench(starter, (db, clock) => () => void importJournalFile(db, journal, parkingLane(parking), clock.now))
   return {
     ...bench,
     parking,

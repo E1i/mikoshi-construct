@@ -4,16 +4,28 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { openBus } from '../scripts/bus/db.js'
+import { busCardEvents } from '../scripts/bus/intake.js'
 import { runTaskStart } from '../scripts/ghosts/task-start.js'
 import { cardStartedLines } from '../scripts/ghosts/tasks.js'
 import { runShift } from '../scripts/shift/shift.js'
+import { CARD_ADMITTED } from '../src/commands/intake/index.js'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')
 const CARD = '#61 door-card [implement/ghosts/S/cheap/owner] · depends — · blocks —'
 const JOURNAL = path.join('/handoff', 'ghosts.jsonl')
 
-function intakeLine(card: string, confirmation = 'person'): string {
-  return `${JSON.stringify({ event: 'intake', task: '61', card, confirmation, corrections: [], ts: '2026-10-04T10:00:00.000Z' })}\n`
+const ADMITTED_TS = '2026-10-04T10:00:00.000Z'
+const ADMISSION = `${CARD_ADMITTED}:61:door`
+
+function admitInBus(bus: string, card: string): void {
+  const db = openBus(bus)
+  try {
+    busCardEvents(db)({ type: CARD_ADMITTED, cardId: 61, ts: ADMITTED_TS, dedupeKey: ADMISSION, payload: { card, lane: null, confirmation: 'person' } })
+  }
+  finally {
+    db.close()
+  }
 }
 
 interface World {
@@ -22,8 +34,10 @@ interface World {
   gitCalls: string[][]
 }
 
-function world(journal: string | null): World {
+function world(journal: string | null, admitted?: string): World {
   const bus = path.join(mkdtempSync(path.join(tmpdir(), 'intake-door-')), 'bus.db')
+  if (admitted !== undefined)
+    admitInBus(bus, admitted)
   const gitCalls: string[][] = []
   return {
     starts: () => cardStartedLines(bus),
@@ -51,12 +65,12 @@ function startLine(starts: () => Record<string, unknown>[]): Record<string, unkn
   return starts()[0]!
 }
 
-describe('task:start takes only a card that intake sliced and confirmed', () => {
-  it('refuses a card with no intake line, names why and how, and cuts and writes nothing', () => {
+describe('task:start takes only a card that intake admitted in the bus', () => {
+  it('refuses a card with no card.admitted in the bus, names why and how, and cuts and writes nothing', () => {
     const { deps, starts, gitCalls } = world(`${JSON.stringify({ event: 'path', task: '7', path: 'cheap', ts: 'x' })}\n`)
     const result = runTaskStart(['feat/door', '--card', CARD], deps)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] card #61 has no card.admitted in the bus ${deps.bus} and no intake line in the journal: it was not admitted; admit it through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(result.stderr).toEqual([`[task:start] card #61 has no card.admitted in the bus ${deps.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(gitCalls).toEqual([])
     expect(starts()).toEqual([])
   })
@@ -67,18 +81,18 @@ describe('task:start takes only a card that intake sliced and confirmed', () => 
     expect(starts()).toEqual([])
   })
 
-  it('accepts a card whose intake line confirmed it, and records the admission on its card.started', () => {
-    const { deps, starts } = world(intakeLine(CARD))
+  it('accepts a card intake admitted in the bus, and records the admission on its card.started', () => {
+    const { deps, starts } = world(null, CARD)
     const result = runTaskStart(['feat/door', '--card', CARD], deps)
     expect(result.exitCode).toBe(0)
-    expect(startLine(starts)).toMatchObject({ event: 'path', task: '61', admission: { by: 'intake', confirmation: 'person', intake: '2026-10-04T10:00:00.000Z' } })
+    expect(startLine(starts)).toMatchObject({ event: 'path', task: '61', admission: { by: 'bus', event: ADMISSION, admitted: ADMITTED_TS } })
   })
 
-  it('refuses a card that differs from the one its intake line confirmed', () => {
-    const { deps, starts } = world(intakeLine(CARD.replace('cheap', 'ladder')))
+  it('refuses a card that differs from the one intake admitted in the bus', () => {
+    const { deps, starts } = world(null, CARD.replace('cheap', 'ladder'))
     const result = runTaskStart(['feat/door', '--card', CARD], deps)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr[0]).toContain('an intake line in the journal for a different card')
+    expect(result.stderr[0]).toContain(`was admitted in the bus ${deps.bus} as a different card`)
     expect(starts()).toEqual([])
   })
 
@@ -99,7 +113,7 @@ describe('task:start takes only a card that intake sliced and confirmed', () => 
 })
 
 describe('the shift starts its tasks through the same door', () => {
-  it('leaves a task whose card has no intake line not started, and spawns no session', async () => {
+  it('leaves a task whose card has no card.admitted in the bus not started, and spawns no session', async () => {
     const files: Record<string, string> = { '/shift/01.md': `card: ${CARD}\nbranch: feat/door\ntouches: scripts/door/**\n\ndo it\n` }
     const appended: Record<string, string> = {}
     const out: string[] = []
@@ -127,7 +141,7 @@ describe('the shift starts its tasks through the same door', () => {
     }
     expect(await runShift(['/shift'], deps)).toBe(1)
     expect(runs).toEqual([])
-    expect(out).toContain(`[shift] 01.md 61: not started: [task:start] card #61 has no card.admitted in the bus ${start.bus} and no intake line in the journal: it was not admitted; admit it through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`)
+    expect(out).toContain(`[shift] 01.md 61: not started: [task:start] card #61 has no card.admitted in the bus ${start.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`)
     expect(appended[JOURNAL]).toBeUndefined()
   })
 })

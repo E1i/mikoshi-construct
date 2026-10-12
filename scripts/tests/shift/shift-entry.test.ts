@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
+import { admitCards } from './fixtures/admitted.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
 const roots: string[] = []
@@ -52,7 +53,10 @@ function shiftDeps(world: World, out: string[]): ShiftDeps {
     header: HEADER,
     handoffDir: world.handoff,
     bus: path.join(world.root, 'bus', 'bus.db'),
-    readJournal: file => (existsSync(file) ? readFileSync(file, 'utf8') : '') + parkedCardLines(world.shift).map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: '2026-10-03T00:00:00.000Z' })}\n`).join(''),
+    readJournal: (file) => {
+      admitCards(path.join(world.root, 'bus', 'bus.db'), parkedCardLines(world.shift))
+      return existsSync(file) ? readFileSync(file, 'utf8') : ''
+    },
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},

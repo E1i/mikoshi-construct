@@ -30,8 +30,9 @@ export function isLaneName(name: string): boolean {
   return LANE_NAME.test(name)
 }
 
-function isLaneOf(root: string, dir: string): boolean {
-  return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(path.basename(dir))
+export function laneOf(root: string, dir: string): string | null {
+  const name = path.basename(dir)
+  return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(name) ? name : null
 }
 export const AMEND_SOURCE = 'amend'
 
@@ -223,9 +224,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  const laneDir = path.dirname(options.file)
-  const inLane = isLaneOf(options.parkingRoot ?? defaultParking(), laneDir)
-  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), laneDir, source)], source === ADMIT_SOURCE && inLane ? options.events : undefined)
+  const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
+  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
 }
 

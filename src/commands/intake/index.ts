@@ -9,6 +9,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
+import { laneOf } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
@@ -96,7 +97,7 @@ function admissionOf(line: string): { depends: number[], decision: string | null
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
 }
 
-export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, laneDir: string, source?: string): IntakeRecord {
+export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, lane: string | null, source?: string): IntakeRecord {
   const ts = at.toISOString()
   const sha = bodySha(card.text)
   return {
@@ -108,7 +109,7 @@ export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at:
       dedupeKey: `${CARD_ADMITTED}:${card.id}:${sha}:${ts}`,
       payload: {
         card: card.line,
-        lane: path.basename(laneDir),
+        lane,
         ...admissionOf(card.line),
         confirmation,
         corrections: card.corrections.map(correctionText),
@@ -131,6 +132,7 @@ export interface IntakeOptions {
   confirm?: string
   autoConfirm: boolean
   readStdin: () => string
+  events?: CardEventPort
 }
 
 type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid' | 'invalidTestPattern'
@@ -231,7 +233,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   for (const card of slice.cards)
     writeFileSync(path.join(options.parking, card.file), card.text, { flag: 'wx' })
   const at = new Date()
-  recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, options.parking)), undefined)
+  recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, laneOf(options.parkingRoot ?? defaultParking(), options.parking))), options.events)
   return { status: 'written', parking: options.parking, cards: slice.cards, autoConfirm: options.autoConfirm }
 }
 

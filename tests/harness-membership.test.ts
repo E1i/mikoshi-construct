@@ -44,6 +44,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'shift:merge': 'arms auto-merge on a shift task\'s pull request when run by hand; its own tests, on a gh stub, are its gate',
   'shift:report': 'prints the table of a shift that ran; its own tests are its gate',
   'shard': 'appends the owner\'s shard line to the journal when run by hand; its own tests are its gate',
+  'intake': 'construct intake with its card events written to the bus when run by hand; its own tests are its gate',
   'handoff:check': 'a hand-run check of a handoff file; its own tests are its gate',
   'handoff:write': 'the only writer of a handoff file, run by hand or by a session; its own tests are its gate',
   'ghosts:hash': 'a hand-run tool for computing an approval hash; its own tests are its gate',

@@ -1,8 +1,9 @@
 import type { VerdictDeps } from '../../shift/merge.js'
 import type { FakeGh, World } from './fixtures/autopilot-world.js'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { openBus } from '../../bus/db.js'
 import { latestPrReview, PR_REVIEW_EVENT, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
@@ -93,6 +94,16 @@ describe('the chain arms a pull request after its review', () => {
   })
 })
 
+function busEventTypes(world: World): string[] {
+  const db = openBus(world.bus)
+  try {
+    return [...new Set((db.prepare('SELECT type FROM events').all() as { type: string }[]).map(row => row.type))]
+  }
+  finally {
+    db.close()
+  }
+}
+
 describe('the chain arms only the reviewed commit', () => {
   it('arms only the reviewed commit: a push after the pass arms nothing, and the arm carries the sha the verdict names', async () => {
     const pushed = newWorld(ONE)
@@ -122,7 +133,7 @@ describe('the chain arms only the reviewed commit', () => {
     const notHead = await runVerdict(['101', '--verdict', 'pass', '--commit', STALE], deps)
     expect(notHead).toMatchObject({ exitCode: 1, stdout: [] })
     expect(notHead.stderr[0]).toBe(`[shift:verdict] PR #101 head is ${HEAD}, not ${STALE}; nothing recorded`)
-    expect([readFileSync(world.journal, 'utf8'), existsSync(world.bus)]).toEqual([before, false])
+    expect([readFileSync(world.journal, 'utf8'), busEventTypes(world)]).toEqual([before, ['card.admitted']])
   })
 })
 
@@ -157,7 +168,7 @@ describe('pnpm shift:merge <N> --verdict', () => {
     const deps = refusingDeps(world)
     expect((await runVerdict(['101', '--verdict', 'maybe', '--commit', HEAD], deps)).exitCode).toBe(1)
     expect((await runVerdict(['999', '--verdict', 'pass', '--commit', HEAD], deps)).stderr[0]).toMatch(/^\[shift:verdict\] PR #999 not read: /)
-    expect([journal(world), existsSync(world.bus)]).toEqual([before, false])
+    expect([journal(world), busEventTypes(world)]).toEqual([before, ['card.admitted']])
   })
 
   it('reads the latest verdict for the card and pull request, and ignores other lines', () => {

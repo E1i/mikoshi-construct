@@ -14,7 +14,6 @@ import { mergedTasks } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
-import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
@@ -66,39 +65,22 @@ export interface TaskStartResult {
 
 type Admission
   = | { kind: 'admitted', by: 'bus', event: string, ts: string }
-    | { kind: 'admitted', by: 'intake', confirmation: string, ts: string }
     | { kind: 'admitted', by: 'waiver', reason: string }
     | { kind: 'refused', reason: string }
 
-const LATEST_ADMISSION = `SELECT ts, dedupe_key FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LATEST_ADMISSION = `SELECT ts, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
 const ADMISSION_SOURCES = `
   SELECT source.payload FROM events admitted
   JOIN events source ON source.legacy = 1 AND source.dedupe_key = json_extract(admitted.payload, '$.admission')
   WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = ?
   ORDER BY admitted.id DESC
 `
+interface AdmittedRow { ts: string, dedupe_key: string, payload: string }
+
 const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
 const STARTER_SESSION_BY_HAND = 'by-hand'
 
-interface IntakeLine {
-  card: string
-  confirmation: string
-  ts: string
-}
-
-function intakeLines(journal: string | null, task: string): IntakeLine[] {
-  return (journal ?? '').split('\n').flatMap((text) => {
-    try {
-      const entry = JSON.parse(text) as Record<string, unknown> | null
-      return entry?.event === INTAKE_EVENT && entry.task === task && typeof entry.card === 'string'
-        ? [{ card: entry.card, confirmation: String(entry.confirmation), ts: String(entry.ts) }]
-        : []
-    }
-    catch {
-      return []
-    }
-  })
-}
+const ADMIT_COMMAND = 'pnpm intake --admit'
 
 function sameCard(recorded: string, card: Card): boolean {
   const parsed = parseCard(recorded)
@@ -115,7 +97,10 @@ function stringField(json: string, field: string): string | undefined {
   }
 }
 
-function admittedCardLine(db: DatabaseSync, id: number): string | undefined {
+function admittedCardLine(db: DatabaseSync, id: number, latest: AdmittedRow): string | undefined {
+  const own = stringField(latest.payload, 'card')
+  if (own !== undefined)
+    return own
   const sources = db.prepare(ADMISSION_SOURCES).all(id) as { payload: string }[]
   return sources.map(source => stringField(source.payload, 'card')).find(line => line !== undefined)
 }
@@ -123,12 +108,12 @@ function admittedCardLine(db: DatabaseSync, id: number): string | undefined {
 function busAdmission(bus: string, card: Card): Admission | undefined {
   const db = openBus(bus)
   try {
-    const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as { ts: string, dedupe_key: string } | undefined
+    const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as AdmittedRow | undefined
     if (admitted === undefined)
       return undefined
-    const admittedLine = admittedCardLine(db, card.id)
+    const admittedLine = admittedCardLine(db, card.id, admitted)
     if (admittedLine !== undefined && !sameCard(admittedLine, card))
-      return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through construct intake, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
+      return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
     return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts }
   }
   finally {
@@ -136,29 +121,16 @@ function busAdmission(bus: string, card: Card): Admission | undefined {
   }
 }
 
-function admission(bus: string, card: Card, journal: string | null, waiver: string | undefined): Admission {
+function admission(bus: string, card: Card, waiver: string | undefined): Admission {
   if (waiver !== undefined)
     return { kind: 'admitted', by: 'waiver', reason: waiver }
-  const admitted = busAdmission(bus, card)
-  if (admitted !== undefined)
-    return admitted
-  const recorded = intakeLines(journal, String(card.id))
-  const confirmed = recorded.filter(line => sameCard(line.card, card)).at(-1)
-  if (confirmed !== undefined)
-    return { kind: 'admitted', by: 'intake', confirmation: confirmed.confirmation, ts: confirmed.ts }
-  const how = `admit it through construct intake, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception`
-  const journalSays = recorded.length === 0
-    ? 'no intake line in the journal'
-    : `an intake line in the journal for a different card (${recorded.at(-1)!.card})`
-  return { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus} and ${journalSays}: it was not admitted; ${how}` }
+  return busAdmission(bus, card) ?? { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus}: it was not admitted; admit it through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
 }
 
 function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Record<string, string> {
   switch (admitted.by) {
     case 'bus':
       return { by: 'bus', event: admitted.event, admitted: admitted.ts }
-    case 'intake':
-      return { by: 'intake', confirmation: admitted.confirmation, intake: admitted.ts }
     case 'waiver':
       return { by: 'waiver', flag: WITHOUT_INTAKE_FLAG, reason: admitted.reason }
   }
@@ -393,7 +365,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
   let admitted: Admission
   try {
-    admitted = admission(deps.bus, card, journalText, args.waiver)
+    admitted = admission(deps.bus, card, args.waiver)
   }
   catch (error) {
     return refuse(`the bus ${deps.bus} could not be read: ${firstLine(error)}; nothing written`)

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runTaskStart } from '../../ghosts/task-start.js'
 import { cardStartedLines } from '../../ghosts/tasks.js'
+import { admitCards } from '../shift/fixtures/admitted.js'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')
 const CARD = '#41 entry-card [implement/ghosts/M/cheap/owner] · depends — · blocks —'
@@ -17,6 +18,7 @@ function parkingText(card: string, touches: string): string {
 
 function world(parking?: Record<string, string>, parkingDir = '/parking'): { deps: TaskStartDeps, starts: () => Record<string, unknown>[], read: string[] } {
   const bus = path.join(mkdtempSync(path.join(tmpdir(), 'task-start-')), 'bus.db')
+  admitCards(bus, [CARD])
   const read: string[] = []
   return {
     starts: () => cardStartedLines(bus),
@@ -34,7 +36,7 @@ function world(parking?: Record<string, string>, parkingDir = '/parking'): { dep
       now: () => NOW,
       session: 's1',
       handoffDir: '/handoff',
-      readJournal: () => `${JSON.stringify({ event: 'intake', task: '41', card: CARD, confirmation: 'none', corrections: [], ts: NOW.toISOString() })}\n`,
+      readJournal: () => null,
       ...(parking === undefined
         ? {}
         : { parking: { dir: parkingDir, read: (file: string) => {

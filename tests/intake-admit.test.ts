@@ -4,6 +4,8 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openBus } from '../scripts/bus/db.js'
+import { busCardEvents } from '../scripts/bus/intake.js'
 import { readJournalFile, runTaskStart } from '../scripts/ghosts/task-start.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
@@ -47,8 +49,18 @@ function journalLines(w: World): Record<string, unknown>[] {
   return existsSync(w.journal) ? readFileSync(w.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
 }
 
+function busOf(w: World): string {
+  return path.join(path.dirname(w.journal), 'bus.db')
+}
+
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
-  return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, ...options }, () => NOW)
+  const db = openBus(busOf(w))
+  try {
+    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), ...options }, () => NOW)
+  }
+  finally {
+    db.close()
+  }
 }
 
 function printed(result: AdmitResult): { lines: string[], exit: number } {
@@ -67,7 +79,7 @@ function taskStart(w: World, card: string): number {
     },
     install: () => undefined,
     exists: () => false,
-    bus: path.join(path.dirname(w.journal), 'bus.db'),
+    bus: busOf(w),
     now: () => NOW,
     session: 's1',
     handoffDir: path.dirname(w.journal),

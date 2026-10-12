@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
+import { admitCards } from './fixtures/admitted.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub.sh')
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -50,8 +51,8 @@ function newWorld(journalLines: object[], cards: { id: number, depends?: string,
   for (const { id, depends, body, kind } of cards)
     writeFileSync(path.join(parking, `${id}.md`), `card: ${cardLine(id, depends, kind)}\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\n${body ?? `do ${id}`}\n`)
   const journal = path.join(handoff, 'ghosts.jsonl')
-  const intake = cards.map(({ id, depends, kind }) => ({ event: 'intake', task: String(id), card: cardLine(id, depends, kind), confirmation: 'none', corrections: [], ts: '2026-10-05T00:00:00.000Z' }))
-  writeFileSync(journal, [...journalLines, ...intake].map(line => `${JSON.stringify(line)}\n`).join(''))
+  admitCards(path.join(root, 'bus', 'bus.db'), cards.map(({ id, depends, kind }) => cardLine(id, depends, kind)))
+  writeFileSync(journal, journalLines.map(line => `${JSON.stringify(line)}\n`).join(''))
   return { root, repo, handoff, shift, stubOut, parking, journal }
 }
 
