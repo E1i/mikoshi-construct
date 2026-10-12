@@ -504,6 +504,53 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('the merge of a card that blocks a card stopped on an owner question answers it', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a'), sha('a'), PUSHED]
+    bench.started(1170)
+    bench.gitHub.open({ number: 1070, review: 'failure' })
+    bench.tick()
+    const key = answer(1170, 1070, sha('a'))
+    const lease = bench.leaseAnswer()!
+    bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), 'may the card touch architecture/owner-merges.md?\n')
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', taskKey: key, reason: 'question.owner' })
+    bench.tick()
+    const blocksTheStoppedCard = '#1171 adopt-mode [implement/netwatch/S/cheap/auto] · depends — · blocks #1170'
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: 1171, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1171`, payload: { card: blocksTheStoppedCard, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    bench.startLine({ task: '1171', card: { id: 1171, line: blocksTheStoppedCard, blocks: [1170] } })
+    bench.gitHub.open({ number: 1071 })
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('completed')
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1170])
+
+    bench.gitHub.close(1071, true)
+    bench.tick()
+    bench.tick()
+
+    expect(ownerInbox(bench.db)).toEqual([])
+    const released = bench.leaseAnswer()!
+    expect(released).toMatchObject({ cardId: 1170, pr: 1070, head: sha('a') })
+    bench.tools.during = () => {}
+    expect(await bench.answer(released)).toMatchObject({ kind: 'answered', head: PUSHED })
+    bench.tick()
+    expect(bench.db.prepare(`SELECT card_id FROM events WHERE type = '${CARD_ANSWERED}'`).all()).toEqual([{ card_id: 1170 }])
+    expect(eventsOf(bench.db, REJECTED)).toEqual([])
+    bench.close()
+  })
+
+  it('a card stopped on an owner question stays stopped when a card that does not block it merges', () => {
+    const bench = answerBench()
+    bench.started(1170)
+    bench.stopped(1170, { reason: 'question.owner', detail: 'which way?' }, 1070, sha('a'))
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: 1171, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1171`, payload: { card: '#1171 other [implement/netwatch/S/cheap/auto] · depends #1170 · blocks #11700', lane: null, decision: 'auto', contour: 'cheap', depends: [1170] }, legacy: false })
+    bench.gitHub.open({ number: 1071 })
+    bench.tick()
+    bench.gitHub.close(1071, true)
+    bench.tick()
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1170])
+    bench.close()
+  })
+
   it('an answer that leaves no new head while changes stand on the current head stops the card with the reason in the detail and shows it on the board', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]

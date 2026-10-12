@@ -13,11 +13,27 @@ export const QUESTION_OWNER = 'question.owner'
 export const OWNER = 'owner'
 export const PREFIX = '[bus:inbox] '
 
-export function answeredByDecision(stop: string): string {
+const BLOCKS_LIST = ' · blocks '
+
+function latestCardLineOf(card: string): string {
+  return `(SELECT coalesce(json_extract(line.payload, '$.card.line'), json_extract(line.payload, '$.card')) FROM events AS line
+      WHERE line.card_id = ${card} AND json_extract(line.payload, '$.card') IS NOT NULL ORDER BY line.id DESC LIMIT 1)`
+}
+
+function blockersMergedAfter(stop: string): string {
   return `EXISTS (
+      SELECT 1 FROM prs AS blocker
+      WHERE blocker.state = 'merged' AND blocker.event_id > ${stop}.id AND blocker.card_id IS NOT NULL
+        AND ', ' || substr(${latestCardLineOf('blocker.card_id')}, instr(${latestCardLineOf('blocker.card_id')}, '${BLOCKS_LIST}') + ${BLOCKS_LIST.length}) || ','
+          LIKE '%, #' || ${stop}.card_id || ',%'
+    )`
+}
+
+export function answeredByDecision(stop: string): string {
+  return `(EXISTS (
       SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
       WHERE answer.event_id > ${stop}.id AND named.value = ${stop}.card_id
-    )`
+    ) OR ${blockersMergedAfter(stop)})`
 }
 
 const OWNER_INBOX = `
