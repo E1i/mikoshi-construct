@@ -1,9 +1,10 @@
-import type { TreePrPorts } from '../../shift/tree-pr.js'
+import type { TreePrCliPorts } from '../../shift/tree-pr-cli.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
+import { openBus } from '../../bus/db.js'
+import { busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
 
 const roots: string[] = []
 
@@ -94,8 +95,11 @@ const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
   },
 }
 
-function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
+function NOT_OPENED(): void {}
+
+function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrCliPorts {
   return {
+    opened: NOT_OPENED,
     git: (_cwd, args) => {
       if (args[0] === 'status')
         return ''
@@ -135,7 +139,7 @@ describe('tree-pr for a finished card session', () => {
     const cardFile = path.join(root, 'lane-q', '951.md')
     const lines: string[] = []
 
-    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable }, line => lines.push(line))
+    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable, opened: untouchable }, line => lines.push(line))
 
     expect({ code, lines }).toEqual({ code: 1, lines: [`${PREFIX}951.md: the card file ${cardFile} is gone (moved to another lane or archived while the session ran); the tree is left uncommitted`] })
   })
@@ -194,5 +198,36 @@ describe('tree-pr for a finished card session', () => {
     }))
 
     expect(observed).toEqual(Object.fromEntries(Object.entries(reports).map(([name, { tail }]) => [name, [`<card>\n\n${line}\n\n${OPENED}${tail}`]])))
+  })
+
+  it('opening the pull request writes pr.opened to the bus', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const { diff } = PATH_LINES['scripts on a ladder card']!
+    const { cardFile } = parkCard(root, diff.contour)
+    const busPath = path.join(root, 'bus.db')
+    const errors: string[] = []
+
+    const code = runTreePr([cardFile, root], { ...shiftedPorts(diff, []), opened: busPrOpened({ busPath, pid: 4242, now: () => new Date('2026-10-12T07:00:00.000Z'), err: line => errors.push(line) }) }, () => {})
+
+    const db = openBus(busPath)
+    const events = db.prepare(`SELECT type, actor, card_id, pr, dedupe_key, payload FROM events WHERE type = 'pr.opened'`).all()
+    db.close()
+    expect({ code, errors, events }).toEqual({ code: 0, errors: [], events: [{ type: 'pr.opened', actor: 'worker:shift:4242', card_id: 951, pr: 901, dedupe_key: 'pr.opened:951:901', payload: '{"pr":901}' }] })
+  })
+
+  it('a pr.opened the bus refuses is a line, and the pull request stands', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const { diff } = PATH_LINES['scripts on a ladder card']!
+    const { cardFile } = parkCard(root, diff.contour)
+    const blocked = path.join(root, 'blocked')
+    writeFileSync(blocked, '')
+    const errors: string[] = []
+    const lines: string[] = []
+
+    const code = runTreePr([cardFile, root], { ...shiftedPorts(diff, []), opened: busPrOpened({ busPath: path.join(blocked, 'bus.db'), pid: 4242, now: () => new Date(), err: line => errors.push(line) }) }, line => lines.push(line))
+
+    expect({ code, lines, errors }).toEqual({ code: 0, lines: [`${PREFIX}951.md: PR #901`], errors: [expect.stringContaining(`pr.opened of PR #901 not written to ${path.join(blocked, 'bus.db')}`)] })
   })
 })

@@ -3,17 +3,18 @@ import type { Fold, StoredEvent } from './stored.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, PR_OPENED } from './card-automaton.js'
 import { CHAIN_FOLDS } from './chain.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
+import { defaultBusPath, inTransaction, openBus } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
+import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS } from './role.js'
-import { payloadOf, reject, Rejection, STORED_COLUMNS } from './stored.js'
+import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 
 export const PREFIX = '[bus:reduce] '
-export const REJECTED = 'reducer.rejected'
 export const REDUCED = 'reducer.reduced'
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
@@ -66,6 +67,10 @@ function cardRow(db: DatabaseSync, cardId: number): CardRow | undefined {
   return db.prepare('SELECT card_id, pr FROM cards WHERE card_id = ?').get(cardId) as CardRow | undefined
 }
 
+function cardOfPr(db: DatabaseSync, pr: number): number | null {
+  return (db.prepare('SELECT card_id FROM cards WHERE pr = ?').get(pr) as { card_id: number } | undefined)?.card_id ?? null
+}
+
 function linkCard(db: DatabaseSync, cardId: number, pr: number, eventId: number): void {
   const card = cardRow(db, cardId)
   if (card?.pr === pr)
@@ -105,9 +110,11 @@ function prObserved(db: DatabaseSync, event: StoredEvent): void {
     reject(`pr ${pr} is merged`)
   if (known?.card_id != null && event.card_id !== null && known.card_id !== event.card_id)
     reject(`pr ${pr} belongs to card ${known.card_id}, not ${event.card_id}`)
-  const cardId = event.card_id ?? known?.card_id ?? null
-  if (cardId !== null)
+  const cardId = event.card_id ?? known?.card_id ?? cardOfPr(db, pr)
+  if (cardId !== null) {
     linkCard(db, cardId, pr, event.id)
+    cardLinkObserved(db, cardId, event.id)
+  }
   db.prepare(`
     INSERT INTO prs (pr, card_id, base, head, state, mergeable, ci, verdict_on_head, auto_merge, draft, event_id, body_sha)
     VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
@@ -124,6 +131,8 @@ function prClosed(db: DatabaseSync, event: StoredEvent): void {
   if (known.state === 'merged')
     reject(`pr ${pr} is already merged`)
   db.prepare('UPDATE prs SET state = ?, event_id = ? WHERE pr = ?').run(merged ? 'merged' : 'closed', event.id, pr)
+  if (merged && known.card_id !== null)
+    cardPrMerged(db, known.card_id, event.id)
 }
 
 function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
@@ -135,12 +144,14 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
-  const pr = prOf(payloadOf(event).pr) ?? event.pr ?? reject('pr.opened needs a pr')
-  const cardId = event.card_id ?? reject('pr.opened needs a card_id')
+  const pr = prOf(payloadOf(event).pr) ?? event.pr ?? reject(`${PR_OPENED} needs a pr`)
+  const cardId = event.card_id ?? reject(`${PR_OPENED} needs a card_id`)
   const known = prRow(db, pr)
   if (known?.card_id != null && known.card_id !== cardId)
     reject(`pr ${pr} belongs to card ${known.card_id}, not ${cardId}`)
+  const linkedBefore = cardRow(db, cardId)?.pr ?? null
   linkCard(db, cardId, pr, event.id)
+  cardPrOpened(db, cardId, pr, linkedBefore, event.id)
   if (known !== undefined)
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
@@ -149,43 +160,13 @@ const REDUCERS: Record<string, Fold> = {
   'pr.observed': prObserved,
   'pr.closed': prClosed,
   'main.advanced': mainAdvanced,
-  'pr.opened': prOpened,
+  [PR_OPENED]: prOpened,
   ...TASK_FOLDS,
   ...LEASE_FOLDS,
   ...CHAIN_FOLDS,
   ...ROLE_FOLDS,
   ...DECISION_FOLDS,
-}
-
-function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): void {
-  appendEvent(db, {
-    ts: event.ts,
-    type: REJECTED,
-    actor: 'reducer',
-    cardId: event.card_id,
-    pr: event.pr,
-    head: event.head,
-    dedupeKey: `${REJECTED}:${event.dedupe_key}`,
-    payload: { event_id: event.id, type: event.type, reason },
-    legacy: false,
-  })
-}
-
-function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
-  db.exec('SAVEPOINT reducer_event')
-  try {
-    apply(db, event)
-    db.exec('RELEASE reducer_event')
-    return true
-  }
-  catch (error) {
-    db.exec('ROLLBACK TO reducer_event')
-    db.exec('RELEASE reducer_event')
-    if (!(error instanceof Rejection))
-      throw error
-    recordRejection(db, event, error.message)
-    return false
-  }
+  ...CARD_FOLDS,
 }
 
 export function reducedThrough(db: DatabaseSync): number {
@@ -203,7 +184,7 @@ export function reduce(db: DatabaseSync): ReduceCount {
       const apply = REDUCERS[event.type]
       if (apply === undefined)
         continue
-      if (applied(db, event, apply))
+      if (appliedOrRejected(db, event, apply))
         count.applied += 1
       else
         count.rejected += 1

@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from './lease.js'
+import { REVIEW_RECORDED } from './card-automaton.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { latestTurnOf, QUESTION_AGENT } from './queue.js'
-import { REVIEW_RECORDED } from './review-worker.js'
 
 export const LATEST_EVENTS = 20
 
