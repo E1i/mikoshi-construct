@@ -7,7 +7,7 @@ import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
 import { MERGE_DONE } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
-import { answeredByDecision, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox } from './inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, ownerQuestionAnswered } from './inbox.js'
 import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
 import { unspentShardsOf } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -147,7 +147,7 @@ const QUESTION_CANDIDATES = `
 
 const AN_OPEN_QUESTION = `(
   json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
-  OR (json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${answeredByDecision('stop')})
+  OR (json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('stop')})
 )`
 
 function answerCandidatesWhere(condition: string): string {

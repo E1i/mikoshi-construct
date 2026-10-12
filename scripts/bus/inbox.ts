@@ -38,7 +38,7 @@ function everyBlockerMergedAfter(stop: string): string {
     ))`
 }
 
-export function answeredByDecision(stop: string): string {
+export function ownerQuestionAnswered(stop: string): string {
   return `(EXISTS (
       SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
       WHERE answer.event_id > ${stop}.id AND named.value = ${stop}.card_id
@@ -49,7 +49,7 @@ const OWNER_INBOX = `
   SELECT id, type, card_id, pr, head, payload FROM events AS item
   WHERE item.legacy = 0 AND (
     (item.type = '${POLICY_DENIED}' AND json_extract(item.payload, '$.kind') = 'authority')
-    OR (item.type = '${CARD_STOPPED}' AND json_extract(item.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${answeredByDecision('item')})
+    OR (item.type = '${CARD_STOPPED}' AND json_extract(item.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('item')})
   )
   ORDER BY id
 `
