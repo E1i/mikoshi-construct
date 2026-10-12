@@ -53,8 +53,8 @@ export function treePrCommand(repo: string): string {
   return `pnpm --dir ${shellWord(repo)} --silent exec tsx scripts/shift/tree-pr-cli.ts`
 }
 
-export function launchArgv(session: { command: string, treePr: string, cardFile: string, worktree: string, id: string }): string[] {
-  return ['-c', `env ${session.command} "$@" && ${session.treePr} ${shellWord(session.cardFile)} ${shellWord(session.worktree)}`, 'shift', '-p', '--session-id', session.id]
+export function launchArgv(session: { command: string, treePr: string, cardFile: string, worktree: string, report: string, id: string }): string[] {
+  return ['-c', `env ${session.command} "$@" && ${session.treePr} ${shellWord(session.cardFile)} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
 }
 
 export class ShiftCardStarter implements CardStarter {
@@ -77,7 +77,7 @@ export class ShiftCardStarter implements CardStarter {
       const report = path.join(this.places.launchDir, `report-${card.cardId}.md`)
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, id: session }),
+        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, report, id: session }),
         cwd: worktree,
         env: sessionEnv(this.places.env, card.cardId),
         input: renderPrompt(this.places.header, task, { worktree, report }),

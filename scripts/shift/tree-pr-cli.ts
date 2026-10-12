@@ -24,9 +24,9 @@ function outcomeLine(cardFile: string, outcome: TreePr): string {
 }
 
 export function runTreePr(argv: string[], ports: TreePrPorts = REAL_PORTS, out: (line: string) => void = line => process.stdout.write(`${line}\n`)): number {
-  const [cardFile, worktree] = argv
+  const [cardFile, worktree, report] = argv
   if (cardFile === undefined || worktree === undefined) {
-    out(`${PREFIX}usage: tree-pr <parking card file> <worktree>`)
+    out(`${PREFIX}usage: tree-pr <parking card file> <worktree> [<session report>]`)
     return 2
   }
   if (!existsSync(cardFile)) {
@@ -38,7 +38,7 @@ export function runTreePr(argv: string[], ports: TreePrPorts = REAL_PORTS, out: 
     out(`${PREFIX}${path.basename(cardFile)}: ${parsed.reason}`)
     return 1
   }
-  const outcome = treePr(ports, shiftTreeCard(parsed.parked.task), worktree)
+  const outcome = treePr(ports, shiftTreeCard(parsed.parked.task), worktree, report !== undefined && existsSync(report) ? readFileSync(report, 'utf8') : null)
   out(outcomeLine(cardFile, outcome))
   return outcome.kind === 'problem' ? 1 : 0
 }

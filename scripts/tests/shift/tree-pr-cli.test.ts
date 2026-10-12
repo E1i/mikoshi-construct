@@ -124,4 +124,28 @@ describe('tree-pr for a finished card session', () => {
 
     expect(observed).toEqual(Object.fromEntries(Object.entries(PATH_LINES).map(([name, { line }]) => [name, { code: 0, lines: [`${PREFIX}951.md: PR #901`], bodies: [`<card>\n\n${line}\n\n${OPENED}`] }])))
   })
+
+  it('the PR body carries the matrix count line of the session report', () => {
+    const { diff, line } = PATH_LINES['src on a ladder card']!
+    const reports: Record<string, { report: string | null, tail: string }> = {
+      'a report with the matrix': { report: 'contract: x\n\n| | M1 | M2 |\n| M1 | ■ | □ |\n\n■ 3 □ 1 · 6\n\nverification: run\n', tail: '\n\n■ 3 □ 1 · 6' },
+      'a report without the matrix': { report: 'contract: x\nverification: run\n', tail: '' },
+      'no report on disk': { report: null, tail: '' },
+    }
+    const observed = Object.fromEntries(Object.entries(reports).map(([name, { report }]) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+      roots.push(root)
+      const { cardFile, cardLine } = parkCard(root, diff.contour)
+      const reportFile = path.join(root, 'report-951.md')
+      if (report !== null)
+        writeFileSync(reportFile, report)
+      const bodies: string[] = []
+
+      runTreePr([cardFile, root, reportFile], shiftedPorts(diff, bodies), () => {})
+
+      return [name, bodies.map(body => body.replace(cardLine, '<card>'))]
+    }))
+
+    expect(observed).toEqual(Object.fromEntries(Object.entries(reports).map(([name, { tail }]) => [name, [`<card>\n\n${line}\n\n${OPENED}${tail}`]])))
+  })
 })
