@@ -26,34 +26,23 @@ const SHRUNK_TEST = 'scripts/tests/shift/x.test.ts'
 const CARD_TAIL = '· depends — · blocks —'
 const OPENED = `Opened by the shift from the card's worktree and branch after its session ended.`
 
-const PATH_LINES: Record<string, { diff: ShiftedDiff, line: string }> = {
+const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: string }> = {
   'tests shrunk on a cheap card with no assertion removed': {
     diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 4, deletions: 1 }, { path: 'scripts/shift/x.ts', additions: 2, deletions: 0 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -3 +3,4 @@\n-import { a } from './a.js'\n+import { a, b } from './a.js'\n` },
     line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · cheap holds: the shrunk test files are ${SHRUNK_TEST}, and every line the diff removes from them is an import or blank`,
-  },
-  'tests shrunk on a cheap card with an assertion removed': {
-    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -9 +8,0 @@\n-    expect(code).toBe(0)\n` },
-    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · the cheap path is held without a named reason`,
-  },
-  'tests shrunk on a cheap card by a removed expectation-table row': {
-    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -20 +19,0 @@\n-  'src on a cheap card': { diff: d, line: 'x' },\n` },
-    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · the cheap path is held without a named reason`,
-  },
-  'tests shrunk on a cheap card by a skipped test': {
-    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 1, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -30 +30 @@\n-  it('x', () => {\n+  it.skip('x', () => {\n` },
-    line: `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · the cheap path is held without a named reason`,
-  },
-  'src on a ladder card': {
-    diff: { contour: 'ladder', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
-    line: `Path: ladder · MORSE predicts ladder by rule src (src/x.ts) · the card's contour and MORSE agree`,
   },
   'a diff MORSE refuses on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'scripts/x.sh', additions: 0, deletions: 0, status: 'T' }], patch: '' },
     line: 'Path: cheap · MORSE gave no prediction: unhandled git status T for scripts/x.sh · the cheap path is held without a named reason',
   },
-  'src on a cheap card': {
-    diff: { contour: 'cheap', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
-    line: 'Path: cheap · MORSE predicts ladder by rule src (src/x.ts) · the cheap path is held without a named reason',
+  'scripts on a ladder card': {
+    diff: { contour: 'ladder', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    line: `Path: ladder · MORSE predicts ladder by rule doubt (scripts/shift/x.ts) · the card's contour and MORSE agree`,
+  },
+  'scripts on a cheap card that names its D-76 reason': {
+    diff: { contour: 'cheap', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    cardBody: 'Do x.\nPath (D-76): cheap, one guard line the witness covers',
+    line: `Path: cheap · MORSE predicts ladder by rule doubt (scripts/shift/x.ts) · cheap holds by the card's D-76 reason: cheap, one guard line the witness covers`,
   },
   'docs only on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'docs/x.md', additions: 1, deletions: 0 }], patch: '' },
@@ -65,6 +54,46 @@ const PATH_LINES: Record<string, { diff: ShiftedDiff, line: string }> = {
   },
 }
 
+const MATRIX_GAP = (file: string): string => `the code matrix count line ■ n □ n · n its change to ${file} requires (architecture/code-matrix.md)`
+const D76_GAP = 'the D-76 reason the card holds the cheap path where MORSE predicts the ladder'
+const CHANGESET_GAP = (file: string): string => `the changeset its change to the published ${file} requires`
+const ASSERTION_REMOVED = `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -9 +8,0 @@\n-    expect(code).toBe(0)\n`
+
+const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
+  'src on a ladder card without a changeset': {
+    diff: { contour: 'ladder', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    gaps: [MATRIX_GAP('src/x.ts'), CHANGESET_GAP('src/x.ts')],
+  },
+  'src on a ladder card with a changeset': {
+    diff: { contour: 'ladder', files: [{ path: '.changeset/x.md', additions: 5, deletions: 0, status: 'A' }, { path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    gaps: [MATRIX_GAP('src/x.ts')],
+  },
+  'src on a ladder card whose only changeset file is the readme': {
+    diff: { contour: 'ladder', files: [{ path: '.changeset/README.md', additions: 1, deletions: 0, status: 'A' }, { path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    gaps: [MATRIX_GAP('src/x.ts'), CHANGESET_GAP('src/x.ts')],
+  },
+  'templates on a ladder card whose changeset is deleted': {
+    diff: { contour: 'ladder', files: [{ path: '.changeset/x.md', additions: 0, deletions: 5, status: 'D' }, { path: 'templates/base/x.eta', additions: 1, deletions: 0 }], patch: '' },
+    gaps: [MATRIX_GAP('templates/base/x.eta'), CHANGESET_GAP('templates/base/x.eta')],
+  },
+  'src on a cheap card': {
+    diff: { contour: 'cheap', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    gaps: [MATRIX_GAP('src/x.ts'), D76_GAP, CHANGESET_GAP('src/x.ts')],
+  },
+  'tests shrunk on a cheap card with an assertion removed': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: ASSERTION_REMOVED },
+    gaps: [D76_GAP],
+  },
+  'tests shrunk on a cheap card by a removed expectation-table row': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -20 +19,0 @@\n-  'src on a cheap card': { diff: d, line: 'x' },\n` },
+    gaps: [D76_GAP],
+  },
+  'tests shrunk on a cheap card by a skipped test': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 1, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -30 +30 @@\n-  it('x', () => {\n+  it.skip('x', () => {\n` },
+    gaps: [D76_GAP],
+  },
+}
+
 function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
   return {
     git: (_cwd, args) => {
@@ -72,6 +101,8 @@ function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
         return ''
       if (args[0] === 'rev-list')
         return '1\n'
+      if (args[0] === 'show' && args[1] === 'HEAD:package.json')
+        return JSON.stringify({ files: ['dist', 'templates'] })
       if (args.includes('--name-status'))
         return diff.files.map(file => `${file.status ?? 'M'}\0${file.path}\0`).join('')
       if (args.includes('--numstat'))
@@ -89,11 +120,11 @@ function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrPorts {
   }
 }
 
-function parkCard(root: string, contour: ShiftedDiff['contour']): { cardFile: string, cardLine: string } {
+function parkCard(root: string, contour: ShiftedDiff['contour'], body = 'Do x.'): { cardFile: string, cardLine: string } {
   const cardLine = `#951 x [implement/netwatch/S/${contour}/auto] ${CARD_TAIL}`
   const cardFile = path.join(root, 'lane-q', '951.md')
   mkdirSync(path.dirname(cardFile), { recursive: true })
-  writeFileSync(cardFile, `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts\ncontinue: stop\nwho: shift\n\nDo x.\n`)
+  writeFileSync(cardFile, `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts\ncontinue: stop\nwho: shift\n\n${body}\n`)
   return { cardFile, cardLine }
 }
 
@@ -110,10 +141,10 @@ describe('tree-pr for a finished card session', () => {
   })
 
   it('the PR body names the path and its reason after the card line', () => {
-    const observed = Object.fromEntries(Object.entries(PATH_LINES).map(([name, { diff }]) => {
+    const observed = Object.fromEntries(Object.entries(PATH_LINES).map(([name, { diff, cardBody }]) => {
       const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
       roots.push(root)
-      const { cardFile, cardLine } = parkCard(root, diff.contour)
+      const { cardFile, cardLine } = parkCard(root, diff.contour, cardBody)
       const bodies: string[] = []
       const lines: string[] = []
 
@@ -125,8 +156,24 @@ describe('tree-pr for a finished card session', () => {
     expect(observed).toEqual(Object.fromEntries(Object.entries(PATH_LINES).map(([name, { line }]) => [name, { code: 0, lines: [`${PREFIX}951.md: PR #901`], bodies: [`<card>\n\n${line}\n\n${OPENED}`] }])))
   })
 
+  it('tree-pr refuses a body without the matrix count line, the D-76 path reason or the changeset its change requires', () => {
+    const observed = Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { diff }]) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+      roots.push(root)
+      const { cardFile } = parkCard(root, diff.contour)
+      const bodies: string[] = []
+      const lines: string[] = []
+
+      const code = runTreePr([cardFile, root], shiftedPorts(diff, bodies), line => lines.push(line))
+
+      return [name, { code, lines, bodies }]
+    }))
+
+    expect(observed).toEqual(Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { gaps }]) => [name, { code: 1, lines: [`${PREFIX}951.md: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`], bodies: [] }])))
+  })
+
   it('the PR body carries the matrix count line of the session report', () => {
-    const { diff, line } = PATH_LINES['src on a ladder card']!
+    const { diff, line } = PATH_LINES['scripts on a ladder card']!
     const reports: Record<string, { report: string | null, tail: string }> = {
       'a report with the matrix': { report: 'contract: x\n\n| | M1 | M2 |\n| M1 | ■ | □ |\n\n■ 3 □ 1 · 6\n\nverification: run\n', tail: '\n\n■ 3 □ 1 · 6' },
       'a report without the matrix': { report: 'contract: x\nverification: run\n', tail: '' },
