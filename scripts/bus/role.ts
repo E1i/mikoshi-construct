@@ -3,7 +3,8 @@ import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { appendEvent, inTransaction } from './db.js'
 import { CARD_STOPPED } from './inbox.js'
-import { FAILURES_TO_STOP, LEASE_MS, StaleLease } from './lease.js'
+import { LEASE_MS, StaleLease } from './lease.js'
+import { FAILURES_TO_STOP } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const ROLE_STOPPED = 'role.stopped'
@@ -72,6 +73,18 @@ const PAST_THE_CEILING = `
   WHERE ${AT_A_THRESHOLD} AND state = '${STOPPED}' AND NOT (${WITHIN_CEILING})
   ORDER BY role LIMIT 1
 `
+
+export interface RoleReading {
+  role: Role
+  state: string
+  lease_until: string | null
+  pid: number | null
+  ts: string
+}
+
+export function roleReadings(db: DatabaseSync): RoleReading[] {
+  return db.prepare('SELECT roles.role, roles.state, roles.lease_until, roles.pid, events.ts FROM roles JOIN events ON events.id = roles.event_id ORDER BY roles.role').all() as unknown as RoleReading[]
+}
 
 export function raisedByTheBus(env: NodeJS.ProcessEnv): boolean {
   return env[RAISED_VARIABLE] === '1'

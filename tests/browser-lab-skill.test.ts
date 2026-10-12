@@ -109,10 +109,17 @@ describe('attach carries the browser lab into a repository that has no JavaScrip
     return dir
   }
 
+  function searchPathHolding(word: string): string {
+    const bin = mkdtempSync(path.join(tmpdir(), 'browser-lab-bin-'))
+    writeFileSync(path.join(bin, word), '#!/bin/sh\n', { mode: 0o755 })
+    return bin
+  }
+
   it('writes the skill and the script byte for byte as the templates are, records and hides both, and leaves the tree clean with no package.json', async () => {
     const dir = goRepository()
+    const bin = searchPathHolding('make')
     try {
-      const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'go test ./...', yes: true })
+      const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'make check', yes: true, env: { PATH: bin } })
       expect(result.status).toBe('done')
       const record = readAttachRecord(dir)
       const exclude = readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8').split('\n')
@@ -127,6 +134,7 @@ describe('attach carries the browser lab into a repository that has no JavaScrip
     }
     finally {
       rmSync(dir, { recursive: true, force: true })
+      rmSync(bin, { recursive: true, force: true })
     }
   })
 })

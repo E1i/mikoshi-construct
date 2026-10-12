@@ -9,7 +9,7 @@ export const VERSION_BRANCH = /^changeset-release\//
 export const RELEASE_KIND = 'release'
 const KINDS_NO_SHARD_MERGES = ['security-invariants']
 export const OWNER_PR_MERGED_BY_THE_BUS = 77
-const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
+export const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
 
 export type AuthorityRule
   = | 'version_pr'
@@ -34,7 +34,14 @@ export interface MergeFacts {
   files: readonly string[]
   ownerMergesText: string
   shardActive: boolean
+  shardUnder: number | null
   decisions: readonly InForceDecision[]
+}
+
+function delegatedByShard(facts: MergeFacts): number | null {
+  if (!facts.shardActive || facts.shardUnder === null)
+    return null
+  return facts.decisions.some(decision => decision.decisionId === facts.shardUnder) ? facts.shardUnder : null
 }
 
 function meetsAny(file: string, globs: readonly string[]): boolean {
@@ -59,6 +66,9 @@ function reserved(facts: MergeFacts): MergeVerdict | null {
   const releaseTitle = kinds.find(kind => kind.kind === RELEASE_KIND)?.title ?? null
   if (VERSION_BRANCH.test(facts.headRef) || (releaseTitle !== null && facts.title === releaseTitle))
     return denied('version_pr', `${facts.headRef} is a version pull request and stays the owner's`)
+  const reservedCard = reservedCardOf(facts)
+  if (reservedCard !== null || delegatedByShard(facts) !== null)
+    return reservedCard
   for (const kind of kinds.filter(entry => KINDS_NO_SHARD_MERGES.includes(entry.kind))) {
     const file = facts.files.find(candidate => meetsAny(candidate, kind.globs))
     if (file !== undefined)
@@ -69,6 +79,10 @@ function reserved(facts: MergeFacts): MergeVerdict | null {
     if (file !== undefined)
       return denied('owner_by_risk', `changes ${file}, owner by risk ${row.level}, and stays the owner's`)
   }
+  return null
+}
+
+function reservedCardOf(facts: MergeFacts): MergeVerdict | null {
   if (reservationOf(facts.cardId, facts.description))
     return denied('reserved', `card #${facts.cardId} is reserved for the owner`)
   const reserving = facts.decisions.find(decision => reservationOf(facts.cardId, decision.text))
@@ -98,10 +112,13 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
   if (decision === 'auto' && ownerPath === undefined)
     return { kind: 'allowed', rule: 'auto', detail: `card #${facts.cardId} is auto and no file meets an owner path` }
   const why = ownerPath === undefined ? `card #${facts.cardId} is ${decision}` : `changes ${ownerPath}, an owner path`
+  const under = delegatedByShard(facts)
+  if (under !== null)
+    return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; an unspent shard under D-${under}, in force, covers its card or pull request` }
   if (facts.shardActive)
-    return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; this run's shard is active` }
+    return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; an unspent shard of its run, card or pull request covers it` }
   if (!facts.decisions.some(entry => entry.decisionId === OWNER_PR_MERGED_BY_THE_BUS))
-    return denied('owner_without_shard', `${why}, no shard of this run is active and D-${OWNER_PR_MERGED_BY_THE_BUS} is not in force`)
+    return denied('owner_without_shard', `${why}, no unspent shard of its run, card or pull request covers it and D-${OWNER_PR_MERGED_BY_THE_BUS} is not in force`)
   const r1 = facts.files.find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
   if (r1 !== undefined)
     return denied('r1', `${why}; ${r1} is ${OWNER_EVEN_UNDER_THE_DECISION} and stays the owner's under D-${OWNER_PR_MERGED_BY_THE_BUS}`)

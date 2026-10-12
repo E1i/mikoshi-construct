@@ -94,6 +94,8 @@ export const PREV_LABEL = 'prev'
 export const IN_FLIGHT_LABEL = 'in-flight'
 export const NO_PREV = 'none'
 export const IN_FLIGHT_FORMAT = '#N <stage> [PR #M]'
+export const BLOCKED_LABEL = 'blocked'
+export const STATE_LABELS = ['current card', 'queue', IN_FLIGHT_LABEL, BLOCKED_LABEL] as const
 
 const STOP_HEADING = /^#{1,6} +STOP\b/
 const ANY_LABEL = /^\s*(?:[-*+]\s+)?[a-z][\w -]{0,30}:/i
@@ -137,6 +139,10 @@ function blocksOf(text: string): Block[] {
       blocks.at(-1)!.lines.push(line.trim())
   }
   return blocks
+}
+
+export function labelsOf(text: string): string[] {
+  return blocksOf(text).map(block => block.label)
 }
 
 function blockOf(blocks: readonly Block[], label: string): Block | undefined {

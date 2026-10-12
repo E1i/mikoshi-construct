@@ -30,7 +30,7 @@ pnpm 12.4.2, the pinned `packageManager`, rejects `pnpm -s`; write `pnpm --silen
 
 ## Layout
 
-The module table and the layout notes are in [AGENTS.md § Layout](AGENTS.md#layout).
+Module table and template conventions: [templates.md](.claude/rules/templates.md).
 
 <!-- construct:begin -->
 ## Construct

@@ -1,5 +1,6 @@
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
+import type { Confirmation } from './confirm.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
@@ -7,8 +8,9 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks } from '../../card/closed.js'
-import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf } from './check.js'
-import { awaitsConfirmation, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
+import { parseCard } from '../../card/grammar.js'
+import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
@@ -63,6 +65,59 @@ export const INTAKE_EXIT = {
   admitted: 0,
   alreadyAdmitted: 0,
 } as const
+
+export const CARD_ADMITTED = 'card.admitted'
+export const CARD_MOVED = 'card.moved'
+
+export interface CardEvent {
+  type: typeof CARD_ADMITTED | typeof CARD_MOVED
+  cardId: number
+  ts: string
+  dedupeKey: string
+  payload: Record<string, unknown>
+}
+
+export type CardEventPort = (event: CardEvent) => void
+
+export interface IntakeRecord {
+  journalLine: string
+  event: CardEvent
+}
+
+export function recordIntake(journal: string, records: readonly IntakeRecord[], events: CardEventPort | undefined): void {
+  mkdirSync(path.dirname(journal), { recursive: true })
+  appendFileSync(journal, records.map(record => `${record.journalLine}\n`).join(''))
+  for (const record of records)
+    events?.(record.event)
+}
+
+function admissionOf(line: string): { depends: number[], decision: string | null, contour: string | null } {
+  const parsed = parseCard(line)
+  return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
+}
+
+export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, laneDir: string, source?: string): IntakeRecord {
+  const ts = at.toISOString()
+  const sha = bodySha(card.text)
+  return {
+    journalLine: intakeJournalLine(card, confirmation, at, source),
+    event: {
+      type: CARD_ADMITTED,
+      cardId: card.id,
+      ts,
+      dedupeKey: `${CARD_ADMITTED}:${card.id}:${sha}:${ts}`,
+      payload: {
+        card: card.line,
+        lane: path.basename(laneDir),
+        ...admissionOf(card.line),
+        confirmation,
+        corrections: card.corrections.map(correctionText),
+        bodySha: sha,
+        ...(source === undefined ? {} : { source }),
+      },
+    },
+  }
+}
 
 export interface IntakeOptions {
   admit?: string
@@ -129,6 +184,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   let takenText: string
   let journalText: string | null
   let ownerMerges: string | null
+  let published: string[] | undefined
   if (!isDirectory(options.dir))
     return refused('unreadable', [`${options.dir} is not a directory`])
   try {
@@ -137,6 +193,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     journalText = readJournal(options.journal)
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
+    const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
+    published = existsSync(packageManifestFile) ? publishedRootsOf(readFileSync(packageManifestFile, 'utf8')) : undefined
   }
   catch (error) {
     return refused('unreadable', [error instanceof Error ? error.message : String(error)])
@@ -159,6 +217,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     merged: mergedTasks(journalText),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
+    ...(published === undefined ? {} : { published }),
   })
   const slice = sliceCards(checked, numbers)
   if (slice.kind === 'refused')
@@ -172,8 +231,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   for (const card of slice.cards)
     writeFileSync(path.join(options.parking, card.file), card.text, { flag: 'wx' })
   const at = new Date()
-  mkdirSync(path.dirname(options.journal), { recursive: true })
-  appendFileSync(options.journal, slice.cards.map(card => `${intakeJournalLine(card, confirmationOf(card, options.autoConfirm), at)}\n`).join(''))
+  recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, options.parking)), undefined)
   return { status: 'written', parking: options.parking, cards: slice.cards, autoConfirm: options.autoConfirm }
 }
 

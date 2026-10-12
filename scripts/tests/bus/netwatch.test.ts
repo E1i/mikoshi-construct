@@ -4,10 +4,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { parseIncluded } from '../../bus/github.js'
+import { prBodySha } from '../../bus/identifiers.js'
 import { NetWatch, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { touchesMechanics } from '../../bus/snapshot.js'
-import { Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
+import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
 
 const roots: string[] = []
 
@@ -45,7 +46,7 @@ describe('netwatch', () => {
     const observed = events(db, 'pr.observed')
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatchObject({ pr: 900, card_id: 1000, head: sha('a') })
-    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false })
+    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false, body_sha: prBodySha(cardBody(900)) })
     expect(observed[0]!.dedupe_key).toMatch(/^pr:900:[0-9a-f]{64}:-$/)
 
     gitHub.open({ number: 900, mergeable_state: 'behind', review: 'success' })

@@ -3,6 +3,7 @@ import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { ChainState } from '../bus/chain.js'
+import type { BusEvent } from '../bus/db.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
 import type { SweepResult } from '../worktrees/sweep.js'
 import type { ChainMoment } from './chain-bus.js'
@@ -13,7 +14,7 @@ import type { BusMerge, MergeResult } from './merge.js'
 import type { Notify } from './notify.js'
 import type { Outcome } from './outcomes.js'
 import type { OpenPr } from './overlap.js'
-import type { Choice, InReview, Stop } from './parking.js'
+import type { Choice, DependencyWait, InReview, LeftCard, Stop } from './parking.js'
 import type { TaskLine } from './places.js'
 import type { PromptPlaces } from './prompt.js'
 import type { TreePr } from './tree-pr.js'
@@ -27,21 +28,24 @@ import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { cardTerms } from '../../src/card/grammar.js'
-import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
-import { parseTaskFile, TASK_FILE } from '../../src/card/task-file.js'
+import { SHIFT_WHO } from '../../src/card/parking.js'
+import { parseTaskFile } from '../../src/card/task-file.js'
 import { cheapClass, cheapForecast, cheapForecastOf, cheapRows, claudeProjectsDir, formatTokens, readCheapTasks } from '../../src/commands/cost/index.js'
 import { quantile } from '../../src/commands/cost/sample.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { execGh, prDetails } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { WAITING } from '../bus/chain.js'
 import { defaultBusPath } from '../bus/db.js'
 import { MERGE_DONE } from '../bus/executor.js'
 import { POLICY_DENIED } from '../bus/inbox.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
+import { briefEffort, EXPECT_LINE_INDEX, parseExpect } from '../ghosts/expect.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
+import { parseSketch } from '../ghosts/sketch.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
@@ -53,15 +57,15 @@ import { chainBusMerge, realChainObserver } from './chain-bus.js'
 import { CLAUDE_VARIABLE, runClaude } from './claude.js'
 import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, EXIT_REASON_TEXT, exitReason, MAX_RESTARTS, QUESTION_LINE } from './continuation.js'
 import { PREFIX as CURRENT_PREFIX, realCurrentDeps, runCurrent } from './current.js'
-import { approvedSha256Of, briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
-import { changedFiles, COMMIT_FLAG, GHOSTS_FILES_ON_MAIN, HANDED_TO_THE_BUS, isListed, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
+import { briefBody, briefPathOf, isLadder, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from './ladder.js'
+import { changedFiles, COMMIT_FLAG, HANDED_TO_THE_BUS, latestPrReview, PREFIX as MERGE_PREFIX, OWNER_MERGES_ON_MAIN, passedAt, runMerge, VERDICT_FLAG } from './merge.js'
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { choose, FAILED_AT, failedCards, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, standingStops } from './parking.js'
+import { dependencyWaits, FAILED_AT, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, readParking, taskFiles, waitingLine } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
-import { delegatedMerge, shardRefusal, slotRefusal, usedLine } from './shard.js'
+import { delegatedMerge, recordInBus, shardRefusal, slotRefusal, usedEvent, usedLine } from './shard.js'
 import { shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift] '
@@ -110,10 +114,12 @@ export const USAGE = [
   '--slot <shard> consumes the shard pnpm shard <dir> issued for this run, writing its shard-used line before the first card: an owner pull request whose report asks nothing,',
   'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown goes to the bus at its reviewed head, where owner_under_shard allows it, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
-  '--chain (with --parking) makes the run a pipeline: once a card closes with a pull request, that pull request is in review and the chain takes the next card whose depends are merged and whose touches overlap no card in review;',
-  'a card that overlaps one waits until that one merges and is then cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
+  '--chain (with --parking) makes the run a chain of one card in work at a time: once a card closes with a pull request, that pull request is in review, and the chain takes the next card whose depends are merged only after it merges,',
+  'cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
+  'A card left on depends that are not merged gets one event:chain line (step blocked, reason waiting on #N) whenever what it waits on changes; while nothing of the chain is in review and a card it depends on is in work (a task:start line and no merge),',
+  `the chain keeps waiting instead of ending, and the bus gets a chain.observed with state ${WAITING} naming the card and waitingOn.`,
   `The chain hands a pull request to the bus only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The chain calls no gh pr merge and arms no auto-merge: the bus is the one merger, and the chain waits for its ${MERGE_DONE} at the head it handed over, or stops on its ${POLICY_DENIED} with the denial's rule. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain hands over after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
-  'An owner pull request is merged by the owner (or handed to the bus under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
+  'An owner pull request is merged by the owner (or handed to the bus under --slot after its review) and the chain waits for it. Every step is an event:chain line in ghosts.jsonl (step wait, blocked, reviewed, merged, next or end); after an end that is not a pull request\'s own, the chain takes no card and waits for the ones in review.',
   `The chain ends itself with an end line naming the reason: no-eligible, merge-timeout (--chain-wait <minutes>, default ${CHAIN_WAIT_MINUTES}), time-limit (--chain-limit <minutes>, default ${CHAIN_LIMIT_MINUTES}), card-budget (--chain-cards <n>, default ${CHAIN_CARDS}), eddies-budget (a session stopped on its Eddies budget), question, guard-refusal, red-check (a required check red while waiting), pr-closed (closed without a merge) or stop-<hash|boundary>.`,
   'A card that fails (a fault stop that is not a guard refusal or an Eddies stop) does not end the run on its first fault (no second attempt): its stop carries failed: true and the last line of its session log as last, a card that depends on it is left as depends failed #N, the other cards go on, and a notifier (osascript display notification on macOS, nothing elsewhere) names the card, the reason and the shift report.',
   `At the end the run writes <dir>/${OUTCOMES_FILE}, one row per card it ran and per card skipped: card · result (done, failed, skipped, stop <at>, stop not-started, stop <chain end>) · reason · PR, and notifies once more.`,
@@ -161,6 +167,7 @@ export interface ShiftDeps {
   sweep?: (card: string) => SweepResult
   observeChain?: (moment: ChainMoment) => void
   busMerge?: (pr: number, head: string) => BusMerge
+  recordBus?: (event: BusEvent) => void
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -169,46 +176,10 @@ function refuse(deps: ShiftDeps, lines: string[]): number {
   return 1
 }
 
-function taskFiles(deps: ShiftDeps, dir: string): string[] {
-  return deps.listDir(dir).filter(file => TASK_FILE.test(file)).sort((a, b) => Number(TASK_FILE.exec(a)![1]) - Number(TASK_FILE.exec(b)![1]) || a.localeCompare(b))
-}
-
 function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: string[] } {
   const parsed = taskFiles(deps, dir).map(file => parseTaskFile(file, deps.read(path.join(dir, file))))
   return {
     tasks: parsed.flatMap(entry => entry.kind === 'task' ? [entry.task] : []),
-    errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
-  }
-}
-
-function approvedBrief(deps: ShiftDeps, task: ShiftTask): boolean {
-  return approvedSha256Of(briefFacts(deps, task), task.card) !== null
-}
-
-function createdFile(deps: ShiftDeps): (file: string) => boolean {
-  return (file) => {
-    try {
-      const inTree = deps.git(deps.cwd, ['ls-tree', '--name-only', 'origin/main', '--', file]).trim() !== ''
-      return !inTree && !isListed(file, deps.git(deps.cwd, ['show', GHOSTS_FILES_ON_MAIN]))
-    }
-    catch {
-      return false
-    }
-  }
-}
-
-function readParking(deps: ShiftDeps, parking: string): { choice: Choice, errors: string[] } {
-  const parsed = taskFiles(deps, parking).map(file => parseParkingFile(file, deps.read(path.join(parking, file))))
-  const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
-  const text = deps.exists(journal) ? deps.read(journal) : null
-  const done = new Set(closedTasks(text).keys())
-  const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
-  const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
-  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(deps, ladder.get(stop.task)!)
-  const stops = latestStops(text)
-  const standing = standingStops(stops, deps.exists, released)
-  return {
-    choice: choose(cards, done, mergedTasks(text), standing, createdFile(deps), failedCards(stops, standing)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }
@@ -740,6 +711,73 @@ function launchTasksFile(deps: ShiftDeps, task: ShiftTask, brief: string): { fil
   return { file }
 }
 
+function commitSketch(deps: ShiftDeps, tree: string, name: string): string {
+  const original = deps.git(tree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+  const branch = `sketch/${name}`
+  deps.git(tree, ['checkout', '-B', branch])
+  try {
+    deps.git(tree, ['add', '-A'])
+    deps.git(tree, ['commit', '-m', `sketch: ${name}`])
+    const sha = deps.git(tree, ['rev-parse', 'HEAD']).trim()
+    deps.git(tree, ['checkout', original])
+    return `${branch} @ ${sha}`
+  }
+  catch (error) {
+    deps.git(tree, ['reset', '--quiet'])
+    deps.git(tree, ['checkout', original])
+    deps.git(tree, ['branch', '-D', branch])
+    throw error
+  }
+}
+
+function failureLine(error: unknown): string {
+  const stderr = typeof error === 'object' && error !== null && 'stderr' in error ? String(error.stderr) : ''
+  return firstLine(stderr) || firstLine(error instanceof Error ? error.message : String(error))
+}
+
+function hasExpect(text: string): boolean {
+  try {
+    return parseExpect(text) !== null
+  }
+  catch {
+    return true
+  }
+}
+
+function finishBrief(deps: ShiftDeps, tree: string, card: ShiftTask['card'], brief: string): string | null {
+  try {
+    const text = deps.read(brief)
+    let sketch: ReturnType<typeof parseSketch>
+    try {
+      sketch = parseSketch(text)
+    }
+    catch {
+      return null
+    }
+    const lines = text.split('\n')
+    const dirty = sketch.kind === 'none' && deps.git(tree, ['status', '--porcelain']).trim() !== ''
+    if (dirty) {
+      lines[1] = `Sketch: ${commitSketch(deps, tree, card.name)}`
+      writeFileSync(brief, lines.join('\n'))
+    }
+    if (hasExpect(text))
+      return null
+    const effort = briefEffort(text)?.toLowerCase()
+    const sampled = runPnpm(deps, ['ghosts:expect-sample', ...(effort === undefined ? [] : ['--effort', effort]), '--sketch', dirty || sketch.kind === 'branch' ? 'yes' : 'no'])
+    if (sampled === null)
+      return NO_PNPM_RUNNER
+    const line = sampled.stdout.split('\n').find(candidate => candidate.startsWith('expect: '))
+    if (sampled.code !== 0 || line === undefined)
+      return firstLine(sampled.stderr) || `ghosts:expect-sample exit ${sampled.code}`
+    lines.splice(EXPECT_LINE_INDEX, 0, line)
+    writeFileSync(brief, lines.join('\n'))
+    return null
+  }
+  catch (error) {
+    return failureLine(error)
+  }
+}
+
 async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string, manual: boolean, shard: string | undefined): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const { card } = task
   const brief = briefPathOf(deps.handoffDir, card)
@@ -809,6 +847,11 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
       return result(interrupted)
     if (!deps.exists(brief))
       return stopped('fault', `the brief session wrote no brief at ${brief}`, ran.current)
+    if (deps.pnpm === undefined)
+      return stopped('fault', NO_PNPM_RUNNER, ran.current)
+    const unfinished = finishBrief(deps, worktree, card, brief)
+    if (unfinished !== null)
+      return stopped('hash', `${LADDER_REASON}: ${unfinished}`, ran.current)
     const approved = runPnpm(deps, ['ghosts:hash', brief, '--by', 'morse', '--card', String(card.id), '--parking', parking])
     if (approved === null)
       return stopped('fault', NO_PNPM_RUNNER, ran.current)
@@ -853,6 +896,8 @@ interface Chain {
   limitMs: number
   cards: number
   started: number
+  waits: Map<string, string>
+  observedWait?: string
 }
 
 type ReviewEnd = 'merge-timeout' | 'red-check' | 'pr-closed' | 'policy-denied' | 'time-limit'
@@ -1027,22 +1072,50 @@ function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review
   return late === undefined ? undefined : endReviews(deps, dir, chain, reviews, 'merge-timeout', late)
 }
 
+function writeWaits(deps: ShiftDeps, dir: string, chain: Chain, left: readonly LeftCard[]): DependencyWait[] {
+  const waits = dependencyWaits(left, readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)))
+  for (const wait of waits) {
+    const reason = waitingLine(wait)
+    if (chain.waits.get(wait.id) !== reason) {
+      chain.waits.set(wait.id, reason)
+      chainLine(deps, dir, { step: 'blocked', task: wait.id, reason })
+    }
+  }
+  return waits
+}
+
+function observeWait(deps: ShiftDeps, dir: string, parking: string, chain: Chain, wait: DependencyWait): void {
+  const key = `${wait.id} ${waitingLine(wait)}`
+  if (chain.observedWait === key)
+    return
+  chain.observedWait = key
+  deps.observeChain?.({ dir, parking, cardId: Number(wait.id), state: WAITING, boundary: true, waitingOn: wait.on.map(Number) })
+}
+
 async function advance(deps: ShiftDeps, dir: string, parking: string, chain: Chain, reviews: Review[], taken: ReadonlySet<string>, shard: string | undefined, ending: ChainEnd | undefined): Promise<ShiftTask | ChainEnd> {
+  const stopsTaking = ending ?? (taken.size >= chain.cards ? 'card-budget' : undefined)
   for (;;) {
+    if (stopsTaking === undefined)
+      writeWaits(deps, dir, chain, readParking(deps, parking).choice.left)
     const ended = pollReviews(deps, dir, chain, reviews, shard)
     if (ended !== undefined)
       return ended
     if (deps.now().getTime() - chain.started >= chain.limitMs)
       return endReviews(deps, dir, chain, reviews, 'time-limit')
-    const stopsTaking = ending ?? (taken.size >= chain.cards ? 'card-budget' : undefined)
+    let waitsOnWork = false
     if (stopsTaking === undefined) {
-      const { next } = nextInPipeline(readParking(deps, parking).choice.chosen, taken, reviews)
+      const { chosen, left } = readParking(deps, parking).choice
+      const { next } = nextInPipeline(chosen, taken, reviews)
       if (next !== undefined) {
         chainLine(deps, dir, { step: 'next', task: next.id, after: [...taken].at(-1) })
         return next
       }
+      const waiting = reviews.length === 0 ? writeWaits(deps, dir, chain, left).find(wait => wait.inWork) : undefined
+      if (waiting !== undefined)
+        observeWait(deps, dir, parking, chain, waiting)
+      waitsOnWork = waiting !== undefined
     }
-    if (reviews.length === 0)
+    if (reviews.length === 0 && !waitsOnWork)
       return stopsTaking ?? 'no-eligible'
     await deps.sleep!(CHAIN_POLL_MS)
   }
@@ -1144,6 +1217,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   const parked = read.choice === undefined ? {} : { parking, left: read.choice.left }
   if (shard !== undefined) {
     deps.append(ghostJournal, usedLine(shard, dir, deps.now()))
+    deps.recordBus?.(usedEvent(shard, dir, deps.now()))
     deps.out(`${PREFIX}shard ${shard} used by this run: an owner pull request the guards and the checks pass goes to the bus`)
   }
   if (read.choice !== undefined) {
@@ -1155,7 +1229,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   deps.append(journal, autopilotLine(deps, dir, manual))
   let clean = true
   const [waitMinutes = CHAIN_WAIT_MINUTES, limitMinutes = CHAIN_LIMIT_MINUTES, cards = CHAIN_CARDS] = chainNumbers
-  const chain = chained ? { waitMs: waitMinutes * MINUTE_MS, limitMs: limitMinutes * MINUTE_MS, cards, started: deps.now().getTime() } : undefined
+  const chain = chained ? { waitMs: waitMinutes * MINUTE_MS, limitMs: limitMinutes * MINUTE_MS, cards, started: deps.now().getTime(), waits: new Map<string, string>() } : undefined
   const releaseHangup = chain === undefined ? undefined : deps.holdHangup?.()
   const sessionDeps: ShiftDeps = chain === undefined ? deps : { ...deps, run: run => deps.run({ ...run, detached: true }) }
   const pending = chain === undefined ? [...tasks] : tasks.slice(0, 1)
@@ -1286,6 +1360,7 @@ function realDeps(): ShiftDeps {
     sweep: card => runSweep(['--apply', '--card', card], realSweepDeps()),
     observeChain: realChainObserver(process.cwd(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     busMerge: chainBusMerge(defaultBusPath(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
+    recordBus: recordInBus,
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),

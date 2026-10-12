@@ -44,15 +44,15 @@ STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal e
 
 Mikoshi, the interactive window the owner opens, runs under `pnpm miko`: a loop in the owner's own terminal (any terminal,
 the one built into VS Code included) that starts `claude` (`$MIKO_CLAUDE`, default `claude --permission-mode auto`). At
-the limit Mikoshi writes `~/.construct/handoff/mikoshi.md` through `pnpm handoff:write`, under the same contract as the
+the limit Mikoshi writes its own handoff, `~/.construct/handoff/miko.md`, through `pnpm handoff:write`, under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. `pnpm miko:exit`
+process: at the Eddies warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (`pnpm relaunch` sets it to the handoff it watches; unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. Each role has its own file: `miko.md` is the window's and is never the one `pnpm relaunch` watches for the Operator, so the window never writes the Operator's handoff. `pnpm miko:exit`
 (`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors only when a `scripts/miko/loop.ts` process stands
-above that claude and `mikoshi.md` was written in the last two minutes (`FRESH_MS`); otherwise it refuses with the reason
-(the file's age, when that is the reason) and ends nothing. When the mtime of `mikoshi.md` changed during the session, the loop at once
-starts a new session with the prompt `прочитай mikoshi.md`, whatever the exit code, which it never reads. A session that
-ended without writing `mikoshi.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
-`pnpm miko` starts gets the prompt `прочитай mikoshi.md` when `mikoshi.md` exists, and no prompt when it does not.
+above that claude and `miko.md` was written in the last two minutes (`FRESH_MS`); otherwise it refuses with the reason
+(the file's age, when that is the reason) and ends nothing. When the mtime of `miko.md` changed during the session, the loop at once
+starts a new session with the prompt `прочитай miko.md`, whatever the exit code, which it never reads. A session that
+ended without writing `miko.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
+`pnpm miko` starts gets the prompt `прочитай miko.md` when `miko.md` exists, and no prompt when it does not.
 
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
 `pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
@@ -367,6 +367,15 @@ and the harness command exit 0, the sketch's test files pass `eslint` without `-
 touches an attach carrier passes `earlier-carriers --check`. A brief with ready witness files beside it
 (`<brief>.witnesses/`) has them linted the same way. The first failure is named on stderr and no hash is
 printed; the base sha and the time of each phase are printed on stderr either way.
+
+`ghosts:hash` pins the base before the preflight starts, so `git fetch` runs before the P1 refusal of
+an unread Invariant and the pin is not among the phase timings. A green preflight is remembered in the
+handoff journal as `{"event":"preflight","sha256","base","witnesses","ok":true}`: `sha256` is the
+approval sha256 of the `/implement` text, `base` the pinned sha, and `witnesses` a sha256 over the
+paths and contents of `<brief>.witnesses/`, or `none` when there is none. A later `ghosts:hash` whose
+three values match an `ok:true` line runs no witness and prints only the base, with `not run again`, on
+stderr before the hash; any other text, base or witness file runs the whole preflight. A refused
+preflight writes no line.
 
 Window state lives in `status.md`, outside the repository, one row per window; each window edits only
 its own row, with a one-line replacement. A tree is free only when its window writes `free`: a ledger

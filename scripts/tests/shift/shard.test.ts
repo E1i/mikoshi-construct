@@ -1,8 +1,13 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from '../../bus/db.js'
+import type { ShardDeps } from '../../shift/shard.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runShard } from '../../shift/shard.js'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { SHARD_ISSUED, SHARD_USED } from '../../bus/shards.js'
+import { runShard, USAGE } from '../../shift/shard.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 
@@ -39,10 +44,17 @@ function ownerGh(pr: Pr = {}): { gh: (args: string[]) => string, calls: string[]
   return { gh, calls }
 }
 
+function shardDeps(world: World, io: ReturnType<typeof captured>, record: ShardDeps['record'] = () => {}): ShardDeps {
+  return { cwd: world.repo, handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), record, inForce: () => false, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
+}
+
 function issue(world: World): string {
-  const io = captured()
-  expect(runShard([world.shift, '--by', 'Eli'], { cwd: world.repo, handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) })).toBe(0)
+  expect(runShard([world.shift, '--by', 'Eli'], shardDeps(world, captured()))).toBe(0)
   return SHARD
+}
+
+function busEvents(db: DatabaseSync): Record<string, unknown>[] {
+  return db.prepare('SELECT type, actor, card_id, pr, payload FROM events ORDER BY id').all().map(row => ({ ...row, payload: JSON.parse(String(row.payload)) as unknown }))
 }
 
 function merges(calls: string[][]): string[][] {
@@ -60,6 +72,58 @@ describe('a shard delegates one owner merge to one shift run', () => {
     const world = initWorld('do 1')
     issue(world)
     expect(eventsOf(world, 'shard')).toEqual([{ event: 'shard', id: SHARD, by: 'Eli', ts: '2026-10-08T09:00:00.000Z', run: world.shift }])
+  })
+
+  it('pnpm shard writes shard.issued to the bus, for a run or for the card and pull request it names', () => {
+    const world = initWorld('do 1')
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    const io = captured()
+    const deps = shardDeps(world, io, event => appendEvent(db, event))
+    expect(runShard([world.shift, '--by', 'Eli'], deps)).toBe(0)
+    expect(runShard(['--card', '726', '--pr', '626', '--by', 'Eli'], { ...deps, uuid: () => `${SHARD}-card` })).toBe(0)
+    expect(busEvents(db)).toEqual([
+      { type: SHARD_ISSUED, actor: 'owner', card_id: null, pr: null, payload: { id: SHARD, by: 'Eli', run: world.shift } },
+      { type: SHARD_ISSUED, actor: 'owner', card_id: 726, pr: 626, payload: { id: `${SHARD}-card`, by: 'Eli', run: null } },
+    ])
+    expect(eventsOf(world, 'shard').at(-1)).toEqual({ event: 'shard', id: `${SHARD}-card`, by: 'Eli', ts: '2026-10-08T09:00:00.000Z', card: 726, pr: 626 })
+    expect(io.out.at(-1)).toContain('card #726 and PR #626')
+    db.close()
+  })
+
+  it('pnpm shard names exactly one of a run or a card and pull request, and writes nothing otherwise', () => {
+    const world = initWorld('do 1')
+    const io = captured()
+    const recorded: unknown[] = []
+    const deps = shardDeps(world, io, event => recorded.push(event))
+    for (const argv of [[], [world.shift, '--card', '726'], ['--card', 'x'], ['--pr', '0'], ['--card'], ['--card', '726', '--by']])
+      expect(runShard(argv, deps)).toBe(1)
+    expect(recorded).toEqual([])
+    expect(eventsOf(world, 'shard')).toEqual([])
+    expect(io.err.every(line => line.includes(USAGE))).toBe(true)
+  })
+
+  it('pnpm shard --under D-N issues a card or pull request shard only while D-N is in force, and names the decision when it refuses', () => {
+    const world = initWorld('do 1')
+    const io = captured()
+    const recorded: BusEvent[] = []
+    const deps = { ...shardDeps(world, io, event => recorded.push(event)), inForce: (decisionId: number) => decisionId === 82 }
+    expect(runShard(['--pr', '626', '--under', 'D-82', '--by', 'Eli'], deps)).toBe(0)
+    expect(recorded).toMatchObject([{ type: SHARD_ISSUED, pr: 626, payload: { id: SHARD, by: 'Eli', run: null, under: 82 } }])
+    expect(runShard(['--pr', '626', '--under', 'D-80', '--by', 'Eli'], deps)).toBe(1)
+    expect(io.err.at(-1)).toContain('D-80 is not in force')
+    for (const argv of [[world.shift, '--under', 'D-82'], ['--pr', '626', '--under', '82'], ['--pr', '626', '--under']])
+      expect(runShard(argv, deps)).toBe(1)
+    expect(recorded).toHaveLength(1)
+  })
+
+  it('pnpm shift --slot writes shard.used to the bus with no bus refusal', async () => {
+    const world = initWorld('do 1 STUB-VERIFIED-run STUB-PR-101')
+    const shard = issue(world)
+    const { gh } = ownerGh()
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    await runShift([world.shift, '--parking', world.parking, '--slot', shard], { ...depsOf(world, gh, captured()), recordBus: event => appendEvent(db, event) })
+    expect(busEvents(db)).toEqual([{ type: SHARD_USED, actor: `worker:shift:${path.basename(world.shift)}`, card_id: null, pr: null, payload: { id: shard, run: world.shift } }])
+    db.close()
   })
 
   it('without a shard an owner PR stops at the owner', async () => {

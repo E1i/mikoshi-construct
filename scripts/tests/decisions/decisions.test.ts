@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { planAdd } from '../../decisions/add.js'
 import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions, spendDecisions } from '../../decisions/decisions.js'
 import { runDecisionsRead } from '../../decisions/read.js'
 
@@ -9,23 +10,26 @@ function file(...lines: string[]): string {
 }
 
 const JOURNAL = '/h/ghosts.jsonl'
+const ARCHIVE = '/d/owner-decisions.archive.md'
 
-function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null): { code: number, out: string[], err: string[], written: Record<string, string> } {
+function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null, archive: string | null = null): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
   const out: string[] = []
   const err: string[] = []
+  const findings: string[] = []
   const written: Record<string, string> = {}
   const code = runDecisionsRead(args, {
     home: '/home/x',
     journal: JOURNAL,
-    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null),
-    read: candidate => candidate === JOURNAL ? journal! : text,
+    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null) || (candidate === ARCHIVE && archive !== null),
+    read: candidate => candidate === JOURNAL ? journal! : candidate === ARCHIVE ? archive! : text,
     write: (candidate, content) => {
       written[candidate] = content
     },
     out: line => out.push(line),
     err: line => err.push(line),
+    finding: line => findings.push(line),
   })
-  return { code, out, err, written }
+  return { code, out, err, findings, written }
 }
 
 function journal(...entries: object[]): string {
@@ -61,8 +65,39 @@ describe('owner decisions are a numbered record', () => {
     )
     expect(inForce(parseDecisions(text).decisions).map(decision => decision.number)).toEqual([2, 3])
     const result = read(text)
-    expect(result).toEqual({ code: 0, written: {}, out: ['- D-2 · 2026-10-08 — #686 stays whole.', '- D-3 · 2026-10-08 — #705 runs first, before #697.'], err: [] })
+    expect(result).toEqual({ code: 0, written: {}, out: ['- D-2 · 2026-10-08 — #686 stays whole.', '- D-3 · 2026-10-08 — #705 runs first, before #697.'], err: [], findings: [
+      expect.stringContaining('D-2 on line 6: names #686'),
+      expect.stringContaining('D-3 on line 7: names #705'),
+    ] })
     expect(result.out.join('\n')).not.toContain('after #697')
+  })
+
+  it('any decision D-N is in force when it has no superseded-by and its until has not passed', () => {
+    const { decisions } = parseDecisions(file(
+      '- D-1 · 2026-10-08 — #686 stays whole.',
+      '- D-2 · 2026-10-08 — The delegation holds. until 2026-10-12T04:30Z',
+      '- D-3 · 2026-10-08 — An older delegation. until 2026-10-10T00:00Z',
+      '- D-4 · 2026-10-08 — A replaced delegation. until 2026-10-12T04:30Z · superseded-by D-5',
+      '- D-5 · 2026-10-08 — The replacement.',
+    ))
+    const numbers = (now: Date): number[] => inForce(decisions, now).map(decision => decision.number)
+    expect(numbers(new Date('2026-10-11T12:00:00.000Z'))).toEqual([1, 2, 5])
+    expect(numbers(new Date('2026-10-12T04:30:00.000Z'))).toEqual([1, 5])
+  })
+
+  it('an until that is not the until tail is refused with its line and is never in force', () => {
+    const text = file(
+      '- D-1 · 2026-10-08 — Delegated until 2026-10-12T04:30Z.',
+      '- D-2 · 2026-10-08 — Delegated (until 2026-10-12T04:30Z).',
+      '- D-3 · 2026-10-08 — Delegated until 2026-10-12 11:30, then Eli.',
+      '- D-4 · 2026-10-08 — Delegated. · until 2026-02-30T00:00Z',
+      '- D-5 · 2026-10-08 — Delegated. · until 2026-10-12T04:30Z',
+      '- D-6 · 2026-10-08 — Delegated, the term at the end. until 2026-10-12T04:30Z · decisions:add',
+      '- D-7 · 2026-10-08 — Merged until reviewed; the freeze held only until 0.43. · decisions:add',
+    )
+    expect(inForce(parseDecisions(text).decisions, new Date('2026-10-11T12:00:00.000Z')).map(decision => decision.number)).toEqual([5, 6, 7])
+    expect(decisionsRefusals(text)).toEqual([1, 2, 3, 4].map(number => expect.stringContaining(`D-${number} on line ${number + 4}: an until that does not read as · until`) as unknown))
+    expect(read(text).code).toBe(1)
   })
 
   it('reads the home decisions file when none is named', () => {
@@ -156,6 +191,105 @@ describe('owner decisions are a numbered record', () => {
     expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two.'), archive)).toEqual(['[decisions] D-1: on line 5 and in the archive; a number names one decision'])
   })
 
+  it('a new decision carrying supersedes D-M takes the old decision out of force', () => {
+    const text = file(
+      '- D-1 · 2026-10-08 — The night order holds. · decisions:add',
+      '- D-2 · 2026-10-08 — An unrelated decision. · decisions:add',
+      '- D-3 · 2026-10-11 — D-1 closed; the day order holds. · supersedes D-1 · decisions:add',
+    )
+    expect(decisionsRefusals(text)).toEqual([])
+    expect(parseDecisions(text).decisions.map(decision => decision.supersedes)).toEqual([[], [], [1]])
+    expect(inForce(parseDecisions(text).decisions).map(decision => decision.number)).toEqual([2, 3])
+    expect(read(text)).toEqual({ code: 0, written: { '/d/owner-decisions.md': text.replace('night order holds. · decisions:add', 'night order holds. · decisions:add · superseded-by D-3') }, err: [], findings: [], out: [
+      '- D-2 · 2026-10-08 — An unrelated decision. · decisions:add',
+      '- D-3 · 2026-10-11 — D-1 closed; the day order holds. · supersedes D-1 · decisions:add',
+    ] })
+
+    const two = file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two.', '- D-3 · 2026-10-08 — three. · supersedes D-1 D-2 · card #9 · superseded-by D-4', '- D-4 · 2026-10-08 — four.')
+    expect(decisionsRefusals(two)).toEqual([])
+    expect(inForce(parseDecisions(two).decisions).map(decision => decision.number)).toEqual([4])
+  })
+
+  it('keeps a decision retired by supersedes out of force after the line that retired it goes to the archive', () => {
+    const now = new Date('2026-10-11T12:00:00Z')
+    const before = file(
+      '- D-1 · 2026-10-08 — The night order holds. · decisions:add',
+      '- D-2 · 2026-10-09 — [owner] D-1 closed. · supersedes D-1 · card #7 · decisions:add',
+      '- D-3 · 2026-10-09 — [owner] Another. · decisions:add',
+    )
+    const replace = { file: null, supersedes: [2], cards: [], until: null, text: '[owner] D-2 replaced.' }
+
+    const unread = planAdd(before, '', replace, now) as { file: string, archive: string, archived: number[] }
+    expect(unread.archived).toEqual([2])
+    const settled = read(unread.file, undefined, null, unread.archive)
+    expect(settled.code).toBe(0)
+    expect(settled.out.map(line => line.slice(0, 5))).toEqual(['- D-3', '- D-4'])
+    expect(settled.written['/d/owner-decisions.md']).toContain('night order holds. · decisions:add · superseded-by D-2')
+
+    const marked = read(before).written['/d/owner-decisions.md']!
+    const afterRead = planAdd(marked, '', replace, now) as { file: string, archive: string, archived: number[] }
+    expect(afterRead.archived).toEqual([1, 2])
+    expect(inForce(parseDecisions(afterRead.file).decisions).map(decision => decision.number)).toEqual([3, 4])
+    expect(decisionsRefusals(afterRead.file, afterRead.archive)).toEqual([])
+  })
+
+  it('counts no decision another one supersedes toward the size limit', () => {
+    const long = (number: number, tail = ''): string => `- D-${number} · 2026-10-08 — ${`decision ${number} `.repeat(300)}${tail}`
+    expect(decisionsRefusals(file(long(1), long(2), long(3)))).toHaveLength(1)
+    expect(decisionsRefusals(file(long(1), long(2), long(3, ' · supersedes D-1')))).toEqual([])
+  })
+
+  it('refuses a supersedes that names itself, a later decision or none in the file', () => {
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one. · supersedes D-1'))).toEqual(['[decisions] D-1: supersedes itself'])
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one. · supersedes D-2', '- D-2 · 2026-10-08 — two.'))).toEqual(['[decisions] D-1: supersedes D-2, a later number; a decision retires only an earlier one'])
+    expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two. · supersedes D-1'), file('- D-1 · 2026-10-08 — one.'))).toEqual([])
+    expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two. · supersedes D-1'))).toContain('[decisions] D-2: supersedes D-1, which is not in the file')
+  })
+
+  it('decisions:add writes a record ending in supersedes D-M as a line that takes the old decision out of force', () => {
+    const before = file('- D-1 · 2026-10-08 — The night order holds. · decisions:add', '- D-2 · 2026-10-08 — Another. · decisions:add')
+    const plan = planAdd(before, '', { file: null, supersedes: [], cards: [7], until: null, text: '[owner] D-1 closed. · supersedes D-1' }, new Date('2026-10-11T12:00:00Z'))
+    expect(plan).toMatchObject({ line: '- D-3 · 2026-10-11 ~12:00Z — [owner] D-1 closed. · supersedes D-1 · card #7 · decisions:add' })
+    const written = (plan as { file: string }).file
+    expect(decisionsRefusals(written)).toEqual([])
+    expect(inForce(parseDecisions(written).decisions).map(decision => decision.number)).toEqual([2, 3])
+  })
+
+  it('refuses a supersedes tail out of place as a line off the format, so the old decision cannot silently stay in force', () => {
+    const offFormat = `every decision is ${DECISION_FORMAT}`
+    for (const line of [
+      '- D-2 · 2026-10-08 — two. · decisions:add · supersedes D-1',
+      '- D-2 · 2026-10-08 — two. · card #5 · supersedes D-1',
+      '- D-2 · 2026-10-08 — two, supersedes D-1 later.',
+      '- D-2 · 2026-10-08 — two. · Supersedes D-1',
+    ]) {
+      const text = file('- D-1 · 2026-10-08 — one.', line)
+      expect(decisionsRefusals(text), line).toEqual([`[decisions] line 6: a decision off the format; ${offFormat}`])
+      expect(read(text).out, line).toEqual([])
+    }
+  })
+
+  it('a pull request named as PR #N is no card mention', () => {
+    const result = read(file('- D-1 · 2026-10-08 — PR #774 merges first. · decisions:add', '- D-2 · 2026-10-08 — PR #775 waits for #846. · decisions:add'))
+    expect(result.code).toBe(0)
+    expect(result.findings).toEqual([expect.stringContaining('D-2 on line 6: names #846')])
+  })
+
+  it('a decision whose text names a card without a card field is a finding', () => {
+    const text = file(
+      '- D-1 · 2026-10-08 — #613 goes to parking. · decisions:add · superseded-by D-3',
+      '- D-2 · 2026-10-08 — The order stays; #853 runs next. · decisions:add',
+      '- D-3 · 2026-10-08 — #613 is parked. · card #613 · decisions:add',
+      '- D-4 · 2026-10-08 — No card here. · decisions:add',
+    )
+    expect(decisionsRefusals(text)).toEqual([])
+    const result = read(text)
+    expect(result.code).toBe(0)
+    expect(result.out).toHaveLength(3)
+    expect(result.err).toEqual([])
+    expect(result.findings).toEqual(['[decisions] D-2 on line 6: names #853 in its text without · card #N; a decision bound to a card carries the card tail, so it is spent when the card closes'])
+  })
+
   it('refuses a missing file and a flag', () => {
     expect(read('', ['/nowhere.md']).err).toEqual(['[decisions] no decisions at /nowhere.md'])
     expect(read('', ['--all']).code).toBe(2)
@@ -164,7 +298,7 @@ describe('owner decisions are a numbered record', () => {
 
 describe('a decision bound to a card is spent once the card is merged or closed', () => {
   it('names the card tail in the format, before superseded-by', () => {
-    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· card #A #B] [· decisions:add] [· superseded-by D-M]')
+    expect(DECISION_FORMAT).toBe('- D-N · <date> — <decision> [· supersedes D-K D-L] [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· decisions:add] [· superseded-by D-M]')
     const text = file('- D-1 · 2026-10-08 — one. · card #686 #687', '- D-2 · 2026-10-08 — two. · card #5 · superseded-by D-3', '- D-3 · 2026-10-08 — three.')
     expect(decisionsRefusals(text)).toEqual([])
     expect(parseDecisions(text).decisions.map(decision => [decision.body, decision.cards, decision.supersededBy])).toEqual([['one.', [686, 687], null], ['two.', [5], 3], ['three.', [], null]])

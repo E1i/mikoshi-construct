@@ -66,12 +66,14 @@ function newWorld(): World {
   return { root, repo, handoff: path.join(root, 'handoff'), shift, stubOut }
 }
 
+const CHEAP_PATH = 'Path (D-76): cheap, a fixture card the stub closes in one run'
+
 function cardOf(id: string, kind: 'implement' | 'probe' = 'implement'): string {
   return `#${id} task-${id} [${kind}/runner/S/cheap/${kind === 'probe' ? 'none' : 'auto'}] · depends — · blocks —`
 }
 
 function taskFile(world: World, file: string, id: string, touches: string, body: string, kind: 'implement' | 'probe' = 'implement', extraHeader = ''): void {
-  writeFileSync(path.join(world.shift, file), `card: ${cardOf(id, kind)}\nbranch: feat/${id}\ntouches: ${touches}\n${extraHeader}\n${body}\n`)
+  writeFileSync(path.join(world.shift, file), `card: ${cardOf(id, kind)}\nbranch: feat/${id}\ntouches: ${touches}\n${extraHeader}\n${body}\n${kind === 'implement' ? `${CHEAP_PATH}\n` : ''}`)
 }
 
 function continuingTask(world: World, file: string, id: string, body: string, mode: 'auto' | 'stop' = 'auto'): void {
@@ -225,7 +227,7 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     expect(prompt).toContain('declares: `scripts/a/**`, `docs/a.md`.')
     expect(prompt).toContain('Run no background command, no monitor and no wait for a notification')
     expect(prompt).not.toContain('{{')
-    expect(prompt.endsWith('---\n\ndo a')).toBe(true)
+    expect(prompt.endsWith(`---\n\ndo a\n${CHEAP_PATH}`)).toBe(true)
   })
 })
 
@@ -338,7 +340,7 @@ describe('w5: touches that meet an open pull request warn, and the shift starts'
 
 function parkedCard(dir: string, id: string, header: string, touches = `scripts/${id}/**`): void {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n`)
+  writeFileSync(path.join(dir, `${id}.md`), `card: ${cardOf(id)}\nbranch: feat/${id}\ntouches: ${touches}\n${header}\n\ndo ${id}\n${CHEAP_PATH}\n`)
 }
 
 describe('the shift prints a forecast table before it starts', () => {
@@ -445,7 +447,7 @@ describe('w9: with --parking the shift takes the cards whose who is shift', () =
     for (let index = 0; index < 10; index++)
       parkedCard(parking, String(200 + index), 'who: window')
     for (let index = 0; index < 5; index++)
-      writeFileSync(path.join(parking, `${300 + index}.md`), `card: #${300 + index} task-${300 + index} [implement/runner/S/cheap/auto] · depends #999 · blocks —\nbranch: feat/${300 + index}\ntouches: scripts/${300 + index}/**\nwho: shift\n\ndo it\n`)
+      writeFileSync(path.join(parking, `${300 + index}.md`), `card: #${300 + index} task-${300 + index} [implement/runner/S/cheap/auto] · depends #999 · blocks —\nbranch: feat/${300 + index}\ntouches: scripts/${300 + index}/**\nwho: shift\n\ndo it\n${CHEAP_PATH}\n`)
     parkedCard(parking, '400', 'who: shift', 'scripts/1/**')
     parkedCard(parking, '401', 'who: shift', 'scripts/1/x.ts')
     mkdirSync(world.handoff, { recursive: true })
@@ -758,7 +760,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
   }
 
   function decisionTask(world: World, file: string, id: string, decision: 'auto' | 'owner', body: string): void {
-    writeFileSync(path.join(world.shift, file), `card: #${id} task-${id} [implement/runner/S/cheap/${decision}] · depends — · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n\n${body}\n`)
+    writeFileSync(path.join(world.shift, file), `card: #${id} task-${id} [implement/runner/S/cheap/${decision}] · depends — · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n\n${body}\n${CHEAP_PATH}\n`)
   }
 
   interface GhCall { args: string[], stubRuns: number, report: boolean }
@@ -986,9 +988,56 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     const gh = chainGh()
     const { code } = await chainRun(world, gh)
     expect(code).toBe(0)
-    expect(chainSteps(world)).toEqual(['wait 1', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
     expect(eventsOf(world, 'merge').map(line => line.task)).toEqual(['1', '2'])
     expect(readFileSync(path.join(world.stubOut, 'mc-2.cwd'), 'utf8').trim()).toBe(path.join(world.root, 'mc-2'))
+  })
+
+  it('a chain takes the next card only after the current card is merged, even when their touches do not overlap', async () => {
+    const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, { id: 3, body: 'do 3 STUB-VERIFIED-run STUB-PR-103' }])
+    const startedWhileOpen: boolean[] = []
+    const sleep = (): Promise<void> => {
+      startedWhileOpen.push(existsSync(path.join(world.root, 'mc-3')))
+      return Promise.resolve()
+    }
+    const { code } = await chainRun(world, chainGh({ owner: [101], ownerMergedAfterViews: 2 }), [], { sleep })
+    expect(code).toBe(0)
+    expect(startedWhileOpen.length).toBeGreaterThan(0)
+    expect(startedWhileOpen).not.toContain(true)
+    expect(chainSteps(world)).toEqual(['wait 1', 'merged 1', 'next 3', 'wait 3', 'merged 3', 'end no-eligible'])
+  })
+
+  it('of two cards where the second depends on the first, the second does not start before the first merges and writes waiting on #N instead of hanging without events', async () => {
+    const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
+    const startedWhileOpen: boolean[] = []
+    const sleep = (): Promise<void> => {
+      startedWhileOpen.push(existsSync(path.join(world.root, 'mc-2')))
+      return Promise.resolve()
+    }
+    await chainRun(world, chainGh({ owner: [101], ownerMergedAfterViews: 2 }), [], { sleep })
+    expect(startedWhileOpen.length).toBeGreaterThan(1)
+    expect(startedWhileOpen).not.toContain(true)
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
+  })
+
+  it('a card whose dependency is in work outside the chain keeps the chain waiting on #N, observed as waiting on the bus, until that dependency merges', async () => {
+    const world = newChainWorld([A_AND_B[0]!, { id: 2, depends: '#5', body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }])
+    writeFileSync(world.journal, `${JSON.stringify({ event: 'path', task: '5', path: 'cheap', started: '2026-10-06T00:10:00.000Z' })}\n`, { flag: 'a' })
+    const moments: unknown[] = []
+    const sleep = (): Promise<void> => {
+      writeFileSync(world.journal, `${JSON.stringify({ event: 'merge', task: '5', pr: 105, ts: '2026-10-06T00:40:00.000Z' })}\n`, { flag: 'a' })
+      return Promise.resolve()
+    }
+    await chainRun(world, chainGh(), [], { sleep, observeChain: moment => moments.push(moment) })
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #5', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
+    expect(moments).toContainEqual({ dir: world.shift, parking: world.parking, cardId: 2, state: 'waiting', boundary: true, waitingOn: [5] })
+  })
+
+  it('a card whose dependency is in work nowhere ends the chain with no-eligible after its waiting line', async () => {
+    const world = newChainWorld([A_AND_B[0]!, { id: 2, depends: '#5', body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }])
+    const { slept } = await chainRun(world, chainGh())
+    expect(slept).toEqual([])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #5', 'merged 1', 'end no-eligible'])
   })
 
   it('the chain goes on after the window closes', async () => {
@@ -1016,7 +1065,7 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     const { code } = await chainRun(world, gh, ['--chain-wait', '600'], { sleep, holdHangup: () => holdThroughHangup(proc as never) })
     expect(code).toBe(0)
     expect(events).toEqual(['hold', 'sleep', 'hangup', 'release'])
-    expect(chainSteps(world)).toEqual(['wait 1', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'merged 1', 'next 2', 'wait 2', 'merged 2', 'end no-eligible'])
   })
 
   it('the running observation follows the task\'s journal line', async () => {
@@ -1042,7 +1091,7 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
     const gh = chainGh({ owner: [101], checks: [{ name: 'required', status: 'COMPLETED', conclusion: 'FAILURE' }] })
     await chainRun(world, gh)
-    expect(chainSteps(world)).toEqual(['wait 1', 'end red-check'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'end red-check'])
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: expect.stringContaining('turned red') as unknown }])
     expect(gh.calls.filter(args => args[1] === 'merge')).toEqual([])
   })
@@ -1052,7 +1101,7 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     const gh = chainGh({ owner: [101] })
     const { slept } = await chainRun(world, gh, ['--chain-wait', '3'])
     expect(slept.length).toBeGreaterThan(0)
-    expect(chainSteps(world)).toEqual(['wait 1', 'end merge-timeout'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'end merge-timeout'])
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: expect.stringContaining('not merged within 3 minutes') as unknown }])
     expect(gh.calls.filter(args => args[1] === 'merge')).toEqual([])
   })
@@ -1068,7 +1117,7 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
   it('the time limit and the card budget end the chain with a report', async () => {
     const limited = newChainWorld(A_AND_B)
     await chainRun(limited, chainGh(), ['--chain-limit', '1'])
-    expect(chainSteps(limited)).toEqual(['wait 1', 'merged 1', 'end time-limit'])
+    expect(chainSteps(limited)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'merged 1', 'end time-limit'])
     const budgeted = newChainWorld(A_AND_B)
     await chainRun(budgeted, chainGh(), ['--chain-cards', '1'])
     expect(chainSteps(budgeted)).toEqual(['wait 1', 'merged 1', 'end card-budget'])
@@ -1132,14 +1181,14 @@ describe('a shift continues itself: --chain waits for the merge and takes the ne
     const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
     const { slept } = await chainRun(world, chainGh({ owner: [101], state: 'CLOSED' }))
     expect(slept).toEqual([])
-    expect(chainSteps(world)).toEqual(['wait 1', 'end pr-closed'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'end pr-closed'])
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', pr: 101, why: 'PR #101 was closed without a merge' }])
   })
 
   it('a merge timeout names the gh fault that kept the pull request unread', async () => {
     const world = newChainWorld([{ id: 1, kind: OWNER_KIND, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, ...A_AND_B.slice(1)])
     await chainRun(world, chainGh({ owner: [101], unreadable: 'gh: HTTP 502\nmore' }), ['--chain-wait', '3'])
-    expect(chainSteps(world)).toEqual(['wait 1', 'end merge-timeout'])
+    expect(chainSteps(world)).toEqual(['wait 1', 'blocked 2 waiting on #1', 'end merge-timeout'])
     expect(eventsOf(world, 'stop')).toMatchObject([{ task: '1', at: 'merge', why: 'PR #101 not merged within 3 minutes; gh could not read it: gh: HTTP 502' }])
   })
 

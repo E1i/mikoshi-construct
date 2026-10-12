@@ -3,7 +3,7 @@ import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
-import { RISK_LEVELS, riskOf } from '../../card/risk.js'
+import { CHANGESET_COMPANION, RISK_LEVELS, riskOf } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
 import { commandWord } from './command-word.js'
@@ -23,13 +23,17 @@ const OWNER_KINDS_HEADER = '| kind |'
 const OWNER_BY_RISK_HEADER = '| by risk |'
 const OWNER_DECISION = 'owner'
 const AUTO_DECISION = 'auto'
+const OWNER_RISK = 'R1'
 export const NO_OWNER_PATH = `no touch meets an owner path of ${OWNER_MERGES}`
 const UNDER_PREFIX = 'x'
+
+export const PACKAGE_MANIFEST = 'package.json'
+const SOURCE_OF_BUILT_ROOT: Readonly<Record<string, string>> = { dist: 'src' }
 
 export interface CompanionRow {
   kind: string
   keptBy: string
-  touched: (entry: string) => boolean
+  touched: (entry: string, published: readonly string[]) => boolean
   companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]
 }
 
@@ -53,7 +57,7 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
 export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
   { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
-  { kind: 'published code', keptBy: '.changeset/config.json', touched: entry => under(entry, 'src') || under(entry, 'templates'), companions: () => [`.changeset${PREFIX_SUFFIX}`] },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
@@ -76,6 +80,20 @@ export interface CheckFacts {
   merged: ReadonlySet<string>
   repository: RepositoryFacts
   ownerMerges?: OwnerPaths
+  published?: readonly string[]
+}
+
+export function publishedRootsOf(packageManifestText: string): string[] | undefined {
+  let files: unknown
+  try {
+    files = (JSON.parse(packageManifestText) as { files?: unknown } | null)?.files
+  }
+  catch {
+    return undefined
+  }
+  if (!Array.isArray(files))
+    return undefined
+  return files.filter((file): file is string => typeof file === 'string').map(file => file.replace(/^\.\//, '').replace(/\/+$/, ''))
 }
 
 export interface OwnerByRisk {
@@ -169,17 +187,27 @@ function contourCorrection(card: DraftCard): Correction[] {
   return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
 }
 
-function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+function ownerReason(touches: readonly string[], owner: OwnerPaths): string | undefined {
   const hold = ownerHold(touches, owner)
-  if (hold === undefined)
+  if (hold !== undefined)
+    return `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}`
+  const critical = touches.map(riskOf).find(reading => reading.level === OWNER_RISK)
+  return critical === undefined ? undefined : `${critical.touch} is risk ${OWNER_RISK}, ${critical.why}`
+}
+
+function derivedDecision(decision: string, touches: readonly string[], owner: OwnerPaths): Correction[] {
+  if (decision === OWNER_DECISION)
+    return []
+  const reason = ownerReason(touches, owner)
+  if (reason === undefined)
     return decision === AUTO_DECISION ? [] : [{ field: 'decision', was: decision, now: AUTO_DECISION, reason: NO_OWNER_PATH }]
-  return decision === OWNER_DECISION ? [] : [{ field: 'decision', was: decision, now: OWNER_DECISION, reason: `${hold.touch} meets ${hold.glob} of ${OWNER_MERGES}${hold.level === undefined ? '' : `, owner by risk ${hold.level}`}` }]
+  return [{ field: 'decision', was: decision, now: OWNER_DECISION, reason }]
 }
 
 function unstatedDecision(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): string | undefined {
   if (card.decision !== undefined || owner === undefined || !includes(KINDS, card.kind) || !includes(decisionsOf(card.kind as Kind), OWNER_DECISION))
     return undefined
-  return ownerHold(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
+  return ownerReason(touches, owner) === undefined ? AUTO_DECISION : OWNER_DECISION
 }
 
 function decisionCorrection(card: DraftCard, touches: readonly string[], owner: OwnerPaths | undefined): Correction[] {
@@ -191,10 +219,6 @@ function decisionCorrection(card: DraftCard, touches: readonly string[], owner: 
   if (includes(decisions, card.decision))
     return []
   return [{ field: 'decision', was: card.decision, now: decisions[0]!, reason: `kind ${card.kind} takes decision ${decisions.join(' or ')}, not ${card.decision}` }]
-}
-
-export function refusesOwnerDecision(corrections: readonly Correction[]): boolean {
-  return corrections.some(correction => correction.field === 'decision' && correction.was === OWNER_DECISION && correction.reason === NO_OWNER_PATH)
 }
 
 function candidatesText(candidates: readonly string[]): string {
@@ -246,12 +270,12 @@ function covers(touch: string, companion: string): boolean {
   return touch === companion || (touch.endsWith(PREFIX_SUFFIX) && under(companion, scopeOf(touch)))
 }
 
-function withCompanions(touched: Touched, repository: RepositoryFacts): Touched {
+function withCompanions(touched: Touched, repository: RepositoryFacts, published: readonly string[]): Touched {
   const missing: string[] = []
   for (const row of COMPANION_TABLE) {
     if (!repository.exists(row.keptBy))
       continue
-    for (const entry of touched.touches.filter(row.touched)) {
+    for (const entry of touched.touches.filter(touch => row.touched(touch, published))) {
       const touches = [...touched.touches, ...missing]
       for (const companion of row.companions(entry, touches, repository)) {
         if (repository.exists(scopeOf(companion)) && !touches.some(touch => covers(touch, companion)))
@@ -322,7 +346,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = withCompanions(touchesChecked(card, facts.repository), facts.repository)
+  const touched = withCompanions(touchesChecked(card, facts.repository), facts.repository, facts.published ?? [])
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)

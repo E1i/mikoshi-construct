@@ -1,8 +1,14 @@
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
-import { SHIFT_WHO } from '../../src/card/parking.js'
+import path from 'node:path'
+import { closedTasks, mergedTasks } from '../../src/card/closed.js'
+import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
+import { TASK_FILE } from '../../src/card/task-file.js'
 import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
+import { approvedSha256Of, briefPathOf, isLadder } from './ladder.js'
+import { GHOSTS_FILES_ON_MAIN, isListed } from './merge.js'
 import { taskConflicts } from './overlap.js'
+import { GHOST_JOURNAL } from './places.js'
 
 export interface LeftCard {
   id: string
@@ -105,6 +111,55 @@ export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>,
   return { chosen, left }
 }
 
+export interface ParkingReads {
+  cwd: string
+  handoffDir: string
+  listDir: (dir: string) => string[]
+  read: (file: string) => string
+  exists: (target: string) => boolean
+  git: (cwd: string, args: string[]) => string
+}
+
+export function taskFiles(reads: Pick<ParkingReads, 'listDir'>, dir: string): string[] {
+  return reads.listDir(dir).filter(file => TASK_FILE.test(file)).sort((a, b) => Number(TASK_FILE.exec(a)![1]) - Number(TASK_FILE.exec(b)![1]) || a.localeCompare(b))
+}
+
+function readIfThere(reads: ParkingReads, file: string): string | null {
+  return reads.exists(file) ? reads.read(file) : null
+}
+
+function approvedBrief(reads: ParkingReads, task: ShiftTask): boolean {
+  const facts = { journal: readIfThere(reads, path.join(reads.handoffDir, GHOST_JOURNAL)), brief: readIfThere(reads, briefPathOf(reads.handoffDir, task.card)) }
+  return approvedSha256Of(facts, task.card) !== null
+}
+
+function createdFile(reads: ParkingReads): Created {
+  return (file) => {
+    try {
+      const inTree = reads.git(reads.cwd, ['ls-tree', '--name-only', 'origin/main', '--', file]).trim() !== ''
+      return !inTree && !isListed(file, reads.git(reads.cwd, ['show', GHOSTS_FILES_ON_MAIN]))
+    }
+    catch {
+      return false
+    }
+  }
+}
+
+export function readParking(reads: ParkingReads, parking: string): { choice: Choice, errors: string[] } {
+  const parsed = taskFiles(reads, parking).map(file => parseParkingFile(file, reads.read(path.join(parking, file))))
+  const text = readIfThere(reads, path.join(reads.handoffDir, GHOST_JOURNAL))
+  const done = new Set(closedTasks(text).keys())
+  const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
+  const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
+  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(reads, ladder.get(stop.task)!)
+  const stops = latestStops(text)
+  const standing = standingStops(stops, reads.exists, released)
+  return {
+    choice: choose(cards, done, mergedTasks(text), standing, createdFile(reads), failedCards(stops, standing)),
+    errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
+  }
+}
+
 export interface InReview {
   task: ShiftTask
   pr: number
@@ -120,14 +175,47 @@ export function heldReason(review: InReview): string {
 }
 
 export function nextInPipeline(chosen: readonly ShiftTask[], taken: ReadonlySet<string>, inReview: readonly InReview[]): PipelineChoice {
-  const held: LeftCard[] = []
-  for (const card of chosen.filter(candidate => !taken.has(candidate.id))) {
-    const overlapping = inReview.find(review => taskConflicts([review.task, card]).length > 0)
-    if (overlapping === undefined)
-      return { next: card, held }
-    held.push({ id: card.id, reason: heldReason(overlapping) })
-  }
-  return { next: undefined, held }
+  const candidates = chosen.filter(candidate => !taken.has(candidate.id))
+  const inWork = inReview[0]
+  if (inWork === undefined)
+    return { next: candidates[0], held: [] }
+  return { next: undefined, held: candidates.map(card => ({ id: card.id, reason: heldReason(inWork) })) }
+}
+
+const DEPENDS_OPEN = /^depends (#\d+(?:, #\d+)*) not merged$/
+
+export interface DependencyWait {
+  id: string
+  on: string[]
+  inWork: boolean
+}
+
+function startedTasks(journal: string | null): Set<string> {
+  return new Set((journal ?? '').split('\n').flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, started?: unknown } | null
+      return entry?.event === 'path' && typeof entry.task === 'string' && typeof entry.started === 'string' ? [entry.task] : []
+    }
+    catch {
+      return []
+    }
+  }))
+}
+
+export function dependencyWaits(left: readonly LeftCard[], journal: string | null): DependencyWait[] {
+  const started = startedTasks(journal)
+  const merged = mergedTasks(journal)
+  return left.flatMap((card) => {
+    const open = DEPENDS_OPEN.exec(card.reason)
+    if (open === null)
+      return []
+    const on = open[1]!.split(', ').map(id => id.slice(1))
+    return [{ id: card.id, on, inWork: on.some(id => started.has(id) && !merged.has(id)) }]
+  })
+}
+
+export function waitingLine(wait: DependencyWait): string {
+  return `waiting on ${wait.on.map(id => `#${id}`).join(', ')}`
 }
 
 export const QUEUE_FILE = 'queue.txt'

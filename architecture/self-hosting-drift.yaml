@@ -64,8 +64,8 @@ differences:
   - path: CLAUDE.md
     kind: content
     reason: >-
-      An append-block target carrying this repository's own layout, template conventions and commands
-      around the construct block init wrote.
+      An append-block target carrying this repository's own commands and a pointer to its layout and
+      template conventions around the construct block init wrote.
   - path: package.json
     kind: content
     reason: >-

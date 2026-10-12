@@ -14,6 +14,7 @@ import { payloadOf, reject, Rejection, STORED_COLUMNS } from './stored.js'
 
 export const PREFIX = '[bus:reduce] '
 export const REJECTED = 'reducer.rejected'
+export const REDUCED = 'reducer.reduced'
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
@@ -30,6 +31,7 @@ interface PrRow {
   auto_merge: number | null
   draft: number | null
   event_id: number
+  body_sha: string | null
 }
 
 interface CardRow {
@@ -95,6 +97,9 @@ function prObserved(db: DatabaseSync, event: StoredEvent): void {
     reject('verdict_on_head is not a string')
   const autoMerge = boolean(payload, 'auto_merge')
   const draft = boolean(payload, 'draft')
+  const bodySha = payload.body_sha ?? null
+  if (bodySha !== null && typeof bodySha !== 'string')
+    reject('body_sha is not a string')
   const known = prRow(db, pr)
   if (known?.state === 'merged')
     reject(`pr ${pr} is merged`)
@@ -104,12 +109,12 @@ function prObserved(db: DatabaseSync, event: StoredEvent): void {
   if (cardId !== null)
     linkCard(db, cardId, pr, event.id)
   db.prepare(`
-    INSERT INTO prs (pr, card_id, base, head, state, mergeable, ci, verdict_on_head, auto_merge, draft, event_id)
-    VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)
+    INSERT INTO prs (pr, card_id, base, head, state, mergeable, ci, verdict_on_head, auto_merge, draft, event_id, body_sha)
+    VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (pr) DO UPDATE SET card_id = excluded.card_id, base = excluded.base, head = excluded.head,
       state = 'open', mergeable = excluded.mergeable, ci = excluded.ci, verdict_on_head = excluded.verdict_on_head,
-      auto_merge = excluded.auto_merge, draft = excluded.draft, event_id = excluded.event_id
-  `).run(pr, cardId, base, head, mergeable, ci, verdict, autoMerge ? 1 : 0, draft ? 1 : 0, event.id)
+      auto_merge = excluded.auto_merge, draft = excluded.draft, event_id = excluded.event_id, body_sha = excluded.body_sha
+  `).run(pr, cardId, base, head, mergeable, ci, verdict, autoMerge ? 1 : 0, draft ? 1 : 0, event.id, bodySha)
 }
 
 function prClosed(db: DatabaseSync, event: StoredEvent): void {
@@ -183,9 +188,15 @@ function applied(db: DatabaseSync, event: StoredEvent, apply: Fold): boolean {
   }
 }
 
+export function reducedThrough(db: DatabaseSync): number {
+  return Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
+}
+
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
     db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM decisions; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+    db.exec(`PRAGMA user_version = ${through}`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
     const count: ReduceCount = { applied: 0, rejected: 0 }
     for (const event of events) {

@@ -1774,7 +1774,18 @@ directory until it does. An arrow aggregates the found relations between two nod
 three `path:line` examples on hover, and its crossing — `inside` one contour, `through` the target
 contour's declared entry or contract, `bypass` past that entry, which is drawn as a finding, or
 `direct` into a contour that declares no entry. Every node carries the count of its files that are
-held, unknown and absent. Drag pans, the wheel zooms, a search by file name finds a file, and
+held, unknown and absent.
+
+Two layers sit beside the arrows of imports and calls, each drawn and listed apart from them. Entry
+points come from the repository's own declarations — the `scripts` of each `package.json`, the `run`
+lines of the steps in `.github/workflows/*.yml`, and the hook commands in `.claude/settings.json`: each
+declaring file is a node that unfolds into its scripts, steps or hooks, and each of those has a `runs`
+arrow to every tracked file its command names, so a module reached only from an entry point no longer
+reads as unused. File channels are candidates: a module that calls a `node:fs` write and names a
+file name is joined to a module that calls a `node:fs` read and names the same last path segment, as a
+`file` arrow whose hover gives the name and the `path:line` of both sides. The join is by name only —
+discovery does not trace which call receives the name — so a channel says the two modules may share a
+file, not that one writes what the other reads. A file's panel lists the entry points that run it and its candidate channels, on the write side and on the read side. Drag pans, the wheel zooms, a search by file name finds a file, and
 `atlas.html#<path>` opens the page on that file.
 
 Where the Engram and the page go depends on what the repository already is, and the command never

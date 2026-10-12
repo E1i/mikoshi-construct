@@ -3,14 +3,19 @@ import type { MergeEvent } from '../board/handoff.js'
 import type { CardFileStep } from './card-archive.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import process from 'node:process'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
+import { cardSessionOf } from './answer-source.js'
 import { archiveCardFile } from './card-archive.js'
+import { appendEvent } from './db.js'
 import { MERGE_DONE } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { CARD_CLOSED } from './queue.js'
+import { REVIEW_RECORDED } from './review-worker.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit'
 
@@ -32,7 +37,20 @@ export type CloseOutcome
     | { kind: 'denied', taskKey: string, denial: CloseDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
-export type ReportedVerification = (cardId: number) => string | null
+export type ReportedVerification = (cardId: number, pr: number | null) => string | null
+
+const REVIEWED_VERIFICATION = 'review'
+
+export const ARTIFACT_REMOVED = 'artifact.removed'
+
+export interface RemovedTree {
+  path: string
+  dirty: number
+}
+
+export interface CardTreeRemover {
+  remove: (worktree: string) => RemovedTree | null
+}
 
 export interface CloseParts {
   db: DatabaseSync
@@ -40,6 +58,38 @@ export interface CloseParts {
   clock: () => Date
   journal: string
   parking: string
+  trees?: CardTreeRemover
+}
+
+function git(repo: string, args: string[]): string {
+  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function canonical(dir: string): string {
+  return existsSync(dir) ? realpathSync(dir) : dir
+}
+
+function listedWorktrees(repo: string): string[] {
+  return git(repo, ['worktree', 'list', '--porcelain']).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length))
+}
+
+function dirtyCount(worktree: string): number {
+  return existsSync(worktree) ? git(worktree, ['status', '--porcelain']).split('\n').filter(line => line !== '').length : 0
+}
+
+export function gitTreeRemover(repo: string): CardTreeRemover {
+  return {
+    remove: (worktree) => {
+      const [, ...linked] = listedWorktrees(repo)
+      const listed = linked.find(entry => canonical(entry) === canonical(worktree))
+      if (listed === undefined)
+        return null
+      const dirty = dirtyCount(listed)
+      git(repo, ['worktree', 'remove', '--force', listed])
+      git(repo, ['worktree', 'prune'])
+      return { path: listed, dirty }
+    },
+  }
 }
 
 interface MergeRecord {
@@ -63,6 +113,12 @@ const OBSERVED_MERGER = `
   ORDER BY id LIMIT 1
 `
 
+const REVIEW_PASS_AT_HEAD = `
+  SELECT 1 FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.head') = ? AND json_extract(payload, '$.verdict') = 'pass'
+  LIMIT 1
+`
+
 class CardAlreadyClosed extends Error {}
 
 function technical(reason: CloseTechnicalReason, detail: string): CloseDenial {
@@ -78,7 +134,11 @@ function isVerificationWord(word: string | null): word is string {
 }
 
 export class CloseExecutor {
-  constructor(private readonly parts: CloseParts) {}
+  private readonly trees: CardTreeRemover
+
+  constructor(private readonly parts: CloseParts) {
+    this.trees = parts.trees ?? gitTreeRemover(process.cwd())
+  }
 
   private ts(): string {
     return this.parts.clock().toISOString()
@@ -89,9 +149,9 @@ export class CloseExecutor {
       assertHeld(this.parts.db, lease)
       if (cardClosed(this.parts.db, lease.cardId))
         return this.denied(lease, technical('card_closed', `card ${lease.cardId} is already closed`))
-      const verification = this.parts.reported(lease.cardId)
+      const verification = this.parts.reported(lease.cardId, lease.pr) ?? this.reviewedHead(lease)
       if (!isVerificationWord(verification))
-        return this.denied(lease, technical('no_verification', `the run of card ${lease.cardId} reported ${verification === null ? 'no verification' : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
+        return this.denied(lease, technical('no_verification', `card ${lease.cardId} has ${verification === null ? `no verification: no shift report, no task:close line for PR #${lease.pr} and no review pass at ${lease.head}` : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
       const commit = this.mergeCommit(lease)
       if (commit === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
@@ -104,6 +164,12 @@ export class CloseExecutor {
         return this.denied(lease, technical('card_closed', error.message))
       throw error
     }
+  }
+
+  private reviewedHead(lease: Lease): string | null {
+    if (lease.pr === null || lease.head === null)
+      return null
+    return this.parts.db.prepare(REVIEW_PASS_AT_HEAD).get(lease.pr, lease.head) === undefined ? null : REVIEWED_VERIFICATION
   }
 
   private mergeCommit(lease: Lease): string | null {
@@ -138,7 +204,24 @@ export class CloseExecutor {
       if (cardClosed(db, lease.cardId))
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
+    this.removeCardTree(lease)
     return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { mergeLine, cardFile } }
+  }
+
+  private removeCardTree(lease: Lease): void {
+    const session = cardSessionOf(this.parts.db, lease.cardId)
+    if (session === null)
+      return
+    let removed: RemovedTree | null
+    try {
+      removed = this.trees.remove(session.worktree)
+    }
+    catch {
+      return
+    }
+    if (removed === null)
+      return
+    appendEvent(this.parts.db, { ts: this.ts(), type: ARTIFACT_REMOVED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${ARTIFACT_REMOVED}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty }, legacy: false })
   }
 
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {

@@ -1,13 +1,15 @@
+import type { DiskReader } from '../bus/disk.js'
 import type { Shell } from './preflight-trees.js'
 import type { Timer } from './preflight-witnesses.js'
 import type { Sketch } from './sketch.js'
 import process from 'node:process'
+import { DISK_LOW, diskLowDetail, statfsReader } from '../bus/disk.js'
 import { generatorRefusal, ghostsFilesRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, unreadInvariantRefusal } from './preflight-static.js'
 import { gitIn, lastLine, realShell, withWorktree } from './preflight-trees.js'
 import { runOnTree } from './preflight-witnesses.js'
 
-export interface PreflightEnv { repo: string, shell: Shell, log: (line: string) => void, clock: () => number }
-export interface PreflightInput { briefPath: string, text: string, sketch: Sketch, buildStdout: string }
+export interface PreflightEnv { repo: string, shell: Shell, log: (line: string) => void, clock: () => number, disk?: DiskReader }
+export interface PreflightInput { briefPath: string, text: string, sketch: Sketch, buildStdout: string, base?: string }
 export type Preflight = (input: PreflightInput) => void
 
 interface BuiltArgs { witnesses: { criterion: string, command: string }[], invariants: string[], immutable: string[], design?: string, harness: { command: string } }
@@ -22,6 +24,11 @@ export class PreflightRefusal extends Error {
 function refuseOn(step: string, problem: string | null): void {
   if (problem !== null)
     throw new PreflightRefusal(step, problem)
+}
+
+function diskLowRefusal(env: PreflightEnv): string | null {
+  const detail = diskLowDetail(env.disk ?? statfsReader(env.repo))
+  return detail === null ? null : `${DISK_LOW}: ${detail}; no worktree is created`
 }
 
 function seconds(ms: number): string {
@@ -79,6 +86,14 @@ function repositoryAtCwd(): string {
   }
 }
 
+export function witnessesDirOf(briefPath: string): string {
+  return `${briefPath.replace(/\.md$/, '')}.witnesses`
+}
+
+export function pinnedBaseAtCwd(): string {
+  return pinnedBase(repositoryAtCwd())
+}
+
 function processEnv(): PreflightEnv {
   return { repo: repositoryAtCwd(), shell: realShell, log: line => console.error(line), clock: () => performance.now() }
 }
@@ -97,11 +112,12 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     }
   }
   try {
+    refuseOn('P0', diskLowRefusal(env))
     const built = builtArgsOf(input.buildStdout)
     const design = built.design ?? ''
     refuseOn('P1', unreadInvariantRefusal(built.invariants))
     const invariants = invariantWitnesses(built.invariants)
-    base = time('P0 base', () => pinnedBase(env.repo))
+    base = input.base ?? time('P0 base', () => pinnedBase(env.repo))
     const changed = time('P0 sketch', () => sketchChangedFiles(env.repo, base, input.sketch))
     const sketchSha = input.sketch.kind === 'branch' ? input.sketch.sha : null
     refuseOn('P2', movingRefRefusal([...built.witnesses, ...invariants]))
@@ -110,7 +126,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     refuseOn('P5', immutableRefusal(changed ?? [], built.immutable))
     withWorktree(env.repo, base, tree => runOnTree(
       { tree, base, shell: env.shell, log: env.log, refuse: refuseOn, time },
-      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: `${input.briefPath.replace(/\.md$/, '')}.witnesses` },
+      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: witnessesDirOf(input.briefPath) },
     ))
   }
   finally {

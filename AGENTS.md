@@ -36,7 +36,7 @@ turns every generated project red on the first `pnpm run quality`.
 ## Module map
 
 <!-- construct:discover:module-map -->
-The table in [CLAUDE.md § Layout](CLAUDE.md#layout) is the module map for the part of the tree it
+The table in [.claude/rules/templates.md](.claude/rules/templates.md) is the module map for the part of the tree it
 covers (`src/cli.ts`, `src/program.ts`, `src/detect`, `src/presets`, `src/materialize`, `src/manifest.ts`,
 `src/failure.ts`, `src/commands/doctor`, `src/ui`, `templates/*`, `tests`). It has not kept pace with
 the tree; these top-level modules exist and are not in it.
@@ -102,8 +102,9 @@ here. Before proposing an architecture, answer the questions and name the catego
 
 - *Composition roots.*
   <!-- construct:discover:composition-roots -->
-  `src/program.ts` wires the six citty commands — `init`, `sync`, `doctor`, `graph`, `cost`, `soulkill`
-  (aliases `inspect`, `capture`) — to `src/commands/*`, creates the `Ui` (theme, lore, writer) and the
+  `src/program.ts` wires the twelve commands and their aliases — `init`, `attach`/`jack-in`,
+  `detach`/`jack-out`, `soulkill`/`inspect`/`capture`, `doctor`, `sync`, `cost`, `board`, `graph`,
+  `atlas`, `intake`, `mutate` — to `src/commands/*` and `src/atlas`, creates the `Ui` (theme, lore, writer) and the
   clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
   picks `stderrWriter` over `stdoutWriter` so a `--json` run keeps stdout machine-readable.
 
@@ -134,16 +135,16 @@ here. Before proposing an architecture, answer the questions and name the catego
 - *Dependency policy.*
   <!-- construct:discover:dependency-policy -->
   Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
-  the declaration rather than a description of one: `detect` imports no other module (facts only);
-  `presets` imports `detect`; `record-ahead` imports nothing, and only the two readers of a versioned
-  record and the failure reader may import it; `model` imports `detect`, `presets` and `record-ahead`; `atlas` imports `detect`, `model` and `ui`;
-  `materialize` and `ui` import `presets`; `manifest` imports `detect`, `materialize`, `presets` and
-  `record-ahead`; `sync` imports `manifest`, `materialize` and `presets`; `failure` imports
-  `record-ahead` and `ui`; `commands` import everything but `cli`, `program` and `record-ahead`; `program` composes `atlas`, `commands`, `detect`, `presets`, `ui` and `version`; `cli` imports only
-  `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
+  the declaration: `detect` (facts only), `card`, `known-flags` and `record-ahead` import no other
+  module, and only the two readers of a versioned record and `failure` import `record-ahead`;
+  `presets` imports `detect`; `model` `detect`, `presets`, `record-ahead`; `atlas` `detect`, `model`,
+  `ui`; `materialize` and `ui` `presets`; `manifest` `detect`, `materialize`, `presets`,
+  `record-ahead`; `sync` `manifest`, `materialize`, `presets`; `failure` `record-ahead`, `ui`;
+  `commands` `card`, `detect`, `manifest`, `materialize`, `model`, `presets`, `sync`, `ui`, `version`;
+  `program` `atlas`, `commands`, `detect`, `failure`, `known-flags`, `presets`, `ui`, `version`; `cli`
+  only `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
   and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
-  inspected repository goes through one reader that reports a path it could not read instead of dropping
-  it from the set it inspected. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
+  inspected repository goes through one reader that reports a path it could not read. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
   forbids `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
   spawns only `pnpm --version` and two `git` reads and runs only the code it ships; it also forbids reading `manifest.files`
   directly, because that branch is the frozen `init` record and `recordedShas()` is what overlays the
@@ -247,76 +248,7 @@ Contract check: pnpm contract:bump
 
 ## Layout
 
-| Path | What it is |
-|------|------------|
-| `src/cli.ts` | Runs `main` from `src/program.ts` with citty's `runMain`; nothing else |
-| `src/program.ts` | The citty command definitions and their aliases (`jack-in`, `jack-out`, `inspect`, `capture`), exported as `main` without running it |
-| `src/detect/` | **Facts only** — package manager and installed pnpm version, layout, workspace packages, existing files. Never interprets the codebase |
-| `src/presets/` | Preset = template groups (plain or mounted: `{ group, into, onlyWhenEmpty }`) + variables. `available: false` hides a preset from `init` |
-| `src/materialize/` | `templates.ts` (walk, `_`→`.`, `.eta`→`{{var}}` + `{{#if}}` blocks), `plan.ts` (mount + layer groups → FileOp, canonical `package.json` key order), `strategies.ts` (create / merge-json / append-block, `preserveDiscovery`), `apply.ts` |
-| `src/manifest.ts` | `construct.json`: preset, harness command, contract paths, file hashes, `DISCOVERY_MARKERS` |
-| `src/failure.ts` | Turns a thrown error into one reading for the composition root: a `ManifestAheadOfReader` becomes the version-gap line, anything else its own message. Sits outside `src/ui/` because it needs both the error and the vocabulary, and the dependency policy keeps `src/ui` from importing the manifest |
-| `src/commands/doctor/` | `index.ts` is the composition root; `baseline.ts` / `discovery.ts` / `harness.ts` keep the three verdicts (baseline intact, each discovery marker filled or named as missing, harness intact), `readings.ts` (`FileReadings`) does every read of the inspected repository, the other modules turn what it read into readings, and `report.ts` prints the text and the `--json` — see [docs/cli.md](docs/cli.md) |
-| `src/ui/` | `theme.ts` (arasaka / johnny / plain, `NO_COLOR`), `lore.ts` (all user-facing strings), `console.ts` (`createUi(theme, writer)`), `prompts.ts` (`Prompter` + the `@clack/prompts` implementation; `init` without `--yes` asks only for what flags left open) |
-| `templates/base` | Stack-agnostic: `architecture/principles.md`, `checklists.md`, `security-invariants.md`, gitleaks, security workflow |
-| `templates/harness` | Composition engine, contracts check scripts, eslint/tsconfig/vitest, `ci.yml`, `pnpm-workspace.yaml`, `package.json.eta` partial |
-| `templates/stacks/<name>` | Sources shared by several presets, mounted at a path: `express-api/app` (the Express app, mounted at `.` or `apps/api`), `express-api/repo` (its composition model + pre-rendered doc), `http-contract` (OpenAPI, redocly, types script, security test, oasdiff workflow) |
-| `templates/presets/<id>` | Stack-specific config. `baseline/` is always written; `sample/` (and mounted stacks marked `onlyWhenEmpty`) only into an empty directory — an existing repository gets policy and tooling, never example code |
-| `templates/ai/shared`, `ai/claude`, `ai/cursor` | `AGENTS.md` and the rules (`shared/_claude/rules/*.md`, one source for both agents); `CLAUDE.md`, `.claude/` agents + skills + commands, `scripts/construct/implement.workflow` (the ladder script, with no `.mjs` so that a repository's `eslint .` does not parse its top-level `return`; it lives outside `.claude/` because Claude Code's permission classifier treats a Workflow script read from `.claude/` as self-modification, and the Workflow sandbox allows no `import()`, no filesystem and no bare `new Date()`) (claude); `.cursor/rules/construct.mdc` (cursor). `src/materialize/rules.ts` renders every `.claude/rules/*.md` in the plan to `.cursor/rules/*.mdc` for a Cursor target (`paths:` → `globs`, none → `alwaysApply: true`) and drops the `.claude` copy when the target is Cursor only. The discovery protocol `shared/_claude/commands/construct-discover.md` maps the same way to `.cursor/rules/construct-discover.mdc` (agent-requested, `$ARGUMENTS` rewritten). `ai/review` is the label-triggered `claude-review.yml`, added only with `--review claude` (`--review-model` fills `{{reviewModel}}`) |
-| `scripts/contract/` | `surface.ts` generates the observable command-line surface (decision 0030); `update.ts` (`pnpm contract:update`) is the only writer of `contract/surface.json` |
-| `contract/` | `surface.json`, the recorded surface; `tests/contract/` compares it with the generator and never writes it |
-| `tests/` | Vitest: detect, strategies, init end to end (no install). `silentWriter` keeps stdout clean |
-
-## Template conventions
-
-- A path segment starting with `_` becomes `.` (`_github/workflows` → `.github/workflows`), because npm
-  drops or rewrites real dotfiles in published packages.
-- A file ending in `.existing.eta` is the variant used when the target already exists in the
-  repository (append-block targets only: `AGENTS.md`, `CLAUDE.md`). It carries no H1, no prose about
-  the construct's own stack and no sections a mature repo already has — only the construct pointer and
-  the discovery markers with one-line lead-ins. The default `.eta` is for a file the construct creates.
-- All ten discovery markers live in `AGENTS.md` (cross-tool) and `architecture/`; `CLAUDE.md` is a
-  thin Claude Code entry that imports it with `@AGENTS.md`. Never put a marker in CLAUDE.md.
-- A file ending in `.eta` is rendered: `{{projectName}}`, `{{scope}}`, `{{nodeMajor}}`,
-  `{{contracts}}`, `{{contractPath}}`, `{{contractTypesOutput}}`, `{{harnessCommand}}`,
-  `{{packageManager}}`, `{{pnpmVersion}}`, `{{constructVersion}}` plus preset-specific ones (see
-  `TemplateVars` and each preset's `vars` in `src/presets/index.ts`), and `{{harnessCommandYamlScalar}}`,
-  which `planMaterialize` derives from `harnessCommand` at render time and never records. An unknown variable throws.
-  `{{#if var}}` … `{{/if}}` and `{{#unless var}}` … `{{/unless}}` on lines of their own keep or drop
-  the lines between them (`''` and `'false'` are falsy). Everything else is copied verbatim — prefer
-  verbatim; add a variable only when a file cannot work without it.
-- Groups layer in order (`base` → `harness` → `stacks/*` → `presets/<id>` → `ai/*`). A later group
-  replaces an earlier file with the same target, except `package.json`, which is JSON-merged with the
-  later group winning conflicts, top-level keys in the antfu `jsonc/sort-keys` order and dependency
-  sections sorted.
-- Against an existing repository: `package.json` merges (existing keys win, conflicts reported),
-  `CLAUDE.md` / `AGENTS.md` / `.gitignore` replace only their `construct:begin … construct:end` block
-  and carry over filled `construct:discover:*` blocks, every other existing file is skipped. Never add
-  a `--force`.
-- Generated artifacts ship pre-generated so the harness is green at first run: `src/contracts/openapi.ts`
-  from `openapi-typescript`, `architecture/<flow>.md` with the rendered composition block. After
-  editing a contract or composition template, regenerate them in a scratch project and copy back.
-- Templates are lint-clean under the generated project's own `eslint.config.mjs`; run `pnpm lint:fix`
-  in a scratch project and copy the result back rather than hand-formatting.
-- **Version ranges point at the previous release, not the latest.** Users run pnpm with
-  `minimumReleaseAge`; a range that only matches today's publish fails their first install.
-- **A version bump touches three places, in this order.** The harness manifest
-  `templates/harness/package.json.eta` (lint, TypeScript, Vitest, tsx, yaml), the manifests of the
-  stack or preset that owns the dependency (`templates/stacks/http-contract/package.json.eta`,
-  `templates/presets/node-backend/baseline/package.json.eta`, `templates/presets/node-frontend/baseline/package.json.eta`),
-  and the `catalog:` in `templates/presets/monorepo/baseline/pnpm-workspace.yaml`, which restates
-  every range the monorepo's manifests reference as `catalog:`. The catalog is the only duplicate;
-  grep the new range across `templates/` before reporting a bump done.
-- A rule is authored once as `.claude/rules/<name>.md` in whichever group owns it (`ai/shared` for
-  stack-agnostic rules, a preset's `baseline/` for stack rules such as `css.md`). Scope it with Claude's
-  `paths:` frontmatter; the Cursor `.mdc` is derived, never checked in.
-- **`no-restricted-syntax` blocks are cumulative, not additive.** In ESLint flat config the last
-  matching block replaces the rule's whole option array, so every `restrictSyntax(...)` block carries
-  the full set of restrictions for its file role, and roles go from broadest to most specific.
-  `scripts/tests/lint/syntax-policy.test.ts` in the backend and monorepo presets asserts the resolved set per role — extend
-  it when adding a restriction or a role.
-- Every user-facing string lives in `src/ui/lore.ts` with a `PLAIN_LORE` counterpart; `--plain` must
-  produce output with no lore and no emoji.
+The module table and the template conventions live in [.claude/rules/templates.md](.claude/rules/templates.md), which loads with a file under `templates/` or `src/materialize/`.
 
 ## Decisions
 

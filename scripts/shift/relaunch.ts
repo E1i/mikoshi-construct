@@ -13,7 +13,7 @@ import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { raisedByTheBus } from '../bus/role.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
-import { decisionsPath, defaultParking, handoffRefusals, parkedDepends } from '../ghosts/handoff-check.js'
+import { decisionsPath, defaultParking, handoffRefusals, parkedDepends, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { appendJournalEvent } from '../ghosts/journal.js'
 import { runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
@@ -22,6 +22,7 @@ import { GHOST_JOURNAL } from './places.js'
 import { realOperatorWork, realRoleStopObserver } from './role-bus.js'
 
 export const PREFIX = '[relaunch] '
+export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 export const USAGE = 'usage: pnpm relaunch <handoff.md> [--max N] [--model <id>] | pnpm relaunch --live | pnpm relaunch --boundary <session>'
 export const OPERATOR_CLAUDE = 'claude --permission-mode dontAsk'
 export const LAUNCH_LINE = 'pnpm ghosts:launch reads its yes from stdin and this session\'s stdin carries nothing a child can read: run it as echo yes | env -u FORCE_COLOR NO_COLOR=1 pnpm ghosts:launch ...'
@@ -36,7 +37,7 @@ export function boundaryCommand(session: string): string {
 }
 export function relaunchPrompt(handoff: string, decisions: string | null, session: string): string {
   const decisionsLine = decisions === null ? '' : `\n\nOwner decisions live in ${decisions}: append each decision there as the next \`${DECISION_FORMAT}\` line, read the decisions in force with pnpm decisions ${decisions}, and never copy them into the handoff.`
-  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
+  return `${promptFirstLine(handoff)}${decisionsLine}\n\nThis file is the handoff; replace its STOP section and STATUS line only with pnpm handoff:write ${handoff} <draft>, never by editing it and never in another file. It generates ${STATE_LABELS.join(', ')} from the bus state; the draft carries the stop reason and the next task.\n\nAt every task boundary run ${boundaryCommand(session)}: on end, write STOP with STATUS: CONTINUE and exit; on next, take the next task.\n\n${LAUNCH_LINE}`
 }
 export const NO_MODEL = 'no model: pass --model <id>'
 export const FACTORY_FILE = 'factory.json'
@@ -431,7 +432,7 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
       pid = spawned
       started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
-    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: deps.env, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
+    const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: { ...deps.env, [HANDOFF_VARIABLE]: handoff }, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
     await started
     const after = statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none'
     const idle = after === 'CONTINUE' && !endedAtThreshold(readIfPresent(deps, deps.journal) ?? '', session)
