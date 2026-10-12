@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
 import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../bus/review-depth.js'
 import type { ReviewRun } from '../../bus/review-worker.js'
@@ -8,7 +9,6 @@ import type { ChangedFile } from '../../morse/rules.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
@@ -22,6 +22,7 @@ import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js
 import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine } from '../../bus/review-worker.js'
 import { claudeReviewer, reviewPrompt } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
+import { openDatabase } from '../../bus/sqlite.js'
 import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -338,7 +339,7 @@ describe('review worker', () => {
 
     const step = worker(slow).step()
     db.exec('PRAGMA busy_timeout = 0')
-    const other = new DatabaseSync(busPath)
+    const other = openDatabase(busPath)
     other.exec('BEGIN IMMEDIATE')
     await beat()
     other.exec('ROLLBACK')

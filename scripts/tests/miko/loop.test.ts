@@ -54,7 +54,7 @@ function lines(dir: string, name: string): string[] {
 function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number, stderr: NodeJS.ReadableStream } {
   const child = spawn(process.execPath, ['--import', 'tsx', LOOP], {
     cwd: REPO_ROOT,
-    env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: claude },
+    env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: path.join(dir, '.construct', 'bus.db'), STUB_DIR: dir, MIKO_CLAUDE: claude },
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
   })

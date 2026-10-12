@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
@@ -10,7 +11,6 @@ import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { DatabaseSync } from 'node:sqlite'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
@@ -29,6 +29,7 @@ import { shadowProblems } from './report.js'
 import { fullReview } from './review-depth.js'
 import { claudeReviewer, PREFIX } from './reviewer.js'
 import { slotsOf } from './scheduler.js'
+import { openDatabase } from './sqlite.js'
 
 export const SWITCH_FLAG = '--on'
 export const DRY_RUN_FLAG = '--dry-run'
@@ -261,7 +262,7 @@ export function busCardBody(busPath: string): CardBodyOf {
   return (cardId) => {
     if (!existsSync(busPath))
       return null
-    const db = new DatabaseSync(busPath, { readOnly: true })
+    const db = openDatabase(busPath, { readOnly: true })
     try {
       return cardBodyShaOfCard(db, cardId)
     }

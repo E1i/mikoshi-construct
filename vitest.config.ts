@@ -24,6 +24,7 @@ export default defineConfig({
     exclude: ['**/node_modules/**', 'tests/fixtures/**'],
     environment: 'node',
     globalSetup: [path.join(import.meta.dirname, 'scripts/scratch/vitest-setup.ts')],
+    setupFiles: [path.join(import.meta.dirname, 'scripts/scratch/vitest-bus.ts')],
     testTimeout: 30_000,
     sequence: { sequencer: WeightedShardSequencer },
   },

@@ -14,9 +14,11 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
+import { defaultBusPath } from '../bus/db.js'
 import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf } from './entry.js'
+import { cardStartedLines } from './tasks.js'
 
 export const PREFIX = '[task:close] '
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>]'
@@ -58,6 +60,7 @@ export interface TaskCloseDeps {
   append: (file: string, text: string) => void
   now: () => Date
   handoffDir: string
+  busPath?: string
   exists: (file: string) => boolean
   session: string | undefined
   projectsDir: string
@@ -283,10 +286,10 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const journalText = deps.read(journal) ?? ''
-  const lines = journalLines(journalText)
+  const lines = [...journalLines(journalText), ...(deps.busPath === undefined ? [] : cardStartedLines(deps.busPath))]
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id)
   if (start === undefined)
-    return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
+    return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one${deps.busPath === undefined ? '' : `, and the bus ${deps.busPath} has no card.started with one`}; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
   const unproven = verification === 'mutation' ? mutationRefusal(lines, id, journal) : null
   if (unproven !== null)
     return refuse(unproven)
@@ -335,6 +338,7 @@ function realDeps(): TaskCloseDeps {
     },
     now: () => new Date(),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    busPath: defaultBusPath(),
     exists: existsSync,
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),

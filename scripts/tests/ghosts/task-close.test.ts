@@ -3,6 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
+import { busWithCardStarted } from './card-started-bus.js'
 
 const LAUNCH_SESSION = 'ghost-session'
 
@@ -468,5 +469,57 @@ describe('task:close closes the GitHub issue of its card', () => {
     expect(unclosed.exitCode).toBe(0)
     expect(unclosed.stdout.at(-1)).toBe('[task:close] issue #123 not closed: gh: forbidden; re-run task:close #123 to close it')
     expect(written).toHaveLength(2)
+  })
+})
+
+describe('task:close reads the start of a task from card.started in the bus', () => {
+  const card = { id: 891, name: 'path-line-readers-read-card-started', kind: 'implement', milestone: 'netwatch', size: 'M', contour: 'ladder', decision: 'auto', depends: [], blocks: [836], line: 'l' }
+  const started = { path: 'ladder', started: '2026-10-03T08:30:00.000Z', session: 'start-session', shift: '/shift/a', worktree: '/mc-891', branch: 'feat/891', card }
+
+  it('task:close finds the start of a task from card.started in the bus', () => {
+    const bus = busWithCardStarted([{ cardId: 891, ts: started.started, payload: started }])
+    try {
+      const { deps, written } = world([])
+      const result = runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file })
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '891', path: 'ladder', pr: 790, sessions: [{ id: 'start-session' }], actual: { minutes: 30 } })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('prefers card.started over an earlier path line of the same card', () => {
+    const bus = busWithCardStarted([{ cardId: 123, ts: started.started, payload: { ...started, path: 'ladder', card: { ...card, id: 123 } } }])
+    try {
+      const { deps, written } = world([startLine('123', 'implement')])
+      expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, busPath: bus.file }).exitCode).toBe(0)
+      expect(JSON.parse(written[0]!)).toMatchObject({ path: 'ladder' })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('checks the verification word against the report of the shift card.started names', () => {
+    const bus = busWithCardStarted([{ cardId: 891, ts: started.started, payload: started }])
+    try {
+      const { deps } = world([], [], { [path.join('/shift/a', 'report-891.md')]: 'verification: review\n' })
+      expect(runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file }).stderr[0]).toContain('the shift report /shift/a/report-891.md says verification: review')
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('names the bus it read when neither the journal nor the bus holds a start', () => {
+    const bus = busWithCardStarted([])
+    try {
+      const { deps } = world([])
+      expect(runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file }).stderr[0]).toContain(`and the bus ${bus.file} has no card.started with one`)
+    }
+    finally {
+      bus.remove()
+    }
   })
 })
