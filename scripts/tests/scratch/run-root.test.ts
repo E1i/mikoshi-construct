@@ -1,12 +1,12 @@
 import type { ChildProcess } from 'node:child_process'
 import { Buffer } from 'node:buffer'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { reapOrphanRoots, reapVitestLeftovers, RUN_ROOT_PREFIX, RUN_ROOT_VARIABLE, RunRoot, RunRootTooLong, scratchDir, SOCKET_NAME_RESERVE_BYTES, UNIX_SOCKET_PATH_BYTES, VITEST_LEFTOVER_AGE_MS } from '../../scratch/run-root.js'
+import { reapOrphanRoots, reapVitestLeftovers, RUN_ROOT_PREFIX, RUN_ROOT_VARIABLE, RunRoot, RunRootTooLong, scratchDir, SOCKET_NAME_RESERVE_BYTES, UNIX_SOCKET_PATH_BYTES, VITEST_LEFTOVER_AGE_MS, VITEST_TMP_DIR_NAME } from '../../scratch/run-root.js'
 import { inOwnOrInheritedRoot, inRunRoot, survivedTheRun } from '../../scratch/run.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -21,18 +21,23 @@ const vitestRoot = (): string => process.env[RUN_ROOT_VARIABLE]!
 const systemTmpdir = (): string => path.dirname(vitestRoot())
 const rootsOf = (pid: number | undefined): string[] => readdirSync(systemTmpdir()).filter(name => name.startsWith(`${RUN_ROOT_PREFIX}${pid}-`))
 
-const VITEST_INSTANCE_DIR = /^[\w-]{21}$/
+const PACKAGE_SCRIPTS = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
 
-function removeVitestDirsCreatedDuring<T>(outer: string, run: () => T): T {
-  const before = new Set(readdirSync(outer))
+function inOwnTmpdir<T>(run: (outer: string) => T): T {
+  const outer = mkdtempSync(path.join(systemTmpdir(), 'vt-'))
   try {
-    return run()
+    return run(outer)
   }
   finally {
-    for (const name of readdirSync(outer).filter(name => !before.has(name) && VITEST_INSTANCE_DIR.test(name)))
-      rmSync(path.join(outer, name), { recursive: true, force: true })
+    rmSync(outer, { recursive: true, force: true })
   }
 }
+
+function outsideEveryRunRootIn(outer: string): NodeJS.ProcessEnv {
+  return { ...outsideEveryRunRoot(), TMPDIR: outer }
+}
+
+const vitestDirsIn = (outer: string): string[] => readdirSync(outer).filter(name => VITEST_TMP_DIR_NAME.test(name))
 
 function outsideEveryRunRoot(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: systemTmpdir() }
@@ -197,14 +202,38 @@ describe('the root vitest runs in', () => {
     writeFileSync(path.join(project, 'hung.test.mjs'), HUNG_TEST)
     writeFileSync(path.join(project, 'vitest.config.mjs'), `export default ${JSON.stringify({ test: { globals: true, include: ['hung.test.mjs'], globalSetup: [VITEST_SETUP], testTimeout: 300, pool: 'forks' } })}\n`)
 
-    const result = removeVitestDirsCreatedDuring(systemTmpdir(), () => spawnSync(process.execPath, [VITEST, 'run', '--root', project, '--config', path.join(project, 'vitest.config.mjs')], { env: { ...outsideEveryRunRoot(), ROOT_SEEN_AT: rootSeenAt }, encoding: 'utf8' }))
-    const root = readFileSync(rootSeenAt, 'utf8')
+    inOwnTmpdir((outer) => {
+      const result = spawnSync(process.execPath, [VITEST, 'run', '--root', project, '--config', path.join(project, 'vitest.config.mjs')], { env: { ...outsideEveryRunRootIn(outer), ROOT_SEEN_AT: rootSeenAt }, encoding: 'utf8' })
+      const root = readFileSync(rootSeenAt, 'utf8')
 
-    expect(`${result.stdout}${result.stderr}`).toMatch(/timed out/i)
-    expect(result.status).not.toBe(0)
-    expect(path.dirname(root)).toBe(systemTmpdir())
-    expect(existsSync(root)).toBe(false)
-    expect(rootsOf(result.pid)).toEqual([])
+      expect(`${result.stdout}${result.stderr}`).toMatch(/timed out/i)
+      expect(result.status).not.toBe(0)
+      expect(path.dirname(root)).toBe(outer)
+      expect(existsSync(root)).toBe(false)
+      expect(readdirSync(outer).filter(name => name.startsWith(`${RUN_ROOT_PREFIX}${result.pid}-`))).toEqual([])
+    })
+  })
+})
+
+const PASSING_TEST = `it('passes', () => {})\n`
+
+describe('pnpm test', () => {
+  it('runs vitest through run.ts, in watch mode too', () => {
+    expect(PACKAGE_SCRIPTS.test).toBe('tsx scripts/scratch/run.ts vitest run')
+    expect(PACKAGE_SCRIPTS['test:watch']).toBe('tsx scripts/scratch/run.ts vitest')
+  })
+
+  it('leaves no Vitest temp dir in a fresh outer TMPDIR when vitest runs through run.ts', () => {
+    const project = scratchDir('pass-')
+    writeFileSync(path.join(project, 'ok.test.mjs'), PASSING_TEST)
+    writeFileSync(path.join(project, 'vitest.config.mjs'), `export default ${JSON.stringify({ test: { globals: true, include: ['ok.test.mjs'] } })}\n`)
+
+    inOwnTmpdir((outer) => {
+      const result = spawnSync(process.execPath, [TSX, RUN, process.execPath, VITEST, 'run', '--root', project, '--config', path.join(project, 'vitest.config.mjs')], { env: outsideEveryRunRootIn(outer), encoding: 'utf8' })
+
+      expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+      expect(vitestDirsIn(outer)).toEqual([])
+    })
   })
 })
 
@@ -250,6 +279,19 @@ function plantTmpEntry(outer: string, name: string, entry: TmpEntry): void {
   }
   utimesSync(dir, entry.writtenMs / 1000, entry.writtenMs / 1000)
 }
+
+describe('opening a root', () => {
+  it('reaps a stale Vitest temp dir in the outer TMPDIR and keeps a fresh one', () => {
+    inOwnTmpdir((outer) => {
+      plantTmpEntry(outer, 'stale-ssr0aaaaaaaaaaa', { children: ['ssr'], writtenMs: Date.now() - VITEST_LEFTOVER_AGE_MS - 60_000, reaped: true })
+      plantTmpEntry(outer, 'fresh-ssr0aaaaaaaaaaa', { children: ['ssr'], writtenMs: Date.now() - 60_000, reaped: false })
+
+      RunRoot.open({ outer, env: {} }).close()
+
+      expect(readdirSync(outer)).toEqual(['fresh-ssr0aaaaaaaaaaa'])
+    })
+  })
+})
 
 describe('reapVitestLeftovers', () => {
   it('removes only the Vitest temp dirs untouched for longer than the leftover age', () => {
