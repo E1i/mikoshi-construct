@@ -1914,8 +1914,10 @@ before intake confirmed cards: no `--draft`, no `--taken` (with either it refuse
 The card is checked like a sliced one under its own number; with a correction it is held behind a
 token (exit `2`) until `--confirm <token>` or `--auto-confirm`. Admitting rewrites only the card line
 and the `touches` line a correction changed, appends the `corrected:` and `unclear:` lines, leaves
-`who` as it is, and writes the card's `intake` line with `"source":"admit"`, which `task:start` and
-the shift read. A card the journal already admitted is amended when its card line, task text or
+`who` as it is, and writes the card's `intake` line with `"source":"admit"`. The command prints
+whether a bus was wired to the run: only a bus-wired run, such as this repository's `pnpm intake`, also
+appends `card.admitted`, the event this repository's `task:start` and shift read; the published CLI has
+no bus and writes the journal line alone. A card the journal already admitted is amended when its card line, task text or
 witnesses or its `touches` line differ from the latest `intake` line for its number — or that line
 recorded no `bodySha`, so the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that

@@ -52,7 +52,7 @@ export interface AdmitOptions {
 export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
-    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource }
+    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
 
 function witnessesOf(body: string): string[] {
@@ -211,7 +211,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const recorded = latestIntake(journal, card)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
-  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source }
+  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text))
     return { ...base, status: 'alreadyAdmitted' }
   const reparsed = parseParkingFile(file, admitted.text)
@@ -254,7 +254,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   else if (result.source === AMEND_SOURCE)
     ui.ok(ui.lore.intakeAmended(result.file, card.line))
   else
-    ui.ok(ui.lore.intakeAdmitted(result.file, card.line))
+    ui.ok(ui.lore.intakeAdmitted(result.file, card.line, result.inBus))
   if (result.status !== 'dryRun') {
     for (const correction of card.corrections)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))

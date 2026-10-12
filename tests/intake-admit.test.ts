@@ -307,6 +307,22 @@ describe('construct intake --admit takes a card parked before the intake door', 
   })
 })
 
+describe('construct intake --admit says whether task:start will take the card', () => {
+  it('names the bus when the port wrote card.admitted, and task:start takes the card', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    expect(printed(admit(w, file)).lines[0]).toBe(`[ok] Admitted ${file}: ${CLEAN}. Its intake line is in the journal and its card.admitted is in the bus, so task:start and the shift take it.\n`)
+    expect(taskStart(w, CLEAN)).toBe(0)
+  })
+
+  it('says only what it wrote when no bus is wired: the journal line and no card.admitted, which this repository\'s task:start then refuses', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    expect(printed(admit(w, file, { events: undefined })).lines[0]).toBe(`[ok] Admitted ${file}: ${CLEAN}. Its intake line is in the journal; no bus is wired to this run, so no card.admitted was written.\n`)
+    expect(taskStart(w, CLEAN)).toBe(1)
+  })
+})
+
 describe('construct intake --admit and package.json', () => {
   it('adds the script companions to a card that touches package.json, with no person to confirm', () => {
     const w = world()
