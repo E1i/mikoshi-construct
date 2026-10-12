@@ -151,17 +151,6 @@ describe('startedTree reads card.started from the bus', () => {
     }
   })
 
-  it('falls back to the path line of a card started by a chain before card.started, and when there is no bus', () => {
-    const bus = busWithCardStarted([{ cardId: 161, ts: '2026-10-06T09:00:00Z', payload: { worktree: '/w/bus-161', branch: 'feat/other' } }])
-    try {
-      const journal = line({ worktree: '/w/journal-160', branch: 'feat/journal' })
-      expect(startedTree(journal, card, bus.file)).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
-      expect(startedTree(journal, card, path.join(path.dirname(bus.file), 'absent.db'))).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
-    }
-    finally {
-      bus.remove()
-    }
-  })
   it('a card started by a chain with no card.started still has its tree found by startedTree through the path line, and answer does not fail on no_card_tree', () => {
     const bus = busWithCardStarted([{ cardId: 161, ts: '2026-10-06T09:00:00Z', payload: { session: 's', worktree: '/w/bus-161', branch: 'feat/other' } }])
     const pathLine = line({ worktree: '/w/journal-160', branch: 'feat/journal', session: 'chain-1', shift: '/shift' })
@@ -169,6 +158,7 @@ describe('startedTree reads card.started from the bus', () => {
     try {
       importJournal(db, pathLine)
       expect(startedTree(pathLine, card, bus.file)).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
+      expect(startedTree(pathLine, card, path.join(path.dirname(bus.file), 'absent.db'))).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
       expect(cardSessionOf(db, 160)).toEqual({ session: 'chain-1', worktree: '/w/journal-160', branch: 'feat/journal' })
     }
     finally {
