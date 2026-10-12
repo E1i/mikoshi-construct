@@ -1,7 +1,7 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, failedCards, latestStops, standingStops } from '../../shift/parking.js'
+import { amendReleases, choose, failedCards, latestStops, standingStops } from '../../shift/parking.js'
 
 function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift', depends = '—'): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [${kind}] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who}\n\ndo ${id}\n`)
@@ -11,6 +11,7 @@ function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift
 }
 
 const stop = (task: string, at: string, worktree: string | null, extra: object = {}): object => ({ event: 'stop', task, at, why: 'w', worktree, shift: '/s', session: null, ts: 't', ...extra })
+const intake = (task: string, source = 'amend'): object => ({ event: 'intake', task, card: `#${task}`, source, ts: 't' })
 const journal = (...entries: object[]): string => `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`
 
 describe('choose with a standing stop and a ladder card', () => {
@@ -54,6 +55,16 @@ describe('the stop journal readers', () => {
   it('a released stop does not stand, whatever its tree', () => {
     const stops = latestStops(journal(stop('1', 'hash', '/there'), stop('2', 'hash', null), stop('3', 'question', '/there')))
     expect([...standingStops(stops, () => true, entry => entry.task !== '3')]).toEqual([['3', 'question']])
+  })
+
+  it('a question or fault stop followed by an amend of its card no longer stands while its tree exists', () => {
+    const text = journal(stop('1', 'question', '/t1'), stop('2', 'fault', '/t2'), intake('1'), intake('2'))
+    expect([...standingStops(latestStops(text), () => true, amendReleases(text))]).toEqual([])
+  })
+
+  it('a stop with no later amend still stands while its tree exists', () => {
+    const text = journal(intake('1'), stop('1', 'question', '/t1'), stop('2', 'fault', '/t2'), intake('2', 'admit'), stop('3', 'hash', '/t3'), intake('3'), stop('4', 'merge', '/t4'), intake('4'), intake('5'), stop('5', 'fault', '/t5'))
+    expect([...standingStops(latestStops(text), () => true, amendReleases(text))]).toEqual([['1', 'question'], ['2', 'fault'], ['3', 'hash'], ['4', 'merge'], ['5', 'fault']])
   })
 
   it('an empty journal holds no stop', () => {

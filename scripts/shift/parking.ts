@@ -4,6 +4,8 @@ import path from 'node:path'
 import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { TASK_FILE } from '../../src/card/task-file.js'
+import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
+import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
 import { approvedSha256Of, briefPathOf, isLadder } from './ladder.js'
 import { GHOSTS_FILES_ON_MAIN, isListed } from './merge.js'
@@ -82,6 +84,25 @@ export function latestStops(journal: string | null): Map<string, Stop> {
   return stops
 }
 
+const AMEND_RELEASES: readonly StopAt[] = ['question', 'fault']
+
+export function amendReleases(journal: string | null): (stop: Stop) => boolean {
+  const amended = new Set<string>()
+  for (const line of (journal ?? '').split('\n')) {
+    try {
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, at?: unknown, source?: unknown } | null
+      if (typeof entry?.task !== 'string')
+        continue
+      if (entry.event === 'stop' && (STOP_AT as readonly unknown[]).includes(entry.at))
+        amended.delete(entry.task)
+      else if (entry.event === INTAKE_EVENT && entry.source === AMEND_SOURCE)
+        amended.add(entry.task)
+    }
+    catch {}
+  }
+  return stop => AMEND_RELEASES.includes(stop.at) && amended.has(stop.task)
+}
+
 export function standingStops(stops: ReadonlyMap<string, Stop>, exists: (target: string) => boolean, released: (stop: Stop) => boolean = () => false): Map<string, StopAt> {
   const standing = new Map<string, StopAt>()
   for (const [task, stop] of stops) {
@@ -151,7 +172,8 @@ export function readParking(reads: ParkingReads, parking: string): { choice: Cho
   const done = new Set(closedTasks(text).keys())
   const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
   const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
-  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(reads, ladder.get(stop.task)!)
+  const amended = amendReleases(text)
+  const released = (stop: Stop): boolean => amended(stop) || (stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(reads, ladder.get(stop.task)!))
   const stops = latestStops(text)
   const standing = standingStops(stops, reads.exists, released)
   return {
