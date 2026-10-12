@@ -6,7 +6,8 @@ import { approvalSha256, approvedHashPath, canonicalImplementText } from '../../
 import { depsOf } from './autopilot-world.js'
 
 export const LADDER = 'implement/runner/M/ladder/owner'
-export const BRIEF_TEXT = '/implement stub brief\nSketch: none — stub\n'
+export const EXPECT_LINE = 'expect: tokens ≈ 1k, minutes ≈ 1 — effort low, n=9, median, p25–p75 1k–2k'
+export const BRIEF_TEXT = `/implement stub brief\nSketch: none — stub\n${EXPECT_LINE}\n`
 const STUB = path.join(import.meta.dirname, 'claude-stub-ladder.sh')
 
 export type Launch = 'done' | 'running' | 'exit' | { ladder: string }
