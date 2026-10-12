@@ -151,4 +151,16 @@ describe('intake confirmation gate', () => {
     expect(bus).toEqual([])
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '81', source: ADMIT_SOURCE }])
   })
+
+  it.each([['notes', 'a parking subdirectory that is no lane'], ['../elsewhere', 'a directory outside the parking tree'], ['lane-2/inner', 'a directory below a lane']])('a card admitted from %s (%s) hands the bus no card.admitted', (relative) => {
+    const w = world([card()])
+    const dir = path.resolve(w.parking, relative)
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, '82.md')
+    writeFileSync(file, `card: #82 stray-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-82\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    const bus: CardEvent[] = []
+    expect(runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
+    expect(bus).toEqual([])
+    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '82', source: ADMIT_SOURCE }])
+  })
 })

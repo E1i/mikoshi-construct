@@ -24,6 +24,15 @@ const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 const CARD_HEADER = 'card: '
 export const ADMIT_SOURCE = 'admit'
+const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
+
+export function isLaneName(name: string): boolean {
+  return LANE_NAME.test(name)
+}
+
+function isLaneOf(root: string, dir: string): boolean {
+  return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(path.basename(dir))
+}
 export const AMEND_SOURCE = 'amend'
 
 type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE
@@ -215,7 +224,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   const laneDir = path.dirname(options.file)
-  const inLane = path.resolve(laneDir) !== path.resolve(options.parkingRoot ?? defaultParking())
+  const inLane = isLaneOf(options.parkingRoot ?? defaultParking(), laneDir)
   recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), laneDir, source)], source === ADMIT_SOURCE && inLane ? options.events : undefined)
   return { ...base, status: 'admitted' }
 }
