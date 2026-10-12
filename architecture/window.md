@@ -57,8 +57,9 @@ ended without writing `miko.md`, or a Ctrl+C the loop receives, ends the loop an
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
 `pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
 line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
-`scripts/miko/watch.ts`, any case), and `pid <pid> exited` once for each watched PID that dies. Lines already in the
-journal when it starts, lines of any other event and live PIDs print nothing.
+`scripts/miko/watch.ts`, any case), `bus <payload>` for a `relaunch-stop` event added to `bus.db`, and `pid <pid> exited`
+once for each watched PID that dies. Lines and events already there when it starts, lines of any other event and live
+PIDs print nothing.
 
 Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
@@ -80,7 +81,7 @@ card change through `construct intake --admit`), and the message names it.
 `pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
 the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
 this directory under `~/.claude/projects/`; with neither it starts nothing). Before every session, the first included, it
-reads the handoff: a handoff that fails `handoff:check` stops it with exit 1 and an `event:relaunch-stop` line with reason
+reads the handoff: a handoff that fails `handoff:check` stops it with exit 1 and a `relaunch-stop` event in `bus.db` with reason
 `handoff-invalid` and the refusals, and no session starts; one with no `STATUS:` line stops it with exit 1; the last
 `STATUS: CONTINUE` runs the next session, `STATUS: OWNER` or `STATUS: DONE` stops it, and so does reaching `--max` (default
 the shift's restart ceiling, three). `STATUS: OWNER` stops only at a boundary [owner-merges.md](owner-merges.md) or the owner
@@ -90,8 +91,8 @@ delegation decision covers), `missing-right` (a right the Operator lacks under i
 explicit new question from the owner). Review changes, red CI, a denied form that has an allowed route and `who: window`
 cards are executor work, never OWNER; `pnpm handoff:write` refuses a draft whose last STATUS line is OWNER without a name
 from the list, names the list in the refusal, and writes nothing. A leading `~/` in the handoff path is the home directory; the start leaves an
-`event:relaunch-start` line with the absolute path it watches, each session an `event:relaunch-session` line with its `pid` when it spawns and an `event:relaunch` line with the same `pid`
-when it ends in `ghosts.jsonl`, each stop one `event:relaunch-stop` line with its reason. Whether a relaunch session is alive is
+`relaunch-start` event with the absolute path it watches, each session a `relaunch-session` event with its `pid` when it spawns and a `relaunch` event with the same `pid`
+when it ends in `bus.db`, each stop one `relaunch-stop` event with its reason; it writes none of them to `ghosts.jsonl`. Whether a relaunch session is alive is
 read by `pnpm relaunch --live` from those pids (`kill -0`), never from the command text: `pgrep -fl "claude -p"` misses a
 session started as `claude --permission-mode auto -p`.
 
