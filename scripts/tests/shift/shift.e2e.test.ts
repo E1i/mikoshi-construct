@@ -850,6 +850,19 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     expect(stopsOf(world)).toEqual([])
   })
 
+  it('the pull request the shift opens from the tree carries the matrix count line of the session report', async () => {
+    const world = newWorld()
+    ownerMergesOnMain(world)
+    decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
+    const calls: string[][] = []
+    const wrapper = path.join(world.root, 'session-counts.sh')
+    writeFileSync(wrapper, `#!/bin/sh\nmkdir -p scripts/1 && echo green > scripts/1/x.ts\nsh ${STUB} "$@"\nprintf '■ 3 □ 1 · 2\\n' >> ${path.join(world.shift, 'report-01.md')}\n`)
+    const claude = `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${wrapper}`
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+
+    expect(calls.find(args => args[1] === 'create')!.at(-1)!.split('\n')).toContain('■ 3 □ 1 · 2')
+  })
+
   function sessionDeniedGitWhenAskedToCommit(world: World): ShiftDeps['claude'] {
     const wrapper = path.join(world.root, 'session-denied-git.sh')
     writeFileSync(wrapper, `#!/bin/sh\nprompt=$(cat)\nmkdir -p scripts/1 && echo green > scripts/1/x.ts\ncase "$prompt" in *"commit, push"*|*"you push"*) prompt="$prompt STUB-QUESTION" ;; esac\nprintf '%s' "$prompt" | sh ${STUB} "$@"\n`)
