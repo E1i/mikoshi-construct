@@ -556,8 +556,8 @@ describe('the answer queue', () => {
     bench.started(1170)
     bench.stopped(1170, { reason: 'question.owner', detail: 'may the card touch architecture/owner-merges.md?' }, 1070, sha('a'))
     bench.gitHub.open({ number: 1070, review: 'failure' })
-    for (const blocker of [1171, 1172]) {
-      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: blocker, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${blocker}`, payload: { card: `#${blocker} part-${blocker} [implement/netwatch/S/cheap/auto] · depends — · blocks #1170`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    for (const [blocker, blocks] of [[1171, '#1170'], [1172, '#1170 (1170a)']] as const) {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: blocker, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${blocker}`, payload: { card: `#${blocker} part-${blocker} [implement/netwatch/S/cheap/auto] · depends — · blocks ${blocks}`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
       bench.gitHub.open({ number: blocker - 100 })
     }
     bench.tick()
@@ -575,6 +575,40 @@ describe('the answer queue', () => {
     bench.tick()
     expect(ownerInbox(bench.db)).toEqual([])
     expect(answerTasks()).toEqual([{ task_key: answer(1170, 1070, sha('a')) }])
+    bench.close()
+  })
+
+  it('a card stopped on an owner question stays stopped when every card that blocks it merged before the stop', () => {
+    const bench = answerBench()
+    bench.started(1170)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: 1171, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1171`, payload: { card: '#1171 earlier [implement/netwatch/S/cheap/auto] · depends — · blocks #1170', lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    bench.gitHub.open({ number: 1071 })
+    bench.tick()
+    bench.gitHub.close(1071, true)
+    bench.tick()
+    bench.tick()
+    bench.stopped(1170, { reason: 'question.owner', detail: 'which way?' }, 1070, sha('a'))
+    bench.tick()
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1170])
+    bench.close()
+  })
+
+  it('a card re-admitted with a line that no longer blocks the stopped card does not hold its owner question', () => {
+    const bench = answerBench()
+    bench.started(1170)
+    bench.stopped(1170, { reason: 'question.owner', detail: 'which way?' }, 1070, sha('a'))
+    const admit = (cardId: number, card: string, key: string): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${key}`, payload: { card, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    }
+    admit(1171, '#1171 moved-away [implement/netwatch/S/cheap/auto] · depends — · blocks #1170', '1171')
+    admit(1171, '#1171 moved-away [implement/netwatch/S/cheap/auto] · depends — · blocks —', '1171:readmitted')
+    admit(1172, '#1172 the-answer [implement/netwatch/S/cheap/auto] · depends — · blocks #1170', '1172')
+    bench.gitHub.open({ number: 1072 })
+    bench.tick()
+    bench.gitHub.close(1072, true)
+    bench.tick()
+    bench.tick()
+    expect(ownerInbox(bench.db)).toEqual([])
     bench.close()
   })
 

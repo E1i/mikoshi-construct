@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { defaultBusPath, openBus } from './db.js'
+import { CARD_BLOCKS, defaultBusPath, openBus } from './db.js'
 
 export const POLICY_DENIED = 'policy.denied'
 export const CARD_STOPPED = 'card.stopped'
@@ -13,26 +13,19 @@ export const QUESTION_OWNER = 'question.owner'
 export const OWNER = 'owner'
 export const PREFIX = '[bus:inbox] '
 
-const BLOCKS_LIST = ' · blocks '
-
-function cardLineIn(event: string): string {
-  return `coalesce(json_extract(${event}.payload, '$.card.line'), json_extract(${event}.payload, '$.card'))`
+function blocksIn(event: string): string {
+  return `coalesce(json_extract(${event}.payload, '$.card.blocks'), ${CARD_BLOCKS}(json_extract(${event}.payload, '$.card')))`
 }
 
-function latestCardLineOf(card: string): string {
-  return `(SELECT ${cardLineIn('line')} FROM events AS line
-      WHERE line.card_id = ${card} AND json_extract(line.payload, '$.card') IS NOT NULL ORDER BY line.id DESC LIMIT 1)`
-}
-
-function blocksTheStoppedCard(cardLine: string, stop: string): string {
-  return `', ' || substr(${cardLine}, instr(${cardLine}, '${BLOCKS_LIST}') + ${BLOCKS_LIST.length}) || ',' LIKE '%, #' || ${stop}.card_id || ',%'`
+function latestBlocksOf(card: string): string {
+  return `(SELECT ${blocksIn('line')} FROM events AS line
+      WHERE line.card_id = ${card} AND ${blocksIn('line')} IS NOT NULL ORDER BY line.id DESC LIMIT 1)`
 }
 
 function blockersOf(stop: string): string {
   return `SELECT DISTINCT named.card_id FROM events AS named
-      WHERE named.card_id IS NOT NULL AND named.payload LIKE '%${BLOCKS_LIST.trim()}%#' || ${stop}.card_id || '%' AND json_extract(named.payload, '$.card') IS NOT NULL
-        AND ${blocksTheStoppedCard(cardLineIn('named'), stop)}
-        AND ${blocksTheStoppedCard(latestCardLineOf('named.card_id'), stop)}`
+      WHERE named.card_id IS NOT NULL AND named.payload LIKE '%#' || ${stop}.card_id || '%'
+        AND EXISTS (SELECT 1 FROM json_each(${latestBlocksOf('named.card_id')}) AS blocked WHERE blocked.value = ${stop}.card_id)`
 }
 
 function everyBlockerMergedAfter(stop: string): string {
