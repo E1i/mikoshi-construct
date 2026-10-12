@@ -167,7 +167,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeConfirmStale: string
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
-  intakeAlreadyAdmitted: (file: string, card: string) => string
+  intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeMoved: (from: string, to: string) => string
   intakeMoveNotFound: (id: number) => string
   intakeMoveAmbiguous: (id: number, paths: string) => string
@@ -506,7 +506,9 @@ export const LORE: Lore = {
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `CARD ADMITTED // ${file}: ${card}; its intake line is in the journal, its card.admitted in the bus`
     : `CARD ADMITTED // ${file}: ${card}; its intake line is in the journal. NO BUS // no card.admitted written`,
-  intakeAlreadyAdmitted: (file: string, card: string) => `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line, nothing written`,
+  intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
+    ? `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line, its card.admitted is in the bus`
+    : `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line. NO BUS // nothing written`,
   intakeMoved: (from: string, to: string) => `MOVED // ${from} -> ${to}; the journal holds the move, the card is unchanged`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
   intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
@@ -862,7 +864,9 @@ export const PLAIN_LORE: Lore = {
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `Admitted ${file}: ${card}. Its intake line is in the journal and its card.admitted is in the bus, so task:start and the shift take it.`
     : `Admitted ${file}: ${card}. Its intake line is in the journal; no bus is wired to this run, so no card.admitted was written.`,
-  intakeAlreadyAdmitted: (file: string, card: string) => `Already admitted ${file}: ${card}. The journal holds its intake line; nothing was written.`,
+  intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
+    ? `Already admitted ${file}: ${card}. The journal holds its intake line and its card.admitted is in the bus, so task:start and the shift take it.`
+    : `Already admitted ${file}: ${card}. The journal holds its intake line; no bus is wired to this run, so nothing was written.`,
   intakeMoved: (from: string, to: string) => `Moved ${from} to ${to}. The journal holds the move; the card is unchanged.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
   intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,

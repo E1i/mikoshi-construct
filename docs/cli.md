@@ -1921,7 +1921,7 @@ no bus and writes the journal line alone. A card the journal already admitted is
 witnesses or its `touches` line differ from the latest `intake` line for its number — or that line
 recorded no `bodySha`, so the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
-did not change is reported and nothing is written. An `intake` line written before `bodySha` covered
+did not change is reported and nothing is written: no bus is wired to `construct intake`. An `intake` line written before `bodySha` covered
 the `touches` line records no touches, so a card whose latest line is one of those is amended only once
 its card line, task text or witnesses change; a change to its `touches` line alone is not seen until
 then. `--dry-run` prints the card it would admit.

@@ -149,4 +149,5 @@ keeps its number and its file, the same facts check runs under that number, and 
 behind the same token until a person confirms it. Only the card line and the `touches` line change,
 and only by a correction; the `corrected:` and `unclear:` lines are appended, and `who` stays as the
 card states it. The `intake` line carries `source: admit`. A second `--admit` of a card the journal
-already admitted writes nothing.
+already admitted writes no intake line; through `pnpm intake` it writes the card's `card.admitted` with
+the `ts` of that journal line, which the bus keeps once, so a card admitted by an unwired run reaches the door.

@@ -126,7 +126,7 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-interface RecordedIntake { card: string, bodySha: unknown }
+interface RecordedIntake { card: string, bodySha: unknown, ts: unknown }
 
 function latestIntake(journal: string | null, card: Card): RecordedIntake | null {
   let latest: RecordedIntake | null = null
@@ -134,7 +134,7 @@ function latestIntake(journal: string | null, card: Card): RecordedIntake | null
     try {
       const entry = JSON.parse(text) as Record<string, unknown> | null
       if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string')
-        latest = { card: entry.card, bodySha: entry.bodySha }
+        latest = { card: entry.card, bodySha: entry.bodySha, ts: entry.ts }
     }
     catch {}
   }
@@ -146,6 +146,10 @@ function sameCardLine(recorded: string, line: string): boolean {
   const wanted = parsed.kind === 'card' ? cardLine(parsed.card) : line
   const recordedCard = parseCard(recorded)
   return recordedCard.kind === 'card' && cardLine(recordedCard.card) === wanted
+}
+
+function admittedAt(recorded: RecordedIntake, now: () => Date): Date {
+  return typeof recorded.ts === 'string' && !Number.isNaN(Date.parse(recorded.ts)) ? new Date(recorded.ts) : now()
 }
 
 function sameBody(recorded: unknown, text: string): boolean {
@@ -212,8 +216,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const recorded = latestIntake(journal, card)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
   const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
-  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text))
+  const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
+  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
+    if (!options.dryRun)
+      options.events?.(admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), admittedAt(recorded, now), lane, source).event)
     return { ...base, status: 'alreadyAdmitted' }
+  }
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
@@ -224,7 +232,6 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
   recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
 }
@@ -242,7 +249,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   }
   const { card } = result
   if (result.status === 'alreadyAdmitted') {
-    ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line))
+    ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line, result.inBus))
     return INTAKE_EXIT.alreadyAdmitted
   }
   if (result.status === 'awaiting' && result.stale)

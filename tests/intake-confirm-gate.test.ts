@@ -123,7 +123,7 @@ describe('intake confirmation gate', () => {
     printIntake(createUi(resolveTheme({ plain: true }), silentWriter), intake(w, { dryRun: true }))
   })
 
-  it('an admitted card writes card.admitted to the bus beside its intake line in the journal, an amend writes the amended card again, and a second --admit writes none', () => {
+  it('an admitted card writes card.admitted to the bus beside its intake line in the journal, an amend writes the amended card again, and a second --admit hands the bus only the key it already holds', () => {
     const w = world([card()])
     const lane = path.join(w.parking, 'lane-2')
     mkdirSync(lane, { recursive: true })
@@ -131,7 +131,8 @@ describe('intake confirmation gate', () => {
     const parked = `card: #80 clean-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`
     writeFileSync(file, parked)
     const bus: CardEvent[] = []
-    const admit = () => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) })
+    const keepOncePerDedupeKey = (event: CardEvent) => bus.some(kept => kept.dedupeKey === event.dedupeKey) || bus.push(event)
+    const admit = () => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: keepOncePerDedupeKey })
     expect(admit().status).toBe('admitted')
     const text = readFileSync(file, 'utf8')
     expect(bus).toEqual([{
