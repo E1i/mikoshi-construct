@@ -1,5 +1,9 @@
+import type { Contour } from '../../src/card/grammar.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { GhRunner } from '../board/gh.js'
+import type { ChangedFile, Prediction } from '../morse/rules.js'
+import { changedFilesFrom } from '../morse/diff.js'
+import { classify, MorseRefusal } from '../morse/rules.js'
 
 export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
 
@@ -18,7 +22,8 @@ export interface TreeCard {
   branch: string
   title: string
   commitMessage: string
-  prBody: string
+  cardLine: string
+  contour: Contour
 }
 
 export function shiftTreeCard(task: ShiftTask): TreeCard {
@@ -26,8 +31,49 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
     branch: task.branch,
     title: `${task.card.name} (#${task.id})`,
     commitMessage: `${task.card.name} (#${task.id})\n\nCommitted by the shift from the card's worktree after its session ended.`,
-    prBody: `${task.card.line}\n\nOpened by the shift from the card's worktree and branch after its session ended.`,
+    cardLine: task.card.line,
+    contour: task.card.contour,
   }
+}
+
+const SHIFTED_RANGE = 'origin/main...HEAD'
+const REMOVED_ASSERTION = /^-(?!--).*\b(?:expect|assert)\w*\s*[(.]/m
+
+function changedFilesOf(git: TreePrPorts['git'], worktree: string): ChangedFile[] {
+  return changedFilesFrom(
+    git(worktree, ['diff', '--no-renames', '-z', '--name-status', SHIFTED_RANGE]),
+    git(worktree, ['diff', '--no-renames', '-z', '--numstat', SHIFTED_RANGE]),
+  )
+}
+
+function removesAnAssertion(git: TreePrPorts['git'], worktree: string, files: string[]): boolean {
+  return REMOVED_ASSERTION.test(git(worktree, ['diff', '--no-renames', '-U0', SHIFTED_RANGE, '--', ...files]))
+}
+
+function pathReason(git: TreePrPorts['git'], worktree: string, contour: Contour, prediction: Prediction): string {
+  if (prediction.verdict === contour)
+    return `the card's contour and MORSE agree`
+  if (contour === 'ladder')
+    return 'the card takes the ladder by its contour where MORSE predicts cheap'
+  if (prediction.rule === 'tests-shrunk' && !removesAnAssertion(git, worktree, prediction.why))
+    return `cheap holds: the shrunk test files are ${prediction.why.join(', ')}, and the diff removes no assertion from them`
+  return 'the cheap path is held without a named reason'
+}
+
+function pathLine(git: TreePrPorts['git'], worktree: string, contour: Contour): string {
+  try {
+    const prediction = classify(changedFilesOf(git, worktree))
+    return `Path: ${contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${pathReason(git, worktree, contour, prediction)}`
+  }
+  catch (error) {
+    if (!(error instanceof MorseRefusal))
+      throw error
+    return `Path: ${contour} · MORSE gave no prediction: ${error.message} · the ${contour} path is held without a named reason`
+  }
+}
+
+function prBodyOf(card: TreeCard, path: string): string {
+  return `${card.cardLine}\n\n${path}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
 }
 
 function openPrOf(ports: TreePrPorts, branch: string): string | null {
@@ -55,7 +101,8 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string): Tr
     const open = openPrOf(ports, card.branch)
     if (open !== null)
       return { kind: 'pr', number: open }
-    const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', card.prBody])
+    const body = prBodyOf(card, pathLine(ports.git, worktree, card.contour))
+    const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
     return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }
   }
