@@ -57,11 +57,13 @@ STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` 
 question to the owner.
 
 Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no turn between them. It waits on
-`pnpm miko:watch [--pid <pid>…]`, which blocks and prints one line per event and nothing else: `journal <line>` for a
+`pnpm miko:watch [--pid <pid>…]`, which blocks and prints on stdout one line per event and nothing else: `journal <line>` for a
 line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
 `scripts/miko/watch.ts`, any case), `bus <payload>` for a `relaunch-stop` event added to `bus.db`, and `pid <pid> exited`
 once for each watched PID that dies. Lines and events already there when it starts, lines of any other event and live
-PIDs print nothing.
+PIDs print nothing. On stderr it writes one line, once, when it has read what is already there and watches (`WATCHING`
+in `scripts/miko/watch.ts`); a reader that merges stderr into stdout gets that line at start, and an event written
+before it may be taken as already there.
 
 Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>

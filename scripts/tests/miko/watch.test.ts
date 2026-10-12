@@ -108,12 +108,14 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
 
   it('the second event is written only after the watcher says it is watching', async () => {
     const file = journal()
+    append(file, { event: 'fall', task: '903' })
     const watch = startWatch(file)
     try {
       await watch.watching()
-      const merge = append(file, { event: 'merge', task: '904' })
-      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the merge written after the watcher said it is watching', DEADLINE_MS)
-      expect(watch.stdout()).toBe(`journal ${merge}\n`)
+      const second = append(file, { event: 'merge', task: '904' })
+      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the second event, written after the watcher said it is watching', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`journal ${second}\n`)
     }
     finally {
       watch.child.kill()
