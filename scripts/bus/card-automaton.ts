@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
+import { CARD_MOVED } from '../../src/commands/intake/index.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, QUESTION_OWNER } from './inbox.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { payloadOf, reject } from './stored.js'
@@ -18,6 +19,9 @@ export const MERGED_CARD = 'merged'
 export const CLOSED_CARD = 'closed'
 export const FALLEN_CARD = 'fallen'
 export const STOPPED_CARD = 'stopped'
+export const DROPPED_CARD = 'dropped'
+
+export const DROPPED_LANE = 'dropped'
 
 type CardState = string | null
 
@@ -25,7 +29,7 @@ const STOP_REASONS = new Set(['question.agent', QUESTION_OWNER, 'review', 'confl
 const LINKED_INTO_REVIEW = new Set<CardState>([null, QUEUED_CARD, RUNNING_CARD, FALLEN_CARD])
 const OPENS_A_PULL_REQUEST = new Set<CardState>([null, QUEUED_CARD, RUNNING_CARD])
 const REVIEWED = new Set<CardState>([IN_REVIEW_CARD, CHANGES_CARD, READY_CARD])
-const ADMITTED_AGAIN = new Set<CardState>([null, QUEUED_CARD, FALLEN_CARD, STOPPED_CARD, CLOSED_CARD])
+const ADMITTED_AGAIN = new Set<CardState>([null, QUEUED_CARD, FALLEN_CARD, STOPPED_CARD, CLOSED_CARD, DROPPED_CARD])
 const ANSWERED = new Set<CardState>([STOPPED_CARD, CHANGES_CARD, IN_REVIEW_CARD])
 const FALLS = new Set<CardState>([RUNNING_CARD, IN_REVIEW_CARD, CHANGES_CARD])
 
@@ -129,7 +133,15 @@ function foldClosed(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function foldFell(db: DatabaseSync, event: StoredEvent): void {
+  if (event.card_id !== null && stateOf(db, event.card_id) === DROPPED_CARD)
+    return
   claimed(db, event, FALLS, FALLEN_CARD)
+}
+
+function foldMoved(db: DatabaseSync, event: StoredEvent): void {
+  const cardId = event.card_id ?? reject(`${CARD_MOVED} needs a card_id`)
+  if (payloadOf(event).lane === DROPPED_LANE && stateOf(db, cardId) === RUNNING_CARD)
+    moveCard(db, cardId, DROPPED_CARD, event.id)
 }
 
 function foldStopped(db: DatabaseSync, event: StoredEvent): void {
@@ -153,4 +165,5 @@ export const CARD_FOLDS: Record<string, Fold> = {
   [MERGE_DONE]: foldMergeDone,
   [CARD_CLOSED]: foldClosed,
   [CARD_FELL]: foldFell,
+  [CARD_MOVED]: foldMoved,
 }
