@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
 import type { GitHub } from './github.js'
 import { Buffer } from 'node:buffer'
 import { realpathSync } from 'node:fs'
@@ -223,14 +223,32 @@ function rowDifferences(live: Projection, replayed: Projection): string[] {
   return differences
 }
 
+interface Snapshot {
+  liveDump: string
+  through: number
+  events: Record<string, SQLOutputValue>[]
+}
+
+function oneSnapshot(db: DatabaseSync): Snapshot {
+  db.exec('BEGIN')
+  try {
+    const liveDump = projectionDump(db)
+    const through = replayCutOff(db)
+    const events = db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all()
+    return { liveDump, through, events }
+  }
+  finally {
+    db.exec('COMMIT')
+  }
+}
+
 export function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
-  const liveDump = projectionDump(db)
+  const { liveDump, through, events } = oneSnapshot(db)
   const live = Buffer.from(liveDump)
-  const through = replayCutOff(db)
   const replay = openBus(':memory:')
   try {
     const insert = replay.prepare(`INSERT INTO events (${ALL_EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    for (const row of db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all()) {
+    for (const row of events) {
       if (Number(row.id) <= through || FOLDED_ON_APPEND.has(String(row.type)))
         insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
     }
