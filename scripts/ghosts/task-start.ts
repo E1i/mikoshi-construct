@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Card } from '../../src/card/grammar.js'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CheapForecast } from '../../src/commands/cost/index.js'
@@ -69,7 +70,8 @@ type Admission
     | { kind: 'admitted', by: 'waiver', reason: string }
     | { kind: 'refused', reason: string }
 
-const LATEST_ADMISSION = `SELECT ts, dedupe_key FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LATEST_ADMISSION = `SELECT ts, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+const ADMITTED_INTAKE = `SELECT payload FROM events WHERE legacy = 1 AND dedupe_key = ?`
 const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
 const STARTER_SESSION_BY_HAND = 'by-hand'
 
@@ -98,11 +100,32 @@ function sameCard(recorded: string, card: Card): boolean {
   return parsed.kind === 'card' && cardLine(parsed.card) === cardLine(card)
 }
 
+function stringField(json: string, field: string): string | undefined {
+  try {
+    const value = (JSON.parse(json) as Record<string, unknown>)[field]
+    return typeof value === 'string' ? value : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+function admittedCardLine(db: DatabaseSync, admittedPayload: string): string | undefined {
+  const source = stringField(admittedPayload, 'admission')
+  const intake = source === undefined ? undefined : db.prepare(ADMITTED_INTAKE).get(source) as { payload: string } | undefined
+  return intake === undefined ? undefined : stringField(intake.payload, 'card')
+}
+
 function busAdmission(bus: string, card: Card): Admission | undefined {
   const db = openBus(bus)
   try {
-    const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as { ts: string, dedupe_key: string } | undefined
-    return admitted === undefined ? undefined : { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts }
+    const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as { ts: string, dedupe_key: string, payload: string } | undefined
+    if (admitted === undefined)
+      return undefined
+    const admittedLine = admittedCardLine(db, admitted.payload)
+    if (admittedLine !== undefined && !sameCard(admittedLine, card))
+      return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through construct intake, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
+    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts }
   }
   finally {
     db.close()

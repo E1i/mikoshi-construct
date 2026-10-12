@@ -39,7 +39,7 @@ import { VERIFICATION_WORDS } from '../board/verification.js'
 import { MERGE_DONE } from '../bus/card-automaton.js'
 import { WAITING } from '../bus/chain.js'
 import { defaultBusPath } from '../bus/db.js'
-import { POLICY_DENIED } from '../bus/inbox.js'
+import { CARD_STARTED, POLICY_DENIED } from '../bus/inbox.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { briefEffort, EXPECT_LINE_INDEX, parseExpect } from '../ghosts/expect.js'
@@ -813,7 +813,7 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
       return stopped('fault', step.why)
     if (worktree === undefined) {
       if (step.kind !== 'brief')
-        return stopped('fault', `card #${card.id} has no task:start line in ${path.join(deps.handoffDir, GHOST_JOURNAL)}, so the ${step.kind} step has no tree`)
+        return stopped('fault', `card #${card.id} has no ${CARD_STARTED} in the bus${deps.bus === undefined ? '' : ` ${deps.bus}`} and no task:start line of a legacy start in ${path.join(deps.handoffDir, GHOST_JOURNAL)}, so the ${step.kind} step has no tree`)
       const start = startTask(deps, task, dir, base.session, parking, handed)
       if (start.exitCode !== 0 || start.worktree === undefined)
         return result(null, { refused: start.stderr.join(' '), exit: null })

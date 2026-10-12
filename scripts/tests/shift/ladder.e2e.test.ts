@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { CARD_STARTED } from '../../bus/inbox.js'
 import { approvedHashPath } from '../../ghosts/approval.js'
 import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
@@ -305,6 +306,15 @@ describe('an approved brief is launched by the next step', () => {
     const { gh } = fakeGh(PR_CARDS)
     await runShift([path.join(world.root, 'shift-2'), '--parking', world.parking], ladderDeps(world, gh, captured(), noEntry))
     expect(eventsOf(world, 'stop').at(-1)).toMatchObject({ at: 'fault', why: 'the launch step did not advance the card' })
+  })
+
+  it('an approved brief whose start is in neither the bus nor the journal stops at fault naming both', async () => {
+    const world = newLadderWorld()
+    await shiftOver(world, { morse: 'refuses' })
+    approve(world, 1)
+    const emptyBus = { ...world, bus: path.join(world.root, 'empty-bus', 'bus.db') }
+    await shiftOver(emptyBus, { launch: 'running' }, path.join(world.root, 'shift-2'))
+    expect(eventsOf(world, 'stop').at(-1)).toMatchObject({ at: 'fault', why: `card #1 has no ${CARD_STARTED} in the bus ${emptyBus.bus} and no task:start line of a legacy start in ${path.join(world.handoff, 'ghosts.jsonl')}, so the launch step has no tree` })
   })
 
   it('an approved brief is launched by the next step: a tree that is gone stops at fault and a dirty tree too', async () => {

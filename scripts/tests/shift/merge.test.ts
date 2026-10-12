@@ -14,10 +14,11 @@ import { POLICY_DENIED } from '../../bus/inbox.js'
 import { NetWatch } from '../../bus/netwatch.js'
 import { BusTick } from '../../bus/run.js'
 import { chainBusMerge } from '../../shift/chain-bus.js'
-import { busMerge, HANDED_TO_THE_BUS, isListed, prReviewLine, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
+import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
 import { cardBody as busCardBody, Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { captured, depsOf, eventsOf, fakeGh, newWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
+import { prReviewLine } from './fixtures/pr-review-line.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const GHOSTS_FILES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/ghosts-files.md'), 'utf8')

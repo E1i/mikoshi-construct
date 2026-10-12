@@ -166,14 +166,6 @@ export interface PrReview {
   commit: string
 }
 
-function prReviewEvent(review: PrReview, now: Date): Record<string, unknown> {
-  return { event: PR_REVIEW_EVENT, task: review.task, pr: review.pr, verdict: review.verdict, commit: review.commit, ts: now.toISOString() }
-}
-
-export function prReviewLine(review: PrReview, now: Date): string {
-  return `${JSON.stringify(prReviewEvent(review, now))}\n`
-}
-
 function asReview(line: string): PrReview | undefined {
   try {
     const entry = JSON.parse(line) as Partial<PrReview> & { event?: unknown } | null

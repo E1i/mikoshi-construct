@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
@@ -34,6 +35,12 @@ function admit(bus: string, ids: readonly number[]): void {
   const db = openBus(bus)
   for (const id of ids)
     appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'reducer', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:intake:${id}`, payload: { lane: 'lane-1', depends: [], decision: null, contour: null, admission: `intake:${id}` }, legacy: false })
+  db.close()
+}
+
+function recordIntake(bus: string, id: number, line: string): void {
+  const db = openBus(bus)
+  appendEvent(db, { ts: ADMITTED_TS, type: INTAKE_EVENT, actor: 'journal', cardId: id, pr: null, head: null, dedupeKey: `intake:${id}`, payload: { event: INTAKE_EVENT, task: String(id), card: line }, legacy: true })
   db.close()
 }
 
@@ -102,6 +109,25 @@ describe('task:start reads the admission from the bus and writes the start to it
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
     expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:41`, admitted: ADMITTED_TS } }])
+  })
+
+  it('a card admitted in the bus from an intake line for the same card starts, admitted by the bus', () => {
+    const world = newWorld()
+    recordIntake(world.bus, 79, card(79))
+    admit(world.bus, [79])
+    expect(runTaskStart(['feat/a7', '--card', card(79)], depsOf(world)).exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:79` } }])
+  })
+
+  it('a card whose line changed after its card.admitted is refused naming the admitted card', () => {
+    const world = newWorld()
+    const admitted = card(81, 'implement/ghosts/M/cheap/auto')
+    recordIntake(world.bus, 81, admitted)
+    admit(world.bus, [81])
+    const result = runTaskStart(['feat/a8', '--card', card(81)], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] card #81 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:intake:81: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(starts(world)).toEqual([])
   })
 
   it('a card with no card.admitted is refused naming the bus', () => {
