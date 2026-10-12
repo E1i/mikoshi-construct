@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
+import { INTAKE_MOVE_EVENT } from '../../../src/commands/intake/move.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
@@ -127,6 +128,21 @@ describe('task:start reads the admission from the bus and writes the start to it
     const result = runTaskStart(['feat/a8', '--card', card(81)], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[task:start] card #81 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:intake:81: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(starts(world)).toEqual([])
+  })
+
+  it('a card moved after its admission whose line then changed is refused naming the admitted card', () => {
+    const world = newWorld()
+    const admitted = card(83, 'implement/ghosts/M/cheap/auto')
+    recordIntake(world.bus, 83, admitted)
+    admit(world.bus, [83])
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: INTAKE_MOVE_EVENT, actor: 'journal', cardId: 83, pr: null, head: null, dedupeKey: 'move:83', payload: { event: INTAKE_MOVE_EVENT, task: '83', from: '/parking/lane-1', to: '/parking/lane-2' }, legacy: true })
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'reducer', cardId: 83, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:move:83`, payload: { lane: 'lane-2', depends: [], decision: null, contour: null, admission: 'move:83' }, legacy: false })
+    db.close()
+    const result = runTaskStart(['feat/a9', '--card', card(83)], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] card #83 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:move:83: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(starts(world)).toEqual([])
   })
 
