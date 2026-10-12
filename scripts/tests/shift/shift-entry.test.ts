@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -50,6 +51,7 @@ function shiftDeps(world: World, out: string[]): ShiftDeps {
     claude: 'true',
     header: HEADER,
     handoffDir: world.handoff,
+    bus: path.join(world.root, 'bus', 'bus.db'),
     readJournal: file => (existsSync(file) ? readFileSync(file, 'utf8') : '') + parkedCardLines(world.shift).map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: '2026-10-03T00:00:00.000Z' })}\n`).join(''),
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
@@ -79,7 +81,7 @@ function fieldsOf(rows: string[]): Record<string, string> {
   return Object.fromEntries(rows.filter(row => /^(?:CONTRACT|EXPECT) /.test(row)).slice(0, 2).map(row => [row.split(' ')[0]!, row.replace(/^\w+\s+\| /, '')]))
 }
 
-describe('the shift writes into the entry line the CONTRACT and the EXPECT it printed', () => {
+describe('the shift writes into the entry the CONTRACT and the EXPECT it printed', () => {
   it('writes the CONTRACT and the EXPECT it printed for a card with two touches', async () => {
     const world = newWorld()
     writeFileSync(path.join(world.shift, '01.md'), 'card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: a.ts, b/**\n\ndo a\n')
@@ -87,7 +89,7 @@ describe('the shift writes into the entry line the CONTRACT and the EXPECT it pr
     await runShift([world.shift], shiftDeps(world, out))
     const printed = fieldsOf(out)
     expect(printed.CONTRACT).toBe('implement · cheap · auto · touches a.ts, b/** · law not recorded in the task file')
-    const entry = readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).find(line => line.event === 'entry')!
+    const entry = cardStartedLines(path.join(world.root, 'bus', 'bus.db'))[0]!.entry as Record<string, unknown>
     expect(entry.CONTRACT).toBe(printed.CONTRACT)
     expect(entry.EXPECT).toBe(printed.EXPECT)
     expect(entry.schema).toBe(2)
@@ -109,7 +111,7 @@ describe('the shift writes into the entry line the CONTRACT and the EXPECT it pr
     writeFileSync(path.join(world.shift, '01.md'), 'card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: a.ts, b/**\n\ndo a\n')
     const out: string[] = []
     await runShift([world.shift], shiftDeps(world, out))
-    const entry = readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).find(line => line.event === 'entry')!
+    const entry = cardStartedLines(path.join(world.root, 'bus', 'bus.db'))[0]!.entry as Record<string, unknown>
     expect(fieldsOf(out).EXPECT).toContain('expect tokens ≈ 3k')
     expect(entry.EXPECT).toBe(fieldsOf(out).EXPECT)
   })

@@ -1,9 +1,12 @@
 import type { SweepDeps } from '../../worktrees/sweep.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_STARTED } from '../../bus/inbox.js'
+import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
 import { runSweep } from '../../worktrees/sweep.js'
 import { busMergesWhatIsHanded, captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
@@ -17,6 +20,24 @@ function sweepDeps(world: World, gh: (args: string[]) => string): SweepDeps {
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     gh,
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    bus: world.bus,
+  }
+}
+
+function startedByAnotherShift(world: World, other: string): void {
+  const read = openBus(world.bus)
+  const rows = read.prepare('SELECT ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy FROM events ORDER BY id').all() as unknown as { ts: string | null, type: string, actor: string | null, card_id: number | null, pr: number | null, head: string | null, dedupe_key: string, payload: string, legacy: number }[]
+  read.close()
+  rmSync(path.dirname(world.bus), { recursive: true, force: true })
+  const db = openBus(world.bus)
+  try {
+    for (const row of rows) {
+      const payload = row.type === CARD_STARTED ? row.payload.replaceAll(`"shift":"${world.shift}"`, `"shift":"${other}"`) : row.payload
+      appendEvent(db, { ts: row.ts, type: row.type, actor: row.actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: row.dedupe_key, payload: JSON.parse(payload) as unknown, legacy: row.legacy === 1 })
+    }
+  }
+  finally {
+    db.close()
   }
 }
 
@@ -60,7 +81,10 @@ describe('a shift sweeps the tree of its own card once it records that card\'s m
         swept.push(card)
         return { stdout: [], stderr: [], exitCode: 0 }
       },
-      readJournal: file => existsSync(file) ? readFileSync(file, 'utf8').replaceAll(`"shift":"${world.shift}"`, `"shift":"${other}"`) : null,
+      run: async (run) => {
+        startedByAnotherShift(world, other)
+        return runClaude(run)
+      },
     }))
     expect(eventsOf(world, 'merge').map(line => line.task)).toEqual(['1'])
     expect(swept).toEqual([])

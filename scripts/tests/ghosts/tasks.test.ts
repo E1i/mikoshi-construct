@@ -1,7 +1,9 @@
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { defaultBusPath } from '../../bus/db.js'
+import { cardSessionOf } from '../../bus/answer-source.js'
+import { defaultBusPath, openBus } from '../../bus/db.js'
+import { importJournal } from '../../bus/import.js'
 import { cardStartedLines, parseTasksFile, startedTree } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
@@ -149,14 +151,18 @@ describe('startedTree reads card.started from the bus', () => {
     }
   })
 
-  it('falls back to the path line of a card started by a chain before card.started, and when there is no bus', () => {
-    const bus = busWithCardStarted([{ cardId: 161, ts: '2026-10-06T09:00:00Z', payload: { worktree: '/w/bus-161', branch: 'feat/other' } }])
+  it('a card started by a chain with no card.started still has its tree found by startedTree through the path line, and answer does not fail on no_card_tree', () => {
+    const bus = busWithCardStarted([{ cardId: 161, ts: '2026-10-06T09:00:00Z', payload: { session: 's', worktree: '/w/bus-161', branch: 'feat/other' } }])
+    const pathLine = line({ worktree: '/w/journal-160', branch: 'feat/journal', session: 'chain-1', shift: '/shift' })
+    const db = openBus(bus.file)
     try {
-      const journal = line({ worktree: '/w/journal-160', branch: 'feat/journal' })
-      expect(startedTree(journal, card, bus.file)).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
-      expect(startedTree(journal, card, path.join(path.dirname(bus.file), 'absent.db'))).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
+      importJournal(db, pathLine)
+      expect(startedTree(pathLine, card, bus.file)).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
+      expect(startedTree(pathLine, card, path.join(path.dirname(bus.file), 'absent.db'))).toEqual({ worktree: '/w/journal-160', branch: 'feat/journal' })
+      expect(cardSessionOf(db, 160)).toEqual({ session: 'chain-1', worktree: '/w/journal-160', branch: 'feat/journal' })
     }
     finally {
+      db.close()
       bus.remove()
     }
   })

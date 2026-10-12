@@ -196,6 +196,13 @@ export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: str
   })
 }
 
+export function leaseQueued(db: DatabaseSync, ts: string, key: string, actor: string): Lease | null {
+  return inTransaction(db, () => {
+    const row = rowOf(db, key)
+    return row?.state === QUEUED ? leased(db, ts, row, actor) : null
+  })
+}
+
 export interface Waiting {
   taskKey: string
   cardId: number

@@ -1,18 +1,24 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
-import type { ReviewStatus } from '../../ghosts/verdict.js'
+import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
+import type { MergeResult } from '../../shift/merge.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MERGE_DONE } from '../../bus/card-automaton.js'
+import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { POLICY_DENIED } from '../../bus/inbox.js'
+import { NetWatch } from '../../bus/netwatch.js'
+import { BusTick } from '../../bus/run.js'
 import { chainBusMerge } from '../../shift/chain-bus.js'
-import { busMerge, HANDED_TO_THE_BUS, isListed, prReviewLine, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
+import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
+import { cardBody as busCardBody, Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { captured, depsOf, eventsOf, fakeGh, newWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
+import { prReviewLine } from './fixtures/pr-review-line.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const GHOSTS_FILES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/ghosts-files.md'), 'utf8')
@@ -207,40 +213,76 @@ describe('isListed', () => {
 })
 
 describe('runVerdict', () => {
-  const NOW = new Date('2026-10-09T03:00:00.000Z')
-
-  function verdictRun(argv: string[], publish: (status: ReviewStatus) => void): { appended: string[], result: ReturnType<typeof runVerdict> } {
-    const appended: string[] = []
-    const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: HEAD, files: [{ path: 'scripts/board/derive.ts' }] })
-    const result = runVerdict(argv, { gh, journal: 'ghosts.jsonl', append: (_, text) => appended.push(text), now: () => NOW, publish })
-    return { appended, result }
+  interface VerdictBench {
+    db: DatabaseSync
+    bus: string
+    journal: string
+    statuses: ReviewStatus[]
+    run: (argv: string[], publish?: StatusPublisher, session?: string) => Promise<MergeResult>
   }
 
-  it.each([
-    { verdict: 'pass', state: 'success' },
-    { verdict: 'changes', state: 'failure' },
-  ])('posts the review status on the reviewed commit of a cheap PR: $verdict is $state', ({ verdict, state }) => {
-    const posted: ReviewStatus[] = []
-    const { appended, result } = verdictRun(['42', '--verdict', verdict, '--commit', HEAD], status => posted.push(status))
-    expect(result.exitCode).toBe(0)
-    expect(appended).toHaveLength(1)
-    expect(posted).toEqual([{ commit: HEAD, state, context: 'review', description: `review verdict ${verdict} for task 7` }])
+  function verdictBench(pr = 42): VerdictBench {
+    const root = mkdtempSync(path.join(tmpdir(), 'shift-verdict-'))
+    const bus = path.join(root, 'bus.db')
+    const journal = path.join(root, 'ghosts.jsonl')
+    const db = openBus(bus)
+    const gitHub = new FakeGitHub()
+    const clock = new Clock()
+    gitHub.open({ number: pr })
+    new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+    const statuses: ReviewStatus[] = []
+    const posted: StatusPublisher = status => statuses.push(status)
+    const gh = (): string => JSON.stringify({ body: busCardBody(pr), headRefOid: sha('a'), files: [{ path: 'scripts/board/derive.ts' }] })
+    return { db, bus, journal, statuses, run: (argv, publish = posted, session = 'reviewer-1') => runVerdict(argv, { gh, gitHub: gitHub.client, bus, session, now: clock.now, publish }) }
+  }
+
+  function recorded(db: DatabaseSync): Record<string, unknown>[] {
+    return db.prepare(`SELECT payload FROM events WHERE type = '${REVIEW_RECORDED}' ORDER BY id`).all().map(row => JSON.parse(String(row.payload)) as Record<string, unknown>)
+  }
+
+  it('shift:merge --verdict records the verdict in the bus and nothing in the journal', async () => {
+    const { db, bus, journal, statuses, run } = verdictBench()
+    const result = await run(['42', '--verdict', 'changes', '--commit', sha('a')])
+    expect(result).toEqual({ stdout: [`[shift:verdict] #142 PR #42 changes at ${sha('a')} recorded in the bus ${bus}; a chain arms its auto-merge only after a pass at its head, and only at ${sha('a')}`], stderr: [], exitCode: 0 })
+    expect(recorded(db)).toMatchObject([{ head: sha('a'), verdict: 'changes', reviewer_session: 'reviewer-1', depth_why: 'the verdict was given by shift:merge --verdict' }])
+    expect(statuses).toEqual([{ commit: sha('a'), state: 'failure', context: 'review', description: 'review verdict changes for card #142 by reviewer-1' }])
+    expect(existsSync(journal)).toBe(false)
+    db.close()
   })
 
-  it('posts nothing for a commit that is not the head', () => {
-    const posted: ReviewStatus[] = []
-    const { appended, result } = verdictRun(['42', '--verdict', 'pass', '--commit', 'f00dfee'], status => posted.push(status))
+  it('a pass is posted as a success review status on the reviewed head', async () => {
+    const { db, statuses, run } = verdictBench()
+    expect((await run(['42', '--verdict', 'pass', '--commit', sha('a')])).exitCode).toBe(0)
+    expect(statuses.map(status => status.state)).toEqual(['success'])
+    db.close()
+  })
+
+  it('records nothing for a commit that is not the head', async () => {
+    const { db, statuses, run } = verdictBench()
+    const result = await run(['42', '--verdict', 'pass', '--commit', 'f00dfee'])
     expect(result.exitCode).toBe(1)
-    expect([appended, posted]).toEqual([[], []])
+    expect([recorded(db), statuses]).toEqual([[], []])
+    db.close()
   })
 
-  it('reports a status gh could not post after the journal line is written', () => {
-    const { appended, result } = verdictRun(['42', '--verdict', 'pass', '--commit', HEAD], () => {
+  it('refuses naming the bus when the pull request has no review task queued at the head', async () => {
+    const { db, bus, run } = verdictBench()
+    expect((await run(['42', '--verdict', 'pass', '--commit', sha('a')])).exitCode).toBe(0)
+    const again = await run(['42', '--verdict', 'pass', '--commit', sha('a')])
+    expect(again).toEqual({ stdout: [], stderr: [`[shift:verdict] PR #42 has no review task queued at ${sha('a')} in the bus ${bus}; nothing recorded`], exitCode: 1 })
+    expect(recorded(db)).toHaveLength(1)
+    db.close()
+  })
+
+  it('a status gh could not post is a denial the bus records, and no verdict', async () => {
+    const { db, run } = verdictBench()
+    const result = await run(['42', '--verdict', 'pass', '--commit', sha('a')], () => {
       throw new Error('gh: HTTP 403\nmore')
     })
-    expect(appended).toHaveLength(1)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[shift:verdict] the journal line is written, but the review status on ${HEAD} was not posted: gh: HTTP 403`])
+    expect(result.stderr[0]).toMatch(/^\[shift:verdict\] the bus denied the verdict on PR #42 at [0-9a-f]{40}: github_error \(gh: HTTP 403/)
+    expect(recorded(db)).toEqual([])
+    db.close()
   })
 })
 

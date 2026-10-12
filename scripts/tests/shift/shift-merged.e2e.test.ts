@@ -63,6 +63,7 @@ function depsOf(world: World, gh: (args: string[]) => string, out: string[], err
     claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
+    bus: path.join(world.root, 'bus', 'bus.db'),
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),

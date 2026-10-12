@@ -1,4 +1,4 @@
-import type { SignalStyle } from '../../src/ui/signal.js'
+import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BudgetLine } from '../board/eddies.js'
 import type { GhRunner, PrList } from '../board/gh.js'
 import type { TaskLine } from './places.js'
@@ -9,11 +9,13 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { closedTasks } from '../../src/card/closed.js'
 import { cardHead } from '../../src/card/grammar.js'
-import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
+import { PLAIN_STYLE, renderSignal, SIGNAL_FIELDS, terminalStyle } from '../../src/ui/signal.js'
 import { readBudgetLines } from '../board/eddies.js'
 import { execGh, listPrs, lookupPr } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { defaultBusPath } from '../bus/db.js'
 import { entryOf } from '../ghosts/entry.js'
+import { cardStartedLines } from '../ghosts/tasks.js'
 import { EXIT_REASON_TEXT, MAX_RESTARTS } from './continuation.js'
 import { exitedWithoutReport, GHOST_JOURNAL, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 
@@ -30,6 +32,16 @@ export interface ReportDeps {
   out: (line: string) => void
   err: (line: string) => void
   style?: SignalStyle
+  bus?: string
+}
+
+function isSignal(value: unknown): value is Signal {
+  return value !== null && typeof value === 'object' && SIGNAL_FIELDS.every(field => typeof (value as Record<string, unknown>)[field] === 'string')
+}
+
+function startedEntries(bus: string | undefined): Map<string, Signal> {
+  const starts = bus === undefined ? [] : cardStartedLines(bus)
+  return new Map(starts.flatMap(start => isSignal(start.entry) ? [[start.task, start.entry] as const] : []))
 }
 
 function taskLines(text: string): TaskLine[] {
@@ -131,11 +143,13 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const ghostText = deps.read(ghostJournal)
   const closed = closedTasks(ghostText)
+  const started = startedEntries(deps.bus)
+  const searched = deps.bus === undefined ? ghostJournal : `the bus ${deps.bus} or in ${ghostJournal}`
   for (const line of lines) {
-    const entry = entryOf(ghostText ?? '', line.task)
+    const entry = started.get(line.task) ?? entryOf(ghostText ?? '', line.task)
     const block = renderSignal(taskCell(line), {
-      CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${ghostJournal}: no entry line for #${line.task}`,
-      EXPECT: entry?.EXPECT ?? `expect not recorded in ${ghostJournal}: no entry line for #${line.task}`,
+      CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${searched}: no entry line for #${line.task}`,
+      EXPECT: entry?.EXPECT ?? `expect not recorded in ${searched}: no entry line for #${line.task}`,
       ACTION: `claude session ${sessionsOf(line).join(', then ')} on ${line.branch}, ${durationCell(line.started, line.ended)}`,
       RESULT: `exit ${exitCell(line)} · ${prCell(prs, line)} · ${closedCell(closed, line)} · ${restartsCell(line)} · eddies stop ${eddiesCell(deps, line)} · report: ${reportCell(deps, dir, line)}`,
     }, deps.style ?? PLAIN_STYLE, succeeded(line) ? undefined : 'red')
@@ -152,6 +166,7 @@ function realDeps(): ReportDeps {
     gh: execGh,
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     budget: worktree => readBudgetLines(worktree),
+    bus: defaultBusPath(),
     out: line => console.log(line),
     err: line => console.error(line),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),

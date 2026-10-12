@@ -21,7 +21,7 @@ import { gitReviewPlanner } from './depth-sources.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
-import { completeTask, expireLeases, failTask, leaseNext, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
+import { completeTask, expireLeases, failTask, leaseNext, leaseQueued, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { cardBodyShaOfCard } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
@@ -104,11 +104,18 @@ export class ReviewWorker {
   }
 
   async step(): Promise<Step> {
-    const { db } = this.parts
-    expireLeases(db, this.ts())
-    const lease = leaseNext(db, this.ts(), 'review', this.actor)
-    if (lease === null)
-      return { kind: 'idle' }
+    expireLeases(this.parts.db, this.ts())
+    const lease = leaseNext(this.parts.db, this.ts(), 'review', this.actor)
+    return lease === null ? { kind: 'idle' } : this.review(lease)
+  }
+
+  async stepOn(key: string): Promise<Step> {
+    expireLeases(this.parts.db, this.ts())
+    const lease = leaseQueued(this.parts.db, this.ts(), key, this.actor)
+    return lease === null ? { kind: 'idle' } : this.review(lease)
+  }
+
+  private async review(lease: Lease): Promise<Step> {
     const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime())
     if (stale?.kind === 'technical' && stale.reason === CI_NOT_READY)
       return this.waiting(lease, stale.detail)
@@ -116,7 +123,7 @@ export class ReviewWorker {
       return this.denied(lease, stale)
     const heartbeat = setInterval(() => {
       try {
-        renewLease(db, this.ts(), lease)
+        renewLease(this.parts.db, this.ts(), lease)
       }
       catch (error) {
         if (error instanceof StaleLease)
