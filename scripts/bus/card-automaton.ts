@@ -82,10 +82,18 @@ export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, linke
   moveCard(db, cardId, IN_REVIEW_CARD, eventId)
 }
 
+const LEGACY_ADMISSION = 'legacy:'
+
+function mergedBeforeTheCutover(db: DatabaseSync, cardId: number, before: number): boolean {
+  return db.prepare(`SELECT 1 FROM events WHERE legacy = 1 AND type = 'merge' AND card_id = ? AND id < ? LIMIT 1`).get(cardId, before) !== undefined
+}
+
 function foldAdmitted(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_ADMITTED} needs a card_id`)
-  if (ADMITTED_AGAIN.has(stateOf(db, cardId)))
-    moveCard(db, cardId, QUEUED_CARD, event.id)
+  if (!ADMITTED_AGAIN.has(stateOf(db, cardId)))
+    return
+  const imported = String(payloadOf(event).admission ?? '').startsWith(LEGACY_ADMISSION)
+  moveCard(db, cardId, imported && mergedBeforeTheCutover(db, cardId, event.id) ? MERGED_CARD : QUEUED_CARD, event.id)
 }
 
 function foldReviewRecorded(db: DatabaseSync, event: StoredEvent): void {
@@ -103,9 +111,17 @@ function foldStarted(db: DatabaseSync, event: StoredEvent): void {
   claimed(db, event, new Set([QUEUED_CARD]), RUNNING_CARD)
 }
 
+function backInWork(db: DatabaseSync, cardId: number): string {
+  return linkedPrState(db, cardId) === 'open' ? IN_REVIEW_CARD : QUEUED_CARD
+}
+
+export function cardReleased(db: DatabaseSync, cardId: number, eventId: number): void {
+  moveCard(db, cardId, backInWork(db, cardId), eventId)
+}
+
 function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_ANSWERED} needs a card_id`)
-  claimed(db, event, ANSWERED, linkedPrState(db, cardId) === 'open' ? IN_REVIEW_CARD : QUEUED_CARD)
+  claimed(db, event, ANSWERED, backInWork(db, cardId))
 }
 
 function foldClosed(db: DatabaseSync, event: StoredEvent): void {

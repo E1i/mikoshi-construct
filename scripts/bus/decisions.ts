@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
-import { QUEUED_CARD, STOPPED_CARD } from './card-automaton.js'
+import { cardReleased, STOPPED_CARD } from './card-automaton.js'
 import { appendEvent } from './db.js'
 import { CARD_STOPPED, DECISION_RECORDED, OWNER, QUESTION_OWNER } from './inbox.js'
 import { NETWATCH } from './observations.js'
@@ -63,7 +63,7 @@ function cardState(db: DatabaseSync, cardId: number): string | null | undefined 
 function answerQuestions(db: DatabaseSync, cards: readonly number[], eventId: number): void {
   for (const cardId of cards) {
     if (cardState(db, cardId) === STOPPED_CARD && lastStopReason(db, cardId, eventId) === QUESTION_OWNER)
-      db.prepare('UPDATE cards SET state = ?, event_id = ? WHERE card_id = ?').run(QUEUED_CARD, eventId, cardId)
+      cardReleased(db, cardId, eventId)
   }
 }
 

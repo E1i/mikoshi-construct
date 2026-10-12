@@ -284,6 +284,15 @@ describe('the card automaton', () => {
     db.close()
   })
 
+  it('an imported admission of a card merged before the cutover leaves it merged, and of a card never merged queues it', () => {
+    const legacyMerge = event('merge', { actor: null as unknown as string, cardId: 795, dedupeKey: 'legacy:1:merge', payload: { event: 'merge', task: '795', by: 'owner' }, legacy: true })
+    const imported = (cardId: number): BusEvent => event('card.admitted', { actor: 'reducer', cardId, payload: { lane: 'archive', depends: [], admission: `legacy:${cardId}:sha` } })
+    const db = busWith(legacyMerge, imported(795), imported(796))
+    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[795, 'merged'], [796, 'queued']])
+    db.close()
+  })
+
   it('facts imported after the card moved on are folded without a rejection', () => {
     const db = busWith(observed(800, 793), closed(800, true), event('card.closed', { actor: 'worker:close:c1', cardId: 793, payload: { verification: 'run' } }), admitted(793), event('review.recorded', { actor: 'worker:review:r1', cardId: 794, payload: { verdict: 'pass' } }))
     expect(reduce(db)).toEqual({ applied: 5, rejected: 0 })
