@@ -6,7 +6,7 @@ brief=$(printf '%s\n' "$prompt" | sed -n 's/.*write the brief to `\([^`]*\)`.*/\
 case "$prompt" in
   *STUB-BRIEF-WRITE*)
     if [ -n "$brief" ]; then
-      printf '/implement stub brief\nSketch: none — stub\n' > "$brief"
+      printf '/implement stub brief\nSketch: none — stub\nexpect: tokens ≈ 1k, minutes ≈ 1 — effort low, n=9, median, p25–p75 1k–2k\n' > "$brief"
     fi
     ;;
 esac
