@@ -1,7 +1,11 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
+import { appendFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { amendReleases, choose, failedCards, latestStops, standingStops } from '../../shift/parking.js'
+import { runShift } from '../../shift/shift.js'
+import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 
 function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift', depends = '—'): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [${kind}] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who}\n\ndo ${id}\n`)
@@ -103,5 +107,42 @@ describe('depends failed', () => {
     expect([...failed]).toEqual(['1'])
     const choice = choose([parked(3, undefined, 'shift', '#1'), parked(4, undefined, 'shift', '#2')], new Set(), new Set(), standing, () => false, failed)
     expect(choice.left).toEqual([{ id: '3', reason: 'depends failed #1' }, { id: '4', reason: 'depends #2 not merged' }])
+  })
+})
+
+describe('a cheap card whose question stop was answered by an amend', () => {
+  const askedThenAmended = async (amend: boolean): Promise<{ world: ReturnType<typeof newWorld>, gh: ReturnType<typeof fakeGh>['gh'] }> => {
+    const world = newWorld([{ id: 1, body: 'do 1 STUB-QUESTION STUB-NO-PR' }])
+    const { gh } = fakeGh({ 101: cardLine(1) })
+    await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, captured()))
+    writeFileSync(path.join(world.parking, '1.md'), `card: ${cardLine(1)}\nbranch: feat/1\ntouches: scripts/1/**\nwho: shift\n\ndo 1 STUB-VERIFIED-run STUB-PR-101\n`)
+    if (amend)
+      appendFileSync(world.journal, `${JSON.stringify({ event: 'intake', task: '1', card: cardLine(1), confirmation: 'none', corrections: [], source: 'amend', ts: '2026-10-06T02:00:00.000Z' })}\n`)
+    return { world, gh }
+  }
+
+  it('the shift chooses it again while its tree exists', async () => {
+    const { world, gh } = await askedThenAmended(true)
+    const check = captured()
+    await runShift([path.join(world.root, 'check-1'), '--parking', world.parking, '--check'], depsOf(world, gh, check))
+    expect(check.out).toContain('[shift] parking: takes #1')
+  })
+
+  it('a released cheap card starts again in its recorded tree', async () => {
+    const { world, gh } = await askedThenAmended(true)
+    const again = captured()
+    await runShift([path.join(world.root, 'shift-2'), '--parking', world.parking], depsOf(world, gh, again))
+    expect(again.out.join('\n')).toContain(`resumes ${path.join(world.root, 'mc-1')}`)
+    expect([...again.out, ...again.err].join('\n')).not.toContain('already exists')
+    expect(stubRuns(world, 1)).toBe(2)
+    expect(eventsOf(world, 'stop')).toHaveLength(1)
+  })
+
+  it('without the amend the card still waits question and nothing runs', async () => {
+    const { world, gh } = await askedThenAmended(false)
+    const again = captured()
+    await runShift([path.join(world.root, 'check-1'), '--parking', world.parking, '--check', '--queue'], depsOf(world, gh, again))
+    expect(again.out).toContain('[shift] parking: leaves #1 (waits question)')
+    expect(stubRuns(world, 1)).toBe(1)
   })
 })

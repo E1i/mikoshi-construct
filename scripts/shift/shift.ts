@@ -62,7 +62,7 @@ import { changedFiles, COMMIT_FLAG, HANDED_TO_THE_BUS, latestPrReview, PREFIX as
 import { osascriptNotify } from './notify.js'
 import { OUTCOMES_FILE, outcomesPath, outcomesTable, skippedOutcomes } from './outcomes.js'
 import { openPrWarnings, taskConflicts } from './overlap.js'
-import { dependencyWaits, FAILED_AT, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, readParking, taskFiles, waitingLine } from './parking.js'
+import { amendedTree, dependencyWaits, FAILED_AT, isClosed, LADDER_REASON, latestStops, leftLine, leftSummary, nextInPipeline, QUEUE_FILE, queueText, readParking, taskFiles, waitingLine } from './parking.js'
 import { eddiesJournalPath, exitedWithoutReport, GHOST_JOURNAL, logPath, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 import { continuationBody, renderPrompt } from './prompt.js'
 import { delegatedMerge, recordInBus, shardRefusal, slotRefusal, usedEvent, usedLine } from './shard.js'
@@ -637,14 +637,24 @@ function startDeps(deps: ShiftDeps, dir: string, session: string, parking: strin
   return { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
 }
 
+function taskTree(deps: ShiftDeps, dir: string, task: ShiftTask, session: string, handed: HandedContract, parking: string | undefined): { worktree: string } | { refused: string } {
+  const resumed = amendedTree(deps.readJournal(path.join(deps.handoffDir, GHOST_JOURNAL)), task.id, deps.exists)
+  if (resumed !== null) {
+    deps.out(`${PREFIX}${task.file} ${task.id}: resumes ${resumed}, its stop answered by an amend`)
+    return { worktree: resumed }
+  }
+  const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
+  return start.exitCode !== 0 || start.worktree === undefined ? { refused: start.stderr.join(' ') } : { worktree: start.worktree }
+}
+
 async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined, afterReview: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
-  const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
-  if (start.exitCode !== 0 || start.worktree === undefined) {
-    return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
+  const tree = taskTree(deps, dir, task, session, handed, parking)
+  if ('refused' in tree) {
+    return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: tree.refused }, stop: null }
   }
-  const places = { worktree: start.worktree, report: reportPath(dir, task.number), number: task.number }
+  const places = { worktree: tree.worktree, report: reportPath(dir, task.number), number: task.number }
   return finishTask(deps, task, base, places, await runSessions(deps, dir, task, claude, places, session, manual), shard, afterReview)
 }
 

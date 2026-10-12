@@ -103,6 +103,11 @@ export function amendReleases(journal: string | null): (stop: Stop) => boolean {
   return stop => AMEND_RELEASES.includes(stop.at) && amended.has(stop.task)
 }
 
+export function amendedTree(journal: string | null, task: string, exists: (target: string) => boolean): string | null {
+  const stop = latestStops(journal).get(task)
+  return stop !== undefined && stop.worktree !== null && amendReleases(journal)(stop) && exists(stop.worktree) ? stop.worktree : null
+}
+
 export function standingStops(stops: ReadonlyMap<string, Stop>, exists: (target: string) => boolean, released: (stop: Stop) => boolean = () => false): Map<string, StopAt> {
   const standing = new Map<string, StopAt>()
   for (const [task, stop] of stops) {
