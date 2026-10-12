@@ -4,6 +4,7 @@ import type { GhRunner } from '../board/gh.js'
 import type { ChangedFile, Prediction } from '../morse/rules.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
+import { MATRIX_COUNT_LINE } from './merge.js'
 
 export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
 
@@ -74,8 +75,13 @@ function pathLine(git: TreePrPorts['git'], worktree: string, contour: Contour): 
   }
 }
 
-function prBodyOf(card: TreeCard, path: string): string {
-  return `${card.cardLine}\n\n${path}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
+export function matrixCountLineOf(report: string | null): string | undefined {
+  return report === null ? undefined : MATRIX_COUNT_LINE.exec(report)?.[0]
+}
+
+function prBodyOf(card: TreeCard, path: string, countLine: string | undefined): string {
+  const body = `${card.cardLine}\n\n${path}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
+  return countLine === undefined ? body : `${body}\n\n${countLine}`
 }
 
 function openPrOf(ports: TreePrPorts, branch: string): string | null {
@@ -96,14 +102,14 @@ export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch:
   return 'pushed'
 }
 
-export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string): TreePr {
+export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, report: string | null): TreePr {
   try {
     if (commitAndPush(ports.git, worktree, card.branch, card.commitMessage) === 'clean')
       return { kind: 'clean' }
     const open = openPrOf(ports, card.branch)
     if (open !== null)
       return { kind: 'pr', number: open }
-    const body = prBodyOf(card, pathLine(ports.git, worktree, card.contour))
+    const body = prBodyOf(card, pathLine(ports.git, worktree, card.contour), matrixCountLineOf(report))
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
     return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }

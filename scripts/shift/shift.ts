@@ -437,7 +437,7 @@ function prAfterSession(deps: ShiftDeps, task: ShiftTask, session: { worktree: s
       closeProbeFromReport(deps, task, session, text)
     return undefined
   }
-  const fromTree: TreePr = endedWhole ? treePr(deps, shiftTreeCard(task), session.worktree) : { kind: 'clean' }
+  const fromTree: TreePr = endedWhole ? treePr(deps, shiftTreeCard(task), session.worktree, text) : { kind: 'clean' }
   if (fromTree.kind === 'problem')
     return { problem: fromTree.why }
   const pr = fromTree.kind === 'pr' ? fromTree.number : text === null ? undefined : REPORT_PR_LINE.exec(text)?.[1]
