@@ -8,9 +8,9 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { renderBoard } from '../../bus/board-page.js'
 import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
+import { MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { MERGE_DONE } from '../../bus/executor.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
@@ -234,7 +234,7 @@ describe('the factory board', () => {
     const contract = new Map(bench.tick().contract.map(link => [link.link, link]))
     expect([...contract.values()].filter(link => !link.green).map(link => link.link)).toEqual(['launch', 'Shard', 'automaton', 'one writer'])
     expect(contract.get('one writer')?.fact).toBe('no bus.cutover recorded')
-    expect(contract.get('automaton')?.fact).toBe('0 pr.opened, 1 cards without state')
+    expect(contract.get('automaton')?.fact).toBe('0 pr.opened, 0 cards without state')
     expect(contract.get('replay')?.fact).toBe('matches')
   })
 

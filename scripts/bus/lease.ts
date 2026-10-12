@@ -2,10 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
+import { CARD_FOLDED_ON_APPEND, CARD_FOLDS } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED } from './inbox.js'
 import { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
+import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
 export const TASK_LEASED = 'task.leased'
@@ -167,6 +169,11 @@ function folded(db: DatabaseSync, event: BusEvent): void {
     LEASE_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
 }
 
+function appendedOnCard(db: DatabaseSync, event: BusEvent): void {
+  if (appendEvent(db, event) && CARD_FOLDED_ON_APPEND.includes(event.type))
+    appliedOrRejected(db, storedByKey(db, event.dedupeKey), CARD_FOLDS[event.type]!)
+}
+
 function held(db: DatabaseSync, lease: Lease): LeaseRow {
   const row = rowOf(db, lease.taskKey)
   if (row === undefined || row.state !== LEASED || row.lease_gen !== lease.leaseGen)
@@ -242,7 +249,7 @@ export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome
     const row = held(db, lease)
     stillDue(db)
     for (const event of outcome)
-      appendEvent(db, event)
+      appendedOnCard(db, event)
     folded(db, taskEvent(ts, TASK_COMPLETED, lease.actor, row, lease.leaseGen, `${TASK_COMPLETED}:${row.task_key}:${lease.leaseGen}`))
   })
 }
@@ -256,11 +263,11 @@ function afterFailure(row: LeaseRow, failure: Failure): AfterFailure {
 function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, context: BusEvent[]): AfterFailure {
   const next = afterFailure(row, failure)
   for (const event of context)
-    appendEvent(db, event)
+    appendedOnCard(db, event)
   folded(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next }))
   if (next === STOPPED) {
     const detail = `${FAILURES_TO_STOP} failures in a row on ${row.task_key}, the last: ${failure.reason}`
-    appendEvent(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })
+    appendedOnCard(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })
     appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${row.task_key}`, payload: { task_key: row.task_key, reason: 'fault', failures: row.failures + 1, detail }, legacy: false })
   }
   return next
@@ -274,7 +281,7 @@ export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: 
   inTransaction(db, () => {
     const row = held(db, lease)
     for (const event of context)
-      appendEvent(db, event)
+      appendedOnCard(db, event)
     folded(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason }))
   })
 }

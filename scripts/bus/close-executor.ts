@@ -10,12 +10,11 @@ import { VERIFICATION_WORDS } from '../board/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
 import { archiveCardFile } from './card-archive.js'
+import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent } from './db.js'
-import { MERGE_DONE } from './executor.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { CARD_CLOSED } from './queue.js'
-import { REVIEW_RECORDED } from './review-worker.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit'
 

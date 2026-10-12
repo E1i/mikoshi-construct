@@ -12,15 +12,18 @@ import { AnswerExecutor, SCOPE_WIDENED } from '../../bus/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answerer.js'
+import { readBoard } from '../../bus/board.js'
+import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { BOARD_ALARM, FAILURES_TO_STOP, identityOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { REVIEW_RECORDED } from '../../bus/review-worker.js'
+import { REJECTED } from '../../bus/rejection.js'
 import { SHARD_ISSUED } from '../../bus/shards.js'
 import { Rejection } from '../../bus/stored.js'
 import { moduleOf, wideningOf } from '../../bus/widening.js'
@@ -99,6 +102,7 @@ function answerBench() {
     answer: (lease: Lease): Promise<AnswerOutcome> => executor.answer(lease),
     started: (cardId: number, session = CARD_SESSION): void => {
       mkdirSync(treeOf(cardId), { recursive: true })
+      appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
       appendEvent(bench.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}:${session}`, payload: { session, worktree: treeOf(cardId), branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
     },
     stopped: (cardId: number, payload: object, pr: number | null = null, head: string | null = null): void => {
@@ -466,6 +470,55 @@ describe('the answer queue', () => {
     expect(taskState(bench.db, key).state).toBe('completed')
     expect(eventsOf(bench.db, TASK_REQUEUED)).toEqual([])
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1180])
+    bench.close()
+  })
+
+  it('an owner decision naming a card stopped on question.owner returns its pull request to the answer queue on its current head, and its answer folds without a rejection', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a'), sha('a'), PUSHED]
+    bench.started(1170)
+    bench.gitHub.open({ number: 1070, review: 'failure' })
+    bench.tick()
+    const key = answer(1170, 1070, sha('a'))
+    const lease = bench.leaseAnswer()!
+    bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), 'may the card touch architecture/owner-merges.md?\n')
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', taskKey: key, reason: 'question.owner' })
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('completed')
+    expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = 1170').get()).toEqual({ state: 'stopped' })
+
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 95, text: 'the card may touch architecture/owner-merges.md', cards: [1170] })
+    bench.tick()
+
+    expect(taskState(bench.db, key)).toMatchObject({ state: 'queued' })
+    expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = 1170').get()).toEqual({ state: 'in_review' })
+    const released = bench.leaseAnswer()!
+    expect(released).toMatchObject({ taskKey: key, pr: 1070, head: sha('a') })
+
+    bench.tools.during = () => {}
+    expect(await bench.answer(released)).toMatchObject({ kind: 'answered', head: PUSHED })
+    bench.tick()
+    expect(reduce(bench.db)).toMatchObject({ rejected: 0 })
+    expect(eventsOf(bench.db, REJECTED)).toEqual([])
+    expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = 1170').get()).toEqual({ state: 'in_review' })
+    bench.close()
+  })
+
+  it('an answer that leaves no new head while changes stand on the current head stops the card with the reason in the detail and shows it on the board', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a')]
+    bench.started(1171)
+    bench.gitHub.open({ number: 1071, review: 'failure' })
+    bench.tick()
+    const key = answer(1171, 1071, sha('a'))
+    const detail = `the answer session ${CARD_SESSION} left ${key} at ${sha('a')}`
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault', detail })
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail }])
+    bench.tick()
+
+    const row = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], parking: [], leaseOrders: {} }).execution.find(each => each.card === 1171)
+    expect(row).toMatchObject({ pr: 1071, stage: 'fixes', markers: [`stopped fault: ${detail}`] })
     bench.close()
   })
 

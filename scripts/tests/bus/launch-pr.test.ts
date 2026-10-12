@@ -6,6 +6,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 
 const roots: string[] = []
@@ -90,7 +91,7 @@ function launchWorld(claudeExit: number, report = '') {
 
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
   const starter = new ShiftCardStarter(
-    { parking, launchDir, header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }, claude, treePr },
+    { parking, launchDir, header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: path.join(root, 'bus.db') }, claude, treePr },
     {
       read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
       cut: () => worktree,
