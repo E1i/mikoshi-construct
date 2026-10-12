@@ -81,6 +81,36 @@ Point every range in a template at the previous release, not the latest. Users r
 `minimumReleaseAge`; a range that only matches today's publish fails their first install. The
 places a bump touches are listed in CLAUDE.md.
 
+## One run, one temp root
+
+Every temp directory a run creates lives inside that run's root, and the run removes the root. The root
+is `mkr-<pid>-<random>`, directly in the system `$TMPDIR`, opened by `RunRoot` in
+`scripts/scratch/run-root.ts`; while it is open, `TMPDIR` and `CONSTRUCT_RUN_ROOT` point at it, so
+`os.tmpdir()`, `mktemp -d` and every child process that inherits the environment create inside it.
+`scratchDir(<prefix>)` there is the one way to make a temp directory: it creates it inside the
+current root, and a process that runs outside any root opens its own on first use. The prefix only
+names the directory for a person reading a listing; nothing checks it.
+
+`pnpm run quality` runs its steps under `scripts/scratch/run.ts`, and `vitest` opens a root in its
+global setup unless it already runs inside one. When the run ends, the root is removed, then
+`run.ts` waits a second and checks again: a root that still exists — a process the run left behind
+kept writing into it — turns the run red with `[run-root] <root> still exists after the run`, even
+when every step passed.
+
+The guarantee, as far as it goes:
+
+- A normal exit, a failure, a test timeout and the catchable signals `SIGINT`, `SIGTERM` and `SIGHUP`
+  remove the root at once.
+- `SIGKILL`, a crash of node itself and a power loss cannot run any cleanup. Their root stays until
+  the next root is opened in the same `$TMPDIR`: opening a root first removes every
+  `mkr-<pid>-*` whose pid is no longer alive.
+- A process that clears `TMPDIR` from its child's environment sends that child outside the root.
+
+A Unix socket path on macOS is limited to 104 bytes, and a tool that opens a socket under
+`os.tmpdir()` — the `tsx` CLI does — fails with `listen EINVAL` past it. The root's name is short so
+that it sits one level below `$TMPDIR`, and `RunRoot.open` refuses at once, creating nothing, a root
+whose path does not leave 24 bytes for a socket name below that limit.
+
 ## Scripts
 
 Every script in `package.json` has a row here, and `tests/contributing-scripts.test.ts` fails when a
@@ -93,7 +123,7 @@ and the journal, `<worktree>` for a Ghost's worktree.
 
 | Script | What it does | How to run it |
 |---|---|---|
-| `pnpm run quality` | The harness: runs `quality:steps` under `scripts/quality/lock.ts`, one lock per machine in `~/.construct/quality` (`CONSTRUCT_QUALITY_LOCK_DIR` moves it), so a second run in any worktree waits for the first; `lock.log` there records each `wait`, `start` and `end`, and a holder whose pid is gone is released as `stale`. | `pnpm run quality` |
+| `pnpm run quality` | The harness: runs `quality:steps` inside one temp root ([One run, one temp root](#one-run-one-temp-root)), under `scripts/quality/lock.ts`, one lock per machine in `~/.construct/quality` (`CONSTRUCT_QUALITY_LOCK_DIR` moves it), so a second run in any worktree waits for the first; `lock.log` there records each `wait`, `start` and `end`, and a holder whose pid is gone is released as `stale`. | `pnpm run quality` |
 | `pnpm quality:steps` | In the harness. `composition:check`, `model:check`, `privacy:check`, `lint`, `typecheck`, `test`, `docs:build`, `docs:pending` and `docs:anchors`, in that order, stopping at the first failure, without the lock. | `pnpm quality:steps` |
 | `pnpm run ci` | An alias of `quality`; `run` is needed because bare `pnpm ci` is pnpm's install builtin. | `pnpm run ci` |
 | `pnpm composition:check` | In the harness. Checks each composition model under `architecture/composition/`: named after its id, every path it names exists, its rendered doc current. | `pnpm composition:check` |
@@ -103,8 +133,8 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm privacy:check` | In the harness. Fails on a home path or an unlisted domain in templates, docs, README or fixtures. | `pnpm privacy:check` |
 | `pnpm lint` | In the harness. ESLint over the repository; it is the only formatter. | `pnpm lint` |
 | `pnpm lint:fix` | ESLint with `--fix`, the way to fix style; `lint` is its gate. | `pnpm lint:fix` |
-| `pnpm miko` | Runs Mikoshi in a loop in the current terminal: starts `$MIKO_CLAUDE` (default `claude --permission-mode auto`) with the prompt `прочитай mikoshi.md` when `~/.construct/handoff/mikoshi.md` exists and with no prompt when it does not, and when the session ends after changing the mtime of `~/.construct/handoff/mikoshi.md` (which Mikoshi writes through `pnpm handoff:write` at the limit, then ends its own process) starts the next one with the prompt `прочитай mikoshi.md`, whatever its exit code. A session that ends without writing that file, or a Ctrl+C the loop receives, ends the loop ([architecture/window.md § The boundary](architecture/window.md#the-boundary)). | `pnpm miko`, e.g. `MIKO_CLAUDE='GH_TOKEN=$(gh auth token --user E1i) caffeinate -dis claude --permission-mode auto' pnpm miko` |
-| `pnpm miko:exit` | Ends the claude process of the current Mikoshi window so that the `pnpm miko` loop starts the next session: it walks the process tree from itself to the nearest `claude` ancestor and refuses when there is none. Under a `scripts/miko/loop.ts` process that stands above that claude before any other claude, it refuses when `~/.construct/handoff/mikoshi.md` does not exist or, naming the file's age, was not written in the last two minutes (`FRESH_MS` in `scripts/miko/exit.ts`), and otherwise sends that claude `SIGTERM`. With no such loop above it, it writes `role.stopped` (role `miko`, reason `context`) to the bus for the restart queue and sends that claude `SIGTERM` when `mikoshi.md` was written in the last two minutes and its last `STATUS:` line is `STATUS: CONTINUE`; otherwise it refuses, naming the missing loop ([architecture/window.md § The boundary](architecture/window.md#the-boundary)). | `pnpm miko:exit` |
+| `pnpm miko` | Runs Mikoshi in a loop in the current terminal: starts `$MIKO_CLAUDE` (default `claude --permission-mode auto`) with the prompt `прочитай miko.md` when `~/.construct/handoff/miko.md` exists and with no prompt when it does not, and when the session ends after changing the mtime of `~/.construct/handoff/miko.md` (which Mikoshi writes through `pnpm handoff:write` at the limit, then ends its own process) starts the next one with the prompt `прочитай miko.md`, whatever its exit code. A session that ends without writing that file, or a Ctrl+C the loop receives, ends the loop. `~/.construct/handoff/mikoshi.md` is the Operator's handoff under `pnpm relaunch`, and the window never writes it ([architecture/window.md § The boundary](architecture/window.md#the-boundary)). | `pnpm miko`, e.g. `MIKO_CLAUDE='GH_TOKEN=$(gh auth token --user E1i) caffeinate -dis claude --permission-mode auto' pnpm miko` |
+| `pnpm miko:exit` | Ends the claude process of the current Mikoshi window so that the `pnpm miko` loop starts the next session: it walks the process tree from itself to the nearest `claude` ancestor and refuses when there is none. Under a `scripts/miko/loop.ts` process that stands above that claude before any other claude, it refuses when `~/.construct/handoff/miko.md` does not exist or, naming the file's age, was not written in the last two minutes (`FRESH_MS` in `scripts/miko/exit.ts`), and otherwise sends that claude `SIGTERM`. With no such loop above it, it writes `role.stopped` (role `miko`, reason `context`) to the bus for the restart queue and sends that claude `SIGTERM` when `miko.md` was written in the last two minutes and its last `STATUS:` line is `STATUS: CONTINUE`; otherwise it refuses, naming the missing loop ([architecture/window.md § The boundary](architecture/window.md#the-boundary)). | `pnpm miko:exit` |
 | `pnpm miko:watch` | What Mikoshi, as foreman, waits on instead of polling: blocks and prints one line per event and nothing else — `journal <line>` for a line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop` or `stop`, and `pid <pid> exited` once for each watched PID that dies ([architecture/window.md § The boundary](architecture/window.md#the-boundary)). | `pnpm miko:watch [--pid <pid>…]` |
 | `pnpm morse:approve` | Takes only the MORSE path of `ghosts:hash --by morse --card`, so it can be allowed to the Operator without the right to write an owner approval: no `--by`, no other approver. It reads the card from the parking directory, refuses on an unclear field, a fall, a revoked hash, a forecast with no band or above its p75, or a text restating the card, runs the build and the hard preflight, and only then appends an `event:approval` line by `morse` and writes the brief's `.approved-sha256`. An approval the owner wrote on the same hash is left as it is. When the `.approved-sha256` already holds this hash signed `morse`, the journal holds its MORSE approval and the brief now names another sketch — a clean rebase or merge onto `main` with the `/implement` text unchanged — the approval carries to the new sketch once the hard preflight is green: the file names the new sketch and the `event:approval` line carries `carriedFrom`; a changed text is a new approval, never a carry, and a red preflight writes nothing. | `pnpm morse:approve <scratchpad>/brief-<task>.md <card> [--parking <dir>]` |
 | `pnpm morse:predict` | Classifies the diff `<base>..<head>` of a repository (default the current directory) as `cheap` or `ladder` by the MORSE rules in `scripts/morse/rules.ts`, appends one line (`task`, `base`, `head`, `verdict`, `rule`, `why`) to the journal and prints it. A journal inside the repository, an unknown revision or an empty diff is refused (exit 1) and writes nothing. The review worker calls the same prediction in process for each first review and journals it to `~/.construct/bus/morse.jsonl`. | `pnpm morse:predict --task <id> --base <rev> --head <rev> --journal <path> [--repo <dir>]` |

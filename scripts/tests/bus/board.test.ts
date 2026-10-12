@@ -15,6 +15,7 @@ import { importJournal } from '../../bus/import.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
+import { CARD_ADMITTED } from '../../bus/operator-work.js'
 import { queueTask } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
 import { choose } from '../../shift/parking.js'
@@ -167,8 +168,59 @@ describe('the factory board', () => {
     expect(stalled.progress).toMatchObject({ stalled: true, cause: 'down: review' })
     expect(renderBoard(stalled)).toContain('<p>cause: down: review</p>')
     bench.watched = [reviewWorker(REVIEW_PID)]
-    bench.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '851', reason: 'waits question' }] } }]
-    expect(bench.tick().progress.cause).toBe('queue blocked: #851 waits question')
+    bench.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }] } }]
+    expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question')
+  })
+
+  it('the queue-blocked cause names the silent card in work, never a card queued behind it', () => {
+    const working = boardBench()
+    appendEvent(working.db, { ts: working.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
+    working.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '851', reason: 'waits question' }, { id: '852', reason: 'depends #850 not merged' }] } }]
+    for (let minute = 0; minute < 30; minute++)
+      working.tick()
+    expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
+    working.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }, { id: '851', reason: 'waits question' }, { id: '852', reason: 'depends #850 not merged' }] } }]
+    expect(working.tick().progress.cause).toBe('queue blocked: #850 waits question')
+  })
+
+  it('with no card in work a blocked queue and a down component still raise their cause', () => {
+    const idle = boardBench()
+    appendEvent(idle.db, { ts: idle.ts(), type: CARD_ADMITTED, actor: 'policy', cardId: 851, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:851`, payload: {}, legacy: false })
+    idle.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '851', reason: 'waits question' }] } }]
+    for (let minute = 0; minute < 30; minute++)
+      expect(idle.tick().progress.stalled).toBe(false)
+    expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'queue blocked: #851 waits question' })
+    idle.watched = [reviewWorker(null)]
+    expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'down: review' })
+    idle.watched = [reviewWorker(REVIEW_PID)]
+    idle.parking = []
+    expect(idle.tick().progress).toMatchObject({ stalled: false, cause: null })
+  })
+
+  it('silence counts only for the card in work, and a card blocked waiting on #N raises no alarm', () => {
+    const working = boardBench()
+    appendEvent(working.db, { ts: working.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
+    observeChain(working.db, working.ts(), 'worker:chain:1', { dir: '/trees/lane-1', parking: '/parking/lane-1', cardId: 850, sha: sha('c'), pid: 99, leader: null, boundary: false, state: 'running' })
+    const busyElsewhere = (minute: number): void => {
+      appendEvent(working.db, { ts: working.ts(), type: CARD_ADMITTED, actor: 'policy', cardId: 900 + minute, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${900 + minute}`, payload: {}, legacy: false })
+    }
+    for (let minute = 0; minute < 30; minute++) {
+      busyElsewhere(minute)
+      expect(working.tick().progress.stalled).toBe(false)
+    }
+    busyElsewhere(30)
+    expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
+
+    const blocked = boardBench()
+    blocked.parking = [{ lane: 'lane-2', dir: '/parking/lane-2', choice: { chosen: [], left: [{ id: '852', reason: 'depends #849 not merged' }] } }]
+    observeChain(blocked.db, blocked.ts(), 'worker:chain:2', { dir: '/trees/lane-2', parking: '/parking/lane-2', cardId: 852, sha: sha('d'), pid: 98, leader: null, boundary: true, state: 'waiting', waitingOn: [849] })
+    for (let minute = 0; minute < 40; minute++)
+      blocked.tick()
+    const quiet = blocked.tick()
+    expect(quiet.progress).toEqual({ last: null, stalled: false, cause: null })
+    expect(quiet.lanes).toEqual([{ lane: 'lane-2', card: 852, state: 'waiting', since: expect.any(String) as unknown }])
+    expect(quiet.execution.find(row => row.card === 852)?.stage).toBe('waiting on #849')
+    expect(quiet.waiting).toEqual([{ card: '852', lane: 'lane-2', reason: 'depends #849 not merged' }])
   })
 
   it('the bus contract row reads launch, Shard, automaton and writer red on a database with the counts of 2026-10-11', () => {

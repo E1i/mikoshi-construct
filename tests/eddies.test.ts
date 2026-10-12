@@ -4,6 +4,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readd
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { MIKO_HANDOFF_NAME } from '../scripts/miko/loop.js'
 import { CONTINUE_PROMPT } from '../scripts/shift/continuation.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/eddies.mjs')
@@ -15,7 +16,7 @@ const scratches: string[] = []
 
 interface Usage { input?: number, cacheWrite?: number, cacheRead?: number, request?: string | null }
 interface EddiesLine { event: string, level?: string, [key: string]: unknown }
-interface Scratch { root: string, transcript: string, subagents: string, handoff: string }
+interface Scratch { root: string, transcript: string, subagents: string, handoff: string, env?: NodeJS.ProcessEnv }
 
 let requests = 0
 
@@ -50,7 +51,7 @@ function hook(s: Scratch, mode: string, input: Record<string, unknown> | string,
   const started = performance.now()
   const result = spawnSync('node', [script, mode], {
     input: typeof input === 'string' ? input : JSON.stringify({ session_id: SESSION, transcript_path: s.transcript, cwd: s.root, ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff },
+    env: { ...process.env, CONSTRUCT_CARD: undefined, CONSTRUCT_HANDOFF: undefined, CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff, ...s.env },
     encoding: 'utf8',
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, ms: performance.now() - started }
@@ -105,6 +106,11 @@ function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number):
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
 
 function continueLine(s: Scratch): string {
+  const handoff = path.join(s.handoff, MIKO_HANDOFF_NAME)
+  return `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\neddies: to continue in a new window — cd '${s.root}' && pnpm miko\n`
+}
+
+function cardContinueLine(s: Scratch): string {
   return `eddies: to continue in a new window — cd '${s.root}' && claude '${CONTINUE_PROMPT}'\n`
 }
 const WARN_FIELDS = ['v', 'event', 'level', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'warn_ratio', 'at']
@@ -244,13 +250,50 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(lines(low)).toEqual([])
   })
 
-  it('gives the window a ready continuation command — cd into the tree, then claude with the continuation prompt — on a session warn, and an agent none', () => {
+  it('names miko.md and handoff:write, not the task continuation, to a session without CONSTRUCT_CARD that holds a task:start line', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    taskStarted(s, '858-tmp-run-root', SESSION)
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout).toContain(`write ${path.join(s.handoff, MIKO_HANDOFF_NAME)} only through pnpm handoff:write`)
+    expect(window.stdout).not.toContain(CONTINUE_PROMPT)
+  })
+
+  it('names the CONSTRUCT_HANDOFF file and offers no new-window line to a relaunched session', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    s.env = { CONSTRUCT_HANDOFF: '/h/operator.md' }
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout).toContain('write /h/operator.md only through pnpm handoff:write /h/operator.md <draft>')
+    expect(window.stdout).not.toContain('to continue in a new window')
+  })
+
+  it('reads an empty CONSTRUCT_CARD and CONSTRUCT_HANDOFF as unset: miko.md and the new-window line, not the task continuation', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    s.env = { CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '' }
+    taskStarted(s, '866-x', SESSION)
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout.endsWith(continueLine(s))).toBe(true)
+    expect(window.stdout).not.toContain(CONTINUE_PROMPT)
+  })
+
+  it('keeps the task continuation line for a card session', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    s.env = { CONSTRUCT_CARD: '866' }
+    taskStarted(s, '866-x', SESSION)
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout.split('\n').at(-2)).toBe(cardContinueLine(s).trimEnd())
+  })
+
+  it('gives the window a ready continuation command — cd into the tree, then pnpm miko — on a session warn, and an agent none', () => {
     const s = scratch(LIMITS, [{ input: 127500 }])
     agentFile(s, 'a1', [{ input: 1300000 }])
     const agent = call(s, 'Read', { file_path: '/x' }, { agent_id: 'a1', agent_type: 'general-purpose' })
     const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
 
-    expect(window.stdout.split('\n').at(-2)).toBe(continueLine(s).trimEnd())
+    expect(window.stdout.split('\n').at(-2)).toBe(continueLine(s).trimEnd().split('\n').at(-1))
     expect(contextOf(agent)).not.toContain('to continue in a new window')
   })
 

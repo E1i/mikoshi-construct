@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 export const HEAVY_RUNS = ['quality', 'vitest'] as const
 export type HeavyRun = typeof HEAVY_RUNS[number]
 
@@ -9,6 +11,14 @@ const WORKER_ACTOR = /^worker:[a-z][a-z-]*:[^:\s]+$/
 const FULL_SHA = /^[0-9a-f]{40}$/
 const LEADING_NUMBER = /^#?(\d+)(?!\d)/
 const CARD_PREFIX = /^card:\s*/
+const BODY_SHA = /^[0-9a-f]{8,64}$/
+const NO_CARD_BODY = '-'
+const REVIEW_INPUT = /:pr-body-([0-9a-f]{8,64}):card-body-([0-9a-f]{8,64}|-)$/
+
+export interface ReviewInput {
+  prBody: string
+  cardBody: string | null
+}
 
 export interface TaskIdentity {
   queue: Queue
@@ -16,6 +26,7 @@ export interface TaskIdentity {
   pr?: number
   head?: string
   generation?: string
+  input?: ReviewInput
 }
 
 export function isActor(value: string): boolean {
@@ -46,6 +57,10 @@ export function cardIdOfDescription(description: string | null | undefined): num
   return cardIdOf((description ?? '').split('\n')[0]?.trim().replace(CARD_PREFIX, '') ?? '')
 }
 
+export function prBodySha(body: string | null | undefined): string {
+  return createHash('sha256').update(body ?? '').digest('hex')
+}
+
 export function prOf(value: unknown): number | null {
   return positiveInteger(value)
 }
@@ -61,12 +76,34 @@ export function taskKey(task: TaskIdentity): string {
     throw new Error(`head is not a full sha: ${task.head}`)
   if (task.generation !== undefined && (task.generation === '' || task.pr !== undefined || task.head !== undefined))
     throw new Error(`a generation names a task with no pr and no head: ${task.generation}`)
-  return task.generation === undefined ? `${task.queue}:${task.cardId}:${task.pr ?? '-'}:${task.head ?? '-'}` : `${task.queue}:${task.cardId}:${task.generation}`
+  if (task.generation !== undefined)
+    return `${task.queue}:${task.cardId}:${task.generation}`
+  const plain = `${task.queue}:${task.cardId}:${task.pr ?? '-'}:${task.head ?? '-'}`
+  return task.input === undefined ? plain : `${plain}${inputSuffix(task, task.input)}`
+}
+
+function inputSuffix(task: TaskIdentity, input: ReviewInput): string {
+  if (task.queue !== 'review' || task.pr === undefined || task.head === undefined)
+    throw new Error(`only a review task of a pull request head carries a review input: ${task.queue}`)
+  if (!BODY_SHA.test(input.prBody) || (input.cardBody !== null && !BODY_SHA.test(input.cardBody)))
+    throw new Error(`a review input is a pull request body sha and a card body sha: ${input.prBody}, ${input.cardBody}`)
+  return `:pr-body-${input.prBody}:card-body-${input.cardBody ?? NO_CARD_BODY}`
+}
+
+export function reviewInputOf(prBody: string | null, cardBody: unknown): ReviewInput | undefined {
+  if (prBody === null || !BODY_SHA.test(prBody))
+    return undefined
+  return { prBody, cardBody: typeof cardBody === 'string' && BODY_SHA.test(cardBody) ? cardBody : null }
+}
+
+export function reviewInputOfKey(key: unknown): ReviewInput | undefined {
+  const match = typeof key === 'string' ? REVIEW_INPUT.exec(key) : null
+  return match === null ? undefined : { prBody: match[1]!, cardBody: match[2] === NO_CARD_BODY ? null : match[2]! }
 }
 
 const GENERATION_QUEUES: readonly Queue[] = ['launch', ...HEAVY_RUNS]
 
-export function generationOfKey(key: string, task: Omit<TaskIdentity, 'generation'>): string | undefined {
+export function generationOfKey(key: string, task: Omit<TaskIdentity, 'generation' | 'input'>): string | undefined {
   const plain = taskKey(task)
   const prefix = `${task.queue}:${task.cardId}:`
   return !GENERATION_QUEUES.includes(task.queue) || key === plain || !key.startsWith(prefix) || task.pr !== undefined || task.head !== undefined ? undefined : key.slice(prefix.length)

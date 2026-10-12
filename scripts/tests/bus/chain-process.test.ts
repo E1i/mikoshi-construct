@@ -1,5 +1,5 @@
 import type { ProcessTable } from '../../bus/chain-process.js'
-import type { ChainRow } from '../../bus/chain.js'
+import type { ChainRow, ChainState } from '../../bus/chain.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,8 +24,8 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function chainRow(dir: string, leader: number | null, pid = leader ?? 1): ChainRow {
-  return { dir, card_id: 809, parking: '/parking', sha: MAIN_1, pid, leader, boundary: 1, state: 'running' }
+function chainRow(dir: string, leader: number | null, pid = leader ?? 1, state: ChainState = 'running'): ChainRow {
+  return { dir, card_id: 809, parking: '/parking', sha: MAIN_1, pid, leader, boundary: 1, state }
 }
 
 function fakeTable(commandLine: string | null): { table: ProcessTable, signalled: number[] } {
@@ -54,6 +54,18 @@ describe('stopping a running chain before its restart', () => {
 
     await exited
     expect(await until(() => !pidAlive(child))).toBe(true)
+  })
+
+  it('a chain waiting on #N is a live process and is signalled like a running one', () => {
+    const { table, signalled } = fakeTable('node /usr/local/bin/pnpm shift /shift/lane-1 --chain')
+    stopChain(chainRow('/shift/lane-1', 4242, 4242, 'waiting'), table)
+    expect(signalled).toEqual([4242])
+  })
+
+  it('a stopped chain is not signalled', () => {
+    const { table, signalled } = fakeTable('node /usr/local/bin/pnpm shift /shift/lane-1 --chain')
+    stopChain(chainRow('/shift/lane-1', 4242, 4242, 'stopped'), table)
+    expect(signalled).toEqual([])
   })
 
   it('a dead chain is restarted without a signal', () => {

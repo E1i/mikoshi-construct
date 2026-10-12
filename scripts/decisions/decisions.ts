@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
 export const WRITER_MARKER = 'decisions:add'
-export const DECISION_FORMAT = `- D-N · <date> — <decision> [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
+export const DECISION_FORMAT = `- D-N · <date> — <decision> [· supersedes D-K D-L] [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
 export const SPENDING_DECISION = 54
 
 const TERM = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2})?Z'
@@ -15,14 +15,17 @@ const FIELD_PATTERNS: Record<string, string> = {
   '#A #B': '(?<cards>#[1-9]\\d*(?: #[1-9]\\d*)*)',
   '<YYYY-MM-DDTHH:MMZ>': `(?<until>${TERM})`,
   [WRITER_MARKER]: `(?<written>${WRITER_MARKER})`,
+  'D-K D-L': '(?<supersedes>D-[1-9]\\d*(?: D-[1-9]\\d*)*)',
 }
 const FIELD = new RegExp(`(${Object.keys(FIELD_PATTERNS).join('|')})`)
 const OPTIONAL_TAIL = / \[([^\]]+)\]/g
 const LIST_START = /^\s*(?:[-*+]|\d+[.)])\s|^\s*D-/
 const NUMBER_ATTEMPT = /^\s*(?:[-*+]\s+)?D-/
-const SUPERSEDED_MENTION = /superseded-by/i
+const SUPERSEDING_MENTION = /superseded-by|\bsupersedes D-\d/i
+const TAIL_IN_BODY = new RegExp(`· (?:${WRITER_MARKER}\\b|card #)`)
 const TRAILING_UNTIL = new RegExp(`\\s(?:· )?until (?<until>${TERM})$`)
 const UNTIL_ATTEMPT = /\buntil\W*\d{4}-\d{2}-\d{2}/i
+const CARD_MENTION = /(?<!PR )#[1-9]\d*/
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -54,6 +57,7 @@ export interface Decision {
   cards: number[]
   term: Term
   written: boolean
+  supersedes: number[]
   supersededBy: number | null
 }
 
@@ -69,7 +73,7 @@ export interface Decisions {
 
 function decisionOf(text: string, line: number): Decision | null {
   const groups = DECISION_LINE.exec(text)?.groups
-  if (groups === undefined || SUPERSEDED_MENTION.test(groups.body!))
+  if (groups === undefined || SUPERSEDING_MENTION.test(groups.body!) || TAIL_IN_BODY.test(groups.body!))
     return null
   return {
     number: Number(groups.number),
@@ -79,6 +83,7 @@ function decisionOf(text: string, line: number): Decision | null {
     cards: groups.cards === undefined ? [] : groups.cards.split(' ').map(card => Number(card.slice(1))),
     term: termOf(groups.body!, groups.until),
     written: groups.written !== undefined,
+    supersedes: groups.supersedes === undefined ? [] : groups.supersedes.split(' ').map(reference => Number(reference.slice(2))),
     supersededBy: groups.supersededBy === undefined ? null : Number(groups.supersededBy),
   }
 }
@@ -122,7 +127,8 @@ export function boundText(decision: Decision): string {
 }
 
 export function inForce(decisions: readonly Decision[], now: Date = new Date()): Decision[] {
-  return decisions.filter(decision => decision.supersededBy === null && !lapsed(decision.term, now))
+  const retired = new Set(decisions.flatMap(decision => decision.supersedes))
+  return decisions.filter(decision => decision.supersededBy === null && !retired.has(decision.number) && !lapsed(decision.term, now))
 }
 
 export function inForceBytes(decisions: readonly Decision[]): number {
@@ -136,9 +142,30 @@ export function spendDecisions(text: string, settled: (card: number) => boolean)
   const spent = new Set(inForce(decisions)
     .filter(decision => decision.cards.length > 0 && decision.cards.every(settled))
     .map(decision => decision.line))
-  if (spent.size === 0)
+  return markSuperseded(text, new Map([...spent].map(line => [line, SPENDING_DECISION])))
+}
+
+export function settleSupersedes(text: string, archive = ''): string {
+  const { decisions } = parseDecisions(text)
+  const retiredBy = new Map<number, number>()
+  for (const decision of [...parseDecisions(archive).decisions, ...decisions]) {
+    for (const target of decision.supersedes) {
+      if (target < decision.number && !retiredBy.has(target))
+        retiredBy.set(target, decision.number)
+    }
+  }
+  return markSuperseded(text, new Map(decisions
+    .filter(decision => decision.supersededBy === null && retiredBy.has(decision.number))
+    .map(decision => [decision.line, retiredBy.get(decision.number)!])))
+}
+
+function markSuperseded(text: string, byLine: ReadonlyMap<number, number>): string {
+  if (byLine.size === 0)
     return text
-  return text.split('\n').map((raw, index) => spent.has(index + 1) ? `${raw.trimEnd()} · superseded-by D-${SPENDING_DECISION}` : raw).join('\n')
+  return text.split('\n').map((raw, index) => {
+    const replacement = byLine.get(index + 1)
+    return replacement === undefined ? raw : `${raw.trimEnd()} · superseded-by D-${replacement}`
+  }).join('\n')
 }
 
 function offFormatRefusals(lines: readonly OffFormatLine[]): string[] {
@@ -205,6 +232,17 @@ function supersedingRefusals(decisions: readonly Decision[], archived: ReadonlyS
   })
 }
 
+function supersedesRefusals(decisions: readonly Decision[], archived: ReadonlySet<number>): string[] {
+  const numbers = new Set([...decisions.map(decision => decision.number), ...archived])
+  return decisions.flatMap(decision => decision.supersedes.flatMap((target) => {
+    if (target === decision.number)
+      return [`${PREFIX}D-${decision.number}: supersedes itself`]
+    if (target > decision.number)
+      return [`${PREFIX}D-${decision.number}: supersedes D-${target}, a later number; a decision retires only an earlier one`]
+    return numbers.has(target) ? [] : [`${PREFIX}D-${decision.number}: supersedes D-${target}, which is not in the file`]
+  }))
+}
+
 function duplicateInForceRefusals(decisions: readonly Decision[]): string[] {
   const seen = new Map<string, number>()
   const refusals: string[] = []
@@ -239,8 +277,16 @@ export function decisionsRefusals(text: string, archive = ''): string[] {
     ...orderRefusals(decisions, archived),
     ...unmarkedRefusals(decisions),
     ...supersedingRefusals(decisions, archived),
+    ...supersedesRefusals(decisions, archived),
     ...duplicateInForceRefusals(decisions),
     ...untilRefusals(decisions),
     ...sizeRefusals(decisions),
   ]
+}
+
+export function decisionsFindings(text: string): string[] {
+  return inForce(parseDecisions(text).decisions).flatMap((decision) => {
+    const mention = CARD_MENTION.exec(decision.body)
+    return decision.cards.length > 0 || mention === null ? [] : [`${PREFIX}D-${decision.number} on line ${decision.line}: names ${mention[0]} in its text without · card #N; a decision bound to a card carries the card tail, so it is spent when the card closes`]
+  })
 }

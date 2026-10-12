@@ -78,7 +78,7 @@ function launchWorld(claudeExit: number) {
 
   const parking = path.join(root, 'parking')
   mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
-  writeFileSync(path.join(parking, 'lane-x', `${CARD_ID}.md`), parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+  writeFileSync(path.join(parking, 'lane-x', `${CARD_ID}.md`), parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.\nPath (D-76): cheap, a fixture card the stub closes in one run' }))
 
   const bin = path.join(root, 'bin')
   mkdirSync(bin)
