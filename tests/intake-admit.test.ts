@@ -67,7 +67,7 @@ function taskStart(w: World, card: string): number {
     },
     install: () => undefined,
     exists: () => false,
-    append: () => undefined,
+    bus: path.join(path.dirname(w.journal), 'bus.db'),
     now: () => NOW,
     session: 's1',
     handoffDir: path.dirname(w.journal),

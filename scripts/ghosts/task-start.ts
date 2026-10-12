@@ -2,8 +2,9 @@ import type { Card } from '../../src/card/grammar.js'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CheapForecast } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
+import type { BusEvent } from '../bus/db.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,7 +16,11 @@ import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { ENTRY_RESULT, entryLine } from './entry.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
+import { CARD_STARTED } from '../bus/inbox.js'
+import { CARD_ADMITTED } from '../bus/launch-candidates.js'
+import { LEASED } from '../bus/queue.js'
+import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
 import { taskWorktree, worktreeHome } from './worktree-home.js'
 
 export const PREFIX = '[task:start] '
@@ -34,7 +39,7 @@ export interface TaskStartDeps {
   git: (cwd: string, args: string[]) => string
   install: (cwd: string, args: string[]) => void
   exists: (target: string) => boolean
-  append: (file: string, text: string) => void
+  bus: string
   now: () => Date
   session: string | undefined
   shift?: string
@@ -59,9 +64,14 @@ export interface TaskStartResult {
 }
 
 type Admission
-  = | { kind: 'admitted', by: 'intake', confirmation: string, ts: string }
+  = | { kind: 'admitted', by: 'bus', event: string, ts: string }
+    | { kind: 'admitted', by: 'intake', confirmation: string, ts: string }
     | { kind: 'admitted', by: 'waiver', reason: string }
     | { kind: 'refused', reason: string }
+
+const LATEST_ADMISSION = `SELECT ts, dedupe_key FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
+const STARTER_SESSION_BY_HAND = 'by-hand'
 
 interface IntakeLine {
   card: string
@@ -88,23 +98,60 @@ function sameCard(recorded: string, card: Card): boolean {
   return parsed.kind === 'card' && cardLine(parsed.card) === cardLine(card)
 }
 
-function admission(card: Card, journal: string | null, waiver: string | undefined): Admission {
+function busAdmission(bus: string, card: Card): Admission | undefined {
+  const db = openBus(bus)
+  try {
+    const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as { ts: string, dedupe_key: string } | undefined
+    return admitted === undefined ? undefined : { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts }
+  }
+  finally {
+    db.close()
+  }
+}
+
+function admission(bus: string, card: Card, journal: string | null, waiver: string | undefined): Admission {
   if (waiver !== undefined)
     return { kind: 'admitted', by: 'waiver', reason: waiver }
+  const admitted = busAdmission(bus, card)
+  if (admitted !== undefined)
+    return admitted
   const recorded = intakeLines(journal, String(card.id))
   const confirmed = recorded.filter(line => sameCard(line.card, card)).at(-1)
   if (confirmed !== undefined)
     return { kind: 'admitted', by: 'intake', confirmation: confirmed.confirmation, ts: confirmed.ts }
-  const how = `slice and confirm it with construct intake, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception`
-  return recorded.length === 0
-    ? { kind: 'refused', reason: `card #${card.id} has no intake line in the journal: it was not sliced and confirmed; ${how}` }
-    : { kind: 'refused', reason: `card #${card.id} differs from the card its intake line confirmed (${recorded.at(-1)!.card}); ${how}` }
+  const how = `admit it through construct intake, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception`
+  const journalSays = recorded.length === 0
+    ? 'no intake line in the journal'
+    : `an intake line in the journal for a different card (${recorded.at(-1)!.card})`
+  return { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus} and ${journalSays}: it was not admitted; ${how}` }
 }
 
 function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Record<string, string> {
-  return admitted.by === 'intake'
-    ? { by: 'intake', confirmation: admitted.confirmation, intake: admitted.ts }
-    : { by: 'waiver', flag: WITHOUT_INTAKE_FLAG, reason: admitted.reason }
+  switch (admitted.by) {
+    case 'bus':
+      return { by: 'bus', event: admitted.event, admitted: admitted.ts }
+    case 'intake':
+      return { by: 'intake', confirmation: admitted.confirmation, intake: admitted.ts }
+    case 'waiver':
+      return { by: 'waiver', flag: WITHOUT_INTAKE_FLAG, reason: admitted.reason }
+  }
+}
+
+type StartWrite = { kind: 'written' } | { kind: 'launch-owns-it' }
+
+function recordStart(bus: string, event: BusEvent): StartWrite {
+  const db = openBus(bus)
+  try {
+    return inTransaction(db, (): StartWrite => {
+      if (db.prepare(LAUNCH_LEASE).get(event.cardId) !== undefined)
+        return { kind: 'launch-owns-it' }
+      appendEvent(db, event)
+      return { kind: 'written' }
+    })
+  }
+  finally {
+    db.close()
+  }
 }
 
 function refuse(message: string): TaskStartResult {
@@ -317,7 +364,13 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
   if (unmerged.length > 0)
     return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
-  const admitted = admission(card, journalText, args.waiver)
+  let admitted: Admission
+  try {
+    admitted = admission(deps.bus, card, journalText, args.waiver)
+  }
+  catch (error) {
+    return refuse(`the bus ${deps.bus} could not be read: ${firstLine(error)}; nothing written`)
+  }
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
   const cardFile = readCardFile(deps, card, args.parking)
@@ -329,19 +382,20 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return ready
   const { worktree } = ready
   const at = deps.now().toISOString()
-  const line = { event: 'path', task: id, path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted), ts: at }
-  const written = `start line written to ${journal}`
-  const signal = {
-    ...contract,
-    ACTION: `task:start ${branch} #${id}: ${ready.how}; ${written}${deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''}`,
-    RESULT: ENTRY_RESULT,
-  }
+  const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
+  const unsessioned = deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''
+  const entry = { ...contract, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} written to ${deps.bus}${unsessioned}`, RESULT: ENTRY_RESULT }
+  const event: BusEvent = { ts: at, type: CARD_STARTED, actor: `worker:start:${deps.session ?? STARTER_SESSION_BY_HAND}`, cardId: card.id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:${branch}:${at}`, payload: { ...start, entry: { schema: ENTRY_SCHEMA, ...entry } }, legacy: false }
+  let written: StartWrite
   try {
-    deps.append(journal, `${JSON.stringify(line)}\n${entryLine(id, signal, at)}`)
+    written = recordStart(deps.bus, event)
   }
   catch (error) {
-    return refuse(`${ready.failedAppend} but the start line could not be written to ${journal}: ${firstLine(error)}`)
+    return refuse(`${ready.failedAppend} but ${CARD_STARTED} could not be written to the bus ${deps.bus}: ${firstLine(error)}`)
   }
+  const signal = written.kind === 'written'
+    ? entry
+    : { ...entry, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} is the launch worker's, which holds the launch of #${id}${unsessioned}` }
   const stdout = renderSignal(`task:start #${id} ${card.name}`, signal, deps.style ?? PLAIN_STYLE)
   return { stdout, stderr: [], exitCode: 0, worktree }
 }
@@ -356,10 +410,7 @@ function realDeps(): TaskStartDeps {
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     install: pnpmInstall,
     exists: existsSync,
-    append: (file, text) => {
-      mkdirSync(path.dirname(file), { recursive: true })
-      appendFileSync(file, text)
-    },
+    bus: defaultBusPath(),
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),

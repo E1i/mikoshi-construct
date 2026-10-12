@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
 import { busMergesWhatIsHanded, captured, cardLine, depsOf, eventsOf, fakeGh, handedPrs, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 
@@ -108,7 +109,8 @@ describe('--manual', () => {
     await runShift([world.shift, '--parking', world.parking, '--manual'], depsOf(world, gh, captured(), { confirm }))
     expect(asked.map(question => question.split(' ')[1])).toEqual(['#1', '#2'])
     expect([1, 2].map(id => stubRuns(world, id))).toEqual([0, 1])
-    expect(eventsOf(world, 'path').map(line => line.task)).toEqual(['2', '2'])
+    expect(cardStartedLines(world.bus).map(line => line.task)).toEqual(['2'])
+    expect(eventsOf(world, 'path').map(line => line.task)).toEqual(['2'])
   })
 
   it('--manual writes an autopilot line that says off, and the next run without it says on', async () => {

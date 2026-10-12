@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_STARTED } from '../../bus/inbox.js'
 import { runSweep } from '../../worktrees/sweep.js'
 
 interface World {
@@ -44,6 +46,20 @@ function cut(world: World, id: number): string {
   git(world.repo, ['worktree', 'add', '-q', '-b', `feat/${id}`, tree, 'origin/main'])
   world.journal.push(JSON.stringify({ event: 'path', task: String(id), path: 'cheap', worktree: tree, branch: `feat/${id}` }))
   return tree
+}
+
+function startedInTheBus(world: World, id: number): { tree: string, bus: string } {
+  const tree = path.join(world.root, 'trees', `mc-${id}`)
+  git(world.repo, ['worktree', 'add', '-q', '-b', `feat/${id}`, tree, 'origin/main'])
+  const bus = path.join(world.root, 'bus.db')
+  const db = openBus(bus)
+  try {
+    appendEvent(db, { ts: '2026-10-12T12:00:00.000Z', type: CARD_STARTED, actor: 'worker:start:session-1', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:feat/${id}`, payload: { worktree: tree, branch: `feat/${id}` }, legacy: false })
+  }
+  finally {
+    db.close()
+  }
+  return { tree, bus }
 }
 
 function closed(world: World, id: number, pr: number): void {
@@ -95,6 +111,16 @@ describe('worktrees:sweep removes a finished card\'s tree only when nothing in i
     expect(applied.stdout[0]).toBe(`[worktrees:sweep] removed ${tree} and branch feat/1: card #1 is merged`)
     expect(existsSync(tree)).toBe(false)
     expect(branchExists(world, 'feat/1')).toBe(false)
+  })
+
+  it('finds the tree of a card whose start is recorded only as card.started in the bus', () => {
+    const world = newWorld()
+    const { tree, bus } = startedInTheBus(world, 4)
+    merged(world, 4, 104)
+    const applied = runSweep(['--apply'], { ...depsOf(world), bus })
+    expect(applied.exitCode).toBe(0)
+    expect(applied.stdout[0]).toBe(`[worktrees:sweep] removed ${tree} and branch feat/4: card #4 is merged`)
+    expect([existsSync(tree), branchExists(world, 'feat/4')]).toEqual([false, false])
   })
 
   it('keeps a dirty tree and a tree with an unpushed commit and lists them', () => {

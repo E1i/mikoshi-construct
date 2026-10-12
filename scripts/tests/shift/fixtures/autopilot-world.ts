@@ -28,6 +28,7 @@ export interface World {
   stubOut: string
   parking: string
   journal: string
+  bus: string
 }
 
 export interface ParkedCard {
@@ -73,7 +74,7 @@ export function newWorld(cards: ParkedCard[]): World {
   const journal = path.join(dirs.handoff, 'ghosts.jsonl')
   const intake = cards.filter(card => card.intake !== false).map(({ id, kind, depends }) => ({ event: 'intake', task: String(id), card: cardLine(id, kind, depends), confirmation: 'none', corrections: [], ts: '2026-10-06T00:00:00.000Z' }))
   writeFileSync(journal, intake.map(line => `${JSON.stringify(line)}\n`).join(''))
-  return { root, repo, ...dirs, journal }
+  return { root, repo, ...dirs, journal, bus: path.join(root, 'bus', 'bus.db') }
 }
 
 export interface Captured {
@@ -89,6 +90,7 @@ export function depsOf(world: World, gh: (args: string[]) => string, io: Capture
     claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
+    bus: world.bus,
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     projectsDir: path.join(world.root, 'projects'),
     git,

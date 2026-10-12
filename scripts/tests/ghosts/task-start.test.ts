@@ -1,9 +1,12 @@
 import type { TaskStartDeps } from '../../ghosts/task-start.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_STARTED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ghosts/worktree-home.js'
 
@@ -16,18 +19,33 @@ function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
 }
 
 const W1_CARD = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 · blocks #124 the board card'
-const INTAKE_TS = '2026-10-01T08:00:00.000Z'
-const ADMITTED = [W1_CARD, card(2), card(3), card(4), card(5), card(8, 'implement/ghosts/M/cheap/owner'), card(9, 'implement/ghosts/M/cheap/owner'), card(21, 'implement/ghosts/L/ladder/owner'), card(31), card(32), card(41), card(42)]
-
-function intakeJournal(cards: readonly string[]): string {
-  return cards.map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: INTAKE_TS })}\n`).join('')
-}
+const ADMITTED_TS = '2026-10-01T08:00:00.000Z'
+const ADMITTED = [101, 2, 3, 4, 5, 8, 9, 21, 31, 32, 41, 42, 51, 52]
 
 interface World {
   root: string
   repo: string
   handoff: string
   journal: string
+  bus: string
+}
+
+function admit(bus: string, ids: readonly number[]): void {
+  const db = openBus(bus)
+  for (const id of ids)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'reducer', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:intake:${id}`, payload: { lane: 'lane-1', depends: [], decision: null, contour: null, admission: `intake:${id}` }, legacy: false })
+  db.close()
+}
+
+function busEvents(world: World, type: string): { actor: string, cardId: number, payload: Record<string, unknown> }[] {
+  const db = openBus(world.bus)
+  const rows = db.prepare('SELECT actor, card_id, payload FROM events WHERE type = ? ORDER BY id').all(type) as { actor: string, card_id: number, payload: string }[]
+  db.close()
+  return rows.map(row => ({ actor: row.actor, cardId: row.card_id, payload: JSON.parse(row.payload) as Record<string, unknown> }))
+}
+
+function starts(world: World): Record<string, unknown>[] {
+  return busEvents(world, CARD_STARTED).map(event => event.payload)
 }
 
 const roots: string[] = []
@@ -50,7 +68,9 @@ function newWorld(): World {
   git(repo, ['add', '.'])
   git(repo, ['commit', '-q', '-m', 'world'])
   git(repo, ['push', '-q', 'origin', 'main'])
-  return { root, repo, handoff, journal: path.join(handoff, 'ghosts.jsonl') }
+  const bus = path.join(root, 'bus', 'bus.db')
+  admit(bus, ADMITTED)
+  return { root, repo, handoff, journal: path.join(handoff, 'ghosts.jsonl'), bus }
 }
 
 function depsOf(world: World, session: string | null = SESSION, installs: [string, string[]][] = []): TaskStartDeps {
@@ -61,19 +81,12 @@ function depsOf(world: World, session: string | null = SESSION, installs: [strin
       installs.push([cwd, args])
     },
     exists: existsSync,
-    append: (file, text) => {
-      mkdirSync(path.dirname(file), { recursive: true })
-      appendFileSync(file, text)
-    },
+    bus: world.bus,
     now: () => NOW,
     session: session ?? undefined,
     handoffDir: world.handoff,
-    readJournal: () => `${intakeJournal(ADMITTED)}${JSON.stringify({ event: 'merge', task: '86', by: 'E1i', commit: 'c0ffee', ts: INTAKE_TS })}\n`,
+    readJournal: () => `${JSON.stringify({ event: 'merge', task: '86', by: 'E1i', commit: 'c0ffee', ts: ADMITTED_TS })}\n`,
   }
-}
-
-function lines(world: World): Record<string, unknown>[] {
-  return readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
 afterEach(() => {
@@ -81,8 +94,80 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
-describe('w1: task:start cuts the tree and writes the start line', () => {
-  it('w1: cuts ../mc-<id> on the branch from origin/main and writes one start line with worktree, branch, session and the card', () => {
+describe('task:start reads the admission from the bus and writes the start to it', () => {
+  it('a card with card.admitted in the bus and no intake line in the journal starts', () => {
+    const world = newWorld()
+    const deps = { ...depsOf(world), readJournal: () => null }
+    const result = runTaskStart(['feat/a1', '--card', card(41)], deps)
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:41`, admitted: ADMITTED_TS } }])
+  })
+
+  it('a card with no card.admitted is refused naming the bus', () => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/a2', '--card', card(77)], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus} and no intake line in the journal: it was not admitted; admit it through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(existsSync(path.join(world.root, 'mc-77'))).toBe(false)
+    expect(starts(world)).toEqual([])
+  })
+
+  it('a card with no card.admitted but an intake line for the same card in the journal starts, admitted by intake', () => {
+    const world = newWorld()
+    const journal = `${JSON.stringify({ event: 'intake', task: '77', card: card(77), confirmation: 'c-77', corrections: [], ts: ADMITTED_TS })}\n`
+    const result = runTaskStart(['feat/a7', '--card', card(77)], { ...depsOf(world), readJournal: () => journal })
+    expect(result.exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'intake', confirmation: 'c-77', intake: ADMITTED_TS } }])
+  })
+
+  it('a card with no card.admitted and an intake line for a different card is refused naming the bus and the journal', () => {
+    const world = newWorld()
+    const other = card(77, 'implement/ghosts/M/cheap/auto')
+    const journal = `${JSON.stringify({ event: 'intake', task: '77', card: other, confirmation: 'c-77', corrections: [], ts: ADMITTED_TS })}\n`
+    const result = runTaskStart(['feat/a8', '--card', card(77)], { ...depsOf(world), readJournal: () => journal })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus} and an intake line in the journal for a different card (${other}): it was not admitted; admit it through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(starts(world)).toEqual([])
+  })
+
+  it('a card with no card.admitted starts under --without-intake and records the waiver', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/a3', '--card', card(78), '--without-intake', 'the owner said so'], depsOf(world)).exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'waiver', flag: '--without-intake', reason: 'the owner said so' } }])
+  })
+
+  it('task:start writes card.started to the bus and nothing to the journal', () => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/a4', '--card', card(42)], depsOf(world))
+    const worktree = path.join(world.root, 'mc-42')
+    expect(result.exitCode).toBe(0)
+    expect(busEvents(world, CARD_STARTED)).toMatchObject([{ actor: `worker:start:${SESSION}`, cardId: 42, payload: { session: SESSION, worktree, branch: 'feat/a4' } }])
+    expect(existsSync(world.journal)).toBe(false)
+  })
+
+  it('a start by hand with no session is written by worker:start:by-hand', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/a5', '--card', card(42)], depsOf(world, null)).exitCode).toBe(0)
+    expect(busEvents(world, CARD_STARTED).map(event => event.actor)).toEqual(['worker:start:by-hand'])
+  })
+
+  it('a card whose launch the launch worker holds gets no card.started from task:start: the launch worker writes it', () => {
+    const world = newWorld()
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: 'task.leased', actor: 'worker:launch:s1', cardId: 41, pr: null, head: null, dedupeKey: 'task.leased:launch:41', payload: {}, legacy: false })
+    const leasedBy = (db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get('task.leased:launch:41') as { id: number }).id
+    db.prepare('INSERT INTO tasks (task_key, queue, card_id, state, event_id) VALUES (?, ?, ?, ?, ?)').run('launch:41', 'launch', 41, 'leased', leasedBy)
+    db.close()
+    const result = runTaskStart(['feat/a6', '--card', card(41)], depsOf(world))
+    expect(result.exitCode).toBe(0)
+    expect(starts(world)).toEqual([])
+    expect(result.stdout[3]).toBe(`ACTION   | task:start feat/a6 #41: cut ${path.join(world.root, 'mc-41')} from origin/main; card.started is the launch worker's, which holds the launch of #41`)
+  })
+})
+
+describe('w1: task:start cuts the tree and writes the start', () => {
+  it('w1: cuts ../mc-<id> on the branch from origin/main and writes one card.started with worktree, branch, session and the card', () => {
     const world = newWorld()
     const line = W1_CARD
     const result = runTaskStart(['feat/t1', '--card', line], depsOf(world))
@@ -91,17 +176,14 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.worktree).toBe(worktree)
     expect(existsSync(worktree)).toBe(true)
     expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/t1')
-    expect(lines(world).filter(entry => entry.event === 'path')).toEqual([{
-      event: 'path',
-      task: '101',
+    expect(starts(world).map(({ entry: _, ...start }) => start)).toEqual([{
       path: 'cheap',
       started: NOW.toISOString(),
       session: SESSION,
       worktree,
       branch: 'feat/t1',
       card: { id: 101, name: 'task-card', kind: 'implement', milestone: 'ghosts', size: 'M', contour: 'cheap', decision: 'owner', depends: [86], blocks: [124], line },
-      admission: { by: 'intake', confirmation: 'none', intake: INTAKE_TS },
-      ts: NOW.toISOString(),
+      admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:101`, admitted: ADMITTED_TS },
     }])
   })
 
@@ -114,7 +196,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.worktree).toBe(worktree)
     expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/h1')
     expect(existsSync(path.join(world.root, 'mc-41'))).toBe(false)
-    expect(lines(world).find(entry => entry.event === 'path')).toMatchObject({ task: '41', worktree })
+    expect(starts(world)).toMatchObject([{ worktree }])
   })
 
   it('reads the worktree home from its environment variable, else ~/.construct/worktrees', () => {
@@ -123,20 +205,20 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(worktreeHome({ [WORKTREE_HOME_VARIABLE]: '' })).toBe(DEFAULT_WORKTREE_HOME)
   })
 
-  it('the start line names the shift that started the card', () => {
+  it('the card.started names the shift that started the card', () => {
     const world = newWorld()
     const shift = path.join(world.root, 'shift')
     expect(runTaskStart(['feat/s1', '--card', card(41)], { ...depsOf(world), shift }).exitCode).toBe(0)
-    expect(lines(world).find(entry => entry.event === 'path')).toMatchObject({ task: '41', shift })
+    expect(starts(world)).toMatchObject([{ shift }])
   })
 
   it('a start by hand writes no shift field', () => {
     const world = newWorld()
     expect(runTaskStart(['feat/s2', '--card', card(42)], depsOf(world)).exitCode).toBe(0)
-    expect(lines(world).find(entry => entry.event === 'path')).not.toHaveProperty('shift')
+    expect(starts(world)[0]).not.toHaveProperty('shift')
   })
 
-  it('w8: prints CONTRACT, EXPECT, ACTION and RESULT from the card and the start line it wrote', () => {
+  it('w8: prints CONTRACT, EXPECT, ACTION and RESULT from the card and the start it wrote', () => {
     const world = newWorld()
     const result = runTaskStart(['feat/t8', '--card', card(8, 'implement/ghosts/M/cheap/owner')], depsOf(world))
     const worktree = path.join(world.root, 'mc-8')
@@ -145,34 +227,24 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
       expect.stringMatching(/^-{4} task:start #8 task-8 -+$/),
       'CONTRACT | implement · cheap · owner · touches not recorded on the card: no parking file for #8 · law not recorded on the card',
       'EXPECT   | expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
-      `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main; start line written to ${world.journal}`,
+      `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main; card.started written to ${world.bus}`,
       'RESULT   | accepted · not started',
     ])
   })
 
-  it('w8: writes the entry card beside the start line, in one append, in the four fields the card printed', () => {
+  it('w8: writes the entry card inside the card.started, in the four fields the card printed', () => {
     const world = newWorld()
-    const appended: string[] = []
-    const deps = { ...depsOf(world), append: (file: string, text: string) => {
-      appended.push(text)
-      mkdirSync(path.dirname(file), { recursive: true })
-      appendFileSync(file, text)
-    } }
-    const result = runTaskStart(['feat/t9', '--card', card(9, 'implement/ghosts/M/cheap/owner')], deps)
+    const result = runTaskStart(['feat/t9', '--card', card(9, 'implement/ghosts/M/cheap/owner')], depsOf(world))
     const worktree = path.join(world.root, 'mc-9')
-    expect(appended).toHaveLength(1)
-    expect(lines(world).map(entry => entry.event)).toEqual(['path', 'entry'])
-    expect(lines(world)[1]).toEqual({
-      event: 'entry',
+    const entry = starts(world)[0]!.entry as Record<string, string>
+    expect(entry).toEqual({
       schema: 2,
-      task: '9',
       CONTRACT: 'implement · cheap · owner · touches not recorded on the card: no parking file for #9 · law not recorded on the card',
       EXPECT: 'expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
-      ACTION: `task:start feat/t9 #9: cut ${worktree} from origin/main; start line written to ${world.journal}`,
+      ACTION: `task:start feat/t9 #9: cut ${worktree} from origin/main; card.started written to ${world.bus}`,
       RESULT: 'accepted · not started',
-      ts: NOW.toISOString(),
     })
-    expect(result.stdout.slice(1).map(row => row.replace(/^\w+\s+\| /, ''))).toEqual(['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'].map(field => (lines(world)[1] as Record<string, string>)[field]))
+    expect(result.stdout.slice(1).map(row => row.replace(/^\w+\s+\| /, ''))).toEqual(['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'].map(field => entry[field]))
   })
 
   it('w8: a field with no data is named in the entry card: no session names it in ACTION', () => {
@@ -182,11 +254,11 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.stdout[4]).toBe('RESULT   | accepted · not started')
   })
 
-  it('w1: writes a line without session and says the board will show WINDOW UNKNOWN when no session is set', () => {
+  it('w1: writes a start without session and says the board will show WINDOW UNKNOWN when no session is set', () => {
     const world = newWorld()
     const result = runTaskStart(['--card', card(2), 'feat/t2'], depsOf(world, null))
     expect(result.exitCode).toBe(0)
-    expect(lines(world)[0]).not.toHaveProperty('session')
+    expect(starts(world)[0]).not.toHaveProperty('session')
     expect(result.stdout.join('\n')).toContain('WINDOW UNKNOWN (no session)')
   })
 
@@ -196,7 +268,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     const result = runTaskStart(['feat/t3', '--card', card(3)], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toMatch(/^\[task:start\] .*mc-3 already exists/)
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
     expect(git(world.repo, ['branch', '--list', 'feat/t3']).trim()).toBe('')
   })
 
@@ -207,7 +279,7 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toMatch(/^\[task:start\] branch feat\/t4 already exists/)
     expect(existsSync(path.join(world.root, 'mc-4'))).toBe(false)
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
   it('w1: refuses a --card with no value or without a branch', () => {
@@ -218,16 +290,16 @@ describe('w1: task:start cuts the tree and writes the start line', () => {
 })
 
 describe('w3: task:start installs the dependencies in the new tree', () => {
-  it('w3: runs pnpm install --frozen-lockfile --prefer-offline once, in the cut tree, before the start line', () => {
+  it('w3: runs pnpm install --frozen-lockfile --prefer-offline once, in the cut tree, before the start', () => {
     const world = newWorld()
     const installs: [string, string[]][] = []
     const result = runTaskStart(['feat/i1', '--card', card(31)], depsOf(world, SESSION, installs))
     expect(result.exitCode).toBe(0)
     expect(installs).toEqual([[path.join(world.root, 'mc-31'), INSTALL_ARGS]])
-    expect(lines(world).filter(entry => entry.event === 'path')).toHaveLength(1)
+    expect(starts(world)).toHaveLength(1)
   })
 
-  it('w3: a failed install refuses with its first line, writes no start line, and removes the tree and the branch so a retry starts clean', () => {
+  it('w3: a failed install refuses with its first line, writes no start, and removes the tree and the branch so a retry starts clean', () => {
     const world = newWorld()
     const deps: TaskStartDeps = {
       ...depsOf(world),
@@ -239,7 +311,7 @@ describe('w3: task:start installs the dependencies in the new tree', () => {
     const result = runTaskStart(['feat/i2', '--card', card(32)], deps)
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[task:start] pnpm install --frozen-lockfile --prefer-offline failed in ${worktree}: ERR_PNPM_NO_OFFLINE_TARBALL picocolors; the tree and branch feat/i2 were removed; nothing written`])
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
     expect(existsSync(worktree)).toBe(false)
     expect(git(world.repo, ['branch', '--list', 'feat/i2']).trim()).toBe('')
     expect(runTaskStart(['feat/i2', '--card', card(32)], depsOf(world)).exitCode).toBe(0)
@@ -259,7 +331,7 @@ describe('w2: task:start refuses a card of the wrong form, and the old call', ()
     expect(result.stderr[0]).toContain('[task:start] card refused: ')
     expect(result.stderr[0]).toContain(reason)
     expect(readdirSync(world.root).filter(name => name.startsWith('mc-'))).toEqual([])
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
   it('w2: refuses the old task:start <id> <branch> and names the new form', () => {
@@ -271,11 +343,11 @@ describe('w2: task:start refuses a card of the wrong form, and the old call', ()
   })
 })
 
-describe('the journal path follows the card contour', () => {
+describe('the start path follows the card contour', () => {
   it('writes path ladder for a ladder card', () => {
     const world = newWorld()
     expect(runTaskStart(['feat/l', '--card', card(21, 'implement/ghosts/L/ladder/owner')], depsOf(world)).exitCode).toBe(0)
-    expect(lines(world)[0]).toMatchObject({ task: '21', path: 'ladder' })
+    expect(starts(world)).toMatchObject([{ path: 'ladder' }])
   })
 })
 
@@ -286,19 +358,15 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
     return tree
   }
 
-  function adopting(world: World): TaskStartDeps {
-    return { ...depsOf(world), readJournal: () => intakeJournal([card(51), card(52)]) }
-  }
-
   function recording(world: World, calls: string[][], installs: [string, string[]][] = []): TaskStartDeps {
-    const deps = { ...depsOf(world, SESSION, installs), readJournal: adopting(world).readJournal }
+    const deps = depsOf(world, SESSION, installs)
     return { ...deps, git: (cwd, args) => {
       calls.push(args)
       return deps.git(cwd, args)
     } }
   }
 
-  it('adopts an existing tree: the start line and the entry line say adopts <tree>, and nothing is cut or installed', () => {
+  it('adopts an existing tree: the card.started and its entry say adopts <tree>, and nothing is cut or installed', () => {
     const world = newWorld()
     const tree = released(world, 51, 'feat/a1')
     const calls: string[][] = []
@@ -308,9 +376,7 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
     expect(result.worktree).toBe(tree)
     expect(installs).toEqual([])
     expect(calls.map(args => args[0])).toEqual(['rev-parse', 'rev-parse'])
-    const [start, entry] = lines(world)
-    expect(start).toMatchObject({ event: 'path', task: '51', worktree: tree, adopts: tree, branch: 'feat/a1', admission: { by: 'intake' } })
-    expect(entry).toMatchObject({ event: 'entry', task: '51', ACTION: `task:start feat/a1 #51: adopts ${tree}; start line written to ${world.journal}` })
+    expect(starts(world)).toMatchObject([{ worktree: tree, adopts: tree, branch: 'feat/a1', admission: { by: 'bus' }, entry: { ACTION: `task:start feat/a1 #51: adopts ${tree}; card.started written to ${world.bus}` } }])
     expect(result.stdout.join('\n')).toContain(`adopts ${tree}`)
     expect(result.stdout.join('\n')).not.toContain('from origin/main')
   })
@@ -318,10 +384,10 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
   it('refuses to adopt a tree whose HEAD is not on the card\'s branch, and writes nothing', () => {
     const world = newWorld()
     const tree = released(world, 52, 'feat/other')
-    const result = runTaskStart(['feat/a2', '--card', card(52), '--adopt', tree], adopting(world))
+    const result = runTaskStart(['feat/a2', '--card', card(52), '--adopt', tree], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[task:start] cannot adopt ${tree}: its HEAD is on feat/other, not on the card's branch feat/a2; nothing written`])
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
   it('refuses to adopt a subdirectory of a tree, and writes nothing', () => {
@@ -329,10 +395,10 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
     const tree = released(world, 51, 'feat/a6')
     const inside = path.join(tree, 'sub')
     mkdirSync(inside)
-    const result = runTaskStart(['feat/a6', '--card', card(51), '--adopt', inside], adopting(world))
+    const result = runTaskStart(['feat/a6', '--card', card(51), '--adopt', inside], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[task:start] cannot adopt ${inside}: it is not the top of a tree, ${tree} is; nothing written`])
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
   it('refuses to adopt a tree of another repository on the same branch, and writes nothing', () => {
@@ -340,41 +406,40 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
     const foreign = path.join(world.root, 'foreign')
     git(world.root, ['clone', '-q', path.join(world.root, 'origin.git'), foreign])
     git(foreign, ['checkout', '-q', '-b', 'feat/a7'])
-    const result = runTaskStart(['feat/a7', '--card', card(51), '--adopt', foreign], adopting(world))
+    const result = runTaskStart(['feat/a7', '--card', card(51), '--adopt', foreign], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[task:start] cannot adopt ${foreign}: it belongs to the repository at ${path.join(foreign, '.git')}, not to ${path.join(world.repo, '.git')}; nothing written`])
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
   it('refuses to adopt a path that is not a git tree, and writes nothing', () => {
     const world = newWorld()
     const tree = path.join(world.root, 'mc-51')
     mkdirSync(tree)
-    const result = runTaskStart(['feat/a3', '--card', card(51), '--adopt', tree], { ...adopting(world), cwd: world.root })
+    const result = runTaskStart(['feat/a3', '--card', card(51), '--adopt', tree], { ...depsOf(world), cwd: world.root })
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toMatch(/^\[task:start\] cannot adopt .*mc-51: it is not a git tree/)
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
-  it('refuses to adopt for a card whose line differs from its latest intake line, and writes nothing', () => {
+  it('refuses to adopt for a card the bus did not admit, before touching git, and writes nothing', () => {
     const world = newWorld()
     const tree = released(world, 53, 'feat/a4')
     const calls: string[][] = []
-    const deps = { ...recording(world, calls), readJournal: () => intakeJournal([card(53, 'implement/ghosts/M/cheap/auto')]) }
-    const result = runTaskStart(['feat/a4', '--card', card(53), '--adopt', tree], deps)
+    const result = runTaskStart(['feat/a4', '--card', card(53), '--adopt', tree], recording(world, calls))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr[0]).toMatch(/^\[task:start\] card #53 differs from the card its intake line confirmed/)
+    expect(result.stderr[0]).toMatch(/^\[task:start\] card #53 has no card\.admitted in the bus/)
     expect(calls).toEqual([])
-    expect(existsSync(world.journal)).toBe(false)
+    expect(starts(world)).toEqual([])
   })
 
   it('refuses --adopt with no tree with the usage line that names --adopt <tree>', () => {
     const world = newWorld()
-    expect(runTaskStart(['feat/a5', '--card', card(51), '--adopt'], adopting(world)).stderr).toEqual([`[task:start] usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--parking <dir>] [--without-intake "<reason>"]`])
+    expect(runTaskStart(['feat/a5', '--card', card(51), '--adopt'], depsOf(world)).stderr).toEqual([`[task:start] usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--parking <dir>] [--without-intake "<reason>"]`])
   })
 })
 
-describe('the path line carries the card who and risk read from the card file at start', () => {
+describe('the card.started carries the card who and risk read from the card file at start', () => {
   const RISK = 'R2 — high: a contract or a recorded shape that others read changes; a review reads it — the factory mechanism: scripts/ghosts/task-start.ts'
 
   function parked(world: World, line: string, body: string, who = 'shift'): TaskStartDeps {
@@ -385,11 +450,11 @@ describe('the path line carries the card who and risk read from the card file at
     return { ...depsOf(world), parking: { dir, read: file => existsSync(file) ? readFileSync(file, 'utf8') : null } }
   }
 
-  it('the path line carries the card who and risk as written', () => {
+  it('the card.started carries the card who and risk as written', () => {
     const world = newWorld()
     const deps = parked(world, card(41), `do it\n\nrisk: ${RISK}`, 'window')
     expect(runTaskStart(['feat/p1', '--card', card(41)], deps, { CONTRACT: 'C', EXPECT: 'E' }).exitCode).toBe(0)
-    const line = lines(world).find(entry => entry.event === 'path')!
+    const line = starts(world)[0]!
     expect(line.who).toBe('window')
     expect(line.risk).toEqual({ level: 'R2', text: RISK })
   })
@@ -398,7 +463,7 @@ describe('the path line carries the card who and risk read from the card file at
     const world = newWorld()
     const deps = parked(world, card(42), 'do it, size M and contour cheap')
     expect(runTaskStart(['feat/p2', '--card', card(42)], deps).exitCode).toBe(0)
-    const line = lines(world).find(entry => entry.event === 'path')!
+    const line = starts(world)[0]!
     expect(line.who).toBe('shift')
     expect(line).not.toHaveProperty('risk')
   })
@@ -407,7 +472,7 @@ describe('the path line carries the card who and risk read from the card file at
     const world = newWorld()
     const deps = parked(world, card(31), 'do it\nrisk: unclear')
     expect(runTaskStart(['feat/p3', '--card', card(31)], deps).exitCode).toBe(0)
-    expect(lines(world).find(entry => entry.event === 'path')!.risk).toEqual({ text: 'unclear' })
+    expect(starts(world)[0]!.risk).toEqual({ text: 'unclear' })
   })
 
   it('a start with no card file, or a card file for another card, gets neither field', () => {
@@ -415,7 +480,8 @@ describe('the path line carries the card who and risk read from the card file at
     expect(runTaskStart(['feat/p4', '--card', card(2)], depsOf(world)).exitCode).toBe(0)
     const other = parked(world, card(3, 'implement/ghosts/M/cheap/owner'), `do it\nrisk: ${RISK}`)
     expect(runTaskStart(['feat/p5', '--card', card(3)], other, { CONTRACT: 'C', EXPECT: 'E' }).exitCode).toBe(0)
-    for (const line of lines(world).filter(entry => entry.event === 'path')) {
+    expect(starts(world)).toHaveLength(2)
+    for (const line of starts(world)) {
       expect(line).not.toHaveProperty('who')
       expect(line).not.toHaveProperty('risk')
     }
@@ -431,7 +497,7 @@ describe('the path line carries the card who and risk read from the card file at
     const reason = `touches not recorded on the card: ${unreadable} could not be read: EISDIR`
     expect(result.stdout.join('\n')).toContain(reason)
     expect(result.stdout.join('\n')).not.toContain('no parking file')
-    const entry = lines(world).find(line => line.event === 'entry')!
+    const entry = starts(world)[0]!.entry as Record<string, string>
     expect(entry.CONTRACT).toContain(reason)
     expect(entry.CONTRACT).not.toContain('no parking file')
   })

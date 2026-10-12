@@ -4,7 +4,7 @@ import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
 import type { ChainState } from '../bus/chain.js'
 import type { BusEvent } from '../bus/db.js'
-import type { HandedContract, TaskStartDeps, TaskStartJournalReader } from '../ghosts/task-start.js'
+import type { HandedContract, TaskStartDeps, TaskStartJournalReader, TaskStartResult } from '../ghosts/task-start.js'
 import type { SweepResult } from '../worktrees/sweep.js'
 import type { ChainMoment } from './chain-bus.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
@@ -49,7 +49,7 @@ import { parseSketch } from '../ghosts/sketch.js'
 import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
-import { startedTree } from '../ghosts/tasks.js'
+import { cardStartedLines, startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
 import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
@@ -168,6 +168,7 @@ export interface ShiftDeps {
   observeChain?: (moment: ChainMoment) => void
   busMerge?: (pr: number, head: string) => BusMerge
   recordBus?: (event: BusEvent) => void
+  bus?: string
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -201,22 +202,24 @@ function keepCurrent(deps: ShiftDeps, journal: string): void {
   }
 }
 
-function startedByThisShift(journal: string | null, dir: string): Set<string> {
-  return new Set((journal ?? '').split('\n').flatMap((line) => {
+function startedByThisShift(journal: string | null, bus: string | undefined, dir: string): Set<string> {
+  const journalLines = (journal ?? '').split('\n').flatMap((line) => {
     try {
-      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, shift?: unknown, worktree?: unknown } | null
-      return entry?.event === 'path' && entry.shift === dir && typeof entry.task === 'string' && typeof entry.worktree === 'string' ? [entry.task] : []
+      const entry = JSON.parse(line) as Record<string, unknown> | null
+      return entry === null ? [] : [entry]
     }
     catch {
       return []
     }
-  }))
+  })
+  const starts = [...journalLines, ...(bus === undefined ? [] : cardStartedLines(bus))]
+  return new Set(starts.flatMap(entry => entry.event === 'path' && entry.shift === dir && typeof entry.task === 'string' && typeof entry.worktree === 'string' ? [entry.task] : []))
 }
 
 function sweepOwnTrees(deps: ShiftDeps, journal: string, dir: string, merged: readonly { task: string }[]): void {
   if (deps.sweep === undefined)
     return
-  const own = startedByThisShift(deps.readJournal(journal), dir)
+  const own = startedByThisShift(deps.readJournal(journal), deps.bus, dir)
   for (const task of new Set(merged.map(line => line.task).filter(task => own.has(task)))) {
     const swept = deps.sweep(task)
     for (const line of swept.stdout)
@@ -379,6 +382,7 @@ function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
     session: session.id,
     projectsDir: deps.projectsDir,
     style: deps.style,
+    ...(deps.bus === undefined ? {} : { busPath: deps.bus }),
   })
   return closed.exitCode === 0 ? closed.stdout : closed.stderr.map(line => notClosed(deps, task, line.slice(CLOSE_PREFIX.length)))
 }
@@ -633,14 +637,19 @@ function startedTask(deps: ShiftDeps, task: ShiftTask, session: string): TaskBas
   return { event: 'task', file: task.file, number: task.number, task: task.id, card: task.card, branch: task.branch, session, started: deps.now().toISOString() }
 }
 
-function startDeps(deps: ShiftDeps, dir: string, session: string, parking: string | undefined): TaskStartDeps {
-  return { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, append: deps.append, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
+const NO_BUS = 'no bus is wired into this shift, so no card is started'
+
+function startTask(deps: ShiftDeps, task: Pick<ShiftTask, 'branch' | 'card'>, dir: string, session: string, parking: string | undefined, handed: HandedContract): TaskStartResult {
+  if (deps.bus === undefined)
+    return { stdout: [], stderr: [`${PREFIX}${NO_BUS}`], exitCode: 1 }
+  const startDeps: TaskStartDeps = { cwd: deps.cwd, git: deps.git, install: deps.install, exists: deps.exists, bus: deps.bus, now: deps.now, session, shift: dir, handoffDir: deps.handoffDir, readJournal: deps.readJournal, ...(parking === undefined ? {} : { parking: { dir: parking, read: deps.readJournal } }) }
+  return runTaskStart([task.branch, '--card', task.card.line], startDeps, handed)
 }
 
 async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: string, handed: HandedContract, parking: string | undefined, manual: boolean, shard: string | undefined, afterReview: boolean): Promise<{ line: ShiftTaskLine, stop: StopRecord | null }> {
   const session = deps.uuid()
   const base = startedTask(deps, task, session)
-  const start = runTaskStart([task.branch, '--card', task.card.line], startDeps(deps, dir, session, parking), handed)
+  const start = startTask(deps, task, dir, session, parking, handed)
   if (start.exitCode !== 0 || start.worktree === undefined) {
     return { line: { ...base, worktree: null, ended: deps.now().toISOString(), exit: null, signal: null, refused: start.stderr.join(' ') }, stop: null }
   }
@@ -792,7 +801,7 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
   for (let turn = 0; turn < LADDER_TURNS; turn += 1) {
     const facts = briefFacts(deps, task)
     const step = ladderStep(facts, card)
-    worktree = startedTree(facts.journal ?? '', card)?.worktree
+    worktree = startedTree(facts.journal ?? '', card, deps.bus)?.worktree
     if (step.kind === steps.at(-1))
       return stopped('fault', `the ${step.kind} step did not advance the card`)
     steps.push(step.kind)
@@ -805,7 +814,7 @@ async function runLadder(deps: ShiftDeps, dir: string, task: ShiftTask, claude: 
     if (worktree === undefined) {
       if (step.kind !== 'brief')
         return stopped('fault', `card #${card.id} has no task:start line in ${path.join(deps.handoffDir, GHOST_JOURNAL)}, so the ${step.kind} step has no tree`)
-      const start = runTaskStart([task.branch, '--card', card.line], startDeps(deps, dir, base.session, parking), handed)
+      const start = startTask(deps, task, dir, base.session, parking, handed)
       if (start.exitCode !== 0 || start.worktree === undefined)
         return result(null, { refused: start.stderr.join(' '), exit: null })
       worktree = start.worktree
@@ -1361,6 +1370,7 @@ function realDeps(): ShiftDeps {
     observeChain: realChainObserver(process.cwd(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     busMerge: chainBusMerge(defaultBusPath(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     recordBus: recordInBus,
+    bus: defaultBusPath(),
     run: runClaude,
     out: line => writeQuietly(console.log, line),
     err: line => writeQuietly(console.error, line),

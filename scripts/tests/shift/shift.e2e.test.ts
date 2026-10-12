@@ -1,4 +1,5 @@
 import type { BudgetLine } from '../../board/eddies.js'
+import type { entryOf } from '../../ghosts/entry.js'
 import type { ReportDeps } from '../../shift/report.js'
 import type { ShiftDeps } from '../../shift/shift.js'
 import { execFileSync } from 'node:child_process'
@@ -7,7 +8,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readBudgetLines } from '../../board/eddies.js'
-import { entryOf } from '../../ghosts/entry.js'
+import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { runReport } from '../../shift/report.js'
@@ -95,6 +96,14 @@ function everyCardOfTheWorldTakenThroughIntake(world: World): (file: string) => 
   }
 }
 
+function busOf(world: World): string {
+  return path.join(world.root, 'bus', 'bus.db')
+}
+
+function startsOf(world: World): Record<string, unknown>[] {
+  return cardStartedLines(busOf(world))
+}
+
 function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = []): ShiftDeps {
   let ticks = 0
   let uuids = 0
@@ -103,6 +112,7 @@ function shiftDeps(world: World, captured: Captured, openPrs: OpenPrFixture[] = 
     claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
+    bus: busOf(world),
     readJournal: everyCardOfTheWorldTakenThroughIntake(world),
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
@@ -142,7 +152,7 @@ function captured(): Captured {
 }
 
 function jsonl(file: string): Record<string, unknown>[] {
-  return readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+  return !existsSync(file) ? [] : readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
 function stopsOf(world: World): Record<string, unknown>[] {
@@ -183,12 +193,12 @@ describe('w1: a task that fails does not stop the shift', () => {
 })
 
 describe('w2: each task runs in its own tree, on the board, with the runner session', () => {
-  it('w2: each stub ran in ../mc-<id> on its branch with -p, and ghosts.jsonl has one start line per task carrying the same session', async () => {
+  it('w2: each stub ran in ../mc-<id> on its branch with -p, and the bus has one card.started per task carrying the same session', async () => {
     const world = newWorld()
     taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
     taskFile(world, '02.md', '2', 'scripts/b/**', 'do b')
     expect(await runShift([world.shift], shiftDeps(world, captured()))).toBe(0)
-    const board = jsonl(path.join(world.handoff, 'ghosts.jsonl'))
+    const board = startsOf(world)
     for (const id of ['1', '2']) {
       const worktree = path.join(world.root, `mc-${id}`)
       expect(stubSaw(world, id, 'cwd')).toBe(worktree)
@@ -215,7 +225,7 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     const world = newWorld()
     taskFile(world, '01.md', '1', 'scripts/a/**', 'do a')
     await runShift([world.shift], shiftDeps(world, captured()))
-    expect(jsonl(path.join(world.handoff, 'ghosts.jsonl')).find(entry => entry.event === 'path' && entry.task === '1')).toMatchObject({ shift: world.shift })
+    expect(startsOf(world).find(entry => entry.task === '1')).toMatchObject({ shift: world.shift })
   })
 
   it('w2: the prompt is the header with the task filled in, then the body', async () => {
@@ -251,10 +261,11 @@ describe('w3: shift:report builds the table from the shift', () => {
       gh: ghOf([], [{ number: 436, headRefName: 'feat/2', headRefOid: 'x', state: 'OPEN', mergedAt: null, mergeCommit: null }]),
       read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
       budget: (worktree): BudgetLine[] => readBudgetLines(worktree),
+      bus: busOf(world),
       out: line => io.out.push(line),
       err: line => io.err.push(line),
     }
-    const entryFor = (task: string): NonNullable<ReturnType<typeof entryOf>> => entryOf(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8'), task)!
+    const entryFor = (task: string): NonNullable<ReturnType<typeof entryOf>> => startsOf(world).find(start => start.task === task)!.entry as NonNullable<ReturnType<typeof entryOf>>
     expect(runReport([world.shift], deps)).toBe(0)
     expect(io.out).toEqual([
       expect.stringMatching(/^-{4} 01\.md #1 task-1 \[implement\/runner\/S\/cheap\/auto\] -+$/),
@@ -595,7 +606,7 @@ describe('w7: a probe card closes with a report, not a pull request', () => {
     const world = newWorld()
     taskFile(world, '01.md', '1', 'scripts/a/**', 'probe it', 'probe')
     await runShift([world.shift], shiftDeps(world, captured()))
-    const start = jsonl(path.join(world.handoff, 'ghosts.jsonl'))[0]
+    const start = startsOf(world)[0]
     expect(start).toMatchObject({ task: '1', card: { id: 1, kind: 'probe', decision: 'none', line: cardOf('1', 'probe') } })
     expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(line => line.event === 'task')).toMatchObject({ card: { id: 1, kind: 'probe' } })
   })

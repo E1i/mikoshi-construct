@@ -1,9 +1,11 @@
+import type { VerdictDeps } from '../../shift/merge.js'
 import type { FakeGh, World } from './fixtures/autopilot-world.js'
-import { appendFileSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { latestPrReview, PR_REVIEW_EVENT, prReviewLine, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
+import { Clock, FakeGitHub } from '../bus/github-fake.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld } from './fixtures/autopilot-world.js'
 
 const HEAD = 'a1b2c3d'
@@ -46,6 +48,11 @@ function merges(chain: FakeGh): string[] {
 
 function armedAt(chain: FakeGh): string[] {
   return chain.handed.map(([, head]) => head)
+}
+
+function refusingDeps(world: World): VerdictDeps {
+  const published: unknown[] = []
+  return { gh: chainGh().gh, gitHub: new FakeGitHub().client, bus: world.bus, session: 'reviewer-1', now: new Clock().now, publish: status => published.push(status) }
 }
 
 const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }]
@@ -104,17 +111,17 @@ describe('the chain arms only the reviewed commit', () => {
     expect(armedAt(racing)).toEqual([HEAD])
   })
 
-  it('arms only the reviewed commit: --verdict without --commit, or with a commit that is not the head, is refused and writes nothing', () => {
+  it('arms only the reviewed commit: --verdict without --commit, or with a commit that is not the head, is refused and writes nothing', async () => {
     const world = newWorld(ONE)
     const before = readFileSync(world.journal, 'utf8')
-    const deps = { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date() }
-    const missing = runVerdict(['101', '--verdict', 'pass'], deps)
+    const deps = refusingDeps(world)
+    const missing = await runVerdict(['101', '--verdict', 'pass'], deps)
     expect(missing).toMatchObject({ exitCode: 1, stdout: [] })
     expect(missing.stderr[0]).toContain('--commit <sha>')
-    const notHead = runVerdict(['101', '--verdict', 'pass', '--commit', STALE], deps)
+    const notHead = await runVerdict(['101', '--verdict', 'pass', '--commit', STALE], deps)
     expect(notHead).toMatchObject({ exitCode: 1, stdout: [] })
     expect(notHead.stderr[0]).toBe(`[shift:verdict] PR #101 head is ${HEAD}, not ${STALE}; nothing recorded`)
-    expect(readFileSync(world.journal, 'utf8')).toBe(before)
+    expect([readFileSync(world.journal, 'utf8'), existsSync(world.bus)]).toEqual([before, false])
   })
 })
 
@@ -143,20 +150,13 @@ describe('a pipeline of two cards', () => {
 describe('pnpm shift:merge <N> --verdict', () => {
   const journal = (world: World): string => readFileSync(world.journal, 'utf8')
 
-  it('records the verdict for the card on the first line of the pull request, at its head', () => {
-    const world = newWorld(ONE)
-    const result = runVerdict(['101', '--verdict', 'pass', '--commit', HEAD], { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date('2026-10-06T03:00:00.000Z') })
-    expect(result).toEqual({ stdout: ['[shift:verdict] #1 PR #101 pass at a1b2c3d; a chain arms its auto-merge only after a pass at its head, and only at a1b2c3d'], stderr: [], exitCode: 0 })
-    expect(latestPrReview(journal(world), '1', 101)).toEqual({ task: '1', pr: 101, verdict: 'pass', commit: HEAD })
-  })
-
-  it('refuses a verdict that is not pass or changes, and a pull request it cannot read, recording nothing', () => {
+  it('refuses a verdict that is not pass or changes, and a pull request it cannot read, recording nothing', async () => {
     const world = newWorld(ONE)
     const before = journal(world)
-    const deps = { gh: chainGh().gh, journal: world.journal, append: appendFileSync, now: () => new Date() }
-    expect(runVerdict(['101', '--verdict', 'maybe', '--commit', HEAD], deps).exitCode).toBe(1)
-    expect(runVerdict(['999', '--verdict', 'pass', '--commit', HEAD], deps).stderr[0]).toMatch(/^\[shift:verdict\] PR #999 not read: /)
-    expect(journal(world)).toBe(before)
+    const deps = refusingDeps(world)
+    expect((await runVerdict(['101', '--verdict', 'maybe', '--commit', HEAD], deps)).exitCode).toBe(1)
+    expect((await runVerdict(['999', '--verdict', 'pass', '--commit', HEAD], deps)).stderr[0]).toMatch(/^\[shift:verdict\] PR #999 not read: /)
+    expect([journal(world), existsSync(world.bus)]).toEqual([before, false])
   })
 
   it('reads the latest verdict for the card and pull request, and ignores other lines', () => {

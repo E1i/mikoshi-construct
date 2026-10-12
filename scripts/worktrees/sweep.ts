@@ -7,6 +7,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { defaultBusPath } from '../bus/db.js'
+import { cardStartedLines } from '../ghosts/tasks.js'
 import { REPO } from '../shift/places.js'
 
 export const PREFIX = '[worktrees:sweep] '
@@ -20,6 +22,7 @@ export interface SweepDeps {
   git: (cwd: string, args: string[]) => string
   gh: GhRunner
   readJournal: (file: string) => string | null
+  bus?: string
 }
 
 export interface SweepResult {
@@ -63,7 +66,7 @@ function entries(text: string | null): Record<string, unknown>[] {
   })
 }
 
-function journalOf(text: string | null): Journal {
+function journalOf(text: string | null, starts: readonly Record<string, unknown>[]): Journal {
   const cards = new Map<string, CardRecord>()
   const byTree = new Map<string, string>()
   const closedPrs = new Set<number>()
@@ -72,7 +75,7 @@ function journalOf(text: string | null): Journal {
     cards.set(task, known)
     return known
   }
-  for (const entry of entries(text)) {
+  for (const entry of [...entries(text), ...starts]) {
     if (entry.event === 'merge-skip' && entry.skip === 'closed' && typeof entry.pr === 'number')
       closedPrs.add(entry.pr)
     if (typeof entry.task !== 'string')
@@ -189,7 +192,7 @@ export function runSweep(argv: string[], deps: SweepDeps): SweepResult {
     return { stdout: [], stderr: [`${PREFIX}not inside a git repository: ${firstLine(error)}`], exitCode: 1 }
   }
   const [main, ...linked] = trees
-  const journal = journalOf(deps.readJournal(path.join(deps.handoffDir, 'ghosts.jsonl')))
+  const journal = journalOf(deps.readJournal(path.join(deps.handoffDir, 'ghosts.jsonl')), deps.bus === undefined ? [] : cardStartedLines(deps.bus))
   const stdout: string[] = []
   const stderr: string[] = []
   const kept: string[] = []
@@ -227,6 +230,7 @@ export function realSweepDeps(): SweepDeps {
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     gh: execGh,
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    bus: defaultBusPath(),
   }
 }
 

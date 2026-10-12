@@ -1,5 +1,9 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_STARTED } from '../../bus/inbox.js'
 import { runReport } from '../../shift/report.js'
 
 const HANDOFF = '/handoff'
@@ -34,12 +38,24 @@ function jsonl(lines: object[]): string {
   return lines.map(line => `${JSON.stringify(line)}\n`).join('')
 }
 
-function report(ghosts: object[] | null): string[] {
+function busWithStart(entry: object): string {
+  const bus = path.join(mkdtempSync(path.join(tmpdir(), 'report-entry-')), 'bus.db')
+  const db = openBus(bus)
+  try {
+    appendEvent(db, { ts: V1_ENTRY.ts, type: CARD_STARTED, actor: 'worker:start:session-1', cardId: 1, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1:feat/1:${V1_ENTRY.ts}`, payload: { worktree: '/tmp/mc-1', branch: 'feat/1', entry }, legacy: false })
+  }
+  finally {
+    db.close()
+  }
+  return bus
+}
+
+function report(ghosts: object[] | null, bus?: string): string[] {
   const files = new Map<string, string>([[path.join(SHIFT, 'shift.jsonl'), jsonl([TASK_LINE])]])
   if (ghosts !== null)
     files.set(JOURNAL, jsonl(ghosts))
   const out: string[] = []
-  const exit = runReport([SHIFT], { cwd: '/', handoffDir: HANDOFF, gh: () => '[]', read: file => files.get(file) ?? null, budget: () => [], out: line => out.push(line), err: () => {} })
+  const exit = runReport([SHIFT], { cwd: '/', handoffDir: HANDOFF, gh: () => '[]', read: file => files.get(file) ?? null, budget: () => [], ...(bus === undefined ? {} : { bus }), out: line => out.push(line), err: () => {} })
   expect(exit).toBe(0)
   return out
 }
@@ -70,5 +86,18 @@ describe('shift:report reads CONTRACT and EXPECT from the entry line of ghosts.j
   it('reads an entry line without a schema field as it is', () => {
     expect('schema' in V1_ENTRY).toBe(false)
     expect(report([V1_ENTRY])).toContain(`CONTRACT | ${CONTRACT}`)
+  })
+
+  it('reads CONTRACT and EXPECT from the card.started of the task in the bus before the journal', () => {
+    const bus = busWithStart({ CONTRACT: 'from the bus', EXPECT: 'bus expect', ACTION: 'task:start feat/1 #1', RESULT: 'accepted · not started' })
+    const rows = report([V1_ENTRY], bus)
+    expect(rows).toContain('CONTRACT | from the bus')
+    expect(rows).toContain('EXPECT   | bus expect')
+  })
+
+  it('names the bus and the journal when neither holds an entry for the task', () => {
+    const bus = busWithStart({})
+    const rows = report(null, bus)
+    expect(rows).toContain(`CONTRACT | contract not recorded in the bus ${bus} or in ${JOURNAL}: no entry line for #1`)
   })
 })

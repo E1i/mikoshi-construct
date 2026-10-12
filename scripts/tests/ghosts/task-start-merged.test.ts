@@ -1,6 +1,6 @@
 import type { TaskStartDeps } from '../../ghosts/task-start.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -46,7 +46,7 @@ function world(journalLines: object[]): { root: string, repo: string, handoff: s
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},
     exists: existsSync,
-    append: (file, added) => appendFileSync(file, added),
+    bus: path.join(root, 'bus', 'bus.db'),
     now: () => NOW,
     session: undefined,
     handoffDir: handoff,

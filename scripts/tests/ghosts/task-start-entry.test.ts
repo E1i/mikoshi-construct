@@ -1,14 +1,18 @@
 import type { TaskStartDeps } from '../../ghosts/task-start.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runTaskStart } from '../../ghosts/task-start.js'
+import { cardStartedLines } from '../../ghosts/tasks.js'
 
 const NOW = new Date('2026-10-04T08:00:00.000Z')
 const CARD = '#41 entry-card [implement/ghosts/M/cheap/owner] · depends — · blocks —'
 
-function world(session: string | undefined): { deps: TaskStartDeps, appended: string[] } {
-  const appended: string[] = []
+function world(session: string | undefined): { deps: TaskStartDeps, starts: () => Record<string, unknown>[] } {
+  const bus = path.join(mkdtempSync(path.join(tmpdir(), 'task-start-')), 'bus.db')
   return {
-    appended,
+    starts: () => cardStartedLines(bus),
     deps: {
       cwd: '/repo',
       git: (_cwd, args) => {
@@ -18,9 +22,7 @@ function world(session: string | undefined): { deps: TaskStartDeps, appended: st
       },
       install: () => undefined,
       exists: () => false,
-      append: (_file, text) => {
-        appended.push(text)
-      },
+      bus,
       now: () => NOW,
       session,
       handoffDir: '/handoff',
@@ -29,7 +31,7 @@ function world(session: string | undefined): { deps: TaskStartDeps, appended: st
   }
 }
 
-describe('task:start prints the entry card and writes it beside the start line', () => {
+describe('task:start prints the entry card and writes it into the start', () => {
   it('prints the four fields with RESULT accepted · not started', () => {
     const { deps } = world('s1')
     const rows = runTaskStart(['feat/entry', '--card', CARD], deps).stdout.slice(1)
@@ -37,14 +39,15 @@ describe('task:start prints the entry card and writes it beside the start line',
     expect(rows[3]).toBe('RESULT   | accepted · not started')
   })
 
-  it('writes the start line and the entry line in one append, the entry carrying what was printed', () => {
-    const { deps, appended } = world('s1')
+  it('writes one card.started whose entry carries what was printed', () => {
+    const { deps, starts } = world('s1')
     const result = runTaskStart(['feat/entry', '--card', CARD], deps)
-    expect(appended).toHaveLength(1)
-    const [start, entry] = appended[0]!.split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, string>)
-    expect(start).toMatchObject({ event: 'path', task: '41' })
-    expect(entry).toMatchObject({ event: 'entry', task: '41', RESULT: 'accepted · not started', ts: NOW.toISOString() })
-    expect(result.stdout.slice(1)).toEqual((['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'] as const).map(field => `${field.padEnd(8)} | ${entry![field]}`))
+    expect(starts()).toHaveLength(1)
+    const start = starts()[0]!
+    const entry = start.entry as Record<string, string>
+    expect(start).toMatchObject({ task: '41', started: NOW.toISOString() })
+    expect(entry).toMatchObject({ RESULT: 'accepted · not started' })
+    expect(result.stdout.slice(1)).toEqual((['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'] as const).map(field => `${field.padEnd(8)} | ${entry[field]}`))
   })
 
   it('names a forecast no source holds, and a missing session, in the card', () => {
@@ -56,10 +59,10 @@ describe('task:start prints the entry card and writes it beside the start line',
   it('the start records the printed forecast as a value', () => {
     const handed = { CONTRACT: 'contract', EXPECT: 'expect tokens ≈ 1.2M' }
     const startOf = (forecast: Parameters<typeof runTaskStart>[2]): Record<string, unknown> => {
-      const { deps, appended } = world('s1')
+      const { deps, starts } = world('s1')
       const result = runTaskStart(['feat/entry', '--card', CARD], deps, forecast)
       expect(result.stdout[2]).toBe(`EXPECT   | ${forecast!.EXPECT}`)
-      return JSON.parse(appended[0]!.split('\n')[0]!) as Record<string, unknown>
+      return starts()[0]!
     }
     expect(startOf({ ...handed, forecast: { kind: 'forecast', taskClass: 'XS', n: 7, tokens: 1_234_567, minutes: 12.34 } }).forecast).toEqual({ tokens: 1_234_567, minutes: 12.34, class: 'XS', n: 7 })
     expect(startOf({ ...handed, forecast: { kind: 'none', taskClass: 'M', n: 2 } }).forecast).toEqual({ kind: 'none', class: 'M', n: 2 })

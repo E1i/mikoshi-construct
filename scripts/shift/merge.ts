@@ -1,11 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Decision } from '../../src/card/grammar.js'
 import type { GhRunner } from '../board/gh.js'
+import type { GitHub } from '../bus/github.js'
+import type { Step } from '../bus/review-worker.js'
 import type { GitRunner } from '../ghosts/sketch.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { OwnerMergeKind } from '../shredder/reader.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,9 +16,14 @@ import { readBodyCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { MERGE_DONE } from '../bus/card-automaton.js'
+import { defaultBusPath, openBus } from '../bus/db.js'
+import { ghApi } from '../bus/github.js'
 import { POLICY_DENIED } from '../bus/inbox.js'
+import { QUEUED } from '../bus/queue.js'
+import { fullReview } from '../bus/review-depth.js'
+import { ReviewWorker } from '../bus/review-worker.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
-import { ghStatusPublisher, publishReasons, REVIEW_CARRY_EVENT, reviewStatus } from '../ghosts/verdict.js'
+import { ghStatusPublisher, REVIEW_CARRY_EVENT, reviewStatus } from '../ghosts/verdict.js'
 import { matchGlob } from '../shredder/glob.js'
 import { GHOSTS_FILES, readGhostsFiles, readOwnerMergeKinds } from '../shredder/reader.js'
 import { GHOST_JOURNAL, REPO } from './places.js'
@@ -213,13 +220,34 @@ const VERDICT_PREFIX = '[shift:verdict] '
 
 export interface VerdictDeps {
   gh: GhRunner
-  journal: string
-  append: (file: string, text: string) => void
+  gitHub: GitHub
+  bus: string
+  session: string | undefined
   now: () => Date
-  publish?: StatusPublisher
+  publish: StatusPublisher
 }
 
-export function runVerdict(argv: string[], deps: VerdictDeps): MergeResult {
+const QUEUED_REVIEW = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state = '${QUEUED}' ORDER BY id DESC LIMIT 1`
+const VERDICT_WORKER_SESSION = 'shift-verdict'
+const VERDICT_BY_HAND = 'by-hand'
+const VERDICT_GIVEN = 'the verdict was given by shift:merge --verdict'
+
+function verdictStepLines(review: PrReview, bus: string, step: Step): { line: string, recorded: boolean } {
+  switch (step.kind) {
+    case 'recorded':
+      return { line: `#${review.task} PR #${review.pr} ${review.verdict} at ${review.commit} recorded in the bus ${bus}; a chain arms its auto-merge only after a pass at its head, and only at ${review.commit}`, recorded: true }
+    case 'denied':
+      return { line: `the bus denied the verdict on PR #${review.pr} at ${review.commit}: ${step.denial.kind === 'technical' ? step.denial.reason : step.denial.rule} (${step.denial.detail}); nothing recorded`, recorded: false }
+    case 'waiting':
+      return { line: `PR #${review.pr} at ${review.commit} waits for CI (${step.detail}); the review task is back in the queue; nothing recorded`, recorded: false }
+    case 'fenced':
+      return { line: `the lease on ${step.taskKey} was lost before the verdict was recorded; nothing recorded`, recorded: false }
+    case 'idle':
+      return { line: `the review task of PR #${review.pr} at ${review.commit} was taken by another worker; nothing recorded`, recorded: false }
+  }
+}
+
+export async function runVerdict(argv: string[], deps: VerdictDeps): Promise<MergeResult> {
   const at = argv.indexOf(VERDICT_FLAG)
   const commitAt = argv.indexOf(COMMIT_FLAG)
   const flagged = [at, at + 1, commitAt, commitAt + 1]
@@ -231,11 +259,27 @@ export function runVerdict(argv: string[], deps: VerdictDeps): MergeResult {
   const review = readPrReview(deps.gh, Number(number), verdict as ReviewVerdict, commit)
   if (typeof review === 'string')
     return { stdout: [], stderr: [`${VERDICT_PREFIX}${review}; nothing recorded`], exitCode: 1 }
-  const now = deps.now()
-  deps.append(deps.journal, prReviewLine(review, now))
-  const recorded = `${VERDICT_PREFIX}#${review.task} PR #${review.pr} ${review.verdict} at ${review.commit}; a chain arms its auto-merge only after a pass at its head, and only at ${review.commit}`
-  const unposted = deps.publish === undefined ? [] : publishReasons(deps.publish, reviewStatus(prReviewEvent(review, now)))
-  return { stdout: [recorded], stderr: unposted.map(reason => `${VERDICT_PREFIX}${reason}`), exitCode: unposted.length > 0 ? 1 : 0 }
+  const db = openBus(deps.bus)
+  try {
+    const queued = db.prepare(QUEUED_REVIEW).get(review.pr, review.commit) as { task_key: string } | undefined
+    if (queued === undefined)
+      return { stdout: [], stderr: [`${VERDICT_PREFIX}PR #${review.pr} has no review task queued at ${review.commit} in the bus ${deps.bus}; nothing recorded`], exitCode: 1 }
+    const reviewerSession = deps.session ?? VERDICT_BY_HAND
+    const worker = new ReviewWorker({
+      db,
+      gitHub: deps.gitHub,
+      publish: deps.publish,
+      reviewer: async () => ({ verdict: review.verdict, findings: [], session: reviewerSession }),
+      plan: () => fullReview(VERDICT_GIVEN),
+      clock: deps.now,
+      session: VERDICT_WORKER_SESSION,
+    })
+    const { line, recorded } = verdictStepLines(review, deps.bus, await worker.stepOn(queued.task_key))
+    return recorded ? { stdout: [`${VERDICT_PREFIX}${line}`], stderr: [], exitCode: 0 } : { stdout: [], stderr: [`${VERDICT_PREFIX}${line}`], exitCode: 1 }
+  }
+  finally {
+    db.close()
+  }
 }
 
 export const CARRY_FLAG = '--carry'
@@ -325,7 +369,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
   const result = argv.includes(CARRY_FLAG)
     ? runCarry(argv, realCarryDeps(journal))
-    : argv.includes(VERDICT_FLAG) ? runVerdict(argv, { gh: execGh, journal, append: appendFileSync, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
+    : argv.includes(VERDICT_FLAG) ? await runVerdict(argv, { gh: execGh, gitHub: ghApi(process.cwd()), bus: defaultBusPath(), session: process.env.CLAUDE_CODE_SESSION_ID || undefined, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)

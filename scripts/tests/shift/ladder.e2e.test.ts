@@ -6,6 +6,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { approvedHashPath } from '../../ghosts/approval.js'
+import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 import { approvalLine, approve, approvedFile, BRIEF_TEXT, briefOf, briefWritten, cardNameOf, EXPECT_LINE, LADDER, ladderDeps, ladderPnpm, revokeLine } from './fixtures/ladder-world.js'
@@ -49,19 +50,23 @@ function newLadderWorld(who = 'shift'): World {
   return newWorld([{ id: 1, kind: LADDER, who, body: BODY }])
 }
 
+function startsOf(world: World): Record<string, unknown>[] {
+  return cardStartedLines(world.bus)
+}
+
 function startLines(world: World): Record<string, unknown>[] {
-  return eventsOf(world, 'path').filter(line => line.worktree !== undefined)
+  return startsOf(world).filter(line => line.worktree !== undefined)
 }
 
 function startedTreeOf(world: World): string {
-  return String(eventsOf(world, 'path').find(line => line.task === '1')?.worktree)
+  return String(startsOf(world).find(line => line.task === '1')?.worktree)
 }
 
 describe('a ladder card in a shift', () => {
   it('shift takes a ladder card with who shift: it cuts the tree and runs the brief session', async () => {
     const world = newLadderWorld()
     const { ladder } = await shiftOver(world, { morse: 'refuses' })
-    expect(eventsOf(world, 'path').map(line => [line.task, line.path])).toEqual([['1', 'ladder']])
+    expect(startsOf(world).map(line => [line.task, line.path])).toEqual([['1', 'ladder']])
     expect(existsSync(path.join(world.root, 'mc-1'))).toBe(true)
     expect(stubRuns(world, 1)).toBe(1)
     expect(briefWritten(world, 1)).toBe(true)
@@ -78,7 +83,7 @@ describe('a ladder card in a shift', () => {
     const world = newLadderWorld('window')
     const { code, ladder } = await shiftOver(world)
     expect(code).toBe(1)
-    expect(eventsOf(world, 'path')).toEqual([])
+    expect(startsOf(world)).toEqual([])
     expect(ladder.calls).toEqual([])
     expect(eventsOf(world, 'stop')).toEqual([])
   })
