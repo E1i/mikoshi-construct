@@ -1,21 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { LaneOnDisk } from './admissions.js'
+import type { GitHub } from './github.js'
 import type { Poll } from './netwatch.js'
 import type { Derived } from './queue.js'
 import type { ReduceCount } from './reducer.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultDecisions } from '../decisions/read.js'
-import { defaultParking } from '../ghosts/handoff-check.js'
-import { parkingLane } from './admissions.js'
 import { boardProjection } from './board-page.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { decisionsIntake } from './decisions-import.js'
 import { ghApi } from './github.js'
-import { importJournal, journalPath } from './import.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
 import { deriveQueues } from './queue.js'
 import { reduce, REDUCED } from './reducer.js'
@@ -26,13 +23,6 @@ export interface Tick {
   poll: Poll
   reduced: ReduceCount | null
   derived: Derived | null
-}
-
-export function journalIntake(db: DatabaseSync, journal: string, laneOnDisk: LaneOnDisk, clock: () => Date): () => void {
-  return () => {
-    if (existsSync(journal))
-      importJournal(db, readFileSync(journal, 'utf8'), laneOnDisk, clock)
-  }
 }
 
 function lastEventId(db: DatabaseSync): number {
@@ -68,18 +58,21 @@ export function tickLines(tick: Tick): string[] {
   return lines
 }
 
+export interface ComposedTick {
+  busTick: BusTick
+  boardFile: string
+}
+
+export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, clock: () => Date, home: string): ComposedTick {
+  const board = boardProjection(db, busPath)
+  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project), boardFile: board.file }
+}
+
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const clock = (): Date => new Date()
-  const journal = journalIntake(db, journalPath(), parkingLane(defaultParking(os.homedir())), clock)
-  const decisions = decisionsIntake(db, defaultDecisions(os.homedir()), clock)
-  const board = boardProjection(db, busPath)
-  const busTick = new BusTick(db, new NetWatch(db, ghApi(process.cwd()), clock), clock, () => {
-    journal()
-    decisions()
-  }, board.project)
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the journal and owner decisions import, the reducer, the queues and ${board.file} every ${TICK_MS / 1000} s; no workers`)
+  const { busTick, boardFile } = composeBusTick(db, busPath, ghApi(process.cwd()), () => new Date(), os.homedir())
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the reducer, the queues and ${boardFile} every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
       const tick = busTick.run()

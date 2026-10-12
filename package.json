@@ -85,6 +85,7 @@
     "ghosts:role": "tsx scripts/ghosts/role.ts",
     "ghosts:verdict": "tsx scripts/ghosts/verdict.ts",
     "ghosts:watch": "tsx scripts/ghosts/watch.ts",
+    "intake": "tsx scripts/bus/intake.ts",
     "lint": "eslint .",
     "model:check": "tsx scripts/model/check.ts",
     "model:render": "tsx scripts/model/sync-docs.ts",

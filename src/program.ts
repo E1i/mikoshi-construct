@@ -1,5 +1,6 @@
 import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import type { BoardReading } from './commands/board/index.js'
+import type { CardEventPort } from './commands/intake/index.js'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -352,54 +353,57 @@ const sync = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
-const intake = withKnownFlags(defineCommand({
-  meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
-  args: {
-    plain: commonArgs.plain,
-    johnny: commonArgs.johnny,
-    draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
-    taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
-    admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number' },
-    move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, one journal line' },
-    to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
-    parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
-    dir: commonArgs.dir,
-    journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
-    dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
-    confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
-    autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the journal', default: false },
-  },
-  run({ args }) {
-    const console = ui(args)
-    const failed = reported(console, () => {
-      const dir = path.resolve(args.dir)
-      const journal = path.resolve(args.journal ?? defaultWindowJournal())
-      if (args.move !== undefined || args.to !== undefined) {
-        process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), journal }))
-        return
-      }
-      if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
-        process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm }))
-        return
-      }
-      const result = runIntake({
-        admit: args.admit,
-        draft: args.draft,
-        taken: args.taken,
-        parking: path.resolve(args.parking ?? defaultParking()),
-        dir,
-        journal,
-        dryRun: args.dryRun,
-        confirm: args.confirm,
-        autoConfirm: args.autoConfirm,
-        readStdin: () => readStdinToEnd(),
+function intakeCommand(events: CardEventPort | undefined) {
+  return withKnownFlags(defineCommand({
+    meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
+    args: {
+      plain: commonArgs.plain,
+      johnny: commonArgs.johnny,
+      draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
+      taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
+      admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number' },
+      move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, one journal line' },
+      to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
+      parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
+      dir: commonArgs.dir,
+      journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
+      dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
+      confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
+      autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the journal', default: false },
+    },
+    run({ args }) {
+      const console = ui(args)
+      const failed = reported(console, () => {
+        const dir = path.resolve(args.dir)
+        const journal = path.resolve(args.journal ?? defaultWindowJournal())
+        if (args.move !== undefined || args.to !== undefined) {
+          process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), journal, events }))
+          return
+        }
+        if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
+          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events }))
+          return
+        }
+        const result = runIntake({
+          admit: args.admit,
+          draft: args.draft,
+          taken: args.taken,
+          parking: path.resolve(args.parking ?? defaultParking()),
+          dir,
+          journal,
+          dryRun: args.dryRun,
+          confirm: args.confirm,
+          autoConfirm: args.autoConfirm,
+          readStdin: () => readStdinToEnd(),
+          events,
+        })
+        process.exitCode = printIntake(console, result)
       })
-      process.exitCode = printIntake(console, result)
-    })
-    if (failed !== 0)
-      process.exitCode = failed
-  },
-}), ROOT_META)
+      if (failed !== 0)
+        process.exitCode = failed
+    },
+  }), ROOT_META)
+}
 
 const mutateApply = withKnownFlags(defineCommand({
   meta: { name: 'apply', description: 'Apply one named wrong implementation from a brief: one find → replace in one file, with a copy and a record in .construct/mutations/' },
@@ -462,24 +466,33 @@ const mutate = defineCommand({
   },
 })
 
-export const main = defineCommand({
-  meta: ROOT_META,
-  subCommands: {
-    init,
-    attach,
-    'jack-in': attach,
-    detach,
-    'jack-out': detach,
-    soulkill,
-    'inspect': soulkill,
-    'capture': soulkill,
-    doctor,
-    sync,
-    cost,
-    board,
-    graph,
-    atlas,
-    intake,
-    mutate,
-  },
-})
+export interface MainPorts {
+  cardEvents?: CardEventPort
+}
+
+export function createMain({ cardEvents }: MainPorts = {}) {
+  const intake = intakeCommand(cardEvents)
+  return defineCommand({
+    meta: ROOT_META,
+    subCommands: {
+      init,
+      attach,
+      'jack-in': attach,
+      detach,
+      'jack-out': detach,
+      soulkill,
+      'inspect': soulkill,
+      'capture': soulkill,
+      doctor,
+      sync,
+      cost,
+      board,
+      graph,
+      atlas,
+      intake,
+      mutate,
+    },
+  })
+}
+
+export const main = createMain()

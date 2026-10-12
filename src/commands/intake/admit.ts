@@ -2,6 +2,7 @@ import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
+import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
 import type { CardEventPort } from './index.js'
 import type { SlicedCard } from './slice.js'
@@ -30,8 +31,9 @@ export function isLaneName(name: string): boolean {
   return LANE_NAME.test(name)
 }
 
-function isLaneOf(root: string, dir: string): boolean {
-  return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(path.basename(dir))
+export function laneOf(root: string, dir: string): string | null {
+  const name = path.basename(dir)
+  return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(name) ? name : null
 }
 export const AMEND_SOURCE = 'amend'
 
@@ -51,7 +53,7 @@ export interface AdmitOptions {
 export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
-    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource }
+    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
 
 function witnessesOf(body: string): string[] {
@@ -125,7 +127,7 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-interface RecordedIntake { card: string, bodySha: unknown }
+interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown }
 
 function latestIntake(journal: string | null, card: Card): RecordedIntake | null {
   let latest: RecordedIntake | null = null
@@ -133,7 +135,7 @@ function latestIntake(journal: string | null, card: Card): RecordedIntake | null
     try {
       const entry = JSON.parse(text) as Record<string, unknown> | null
       if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string')
-        latest = { card: entry.card, bodySha: entry.bodySha }
+        latest = { card: entry.card, bodySha: entry.bodySha, ts: entry.ts, confirmation: entry.confirmation, source: entry.source }
     }
     catch {}
   }
@@ -145,6 +147,21 @@ function sameCardLine(recorded: string, line: string): boolean {
   const wanted = parsed.kind === 'card' ? cardLine(parsed.card) : line
   const recordedCard = parseCard(recorded)
   return recordedCard.kind === 'card' && cardLine(recordedCard.card) === wanted
+}
+
+const RECORDED_CONFIRMATION: Record<Confirmation, Confirmation> = { auto: 'auto', person: 'person', none: 'none' }
+
+function recordedConfirmation(recorded: RecordedIntake, card: SlicedCard, autoConfirm: boolean): Confirmation {
+  const { confirmation } = recorded
+  return typeof confirmation === 'string' && Object.hasOwn(RECORDED_CONFIRMATION, confirmation) ? RECORDED_CONFIRMATION[confirmation as Confirmation] : confirmationOf(card, autoConfirm)
+}
+
+function recordedSource(recorded: RecordedIntake): string | undefined {
+  return typeof recorded.source === 'string' ? recorded.source : undefined
+}
+
+function admittedAt(recorded: RecordedIntake, now: () => Date): Date {
+  return typeof recorded.ts === 'string' && !Number.isNaN(Date.parse(recorded.ts)) ? new Date(recorded.ts) : now()
 }
 
 function sameBody(recorded: unknown, text: string): boolean {
@@ -210,9 +227,13 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const recorded = latestIntake(journal, card)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
-  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source }
-  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text))
+  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
+  const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
+  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
+    if (!options.dryRun)
+      options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)).event)
     return { ...base, status: 'alreadyAdmitted' }
+  }
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
@@ -223,9 +244,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  const laneDir = path.dirname(options.file)
-  const inLane = isLaneOf(options.parkingRoot ?? defaultParking(), laneDir)
-  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), laneDir, source)], source === ADMIT_SOURCE && inLane ? options.events : undefined)
+  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
 }
 
@@ -242,7 +261,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   }
   const { card } = result
   if (result.status === 'alreadyAdmitted') {
-    ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line))
+    ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line, result.inBus))
     return INTAKE_EXIT.alreadyAdmitted
   }
   if (result.status === 'awaiting' && result.stale)
@@ -254,7 +273,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   else if (result.source === AMEND_SOURCE)
     ui.ok(ui.lore.intakeAmended(result.file, card.line))
   else
-    ui.ok(ui.lore.intakeAdmitted(result.file, card.line))
+    ui.ok(ui.lore.intakeAdmitted(result.file, card.line, result.inBus))
   if (result.status !== 'dryRun') {
     for (const correction of card.corrections)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))

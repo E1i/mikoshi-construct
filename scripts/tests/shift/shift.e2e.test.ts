@@ -13,6 +13,7 @@ import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { runReport } from '../../shift/report.js'
 import { holdThroughHangup, runShift } from '../../shift/shift.js'
+import { admitCards } from './fixtures/admitted.js'
 import { captured as capturedIo, depsOf as chainDepsOf, eventsOf, fakeGh, newWorld as newChainWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
 import './fixtures/stub-handoff.js'
 
@@ -91,8 +92,8 @@ function parkedCardLines(dir: string): string[] {
 
 function everyCardOfTheWorldTakenThroughIntake(world: World): (file: string) => string | null {
   return (file) => {
-    const intake = [world.shift, path.join(world.root, 'parking')].flatMap(parkedCardLines).map(line => `${JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(line)![1], card: line, confirmation: 'none', corrections: [], ts: '2026-10-03T00:00:00.000Z' })}\n`)
-    return (existsSync(file) ? readFileSync(file, 'utf8') : '') + intake.join('')
+    admitCards(busOf(world), [world.shift, path.join(world.root, 'parking')].flatMap(parkedCardLines))
+    return existsSync(file) ? readFileSync(file, 'utf8') : ''
   }
 }
 

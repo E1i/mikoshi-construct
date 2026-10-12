@@ -127,7 +127,7 @@ describe('task:start reads the admission from the bus and writes the start to it
     admit(world.bus, [81])
     const result = runTaskStart(['feat/a8', '--card', card(81)], depsOf(world))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] card #81 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:intake:81: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(result.stderr).toEqual([`[task:start] card #81 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:intake:81: admit the current card through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(starts(world)).toEqual([])
   })
 
@@ -142,7 +142,7 @@ describe('task:start reads the admission from the bus and writes the start to it
     db.close()
     const result = runTaskStart(['feat/a9', '--card', card(83)], depsOf(world))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] card #83 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:move:83: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(result.stderr).toEqual([`[task:start] card #83 was admitted in the bus ${world.bus} as a different card (${admitted}) by ${CARD_ADMITTED}:move:83: admit the current card through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(starts(world)).toEqual([])
   })
 
@@ -158,36 +158,38 @@ describe('task:start reads the admission from the bus and writes the start to it
     db.close()
     const old = runTaskStart(['feat/a10', '--card', first], depsOf(world))
     expect(old.exitCode).toBe(1)
-    expect(old.stderr).toEqual([`[task:start] card #85 was admitted in the bus ${world.bus} as a different card (${second}) by ${CARD_ADMITTED}:intake:85:again: admit the current card through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(old.stderr).toEqual([`[task:start] card #85 was admitted in the bus ${world.bus} as a different card (${second}) by ${CARD_ADMITTED}:intake:85:again: admit the current card through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(runTaskStart(['feat/a10', '--card', second], depsOf(world)).exitCode).toBe(0)
     expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:85:again` } }])
   })
 
-  it('a card with no card.admitted is refused naming the bus', () => {
+  it('task:start without card.admitted and without an intake line in the journal is refused', () => {
     const world = newWorld()
     const result = runTaskStart(['feat/a2', '--card', card(77)], depsOf(world))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus} and no intake line in the journal: it was not admitted; admit it through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(existsSync(path.join(world.root, 'mc-77'))).toBe(false)
     expect(starts(world)).toEqual([])
   })
 
-  it('a card with no card.admitted but an intake line for the same card in the journal starts, admitted by intake', () => {
+  it('a card with no card.admitted is refused even when the journal holds an intake line for the same card', () => {
     const world = newWorld()
     const journal = `${JSON.stringify({ event: 'intake', task: '77', card: card(77), confirmation: 'c-77', corrections: [], ts: ADMITTED_TS })}\n`
     const result = runTaskStart(['feat/a7', '--card', card(77)], { ...depsOf(world), readJournal: () => journal })
-    expect(result.exitCode).toBe(0)
-    expect(starts(world)).toMatchObject([{ admission: { by: 'intake', confirmation: 'c-77', intake: ADMITTED_TS } }])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(starts(world)).toEqual([])
   })
 
-  it('a card with no card.admitted and an intake line for a different card is refused naming the bus and the journal', () => {
+  it('a card admitted through the intake port starts on the card its own payload carries, and another line is refused', () => {
     const world = newWorld()
-    const other = card(77, 'implement/ghosts/M/cheap/auto')
-    const journal = `${JSON.stringify({ event: 'intake', task: '77', card: other, confirmation: 'c-77', corrections: [], ts: ADMITTED_TS })}\n`
-    const result = runTaskStart(['feat/a8', '--card', card(77)], { ...depsOf(world), readJournal: () => journal })
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus} and an intake line in the journal for a different card (${other}): it was not admitted; admit it through construct intake, or pass --without-intake "<reason>" to record an exception; nothing written`])
-    expect(starts(world)).toEqual([])
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 87, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:87:port`, payload: { card: card(87), lane: null, depends: [], decision: 'auto', contour: 'cheap' }, legacy: false })
+    db.close()
+    const other = card(87, 'implement/ghosts/M/cheap/auto')
+    expect(runTaskStart(['feat/a9', '--card', other], depsOf(world)).stderr).toEqual([`[task:start] card #87 was admitted in the bus ${world.bus} as a different card (${card(87)}) by ${CARD_ADMITTED}:87:port: admit the current card through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(runTaskStart(['feat/a9', '--card', card(87)], depsOf(world)).exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:87:port`, admitted: ADMITTED_TS } }])
   })
 
   it('a card with no card.admitted starts under --without-intake and records the waiver', () => {

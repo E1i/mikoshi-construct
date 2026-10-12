@@ -68,20 +68,24 @@ export function importJournal(db: DatabaseSync, journal: string, laneOnDisk: Lan
   return count
 }
 
+export function importJournalFile(db: DatabaseSync, journal: string, laneOnDisk: LaneOnDisk, now: () => Date = () => new Date()): ImportCount | null {
+  return existsSync(journal) ? importJournal(db, readFileSync(journal, 'utf8'), laneOnDisk, now) : null
+}
+
 export function journalPath(): string {
   return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'ghosts.jsonl')
 }
 
 function main(): number {
   const journal = journalPath()
-  if (!existsSync(journal)) {
-    console.error(`${PREFIX}no journal at ${journal}`)
-    return 1
-  }
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   try {
-    const count = importJournal(db, readFileSync(journal, 'utf8'), parkingLane(defaultParking(os.homedir())))
+    const count = importJournalFile(db, journal, parkingLane(defaultParking(os.homedir())))
+    if (count === null) {
+      console.error(`${PREFIX}no journal at ${journal}`)
+      return 1
+    }
     console.log(`${PREFIX}${journal} → ${busPath}: imported ${count.imported}, already present ${count.present}, unreadable ${count.unreadable.length}${count.unreadable.length === 0 ? '' : ` (lines ${count.unreadable.join(', ')})`}, cards admitted ${count.admitted}`)
     return 0
   }

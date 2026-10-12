@@ -7,6 +7,7 @@ import path from 'node:path'
 import { afterEach } from 'vitest'
 import { runClaude } from '../../../shift/claude.js'
 import { HANDED_TO_THE_BUS } from '../../../shift/merge.js'
+import { admitCards } from './admitted.js'
 import './stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'claude-stub-pr.sh')
@@ -72,9 +73,10 @@ export function newWorld(cards: ParkedCard[]): World {
   for (const { id, kind, who, body, header, depends, touches } of cards)
     writeFileSync(path.join(dirs.parking, `${id}.md`), `card: ${cardLine(id, kind, depends)}\nbranch: feat/${id}\ntouches: ${touches ?? `scripts/${id}/**`}\nwho: ${who ?? 'shift'}\n${header ?? ''}\n${body ?? `do ${id}`}\n`)
   const journal = path.join(dirs.handoff, 'ghosts.jsonl')
-  const intake = cards.filter(card => card.intake !== false).map(({ id, kind, depends }) => ({ event: 'intake', task: String(id), card: cardLine(id, kind, depends), confirmation: 'none', corrections: [], ts: '2026-10-06T00:00:00.000Z' }))
-  writeFileSync(journal, intake.map(line => `${JSON.stringify(line)}\n`).join(''))
-  return { root, repo, ...dirs, journal, bus: path.join(root, 'bus', 'bus.db') }
+  const bus = path.join(root, 'bus', 'bus.db')
+  admitCards(bus, cards.filter(card => card.intake !== false).map(({ id, kind, depends }) => cardLine(id, kind, depends)))
+  writeFileSync(journal, '')
+  return { root, repo, ...dirs, journal, bus }
 }
 
 export interface Captured {

@@ -1,9 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HANDOFF_DIR_VARIABLE } from '../../board/run.js'
 import { openBus } from '../../bus/db.js'
-import { importJournal } from '../../bus/import.js'
+import { importJournal, importJournalFile } from '../../bus/import.js'
+import { composeBusTick } from '../../bus/run.js'
+import { Clock, FakeGitHub } from './github-fake.js'
 
 const HEAD = '29342d7559e14412b73d1d5d6dd216363cfc07c0'
 const roots: string[] = []
@@ -83,5 +86,24 @@ describe('the one-time journal import', () => {
     const payloads = db.prepare('SELECT payload FROM events ORDER BY id').all().map(row => row.payload)
     expect(payloads).toEqual(JOURNAL.split('\n').slice(0, 6))
     db.close()
+  })
+})
+
+describe('the tick after the one-time import', () => {
+  it('a journal line appended after the one-time import is not imported by a tick', () => {
+    const root = newRoot()
+    const journal = path.join(root, 'ghosts.jsonl')
+    writeFileSync(journal, JOURNAL)
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    expect(importJournalFile(db, journal, () => null)).toMatchObject({ imported: 6 })
+    appendFileSync(journal, `${JSON.stringify({ event: 'merge', task: '682', pr: 691, commit: 'c0ffee', ts: '2026-10-04T11:00:00.000Z' })}\n`)
+    const clock = new Clock()
+    const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, clock.now, root)
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(db.prepare('SELECT count(*) AS legacy FROM events WHERE legacy = 1').get()).toEqual({ legacy: 6 })
+    db.close()
+    vi.unstubAllEnvs()
   })
 })

@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runTaskStart } from '../../ghosts/task-start.js'
+import { admitCards } from '../shift/fixtures/admitted.js'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')
 const CARD = '#101 task-card [implement/ghosts/M/cheap/owner] · depends #86 #87 · blocks —'
-const INTAKE = { event: 'intake', task: '101', card: CARD, confirmation: 'none', corrections: [], ts: '2026-10-05T07:00:00.000Z' }
 const DONE_86 = { event: 'path', task: '86', path: 'cheap', pr: 530, verification: 'run' }
 const MERGED_86 = { event: 'merge', task: '86', pr: 530, by: 'owner', commit: 'abc' }
 const MERGED_87 = { event: 'merge', task: '87', pr: 531, by: 'owner', commit: 'def' }
@@ -52,12 +52,13 @@ function world(journalLines: object[]): { root: string, repo: string, handoff: s
     handoffDir: handoff,
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
   }
+  admitCards(deps.bus, [CARD])
   return { root, repo, handoff, journal, deps }
 }
 
 describe('task:start takes a card only when its depends are merged', () => {
   it('refuses a card with a depends not merged and leaves the journal unchanged', () => {
-    const w = world([INTAKE, DONE_86, MERGED_87])
+    const w = world([DONE_86, MERGED_87])
     const before = readFileSync(w.journal, 'utf8')
     const result = runTaskStart(['feat/t101', '--card', CARD], w.deps)
     expect(result.stderr.join(' ')).toContain('#86')
@@ -77,7 +78,7 @@ describe('task:start takes a card only when its depends are merged', () => {
   })
 
   it('starts the card once every depends has a merge line', () => {
-    const w = world([INTAKE, DONE_86, MERGED_86, MERGED_87])
+    const w = world([DONE_86, MERGED_86, MERGED_87])
     const result = runTaskStart(['feat/t101', '--card', CARD], w.deps)
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)

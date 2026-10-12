@@ -5,12 +5,14 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runTaskStart } from '../../ghosts/task-start.js'
 import { cardStartedLines } from '../../ghosts/tasks.js'
+import { admitCards } from '../shift/fixtures/admitted.js'
 
 const NOW = new Date('2026-10-04T08:00:00.000Z')
 const CARD = '#41 entry-card [implement/ghosts/M/cheap/owner] · depends — · blocks —'
 
 function world(session: string | undefined): { deps: TaskStartDeps, starts: () => Record<string, unknown>[] } {
   const bus = path.join(mkdtempSync(path.join(tmpdir(), 'task-start-')), 'bus.db')
+  admitCards(bus, [CARD])
   return {
     starts: () => cardStartedLines(bus),
     deps: {
@@ -26,7 +28,7 @@ function world(session: string | undefined): { deps: TaskStartDeps, starts: () =
       now: () => NOW,
       session,
       handoffDir: '/handoff',
-      readJournal: () => `${JSON.stringify({ event: 'intake', task: '41', card: CARD, confirmation: 'none', corrections: [], ts: NOW.toISOString() })}\n`,
+      readJournal: () => null,
     },
   }
 }

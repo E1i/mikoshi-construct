@@ -10,7 +10,7 @@ function read(file: string): string {
 
 function subCommandLines(): string[] {
   const lines = read('src/program.ts').split('\n')
-  const program = lines.findIndex(line => line.startsWith('export const main'))
+  const program = lines.findIndex(line => line.startsWith('export function createMain'))
   const opens = lines.findIndex((line, index) => index > program && line.includes('subCommands: {'))
   if (opens === -1)
     return []

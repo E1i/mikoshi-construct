@@ -11,6 +11,7 @@ import { cardIdOf } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
 
 export const ADMISSION_ACTOR = 'reducer'
+export const INTAKE_ACTOR_PREFIX = 'worker:intake:'
 
 export type LaneOnDisk = (cardId: number) => string | null
 
@@ -33,6 +34,8 @@ const INTAKE_LINES = `
   WHERE legacy = 1 AND type IN ('${INTAKE_EVENT}', '${INTAKE_MOVE_EVENT}')
   ORDER BY id
 `
+
+const RECORDED_BY_THE_PORT = `SELECT 1 FROM events WHERE legacy = 0 AND card_id = ? AND ts = ? AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' LIMIT 1`
 
 function lineOf(row: IntakeRow): Record<string, unknown> {
   try {
@@ -88,7 +91,7 @@ export function admitFromJournal(db: DatabaseSync, ts: string, laneOnDisk: LaneO
     if (isMove && moved === null)
       continue
     const known = db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${row.dedupe_key}`)
-    if (known !== undefined)
+    if (known !== undefined || db.prepare(RECORDED_BY_THE_PORT).get(cardId, row.ts) !== undefined)
       continue
     const present = laneOnDisk(cardId)
     if (present === null || !isLaneName(present))
