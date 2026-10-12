@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -10,6 +10,9 @@ export const UNIX_SOCKET_PATH_BYTES = 103
 export const SOCKET_NAME_RESERVE_BYTES = 24
 const MKDTEMP_SUFFIX = 'XXXXXX'
 const OWNER_PID = new RegExp(`^${RUN_ROOT_PREFIX}(\\d+)-[A-Za-z0-9]{${MKDTEMP_SUFFIX.length}}$`)
+const VITEST_TMP_DIR_NAME = /^[\w-]{21}$/
+const VITEST_ENVIRONMENT_DIRS: ReadonlySet<string> = new Set(['ssr', 'client'])
+export const VITEST_LEFTOVER_AGE_MS = 6 * 60 * 60 * 1000
 const RELEASING_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
 
 export interface RunRootOptions {
@@ -51,6 +54,35 @@ export function reapOrphanRoots(outer: string, alive: (pid: number) => boolean =
   return orphans
 }
 
+function lastWrittenMs(dir: string, children: string[]): number {
+  return Math.max(statSync(dir).mtimeMs, ...children.map(child => statSync(path.join(dir, child)).mtimeMs))
+}
+
+function isVitestLeftover(dir: string, nowMs: number): boolean {
+  try {
+    return isStaleVitestDir(dir, nowMs)
+  }
+  catch {
+    return false
+  }
+}
+
+function isStaleVitestDir(dir: string, nowMs: number): boolean {
+  if (!VITEST_TMP_DIR_NAME.test(path.basename(dir)) || !statSync(dir).isDirectory())
+    return false
+  const children = readdirSync(dir)
+  return children.length > 0
+    && children.every(child => VITEST_ENVIRONMENT_DIRS.has(child))
+    && nowMs - lastWrittenMs(dir, children) > VITEST_LEFTOVER_AGE_MS
+}
+
+export function reapVitestLeftovers(outer: string, nowMs: number = Date.now()): string[] {
+  const leftovers = readdirSync(outer).filter(name => isVitestLeftover(path.join(outer, name), nowMs))
+  for (const name of leftovers)
+    rmSync(path.join(outer, name), { recursive: true, force: true })
+  return leftovers
+}
+
 export class RunRoot {
   private readonly previous: { root: string | undefined, tmpdir: string | undefined }
 
@@ -65,6 +97,7 @@ export class RunRoot {
     const template = path.join(outer, `${RUN_ROOT_PREFIX}${options.pid ?? process.pid}-`)
     refuseRootTooLongForASocket(`${template}${MKDTEMP_SUFFIX}`)
     reapOrphanRoots(outer, options.isAlive)
+    reapVitestLeftovers(outer)
     const root = mkdtempSync(template)
     return new RunRoot(root, options.env ?? process.env)
   }
@@ -100,9 +133,14 @@ function closeOwnRootOnExit(root: RunRoot): void {
   }
 }
 
-export function currentRunRoot(env: NodeJS.ProcessEnv = process.env): string {
+export function inheritedRunRoot(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const inherited = env[RUN_ROOT_VARIABLE]
-  if (inherited !== undefined && existsSync(inherited))
+  return inherited !== undefined && existsSync(inherited) ? inherited : undefined
+}
+
+export function currentRunRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const inherited = inheritedRunRoot(env)
+  if (inherited !== undefined)
     return inherited
   if (ownRoot === undefined) {
     ownRoot = RunRoot.open({ env })
