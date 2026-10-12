@@ -4,21 +4,19 @@ import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { OperatorWork } from './role-bus.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
-import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { raisedByTheBus } from '../bus/role.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends, STATE_LABELS } from '../ghosts/handoff-check.js'
-import { appendJournalEvent } from '../ghosts/journal.js'
 import { runClaude } from './claude.js'
 import { CONTINUE_PROMPT, HANDOFF_INVALID, MAX_RESTARTS } from './continuation.js'
 import { boundaryLine, boundaryMove, transcriptContext } from './operator-boundary.js'
-import { GHOST_JOURNAL } from './places.js'
 import { realOperatorWork, realRoleStopObserver } from './role-bus.js'
 
 export const PREFIX = '[relaunch] '
@@ -60,7 +58,7 @@ export interface RelaunchDeps {
   claude: string
   env: NodeJS.ProcessEnv
   ghToken: (account: string) => string
-  journal: string
+  bus: string
   projectsDir: string
   read: (file: string) => string
   write: (file: string, text: string) => void
@@ -81,7 +79,13 @@ export interface RelaunchDeps {
   work?: OperatorWork
 }
 
+export const START_EVENT = 'relaunch-start'
+export const SESSION_EVENT = 'relaunch-session'
+export const ENDED_EVENT = 'relaunch'
 export const BOUNDARY_EVENT = 'relaunch-boundary'
+export const STOP_EVENT = 'relaunch-stop'
+export const RELAUNCH_EVENTS = [START_EVENT, SESSION_EVENT, ENDED_EVENT, BOUNDARY_EVENT, STOP_EVENT] as const
+export const RELAUNCH_ACTOR = 'worker:relaunch:'
 
 type Trigger = 'start' | 'threshold' | 'event'
 
@@ -98,7 +102,7 @@ export interface LiveSession {
   handoff: string
 }
 
-interface JournalLine {
+export interface RelaunchEntry {
   event?: unknown
   session?: unknown
   pid?: unknown
@@ -107,26 +111,35 @@ interface JournalLine {
   move?: unknown
 }
 
-function journalEntries(text: string): JournalLine[] {
-  return text.split('\n').flatMap((line) => {
-    try {
-      const entry = JSON.parse(line) as JournalLine | null
-      return entry !== null && typeof entry === 'object' ? [entry] : []
-    }
-    catch {
-      return []
-    }
-  })
+function entryOf(payload: string): RelaunchEntry[] {
+  try {
+    const entry = JSON.parse(payload) as RelaunchEntry | null
+    return entry !== null && typeof entry === 'object' ? [entry] : []
+  }
+  catch {
+    return []
+  }
 }
 
-export function liveSessions(journal: string, alive: (pid: number) => boolean): LiveSession[] {
+export function relaunchEntries(bus: string): RelaunchEntry[] {
+  const db = openBus(bus)
+  try {
+    const rows = db.prepare(`SELECT payload FROM events WHERE type IN (${RELAUNCH_EVENTS.map(() => '?').join(', ')}) ORDER BY id`).all(...RELAUNCH_EVENTS) as Array<{ payload: string }>
+    return rows.flatMap(row => entryOf(row.payload))
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function liveSessions(entries: RelaunchEntry[], alive: (pid: number) => boolean): LiveSession[] {
   const open = new Map<string, LiveSession>()
-  for (const entry of journalEntries(journal)) {
+  for (const entry of entries) {
     if (typeof entry.session !== 'string')
       continue
-    if (entry.event === 'relaunch-session' && typeof entry.pid === 'number')
+    if (entry.event === SESSION_EVENT && typeof entry.pid === 'number')
       open.set(entry.session, { session: entry.session, pid: entry.pid, n: Number(entry.n), handoff: String(entry.handoff) })
-    else if (entry.event === 'relaunch')
+    else if (entry.event === ENDED_EVENT)
       open.delete(entry.session)
   }
   return [...open.values()].filter(session => alive(session.pid))
@@ -143,12 +156,11 @@ export function pidAlive(pid: number): boolean {
 }
 
 function printLive(deps: RelaunchDeps): number {
-  const text = deps.exists(deps.journal) ? deps.read(deps.journal) : ''
-  const live = liveSessions(text, deps.alive)
+  const live = liveSessions(relaunchEntries(deps.bus), deps.alive)
   for (const session of live)
     deps.out(`${PREFIX}live: session ${session.n} ${session.session} pid ${session.pid} on ${session.handoff}`)
   if (live.length === 0)
-    deps.out(`${PREFIX}live: none in ${deps.journal}`)
+    deps.out(`${PREFIX}live: none in ${deps.bus}`)
   return 0
 }
 
@@ -196,17 +208,17 @@ function sessionTranscript(deps: RelaunchDeps, session: string): string | null {
     .find(file => deps.exists(file)) ?? null
 }
 
-async function printBoundary(deps: RelaunchDeps, session: string): Promise<number> {
+function printBoundary(deps: RelaunchDeps, session: string): number {
   const transcript = sessionTranscript(deps, session)
   const text = transcript === null ? null : readIfPresent(deps, transcript)
   const context = text === null ? null : transcriptContext(text)
-  await record(deps, { event: BOUNDARY_EVENT, session, move: boundaryMove(context), context, ts: deps.now().toISOString() })
+  record(deps, { event: BOUNDARY_EVENT, session, move: boundaryMove(context), context, ts: deps.now().toISOString() })
   deps.out(`${PREFIX}${boundaryLine(context, transcript ?? path.join(deps.projectsDir, '*', `${session}.jsonl`))}`)
   return 0
 }
 
-export function endedAtThreshold(journal: string, session: string): boolean {
-  const last = journalEntries(journal).filter(entry => entry.event === BOUNDARY_EVENT && entry.session === session).at(-1)
+export function endedAtThreshold(entries: RelaunchEntry[], session: string): boolean {
+  const last = entries.filter(entry => entry.event === BOUNDARY_EVENT && entry.session === session).at(-1)
   return last?.move === 'end'
 }
 
@@ -355,9 +367,14 @@ export function ghAccountToken(account: string, env: NodeJS.ProcessEnv = process
   return execFileSync('gh', ['auth', 'token', '--user', account], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-async function record(deps: RelaunchDeps, event: object): Promise<void> {
-  mkdirSync(path.dirname(deps.journal), { recursive: true })
-  await appendJournalEvent(deps.journal, event)
+function record(deps: RelaunchDeps, entry: { event: string, ts: string } & Record<string, unknown>): void {
+  const db = openBus(deps.bus)
+  try {
+    appendEvent(db, { ts: entry.ts, type: entry.event, actor: `${RELAUNCH_ACTOR}${deps.pid}`, cardId: null, pr: null, head: null, dedupeKey: `${entry.event}:${randomUUID()}`, payload: entry, legacy: false })
+  }
+  finally {
+    db.close()
+  }
 }
 
 export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<number> {
@@ -371,12 +388,12 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     return 1
   }
   const handoff = path.resolve(deps.cwd, expandHome(parsed.handoff, deps.home))
-  await record(deps, { event: 'relaunch-start', handoff, max: parsed.max, ts: deps.now().toISOString() })
+  record(deps, { event: START_EVENT, handoff, max: parsed.max, ts: deps.now().toISOString() })
   let sessions = 0
   let counted = 0
   let trigger: Trigger = 'start'
-  const stop = async (reason: string, code: number, refusals?: string[]): Promise<number> => {
-    await record(deps, { event: 'relaunch-stop', handoff, reason, sessions, ...(refusals === undefined ? {} : { refusals }), ts: deps.now().toISOString() })
+  const stop = (reason: string, code: number, refusals?: string[]): number => {
+    record(deps, { event: STOP_EVENT, handoff, reason, sessions, ...(refusals === undefined ? {} : { refusals }), ts: deps.now().toISOString() })
     if (code === 0)
       deps.out(`${PREFIX}${reason}`)
     else
@@ -425,19 +442,17 @@ export async function runRelaunch(args: string[], deps: RelaunchDeps): Promise<n
     const session = deps.uuid()
     deps.out(`${PREFIX}session ${sessions} ${session} on ${model}, started by ${trigger}, ${counted}/${parsed.max} toward --max`)
     let pid: number | null = null
-    let started: Promise<void> = Promise.resolve()
     const n = sessions
     const cursor = deps.work?.cursor()
     const onSpawn = (spawned: number): void => {
       pid = spawned
-      started = record(deps, { event: 'relaunch-session', handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
+      record(deps, { event: SESSION_EVENT, handoff, session, pid: spawned, n, ts: deps.now().toISOString() })
     }
     const exit = await deps.run({ command, cwd: deps.cwd, sessionId: session, env: { ...deps.env, [HANDOFF_VARIABLE]: handoff }, prompt: relaunchPrompt(handoff, decisionsPath(text, handoff, deps.home), session), log: `${handoff}.relaunch-${sessions}.log`, extraArgv: ['--model', model], onSpawn })
-    await started
     const after = statusOf(readIfPresent(deps, handoff) ?? '') ?? 'none'
-    const idle = after === 'CONTINUE' && !endedAtThreshold(readIfPresent(deps, deps.journal) ?? '', session)
-    await record(deps, {
-      event: 'relaunch',
+    const idle = after === 'CONTINUE' && !endedAtThreshold(relaunchEntries(deps.bus), session)
+    record(deps, {
+      event: ENDED_EVENT,
       handoff,
       session,
       pid,
@@ -473,7 +488,7 @@ export function realDeps(env: NodeJS.ProcessEnv = process.env): RelaunchDeps {
     claude: OPERATOR_CLAUDE,
     env,
     ghToken: account => ghAccountToken(account, env),
-    journal: path.join(env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
+    bus: defaultBusPath(),
     projectsDir: claudeProjectsDir(),
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),
