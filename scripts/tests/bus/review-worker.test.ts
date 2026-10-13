@@ -2,11 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
 import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../bus/review-depth.js'
 import type { ReviewRun } from '../../bus/review-worker.js'
-import type { Reviewer } from '../../bus/reviewer.js'
+import type { LeftoverTree, Reviewer } from '../../bus/reviewer.js'
 import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { ChangedFile } from '../../morse/rules.js'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,8 +20,8 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine } from '../../bus/review-worker.js'
-import { claudeReviewer, reviewPrompt } from '../../bus/reviewer.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { claudeReviewer, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { openDatabase } from '../../bus/sqlite.js'
 import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
@@ -43,7 +44,7 @@ interface Bench {
   clock: Clock
   statuses: ReviewStatus[]
   tick: () => void
-  worker: (reviewer: Reviewer, publish?: StatusPublisher, plan?: ReviewPlanner) => ReviewWorker
+  worker: (reviewer: Reviewer, publish?: StatusPublisher, plan?: ReviewPlanner, clearLeftovers?: () => LeftoverTree[]) => ReviewWorker
 }
 
 const fixedPlan: ReviewPlanner = () => fullReview('a fixed plan')
@@ -73,7 +74,7 @@ function setUp(): Bench {
       busTick.run()
       clock.advance(TICK_MS)
     },
-    worker: (reviewer, publish = posted, plan = fixedPlan) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1' }),
+    worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers }),
   }
 }
 
@@ -484,6 +485,7 @@ describe('review worker', () => {
       pause: async () => {
         throw new Stopped()
       },
+      clearLeftovers: () => [],
     }
     const output = (): string => printed.mock.calls.map(call => String(call[0])).join('\n')
 
@@ -504,15 +506,100 @@ describe('review worker', () => {
     expect(existsSync(busPath)).toBe(true)
   })
 
+  it('a leftover tree whose removal failed at the end of a review is freed on the next lease without a restart, and the tree of that lease is untouched', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-next-lease-'))
+    roots.push(dir)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const listed = new Set<string>()
+    let removals = 0
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'add')
+          listed.add(args[3]!)
+        if (args[1] === 'remove') {
+          removals += 1
+          if (removals === 1)
+            throw new Error('error: unable to remove the tree: Resource busy')
+          listed.delete(args[3]!)
+        }
+      },
+      worktrees: () => ['/repo', ...listed],
+    })
+    const seen: string[][] = []
+    const reviewer = claudeReviewer(trees, async (params) => {
+      seen.push([...listed])
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    const running = worker(reviewer, undefined, undefined, () => trees.clearLeftovers())
+    gitHub.open({ number: 939 })
+    gitHub.open({ number: 940 })
+    tick()
+    expect(await running.step()).toMatchObject({ kind: 'recorded' })
+    const [stuck] = [...listed]
+
+    expect(await running.step()).toMatchObject({ kind: 'recorded' })
+    expect(seen[1]).toHaveLength(1)
+    expect(seen[1]).not.toContain(stuck)
+    expect(listed.size).toBe(0)
+    expect(events(db, 'artifact.removed')).toEqual([{ path: stuck, by: 'worker:review:worker-1' }])
+    db.close()
+  })
+
+  it('a leftover review tree is cleared when the worker starts on, before any lease, and off or a dry run clears nothing', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-review-leftover-'))
+    roots.push(root)
+    const busPath = path.join(root, 'bus.db')
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const gitHub = new FakeGitHub()
+    gitHub.open({ number: 952 })
+    const order: string[] = []
+    const leftovers: LeftoverTree[] = [
+      { path: '/reviews/killed', left: null },
+      { path: '/reviews/held-open', left: 'error: unable to remove /reviews/held-open/node_modules: Resource busy' },
+    ]
+    class Stopped extends Error {}
+    const run: ReviewRun = {
+      busPath,
+      gitHub: gitHub.client,
+      publish: () => {},
+      reviewer: async (lease) => {
+        order.push(`review ${lease.actor}`)
+        return { verdict: 'pass', findings: [], session: 'reviewer-leftover' }
+      },
+      plan: fixedPlan,
+      session: 'leftover-1',
+      slots: 1,
+      pause: async () => {
+        throw new Stopped()
+      },
+      clearLeftovers: () => {
+        order.push('clear')
+        return leftovers
+      },
+    }
+
+    expect(await runReview([], run)).toBe(0)
+    expect(await runReview(['--dry-run', '952'], run)).toBe(0)
+    expect(order).toEqual([`review ${DRY_RUN_ACTOR}`])
+
+    gitHub.pulls.clear()
+    await expect(runReview(['--on'], run)).rejects.toThrow(Stopped)
+    expect(order).toEqual([`review ${DRY_RUN_ACTOR}`, 'clear'])
+    const db = openBus(busPath)
+    expect(events(db, 'artifact.removed')).toEqual([{ path: '/reviews/killed', by: 'worker:review:leftover-1' }])
+    expect(events(db, 'board.alarm')).toEqual([{ reason: TREE_LEFT, path: '/reviews/held-open', detail: 'error: unable to remove /reviews/held-open/node_modules: Resource busy' }])
+    db.close()
+    vi.restoreAllMocks()
+  })
+
   it('the review session runs in the mode the contract names, not the window SHIFT_CLAUDE', async () => {
     vi.stubEnv('SHIFT_CLAUDE', 'claude --permission-mode bypassPermissions')
     const spawned: SpawnSessionParams[] = []
-    const reviewer = claudeReviewer('/repo', path.join(tmpdir(), 'bus-review-mode'), {
-      git: () => {},
-      spawn: async (params) => {
-        spawned.push(params)
-        throw new Error('stop after the spawn')
-      },
+    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-mode'), { git: () => {}, worktrees: () => [] }), async (params) => {
+      spawned.push(params)
+      throw new Error('stop after the spawn')
     })
 
     await expect(reviewer({ taskKey: review(960), queue: 'review', cardId: 1060, pr: 960, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }, fullReview('a fixed plan'))).rejects.toThrow('stop after the spawn')
@@ -535,6 +622,32 @@ describe('review worker', () => {
     expect(reviewMode(['--dry-run'])).toMatchObject({ kind: 'refused' })
     expect(reviewMode(['--on'])).toEqual({ kind: 'on' })
     expect(reviewMode([])).toEqual({ kind: 'off' })
+  })
+
+  it('a dry run started while the switch is on keeps its tree through the switched-on worker\'s leftover pass', () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-review-dry-run-')))
+    const run = (cwd: string, ...args: string[]): string => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    try {
+      const repo = path.join(root, 'repo')
+      const bus = path.join(root, 'bus')
+      mkdirSync(repo)
+      run(repo, 'init', '-q')
+      writeFileSync(path.join(repo, 'a.txt'), 'a\n')
+      run(repo, 'add', 'a.txt')
+      run(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a')
+      const head = run(repo, 'rev-parse', 'HEAD').trim()
+      const switchedOn = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--on'])))
+      const dry = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--dry-run', '949'])))
+      const dryTree = path.join(dry.dir, 'dry-run-session')
+      mkdirSync(dry.dir, { recursive: true })
+      dry.add(dryTree, head)
+
+      expect(switchedOn.clearLeftovers()).toEqual([])
+      expect(existsSync(dryTree)).toBe(true)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

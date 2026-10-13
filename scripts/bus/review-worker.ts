@@ -5,7 +5,7 @@ import type { GitHub } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
-import type { Review, Reviewer } from './reviewer.js'
+import type { LeftoverTree, Review, Reviewer } from './reviewer.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -16,18 +16,19 @@ import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
-import { defaultBusPath, openBus } from './db.js'
+import { ARTIFACT_REMOVED } from './close-executor.js'
+import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, expireLeases, failTask, leaseNext, leaseQueued, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { cardBodyShaOfCard } from './queue.js'
+import { BOARD_ALARM, cardBodyShaOfCard } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
 import { fullReview } from './review-depth.js'
-import { claudeReviewer, PREFIX } from './reviewer.js'
+import { claudeReviewer, PREFIX, ReviewTrees } from './reviewer.js'
 import { slotsOf } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
 
@@ -35,7 +36,8 @@ export const SWITCH_FLAG = '--on'
 export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
 const CI_NOT_READY = 'ci_not_ready'
-const REVIEWS_DIR = path.join(os.homedir(), '.construct', 'bus', 'reviews')
+export const TREE_LEFT = 'tree_left'
+const BUS_DIR = path.join(os.homedir(), '.construct', 'bus')
 const MORSE_JOURNAL = path.join(os.homedir(), '.construct', 'bus', 'morse.jsonl')
 
 export type Step
@@ -53,6 +55,7 @@ export interface WorkerParts {
   plan: ReviewPlanner
   clock: () => Date
   session: string
+  clearLeftovers?: () => LeftoverTree[]
 }
 
 interface Reviewed {
@@ -116,6 +119,8 @@ export class ReviewWorker {
   }
 
   private async review(lease: Lease): Promise<Step> {
+    if (this.parts.clearLeftovers !== undefined)
+      recordLeftovers(this.parts.db, this.actor, this.ts(), this.parts.clearLeftovers())
     const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime())
     if (stale?.kind === 'technical' && stale.reason === CI_NOT_READY)
       return this.waiting(lease, stale.detail)
@@ -261,6 +266,10 @@ export function reviewMode(argv: string[]): ReviewMode {
   return pr === null ? { kind: 'refused', reason: `${DRY_RUN_FLAG} needs a pull request number: ${DRY_RUN_FLAG} <pr>` } : { kind: 'dry-run', pr }
 }
 
+export function reviewsDir(busDir: string, mode: ReviewMode): string {
+  return path.join(busDir, mode.kind === 'dry-run' ? 'dry-run-reviews' : 'reviews')
+}
+
 export type CardBodyOf = (cardId: number) => string | null
 
 const NO_CARD_BODY: CardBodyOf = () => null
@@ -318,6 +327,16 @@ export interface ReviewRun {
   session: string
   slots: number
   pause: (ms: number) => Promise<unknown>
+  clearLeftovers: () => LeftoverTree[]
+}
+
+export function recordLeftovers(db: DatabaseSync, actor: string, ts: string, leftovers: LeftoverTree[]): void {
+  for (const tree of leftovers) {
+    const event: BusEvent = tree.left === null
+      ? { ts, type: ARTIFACT_REMOVED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ARTIFACT_REMOVED}:review:${tree.path}`, payload: { path: tree.path, by: actor }, legacy: false }
+      : { ts, type: BOARD_ALARM, actor, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${TREE_LEFT}:${tree.path}:${actor}`, payload: { reason: TREE_LEFT, path: tree.path, detail: tree.left }, legacy: false }
+    appendEvent(db, event)
+  }
 }
 
 export async function runReview(argv: string[], run: ReviewRun): Promise<number> {
@@ -345,9 +364,11 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     plan: run.plan,
     clock: () => new Date(),
     session: run.session,
+    clearLeftovers: run.clearLeftovers,
   }
   try {
     const workers = startReviewWorkers(parts, run.slots)
+    recordLeftovers(db, `worker:review:${run.session}`, parts.clock().toISOString(), run.clearLeftovers())
     for (const worker of workers)
       console.log(`${PREFIX}${busPath}: the review worker ${worker.actor} takes the review queue`)
     return await Promise.race(workers.map(worker => keepReviewing(worker, pause)))
@@ -365,15 +386,18 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  return runReview(process.argv.slice(2), {
+  const argv = process.argv.slice(2)
+  const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)))
+  return runReview(argv, {
     busPath: defaultBusPath(),
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
-    reviewer: claudeReviewer(cwd, REVIEWS_DIR),
+    reviewer: claudeReviewer(trees),
     plan: gitReviewPlanner(cwd, MORSE_JOURNAL, defaultParking(os.homedir())),
     session: randomUUID(),
     slots: slotsOf('review', process.env),
     pause: sleep,
+    clearLeftovers: () => trees.clearLeftovers(),
   })
 }
 
