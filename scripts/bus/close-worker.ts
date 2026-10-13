@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { closingVerificationOf } from '../ghosts/task-close.js'
+import { cardVerifiedClosings, closingVerificationOf } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ghosts/worktree-home.js'
 import { reportPath } from '../shift/places.js'
@@ -93,14 +93,14 @@ export function shiftReportVerification(shiftRoot: string): (cardId: number) => 
   }
 }
 
-export function journalVerification(journal: string): ReportedVerification {
-  return (cardId, pr) => pr === null || !existsSync(journal) ? null : closingVerificationOf(readFileSync(journal, 'utf8'), String(cardId), pr)
+export function closingVerification(journal: string, busPath: string): ReportedVerification {
+  return (cardId, pr) => pr === null ? null : closingVerificationOf(existsSync(journal) ? readFileSync(journal, 'utf8') : '', cardVerifiedClosings(busPath), String(cardId), pr)
 }
 
-export function anyExecutorVerification(shiftRoot: string, journal: string): ReportedVerification {
+export function anyExecutorVerification(shiftRoot: string, journal: string, busPath: string): ReportedVerification {
   const fromShift = shiftReportVerification(shiftRoot)
-  const fromJournal = journalVerification(journal)
-  return (cardId, pr) => fromShift(cardId) ?? fromJournal(cardId, pr)
+  const fromClosing = closingVerification(journal, busPath)
+  return (cardId, pr) => fromShift(cardId) ?? fromClosing(cardId, pr)
 }
 
 export interface CloseRun {
@@ -144,7 +144,8 @@ async function main(): Promise<number> {
     const trees = new EndedCardTrees(db, [worktreeHome(process.env), path.dirname(repo)], gitWorktrees(repo), () => new Date())
     return () => trees.free()
   }
-  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: anyExecutorVerification(path.join(construct, 'shift'), journal), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
+  const busPath = defaultBusPath()
+  return runCloseWorker(process.argv.slice(2), { busPath, reported: anyExecutorVerification(path.join(construct, 'shift'), journal, busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

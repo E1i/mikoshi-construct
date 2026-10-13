@@ -1,15 +1,18 @@
 import type { BusCardStates } from '../../src/card/closed.js'
 import type { GhRunner } from '../board/gh.js'
+import type { VerifiedClosing } from '../ghosts/task-close.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { closedTasks, mergedTasks } from '../../src/card/closed.js'
+import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
-import { defaultBusPath } from '../bus/db.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
+import { openDatabase } from '../bus/sqlite.js'
+import { cardVerifiedClosings } from '../ghosts/task-close.js'
 import { busCardStates, cardStartedLines } from '../ghosts/tasks.js'
 import { REPO } from '../shift/places.js'
 
@@ -17,6 +20,7 @@ export const PREFIX = '[worktrees:sweep] '
 export const USAGE = 'usage: pnpm worktrees:sweep [--apply] [--card <id>]'
 const APPLY_FLAG = '--apply'
 const CARD_FLAG = '--card'
+const PRS_CLOSED_WITHOUT_MERGE = `SELECT pr FROM events WHERE type = 'pr.closed' AND legacy = 0 AND pr IS NOT NULL AND json_extract(payload, '$.merged') = 0`
 
 export interface SweepDeps {
   cwd: string
@@ -54,6 +58,15 @@ interface Journal {
   closed: Set<string>
 }
 
+interface BusReadings {
+  starts: readonly Record<string, unknown>[]
+  cards: BusCardStates
+  verified: readonly VerifiedClosing[]
+  prsClosedWithoutMerge: readonly number[]
+}
+
+const NO_BUS: BusReadings = { starts: [], cards: new Map(), verified: [], prsClosedWithoutMerge: [] }
+
 type Verdict = { kind: 'remove', why: string } | { kind: 'keep', why: string }
 
 function entries(text: string | null): Record<string, unknown>[] {
@@ -68,16 +81,32 @@ function entries(text: string | null): Record<string, unknown>[] {
   })
 }
 
-function journalOf(text: string | null, starts: readonly Record<string, unknown>[], busCards: BusCardStates): Journal {
+function prsClosedWithoutMerge(busPath: string): number[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return (db.prepare(PRS_CLOSED_WITHOUT_MERGE).all() as unknown as { pr: number }[]).map(row => row.pr)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function busReadings(busPath: string): BusReadings {
+  return { starts: cardStartedLines(busPath), cards: busCardStates(busPath), verified: cardVerifiedClosings(busPath), prsClosedWithoutMerge: prsClosedWithoutMerge(busPath) }
+}
+
+function journalOf(text: string | null, bus: BusReadings): Journal {
   const cards = new Map<string, CardRecord>()
   const byTree = new Map<string, string>()
-  const closedPrs = new Set<number>()
+  const closedPrs = new Set<number>(bus.prsClosedWithoutMerge)
   const recordOf = (task: string): CardRecord => {
     const known = cards.get(task) ?? {}
     cards.set(task, known)
     return known
   }
-  for (const entry of [...entries(text), ...starts]) {
+  for (const entry of [...entries(text), ...bus.starts]) {
     if (entry.event === 'merge-skip' && entry.skip === 'closed' && typeof entry.pr === 'number')
       closedPrs.add(entry.pr)
     if (typeof entry.task !== 'string')
@@ -89,13 +118,19 @@ function journalOf(text: string | null, starts: readonly Record<string, unknown>
       recordOf(entry.task)
       byTree.set(entry.worktree, entry.task)
     }
-    else if (entry.event === 'path' && typeof entry.verification === 'string') {
+    else if (entry.event === 'path' && typeof entry.verification === 'string' && writtenBeforeHistoryEnds(entry)) {
       const record = recordOf(entry.task)
       if (typeof entry.pr === 'number')
         record.closedPr = entry.pr
     }
   }
-  return { byTree, cards, closedPrs, merged: mergedTasks(text, busCards), closed: new Set(closedTasks(text, busCards).keys()) }
+  const closed = new Set(closedTasks(text, bus.cards).keys())
+  for (const closing of bus.verified) {
+    closed.add(closing.task)
+    if (closing.pr !== null)
+      recordOf(closing.task).closedPr = closing.pr
+  }
+  return { byTree, cards, closedPrs, merged: mergedTasks(text, bus.cards), closed }
 }
 
 function worktreesOf(porcelain: string): Worktree[] {
@@ -133,7 +168,7 @@ function cardState(id: string, record: CardRecord, journal: Journal): Verdict {
     return { kind: 'keep', why: `card #${id} is open` }
   return journal.closedPrs.has(record.closedPr)
     ? { kind: 'remove', why: `card #${id} is closed and PR #${record.closedPr} was closed without a merge` }
-    : { kind: 'keep', why: `card #${id} is closed but PR #${record.closedPr} is still open (no merge line in the journal)` }
+    : { kind: 'keep', why: `card #${id} is closed but PR #${record.closedPr} is still open` }
 }
 
 function treeState(deps: SweepDeps, tree: Worktree, record: CardRecord): string | null {
@@ -192,7 +227,7 @@ export function runSweep(argv: string[], deps: SweepDeps): SweepResult {
     return { stdout: [], stderr: [`${PREFIX}not inside a git repository: ${firstLine(error)}`], exitCode: 1 }
   }
   const [main, ...linked] = trees
-  const journal = journalOf(deps.readJournal(path.join(deps.handoffDir, 'ghosts.jsonl')), deps.bus === undefined ? [] : cardStartedLines(deps.bus), deps.bus === undefined ? new Map() : busCardStates(deps.bus))
+  const journal = journalOf(deps.readJournal(path.join(deps.handoffDir, 'ghosts.jsonl')), deps.bus === undefined ? NO_BUS : busReadings(deps.bus))
   const stdout: string[] = []
   const stderr: string[] = []
   const kept: string[] = []

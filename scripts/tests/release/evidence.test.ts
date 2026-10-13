@@ -1,3 +1,4 @@
+import type { VerifiedClosing } from '../../ghosts/task-close.js'
 import type { BusMerge } from '../../ghosts/task-merged.js'
 import type { EvidenceDeps } from '../../release/evidence.js'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -9,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../../board/run.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { prClosed } from '../../bus/observations.js'
+import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { runEvidence } from '../../release/evidence.js'
 
 const JOURNAL = '/handoff/ghosts.jsonl'
@@ -21,9 +23,9 @@ const CARD = { id: 7, name: 'seven', kind: 'implement', milestone: 'runner', siz
 const intake = { event: 'intake', task: '7', card: CARD.line, confirmation: 'none', corrections: [], ts: 't0' }
 const merge = { event: 'merge', task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-07T00:00:00Z', ts: 't9' }
 
-function world(journal: object[], files: Record<string, string> = {}, inBus: BusMerge[] = []): EvidenceDeps {
+function world(journal: object[], files: Record<string, string> = {}, inBus: BusMerge[] = [], verified: VerifiedClosing[] = []): EvidenceDeps {
   const all: Record<string, string> = { [JOURNAL]: journal.map(line => JSON.stringify(line)).join('\n'), ...files }
-  return { journal: JOURNAL, bus: BUS, read: file => all[file] ?? null, commits: () => new Set([COMMIT]), busMerges: () => inBus }
+  return { journal: JOURNAL, bus: BUS, read: file => all[file] ?? null, commits: () => new Set([COMMIT]), busMerges: () => inBus, verified: () => verified }
 }
 
 function field(stdout: string[], name: string): string {
@@ -107,6 +109,51 @@ describe('release:evidence prints the execution profile of every merged card in 
     const { stdout } = runEvidence(['v1', 'v2'], world([intake, early, late], {}, inBus))
     expect(stdout.filter(line => line.startsWith('#'))).toEqual([`#6 · PR #60 · commit ${COMMIT.slice(0, 7)}`, `#7 · PR #70 · commit ${COMMIT.slice(0, 7)}`])
     expect(stdout.filter(line => line.startsWith('  result.merge: ')).map(line => line.split(' — ')[1])).toEqual([`${JOURNAL}:2`, `${BUS} event 11133264`])
+  })
+
+  it('a closing after the cutoff comes from card.verified in the bus, and a journal path line written after the cutoff is not read', () => {
+    const start = { event: 'path', task: '7', path: 'cheap', card: CARD, ts: '2026-10-13T10:00:00.000Z' }
+    const lateClosing = { event: 'path', task: '7', path: 'cheap', pr: 70, verification: 'review', actual: { tokens: 1, minutes: 1 }, ts: '2026-10-13T10:30:00.000Z' }
+    const inBus: BusMerge[] = [{ task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-13T11:00:00Z', event: 11133264 }]
+    const verified: VerifiedClosing[] = [
+      { task: '7', pr: 70, verification: 'run', actual: { tokens: 1200, minutes: 30 }, event: 11133270 },
+      { task: '8', pr: 80, verification: 'review', actual: { tokens: 9, minutes: 9 }, event: 11133271 },
+    ]
+    const { stdout } = runEvidence(['v1', 'v2'], world([intake, start, lateClosing], {}, inBus, verified))
+    expect(field(stdout, 'result.verification')).toBe(`  result.verification: run — ${BUS} event 11133270`)
+    expect(field(stdout, 'actual')).toBe(`  actual: tokens 1200, minutes 30 — ${BUS} event 11133270`)
+    const withoutBus = runEvidence(['v1', 'v2'], world([intake, start, lateClosing], {}, inBus)).stdout
+    expect(field(withoutBus, 'result.verification')).toMatch(/^ {2}result\.verification: unknown — /)
+  })
+
+  it('the release:evidence script shows the verification task:close wrote to the bus as card.verified, not unknown', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'release-evidence-verified-'))
+    try {
+      const git = (...args: string[]): string => execFileSync('git', ['-C', root, '-c', 'user.name=world', '-c', 'user.email=world@example.invalid', ...args], { encoding: 'utf8' }).trim()
+      git('init', '-q')
+      git('commit', '-q', '--allow-empty', '-m', 'from')
+      git('commit', '-q', '--allow-empty', '-m', 'to')
+      const to = git('rev-parse', 'HEAD')
+      const handoff = path.join(root, 'handoff')
+      mkdirSync(handoff)
+      writeFileSync(path.join(handoff, 'ghosts.jsonl'), `${JSON.stringify(intake)}\n`)
+      const bus = path.join(root, 'bus.db')
+      const db = openBus(bus)
+      appendEvent(db, prClosed('2026-10-13T11:00:01.000Z', { pr: 70, cardId: 7, merged: true, commit: to, mergedBy: 'E1i', mergedAt: '2026-10-13T11:00:00Z' }))
+      appendEvent(db, { ts: '2026-10-13T11:10:00.000Z', type: CARD_VERIFIED, actor: 'worker:task-close:by-hand', cardId: 7, pr: 70, head: null, dedupeKey: `${CARD_VERIFIED}:7:2026-10-13T11:10:00.000Z`, payload: { path: 'cheap', pr: 70, verification: 'run', ended: '2026-10-13T11:10:00.000Z', sessions: [], actual: { tokens: 1200, minutes: 30 } }, legacy: false })
+      db.close()
+      const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../../release/evidence.ts'), 'HEAD~1', 'HEAD'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, [BUS_DB_VARIABLE]: bus, [HANDOFF_DIR_VARIABLE]: handoff },
+      })
+      expect(result.stderr).toBe('')
+      expect(result.stdout).toContain(`  result.verification: run — ${bus} event 2`)
+      expect(result.stdout).toContain(`  actual: tokens 1200, minutes 30 — ${bus} event 2`)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('the release:evidence script reads the bus it is given', () => {

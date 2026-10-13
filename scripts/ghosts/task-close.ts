@@ -2,12 +2,14 @@ import type { Card } from '../../src/card/grammar.js'
 import type { CheapSession } from '../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
 import type { GhRunner } from '../board/gh.js'
+import type { BusEvent } from '../bus/db.js'
 import type { Decision } from '../decisions/decisions.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
@@ -16,7 +18,8 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
-import { defaultBusPath } from '../bus/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
+import { openDatabase } from '../bus/sqlite.js'
 import { parseDecisions } from '../decisions/decisions.js'
 import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
@@ -25,12 +28,15 @@ import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
 import { cardStartedLines, prCardOf } from './tasks.js'
 
 export const PREFIX = '[task:close] '
+export const CARD_VERIFIED = 'card.verified'
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]'
 const FLAGS = ['--pr', '--report', '--verification', '--override-report', '--shared-by'] as const
 const PR_NUMBER = /^[1-9]\d*$/
 const DECISION_REFERENCE = /^D-[1-9]\d*$/
 const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
+const CLOSER_SESSION_BY_HAND = 'by-hand'
+const CARD_VERIFIED_ROWS = `SELECT id, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
 const LADDER_CONTOUR = 'ladder'
@@ -127,8 +133,35 @@ function journalLines(journal: string): Record<string, unknown>[] {
   })
 }
 
-export function closingVerificationOf(journal: string, id: string, pr: number): string | null {
-  const closing = journalLines(journal).filter(line => line.event === 'path' && line.task === id && line.pr === pr && typeof line.verification === 'string').at(-1)
+export interface VerifiedClosing {
+  task: string
+  pr: number | null
+  verification: unknown
+  actual: unknown
+  event: number
+}
+
+export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { id: number, card_id: number, pr: number | null, payload: string }[]
+    return rows.flatMap((row) => {
+      const payload = journalLines(row.payload)[0]
+      return payload === undefined ? [] : [{ task: String(row.card_id), pr: row.pr, verification: payload.verification, actual: payload.actual, event: row.id }]
+    })
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function closingVerificationOf(journal: string, verified: readonly VerifiedClosing[], id: string, pr: number): string | null {
+  const fromBus = verified.filter(closing => closing.task === id && closing.pr === pr && typeof closing.verification === 'string').at(-1)
+  if (fromBus !== undefined)
+    return fromBus.verification as string
+  const closing = journalLines(journal).filter(line => line.event === 'path' && line.task === id && line.pr === pr && typeof line.verification === 'string' && writtenBeforeHistoryEnds(line)).at(-1)
   return closing === undefined ? null : closing.verification as string
 }
 
@@ -379,17 +412,14 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const at = deps.now().toISOString()
   const sessions = taskSessions(deps, start)
   const actual = actualOf(deps, lines, start, sessions, at)
-  const line = { event: 'path', task: id, path: start.path, ...closing, ...shared, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, actual, ts: at }
-  try {
-    deps.append(journal, `${JSON.stringify(line)}\n`)
-  }
-  catch (error) {
-    return refuse(`the closing line could not be written to ${journal}: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
-  }
+  const record = { path: start.path, ...closing, ...shared, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, actual }
+  const written = writeClosing(deps, journal, id, record, at)
+  if (written.kind === 'refused')
+    return refuse(written.reason)
   const entry = startedEntryOf(lines, id) ?? entryOf(journalText, id)
   const searched = deps.busPath === undefined ? journal : `the bus ${deps.busPath} or ${journal}`
   const closedBy = outcome === '--pr' ? `PR #${value}` : `report ${report}`
-  const closed = `closed ${verification} · ${closedBy} · line written to ${journal}`
+  const closed = `closed ${verification} · ${closedBy} · ${written.where}`
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {
     CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${searched}: no entry line for #${id}`,
     EXPECT: entry?.EXPECT ?? `expect not recorded in ${searched}: no entry line for #${id}`,
@@ -397,6 +427,40 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     RESULT: closed,
   }, deps.style ?? PLAIN_STYLE)
   return { stdout: [...card, ...unplacedLine(deps, start, sessions), ...issueLines(deps, start.card, closedBy)], stderr: outcome === '--pr' ? cardLineNote(id, Number(value), ownership) : [], exitCode: 0 }
+}
+
+type ClosingWrite = { kind: 'written', where: string } | { kind: 'refused', reason: string }
+
+function recordVerified(busPath: string, event: BusEvent): void {
+  const db = openBus(busPath)
+  try {
+    appendEvent(db, event)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function writeClosing(deps: TaskCloseDeps, journal: string, id: string, record: Record<string, unknown> & { pr?: number }, at: string): ClosingWrite {
+  if (writtenBeforeHistoryEnds({ ts: at })) {
+    try {
+      deps.append(journal, `${JSON.stringify({ event: 'path', task: id, ...record, ts: at })}\n`)
+      return { kind: 'written', where: `line written to ${journal}` }
+    }
+    catch (error) {
+      return { kind: 'refused', reason: `the closing line could not be written to ${journal}: ${firstLine(error)}` }
+    }
+  }
+  if (deps.busPath === undefined)
+    return { kind: 'refused', reason: `from ${JOURNAL_HISTORY_ENDS} the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written` }
+  const event: BusEvent = { ts: at, type: CARD_VERIFIED, actor: `worker:task-close:${deps.session ?? CLOSER_SESSION_BY_HAND}`, cardId: Number(id), pr: record.pr ?? null, head: null, dedupeKey: `${CARD_VERIFIED}:${id}:${at}`, payload: record, legacy: false }
+  try {
+    recordVerified(deps.busPath, event)
+    return { kind: 'written', where: `${CARD_VERIFIED} written to ${deps.busPath}` }
+  }
+  catch (error) {
+    return { kind: 'refused', reason: `${CARD_VERIFIED} could not be written to the bus ${deps.busPath}: ${firstLine(error)}; nothing written` }
+  }
 }
 
 function realDeps(): TaskCloseDeps {

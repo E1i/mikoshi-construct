@@ -14,7 +14,7 @@ import { ownerInbox } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { CARD_CLOSED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { runTaskClose } from '../../ghosts/task-close.js'
+import { CARD_VERIFIED, runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
 import { MAIN_2, MERGER, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -22,6 +22,8 @@ import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+const AFTER_HISTORY = new Date('2026-10-13T18:00:00.000Z')
 
 const close = (pr: number, head = sha('a')): string => taskKey({ queue: 'close', cardId: pr + 100, pr, head })
 
@@ -69,12 +71,12 @@ function windowStartLine(cardId: number): string {
   return JSON.stringify({ event: 'path', task: String(cardId), path: 'cheap', started: '2026-10-11T17:00:00.000Z', who: 'window', card: { id: cardId, name: `card-${cardId}`, kind: 'implement', milestone: 'bus', size: 'S', contour: 'cheap', decision: 'auto', depends: [], blocks: [], line: `#${cardId}` } })
 }
 
-function taskCloseDeps(handoffDir: string): TaskCloseDeps {
+function taskCloseDeps(handoffDir: string, now = new Date('2026-10-11T18:00:00.000Z')): TaskCloseDeps {
   return {
     cwd: handoffDir,
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     append: (file, text) => appendFileSync(file, text),
-    now: () => new Date('2026-10-11T18:00:00.000Z'),
+    now: () => now,
     handoffDir,
     exists: () => false,
     session: undefined,
@@ -280,9 +282,61 @@ describe('the close queue', () => {
     expect(closing.exitCode).toBe(0)
     bench.merged(1010)
 
-    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(worker.step()).toMatchObject({ kind: 'closed', taskKey: close(1010), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
+    bench.close()
+  })
+
+  it('card.closed takes the verification from card.verified after the cutoff', () => {
+    const bench = closeBench()
+    const shiftRoot = path.join(path.dirname(bench.parking), 'shift')
+    mkdirSync(path.dirname(bench.journal), { recursive: true })
+    writeFileSync(bench.journal, `${windowStartLine(1114)}\n`)
+    const closing = runTaskClose(['1114', '--pr', '1014', '--verification', 'code-reading'], { ...taskCloseDeps(path.dirname(bench.journal), AFTER_HISTORY), busPath: bench.busPath })
+    expect(closing.exitCode).toBe(0)
+    expect(readFileSync(bench.journal, 'utf8')).toBe(`${windowStartLine(1114)}\n`)
+    bench.merged(1014)
+    reviewed(bench, 1014, sha('a'), 'pass')
+
+    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    expect(worker.step()).toMatchObject({ kind: 'closed', taskKey: close(1014), verification: 'code-reading' })
+    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
+    expect(reduce(bench.db).rejected).toBe(0)
+    bench.close()
+  })
+
+  it('card.closed reads the card.verified of its own card and PR, never another card\'s, another PR\'s or a legacy one', () => {
+    const bench = closeBench()
+    const shiftRoot = path.join(path.dirname(bench.parking), 'shift')
+    mkdirSync(path.dirname(bench.journal), { recursive: true })
+    writeFileSync(bench.journal, `${windowStartLine(1116)}\n`)
+    const closing = runTaskClose(['1116', '--pr', '1016', '--verification', 'code-reading'], { ...taskCloseDeps(path.dirname(bench.journal), AFTER_HISTORY), busPath: bench.busPath })
+    expect(closing.exitCode).toBe(0)
+    const decoy = (cardId: number, pr: number, verification: string, legacy: boolean): void => {
+      appendEvent(bench.db, { ts: AFTER_HISTORY.toISOString(), type: CARD_VERIFIED, actor: 'worker:task-close:decoy', cardId, pr, head: null, dedupeKey: `${CARD_VERIFIED}:decoy:${cardId}:${pr}:${verification}`, payload: { path: 'cheap', pr, verification }, legacy })
+    }
+    decoy(1199, 1016, 'browser', false)
+    decoy(1116, 1099, 'measurement', false)
+    decoy(1116, 1016, 'mutation', true)
+    bench.merged(1016)
+    reviewed(bench, 1016, sha('a'), 'pass')
+
+    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    expect(worker.step()).toMatchObject({ kind: 'closed', taskKey: close(1016), verification: 'code-reading' })
+    bench.close()
+  })
+
+  it('a journal path line written after the cutoff is not read for card.closed', () => {
+    const bench = closeBench()
+    const shiftRoot = path.join(path.dirname(bench.parking), 'shift')
+    mkdirSync(path.dirname(bench.journal), { recursive: true })
+    writeFileSync(bench.journal, `${windowStartLine(1115)}\n${JSON.stringify({ event: 'path', task: '1115', path: 'cheap', pr: 1015, verification: 'code-reading', ts: AFTER_HISTORY.toISOString() })}\n`)
+    bench.merged(1015)
+    reviewed(bench, 1015, sha('a'), 'pass')
+
+    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    expect(worker.step()).toMatchObject({ kind: 'closed', taskKey: close(1015), verification: 'review' })
     bench.close()
   })
 
@@ -307,7 +361,7 @@ describe('the close queue', () => {
     reviewed(bench, 1012, sha('a'), 'changes')
     reviewed(bench, 1012, sha('b'), 'pass')
 
-    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal), clock: bench.clock.now, session: 'none', journal: bench.journal, parking: bench.parking })
+    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal, bench.busPath), clock: bench.clock.now, session: 'none', journal: bench.journal, parking: bench.parking })
     expect(worker.step()).toMatchObject({ kind: 'denied', taskKey: close(1012), denial: { reason: 'no_verification', detail: expect.stringContaining('no verification') }, next: 'queued' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
     bench.close()
