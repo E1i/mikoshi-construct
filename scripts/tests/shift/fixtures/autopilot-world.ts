@@ -18,7 +18,7 @@ const roots: string[] = []
 
 afterEach(() => {
   for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
 export interface World {
@@ -58,7 +58,9 @@ export function newWorld(cards: ParkedCard[]): World {
   const repo = path.join(root, 'main-tree')
   mkdirSync(origin)
   git(origin, ['init', '-q', '--bare', '-b', 'main'])
+  git(origin, ['config', 'maintenance.auto', 'false'])
   git(root, ['clone', '-q', origin, repo])
+  git(repo, ['config', 'maintenance.auto', 'false'])
   mkdirSync(path.join(repo, 'architecture'))
   writeFileSync(path.join(repo, 'README.md'), 'world\n')
   writeFileSync(path.join(repo, '.gitignore'), '.construct/\n')
