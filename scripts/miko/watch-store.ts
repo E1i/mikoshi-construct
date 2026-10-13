@@ -1,4 +1,5 @@
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../bus/sqlite.js'
 import { WatchRefusal } from './watch-refusal.js'
 
 export const ONCE_STORE = 'miko-watch.db'
@@ -57,7 +58,7 @@ export class OnceStore {
   static open(file: string, legacy: LegacyCursor, ends: () => WatchCursor): OnceStore {
     let db: DatabaseSync | undefined
     try {
-      db = new DatabaseSync(file)
+      db = openDatabase(file)
       db.exec('PRAGMA busy_timeout = 0')
       db.exec('PRAGMA locking_mode = EXCLUSIVE')
       db.exec('BEGIN IMMEDIATE')
