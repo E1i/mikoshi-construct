@@ -69,11 +69,17 @@ green or pending CI, a pulse) and live PIDs print nothing. The window waits on a
 in `scripts/miko/watch.ts`); a reader that merges stderr into stdout gets that line at start, and an event written
 before it may be taken as already there. The window waits by running `pnpm miko:watch --once` as a background command, with
 no pipe: with `--once` it prints the first waking line and exits 0, so the command ending is the wake-up. A pipe such as
-`| grep -m1` does not end it, since the watch lives until its next write fails. On exit `--once` saves where it stopped,
-the journal offset and the bus event id, to `miko-watch.json` in the handoff directory (`ONCE_CURSOR`), and the next
-`--once` run starts there instead of at its own start: a second waking event of the same tick, or one written between two
-runs, wakes the next run. Every run takes the last `pr.observed` of each pull request up to where it starts as already
-seen, so a restart does not wake again on a red head it was already woken on.
+`| grep -m1` does not end it, since the watch lives until its next write fails. The `--once` cursor, the journal offset and the bus event id, lives in `miko-watch.db` in the handoff directory
+(`ONCE_STORE` in `scripts/miko/watch-store.ts`), which belongs to `pnpm miko:watch`; one consumer is held by the SQLite
+write lock on that file, which the OS releases when the process dies, and a second `--once` exits non-zero at once with
+`another consumer already waits` and the path. For events after the start position it fixed, a run moves the cursor no
+further than the event it printed, and a run that dies before its commit or fails to write the line leaves the cursor
+where it was, so the next run prints the event again: a repeat is possible. Not guaranteed: delivery into the window
+and its handling — a window that got the line and died before acting on it does not get it again — and events before
+the first initialisation, which `--once` reports on stderr and never prints. The guarantee holds while the journal and
+the bus events are only appended; a journal shorter than the cursor, a bus behind it, or a damaged cursor file is a loud
+non-zero exit, never a silent skip. Every run takes the last `pr.observed` of each pull request up to where it starts as
+already seen, so a restart does not wake again on a red head it was already woken on.
 
 Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
