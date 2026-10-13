@@ -23,7 +23,7 @@ export interface WatchState {
   offset: number
   rest: string
   busId: number
-  ciByPr: Map<number, unknown>
+  ciByPr: Map<number, { head: string | null, ci: unknown }>
   pids: Set<number>
 }
 
@@ -31,6 +31,7 @@ export interface BusEvent {
   id: number
   type: string
   pr: number | null
+  head: string | null
   payload: string
 }
 
@@ -101,9 +102,9 @@ function turnsRed(state: WatchState, event: BusEvent): boolean {
   if (event.pr === null)
     return ciOf(event.payload) === FAILED_CI
   const before = state.ciByPr.get(event.pr)
-  const now = ciOf(event.payload)
+  const now = { head: event.head, ci: ciOf(event.payload) }
   state.ciByPr.set(event.pr, now)
-  return now === FAILED_CI && before !== FAILED_CI
+  return now.ci === FAILED_CI && (before?.ci !== FAILED_CI || before.head !== now.head)
 }
 
 export function wakesTheWindow(state: WatchState, event: BusEvent): boolean {
@@ -169,8 +170,8 @@ function busEventsAfter(bus: string, id: number): BusEvent[] {
   const db = openBus(bus)
   try {
     const types = WAKING_BUS_EVENTS.map(() => '?').join(', ')
-    const rows = db.prepare(`SELECT id, type, pr, payload FROM events WHERE type IN (${types}) AND id > ? ORDER BY id`).all(...WAKING_BUS_EVENTS, id) as Array<{ id: number, type: string, pr: number | null, payload: string }>
-    return rows.map(row => ({ id: Number(row.id), type: row.type, pr: row.pr === null ? null : Number(row.pr), payload: row.payload }))
+    const rows = db.prepare(`SELECT id, type, pr, head, payload FROM events WHERE type IN (${types}) AND id > ? ORDER BY id`).all(...WAKING_BUS_EVENTS, id) as Array<{ id: number, type: string, pr: number | null, head: string | null, payload: string }>
+    return rows.map(row => ({ id: Number(row.id), type: row.type, pr: row.pr === null ? null : Number(row.pr), head: row.head, payload: row.payload }))
   }
   finally {
     db.close()
