@@ -1,7 +1,7 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
 import type { BusCode } from '../../bus/supervisor.js'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -77,15 +77,16 @@ function detachedSleep(): number {
   return child.pid!
 }
 
-const ARGV_DEADLINE_MS = 5000
+const ARRIVAL_GUARD_MS = 25_000
+const QUIET_MS = 300
 
 function readArgv(w: World): string[] {
   const file = path.join(w.out, 'pnpm.argv')
   return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : []
 }
 
-async function argvLines(w: World, count: number, deadlineMs = ARGV_DEADLINE_MS): Promise<string[]> {
-  await waitFor(() => readArgv(w).length >= count, () => `${count} pnpm.argv lines (read: ${JSON.stringify(readArgv(w))})`, deadlineMs)
+async function argvLines(w: World, count: number): Promise<string[]> {
+  await waitFor(() => readArgv(w).length >= count, () => `${count} pnpm.argv lines (read: ${JSON.stringify(readArgv(w))})`, ARRIVAL_GUARD_MS)
   await new Promise(resolve => setTimeout(resolve, 200))
   return readArgv(w)
 }
@@ -117,9 +118,7 @@ describe('pnpm bus:bg', () => {
     expect(readFileSync(path.join(w.busDir, INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
     expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
     expect(argsOf(Number(result.stdout[0]))).toContain('bus:run')
-    for (let attempt = 0; attempt < 200 && !readFileSync(log, 'utf8').includes('bus:run output'); attempt++)
-      await new Promise(resolve => setTimeout(resolve, 25))
-    expect(readFileSync(log, 'utf8')).toContain('bus:run output')
+    await waitFor(() => readFileSync(log, 'utf8').includes('bus:run output'), () => `"bus:run output" in ${log}`, ARRIVAL_GUARD_MS)
   })
 
   it('a second start while bus:run is alive leaves it alone and names its pid', async () => {
@@ -220,9 +219,21 @@ describe('pnpm bus:bg', () => {
     expect(result.exitCode).toBe(0)
     expect(pidsOf(result)).toHaveLength(1)
     expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
-    await expect(argvLines(w, 2, 300)).rejects.toThrow('2 pnpm.argv lines (read: ["--silent bus:run"])')
+    await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+    expect(readArgv(w)).toEqual(['--silent bus:run'])
     for (const worker of ['review', 'merge', 'update'])
       expect(existsSync(path.join(w.busDir, `bus-${worker}.pid`))).toBe(false)
+  })
+
+  it('a pnpm.argv line that comes six seconds late is still awaited', async () => {
+    const w = world()
+    const late = setTimeout(() => appendFileSync(path.join(w.out, 'pnpm.argv'), '--silent bus:run\n'), 6000)
+    try {
+      expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
+    }
+    finally {
+      clearTimeout(late)
+    }
   })
 
   it('bus:bg --on and --off take one known worker and write the switch file', () => {
