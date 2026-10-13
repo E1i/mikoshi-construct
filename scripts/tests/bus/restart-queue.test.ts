@@ -48,9 +48,10 @@ function restartBench() {
   const raises: { role: Role, handoff: string }[] = []
   let holds = true
   const dead = new Set<number>()
+  const reused = new Set<number>()
   let launchOn = () => false
   const processes: ProcessTable = {
-    commandLine: pid => dead.has(pid) ? null : `node ${pid}`,
+    commandLine: pid => dead.has(pid) ? null : reused.has(pid) ? 'vim notes.txt' : `node ${pid}`,
     signalGroup: () => {},
   }
   const launcher = {
@@ -78,6 +79,9 @@ function restartBench() {
     worker: (session = 'worker-1') => new RestartWorker({ db: bench.db, launcher, roles, processes, launchSwitchedOn, clock: bench.clock.now, session }),
     die: (pid: number): void => {
       dead.add(pid)
+    },
+    reuse: (pid: number): void => {
+      reused.add(pid)
     },
     switchLaunch: (on: () => boolean): void => {
       launchOn = on
@@ -485,6 +489,22 @@ describe('a dead chain', () => {
     const ofRestart = (type: string): unknown[] => eventsOf(bench.db, type).filter(event => event.queue === 'restart')
     expect(ofRestart('task.leased')).toHaveLength(1)
     expect(ofRestart('task.released')).toEqual([])
+    bench.close()
+  })
+
+  it('a chain whose leader PID another process took is dead, while a chain with no leader stays undecided', () => {
+    const bench = restartBench()
+    bench.observe({ boundary: false, leader: 4242 })
+    bench.observe({ dir: '/shift/lane-2', cardId: 810, pid: 4343, leader: null, boundary: false })
+    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.tick()
+    bench.reuse(4242)
+    bench.reuse(4343)
+    const worker = bench.worker()
+
+    expect(worker.step()).toMatchObject({ kind: 'denied', taskKey: restart(), reason: 'launch_off', next: 'withdrawn' })
+    expect(worker.step()).toEqual({ kind: 'waiting', taskKey: restart(MAIN_2, 810), dir: '/shift/lane-2', why: 'not_at_boundary' })
+    expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'fault' }, { dir: '/shift/lane-2', card_id: 810, state: 'running' }])
     bench.close()
   })
 

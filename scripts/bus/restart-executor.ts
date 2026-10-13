@@ -74,7 +74,7 @@ export class RestartExecutor {
       const chain = chainOfCard(this.parts.db, lease.cardId)
       if (chain === undefined)
         return this.denied(lease, 'no_chain', `no chain of card #${lease.cardId} is on the bus`)
-      if (chain.state !== 'stopped' && chainProcess(chain, this.parts.processes) === 'gone')
+      if (chain.state !== 'stopped' && this.processGone(chain))
         return this.dead(lease, chain, to)
       if (chain.sha === to && chain.state !== 'fault')
         return this.denied(lease, 'chain_current', `the chain in ${chain.dir} already runs on ${to}`)
@@ -111,6 +111,11 @@ export class RestartExecutor {
         return { kind: 'fenced', taskKey: relaunchKey(lease.role) }
       throw error
     }
+  }
+
+  private processGone(chain: ChainRow): boolean {
+    const found = chainProcess(chain, this.parts.processes)
+    return found === 'gone' || (found === 'foreign' && chain.leader !== null)
   }
 
   private dead(lease: Lease, chain: ChainRow, to: string): RestartOutcome {
