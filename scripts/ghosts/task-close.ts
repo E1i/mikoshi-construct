@@ -429,10 +429,6 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
 
 type ClosingWrite = { kind: 'written', where: string } | { kind: 'refused', reason: string }
 
-function firstLineOf(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
-}
-
 function recordVerified(busPath: string, event: BusEvent): void {
   const db = openBus(busPath)
   try {
@@ -450,7 +446,7 @@ function writeClosing(deps: TaskCloseDeps, journal: string, id: string, record: 
       return { kind: 'written', where: `line written to ${journal}` }
     }
     catch (error) {
-      return { kind: 'refused', reason: `the closing line could not be written to ${journal}: ${firstLineOf(error)}` }
+      return { kind: 'refused', reason: `the closing line could not be written to ${journal}: ${firstLine(error)}` }
     }
   }
   if (deps.busPath === undefined)
@@ -461,7 +457,7 @@ function writeClosing(deps: TaskCloseDeps, journal: string, id: string, record: 
     return { kind: 'written', where: `${CARD_VERIFIED} written to ${deps.busPath}` }
   }
   catch (error) {
-    return { kind: 'refused', reason: `${CARD_VERIFIED} could not be written to the bus ${deps.busPath}: ${firstLineOf(error)}; nothing written` }
+    return { kind: 'refused', reason: `${CARD_VERIFIED} could not be written to the bus ${deps.busPath}: ${firstLine(error)}; nothing written` }
   }
 }
 

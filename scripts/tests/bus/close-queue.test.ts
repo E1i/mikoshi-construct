@@ -14,7 +14,7 @@ import { ownerInbox } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { CARD_CLOSED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { runTaskClose } from '../../ghosts/task-close.js'
+import { CARD_VERIFIED, runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
 import { MAIN_2, MERGER, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -303,6 +303,27 @@ describe('the close queue', () => {
     expect(worker.step()).toMatchObject({ kind: 'closed', taskKey: close(1014), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
     expect(reduce(bench.db).rejected).toBe(0)
+    bench.close()
+  })
+
+  it('card.closed reads the card.verified of its own card and PR, never another card\'s, another PR\'s or a legacy one', () => {
+    const bench = closeBench()
+    const shiftRoot = path.join(path.dirname(bench.parking), 'shift')
+    mkdirSync(path.dirname(bench.journal), { recursive: true })
+    writeFileSync(bench.journal, `${windowStartLine(1116)}\n`)
+    const closing = runTaskClose(['1116', '--pr', '1016', '--verification', 'code-reading'], { ...taskCloseDeps(path.dirname(bench.journal), AFTER_HISTORY), busPath: bench.busPath })
+    expect(closing.exitCode).toBe(0)
+    const decoy = (cardId: number, pr: number, verification: string, legacy: boolean): void => {
+      appendEvent(bench.db, { ts: AFTER_HISTORY.toISOString(), type: CARD_VERIFIED, actor: 'worker:task-close:decoy', cardId, pr, head: null, dedupeKey: `${CARD_VERIFIED}:decoy:${cardId}:${pr}:${verification}`, payload: { path: 'cheap', pr, verification }, legacy })
+    }
+    decoy(1199, 1016, 'browser', false)
+    decoy(1116, 1099, 'measurement', false)
+    decoy(1116, 1016, 'mutation', true)
+    bench.merged(1016)
+    reviewed(bench, 1016, sha('a'), 'pass')
+
+    const worker = new CloseWorker({ db: bench.db, reported: anyExecutorVerification(shiftRoot, bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    expect(worker.step()).toMatchObject({ kind: 'closed', taskKey: close(1016), verification: 'code-reading' })
     bench.close()
   })
 
