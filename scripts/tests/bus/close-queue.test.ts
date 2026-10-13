@@ -118,7 +118,7 @@ describe('the close queue', () => {
     const lease = bench.leaseClose()!
     const calls = bench.gitHub.calls.length
 
-    expect(bench.closeCard(lease)).toEqual({ kind: 'closed', taskKey: close(993), verification: 'mutation', cycle: { mergeLine: 'written', cardFile: 'absent' } })
+    expect(bench.closeCard(lease)).toEqual({ kind: 'closed', taskKey: close(993), verification: 'mutation', cycle: { mergeLine: 'written', cardFile: 'absent', treeLeft: null } })
     expect(bench.gitHub.calls).toHaveLength(calls)
     expect(bench.gitHub.puts).toEqual([])
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'mutation' }])
@@ -219,7 +219,7 @@ describe('the close queue', () => {
     bench.tick()
     const calls = bench.gitHub.calls.length
 
-    expect(bench.closeCard(bench.leaseClose()!)).toEqual({ kind: 'closed', taskKey: close(1003), verification: 'run', cycle: { mergeLine: 'no-merger', cardFile: 'moved' } })
+    expect(bench.closeCard(bench.leaseClose()!)).toEqual({ kind: 'closed', taskKey: close(1003), verification: 'run', cycle: { mergeLine: 'no-merger', cardFile: 'moved', treeLeft: null } })
     expect(bench.gitHub.calls).toHaveLength(calls)
     expect(bench.mergeLines()).toEqual([])
     expect(existsSync(parked)).toBe(false)

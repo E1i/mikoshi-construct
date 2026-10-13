@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { CloseOutcome, ReportedVerification } from './close-executor.js'
+import type { CardTreeRemover, CloseOutcome, ReportedVerification } from './close-executor.js'
+import type { EndedTree } from './ended-card-trees.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
@@ -9,9 +10,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { closingVerificationOf } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
+import { worktreeHome } from '../ghosts/worktree-home.js'
 import { reportPath } from '../shift/places.js'
-import { CloseExecutor } from './close-executor.js'
+import { CloseExecutor, failureOf } from './close-executor.js'
 import { defaultBusPath, openBus } from './db.js'
+import { EndedCardTrees, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
 import { expireLeases, leaseNext } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { SWITCH_FLAG } from './review-worker.js'
@@ -28,6 +31,8 @@ export interface CloseWorkerParts {
   session: string
   journal: string
   parking: string
+  trees?: CardTreeRemover
+  endedTrees?: () => EndedTree[]
 }
 
 export class CloseWorker {
@@ -39,11 +44,28 @@ export class CloseWorker {
     this.executor = new CloseExecutor(parts)
   }
 
+  freeEndedTrees(): void {
+    if (this.parts.endedTrees === undefined)
+      return
+    try {
+      recordEndedTrees(this.parts.db, this.actor, this.parts.clock().toISOString(), this.parts.endedTrees())
+    }
+    catch (error) {
+      console.error(`${PREFIX}the pass over ended cards' trees failed, the close goes on: ${failureOf(error)}`)
+    }
+  }
+
   step(): CloseStep {
     const ts = this.parts.clock().toISOString()
     expireLeases(this.parts.db, ts)
     const lease = leaseNext(this.parts.db, ts, 'close', this.actor)
-    return lease === null ? { kind: 'idle' } : this.executor.close(lease)
+    if (lease === null)
+      return { kind: 'idle' }
+    this.freeEndedTrees()
+    const outcome = this.executor.close(lease)
+    if (outcome.kind === 'closed' && outcome.cycle.treeLeft !== null)
+      recordEndedTrees(this.parts.db, this.actor, this.parts.clock().toISOString(), [{ cardId: lease.cardId, ...outcome.cycle.treeLeft }])
+    return outcome
   }
 }
 
@@ -51,7 +73,7 @@ export function closeStepLine(step: CloseStep): string | null {
   if (step.kind === 'idle')
     return null
   if (step.kind === 'closed')
-    return `${PREFIX}${step.taskKey}: closed, verification ${step.verification}; merge line ${step.cycle.mergeLine}, card file ${step.cycle.cardFile}`
+    return `${PREFIX}${step.taskKey}: closed, verification ${step.verification}; merge line ${step.cycle.mergeLine}, card file ${step.cycle.cardFile}${step.cycle.treeLeft === null ? '' : `; tree left at ${step.cycle.treeLeft.path}: ${step.cycle.treeLeft.left}`}`
   if (step.kind === 'fenced')
     return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
   return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
@@ -88,6 +110,7 @@ export interface CloseRun {
   journal: string
   parking: string
   pause: (ms: number) => Promise<unknown>
+  endedTrees?: (db: DatabaseSync) => () => EndedTree[]
 }
 
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
@@ -97,7 +120,8 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
   }
   const db = openBus(run.busPath)
   try {
-    const worker = new CloseWorker({ db, reported: run.reported, clock: () => new Date(), session: run.session, journal: run.journal, parking: run.parking })
+    const worker = new CloseWorker({ db, reported: run.reported, clock: () => new Date(), session: run.session, journal: run.journal, parking: run.parking, endedTrees: run.endedTrees?.(db) })
+    worker.freeEndedTrees()
     console.log(`${PREFIX}${run.busPath}: the close worker ${worker.actor} takes the close queue`)
     for (;;) {
       const step = worker.step()
@@ -115,7 +139,12 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
 async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
   const journal = defaultGhostJournal()
-  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: anyExecutorVerification(path.join(construct, 'shift'), journal), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep })
+  const repo = process.cwd()
+  const endedTrees = (db: DatabaseSync) => {
+    const trees = new EndedCardTrees(db, [worktreeHome(process.env), path.dirname(repo)], gitWorktrees(repo), () => new Date())
+    return () => trees.free()
+  }
+  return runCloseWorker(process.argv.slice(2), { busPath: defaultBusPath(), reported: anyExecutorVerification(path.join(construct, 'shift'), journal), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
