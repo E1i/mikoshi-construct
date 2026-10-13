@@ -29,6 +29,12 @@ export type RestartOutcome
     | { kind: 'denied', taskKey: string, reason: RestartReason, detail: string, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
+export interface DeadChain {
+  dir: string
+  cardId: number
+  state: 'stopped' | 'fault'
+}
+
 export interface RoleLauncher {
   raise: (role: Role, handoff: string) => number
 }
@@ -55,6 +61,8 @@ export function relaunchKey(role: Role): string {
 const WITHDRAWN_REASONS: ReadonlySet<RestartReason> = new Set(['no_chain', 'chain_current', 'chain_dead', 'launch_off'])
 
 const CARD_ENDED = `SELECT 1 FROM cards WHERE card_id = ? AND state IN ('${CLOSED_CARD}', '${DROPPED_CARD}')`
+
+const UNSTOPPED_CHAINS = `SELECT dir, card_id, parking, sha, pid, leader, boundary, state FROM chains WHERE state != 'stopped' ORDER BY dir`
 
 export function restartDir(dir: string, to: string): string {
   return `${dir}-${to.slice(0, SHORT_SHA)}`
@@ -91,6 +99,20 @@ export class RestartExecutor {
     }
   }
 
+  deadChains(actor: string): DeadChain[] {
+    const found: DeadChain[] = []
+    for (const chain of this.parts.db.prepare(UNSTOPPED_CHAINS).all() as unknown as ChainRow[]) {
+      if (!this.processGone(chain))
+        continue
+      const state = this.cardEnded(chain.card_id) ? 'stopped' : 'fault'
+      if (state === chain.state)
+        continue
+      this.observeAs(actor, chain, state)
+      found.push({ dir: chain.dir, cardId: chain.card_id, state })
+    }
+    return found
+  }
+
   relaunch(lease: RoleLease): RelaunchOutcome {
     try {
       assertRoleHeld(this.parts.db, lease)
@@ -118,9 +140,13 @@ export class RestartExecutor {
     return found === 'gone' || (found === 'foreign' && chain.leader !== null)
   }
 
+  private cardEnded(cardId: number): boolean {
+    return this.parts.db.prepare(CARD_ENDED).get(cardId) !== undefined
+  }
+
   private dead(lease: Lease, chain: ChainRow, to: string): RestartOutcome {
     const gone = `the chain in ${chain.dir} died (PID ${chain.leader ?? chain.pid} is gone)`
-    if (this.parts.db.prepare(CARD_ENDED).get(lease.cardId) !== undefined) {
+    if (this.cardEnded(lease.cardId)) {
       this.observe(lease, chain, 'stopped')
       return this.denied(lease, 'chain_dead', `${gone} and card #${lease.cardId} is closed or dropped: the chain is stopped`)
     }
@@ -135,7 +161,11 @@ export class RestartExecutor {
 
   private observe(lease: Lease, chain: ChainRow, state: ChainState): void {
     assertHeld(this.parts.db, lease)
-    observeChain(this.parts.db, this.ts(), lease.actor, { dir: chain.dir, parking: chain.parking, cardId: chain.card_id, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary === 1, state })
+    this.observeAs(lease.actor, chain, state)
+  }
+
+  private observeAs(actor: string, chain: ChainRow, state: ChainState): void {
+    observeChain(this.parts.db, this.ts(), actor, { dir: chain.dir, parking: chain.parking, cardId: chain.card_id, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary === 1, state })
   }
 
   private launchedAtTheBoundary(lease: Lease, seen: ChainRow, dir: string, boundary: boolean): { chain: ChainRow, pid: number } | null {
