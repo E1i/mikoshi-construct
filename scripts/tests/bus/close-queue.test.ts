@@ -80,6 +80,7 @@ function taskCloseDeps(handoffDir: string): TaskCloseDeps {
     session: undefined,
     projectsDir: handoffDir,
     tokens: () => null,
+    prBody: () => null,
   }
 }
 

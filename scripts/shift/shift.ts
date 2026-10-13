@@ -46,7 +46,7 @@ import { briefEffort, EXPECT_LINE_INDEX, parseExpect } from '../ghosts/expect.js
 import { missingFields } from '../ghosts/handoff-check.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
 import { parseSketch } from '../ghosts/sketch.js'
-import { PREFIX as CLOSE_PREFIX, runTaskClose } from '../ghosts/task-close.js'
+import { PREFIX as CLOSE_PREFIX, prBodyOf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { cardStartedLines, startedTree } from '../ghosts/tasks.js'
@@ -382,6 +382,7 @@ function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
     session: session.id,
     projectsDir: deps.projectsDir,
     style: deps.style,
+    prBody: prBodyOf(deps.gh),
     ...(deps.bus === undefined ? {} : { busPath: deps.bus }),
   })
   return closed.exitCode === 0 ? closed.stdout : closed.stderr.map(line => notClosed(deps, task, line.slice(CLOSE_PREFIX.length)))
