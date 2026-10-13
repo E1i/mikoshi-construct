@@ -35,7 +35,7 @@ describe('mergedTasks over the journal half of history and the bus', () => {
   })
 
   it('takes a merge after the journal half of history from the bus alone', () => {
-    expect(mergedTasks(journal).has('842')).toBe(false)
+    expect(mergedTasks(journal, new Map()).has('842')).toBe(false)
     expect(mergedTasks(journal, new Map([['842', 'closed']])).has('842')).toBe(true)
     expect(mergedTasks(journal, new Map([['928', 'merged'], ['889', 'running']]))).toEqual(new Set(['608', '928']))
   })

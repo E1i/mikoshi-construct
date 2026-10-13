@@ -43,7 +43,13 @@ describe('closedTasks over the journal half of history and the bus', () => {
   it('puts a line written at the very instant the journal half of history ends outside it', () => {
     const atTheEnd = JSON.stringify({ event: 'path', task: '901', path: 'cheap', pr: 900, verification: 'run', ts: JOURNAL_HISTORY_ENDS })
     const justBefore = JSON.stringify({ event: 'path', task: '902', path: 'cheap', pr: 901, verification: 'run', ts: '2026-10-12T17:03:59.999Z' })
-    expect([...closedTasks([atTheEnd, justBefore].join('\n'))]).toEqual([['902', 'run']])
+    expect([...closedTasks([atTheEnd, justBefore].join('\n'), new Map())]).toEqual([['902', 'run']])
+  })
+
+  it('counts every journal line, before and after the cutoff, when no bus is connected', () => {
+    const atTheEnd = JSON.stringify({ event: 'path', task: '901', path: 'cheap', pr: 900, verification: 'run', ts: JOURNAL_HISTORY_ENDS })
+    const justBefore = JSON.stringify({ event: 'path', task: '902', path: 'cheap', pr: 901, verification: 'run', ts: '2026-10-12T17:03:59.999Z' })
+    expect([...closedTasks([atTheEnd, justBefore].join('\n'))]).toEqual([['901', 'run'], ['902', 'run']])
   })
 
   it('decides a line before the journal half of history ends by its ts, and a line without a readable ts as before', () => {
