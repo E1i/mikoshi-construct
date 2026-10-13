@@ -35,6 +35,11 @@ describe('reviewer', () => {
     expect(prompt).toContain('Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.')
   })
 
+  it('the prompt of the first cheap review asks for every finding of the pass in one verdict too', () => {
+    const prompt = reviewPrompt(lease, { depth: 'cheap', why: 'inside the touches', base: sha('c') }, '/tmp/t', '/tmp/v.json')
+    expect(prompt).toContain('report every finding of this pass in one verdict, not in portions')
+  })
+
   it('the prompt of a re-review names the earlier findings, the diff since..head and a regression outside the diff the change causes', () => {
     const prompt = reviewPrompt(lease, { depth: 'diff', why: 'after changes', since: sha('b'), findings: ['a.ts:1 x'] }, '/tmp/t', '/tmp/v.json')
     expect(prompt).toContain('Earlier finding: a.ts:1 x')

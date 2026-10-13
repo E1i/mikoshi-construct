@@ -9,7 +9,7 @@ import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
-import { queueTask, TASK_SUPERSEDED } from '../../bus/queue.js'
+import { queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../bus/review-worker.js'
@@ -337,7 +337,10 @@ describe('the review round limit of D-104', () => {
       plan: () => fullReview('a fixed plan'),
       clock: clock.now,
       session: 'worker-1',
-      notePr: (number, line) => notes.push([number, line]),
+      notePr: (number, line) => {
+        notes.push([number, line])
+        gitHub.pulls.get(number)!.body = `${cardBody(number)}\n\n${line}`
+      },
     })
     for (const [at, verdict] of verdicts.entries()) {
       gitHub.open({ number: pr, head: HEADS[at]! })
@@ -364,6 +367,7 @@ describe('the review round limit of D-104', () => {
     expect(liveTasksOn(db, HEADS[2]!)).toEqual([])
     expect(spentEvents(db)).toEqual([{ state: 'round_limit_reached', pr: 940, rounds: 3, findings: ['a.ts:3 the finding of round 3', 'b.ts:3 the second finding of round 3'] }])
     expect(notes).toEqual([[940, roundLimitLine(940, 3)]])
+    expect(gitHub.pulls.get(940)!.body).toBe(`${cardBody(940)}\n\n${roundLimitLine(940, 3)}`)
 
     gitHub.open({ number: 940, head: HEADS[3]! })
     tick()
@@ -379,6 +383,19 @@ describe('the review round limit of D-104', () => {
     const live = projectionDump(db)
     reduce(db)
     expect(projectionDump(db)).toBe(live)
+    db.close()
+  })
+
+  it('a review of the spent PR superseded under its current body is not queued again', async () => {
+    const { db, tick } = await rounds(943, ['changes', 'changes', 'changes'])
+    const ts = '2026-10-13T12:00:00.000Z'
+    const task = { queue: 'review' as const, cardId: 1043, pr: 943, head: HEADS[2]!, input: { prBody: prBodySha(`${cardBody(943)}\n\n${roundLimitLine(943, 3)}`), cardBody: null } }
+    expect(queueTask(db, ts, task)).toBe(true)
+    expect(supersedeTask(db, ts, task)).toBe(true)
+    tick()
+    tick()
+    expect(tasks(db)).toContainEqual({ task_key: taskKey(task), state: 'superseded' })
+    expect(liveTasksOn(db, HEADS[2]!)).toEqual([])
     db.close()
   })
 
