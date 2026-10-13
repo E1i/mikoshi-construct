@@ -5,11 +5,16 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { MERGE_DONE, REVIEW_RECORDED } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
+import { CARD_CLOSED } from '../bus/launch-candidates.js'
+import { PR_OBSERVED } from '../bus/operator-work.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
 import { STOP_EVENT } from '../shift/relaunch.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
+export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, CARD_CLOSED, PR_OBSERVED]
+export const FAILED_CI = 'red'
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--pid <pid>…]'
 export const WATCHING = 'miko:watch: what is already there is read; watching for what comes next'
@@ -21,8 +26,9 @@ export interface WatchState {
   pids: Set<number>
 }
 
-export interface BusStop {
+export interface BusEvent {
   id: number
+  type: string
   payload: string
 }
 
@@ -30,7 +36,7 @@ export interface WatchDeps {
   size: () => number
   readFrom: (offset: number, end: number) => string
   lastBusId: () => number
-  busStopsAfter: (id: number) => BusStop[]
+  busEventsAfter: (id: number) => BusEvent[]
   alive: (pid: number) => boolean
 }
 
@@ -79,11 +85,27 @@ function journalLines(state: WatchState, deps: WatchDeps): string[] {
   return lines.filter(line => wakingEvent(line) !== undefined).map(line => `journal ${line}`)
 }
 
-function busStops(state: WatchState, deps: WatchDeps): string[] {
-  const stops = deps.busStopsAfter(state.busId)
-  for (const stop of stops)
-    state.busId = Math.max(state.busId, stop.id)
-  return stops.map(stop => `bus ${stop.payload}`)
+function ciOf(payload: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(payload)
+    return typeof parsed === 'object' && parsed !== null ? (parsed as { ci?: unknown }).ci : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+export function wakesTheWindow(event: BusEvent): boolean {
+  if (!WAKING_BUS_EVENTS.includes(event.type))
+    return false
+  return event.type !== PR_OBSERVED || ciOf(event.payload) === FAILED_CI
+}
+
+function busLines(state: WatchState, deps: WatchDeps): string[] {
+  const events = deps.busEventsAfter(state.busId)
+  for (const event of events)
+    state.busId = Math.max(state.busId, event.id)
+  return events.filter(wakesTheWindow).map(event => `bus ${event.type} ${event.payload}`)
 }
 
 function exitedPids(state: WatchState, deps: WatchDeps): string[] {
@@ -94,7 +116,7 @@ function exitedPids(state: WatchState, deps: WatchDeps): string[] {
 }
 
 export function tick(state: WatchState, deps: WatchDeps): string[] {
-  return [...journalLines(state, deps), ...busStops(state, deps), ...exitedPids(state, deps)]
+  return [...journalLines(state, deps), ...busLines(state, deps), ...exitedPids(state, deps)]
 }
 
 function sizeOf(file: string): number {
@@ -132,11 +154,12 @@ function lastBusId(bus: string): number {
   }
 }
 
-function busStopsAfter(bus: string, id: number): BusStop[] {
+function busEventsAfter(bus: string, id: number): BusEvent[] {
   const db = openBus(bus)
   try {
-    const rows = db.prepare('SELECT id, payload FROM events WHERE type = ? AND id > ? ORDER BY id').all(STOP_EVENT, id) as Array<{ id: number, payload: string }>
-    return rows.map(row => ({ id: Number(row.id), payload: row.payload }))
+    const types = WAKING_BUS_EVENTS.map(() => '?').join(', ')
+    const rows = db.prepare(`SELECT id, type, payload FROM events WHERE type IN (${types}) AND id > ? ORDER BY id`).all(...WAKING_BUS_EVENTS, id) as Array<{ id: number, type: string, payload: string }>
+    return rows.map(row => ({ id: Number(row.id), type: row.type, payload: row.payload }))
   }
   finally {
     db.close()
@@ -165,7 +188,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     size: () => sizeOf(journal),
     readFrom: (offset, end) => readFrom(journal, offset, end),
     lastBusId: () => lastBusId(bus),
-    busStopsAfter: id => busStopsAfter(bus, id),
+    busEventsAfter: id => busEventsAfter(bus, id),
     alive,
   }
   const state = watchState(deps, pids)
