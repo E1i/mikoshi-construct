@@ -1,3 +1,4 @@
+import type { BusCardStates } from '../../src/card/closed.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
@@ -49,7 +50,7 @@ import { parseSketch } from '../ghosts/sketch.js'
 import { PREFIX as CLOSE_PREFIX, prBodyOf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
-import { cardStartedLines, startedTree } from '../ghosts/tasks.js'
+import { busCardStates, cardStartedLines, startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
 import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
@@ -169,6 +170,10 @@ export interface ShiftDeps {
   busMerge?: (pr: number, head: string) => BusMerge
   recordBus?: (event: BusEvent) => void
   bus?: string
+}
+
+function busCardsOf(deps: ShiftDeps): BusCardStates | undefined {
+  return deps.bus === undefined ? undefined : busCardStates(deps.bus)
 }
 
 function refuse(deps: ShiftDeps, lines: string[]): number {
@@ -328,7 +333,7 @@ function sessionEvidence(deps: ShiftDeps, task: ShiftTask, places: Places, sessi
   const report = readIfThere(places.report)
   return {
     exit,
-    closed: closedTasks(readIfThere(path.join(deps.handoffDir, GHOST_JOURNAL))).has(task.id),
+    closed: closedTasks(readIfThere(path.join(deps.handoffDir, GHOST_JOURNAL)), busCardsOf(deps)).has(task.id),
     question: QUESTION_LINE.test(report),
     boundary: BOUNDARY_LINE.test(report),
     ...eddiesEvidence(readIfThere(eddiesJournalPath(worktree)), session),
@@ -627,7 +632,7 @@ function finishTask(deps: ShiftDeps, task: ShiftTask, base: TaskBase, places: Pl
   const after = prAfterSession(deps, task, { worktree, id: current }, places.report, { shard, refused, stopped, afterReview }, endedWhole)
   const merge = after === undefined || 'problem' in after ? undefined : after
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
-  const closed = deps.exists(journal) && closedTasks(deps.read(journal)).has(task.id)
+  const closed = deps.exists(journal) && closedTasks(deps.read(journal), busCardsOf(deps)).has(task.id)
   const line = { ...base, worktree, ended, exit: exit.code, signal: exit.signal, report, continuations, lastExit, ...heldBy({ refused, stopped }), ...(merge === undefined ? {} : { merge: merge.lines, pr: Number(merge.pr) }) }
   if (after !== undefined && 'problem' in after)
     return { line, stop: stopAt({ worktree, session: current }, 'fault', after.problem) }
@@ -1072,7 +1077,7 @@ function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review
   }
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   sweepMerges(deps, ghostJournal, dir)
-  const merged = mergedTasks(readIfThere(deps, ghostJournal))
+  const merged = mergedTasks(readIfThere(deps, ghostJournal), busCardsOf(deps))
   for (const review of reviews.filter(open => merged.has(open.task.id) || open.busMerged === true)) {
     reviews.splice(reviews.indexOf(review), 1)
     chainLine(deps, dir, { step: 'merged', task: review.task.id, pr: review.pr })
@@ -1083,7 +1088,7 @@ function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review
 }
 
 function writeWaits(deps: ShiftDeps, dir: string, chain: Chain, left: readonly LeftCard[]): DependencyWait[] {
-  const waits = dependencyWaits(left, readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)))
+  const waits = dependencyWaits(left, readIfThere(deps, path.join(deps.handoffDir, GHOST_JOURNAL)), busCardsOf(deps))
   for (const wait of waits) {
     const reason = waitingLine(wait)
     if (chain.waits.get(wait.id) !== reason) {

@@ -9,6 +9,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../../src/commands/intake/index.js'
 import { createMain } from '../../src/program.js'
+import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 
@@ -53,7 +54,7 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
 async function main(): Promise<void> {
   const db = openBus(defaultBusPath())
   try {
-    await runMain(createMain({ cardEvents: busCardEvents(db, process.env[SESSION_VARIABLE] || undefined) }), { rawArgs: [INTAKE_SUBCOMMAND, ...process.argv.slice(2)] })
+    await runMain(createMain({ cardEvents: busCardEvents(db, process.env[SESSION_VARIABLE] || undefined), cardStates: () => busCardStates(defaultBusPath()) }), { rawArgs: [INTAKE_SUBCOMMAND, ...process.argv.slice(2)] })
   }
   finally {
     db.close()

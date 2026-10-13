@@ -1830,7 +1830,7 @@ It runs no model and no `gh`.
 | `--taken <file\|->` | — | The pull request and issue numbers already taken, separated by whitespace, from a file or stdin. Required. |
 | `--parking <dir>` | `~/.construct/parking` | Where the cards are written, outside the repository. |
 | `--dir <dir>` | `.` | The repository the `touches`, `creates` and witness checks read. Never written. |
-| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read merged from: a `depends` or `blocks` is removed when a merge line names the task, kept when it is only done; `construct` reads merge lines and runs no `gh`. |
+| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read merged from: a `depends` or `blocks` is removed when a merge line written before `2026-10-12T17:04Z` names the task, or when the bus a caller wires in holds its card `merged` or `closed`, and kept when it is only done; a journal line written after that time counts only through the bus. `construct` reads merge lines and runs no `gh`. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
 | `--confirm <token>` | — | Park cards whose corrections a person has seen: the token the run that held them printed. |
 | `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in `--journal`. |
@@ -1858,8 +1858,8 @@ refuses: a card that reuses a pull request's number is worse than no card.
 journal, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
-card grammar becomes the grammar's default, a `depends` or `blocks` on a card a merge line names in the journal is
-removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
+card grammar becomes the grammar's default, a `depends` or `blocks` on a card that is merged — a merge line in the journal before `2026-10-12T17:04Z`, or the
+card `merged` or `closed` in a bus the caller wires in — is removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
 which carries a companion gets each companion it lacks added to `touches`, from one table,
 `COMPANION_TABLE` in `src/commands/intake/check.ts`: `package.json` carries `CONTRIBUTING.md` and
 `tests/harness-membership.test.ts`, `src/program.ts` carries `README.md`, `docs/cli.md` and

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closedTasks } from '../../src/card/closed.js'
+import { closedTasks, JOURNAL_HISTORY_ENDS } from '../../src/card/closed.js'
 
 describe('closedTasks', () => {
   it('a start line does not close, a closing path line with a verification does, and a line that is not JSON is skipped', () => {
@@ -12,5 +12,26 @@ describe('closedTasks', () => {
     ].join('\n')
     expect([...closedTasks(journal)]).toEqual([['77', 'run']])
     expect(closedTasks(null).size).toBe(0)
+  })
+})
+
+describe('closedTasks over the journal half of history and the bus', () => {
+  const journal = [
+    JSON.stringify({ event: 'path', task: '842', path: 'cheap', pr: 791, verification: 'run', ts: '2026-10-12T17:03:59.000Z' }),
+    JSON.stringify({ event: 'path', task: '889', path: 'ladder', pr: 786, verification: 'run', ts: '2026-10-12T17:07:15.949Z' }),
+    JSON.stringify({ event: 'path', task: '928', path: 'cheap', pr: 803, verification: 'run', ts: '2026-10-13T13:03:01.409Z' }),
+    JSON.stringify({ event: 'path', task: '700', path: 'cheap', pr: 600, verification: 'review' }),
+  ].join('\n')
+
+  it('holds a card the bus closed or merged with no path line in the journal, as #855', () => {
+    const closed = closedTasks(journal, new Map([['855', 'closed'], ['928', 'merged'], ['930', 'queued']]))
+    expect(closed.get('855')).toBe('closed')
+    expect(closed.has('930')).toBe(false)
+  })
+
+  it('reads a path line written once the journal half of history ended only through the bus, so #889 stays open while the bus runs it', () => {
+    expect(JOURNAL_HISTORY_ENDS).toBe('2026-10-12T17:04:00.000Z')
+    const closed = closedTasks(journal, new Map([['889', 'running'], ['928', 'merged']]))
+    expect([...closed]).toEqual([['842', 'run'], ['700', 'review'], ['928', 'merged']])
   })
 })

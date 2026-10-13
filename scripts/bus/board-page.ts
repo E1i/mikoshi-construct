@@ -183,6 +183,7 @@ export function boardProjection(db: DatabaseSync, busPath: string): BoardProject
     read: target => readFileSync(target, 'utf8'),
     exists: existsSync,
     git: (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8' }),
+    bus: busPath,
   }
   return {
     file,

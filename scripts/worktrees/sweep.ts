@@ -1,3 +1,4 @@
+import type { BusCardStates } from '../../src/card/closed.js'
 import type { GhRunner } from '../board/gh.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -5,10 +6,11 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultBusPath } from '../bus/db.js'
-import { cardStartedLines } from '../ghosts/tasks.js'
+import { busCardStates, cardStartedLines } from '../ghosts/tasks.js'
 import { REPO } from '../shift/places.js'
 
 export const PREFIX = '[worktrees:sweep] '
@@ -40,16 +42,16 @@ interface Worktree {
 }
 
 interface CardRecord {
-  merged: boolean
   mergedPr?: number
   closedPr?: number
-  closedByReport: boolean
 }
 
 interface Journal {
   byTree: Map<string, string>
   cards: Map<string, CardRecord>
   closedPrs: Set<number>
+  merged: Set<string>
+  closed: Set<string>
 }
 
 type Verdict = { kind: 'remove', why: string } | { kind: 'keep', why: string }
@@ -66,12 +68,12 @@ function entries(text: string | null): Record<string, unknown>[] {
   })
 }
 
-function journalOf(text: string | null, starts: readonly Record<string, unknown>[]): Journal {
+function journalOf(text: string | null, starts: readonly Record<string, unknown>[], busCards: BusCardStates): Journal {
   const cards = new Map<string, CardRecord>()
   const byTree = new Map<string, string>()
   const closedPrs = new Set<number>()
   const recordOf = (task: string): CardRecord => {
-    const known = cards.get(task) ?? { merged: false, closedByReport: false }
+    const known = cards.get(task) ?? {}
     cards.set(task, known)
     return known
   }
@@ -81,7 +83,7 @@ function journalOf(text: string | null, starts: readonly Record<string, unknown>
     if (typeof entry.task !== 'string')
       continue
     if (entry.event === 'merge') {
-      Object.assign(recordOf(entry.task), { merged: true }, typeof entry.pr === 'number' ? { mergedPr: entry.pr } : {})
+      Object.assign(recordOf(entry.task), typeof entry.pr === 'number' ? { mergedPr: entry.pr } : {})
     }
     else if (entry.event === 'path' && typeof entry.worktree === 'string') {
       recordOf(entry.task)
@@ -91,11 +93,9 @@ function journalOf(text: string | null, starts: readonly Record<string, unknown>
       const record = recordOf(entry.task)
       if (typeof entry.pr === 'number')
         record.closedPr = entry.pr
-      else if (typeof entry.report === 'string')
-        record.closedByReport = true
     }
   }
-  return { byTree, cards, closedPrs }
+  return { byTree, cards, closedPrs, merged: mergedTasks(text, busCards), closed: new Set(closedTasks(text, busCards).keys()) }
 }
 
 function worktreesOf(porcelain: string): Worktree[] {
@@ -126,12 +126,12 @@ function mergedHead(deps: SweepDeps, pr: number): string | undefined {
   }
 }
 
-function cardState(id: string, record: CardRecord, closedPrs: ReadonlySet<number>): Verdict {
-  if (record.merged || record.closedByReport)
+function cardState(id: string, record: CardRecord, journal: Journal): Verdict {
+  if (journal.merged.has(id))
     return { kind: 'remove', why: `card #${id} is merged` }
-  if (record.closedPr === undefined)
+  if (!journal.closed.has(id) || record.closedPr === undefined)
     return { kind: 'keep', why: `card #${id} is open` }
-  return closedPrs.has(record.closedPr)
+  return journal.closedPrs.has(record.closedPr)
     ? { kind: 'remove', why: `card #${id} is closed and PR #${record.closedPr} was closed without a merge` }
     : { kind: 'keep', why: `card #${id} is closed but PR #${record.closedPr} is still open (no merge line in the journal)` }
 }
@@ -157,7 +157,7 @@ function verdictOf(deps: SweepDeps, tree: Worktree, id: string | undefined, jour
     return { kind: 'keep', why: 'named by no task:start line in the journal' }
   if (tree.branch === undefined)
     return { kind: 'keep', why: `card #${id}: the tree has a detached HEAD, no branch to remove` }
-  const state = cardState(id, record, journal.closedPrs)
+  const state = cardState(id, record, journal)
   if (state.kind === 'keep')
     return state
   try {
@@ -192,7 +192,7 @@ export function runSweep(argv: string[], deps: SweepDeps): SweepResult {
     return { stdout: [], stderr: [`${PREFIX}not inside a git repository: ${firstLine(error)}`], exitCode: 1 }
   }
   const [main, ...linked] = trees
-  const journal = journalOf(deps.readJournal(path.join(deps.handoffDir, 'ghosts.jsonl')), deps.bus === undefined ? [] : cardStartedLines(deps.bus))
+  const journal = journalOf(deps.readJournal(path.join(deps.handoffDir, 'ghosts.jsonl')), deps.bus === undefined ? [] : cardStartedLines(deps.bus), deps.bus === undefined ? new Map() : busCardStates(deps.bus))
   const stdout: string[] = []
   const stderr: string[] = []
   const kept: string[] = []

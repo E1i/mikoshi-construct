@@ -1,9 +1,11 @@
+import type { BusCardStates } from '../../src/card/closed.js'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import path from 'node:path'
 import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { TASK_FILE } from '../../src/card/task-file.js'
+import { busCardStates } from '../ghosts/tasks.js'
 import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
 import { approvedSha256Of, briefPathOf, isLadder } from './ladder.js'
 import { GHOSTS_FILES_ON_MAIN, isListed } from './merge.js'
@@ -118,6 +120,7 @@ export interface ParkingReads {
   read: (file: string) => string
   exists: (target: string) => boolean
   git: (cwd: string, args: string[]) => string
+  bus?: string
 }
 
 export function taskFiles(reads: Pick<ParkingReads, 'listDir'>, dir: string): string[] {
@@ -148,14 +151,15 @@ function createdFile(reads: ParkingReads): Created {
 export function readParking(reads: ParkingReads, parking: string): { choice: Choice, errors: string[] } {
   const parsed = taskFiles(reads, parking).map(file => parseParkingFile(file, reads.read(path.join(parking, file))))
   const text = readIfThere(reads, path.join(reads.handoffDir, GHOST_JOURNAL))
-  const done = new Set(closedTasks(text).keys())
+  const busCards = reads.bus === undefined ? undefined : busCardStates(reads.bus)
+  const done = new Set(closedTasks(text, busCards).keys())
   const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
   const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
   const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(reads, ladder.get(stop.task)!)
   const stops = latestStops(text)
   const standing = standingStops(stops, reads.exists, released)
   return {
-    choice: choose(cards, done, mergedTasks(text), standing, createdFile(reads), failedCards(stops, standing)),
+    choice: choose(cards, done, mergedTasks(text, busCards), standing, createdFile(reads), failedCards(stops, standing)),
     errors: parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : []),
   }
 }
@@ -202,9 +206,9 @@ function startedTasks(journal: string | null): Set<string> {
   }))
 }
 
-export function dependencyWaits(left: readonly LeftCard[], journal: string | null): DependencyWait[] {
+export function dependencyWaits(left: readonly LeftCard[], journal: string | null, busCards?: BusCardStates): DependencyWait[] {
   const started = startedTasks(journal)
-  const merged = mergedTasks(journal)
+  const merged = mergedTasks(journal, busCards)
   return left.flatMap((card) => {
     const open = DEPENDS_OPEN.exec(card.reason)
     if (open === null)

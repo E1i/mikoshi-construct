@@ -4,7 +4,7 @@ import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
-import type { CardEventPort } from './index.js'
+import type { CardEventPort, CardStatesPort } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -48,6 +48,7 @@ export interface AdmitOptions {
   autoConfirm: boolean
   parkingRoot?: string
   events?: CardEventPort
+  cardStates?: CardStatesPort
 }
 
 export type AdmitResult
@@ -204,11 +205,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const invalidPatterns = invalidTestPatterns([draft])
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
+  const cards = options.cardStates?.()
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
     parked: new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking()))),
-    done: new Set(closedTasks(journal).keys()),
-    merged: mergedTasks(journal),
+    done: new Set(closedTasks(journal, cards).keys()),
+    merged: mergedTasks(journal, cards),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),

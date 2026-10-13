@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openBus } from '../../bus/db.js'
 import { runTaskStart } from '../../ghosts/task-start.js'
 import { admitCards } from '../shift/fixtures/admitted.js'
 
@@ -13,6 +14,16 @@ const DONE_86 = { event: 'path', task: '86', path: 'cheap', pr: 530, verificatio
 const MERGED_86 = { event: 'merge', task: '86', pr: 530, by: 'owner', commit: 'abc' }
 const MERGED_87 = { event: 'merge', task: '87', pr: 531, by: 'owner', commit: 'def' }
 const roots: string[] = []
+
+function holdInBus(bus: string, cardId: number, state: string): void {
+  const db = openBus(bus)
+  try {
+    db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, 1)').run(cardId, state)
+  }
+  finally {
+    db.close()
+  }
+}
 
 afterEach(() => {
   for (const root of roots.splice(0))
@@ -83,5 +94,22 @@ describe('task:start takes a card only when its depends are merged', () => {
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
     expect(existsSync(path.join(w.root, 'mc-101'))).toBe(true)
+  })
+
+  it('takes a depends the bus holds merged or closed as merged, though the journal has no merge line for it', () => {
+    const w = world([DONE_86])
+    holdInBus(w.deps.bus, 86, 'closed')
+    holdInBus(w.deps.bus, 87, 'merged')
+    const result = runTaskStart(['feat/t101', '--card', CARD], w.deps)
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('does not take a merge line written once the journal half of history ended, while the bus holds the card running', () => {
+    const w = world([MERGED_86, { ...MERGED_87, ts: '2026-10-12T18:00:00.000Z' }])
+    holdInBus(w.deps.bus, 87, 'running')
+    const result = runTaskStart(['feat/t101', '--card', CARD], w.deps)
+    expect(result.stderr.join(' ')).toContain('#87')
+    expect(result.exitCode).toBe(1)
   })
 })

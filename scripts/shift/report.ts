@@ -15,7 +15,7 @@ import { execGh, listPrs, lookupPr } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultBusPath } from '../bus/db.js'
 import { entryOf } from '../ghosts/entry.js'
-import { cardStartedLines } from '../ghosts/tasks.js'
+import { busCardStates, cardStartedLines } from '../ghosts/tasks.js'
 import { EXIT_REASON_TEXT, MAX_RESTARTS } from './continuation.js'
 import { exitedWithoutReport, GHOST_JOURNAL, REPO, reportPath, SHIFT_JOURNAL, succeeded } from './places.js'
 
@@ -142,7 +142,7 @@ export function runReport(argv: string[], deps: ReportDeps): number {
   const prs = listPrs(deps.gh, REPO)
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const ghostText = deps.read(ghostJournal)
-  const closed = closedTasks(ghostText)
+  const closed = closedTasks(ghostText, deps.bus === undefined ? undefined : busCardStates(deps.bus))
   const started = startedEntries(deps.bus)
   const searched = deps.bus === undefined ? ghostJournal : `the bus ${deps.bus} or in ${ghostJournal}`
   for (const line of lines) {

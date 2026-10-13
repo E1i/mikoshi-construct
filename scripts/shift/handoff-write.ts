@@ -195,6 +195,7 @@ function busState(busPath: string, parking: string): StateReading {
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,
     git: (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8' }),
+    bus: busPath,
   }
   try {
     const db = openBus(busPath)

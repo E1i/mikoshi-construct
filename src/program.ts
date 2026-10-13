@@ -1,6 +1,6 @@
 import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import type { BoardReading } from './commands/board/index.js'
-import type { CardEventPort } from './commands/intake/index.js'
+import type { CardEventPort, CardStatesPort } from './commands/intake/index.js'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -353,7 +353,7 @@ const sync = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
-function intakeCommand(events: CardEventPort | undefined) {
+function intakeCommand(events: CardEventPort | undefined, cardStates: CardStatesPort | undefined) {
   return withKnownFlags(defineCommand({
     meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
     args: {
@@ -381,7 +381,7 @@ function intakeCommand(events: CardEventPort | undefined) {
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
-          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events }))
+          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates }))
           return
         }
         const result = runIntake({
@@ -396,6 +396,7 @@ function intakeCommand(events: CardEventPort | undefined) {
           autoConfirm: args.autoConfirm,
           readStdin: () => readStdinToEnd(),
           events,
+          cardStates,
         })
         process.exitCode = printIntake(console, result)
       })
@@ -468,10 +469,11 @@ const mutate = defineCommand({
 
 export interface MainPorts {
   cardEvents?: CardEventPort
+  cardStates?: CardStatesPort
 }
 
-export function createMain({ cardEvents }: MainPorts = {}) {
-  const intake = intakeCommand(cardEvents)
+export function createMain({ cardEvents, cardStates }: MainPorts = {}) {
+  const intake = intakeCommand(cardEvents, cardStates)
   return defineCommand({
     meta: ROOT_META,
     subCommands: {
