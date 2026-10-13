@@ -1,11 +1,11 @@
 import type { OpenIssue, TaskCloseDeps } from '../../ghosts/task-close.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { runTaskClose } from '../../ghosts/task-close.js'
+import { CARD_VERIFIED, cardVerifiedClosings, runTaskClose } from '../../ghosts/task-close.js'
 import { prCardOf } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
@@ -744,5 +744,57 @@ describe('task:close takes whose result a PR is from prs.card_id in the bus', ()
     finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('task:close after the cutoff records the closing in the bus', () => {
+  const AFTER = new Date('2026-10-13T18:00:00.000Z')
+
+  it('task:close after the cutoff writes card.verified and no path line', () => {
+    const bus = busWithCardStarted([])
+    try {
+      const { deps, written } = world([startLine('123', 'implement')])
+      const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file, session: WINDOW_SESSION })
+      expect(result.exitCode).toBe(0)
+      expect(written).toEqual([])
+      expect(result.stdout.find(line => line.startsWith('RESULT'))).toBe(`RESULT   | closed run · PR #460 · ${CARD_VERIFIED} written to ${bus.file}`)
+      expect(cardVerifiedClosings(bus.file)).toEqual([{ task: '123', pr: 460, verification: 'run' }])
+      const db = openBus(bus.file)
+      try {
+        const row = db.prepare(`SELECT actor, payload FROM events WHERE type = '${CARD_VERIFIED}'`).get() as { actor: string, payload: string }
+        expect(row.actor).toBe(`worker:task-close:${WINDOW_SESSION}`)
+        expect(JSON.parse(row.payload)).toEqual({ path: 'cheap', pr: 460, verification: 'run', ended: AFTER.toISOString(), sessions: [], actual: { tokens: null, minutes: null } })
+      }
+      finally {
+        db.close()
+      }
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('task:close refuses and writes nothing when card.verified cannot be written', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'task-close-unwritable-'))
+    const busPath = path.join(dir, 'bus.db')
+    mkdirSync(busPath)
+    try {
+      const { deps, written } = world([startLine('123', 'implement')])
+      const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath })
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr.join('\n')).toContain(`${CARD_VERIFIED} could not be written to the bus ${busPath}`)
+      expect(written).toEqual([])
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('task:close after the cutoff with no bus wired refuses and writes nothing', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain(`the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written`)
+    expect(written).toEqual([])
   })
 })
