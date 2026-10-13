@@ -13,6 +13,7 @@ import { defaultBusPath, openBus } from '../bus/db.js'
 import { journalPath } from '../bus/import.js'
 import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
+import { realMikoExitDeps, runMikoExit } from '../miko/exit.js'
 import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
@@ -46,6 +47,7 @@ export interface HandoffWriteDeps {
   home: string
   out: (line: string) => void
   err: (line: string) => void
+  endSession: (handoff: string) => void
 }
 
 function setOrNull(value: string | undefined): string | null {
@@ -174,6 +176,8 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   deps.write(staged, text.endsWith('\n') ? text : `${text}\n`)
   deps.rename(staged, handoff)
   deps.out(`${PREFIX}${handoff}: ${handoffBytes(text)} bytes, ${PREV_LABEL}: ${prev}, ${stateSource(reading)}`)
+  if (statusOf(text) === 'CONTINUE' && deps.sessionHandoff !== null && handoff === path.resolve(deps.sessionHandoff))
+    deps.endSession(handoff)
   return 0
 }
 
@@ -223,5 +227,8 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     home: os.homedir(),
     out: line => console.log(line),
     err: line => console.error(line),
+    endSession: (handoff) => {
+      runMikoExit({ ...realMikoExitDeps(handoff), status: () => null })
+    },
   })
 }
