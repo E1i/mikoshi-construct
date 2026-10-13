@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
+import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
 import { LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, tick, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
@@ -80,6 +81,7 @@ const BUS_EVENT_WAKES: Array<{ name: string, type: string, payload: object, wake
   { name: 'a review.recorded pass verdict', type: REVIEW_RECORDED, payload: { verdict: 'pass', findings: [] }, wakes: true },
   { name: 'a pr.observed with a failed check', type: PR_OBSERVED, payload: { ci: 'red', failed_checks: ['vitest 2/2'] }, wakes: true },
   { name: 'a merge.done', type: MERGE_DONE, payload: { commit: '99225d31', rule: 'auto' }, wakes: true },
+  { name: 'a pr.closed with a merge', type: PR_CLOSED, payload: { merged: true, commit: 'c0ffee' }, wakes: true },
   { name: 'a card.closed', type: CARD_CLOSED, payload: { verification: 'run' }, wakes: true },
   { name: 'a relaunch-stop', type: STOP_EVENT, payload: { event: STOP_EVENT, reason: 'max' }, wakes: true },
   { name: 'a pr.observed with green CI', type: PR_OBSERVED, payload: { ci: 'green' }, wakes: false },
@@ -351,6 +353,32 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       writeBusEvent(bus, MERGE_DONE, 'worker:merge:s1', 'merge.done:second', JSON.stringify({ commit: 'c0ffee', rule: 'auto' }))
       expect(await exited).toBe(0)
       expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${first}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
+  it('a merge outside the merge worker wakes the window after the cutoff', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const before = readFileSync(file, 'utf8')
+    const watch = startWatch(file, [ONCE], bus)
+    const exited = watch.exited
+    try {
+      await watch.watching()
+      const db = openBus(bus)
+      const closed = prClosed('2026-10-13T18:00:00.000Z', { pr: 810, cardId: 937, merged: true, commit: 'c0ffee', mergedBy: 'E1i', mergedAt: '2026-10-13T17:59:00Z' })
+      try {
+        appendEvent(db, closed)
+      }
+      finally {
+        db.close()
+      }
+      expect(await exited).toBe(0)
+      expect(watch.stdout()).toBe(`bus ${PR_CLOSED} ${typeof closed.payload === 'string' ? closed.payload : JSON.stringify(closed.payload)}\n`)
+      expect(readFileSync(file, 'utf8')).toBe(before)
     }
     finally {
       watch.child.kill()

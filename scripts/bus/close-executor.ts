@@ -7,6 +7,7 @@ import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
+import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
@@ -19,7 +20,7 @@ import { CARD_CLOSED } from './queue.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit'
 
-export type MergeLineStep = 'written' | 'present' | 'no-merger'
+export type MergeLineStep = 'written' | 'present' | 'no-merger' | 'in-bus'
 
 export interface TreeLeft {
   path: string
@@ -199,6 +200,8 @@ export class CloseExecutor {
 
   private appendMergeLine(pr: number, line: MergeEvent | null): MergeLineStep {
     const { journal } = this.parts
+    if (!writtenBeforeHistoryEnds({ ts: this.ts() }))
+      return 'in-bus'
     if (hasMergeLine(existsSync(journal) ? readFileSync(journal, 'utf8') : null, pr))
       return 'present'
     if (line === null)

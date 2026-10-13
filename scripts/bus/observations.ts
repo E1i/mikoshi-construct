@@ -3,6 +3,7 @@ import type { ClosedPr, MainHead, OpenPr, Snapshot } from './snapshot.js'
 import { createHash } from 'node:crypto'
 
 export const NETWATCH = 'netwatch'
+export const PR_CLOSED = 'pr.closed'
 
 function observation(ts: string, type: string, fields: Pick<BusEvent, 'cardId' | 'pr' | 'head' | 'dedupeKey' | 'payload'>): BusEvent {
   return { ts, type, actor: NETWATCH, legacy: false, ...fields }
@@ -46,7 +47,7 @@ export function prClosed(ts: string, closed: ClosedPr): BusEvent {
     ...(closed.mergedBy === null ? {} : { merged_by: closed.mergedBy }),
     ...(closed.mergedAt === null ? {} : { merged_at: closed.mergedAt }),
   }
-  return observation(ts, 'pr.closed', { cardId: closed.cardId, pr: closed.pr, head: null, dedupeKey: `pr:${closed.pr}:closed`, payload })
+  return observation(ts, PR_CLOSED, { cardId: closed.cardId, pr: closed.pr, head: null, dedupeKey: `pr:${closed.pr}:closed`, payload })
 }
 
 export function mainAdvanced(ts: string, main: MainHead): BusEvent {

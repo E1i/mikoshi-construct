@@ -230,6 +230,19 @@ describe('the close queue', () => {
     bench.close()
   })
 
+  it('the close executor writes no merge line after the cutoff', () => {
+    const bench = closeBench({ 1104: 'run' })
+    const parked = bench.park(1104)
+    bench.clock.ms = AFTER_HISTORY.getTime()
+    bench.merged(1004)
+
+    expect(bench.closeCard(bench.leaseClose()!)).toEqual({ kind: 'closed', taskKey: close(1004), verification: 'run', cycle: { mergeLine: 'in-bus', cardFile: 'moved', treeLeft: null } })
+    expect(existsSync(bench.journal)).toBe(false)
+    expect(existsSync(parked)).toBe(false)
+    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'run' }])
+    bench.close()
+  })
+
   it('a retried close after a partial cycle writes no second merge line and moves nothing twice', () => {
     const bench = closeBench({ 1101: 'run', 1102: 'run' })
     const parked = bench.park(1101)
