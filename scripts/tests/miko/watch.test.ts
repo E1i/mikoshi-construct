@@ -1,7 +1,7 @@
 import type { BusEvent, WatchDeps } from '../../miko/watch.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
-import { appendFileSync, closeSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -10,7 +10,7 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
-import { ONCE, parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
+import { ONCE, ONCE_CURSOR, parseCursor, parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 
@@ -39,6 +39,7 @@ function fileDeps(file: string, alive: (pid: number) => boolean = () => true, ev
   return {
     lastBusId: () => 0,
     busEventsAfter: id => events.filter(event => event.id > id),
+    observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
     size: () => statSync(file).size,
     readFrom: (offset, end) => {
       const buffer = Buffer.alloc(end - offset)
@@ -360,6 +361,115 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       const merge = writeBusEvent(bus, MERGE_DONE, 'worker:merge:s1', 'merge.done:once', JSON.stringify({ commit: 'c0ffee', rule: 'auto' }))
       expect(await exited).toBe(0)
       expect(watch.stdout()).toBe(`bus ${MERGE_DONE} ${merge}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
+  it('with a limit of one, a tick leaves the second waking event of the same tick to the next tick', () => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    const first = append(file, { event: 'merge', task: '930' })
+    const second = append(file, { event: 'fall', task: '931' })
+    events.push({ id: 1, type: MERGE_DONE, pr: 805, head: 'h', payload: '{"commit":"c0ffee"}' })
+    expect(tick(state, deps, 1)).toEqual([`journal ${first}`])
+    expect(tick(state, deps, 1)).toEqual([`journal ${second}`])
+    expect(tick(state, deps, 1)).toEqual([`bus ${MERGE_DONE} {"commit":"c0ffee"}`])
+    expect(tick(state, deps, 1)).toEqual([])
+  })
+
+  it('a watch started from a cursor reads what was written after the cursor, multi-byte lines included', () => {
+    const file = journal()
+    const deps = fileDeps(file)
+    const state = watchState(deps, [])
+    const first = append(file, { event: 'merge', task: 'ё' })
+    expect(tick(state, deps, 1)).toEqual([`journal ${first}`])
+    const between = append(file, { event: 'fall', task: '930' })
+    const next = watchState(deps, [], { offset: state.offset, busId: state.busId })
+    expect(tick(next, deps, 1)).toEqual([`journal ${between}`])
+  })
+
+  it('a watch restarted after a red pr.observed does not wake on a second red of the same head, and wakes on a new head', () => {
+    const file = journal()
+    const red = (id: number, head: string): BusEvent => ({ id, type: PR_OBSERVED, pr: 805, head, payload: JSON.stringify({ head, ci: 'red' }) })
+    const events: BusEvent[] = [red(1, 'a')]
+    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 1 }
+    const state = watchState(deps, [])
+    events.push(red(2, 'a'))
+    expect(tick(state, deps)).toEqual([])
+    events.push(red(3, 'b'))
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${red(3, 'b').payload}`])
+  })
+
+  it('reads a cursor of two non-negative integers, and nothing else', () => {
+    expect(parseCursor('{"offset":12,"busId":3}')).toEqual({ offset: 12, busId: 3 })
+    expect(parseCursor('{"offset":-1,"busId":3}')).toBeUndefined()
+    expect(parseCursor('{"offset":1.5,"busId":3}')).toBeUndefined()
+    expect(parseCursor('{"offset":1}')).toBeUndefined()
+    expect(parseCursor('null')).toBeUndefined()
+    expect(parseCursor('not json')).toBeUndefined()
+  })
+
+  it('successive --once runs print the events of one tick one per run, and an event written between runs in the next run', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const once = async (): Promise<{ code: number | null | 'deadline', stdout: string }> => {
+      const watch = startWatch(file, [ONCE], bus)
+      try {
+        const code = await Promise.race([
+          new Promise<number | null>(resolve => watch.child.on('exit', resolve)),
+          new Promise<'deadline'>(resolve => setTimeout(resolve, DEADLINE_MS, 'deadline')),
+        ])
+        return { code, stdout: watch.stdout() }
+      }
+      finally {
+        watch.child.kill()
+      }
+    }
+    const watch = startWatch(file, [ONCE], bus)
+    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    try {
+      await watch.watching()
+      const db = openBus(bus)
+      const payloads = ['first', 'second'].map(name => JSON.stringify({ verdict: 'changes', name }))
+      try {
+        db.exec('BEGIN')
+        for (const [index, payload] of payloads.entries())
+          appendEvent(db, { ts: '2026-10-13T21:00:00.000Z', type: REVIEW_RECORDED, actor: 'worker:review:s1', cardId: null, pr: 805, head: null, dedupeKey: `review.recorded:${index}`, payload, legacy: false })
+        db.exec('COMMIT')
+      }
+      finally {
+        db.close()
+      }
+      expect(await exited).toBe(0)
+      expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${payloads[0]}\n`)
+      expect(existsSync(path.join(path.dirname(file), ONCE_CURSOR))).toBe(true)
+      expect(await once()).toEqual({ code: 0, stdout: `bus ${REVIEW_RECORDED} ${payloads[1]}\n` })
+      const between = append(file, { event: 'merge', task: '930' })
+      expect(await once()).toEqual({ code: 0, stdout: `journal ${between}\n` })
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 30_000)
+
+  it('a --once run started after a red pr.observed does not wake on its repeat, and wakes on the next review.recorded', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    const head = 'a'.repeat(40)
+    writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:before', JSON.stringify({ head, ci: 'red' }), 805, head)
+    const watch = startWatch(file, [ONCE], bus)
+    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    try {
+      await watch.watching()
+      writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:after', JSON.stringify({ head, ci: 'red', mergeable: 'clean' }), 805, head)
+      const review = writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:after-red', JSON.stringify({ verdict: 'pass' }))
+      expect(await exited).toBe(0)
+      expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${review}\n`)
     }
     finally {
       watch.child.kill()
