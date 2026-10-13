@@ -8,7 +8,7 @@ const NO_BUS_CARDS: BusCardStates = new Map()
 
 interface JournalEntry { event?: unknown, task?: unknown, verification?: unknown, report?: unknown, pr?: unknown, ts?: unknown }
 
-function writtenBeforeHistoryEnds(entry: JournalEntry): boolean {
+export function writtenBeforeHistoryEnds(entry: JournalEntry): boolean {
   const writtenAt = typeof entry.ts === 'string' ? Date.parse(entry.ts) : Number.NaN
   return Number.isNaN(writtenAt) || writtenAt < Date.parse(JOURNAL_HISTORY_ENDS)
 }

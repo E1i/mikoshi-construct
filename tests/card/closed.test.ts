@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closedTasks, JOURNAL_HISTORY_ENDS } from '../../src/card/closed.js'
+import { closedTasks, JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 
 describe('closedTasks', () => {
   it('a start line does not close, a closing path line with a verification does, and a line that is not JSON is skipped', () => {
@@ -44,5 +44,12 @@ describe('closedTasks over the journal half of history and the bus', () => {
     const atTheEnd = JSON.stringify({ event: 'path', task: '901', path: 'cheap', pr: 900, verification: 'run', ts: JOURNAL_HISTORY_ENDS })
     const justBefore = JSON.stringify({ event: 'path', task: '902', path: 'cheap', pr: 901, verification: 'run', ts: '2026-10-12T17:03:59.999Z' })
     expect([...closedTasks([atTheEnd, justBefore].join('\n'))]).toEqual([['902', 'run']])
+  })
+
+  it('decides a line before the journal half of history ends by its ts, and a line without a readable ts as before', () => {
+    expect(writtenBeforeHistoryEnds({ ts: '2026-10-12T17:03:59.999Z' })).toBe(true)
+    expect(writtenBeforeHistoryEnds({ ts: JOURNAL_HISTORY_ENDS })).toBe(false)
+    expect(writtenBeforeHistoryEnds({ ts: 'x' })).toBe(true)
+    expect(writtenBeforeHistoryEnds({})).toBe(true)
   })
 })

@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { mergedDetails, mergedSummary, recheckArgument, recheckMerge, recheckSummary, recordMerges } from '../../ghosts/task-merged.js'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { prClosed } from '../../bus/observations.js'
+import { busMerges, mergedDetails, mergedSummary, recheckArgument, recheckMerge, recheckSummary, recordMerges } from '../../ghosts/task-merged.js'
 
 const NOW = new Date('2026-10-05T09:00:00.000Z')
 const BODY = (id: number): string => `#${id} some-task [implement/runner/S/cheap/auto] · depends — · blocks —\n\nbody`
@@ -183,5 +188,68 @@ describe('recheckMerge', () => {
     expect(result.calls).toBe(0)
     expect(result.notes).toEqual([expect.stringContaining('has no merge-skip line with skip no-card')])
     expect(result.journal).toBe(closed)
+  })
+})
+
+describe('the merge fact in the bus', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0))
+      rmSync(root, { recursive: true, force: true })
+  })
+
+  function busWith(closings: { ts: string, pr: number, cardId: number | null, merged: boolean }[]): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'task-merged-bus-'))
+    roots.push(root)
+    const file = path.join(root, 'bus.db')
+    const db = openBus(file)
+    for (const closing of closings)
+      appendEvent(db, prClosed(closing.ts, { pr: closing.pr, cardId: closing.cardId, merged: closing.merged, commit: closing.merged ? 'c0ffee' : null, mergedBy: closing.merged ? 'E1i' : null, mergedAt: closing.merged ? '2026-10-13T08:30:00Z' : null }))
+    db.close()
+    return file
+  }
+
+  function sweepWithBus(bus: string, journalText: string, recheck?: number): { journal: string, calls: string[], notes: string[] } {
+    let journal = journalText
+    const calls: string[] = []
+    const deps = { gh: (args: string[]): string => {
+      calls.push(args[2]!)
+      return view('MERGED', 570)
+    }, journal: '/j', readJournal: () => journal, append: (_file: string, text: string) => {
+      journal += text
+    }, now: () => NOW, mergedInBus: new Set(busMerges(bus).map(merge => merge.pr)) }
+    const { notes } = recheck === undefined ? recordMerges(deps) : recheckMerge(deps, recheck)
+    return { journal, calls, notes }
+  }
+
+  it('a pull request whose merge pr.closed holds is not looked up and gets no merge line', () => {
+    const bus = busWith([
+      { ts: '2026-10-13T08:31:00.000Z', pr: 700, cardId: 570, merged: true },
+      { ts: '2026-10-13T08:32:00.000Z', pr: 701, cardId: 574, merged: false },
+    ])
+    expect(busMerges(bus)).toEqual([{ task: '570', pr: 700, by: 'E1i', commit: 'c0ffee', merged: '2026-10-13T08:30:00Z', event: 1 }])
+    const swept = sweepWithBus(bus, CLOSING)
+    expect(swept.calls).toEqual(['701'])
+    expect(mergeLines(swept.journal).map(line => line.pr)).toEqual([701])
+    const skipped = `${CLOSING}${JSON.stringify({ event: 'merge-skip', pr: 700, skip: 'no-card', ts: 'x' })}\n`
+    const rechecked = sweepWithBus(bus, skipped, 700)
+    expect(rechecked.calls).toEqual([])
+    expect(rechecked.notes).toEqual(['PR #700 has its merge in the bus as pr.closed; nothing written'])
+    expect(rechecked.journal).toBe(skipped)
+  })
+
+  it('a pr.closed written before the cutoff leaves the pull request to the journal', () => {
+    const bus = busWith([
+      { ts: '2026-10-12T17:03:59.999Z', pr: 700, cardId: 570, merged: true },
+      { ts: '2026-10-13T08:31:00.000Z', pr: 702, cardId: null, merged: true },
+    ])
+    expect(busMerges(bus)).toEqual([])
+    const swept = sweepWithBus(bus, CLOSING)
+    expect(swept.calls).toEqual(['700', '701'])
+    expect(mergeLines(swept.journal).map(line => line.pr)).toEqual([700, 701])
+  })
+
+  it('reads no merge fact from a bus that does not exist', () => {
+    expect(busMerges(path.join(tmpdir(), 'no-such-dir-934', 'bus.db'))).toEqual([])
   })
 })

@@ -5,9 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { JOURNAL_HISTORY_ENDS } from '../../src/card/closed.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
+import { openDatabase } from '../bus/sqlite.js'
 import { GHOST_JOURNAL, REPO } from '../shift/places.js'
 
 export const PREFIX = '[task:merged] '
@@ -21,6 +24,38 @@ export interface MergedDeps {
   readJournal: (file: string) => string | null
   append: (file: string, text: string) => void
   now: () => Date
+  mergedInBus?: ReadonlySet<number>
+}
+
+const NONE_IN_BUS: ReadonlySet<number> = new Set()
+
+export interface BusMerge {
+  task: string
+  pr: number
+  by: string | null
+  commit: string | null
+  merged: string | null
+  event: number
+}
+
+const MERGE_FACTS = `
+  SELECT id, card_id, pr, json_extract(payload, '$.merged_by') AS by, json_extract(payload, '$.commit') AS commit_sha, json_extract(payload, '$.merged_at') AS merged
+  FROM events
+  WHERE type = 'pr.closed' AND legacy = 0 AND json_extract(payload, '$.merged') = 1 AND card_id IS NOT NULL AND pr IS NOT NULL AND ts >= ?
+  ORDER BY id
+`
+
+export function busMerges(busPath: string): BusMerge[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(MERGE_FACTS).all(JOURNAL_HISTORY_ENDS) as unknown as { id: number, card_id: number, pr: number, by: string | null, commit_sha: string | null, merged: string | null }[]
+    return rows.map(row => ({ task: String(row.card_id), pr: row.pr, by: row.by, commit: row.commit_sha, merged: row.merged, event: row.id }))
+  }
+  finally {
+    db.close()
+  }
 }
 
 type SkipReason = 'no-card' | 'closed'
@@ -74,11 +109,11 @@ export function hasMergeLine(text: string | null, pr: number): boolean {
   return journalEntries(text).some(entry => entry.event === 'merge' && entry.pr === pr)
 }
 
-function pullRequestsToLookUp(text: string | null): number[] {
+function pullRequestsToLookUp(text: string | null, mergedInBus: ReadonlySet<number>): number[] {
   const entries = journalEntries(text)
   const recorded = new Set(entries.filter(entry => entry.event === 'merge' || entry.event === 'merge-skip').map(entry => entry.pr))
   const closing = entries.filter(entry => entry.event === 'path' && typeof entry.verification === 'string').map(entry => entry.pr)
-  return [...new Set(closing)].filter((pr): pr is number => typeof pr === 'number' && !recorded.has(pr))
+  return [...new Set(closing)].filter((pr): pr is number => typeof pr === 'number' && !recorded.has(pr) && !mergedInBus.has(pr))
 }
 
 function lookUp(deps: MergedDeps, pr: number): Outcome {
@@ -95,7 +130,7 @@ function lookUp(deps: MergedDeps, pr: number): Outcome {
 
 export function recordMerges(deps: MergedDeps): MergedResult {
   const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
-  for (const pr of pullRequestsToLookUp(deps.readJournal(deps.journal))) {
+  for (const pr of pullRequestsToLookUp(deps.readJournal(deps.journal), deps.mergedInBus ?? NONE_IN_BUS)) {
     try {
       const outcome = lookUp(deps, pr)
       if (outcome.kind === 'open') {
@@ -120,6 +155,10 @@ export function recordMerges(deps: MergedDeps): MergedResult {
 
 export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
   const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
+  if ((deps.mergedInBus ?? NONE_IN_BUS).has(pr)) {
+    result.notes.push(`PR #${pr} has its merge in the bus as pr.closed; nothing written`)
+    return result
+  }
   const text = deps.readJournal(deps.journal)
   if (hasMergeLine(text, pr)) {
     result.notes.push(`PR #${pr} already has a merge line; nothing written`)
@@ -204,6 +243,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
       readJournal: file => readFileSync(file, 'utf8'),
       append: appendToJournal,
       now: () => new Date(),
+      mergedInBus: new Set(busMerges(defaultBusPath()).map(merge => merge.pr)),
     }
     const recheck = recheckArgument(process.argv)
     if (recheck === 'invalid') {
