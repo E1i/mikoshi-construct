@@ -599,4 +599,59 @@ describe('task:close reads the start of a task from card.started in the bus', ()
       bus.remove()
     }
   })
+
+  it('prints CONTRACT and EXPECT from the entry of card.started when the journal has no entry line', () => {
+    const entry = { schema: 2, CONTRACT: 'contract from the bus', EXPECT: 'expect from the bus', ACTION: 'a', RESULT: 'accepted · not started' }
+    const bus = busWithCardStarted([{ cardId: 891, ts: started.started, payload: { ...started, entry } }])
+    try {
+      const { deps } = world([])
+      const result = runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file })
+      expect(result.stdout.slice(1, 3)).toEqual(['CONTRACT | contract from the bus', 'EXPECT   | expect from the bus'])
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('takes the entry of card.started before an entry line of the journal', () => {
+    const entry = { schema: 2, CONTRACT: 'contract from the bus', EXPECT: 'expect from the bus', ACTION: 'a', RESULT: 'accepted · not started' }
+    const bus = busWithCardStarted([{ cardId: 123, ts: started.started, payload: { ...started, card: { ...card, id: 123 }, entry } }])
+    try {
+      const { deps } = world([entryLine('123')])
+      expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, busPath: bus.file }).stdout[1]).toBe('CONTRACT | contract from the bus')
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('takes the entry of the last card.started of a restarted card', () => {
+    const entry = { schema: 2, CONTRACT: 'first contract', EXPECT: 'e', ACTION: 'a', RESULT: 'accepted · not started' }
+    const bus = busWithCardStarted([
+      { cardId: 891, ts: started.started, payload: { ...started, entry } },
+      { cardId: 891, ts: started.started, payload: { ...started, entry: { ...entry, CONTRACT: 'restarted contract' } } },
+    ])
+    try {
+      const { deps } = world([])
+      expect(runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file }).stdout[1]).toBe('CONTRACT | restarted contract')
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('names the bus and the journal as not holding the contract when card.started carries no entry', () => {
+    const bus = busWithCardStarted([{ cardId: 891, ts: started.started, payload: started }])
+    try {
+      const { deps } = world([])
+      const result = runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file })
+      expect(result.stdout.slice(1, 3)).toEqual([
+        `CONTRACT | contract not recorded in the bus ${bus.file} or ${JOURNAL}: no entry line for #891`,
+        `EXPECT   | expect not recorded in the bus ${bus.file} or ${JOURNAL}: no entry line for #891`,
+      ])
+    }
+    finally {
+      bus.remove()
+    }
+  })
 })
