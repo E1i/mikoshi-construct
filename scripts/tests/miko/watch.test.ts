@@ -1,4 +1,4 @@
-import type { BusStop, WatchDeps } from '../../miko/watch.js'
+import type { BusEvent, WatchDeps } from '../../miko/watch.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { appendFileSync, closeSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -6,7 +6,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_CLOSED } from '../../bus/launch-candidates.js'
+import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
@@ -32,10 +35,10 @@ function journal(): string {
   return file
 }
 
-function fileDeps(file: string, alive: (pid: number) => boolean = () => true, stops: BusStop[] = []): WatchDeps {
+function fileDeps(file: string, alive: (pid: number) => boolean = () => true, events: BusEvent[] = []): WatchDeps {
   return {
     lastBusId: () => 0,
-    busStopsAfter: id => stops.filter(stop => stop.id > id),
+    busEventsAfter: id => events.filter(event => event.id > id),
     size: () => statSync(file).size,
     readFrom: (offset, end) => {
       const buffer = Buffer.alloc(end - offset)
@@ -48,17 +51,34 @@ function fileDeps(file: string, alive: (pid: number) => boolean = () => true, st
   }
 }
 
-function writeStop(bus: string, pid: number): string {
-  const payload = JSON.stringify({ event: STOP_EVENT, reason: 'max', ts: '2026-10-12T06:00:00.000Z' })
+function writeBusEvent(bus: string, type: string, actor: string, dedupeKey: string, payload: string, pr: number | null = null, head: string | null = null): string {
   const db = openBus(bus)
   try {
-    appendEvent(db, { ts: '2026-10-12T06:00:00.000Z', type: STOP_EVENT, actor: `${RELAUNCH_ACTOR}${pid}`, cardId: null, pr: null, head: null, dedupeKey: `${STOP_EVENT}:${pid}`, payload, legacy: false })
+    appendEvent(db, { ts: '2026-10-12T06:00:00.000Z', type, actor, cardId: null, pr, head, dedupeKey, payload, legacy: false })
   }
   finally {
     db.close()
   }
   return payload
 }
+
+function writeStop(bus: string, pid: number): string {
+  const payload = JSON.stringify({ event: STOP_EVENT, reason: 'max', ts: '2026-10-12T06:00:00.000Z' })
+  return writeBusEvent(bus, STOP_EVENT, `${RELAUNCH_ACTOR}${pid}`, `${STOP_EVENT}:${pid}`, payload)
+}
+
+const BUS_EVENT_WAKES: Array<{ name: string, type: string, payload: object, wakes: boolean }> = [
+  { name: 'a review.recorded changes verdict', type: REVIEW_RECORDED, payload: { verdict: 'changes', findings: ['x'] }, wakes: true },
+  { name: 'a review.recorded pass verdict', type: REVIEW_RECORDED, payload: { verdict: 'pass', findings: [] }, wakes: true },
+  { name: 'a pr.observed with a failed check', type: PR_OBSERVED, payload: { ci: 'red', failed_checks: ['vitest 2/2'] }, wakes: true },
+  { name: 'a merge.done', type: MERGE_DONE, payload: { commit: '99225d31', rule: 'auto' }, wakes: true },
+  { name: 'a card.closed', type: CARD_CLOSED, payload: { verification: 'run' }, wakes: true },
+  { name: 'a relaunch-stop', type: STOP_EVENT, payload: { event: STOP_EVENT, reason: 'max' }, wakes: true },
+  { name: 'a pr.observed with green CI', type: PR_OBSERVED, payload: { ci: 'green' }, wakes: false },
+  { name: 'a pr.observed with pending CI', type: PR_OBSERVED, payload: { ci: 'pending' }, wakes: false },
+  { name: 'a chain pulse', type: 'chain.observed', payload: { alive: true }, wakes: false },
+  { name: 'a task.enqueued', type: 'task.enqueued', payload: { queue: 'review' }, wakes: false },
+]
 
 function startWatch(file: string, args: string[] = [], bus = path.join(path.dirname(file), 'bus.db')): { child: ReturnType<typeof spawn>, stdout: () => string, watching: () => Promise<void> } {
   const child = spawn(TSX, [WATCH, ...args], {
@@ -97,12 +117,23 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
 
   it('wakes once on each relaunch-stop the bus holds after the watch started, and never on one before it', () => {
     const file = journal()
-    const stops: BusStop[] = [{ id: 3, payload: '{"event":"relaunch-stop"}' }]
-    const deps = { ...fileDeps(file, () => true, stops), lastBusId: () => 3 }
+    const events: BusEvent[] = [{ id: 3, type: STOP_EVENT, pr: null, head: null, payload: '{"event":"relaunch-stop"}' }]
+    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 3 }
     const state = watchState(deps, [])
     expect(tick(state, deps)).toEqual([])
-    stops.push({ id: 7, payload: '{"event":"relaunch-stop","reason":"max"}' })
-    expect(tick(state, deps)).toEqual(['bus {"event":"relaunch-stop","reason":"max"}'])
+    events.push({ id: 7, type: STOP_EVENT, pr: null, head: null, payload: '{"event":"relaunch-stop","reason":"max"}' })
+    expect(tick(state, deps)).toEqual(['bus relaunch-stop {"event":"relaunch-stop","reason":"max"}'])
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  it.each(BUS_EVENT_WAKES)('$name in the bus wakes the window: $wakes', ({ type, payload, wakes }) => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    const text = JSON.stringify(payload)
+    events.push({ id: 1, type, pr: 801, head: 'h1', payload: text })
+    expect(tick(state, deps)).toEqual(wakes ? [`bus ${type} ${text}`] : [])
     expect(tick(state, deps)).toEqual([])
   })
 
@@ -122,6 +153,62 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     }
   }, 20_000)
 
+  it('a PR wakes the window once when its CI turns red, not again on later red observations of it, and again after it left red', () => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    const observe = (id: number, pr: number, head: string, ci: string, extra: object = {}): string => {
+      const text = JSON.stringify({ head, ci, ...extra })
+      events.push({ id, type: PR_OBSERVED, pr, head, payload: text })
+      return text
+    }
+    const red = observe(1, 801, 'a', 'red')
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${red}`])
+    observe(2, 801, 'a', 'red', { verdict_on_head: 'changes' })
+    observe(3, 801, 'a', 'red', { mergeable: 'clean' })
+    expect(tick(state, deps)).toEqual([])
+    const otherPr = observe(4, 802, 'a', 'red')
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${otherPr}`])
+    observe(5, 801, 'a', 'pending')
+    const again = observe(6, 801, 'a', 'red')
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${again}`])
+  })
+
+  it('red on head A, then red on head B with no pending between, wakes twice', () => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    const onA = JSON.stringify({ head: 'a', ci: 'red' })
+    const onB = JSON.stringify({ head: 'b', ci: 'red' })
+    events.push({ id: 1, type: PR_OBSERVED, pr: 801, head: 'a', payload: onA })
+    events.push({ id: 2, type: PR_OBSERVED, pr: 801, head: 'b', payload: onB })
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${onA}`, `bus ${PR_OBSERVED} ${onB}`])
+  })
+
+  it('two red pr.observed of one pull request and head written to the bus wake miko once, with another pull request\'s red between them, and its red on a new head wakes again', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const head = 'a'.repeat(40)
+    const otherHead = 'b'.repeat(40)
+    const watch = startWatch(file, [], bus)
+    try {
+      await watch.watching()
+      const first = writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:1', JSON.stringify({ head, ci: 'red', mergeable: 'blocked' }), 801, head)
+      const other = writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:2', JSON.stringify({ head: otherHead, ci: 'red' }), 802, otherHead)
+      writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:3', JSON.stringify({ head, ci: 'red', mergeable: 'clean' }), 801, head)
+      const newHead = writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:4', JSON.stringify({ head: otherHead, ci: 'red' }), 801, otherHead)
+      await waitFor(() => watch.stdout().split('\n').length > 3, () => 'the lines for the first red of each pull request and head', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`bus ${PR_OBSERVED} ${first}\nbus ${PR_OBSERVED} ${other}\nbus ${PR_OBSERVED} ${newHead}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
   it('a relaunch-stop written to the bus wakes miko', async () => {
     const file = journal()
     const bus = path.join(path.dirname(file), 'bus.db')
@@ -132,7 +219,25 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       const payload = writeStop(bus, 2)
       await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the relaunch-stop', DEADLINE_MS)
       await new Promise(resolve => setTimeout(resolve, QUIET_MS))
-      expect(watch.stdout()).toBe(`bus ${payload}\n`)
+      expect(watch.stdout()).toBe(`bus ${STOP_EVENT} ${payload}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
+  it('a review.recorded written to the bus wakes miko, and a pr.observed with green CI before it does not', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const watch = startWatch(file, [], bus)
+    try {
+      await watch.watching()
+      writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:green', JSON.stringify({ ci: 'green' }))
+      const payload = writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:changes', JSON.stringify({ verdict: 'changes' }))
+      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the review.recorded', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${payload}\n`)
     }
     finally {
       watch.child.kill()
