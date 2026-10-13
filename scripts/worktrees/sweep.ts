@@ -168,7 +168,7 @@ function cardState(id: string, record: CardRecord, journal: Journal): Verdict {
     return { kind: 'keep', why: `card #${id} is open` }
   return journal.closedPrs.has(record.closedPr)
     ? { kind: 'remove', why: `card #${id} is closed and PR #${record.closedPr} was closed without a merge` }
-    : { kind: 'keep', why: `card #${id} is closed but PR #${record.closedPr} is still open (no merge line in the journal)` }
+    : { kind: 'keep', why: `card #${id} is closed but PR #${record.closedPr} is still open` }
 }
 
 function treeState(deps: SweepDeps, tree: Worktree, record: CardRecord): string | null {

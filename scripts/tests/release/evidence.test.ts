@@ -115,7 +115,10 @@ describe('release:evidence prints the execution profile of every merged card in 
     const start = { event: 'path', task: '7', path: 'cheap', card: CARD, ts: '2026-10-13T10:00:00.000Z' }
     const lateClosing = { event: 'path', task: '7', path: 'cheap', pr: 70, verification: 'review', actual: { tokens: 1, minutes: 1 }, ts: '2026-10-13T10:30:00.000Z' }
     const inBus: BusMerge[] = [{ task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-13T11:00:00Z', event: 11133264 }]
-    const verified: VerifiedClosing[] = [{ task: '7', pr: 70, verification: 'run', actual: { tokens: 1200, minutes: 30 }, event: 11133270 }]
+    const verified: VerifiedClosing[] = [
+      { task: '7', pr: 70, verification: 'run', actual: { tokens: 1200, minutes: 30 }, event: 11133270 },
+      { task: '8', pr: 80, verification: 'review', actual: { tokens: 9, minutes: 9 }, event: 11133271 },
+    ]
     const { stdout } = runEvidence(['v1', 'v2'], world([intake, start, lateClosing], {}, inBus, verified))
     expect(field(stdout, 'result.verification')).toBe(`  result.verification: run — ${BUS} event 11133270`)
     expect(field(stdout, 'actual')).toBe(`  actual: tokens 1200, minutes 30 — ${BUS} event 11133270`)

@@ -188,7 +188,7 @@ describe('worktrees:sweep removes a finished card\'s tree only when nothing in i
       db.close()
     }
     const applied = runSweep(['--apply', '--card', '10'], { ...depsOf(world), bus })
-    expect(applied.stdout[0]).toBe(`[worktrees:sweep] kept ${tree}: card #10 is closed but PR #110 is still open (no merge line in the journal)`)
+    expect(applied.stdout[0]).toBe(`[worktrees:sweep] kept ${tree}: card #10 is closed but PR #110 is still open`)
     expect(existsSync(tree)).toBe(true)
   })
 
@@ -215,7 +215,7 @@ describe('worktrees:sweep removes a finished card\'s tree only when nothing in i
     const tree = cut(world, 4)
     closed(world, 4, 104)
     const result = runSweep(['--apply'], depsOf(world))
-    expect(result.stdout[0]).toBe(`[worktrees:sweep] kept ${tree}: card #4 is closed but PR #104 is still open (no merge line in the journal)`)
+    expect(result.stdout[0]).toBe(`[worktrees:sweep] kept ${tree}: card #4 is closed but PR #104 is still open`)
     expect(existsSync(tree)).toBe(true)
   })
 
