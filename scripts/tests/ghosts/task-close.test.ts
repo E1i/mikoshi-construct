@@ -758,7 +758,7 @@ describe('task:close after the cutoff records the closing in the bus', () => {
       expect(result.exitCode).toBe(0)
       expect(written).toEqual([])
       expect(result.stdout.find(line => line.startsWith('RESULT'))).toBe(`RESULT   | closed run · PR #460 · ${CARD_VERIFIED} written to ${bus.file}`)
-      expect(cardVerifiedClosings(bus.file)).toEqual([{ task: '123', pr: 460, verification: 'run' }])
+      expect(cardVerifiedClosings(bus.file)).toEqual([{ task: '123', pr: 460, verification: 'run', actual: { tokens: null, minutes: null }, event: expect.any(Number) }])
       const db = openBus(bus.file)
       try {
         const row = db.prepare(`SELECT actor, payload FROM events WHERE type = '${CARD_VERIFIED}'`).get() as { actor: string, payload: string }

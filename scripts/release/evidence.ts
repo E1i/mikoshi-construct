@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { VerifiedClosing } from '../ghosts/task-close.js'
 import type { BusMerge } from '../ghosts/task-merged.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -11,6 +12,7 @@ import { parseCard } from '../../src/card/grammar.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { defaultBusPath } from '../bus/db.js'
+import { cardVerifiedClosings } from '../ghosts/task-close.js'
 import { busMerges } from '../ghosts/task-merged.js'
 import { PREFIX as MERGE_PREFIX } from '../shift/merge.js'
 import { GHOST_JOURNAL, SHIFT_JOURNAL } from '../shift/places.js'
@@ -32,6 +34,7 @@ export interface EvidenceDeps {
   read: (file: string) => string | null
   commits: (from: string, to: string) => Set<string>
   busMerges: () => BusMerge[]
+  verified: () => VerifiedClosing[]
 }
 
 export interface EvidenceResult {
@@ -111,11 +114,18 @@ function shiftMergeField(deps: EvidenceDeps, task: string, shift: unknown): Fiel
     : { name, value: merges.join(' | '), source: line!.source }
 }
 
-function profile(deps: EvidenceDeps, lines: Line[], merge: Line): Field[] {
+function closingOf(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedClosing[], task: string): Line | undefined {
+  const fromBus = verified.filter(closing => closing.task === task && typeof closing.verification === 'string').at(-1)
+  if (fromBus !== undefined)
+    return { entry: { verification: fromBus.verification, actual: fromBus.actual }, source: `${deps.bus} event ${fromBus.event}` }
+  return lastOf(lines, task, entry => entry.event === 'path' && typeof entry.verification === 'string' && writtenBeforeHistoryEnds(entry))
+}
+
+function profile(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedClosing[], merge: Line): Field[] {
   const task = String(merge.entry.task)
   const missing = (what: string): string => `no ${what} for #${task} in ${deps.journal}`
   const start = lastOf(lines, task, entry => entry.event === 'path' && typeof entry.card === 'object' && entry.card !== null)
-  const close = lastOf(lines, task, entry => entry.event === 'path' && typeof entry.verification === 'string')
+  const close = closingOf(deps, lines, verified, task)
   const intake = lastOf(lines, task, entry => entry.event === INTAKE_EVENT)
   const stop = lastOf(lines, task, entry => entry.event === 'stop')
   const review = lastOf(lines, task, entry => entry.event === 'review')
@@ -170,7 +180,8 @@ export function runEvidence(argv: string[], deps: EvidenceDeps): EvidenceResult 
     return { stdout: [], stderr: [`${PREFIX}${deps.journal} cannot be read`], exitCode: 1 }
   const lines = linesOf(text, deps.journal)
   const merges = [...journalMerges(lines, commits), ...mergesInBus(deps, commits)]
-  const stdout = merges.flatMap(merge => [header(merge), ...profile(deps, lines, merge).map(field => `  ${field.name}: ${field.value} — ${field.source}`)])
+  const verified = deps.verified()
+  const stdout = merges.flatMap(merge => [header(merge), ...profile(deps, lines, verified, merge).map(field => `  ${field.name}: ${field.value} — ${field.source}`)])
   return { stdout: stdout.length === 0 ? [`no merge line in ${deps.journal} and no merged pr.closed in ${deps.bus} has a commit in ${from}..${to}`] : stdout, stderr: [], exitCode: 0 }
 }
 
@@ -180,6 +191,7 @@ function realDeps(): EvidenceDeps {
     journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
     bus,
     busMerges: () => busMerges(bus),
+    verified: () => cardVerifiedClosings(bus),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     commits: (from, to) => new Set(execFileSync('git', ['rev-list', `${from}..${to}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(sha => sha !== '')),
   }

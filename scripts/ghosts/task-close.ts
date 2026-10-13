@@ -36,7 +36,7 @@ const DECISION_REFERENCE = /^D-[1-9]\d*$/
 const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const CLOSER_SESSION_BY_HAND = 'by-hand'
-const CARD_VERIFIED_ROWS = `SELECT card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
+const CARD_VERIFIED_ROWS = `SELECT id, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
 const LADDER_CONTOUR = 'ladder'
@@ -137,6 +137,8 @@ export interface VerifiedClosing {
   task: string
   pr: number | null
   verification: unknown
+  actual: unknown
+  event: number
 }
 
 export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
@@ -144,10 +146,10 @@ export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
     return []
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { card_id: number, pr: number | null, payload: string }[]
+    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { id: number, card_id: number, pr: number | null, payload: string }[]
     return rows.flatMap((row) => {
       const payload = journalLines(row.payload)[0]
-      return payload === undefined ? [] : [{ task: String(row.card_id), pr: row.pr, verification: payload.verification }]
+      return payload === undefined ? [] : [{ task: String(row.card_id), pr: row.pr, verification: payload.verification, actual: payload.actual, event: row.id }]
     })
   }
   finally {

@@ -6,6 +6,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
+import { prClosed } from '../../bus/observations.js'
+import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { runSweep } from '../../worktrees/sweep.js'
 
 interface World {
@@ -157,6 +159,37 @@ describe('worktrees:sweep removes a finished card\'s tree only when nothing in i
     const applied = runSweep(['--apply', '--card', '8'], { ...depsOf(world), bus })
     expect(applied.stdout[0]).toBe(`[worktrees:sweep] kept ${late}: card #8 is open`)
     expect(existsSync(late)).toBe(true)
+  })
+
+  it('removes the tree of a card task:close closed after the cutoff as card.verified whose PR the bus saw closed without a merge, with no journal line', () => {
+    const world = newWorld()
+    const { tree, bus } = startedInTheBus(world, 9)
+    const db = openBus(bus)
+    try {
+      appendEvent(db, { ts: '2026-10-13T11:00:00.000Z', type: CARD_VERIFIED, actor: 'worker:task-close:session-1', cardId: 9, pr: 109, head: null, dedupeKey: `${CARD_VERIFIED}:9:2026-10-13T11:00:00.000Z`, payload: { path: 'cheap', pr: 109, verification: 'run' }, legacy: false })
+      appendEvent(db, prClosed('2026-10-13T11:05:00.000Z', { pr: 109, cardId: 9, merged: false, commit: null, mergedBy: null, mergedAt: null }))
+    }
+    finally {
+      db.close()
+    }
+    const applied = runSweep(['--apply', '--card', '9'], { ...depsOf(world), bus })
+    expect(applied.stdout[0]).toBe(`[worktrees:sweep] removed ${tree} and branch feat/9: card #9 is closed and PR #109 was closed without a merge`)
+    expect(existsSync(tree)).toBe(false)
+  })
+
+  it('keeps the tree of a card closed after the cutoff as card.verified while its PR is still open', () => {
+    const world = newWorld()
+    const { tree, bus } = startedInTheBus(world, 10)
+    const db = openBus(bus)
+    try {
+      appendEvent(db, { ts: '2026-10-13T11:00:00.000Z', type: CARD_VERIFIED, actor: 'worker:task-close:session-1', cardId: 10, pr: 110, head: null, dedupeKey: `${CARD_VERIFIED}:10:2026-10-13T11:00:00.000Z`, payload: { path: 'cheap', pr: 110, verification: 'run' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    const applied = runSweep(['--apply', '--card', '10'], { ...depsOf(world), bus })
+    expect(applied.stdout[0]).toBe(`[worktrees:sweep] kept ${tree}: card #10 is closed but PR #110 is still open (no merge line in the journal)`)
+    expect(existsSync(tree)).toBe(true)
   })
 
   it('keeps a dirty tree and a tree with an unpushed commit and lists them', () => {
