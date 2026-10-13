@@ -56,9 +56,10 @@ function world(): { dir: string, handoff: string, draft: string } {
   return { dir, handoff: path.join(dir, 'handoff.md'), draft: path.join(dir, 'draft.md') }
 }
 
-function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[] } {
+function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[], ended: string[] } {
   const out: string[] = []
   const err: string[] = []
+  const ended: string[] = []
   const code = runHandoffWrite(args, {
     cwd: '/nowhere',
     handoffDir,
@@ -75,8 +76,9 @@ function write(args: string[], handoffDir?: string, sessionHandoff: string | nul
     home: '/home/x',
     out: line => out.push(line),
     err: line => err.push(line),
+    endSession: handoff => ended.push(handoff),
   })
-  return { code, out, err }
+  return { code, out, err, ended }
 }
 
 describe('handoff:write', () => {
@@ -160,6 +162,23 @@ describe('handoff:write', () => {
     expect(existsSync(session)).toBe(true)
     writeFileSync(handoff, 'old\n')
     expect(write([handoff, file], undefined, session).code).toBe(0)
+  })
+
+  it('ends the session after writing its own handoff with STATUS: CONTINUE, and not after STOP, OWNER, DONE or another file', () => {
+    const { dir, handoff, draft: file } = world()
+    const session = path.join(dir, 'miko.md')
+    writeFileSync(file, draft())
+    expect(write([session, file], undefined, session).ended).toEqual([session])
+    for (const status of ['STOP', `OWNER — boundary: ${OWNER_BOUNDARIES[0]}`, 'DONE']) {
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: ${status}`))
+      const result = write([session, file], undefined, session)
+      expect(result.code).toBe(0)
+      expect(result.ended).toEqual([])
+    }
+    writeFileSync(file, draft())
+    writeFileSync(handoff, 'old\n')
+    expect(write([handoff, file], undefined, session).ended).toEqual([])
+    expect(write([handoff, file], undefined, null).ended).toEqual([])
   })
 
   it('lets a card session with no CONSTRUCT_HANDOFF create its task handoff', () => {

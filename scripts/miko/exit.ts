@@ -101,6 +101,10 @@ export function runMikoExit(deps: MikoExitDeps): number {
   return 0
 }
 
+export function runExitAfterHandoff(deps: MikoExitDeps): number {
+  return runMikoExit({ ...deps, status: () => null })
+}
+
 function mtimeOf(file: string): number | undefined {
   try {
     return statSync(file).mtimeMs
@@ -110,9 +114,8 @@ function mtimeOf(file: string): number | undefined {
   }
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const handoff = mikoHandoff(os.homedir())
-  process.exitCode = runMikoExit({
+export function realMikoExitDeps(handoff: string): MikoExitDeps {
+  return {
     pid: process.pid,
     table: () => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' })),
     handoffMtime: () => mtimeOf(handoff),
@@ -123,5 +126,8 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     status: () => existsSync(handoff) ? statusOf(readFileSync(handoff, 'utf8')) : null,
     raised: raisedByTheBus(process.env),
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
-  })
+  }
 }
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  process.exitCode = runMikoExit(realMikoExitDeps(mikoHandoff(os.homedir())))

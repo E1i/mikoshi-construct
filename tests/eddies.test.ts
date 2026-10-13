@@ -107,7 +107,7 @@ const WARN_ACTION = 'finish the current step, save (milestone commit / handoff),
 
 function continueLine(s: Scratch): string {
   const handoff = path.join(s.handoff, MIKO_HANDOFF_NAME)
-  return `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\neddies: to continue in a new window — cd '${s.root}' && pnpm miko\n`
+  return `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\neddies: then end this session with pnpm miko:exit — under the pnpm miko loop the next session starts from the handoff\neddies: to continue in a new window — cd '${s.root}' && pnpm miko\n`
 }
 
 function cardContinueLine(s: Scratch): string {
@@ -257,6 +257,14 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
 
     expect(window.stdout).toContain(`write ${path.join(s.handoff, MIKO_HANDOFF_NAME)} only through pnpm handoff:write`)
     expect(window.stdout).not.toContain(CONTINUE_PROMPT)
+  })
+
+  it('names pnpm miko:exit after pnpm handoff:write in the warn of a window without CONSTRUCT_CARD', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    const window = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(window.stdout).toContain('pnpm miko:exit')
+    expect(window.stdout.indexOf('pnpm handoff:write')).toBeLessThan(window.stdout.indexOf('pnpm miko:exit'))
   })
 
   it('names the CONSTRUCT_HANDOFF file and offers no new-window line to a relaunched session', () => {
