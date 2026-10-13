@@ -327,7 +327,7 @@ export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBus
       handoffFile: handoffFileOf(dir, ghost) ?? handoffFileOf(dir, id),
       supersededEvent: journal.filter((line): line is SupersededEvent => line.event === 'superseded' && line.task === ghost).at(-1),
       stopEvent: standingStop(id),
-      entryLine: startedEntryOf(starts, ghost) ?? startedEntryOf(starts, id) ?? entryOf(journalText, ghost) ?? entryOf(journalText, id),
+      entryLine: (facts.ghost === undefined ? undefined : entryOf(journalText, facts.ghost)) ?? startedEntryOf(starts, id) ?? entryOf(journalText, id),
       journalPath,
     }
   })

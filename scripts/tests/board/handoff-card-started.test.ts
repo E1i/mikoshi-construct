@@ -68,4 +68,20 @@ describe('board: a card started through card.started in the bus', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('keeps the entry line ghosts:launch wrote under the Ghost id before the entry of card.started', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'board-card-started-'))
+    const entry = { schema: 2, CONTRACT: 'task:start contract', EXPECT: 'e', ACTION: 'a', RESULT: 'accepted · not started' }
+    const bus = busWithCardStarted([{ cardId: 900, ts: '2026-10-12T10:00:00.000Z', payload: { worktree: path.join(dir, 'mc-900'), branch: 'feat/900', entry } }])
+    try {
+      writeFileSync(path.join(dir, 'tasks-ladder.json'), JSON.stringify({ repo: 'repo', status: 'status.md', out: '.', tasks: [{ id: 'some-card', brief: 'brief-some-card.md', card: '#900 some-card [implement/netwatch/S/ladder/auto] · depends — · blocks —' }] }))
+      writeFileSync(path.join(dir, 'ghosts.jsonl'), `${JSON.stringify({ event: 'entry', task: 'some-card', CONTRACT: 'ladder contract', EXPECT: 'e', ACTION: 'a', RESULT: 'r', ts: 'x' })}\n`)
+      const attempt = readHandoff(dir, undefined, bus.file).attempts.find(candidate => candidate.ghost === 'some-card')
+      expect(attempt!.entryLine).toMatchObject({ CONTRACT: 'ladder contract' })
+    }
+    finally {
+      bus.remove()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
