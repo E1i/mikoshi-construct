@@ -23,7 +23,7 @@ export interface WatchState {
   offset: number
   rest: string
   busId: number
-  ciByPr: Map<number, { head: string | null, ci: unknown }>
+  ciByPr: Map<number | null, { head: string | null, ci: unknown }>
   pids: Set<number>
 }
 
@@ -99,8 +99,6 @@ function ciOf(payload: string): unknown {
 }
 
 function turnsRed(state: WatchState, event: BusEvent): boolean {
-  if (event.pr === null)
-    return ciOf(event.payload) === FAILED_CI
   const before = state.ciByPr.get(event.pr)
   const now = { head: event.head, ci: ciOf(event.payload) }
   state.ciByPr.set(event.pr, now)

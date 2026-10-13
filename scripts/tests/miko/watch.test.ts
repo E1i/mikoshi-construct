@@ -51,10 +51,10 @@ function fileDeps(file: string, alive: (pid: number) => boolean = () => true, ev
   }
 }
 
-function writeBusEvent(bus: string, type: string, actor: string, dedupeKey: string, payload: string): string {
+function writeBusEvent(bus: string, type: string, actor: string, dedupeKey: string, payload: string, pr: number | null = null, head: string | null = null): string {
   const db = openBus(bus)
   try {
-    appendEvent(db, { ts: '2026-10-12T06:00:00.000Z', type, actor, cardId: null, pr: null, head: null, dedupeKey, payload, legacy: false })
+    appendEvent(db, { ts: '2026-10-12T06:00:00.000Z', type, actor, cardId: null, pr, head, dedupeKey, payload, legacy: false })
   }
   finally {
     db.close()
@@ -186,6 +186,27 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     events.push({ id: 2, type: PR_OBSERVED, pr: 801, head: 'b', payload: onB })
     expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${onA}`, `bus ${PR_OBSERVED} ${onB}`])
   })
+
+  it('two red pr.observed of one pull request and head written to the bus wake miko once, with another pull request\'s red between them', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const head = 'a'.repeat(40)
+    const otherHead = 'b'.repeat(40)
+    const watch = startWatch(file, [], bus)
+    try {
+      await watch.watching()
+      const first = writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:1', JSON.stringify({ head, ci: 'red', mergeable: 'blocked' }), 801, head)
+      const other = writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:2', JSON.stringify({ head: otherHead, ci: 'red' }), 802, otherHead)
+      writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:3', JSON.stringify({ head, ci: 'red', mergeable: 'clean' }), 801, head)
+      await waitFor(() => watch.stdout().split('\n').length > 2, () => 'the lines for the first red of each pull request', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.stdout()).toBe(`bus ${PR_OBSERVED} ${first}\nbus ${PR_OBSERVED} ${other}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
 
   it('a relaunch-stop written to the bus wakes miko', async () => {
     const file = journal()
