@@ -1,16 +1,19 @@
 import type { BusEvent, WatchDeps } from '../../miko/watch.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
-import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DatabaseSync } from 'node:sqlite'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
-import { ONCE, ONCE_CURSOR, parseCursor, parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
+import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
+import { LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, tick, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 
@@ -37,9 +40,13 @@ function journal(): string {
 
 function fileDeps(file: string, alive: (pid: number) => boolean = () => true, events: BusEvent[] = []): WatchDeps {
   return {
+    journal: file,
+    bus: path.join(path.dirname(file), 'bus.db'),
+    observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
+    emit: async () => {},
+    beforeCommit: async () => {},
     lastBusId: () => 0,
     busEventsAfter: id => events.filter(event => event.id > id),
-    observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
     size: () => statSync(file).size,
     readFrom: (offset, end) => {
       const buffer = Buffer.alloc(end - offset)
@@ -81,11 +88,32 @@ const BUS_EVENT_WAKES: Array<{ name: string, type: string, payload: object, wake
   { name: 'a task.enqueued', type: 'task.enqueued', payload: { queue: 'review' }, wakes: false },
 ]
 
-function startWatch(file: string, args: string[] = [], bus = path.join(path.dirname(file), 'bus.db')): { child: ReturnType<typeof spawn>, stdout: () => string, watching: () => Promise<void> } {
+interface Watch {
+  child: ReturnType<typeof spawn>
+  stdout: () => string
+  stderr: () => string
+  watching: () => Promise<void>
+  exited: Promise<number | null>
+}
+
+function startWatch(file: string, args: string[] = [], bus = path.join(path.dirname(file), 'bus.db')): Watch {
   const child = spawn(TSX, [WATCH, ...args], {
     env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  return observe(child, args.includes(ONCE) ? WATCHING_FROM_CURSOR : WATCHING)
+}
+
+function startNode(file: string, nodeArgs: string[], bus = path.join(path.dirname(file), 'bus.db')): Watch {
+  const child = spawn(process.execPath, ['--import', 'tsx', ...nodeArgs], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  return observe(child, WATCHING_FROM_CURSOR)
+}
+
+function observe(child: ReturnType<typeof spawn>, startLine: string): Watch {
   let stdout = ''
   let stderr = ''
   child.stdout!.setEncoding('utf8')
@@ -96,8 +124,9 @@ function startWatch(file: string, args: string[] = [], bus = path.join(path.dirn
   child.stderr!.on('data', (chunk: string) => {
     stderr += chunk
   })
-  const watching = (): Promise<void> => waitFor(() => stderr.includes(WATCHING), () => `"${WATCHING}" on stderr (stderr so far: ${JSON.stringify(stderr)})`, DEADLINE_MS)
-  return { child, stdout: () => stdout, watching }
+  const exited = new Promise<number | null>(resolve => child.on('exit', code => resolve(code)))
+  const watching = (): Promise<void> => waitFor(() => stderr.includes(startLine), () => `"${startLine}" on stderr (stderr so far: ${JSON.stringify(stderr)})`, DEADLINE_MS)
+  return { child, stdout: () => stdout, stderr: () => stderr, watching, exited }
 }
 
 function append(file: string, event: object): string {
@@ -315,7 +344,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
     const watch = startWatch(file, [ONCE], bus)
-    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    const exited = watch.exited
     try {
       await watch.watching()
       const first = writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:first', JSON.stringify({ verdict: 'changes' }))
@@ -350,7 +379,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
     const watch = startWatch(file, [ONCE], bus)
-    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    const exited = watch.exited
     try {
       await watch.watching()
       writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:green-once', JSON.stringify({ ci: 'green' }))
@@ -366,113 +395,231 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       watch.child.kill()
     }
   }, 20_000)
+})
 
-  it('with a limit of one, a tick leaves the second waking event of the same tick to the next tick', () => {
-    const file = journal()
-    const events: BusEvent[] = []
-    const deps = fileDeps(file, () => true, events)
-    const state = watchState(deps, [])
-    const first = append(file, { event: 'merge', task: '930' })
-    const second = append(file, { event: 'fall', task: '931' })
-    events.push({ id: 1, type: MERGE_DONE, pr: 805, head: 'h', payload: '{"commit":"c0ffee"}' })
-    expect(tick(state, deps, 1)).toEqual([`journal ${first}`])
-    expect(tick(state, deps, 1)).toEqual([`journal ${second}`])
-    expect(tick(state, deps, 1)).toEqual([`bus ${MERGE_DONE} {"commit":"c0ffee"}`])
-    expect(tick(state, deps, 1)).toEqual([])
-  })
+describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one consumer holds', () => {
+  const storeOf = (file: string): string => path.join(path.dirname(file), ONCE_STORE)
+  const busOf = (file: string): string => path.join(path.dirname(file), 'bus.db')
 
-  it('a watch started from a cursor reads what was written after the cursor, multi-byte lines included', () => {
-    const file = journal()
-    const deps = fileDeps(file)
-    const state = watchState(deps, [])
-    const first = append(file, { event: 'merge', task: 'ё' })
-    expect(tick(state, deps, 1)).toEqual([`journal ${first}`])
-    const between = append(file, { event: 'fall', task: '930' })
-    const next = watchState(deps, [], { offset: state.offset, busId: state.busId })
-    expect(tick(next, deps, 1)).toEqual([`journal ${between}`])
-  })
-
-  it('a watch restarted after a red pr.observed does not wake on a second red of the same head, and wakes on a new head', () => {
-    const file = journal()
-    const red = (id: number, head: string): BusEvent => ({ id, type: PR_OBSERVED, pr: 805, head, payload: JSON.stringify({ head, ci: 'red' }) })
-    const events: BusEvent[] = [red(1, 'a')]
-    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 1 }
-    const state = watchState(deps, [])
-    events.push(red(2, 'a'))
-    expect(tick(state, deps)).toEqual([])
-    events.push(red(3, 'b'))
-    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${red(3, 'b').payload}`])
-  })
-
-  it('reads a cursor of two non-negative integers, and nothing else', () => {
-    expect(parseCursor('{"offset":12,"busId":3}')).toEqual({ offset: 12, busId: 3 })
-    expect(parseCursor('{"offset":-1,"busId":3}')).toBeUndefined()
-    expect(parseCursor('{"offset":1.5,"busId":3}')).toBeUndefined()
-    expect(parseCursor('{"offset":1}')).toBeUndefined()
-    expect(parseCursor('null')).toBeUndefined()
-    expect(parseCursor('not json')).toBeUndefined()
-  })
-
-  it('successive --once runs print the events of one tick one per run, and an event written between runs in the next run', async () => {
-    const file = journal()
-    const bus = path.join(path.dirname(file), 'bus.db')
-    writeStop(bus, 1)
-    const once = async (): Promise<{ code: number | null | 'deadline', stdout: string }> => {
-      const watch = startWatch(file, [ONCE], bus)
-      try {
-        const code = await Promise.race([
-          new Promise<number | null>(resolve => watch.child.on('exit', resolve)),
-          new Promise<'deadline'>(resolve => setTimeout(resolve, DEADLINE_MS, 'deadline')),
-        ])
-        return { code, stdout: watch.stdout() }
-      }
-      finally {
-        watch.child.kill()
-      }
+  function storedCursor(file: string): { journal_offset: number, bus_id: number } {
+    const db = new DatabaseSync(storeOf(file))
+    try {
+      return { ...db.prepare('SELECT journal_offset, bus_id FROM cursor WHERE id = 1').get() as { journal_offset: number, bus_id: number } }
     }
-    const watch = startWatch(file, [ONCE], bus)
-    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    finally {
+      db.close()
+    }
+  }
+
+  function seed(file: string, cursor: { offset: number, busId: number }): void {
+    OnceStore.open(storeOf(file), { file: path.join(path.dirname(file), LEGACY_CURSOR), text: JSON.stringify(cursor) }, () => cursor).close()
+  }
+
+  async function runOnceToEnd(file: string): Promise<{ code: number | null, stdout: string, stderr: string }> {
+    const watch = startWatch(file, [ONCE], busOf(file))
+    try {
+      const code = await watch.exited
+      return { code, stdout: watch.stdout(), stderr: watch.stderr() }
+    }
+    finally {
+      watch.child.kill()
+    }
+  }
+
+  it('a first --once with no cursor reports on stderr the position it fixed and delivers nothing from before it', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const watch = startWatch(file, [ONCE], busOf(file))
     try {
       await watch.watching()
-      const db = openBus(bus)
-      const payloads = ['first', 'second'].map(name => JSON.stringify({ verdict: 'changes', name }))
-      try {
-        db.exec('BEGIN')
-        for (const [index, payload] of payloads.entries())
-          appendEvent(db, { ts: '2026-10-13T21:00:00.000Z', type: REVIEW_RECORDED, actor: 'worker:review:s1', cardId: null, pr: 805, head: null, dedupeKey: `review.recorded:${index}`, payload, legacy: false })
-        db.exec('COMMIT')
-      }
-      finally {
-        db.close()
-      }
-      expect(await exited).toBe(0)
-      expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${payloads[0]}\n`)
-      expect(existsSync(path.join(path.dirname(file), ONCE_CURSOR))).toBe(true)
-      expect(await once()).toEqual({ code: 0, stdout: `bus ${REVIEW_RECORDED} ${payloads[1]}\n` })
-      const between = append(file, { event: 'merge', task: '930' })
-      expect(await once()).toEqual({ code: 0, stdout: `journal ${between}\n` })
+      expect(watch.stderr()).toContain(`no cursor: initialized at journal offset ${statSync(file).size}, bus id 1; earlier events are not delivered`)
+      const merge = append(file, { event: 'merge', task: '930' })
+      expect(await watch.exited).toBe(0)
+      expect(watch.stdout()).toBe(`journal ${merge}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
+  it('while one --once holds the file and waits, a second --once exits non-zero at once naming the file, and the first goes on waiting', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const first = startWatch(file, [ONCE], busOf(file))
+    try {
+      await first.watching()
+      const second = await runOnceToEnd(file)
+      expect(second.code).toBe(1)
+      expect(second.stderr).toContain(`${ANOTHER_CONSUMER} on ${storeOf(file)}`)
+      expect(first.child.exitCode).toBeNull()
+      const merge = append(file, { event: 'merge', task: '930' })
+      expect(await first.exited).toBe(0)
+      expect(first.stdout()).toBe(`journal ${merge}\n`)
+    }
+    finally {
+      first.child.kill()
+    }
+  }, 30_000)
+
+  it('a --once killed by SIGKILL before any event leaves the file free, and the next --once takes it at once and gets the event', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const first = startNode(file, [WATCH, ONCE], busOf(file))
+    await first.watching()
+    first.child.kill('SIGKILL')
+    await first.exited
+    const merge = append(file, { event: 'merge', task: '930' })
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `journal ${merge}\n` })
+  }, 30_000)
+
+  it('a --once stopped after its line is written and before COMMIT leaves the cursor where it was, and the next --once delivers the event again', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    seed(file, { offset: statSync(file).size, busId: 1 })
+    const before = storedCursor(file)
+    const merge = append(file, { event: 'merge', task: '930' })
+    const pausedBeforeCommit = 'paused before COMMIT'
+    const script = [
+      `const { productionDeps, runOnce } = await import(${JSON.stringify(pathToFileURL(WATCH).href)})`,
+      'const handoff = process.env.CONSTRUCT_HANDOFF_DIR',
+      `const deps = { ...productionDeps(handoff, process.env.CONSTRUCT_BUS_DB), beforeCommit: () => { process.stderr.write(${JSON.stringify(`${pausedBeforeCommit}\n`)}); return new Promise(() => {}) } }`,
+      'await runOnce(handoff, deps, [])',
+    ].join('\n')
+    const paused = startNode(file, ['--input-type=module', '--eval', script], busOf(file))
+    await waitFor(() => paused.stderr().includes(pausedBeforeCommit), () => `"${pausedBeforeCommit}" on stderr (stderr so far: ${JSON.stringify(paused.stderr())})`, DEADLINE_MS)
+    expect(paused.stdout()).toBe(`journal ${merge}\n`)
+    paused.child.kill('SIGKILL')
+    await paused.exited
+    expect(storedCursor(file)).toEqual(before)
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `journal ${merge}\n` })
+    expect(storedCursor(file)).toEqual({ journal_offset: statSync(file).size, bus_id: 1 })
+  }, 30_000)
+
+  it('a --once whose stdout reader is gone exits non-zero and leaves the cursor where it was', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    seed(file, { offset: statSync(file).size, busId: 1 })
+    const before = storedCursor(file)
+    const watch = startWatch(file, [ONCE], busOf(file))
+    try {
+      await watch.watching()
+      watch.child.stdout!.destroy()
+      const merge = append(file, { event: 'merge', task: '930' })
+      expect(await watch.exited).toBe(1)
+      expect(watch.stderr()).toContain('could not be written to stdout')
+      expect(storedCursor(file)).toEqual(before)
+      expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `journal ${merge}\n` })
     }
     finally {
       watch.child.kill()
     }
   }, 30_000)
 
-  it('a --once run started after a red pr.observed does not wake on its repeat, and wakes on the next review.recorded', async () => {
+  it('a damaged cursor file makes --once exit non-zero with its path and leaves the file as it was', async () => {
     const file = journal()
-    const bus = path.join(path.dirname(file), 'bus.db')
-    const head = 'a'.repeat(40)
-    writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:before', JSON.stringify({ head, ci: 'red' }), 805, head)
-    const watch = startWatch(file, [ONCE], bus)
-    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    const damaged = 'not a database '.repeat(100)
+    writeFileSync(storeOf(file), damaged)
+    const run = await runOnceToEnd(file)
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain(`${storeOf(file)} cannot be opened as the --once cursor`)
+    expect(readFileSync(storeOf(file), 'utf8')).toBe(damaged)
+  }, 20_000)
+
+  it('a journal shorter than the cursor offset makes --once exit non-zero with the journal path and both sizes', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    seed(file, { offset: 10_000, busId: 1 })
+    const run = await runOnceToEnd(file)
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain(`the journal ${file} is ${statSync(file).size} bytes, shorter than the cursor's offset 10000`)
+  }, 20_000)
+
+  it('an existing miko-watch.json moves into the SQLite cursor without losing its position and is removed after the commit', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const legacy = path.join(path.dirname(file), LEGACY_CURSOR)
+    writeFileSync(legacy, JSON.stringify({ offset: statSync(file).size, busId: 1 }))
+    const merge = append(file, { event: 'merge', task: 'written-before-the-move' })
+    const run = await runOnceToEnd(file)
+    expect(run).toMatchObject({ code: 0, stdout: `journal ${merge}\n` })
+    expect(run.stderr).toContain(`the cursor moved into ${storeOf(file)}`)
+    expect(existsSync(legacy)).toBe(false)
+  }, 20_000)
+
+  it('an invalid miko-watch.json makes --once exit non-zero with its path and moves nothing', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const legacy = path.join(path.dirname(file), LEGACY_CURSOR)
+    writeFileSync(legacy, '{"offset":')
+    const run = await runOnceToEnd(file)
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain(`the old cursor ${legacy} is not`)
+    expect(existsSync(legacy)).toBe(true)
+  }, 20_000)
+
+  it('waking events that one pass sees together — journal and bus, then two in the bus — are delivered by successive runs one by one', async () => {
+    const file = journal()
+    const bus = busOf(file)
+    writeStop(bus, 1)
+    seed(file, { offset: statSync(file).size, busId: 1 })
+    const merge = append(file, { event: 'merge', task: '930' })
+    const review = writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:pass-1', JSON.stringify({ verdict: 'changes', n: 1 }))
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `journal ${merge}\n` })
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `bus ${REVIEW_RECORDED} ${review}\n` })
+    const first = writeBusEvent(bus, MERGE_DONE, 'worker:merge:s1', 'merge.done:pass-2', JSON.stringify({ commit: 'c0ffee' }))
+    const second = writeBusEvent(bus, CARD_CLOSED, 'reducer', 'card.closed:pass-2', JSON.stringify({ verification: 'run' }))
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `bus ${MERGE_DONE} ${first}\n` })
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `bus ${CARD_CLOSED} ${second}\n` })
+  }, 60_000)
+
+  it('two --once started together: exactly one takes the file and waits, the other refuses', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const watches = [startWatch(file, [ONCE], busOf(file)), startWatch(file, [ONCE], busOf(file))]
     try {
-      await watch.watching()
-      writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:red:after', JSON.stringify({ head, ci: 'red', mergeable: 'clean' }), 805, head)
-      const review = writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:after-red', JSON.stringify({ verdict: 'pass' }))
-      expect(await exited).toBe(0)
-      expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${review}\n`)
+      const refused = await Promise.race(watches.map(async (watch, index) => ({ index, code: await watch.exited })))
+      expect(refused.code).toBe(1)
+      expect(watches[refused.index]!.stderr()).toContain(`${ANOTHER_CONSUMER} on ${storeOf(file)}`)
+      const winner = watches[1 - refused.index]!
+      await winner.watching()
+      const merge = append(file, { event: 'merge', task: '930' })
+      expect(await winner.exited).toBe(0)
+      expect(winner.stdout()).toBe(`journal ${merge}\n`)
     }
     finally {
-      watch.child.kill()
+      for (const watch of watches)
+        watch.child.kill()
     }
-  }, 20_000)
+  }, 30_000)
+
+  it('a pass reads to the ends it fixed: an event after them waits for the next pass, the delivered source moves only to its event, and the other stays', () => {
+    const file = journal()
+    const start = statSync(file).size
+    const events: BusEvent[] = [
+      { id: 2, type: MERGE_DONE, pr: 805, head: 'h', payload: '{"commit":"c0ffee"}' },
+      { id: 3, type: PR_OBSERVED, pr: 805, head: 'h', payload: '{"ci":"green"}' },
+      { id: 5, type: REVIEW_RECORDED, pr: 805, head: 'h', payload: '{"verdict":"pass"}' },
+    ]
+    let busEnd = 3
+    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => busEnd }
+    const merge = append(file, { event: 'merge', task: '930' })
+    const afterMerge = statSync(file).size
+    expect(selectOnce({ offset: start, busId: 1 }, deps, [])).toEqual({ line: `journal ${merge}`, cursor: { offset: afterMerge, busId: 1 } })
+    expect(selectOnce({ offset: afterMerge, busId: 1 }, deps, [])).toEqual({ line: `bus ${MERGE_DONE} {"commit":"c0ffee"}`, cursor: { offset: afterMerge, busId: 2 } })
+    expect(selectOnce({ offset: afterMerge, busId: 2 }, deps, [])).toBeUndefined()
+    busEnd = 5
+    expect(selectOnce({ offset: afterMerge, busId: 2 }, deps, [])).toEqual({ line: `bus ${REVIEW_RECORDED} {"verdict":"pass"}`, cursor: { offset: afterMerge, busId: 5 } })
+    const late = append(file, { event: 'fall', task: '931' })
+    const snapshotBeforeLate = { ...deps, size: () => afterMerge }
+    expect(selectOnce({ offset: afterMerge, busId: 5 }, snapshotBeforeLate, [])).toBeUndefined()
+    expect(selectOnce({ offset: afterMerge, busId: 5 }, deps, [])).toEqual({ line: `journal ${late}`, cursor: { offset: statSync(file).size, busId: 5 } })
+  })
+
+  it('a --once restarted after a red pr.observed does not wake on a repeat of that red', () => {
+    const file = journal()
+    const red = (id: number, head: string): BusEvent => ({ id, type: PR_OBSERVED, pr: 805, head, payload: JSON.stringify({ head, ci: 'red' }) })
+    const events: BusEvent[] = [red(1, 'a'), red(2, 'a'), red(3, 'b')]
+    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 3 }
+    expect(selectOnce({ offset: statSync(file).size, busId: 1 }, deps, [])).toEqual({ line: `bus ${PR_OBSERVED} ${red(3, 'b').payload}`, cursor: { offset: statSync(file).size, busId: 3 } })
+  })
 })
