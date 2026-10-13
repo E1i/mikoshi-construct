@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../card/closed.js'
+import { parseCard } from '../../card/grammar.js'
 import { projectKey, readAgentRecord } from './claude-code.js'
 import { median, MINIMUM_SAMPLE } from './sample.js'
 import { tokensWithoutCacheReads } from './usage.js'
@@ -159,22 +160,48 @@ function recordedSessions(value: unknown): { id: string, project?: string }[] | 
   })
 }
 
+interface IntakeLine {
+  event?: unknown
+  task?: unknown
+  card?: unknown
+}
+
+type JournalCard = NonNullable<WindowLine['card']>
+
+function intakeCards(windowJournal: string): Map<string, JournalCard> {
+  return new Map(journalLines<IntakeLine>(windowJournal).flatMap((line) => {
+    if (line.event !== 'intake' || typeof line.task !== 'string' || typeof line.card !== 'string')
+      return []
+    const parsed = parseCard(line.card)
+    return parsed.kind === 'card' ? [[line.task, { kind: parsed.card.kind, size: parsed.card.size, contour: parsed.card.contour }] as const] : []
+  }))
+}
+
+function isCheapCard(card: JournalCard | undefined): card is JournalCard & { kind: string, size: string } {
+  return card?.contour === CHEAP_CONTOUR && typeof card.kind === 'string' && typeof card.size === 'string'
+}
+
 function readWindowTasks(windowJournal: string, notes: CheapNote[]): CheapTask[] {
   const lines = journalLines<WindowLine>(windowJournal).filter(isPathLine)
+  const admitted = intakeCards(windowJournal)
   const starts = new Map(lines.filter(line => line.card != null).map(line => [line.task, line]))
   const closes = new Map(lines.filter(line => line.card == null && (line.pr != null || line.report != null)).map(line => [line.task, line]))
   const unrecorded = new Map<string, number>()
   const afterHistory = new Map<string, number>()
   const tasks = [...closes.values()].flatMap((close): CheapTask[] => {
     const start = starts.get(close.task)
-    const card = start?.card
-    if (card == null || card.contour !== CHEAP_CONTOUR || typeof card.kind !== 'string' || typeof card.size !== 'string' || typeof start?.started !== 'string')
-      return []
-    const taskClass = cheapClass({ kind: card.kind, size: card.size })
+    const card = start?.card ?? undefined
     if (!writtenBeforeHistoryEnds(close)) {
-      afterHistory.set(taskClass, (afterHistory.get(taskClass) ?? 0) + 1)
+      const lateCard = card ?? admitted.get(close.task)
+      if (isCheapCard(lateCard)) {
+        const lateClass = cheapClass(lateCard)
+        afterHistory.set(lateClass, (afterHistory.get(lateClass) ?? 0) + 1)
+      }
       return []
     }
+    if (!isCheapCard(card) || typeof start?.started !== 'string')
+      return []
+    const taskClass = cheapClass(card)
     if (typeof close.verification !== 'string') {
       notes.push({ taskClass, text: `#${close.task} close without verification not counted` })
       return []

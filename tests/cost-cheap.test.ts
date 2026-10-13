@@ -287,6 +287,22 @@ describe('the window journal half of history', () => {
     expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` }])
   })
 
+  it('a cheap task closed after the cutoff with no start line is named in the note by the class of its intake line', () => {
+    const intake = (task: string, bracket: string): Record<string, unknown> => ({ event: 'intake', task, card: `#${task} late-card [${bracket}] · depends — · blocks —`, confirmation: 'none', corrections: [], ts: '2026-10-13T11:00:00.000Z' })
+    const journal = writeWindow([
+      intake('74', 'implement/netwatch/S/cheap/auto'),
+      windowClose('74', { ts: '2026-10-13T12:00:00.000Z' }),
+      intake('75', 'implement/netwatch/S/cheap/auto'),
+      windowClose('75', { ts: '2026-10-13T12:30:00.000Z' }),
+      intake('76', 'implement/netwatch/M/ladder/auto'),
+      windowClose('76', { ts: '2026-10-13T13:00:00.000Z' }),
+      windowClose('77', { ts: '2026-10-13T13:30:00.000Z' }),
+    ])
+    const { tasks, notes } = readCheapTasks(root(), journal)
+    expect(tasks).toEqual([])
+    expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` }])
+  })
+
   it('construct cost opens no bus.db', () => {
     const home = root()
     mkdirSync(path.join(home, '.construct', 'handoff'), { recursive: true })
