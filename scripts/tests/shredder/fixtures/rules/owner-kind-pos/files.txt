@@ -1,2 +1,0 @@
-scripts/ghosts/README.md
-scripts/other/README.md
