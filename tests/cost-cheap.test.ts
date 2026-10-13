@@ -297,18 +297,23 @@ describe('the window journal half of history', () => {
     writeFileSync(recorder, [
       `import fs from 'node:fs'`,
       `import { syncBuiltinESMExports } from 'node:module'`,
+      `import sqlite from 'node:sqlite'`,
       `const write = fs.appendFileSync`,
       `const record = target => { if (typeof target === 'string') write(${JSON.stringify(opened)}, target + '\\n') }`,
       `for (const name of ['openSync', 'readFileSync', 'existsSync', 'statSync', 'readdirSync']) {`,
       `  const original = fs[name]`,
       `  fs[name] = function (target, ...rest) { record(target); return original.call(this, target, ...rest) }`,
       `}`,
+      `const OriginalDatabase = sqlite.DatabaseSync`,
+      `sqlite.DatabaseSync = class extends OriginalDatabase { constructor(target, ...rest) { record(target); super(target, ...rest) } }`,
       `syncBuiltinESMExports()`,
     ].join('\n'))
-    spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../src/cli.ts'), 'cost', '--dir', home, '--json'], {
+    const bus = path.join(home, '.construct', 'bus.db')
+    const run = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../src/cli.ts'), 'cost', '--dir', home, '--json'], {
       encoding: 'utf8',
-      env: { ...process.env, HOME: home, NODE_OPTIONS: `--import ${recorder}` },
+      env: { ...process.env, HOME: home, CONSTRUCT_BUS_DB: bus, NODE_OPTIONS: `--import ${recorder}` },
     })
+    expect({ status: run.status, report: JSON.parse(run.stdout).status }, run.stderr).toEqual({ status: 3, report: 'unsupported' })
     const paths = readFileSync(opened, 'utf8').split('\n')
     expect(paths).toContain(path.join(home, '.construct', 'handoff', 'ghosts.jsonl'))
     expect(paths.filter(target => target.endsWith('bus.db'))).toEqual([])
