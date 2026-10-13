@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from './chain-process.js'
-import type { ChainLauncher, RelaunchOutcome, RestartOutcome, RoleLauncher } from './restart-executor.js'
+import type { ChainLauncher, DeadChain, RelaunchOutcome, RestartOutcome, RoleLauncher } from './restart-executor.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
@@ -24,7 +24,7 @@ import { switchedOn } from './workers.js'
 export const PREFIX = '[bus:restart] '
 export const MIKO_LAUNCH_OFF = 'the launch of pnpm miko is switched off: whether nohup pnpm miko can start a claude window without a terminal is not settled; start pnpm miko in a terminal'
 
-export type RestartStep = { kind: 'idle' } | RestartOutcome | RelaunchOutcome
+export type RestartStep = { kind: 'idle' } | { kind: 'dead_chains', chains: DeadChain[] } | RestartOutcome | RelaunchOutcome
 
 export interface RestartWorkerParts {
   db: DatabaseSync
@@ -51,6 +51,9 @@ export class RestartWorker {
     const lease = leaseNext(this.parts.db, ts, 'restart', this.actor)
     if (lease !== null)
       return this.executor.restart(lease)
+    const chains = this.executor.deadChains(this.actor)
+    if (chains.length > 0)
+      return { kind: 'dead_chains', chains }
     const toOwner = roleToOwner(this.parts.db, ts, this.actor)
     if (toOwner !== null)
       return { kind: 'to_owner', ...toOwner }
@@ -62,6 +65,8 @@ export class RestartWorker {
 export function restartStepLine(step: RestartStep): string | null {
   if (step.kind === 'idle')
     return null
+  if (step.kind === 'dead_chains')
+    return step.chains.map(chain => `${PREFIX}#${chain.cardId}: the chain in ${chain.dir} died with no restart task; observed ${chain.state}, nothing started`).join('\n')
   if (step.kind === 'raised')
     return `${PREFIX}${relaunchKey(step.role)}: raised on ${step.handoff}, PID ${step.pid}`
   if (step.kind === 'raise_failed')

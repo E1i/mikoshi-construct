@@ -537,6 +537,36 @@ describe('a dead chain', () => {
     bench.close()
   })
 
+  it('a dead chain of a closed card with no restart task is stopped by the worker', () => {
+    const bench = restartBench()
+    bench.observe({ boundary: false })
+    closedCard(bench, CARD)
+    bench.die(4242)
+
+    expect(restartTasks(bench)).toEqual([])
+    expect(bench.worker().step()).toEqual({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'stopped' }] })
+    expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
+    expect(eventsOf(bench.db, 'chain.observed').at(-1)).toMatchObject({ dir: DIR, pid: 4242, state: 'stopped', boundary: false })
+    expect(bench.launches).toEqual([])
+    bench.close()
+  })
+
+  it('a dead chain of an open card with no restart task is observed fault and nothing starts', () => {
+    const bench = restartBench()
+    bench.switchLaunch(() => true)
+    bench.observe({ boundary: false })
+    bench.observe({ dir: '/shift/lane-2', cardId: 810, pid: 4343, boundary: false })
+    bench.die(4242)
+    const worker = bench.worker()
+
+    expect(restartTasks(bench)).toEqual([])
+    expect(worker.step()).toEqual({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'fault' }] })
+    expect(worker.step()).toEqual({ kind: 'idle' })
+    expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'fault' }, { dir: '/shift/lane-2', card_id: 810, state: 'running' }])
+    expect(bench.launches).toEqual([])
+    bench.close()
+  })
+
   it('a card\'s live chain stands for it, not an older stopped row', () => {
     const bench = restartBench()
     bench.observe({ dir: '/shift/lane-0', state: 'stopped' })
