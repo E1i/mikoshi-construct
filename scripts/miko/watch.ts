@@ -87,6 +87,8 @@ export function parseWatchArgs(args: string[]): WatchArgs | undefined {
       continue
     }
     if (arg === CARD) {
+      if (afterPid && pids.length === 0)
+        return undefined
       afterCard = true
       afterPid = false
       continue
@@ -106,7 +108,7 @@ export function parseWatchArgs(args: string[]): WatchArgs | undefined {
 
 function journalCard(line: string): number | undefined {
   const task = (JSON.parse(line) as { task?: unknown }).task
-  const id = typeof task === 'string' ? task.replace(/^#/, '') : typeof task === 'number' ? String(task) : ''
+  const id = typeof task === 'string' ? task : ''
   return /^[1-9]\d*$/.test(id) ? Number(id) : undefined
 }
 

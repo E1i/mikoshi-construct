@@ -333,6 +333,8 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     expect(parseWatchArgs(['--once', '--card'])).toBeUndefined()
     expect(parseWatchArgs(['--once', '--card', 'x'])).toBeUndefined()
     expect(parseWatchArgs(['--once', '--card', '1', '--card', '2'])).toBeUndefined()
+    expect(parseWatchArgs(['--once', '--pid', '--card', '943'])).toBeUndefined()
+    expect(parseWatchArgs(['--once', '--pid', '12', '--card', '943', '13'])).toBeUndefined()
   })
 
   it('wakes on events end to end and stays silent otherwise: the script prints one line per event and nothing else', async () => {
@@ -667,6 +669,24 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     }
     expect(storedCursor(file)).toEqual({ journal_offset: skipped.offset, bus_id: 4 })
   }, 20_000)
+
+  it('with --card the once run prints a journal line of its own card and skips one of another', () => {
+    const file = journal()
+    const start = statSync(file).size
+    append(file, { event: 'merge', task: '942' })
+    const own = append(file, { event: 'merge', task: '943' })
+    expect(selectOnce({ offset: start, busId: 1 }, { ...fileDeps(file), lastBusId: () => 1 }, [], 943)).toEqual({ line: `journal ${own}`, cursor: { offset: statSync(file).size, busId: 1 } })
+  })
+
+  it('with --card the skips of other cards are kept when the pass stops at an event past its end', () => {
+    const file = journal()
+    const offset = statSync(file).size
+    const events: BusEvent[] = [
+      { id: 2, type: CARD_CLOSED, cardId: 942, pr: 817, head: null, payload: '{}' },
+      { id: 4, type: MERGE_DONE, cardId: 943, pr: 818, head: null, payload: '{}' },
+    ]
+    expect(selectOnce({ offset, busId: 1 }, { ...fileDeps(file, () => true, events), lastBusId: () => 3 }, [], 943)).toEqual({ line: null, cursor: { offset, busId: 2 } })
+  })
 
   it('a --card once run killed while it waits leaves the cursor past the events of other cards it skipped', async () => {
     const file = journal()
