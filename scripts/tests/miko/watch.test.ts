@@ -25,8 +25,18 @@ const DEADLINE_MS = 15_000
 const QUIET_MS = 1000
 
 const roots: string[] = []
+const children: Array<ReturnType<typeof spawn>> = []
 
-afterEach(() => {
+async function exitOf(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return
+  const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
+  child.kill()
+  await exited
+}
+
+afterEach(async () => {
+  await Promise.all(children.splice(0).map(exitOf))
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -116,6 +126,7 @@ function startNode(file: string, nodeArgs: string[], bus = path.join(path.dirnam
 }
 
 function observe(child: ReturnType<typeof spawn>, startLine: string): Watch {
+  children.push(child)
   let stdout = ''
   let stderr = ''
   child.stdout!.setEncoding('utf8')
@@ -423,6 +434,25 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       watch.child.kill()
     }
   }, 20_000)
+})
+
+const WRITES_UNTIL_EXIT = `
+const { writeFileSync } = require('node:fs')
+const path = require('node:path')
+let n = 0
+const write = () => { writeFileSync(path.join(process.argv[1], 'side-' + n++), ''); setImmediate(write) }
+process.on('SIGTERM', () => setTimeout(() => process.exit(0), 300))
+console.error('${WATCHING}')
+write()
+`
+
+describe('the teardown waits for every child it started', () => {
+  it('the teardown removes a killed child’s directory only after it exited', async () => {
+    const writers = Array.from({ length: 8 }, () => observe(spawn(process.execPath, ['-e', WRITES_UNTIL_EXIT, path.dirname(journal())], { stdio: ['ignore', 'pipe', 'pipe'] }), WATCHING))
+    await Promise.all(writers.map(async writer => writer.watching()))
+    for (const writer of writers)
+      writer.child.kill()
+  })
 })
 
 describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one consumer holds', () => {
