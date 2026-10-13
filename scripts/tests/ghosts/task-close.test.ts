@@ -704,6 +704,27 @@ describe('task:close takes whose result a PR is from prs.card_id in the bus', ()
     expect(result.stderr).toEqual(['[task:close] the bus was not read, so whose result PR #460 is was not checked: database is locked; nothing written'])
   })
 
+  describe('--shared-by', () => {
+    const DECISIONS = '/owner-decisions.md'
+    const D60 = '- D-60 · 2026-10-13 — #532 and #533 share PR #642. · card #532'
+    const BODY_OF_534 = '#534 atlas-command [implement/engram/M/cheap/auto] · depends — · blocks —\n\nbody'
+
+    it('shares the PR with the card of its prs row, not the card its body line names', () => {
+      const { deps, written } = world([startLine('532', 'implement')], [], { [DECISIONS]: `# Owner decisions\n\n${D60}\n` })
+      const result = runTaskClose(['532', '--pr', '642', '--shared-by', 'D-60', '--verification', 'run'], { ...deps, decisionsFile: DECISIONS, prBody: () => BODY_OF_534, prCard: () => 533 })
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '532', pr: 642, sharedBy: 'D-60' })
+    })
+
+    it('names both the bus and the body when a PR has no prs row and no card line', () => {
+      const { deps, written } = world([startLine('532', 'implement')], [], { [DECISIONS]: `# Owner decisions\n\n${D60}\n` })
+      const result = runTaskClose(['532', '--pr', '642', '--shared-by', 'D-60', '--verification', 'run'], { ...deps, decisionsFile: DECISIONS, prBody: noCardLine, prCard: () => null })
+      expect(result.exitCode).toBe(1)
+      expect(written).toEqual([])
+      expect(result.stderr).toEqual(['[task:close] --shared-by D-60: PR #642 has no prs row in the bus and its body opens with no card line, so no card shares it with #532; nothing written'])
+    })
+  })
+
   it('prCardOf reads card_id of the PR from the prs table, and null for a PR with no row or no bus', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pr-card-'))
     try {

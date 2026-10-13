@@ -281,6 +281,8 @@ function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: str
       return `PR #${pr} has no prs row in the bus and its body opens with no card line, so whose result it is is not known; open the body with the card line of #${id} and let netwatch observe it, then close again; nothing written`
     return { cardLine }
   }
+  if (owner === null && deps.prCard !== undefined)
+    return `--shared-by ${reference}: PR #${pr} has no prs row in the bus and its body opens with no card line, so no card shares it with #${id}; nothing written`
   if (owner === null)
     return `--shared-by ${reference}: PR #${pr} opens with no card line, so no card shares it with #${id}; nothing written`
   const refusal = sharingRefusal(deps, reference, [...new Set([Number(id), owner])])
