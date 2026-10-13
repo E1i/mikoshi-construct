@@ -14,7 +14,7 @@ import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { CARD_CLOSED, FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
-import { launchSwitchedOn, MIKO_LAUNCH_OFF, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
+import { launchSwitchedOn, MIKO_LAUNCH_OFF, restartStepLine, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
 import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
 import { switchWorker } from '../../bus/workers.js'
 import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
@@ -565,6 +565,23 @@ describe('a dead chain', () => {
     expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'fault' }, { dir: '/shift/lane-2', card_id: 810, state: 'running' }])
     expect(bench.launches).toEqual([])
     bench.close()
+  })
+
+  it('a stopped chain of an open card whose PID is gone is not observed again', () => {
+    const bench = restartBench()
+    bench.observe({ boundary: false, state: 'stopped' })
+    bench.die(4242)
+
+    expect(bench.worker().step()).toEqual({ kind: 'idle' })
+    expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
+    bench.close()
+  })
+
+  it('the worker writes one line per dead chain it observed', () => {
+    expect(restartStepLine({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'stopped' }, { dir: '/shift/lane-2', cardId: 810, state: 'fault' }] })).toBe([
+      `[bus:restart] #${CARD}: the chain in ${DIR} died with no restart task; observed stopped, nothing started`,
+      '[bus:restart] #810: the chain in /shift/lane-2 died with no restart task; observed fault, nothing started',
+    ].join('\n'))
   })
 
   it('a card\'s live chain stands for it, not an older stopped row', () => {
