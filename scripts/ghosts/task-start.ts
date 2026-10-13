@@ -4,6 +4,7 @@ import type { ParkedTask } from '../../src/card/parking.js'
 import type { CheapForecast } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../bus/db.js'
+import type { BodyAdmission } from '../bus/queue.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -20,7 +21,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
 import { CARD_STARTED } from '../bus/inbox.js'
 import { CARD_ADMITTED } from '../bus/launch-candidates.js'
-import { cardBodyShaOfCard, LEASED } from '../bus/queue.js'
+import { cardBodyAdmissionOf, LEASED } from '../bus/queue.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
 import { busCardStates } from './tasks.js'
 import { taskWorktree, worktreeHome } from './worktree-home.js'
@@ -66,7 +67,7 @@ export interface TaskStartResult {
 }
 
 type Admission
-  = | { kind: 'admitted', by: 'bus', event: string, ts: string, bodySha?: string }
+  = | { kind: 'admitted', by: 'bus', event: string, ts: string, body?: BodyAdmission }
     | { kind: 'admitted', by: 'waiver', reason: string }
     | { kind: 'refused', reason: string }
 
@@ -116,8 +117,8 @@ function busAdmission(bus: string, card: Card): Admission | undefined {
     const admittedLine = admittedCardLine(db, card.id, admitted)
     if (admittedLine !== undefined && !sameCard(admittedLine, card))
       return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
-    const admittedBody = cardBodyShaOfCard(db, card.id)
-    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts, ...(admittedBody === null ? {} : { bodySha: admittedBody }) }
+    const body = cardBodyAdmissionOf(db, card.id)
+    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts, ...(body === null ? {} : { body }) }
   }
   finally {
     db.close()
@@ -256,9 +257,9 @@ function admittedBody(recorded: string, text: string): boolean {
 }
 
 function editedPastAdmission(admitted: Exclude<Admission, { kind: 'refused' }>, cardFile: CardFile, card: Card): string | null {
-  if (admitted.by !== 'bus' || admitted.bodySha === undefined || cardFile.kind !== 'parked' || admittedBody(admitted.bodySha, cardFile.text))
+  if (admitted.by !== 'bus' || admitted.body === undefined || cardFile.kind !== 'parked' || admittedBody(admitted.body.bodySha, cardFile.text))
     return null
-  return `the parking file of card #${card.id} is not the body ${admitted.event} admitted (bodySha ${admitted.bodySha}, the file ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception; nothing written`
+  return `the parking file of card #${card.id} is not the body ${admitted.body.event} admitted (bodySha ${admitted.body.bodySha}, the file ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception; nothing written`
 }
 
 function manualContract(card: Card, cardFile: CardFile): Contract | string {

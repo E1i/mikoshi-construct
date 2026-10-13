@@ -585,7 +585,7 @@ describe('task:start checks the card file against the body its card.admitted car
     const world = newWorld()
     const result = runTaskStart(['feat/b4', '--card', card(94)], parkedWithAdmission(world, 94, 'the admitted body', 'a body edited past intake', { movedAfter: true }))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr.join('\n')).toContain('the parking file of card #94 is not the body card.admitted:94:moved admitted')
+    expect(result.stderr.join('\n')).toContain('the parking file of card #94 is not the body card.admitted:94:body admitted')
     expect(starts(world)).toEqual([])
   })
 
