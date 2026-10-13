@@ -85,8 +85,9 @@ Each is a hand-over where one party restated what another produced, instead of p
 - **One journal file, several writers, no schema.** #12, #16, #18: code writes `event:task`, the window
   writes the rest by hand, and the board reads every line with a cast; event names outside its union
   are already in the file.
-- **A matrix row with a reader and no producer.** #3: the Shredder CLI that wrote it is gone; `MatrixRow`
-  in the launcher is the only definition left, with the contour typed `unknown` and no format field.
+- **A matrix row with a reader and no producer.** #3: the Shredder CLI that wrote it is gone. Two
+  definitions remain: `Row` in `scripts/shredder/row.ts`, a type nothing produces any more, and
+  `MatrixRow` in the launcher, which reads the file with the contour typed `unknown` and no format field.
 - **Markdown tables as carriers.** #4, #13: `status.md` and `owner-merges.md` are parsed by cell
   position in three places.
 - **A producer with no consumer.** #19: the Morse prediction line is written and nothing in the
