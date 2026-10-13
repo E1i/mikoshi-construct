@@ -34,4 +34,15 @@ describe('closedTasks over the journal half of history and the bus', () => {
     const closed = closedTasks(journal, new Map([['889', 'running'], ['928', 'merged']]))
     expect([...closed]).toEqual([['842', 'run'], ['700', 'review'], ['928', 'merged']])
   })
+
+  it('keeps the verification of a card closed in the journal half of history when the bus later ends it too', () => {
+    expect(closedTasks(journal, new Map([['842', 'merged'], ['700', 'closed']])).get('842')).toBe('run')
+    expect(closedTasks(journal, new Map([['842', 'merged'], ['700', 'closed']])).get('700')).toBe('review')
+  })
+
+  it('puts a line written at the very instant the journal half of history ends outside it', () => {
+    const atTheEnd = JSON.stringify({ event: 'path', task: '901', path: 'cheap', pr: 900, verification: 'run', ts: JOURNAL_HISTORY_ENDS })
+    const justBefore = JSON.stringify({ event: 'path', task: '902', path: 'cheap', pr: 901, verification: 'run', ts: '2026-10-12T17:03:59.999Z' })
+    expect([...closedTasks([atTheEnd, justBefore].join('\n'))]).toEqual([['902', 'run']])
+  })
 })

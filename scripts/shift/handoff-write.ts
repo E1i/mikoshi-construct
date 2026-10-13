@@ -1,7 +1,5 @@
 import type { Board } from '../bus/board.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
-import type { ParkingReads } from './parking.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { parkingLanes, readBoard } from '../bus/board.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
-import { journalPath } from '../bus/import.js'
+import { busParkingReads } from '../bus/parking-reads.js'
 import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
 import { realMikoExitDeps, runExitAfterHandoff } from '../miko/exit.js'
@@ -188,15 +186,7 @@ function errorLine(error: unknown): string {
 function busState(busPath: string, parking: string): StateReading {
   if (!existsSync(busPath))
     return { kind: 'unread', why: `no bus at ${busPath}` }
-  const reads: ParkingReads = {
-    cwd: process.cwd(),
-    handoffDir: path.dirname(journalPath()),
-    listDir: dir => readdirSync(dir),
-    read: file => readFileSync(file, 'utf8'),
-    exists: existsSync,
-    git: (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8' }),
-    bus: busPath,
-  }
+  const reads = busParkingReads(busPath)
   try {
     const db = openBus(busPath)
     try {

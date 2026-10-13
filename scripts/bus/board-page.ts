@@ -1,9 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ParkingReads } from '../shift/parking.js'
 import type { RunningProcess } from './bg.js'
 import type { Board, ComponentHealth, ContractLink, ExecutionRow, LaneRow, QueueCard, TaskQueue, Watched } from './board.js'
-import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -12,7 +10,7 @@ import { answerLeaseOrder } from './answer-worker.js'
 import { parkedCardText } from './answerer.js'
 import { psList, RUN_SCRIPT, runningInstance } from './bg.js'
 import { BOARD_FILE, parkingLanes, readBoard } from './board.js'
-import { journalPath } from './import.js'
+import { busParkingReads } from './parking-reads.js'
 import { SUPERVISOR_LAUNCH } from './supervisor.js'
 import { switchedOn, workerLaunches, WORKERS } from './workers.js'
 
@@ -176,15 +174,7 @@ export interface BoardProjection {
 export function boardProjection(db: DatabaseSync, busPath: string): BoardProjection {
   const busDir = path.dirname(busPath)
   const file = path.join(busDir, BOARD_FILE)
-  const reads: ParkingReads = {
-    cwd: process.cwd(),
-    handoffDir: path.dirname(journalPath()),
-    listDir: dir => readdirSync(dir),
-    read: target => readFileSync(target, 'utf8'),
-    exists: existsSync,
-    git: (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8' }),
-    bus: busPath,
-  }
+  const reads = busParkingReads(busPath)
   return {
     file,
     project: (now) => {
