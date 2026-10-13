@@ -10,7 +10,7 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
-import { parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
+import { ONCE, parseWatchArgs, tick, WATCHING, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 
@@ -277,8 +277,10 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
   })
 
   it('reads --pid followed by one or more PIDs, and refuses anything else', () => {
-    expect(parseWatchArgs([])).toEqual([])
-    expect(parseWatchArgs(['--pid', '12', '13', '--pid', '14'])).toEqual([12, 13, 14])
+    expect(parseWatchArgs([])).toEqual({ pids: [], once: false })
+    expect(parseWatchArgs(['--pid', '12', '13', '--pid', '14'])).toEqual({ pids: [12, 13, 14], once: false })
+    expect(parseWatchArgs(['--once', '--pid', '12'])).toEqual({ pids: [12], once: true })
+    expect(parseWatchArgs(['--pid', '--once'])).toBeUndefined()
     expect(parseWatchArgs(['--pid'])).toBeUndefined()
     expect(parseWatchArgs(['12'])).toBeUndefined()
     expect(parseWatchArgs(['--pid', 'x'])).toBeUndefined()
@@ -304,6 +306,63 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     finally {
       watch.child.kill()
       sleeper.kill()
+    }
+  }, 20_000)
+
+  it('with --once exits 0 after the first review.recorded and prints exactly one line', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const watch = startWatch(file, [ONCE], bus)
+    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    try {
+      await watch.watching()
+      const first = writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:first', JSON.stringify({ verdict: 'changes' }))
+      writeBusEvent(bus, MERGE_DONE, 'worker:merge:s1', 'merge.done:second', JSON.stringify({ commit: 'c0ffee', rule: 'auto' }))
+      expect(await exited).toBe(0)
+      expect(watch.stdout()).toBe(`bus ${REVIEW_RECORDED} ${first}\n`)
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
+  it('without --once keeps waiting after the first waking event', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const watch = startWatch(file, [], bus)
+    try {
+      await watch.watching()
+      writeBusEvent(bus, REVIEW_RECORDED, 'worker:review:s1', 'review.recorded:waits', JSON.stringify({ verdict: 'pass' }))
+      await waitFor(() => watch.stdout().includes('\n'), () => 'the line for the review.recorded', DEADLINE_MS)
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect(watch.child.exitCode).toBeNull()
+    }
+    finally {
+      watch.child.kill()
+    }
+  }, 20_000)
+
+  it('an event that does not wake does not end --once, and the next waking one does', async () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const watch = startWatch(file, [ONCE], bus)
+    const exited = new Promise<number | null>(resolve => watch.child.on('exit', resolve))
+    try {
+      await watch.watching()
+      writeBusEvent(bus, PR_OBSERVED, 'netwatch', 'pr.observed:green-once', JSON.stringify({ ci: 'green' }))
+      writeBusEvent(bus, 'chain.observed', 'reducer', 'chain.observed:once', JSON.stringify({ alive: true }))
+      append(file, { event: 'path', task: '930' })
+      await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+      expect([watch.child.exitCode, watch.stdout()]).toEqual([null, ''])
+      const merge = writeBusEvent(bus, MERGE_DONE, 'worker:merge:s1', 'merge.done:once', JSON.stringify({ commit: 'c0ffee', rule: 'auto' }))
+      expect(await exited).toBe(0)
+      expect(watch.stdout()).toBe(`bus ${MERGE_DONE} ${merge}\n`)
+    }
+    finally {
+      watch.child.kill()
     }
   }, 20_000)
 })

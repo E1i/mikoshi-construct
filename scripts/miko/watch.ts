@@ -16,7 +16,8 @@ export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
 export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, CARD_CLOSED, PR_OBSERVED]
 export const FAILED_CI = 'red'
 export const POLL_MS = 500
-export const USAGE = 'usage: pnpm miko:watch [--pid <pid>…]'
+export const USAGE = 'usage: pnpm miko:watch [--once] [--pid <pid>…]'
+export const ONCE = '--once'
 export const WATCHING = 'miko:watch: what is already there is read; watching for what comes next'
 
 export interface WatchState {
@@ -43,10 +44,20 @@ export interface WatchDeps {
   alive: (pid: number) => boolean
 }
 
-export function parseWatchArgs(args: string[]): number[] | undefined {
+export interface WatchArgs {
+  pids: number[]
+  once: boolean
+}
+
+export function parseWatchArgs(args: string[]): WatchArgs | undefined {
   const pids: number[] = []
   let afterPid = false
+  let once = false
   for (const arg of args) {
+    if (arg === ONCE) {
+      once = true
+      continue
+    }
     if (arg === '--pid') {
       afterPid = true
       continue
@@ -55,7 +66,7 @@ export function parseWatchArgs(args: string[]): number[] | undefined {
       return undefined
     pids.push(Number(arg))
   }
-  return afterPid && pids.length === 0 ? undefined : pids
+  return afterPid && pids.length === 0 ? undefined : { pids, once }
 }
 
 export function wakingEvent(line: string): string | undefined {
@@ -187,8 +198,8 @@ function alive(pid: number): boolean {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const pids = parseWatchArgs(process.argv.slice(2))
-  if (pids === undefined) {
+  const args = parseWatchArgs(process.argv.slice(2))
+  if (args === undefined) {
     console.error(USAGE)
     process.exit(2)
   }
@@ -201,11 +212,15 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     busEventsAfter: id => busEventsAfter(bus, id),
     alive,
   }
-  const state = watchState(deps, pids)
+  const state = watchState(deps, args.pids)
   console.error(WATCHING)
-  for (;;) {
-    for (const line of tick(state, deps))
+  for (let woken = false; !woken;) {
+    const lines = tick(state, deps)
+    const printed = args.once ? lines.slice(0, 1) : lines
+    for (const line of printed)
       process.stdout.write(`${line}\n`)
-    await new Promise(resolve => setTimeout(resolve, POLL_MS))
+    woken = args.once && printed.length > 0
+    if (!woken)
+      await new Promise(resolve => setTimeout(resolve, POLL_MS))
   }
 }
