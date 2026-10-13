@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ancestors, exitDecision, FRESH_MS, parsePs, runMikoExit } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, parsePs, runExitAfterHandoff, runMikoExit } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -145,6 +145,16 @@ describe('a Miko window outside the pnpm miko loop that stops at a threshold', (
     expect(stops).toEqual([{ role: 'miko', handoff: '/h/miko.md', status: 'CONTINUE', reason: 'context', raised: false }])
     expect(kills).toEqual([12])
     expect(lines[0]).toContain('role.stopped goes to the bus')
+  })
+
+  it('after handoff:write a raised claude outside the loop with a fresh CONTINUE handoff is refused, not ended, and posts no role.stopped', () => {
+    const kills: number[] = []
+    const stops: RoleStop[] = []
+    const lines: string[] = []
+    expect(runExitAfterHandoff({ pid: 14, table: () => table, handoffMtime: () => 0, now: () => 0, kill: pid => kills.push(pid), err: line => lines.push(line), handoff: '/h/mikoshi.md', status: () => 'CONTINUE', raised: true, observeStop: stop => stops.push(stop) })).toBe(1)
+    expect(kills).toEqual([])
+    expect(stops).toEqual([])
+    expect(lines[0]).toContain('does not run under the pnpm miko loop')
   })
 
   it.each([

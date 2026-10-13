@@ -13,7 +13,7 @@ import { defaultBusPath, openBus } from '../bus/db.js'
 import { journalPath } from '../bus/import.js'
 import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
-import { realMikoExitDeps, runMikoExit } from '../miko/exit.js'
+import { realMikoExitDeps, runExitAfterHandoff } from '../miko/exit.js'
 import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
@@ -228,7 +228,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     out: line => console.log(line),
     err: line => console.error(line),
     endSession: (handoff) => {
-      runMikoExit({ ...realMikoExitDeps(handoff), status: () => null })
+      runExitAfterHandoff(realMikoExitDeps(handoff))
     },
   })
 }

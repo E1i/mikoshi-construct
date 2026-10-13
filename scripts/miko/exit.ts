@@ -101,6 +101,10 @@ export function runMikoExit(deps: MikoExitDeps): number {
   return 0
 }
 
+export function runExitAfterHandoff(deps: MikoExitDeps): number {
+  return runMikoExit({ ...deps, status: () => null })
+}
+
 function mtimeOf(file: string): number | undefined {
   try {
     return statSync(file).mtimeMs
