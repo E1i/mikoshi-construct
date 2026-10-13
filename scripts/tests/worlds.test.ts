@@ -63,17 +63,6 @@ const WORLDS: WorldRow[] = [
       worldSh('clean', w)
     },
   },
-  {
-    kind: 'collect',
-    script: 'scripts/tests/shredder/collect-fixtures/world.sh',
-    prefixes: ['collect-world.', 'collect-decoy.'],
-    lifecycle: (worldSh) => {
-      const w = worldSh('new', 'ok')
-      const decoy = worldSh('decoy', 'faithful')
-      worldSh('clean', w)
-      worldSh('clean', decoy)
-    },
-  },
 ]
 
 let tmp = ''

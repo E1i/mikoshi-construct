@@ -1,2 +1,0 @@
-src/detect/index.ts
-src/materialize/plan.ts

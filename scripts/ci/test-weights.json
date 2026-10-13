@@ -114,8 +114,6 @@
   "scripts/tests/shift/shift.e2e.test.ts": 34.1,
   "scripts/tests/shift/stop-readers.test.ts": 0,
   "scripts/tests/shift/stop-table.e2e.test.ts": 8.6,
-  "scripts/tests/shredder/cli.test.ts": 9.5,
-  "scripts/tests/shredder/collect.test.ts": 60.7,
   "scripts/tests/shredder/owner-merges.test.ts": 0,
   "scripts/tests/worlds.test.ts": 5,
   "tests/add-population.test.ts": 0,
