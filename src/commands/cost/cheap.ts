@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { projectKey, readAgentRecord } from './claude-code.js'
 import { median, MINIMUM_SAMPLE } from './sample.js'
 import { tokensWithoutCacheReads } from './usage.js'
@@ -81,6 +82,7 @@ interface WindowLine {
   verification?: unknown
   ended?: unknown
   sessions?: unknown
+  ts?: unknown
 }
 
 export function defaultShiftRoot(): string {
@@ -162,12 +164,17 @@ function readWindowTasks(windowJournal: string, notes: CheapNote[]): CheapTask[]
   const starts = new Map(lines.filter(line => line.card != null).map(line => [line.task, line]))
   const closes = new Map(lines.filter(line => line.card == null && (line.pr != null || line.report != null)).map(line => [line.task, line]))
   const unrecorded = new Map<string, number>()
+  const afterHistory = new Map<string, number>()
   const tasks = [...closes.values()].flatMap((close): CheapTask[] => {
     const start = starts.get(close.task)
     const card = start?.card
     if (card == null || card.contour !== CHEAP_CONTOUR || typeof card.kind !== 'string' || typeof card.size !== 'string' || typeof start?.started !== 'string')
       return []
     const taskClass = cheapClass({ kind: card.kind, size: card.size })
+    if (!writtenBeforeHistoryEnds(close)) {
+      afterHistory.set(taskClass, (afterHistory.get(taskClass) ?? 0) + 1)
+      return []
+    }
     if (typeof close.verification !== 'string') {
       notes.push({ taskClass, text: `#${close.task} close without verification not counted` })
       return []
@@ -194,6 +201,8 @@ function readWindowTasks(windowJournal: string, notes: CheapNote[]): CheapTask[]
   })
   for (const [taskClass, count] of unrecorded)
     notes.push({ taskClass, text: `sessions not recorded on ${count} closing line${count === 1 ? '' : 's'} in ${windowJournal}` })
+  for (const [taskClass, count] of afterHistory)
+    notes.push({ taskClass, text: `${count} cheap task${count === 1 ? '' : 's'} closed in ${windowJournal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` })
   return tasks
 }
 

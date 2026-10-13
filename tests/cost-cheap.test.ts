@@ -1,7 +1,10 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { JOURNAL_HISTORY_ENDS } from '../src/card/closed.js'
 import { cheapForecast, cheapForecastOf, cheapRows, ClaudeCodeCostSource, costReport, printCost, projectKey, readCheapClasses, readCheapTasks, sessionTokens } from '../src/commands/cost/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -262,5 +265,57 @@ describe('a closed window task joins the cheap sample through the sessions its c
     const journal = writeWindow([windowStart('71'), windowClose('71', { verification: undefined })])
     const shifts = path.join(root(), 'shift')
     expect(cheapBlock(costLines(shifts, projects, journal))[3]).toBe(`ACTION   | read 0 finished tasks of the class; 0 with every session in ${projects}; #71 close without verification not counted`)
+  })
+})
+
+describe('the window journal half of history', () => {
+  it('a cheap task closed in the window journal after the cutoff is not counted and the class says so', () => {
+    const projects = root()
+    windowSession(projects, 'w71', 100)
+    windowSession(projects, 'w72', 100)
+    windowSession(projects, 'w73', 100)
+    const journal = writeWindow([
+      windowStart('71'),
+      windowClose('71', { ts: '2026-10-12T17:03:59.999Z' }),
+      windowStart('72'),
+      windowClose('72', { ts: JOURNAL_HISTORY_ENDS }),
+      windowStart('73'),
+      windowClose('73', { ts: '2026-10-13T12:00:00.000Z' }),
+    ])
+    const { tasks, notes } = readCheapTasks(root(), journal)
+    expect(tasks.map(task => task.task)).toEqual(['71'])
+    expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` }])
+  })
+
+  it('construct cost opens no bus.db', () => {
+    const home = root()
+    mkdirSync(path.join(home, '.construct', 'handoff'), { recursive: true })
+    writeFileSync(path.join(home, '.construct', 'bus.db'), '')
+    writeFileSync(path.join(home, '.construct', 'handoff', 'ghosts.jsonl'), `${JSON.stringify(windowStart('81'))}\n${JSON.stringify(windowClose('81', { ts: '2026-10-13T12:00:00.000Z' }))}\n`)
+    const opened = path.join(home, 'opened.log')
+    const recorder = path.join(home, 'record-opens.mjs')
+    writeFileSync(recorder, [
+      `import fs from 'node:fs'`,
+      `import { syncBuiltinESMExports } from 'node:module'`,
+      `import sqlite from 'node:sqlite'`,
+      `const write = fs.appendFileSync`,
+      `const record = target => { if (typeof target === 'string') write(${JSON.stringify(opened)}, target + '\\n') }`,
+      `for (const name of ['openSync', 'readFileSync', 'existsSync', 'statSync', 'readdirSync']) {`,
+      `  const original = fs[name]`,
+      `  fs[name] = function (target, ...rest) { record(target); return original.call(this, target, ...rest) }`,
+      `}`,
+      `const OriginalDatabase = sqlite.DatabaseSync`,
+      `sqlite.DatabaseSync = class extends OriginalDatabase { constructor(target, ...rest) { record(target); super(target, ...rest) } }`,
+      `syncBuiltinESMExports()`,
+    ].join('\n'))
+    const bus = path.join(home, '.construct', 'bus.db')
+    const run = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../src/cli.ts'), 'cost', '--dir', home, '--json'], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home, CONSTRUCT_BUS_DB: bus, NODE_OPTIONS: `--import ${recorder}` },
+    })
+    expect({ status: run.status, report: JSON.parse(run.stdout).status }, run.stderr).toEqual({ status: 3, report: 'unsupported' })
+    const paths = readFileSync(opened, 'utf8').split('\n')
+    expect(paths).toContain(path.join(home, '.construct', 'handoff', 'ghosts.jsonl'))
+    expect(paths.filter(target => target.endsWith('bus.db'))).toEqual([])
   })
 })
