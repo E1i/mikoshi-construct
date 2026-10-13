@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { defaultBusPath } from '../bus/db.js'
 import { readContourSchema, violations } from '../contract/contours.js'
-import { entryOf } from '../ghosts/entry.js'
+import { entryOf, startedEntryOf } from '../ghosts/entry.js'
 import { lookupMatrixRow } from '../ghosts/matrix.js'
 import { ghostRowState } from '../ghosts/status.js'
 import { cardStartedLines, readTasksFile } from '../ghosts/tasks.js'
@@ -327,7 +327,7 @@ export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBus
       handoffFile: handoffFileOf(dir, ghost) ?? handoffFileOf(dir, id),
       supersededEvent: journal.filter((line): line is SupersededEvent => line.event === 'superseded' && line.task === ghost).at(-1),
       stopEvent: standingStop(id),
-      entryLine: entryOf(journalText, ghost) ?? entryOf(journalText, id),
+      entryLine: startedEntryOf(starts, ghost) ?? startedEntryOf(starts, id) ?? entryOf(journalText, ghost) ?? entryOf(journalText, id),
       journalPath,
     }
   })

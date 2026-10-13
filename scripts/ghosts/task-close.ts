@@ -21,7 +21,7 @@ import { parseDecisions } from '../decisions/decisions.js'
 import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
-import { ENTRY_EVENT, entryOf } from './entry.js'
+import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
 import { cardStartedLines } from './tasks.js'
 
 export const PREFIX = '[task:close] '
@@ -371,7 +371,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   catch (error) {
     return refuse(`the closing line could not be written to ${journal}: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
   }
-  const entry = entryOf(journalText, id)
+  const entry = startedEntryOf(lines, id) ?? entryOf(journalText, id)
   const closedBy = outcome === '--pr' ? `PR #${value}` : `report ${report}`
   const closed = `closed ${verification} · ${closedBy} · line written to ${journal}`
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {

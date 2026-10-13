@@ -28,3 +28,7 @@ export function entryOf(journal: string, id: string): Signal | undefined {
     }
   }).at(-1)
 }
+
+export function startedEntryOf(starts: readonly { task?: unknown, entry?: unknown }[], id: string): Signal | undefined {
+  return starts.flatMap(({ task, entry }) => task === id && typeof entry === 'object' && entry !== null && isSignal(entry as Record<string, unknown>) ? [entry as Signal] : []).at(-1)
+}
