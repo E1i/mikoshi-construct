@@ -4,7 +4,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
-import { MERGE_DONE } from './card-automaton.js'
+import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, ownerQuestionAnswered } from './inbox.js'
@@ -20,6 +20,7 @@ export const QUEUE_ACTOR = 'policy'
 export const CARD_CLOSED = 'card.closed'
 export const BOARD_ALARM = 'board.alarm'
 export const FAILURES_TO_STOP = 3
+export const REVIEW_ROUNDS = 3
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
@@ -177,6 +178,27 @@ interface Candidate {
   body_sha?: string | null
   card_body?: unknown
 }
+
+const CHANGES_ROUNDS_OF_A_PR = `
+  SELECT count(*) AS rounds FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'
+`
+
+const PRS_OUT_OF_REVIEW_ROUNDS = `
+  SELECT pr FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr IS NOT NULL AND json_extract(payload, '$.verdict') = 'changes'
+  GROUP BY pr HAVING count(*) >= ${REVIEW_ROUNDS}
+`
+
+export function changesRoundsOf(db: DatabaseSync, pr: number): number {
+  return Number((db.prepare(CHANGES_ROUNDS_OF_A_PR).get(pr) as { rounds: number }).rounds)
+}
+
+function prsOutOfReviewRounds(db: DatabaseSync): Set<number> {
+  return new Set((db.prepare(PRS_OUT_OF_REVIEW_ROUNDS).all() as { pr: number }[]).map(row => row.pr))
+}
+
+const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
 
 type Admits = (row: Candidate) => boolean
 
@@ -440,6 +462,8 @@ function setAgainAfterItsStop(db: DatabaseSync, ts: string, row: StoppedAnswerRo
 
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   const derived: Derived = { queued: [], superseded: [] }
+  const spent = prsOutOfReviewRounds(db)
+  const withinRounds = (queue: Queue, row: { pr: number | null }): boolean => !ROUND_LIMITED.includes(queue) || row.pr === null || !spent.has(row.pr)
   for (const row of db.prepare(TASKS_OF_AN_OLD_HEAD).all() as unknown as TaskRow[]) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
@@ -449,21 +473,21 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       derived.superseded.push(row.task_key)
   }
   for (const query of [STOPPED_ON_NO_CARD_TREE, WITHDRAWN_MERGES_A_LATER_SHARD_NAMES]) {
-    for (const row of db.prepare(query).all() as unknown as StoppedRow[]) {
+    for (const row of (db.prepare(query).all() as unknown as StoppedRow[]).filter(row => withinRounds(row.queue, row))) {
       if (requeueTask(db, ts, row))
         derived.queued.push(row.task_key)
     }
   }
-  for (const row of reviewsOfTheCurrentInputAgain(db)) {
+  for (const row of reviewsOfTheCurrentInputAgain(db).filter(row => withinRounds(row.queue, row))) {
     if (requeueTask(db, ts, row))
       derived.queued.push(row.task_key)
   }
-  for (const row of db.prepare(ANSWERS_WHOSE_STOP_NO_LONGER_HOLDS).all() as unknown as StoppedAnswerRow[]) {
+  for (const row of (db.prepare(ANSWERS_WHOSE_STOP_NO_LONGER_HOLDS).all() as unknown as StoppedAnswerRow[]).filter(row => withinRounds(row.queue, row))) {
     if (setAgainAfterItsStop(db, ts, row))
       derived.queued.push(row.task_key)
   }
   for (const [queue, query, admits] of candidates(db)) {
-    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {
+    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits).filter(row => withinRounds(queue, row))) {
       const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
       const task: QueuedTask = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
       if (queueTask(db, ts, task))

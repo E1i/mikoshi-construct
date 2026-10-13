@@ -30,6 +30,19 @@ describe('reviewer', () => {
     expect(prompt).toContain('writing /tmp/v.json as JSON')
   })
 
+  it('the prompt of the first full review asks for every finding of the pass in one verdict, not in portions', () => {
+    const prompt = reviewPrompt(lease, full, '/tmp/t', '/tmp/v.json')
+    expect(prompt).toContain('Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.')
+  })
+
+  it('the prompt of a re-review names the earlier findings, the diff since..head and a regression outside the diff the change causes', () => {
+    const prompt = reviewPrompt(lease, { depth: 'diff', why: 'after changes', since: sha('b'), findings: ['a.ts:1 x'] }, '/tmp/t', '/tmp/v.json')
+    expect(prompt).toContain('Earlier finding: a.ts:1 x')
+    expect(prompt).toContain(`explore the diff ${sha('b')}..${sha('a')}`)
+    expect(prompt).toContain('its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes')
+    expect(prompt).toContain('report every finding of this pass in one verdict, not in portions')
+  })
+
   it('the review session starts in the worker repository, never in the tree of the pull request it reviews', () => {
     const params = reviewSession('/repo', '/reviews', 's-1', lease, full)
     expect(params.cwd).toBe('/repo')

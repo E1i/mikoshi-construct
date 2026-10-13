@@ -48,9 +48,10 @@ function namedByFindings(file: string, findings: readonly string[]): boolean {
 function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources): ReviewPlan {
   const range = `${earlier.head}..${head}`
   const outside = sources.changed(earlier.head, head).filter(file => !namedByFindings(file, earlier.findings))
-  if (outside.length > 0)
-    return fullReview(`${range} changes ${outside.join(', ')}, which no finding of the earlier ${earlier.verdict} verdict names`)
-  return { depth: 'diff', why: `${range} changes only files the earlier ${earlier.verdict} verdict's findings name`, since: earlier.head, findings: earlier.findings }
+  const why = outside.length > 0
+    ? `${range} also changes ${outside.join(', ')}, which no finding of the earlier ${earlier.verdict} verdict names`
+    : `${range} changes only files the earlier ${earlier.verdict} verdict's findings name`
+  return { depth: 'diff', why, since: earlier.head, findings: earlier.findings }
 }
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {
