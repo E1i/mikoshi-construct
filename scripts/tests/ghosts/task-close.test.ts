@@ -1,8 +1,12 @@
 import type { OpenIssue, TaskCloseDeps } from '../../ghosts/task-close.js'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
+import { prCardOf } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
 const LAUNCH_SESSION = 'ghost-session'
@@ -652,6 +656,93 @@ describe('task:close reads the start of a task from card.started in the bus', ()
     }
     finally {
       bus.remove()
+    }
+  })
+})
+
+describe('task:close takes whose result a PR is from prs.card_id in the bus', () => {
+  const noCardLine = (): string | null => 'not a card\n\nbody'
+
+  it('witness 5: task:close #889 --pr 786 is refused by prs.card_id = 855 though the PR body has no card line', () => {
+    const { deps, written } = world([startLine('889', 'implement')])
+    const result = runTaskClose(['889', '--pr', '786', '--verification', 'run'], { ...deps, prBody: noCardLine, prCard: pr => pr === 786 ? 855 : null })
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+    expect(result.stderr).toEqual(['[task:close] PR #786 belongs to #855 in the bus (prs.card_id), not #889: it is that card\'s result; a pull request an owner decision shares between both cards closes with --shared-by D-<N>; nothing written'])
+  })
+
+  it('refuses a PR with no prs row and no card line in its body, instead of warning', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: noCardLine, prCard: () => null })
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+    expect(result.stderr[0]).toContain('PR #460 has no prs row in the bus and its body opens with no card line')
+  })
+
+  it('closes a PR whose prs row names the card, and still warns that its body has no card line', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: noCardLine, prCard: () => 123 })
+    expect(result.exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+    expect(result.stderr).toEqual([expect.stringContaining('warning: the body of PR #460 does not open with the card line')])
+  })
+
+  it('closes a PR with no prs row whose body opens with the card line', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const body = '#123 n [implement/ghosts/S/cheap/owner] · depends — · blocks —\n\nbody'
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => body, prCard: () => null }).exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+  })
+
+  it('refuses and writes nothing when the bus cannot be read', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prCard: () => {
+      throw new Error('database is locked')
+    } })
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+    expect(result.stderr).toEqual(['[task:close] the bus was not read, so whose result PR #460 is was not checked: database is locked; nothing written'])
+  })
+
+  describe('--shared-by', () => {
+    const DECISIONS = '/owner-decisions.md'
+    const D60 = '- D-60 · 2026-10-13 — #532 and #533 share PR #642. · card #532'
+    const BODY_OF_534 = '#534 atlas-command [implement/engram/M/cheap/auto] · depends — · blocks —\n\nbody'
+
+    it('shares the PR with the card of its prs row, not the card its body line names', () => {
+      const { deps, written } = world([startLine('532', 'implement')], [], { [DECISIONS]: `# Owner decisions\n\n${D60}\n` })
+      const result = runTaskClose(['532', '--pr', '642', '--shared-by', 'D-60', '--verification', 'run'], { ...deps, decisionsFile: DECISIONS, prBody: () => BODY_OF_534, prCard: () => 533 })
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '532', pr: 642, sharedBy: 'D-60' })
+    })
+
+    it('names both the bus and the body when a PR has no prs row and no card line', () => {
+      const { deps, written } = world([startLine('532', 'implement')], [], { [DECISIONS]: `# Owner decisions\n\n${D60}\n` })
+      const result = runTaskClose(['532', '--pr', '642', '--shared-by', 'D-60', '--verification', 'run'], { ...deps, decisionsFile: DECISIONS, prBody: noCardLine, prCard: () => null })
+      expect(result.exitCode).toBe(1)
+      expect(written).toEqual([])
+      expect(result.stderr).toEqual(['[task:close] --shared-by D-60: PR #642 has no prs row in the bus and its body opens with no card line, so no card shares it with #532; nothing written'])
+    })
+  })
+
+  it('prCardOf reads card_id of the PR from the prs table, and null for a PR with no row or no bus', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pr-card-'))
+    try {
+      const file = path.join(dir, 'bus.db')
+      const db = openBus(file)
+      try {
+        appendEvent(db, { ts: '2026-10-13T10:00:00.000Z', type: 'pr.observed', actor: 'netwatch', cardId: 855, pr: 786, head: null, dedupeKey: 'pr:786', payload: {}, legacy: false })
+        db.prepare('INSERT INTO prs (pr, card_id, event_id) VALUES (?, ?, (SELECT MAX(id) FROM events))').run(786, 855)
+      }
+      finally {
+        db.close()
+      }
+      expect(prCardOf(file, 786)).toBe(855)
+      expect(prCardOf(file, 787)).toBeNull()
+      expect(prCardOf(path.join(dir, 'absent.db'), 786)).toBeNull()
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
