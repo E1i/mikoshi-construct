@@ -14,6 +14,7 @@ import { mergedTasks } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
+import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
@@ -65,7 +66,7 @@ export interface TaskStartResult {
 }
 
 type Admission
-  = | { kind: 'admitted', by: 'bus', event: string, ts: string }
+  = | { kind: 'admitted', by: 'bus', event: string, ts: string, bodySha?: string }
     | { kind: 'admitted', by: 'waiver', reason: string }
     | { kind: 'refused', reason: string }
 
@@ -115,7 +116,8 @@ function busAdmission(bus: string, card: Card): Admission | undefined {
     const admittedLine = admittedCardLine(db, card.id, admitted)
     if (admittedLine !== undefined && !sameCard(admittedLine, card))
       return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
-    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts }
+    const admittedBody = stringField(admitted.payload, 'bodySha')
+    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts, ...(admittedBody === undefined ? {} : { bodySha: admittedBody }) }
   }
   finally {
     db.close()
@@ -226,7 +228,7 @@ type CardFile
   = | { kind: 'missing' }
     | { kind: 'refused', reason: string }
     | { kind: 'other', message: string }
-    | { kind: 'parked', parked: ParkedTask }
+    | { kind: 'parked', parked: ParkedTask, text: string }
 
 function readCardFile(deps: TaskStartDeps, card: Card, parkingDir: string | undefined): CardFile {
   if (deps.parking === undefined)
@@ -246,7 +248,17 @@ function readCardFile(deps: TaskStartDeps, card: Card, parkingDir: string | unde
     return parsed
   if (cardLine(parsed.parked.task.card) !== cardLine(card))
     return { kind: 'other', message: `${file} carries card ${cardLine(parsed.parked.task.card)}, not the card given; nothing written` }
-  return parsed
+  return { ...parsed, text }
+}
+
+function admittedBody(recorded: string, text: string): boolean {
+  return recorded === bodySha(text) || recorded === bodyShaWithoutTouches(text)
+}
+
+function editedPastAdmission(admitted: Exclude<Admission, { kind: 'refused' }>, cardFile: CardFile, card: Card): string | null {
+  if (admitted.by !== 'bus' || admitted.bodySha === undefined || cardFile.kind !== 'parked' || admittedBody(admitted.bodySha, cardFile.text))
+    return null
+  return `the parking file of card #${card.id} is not the body ${admitted.event} admitted (bodySha ${admitted.bodySha}, the file ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception; nothing written`
 }
 
 function manualContract(card: Card, cardFile: CardFile): Contract | string {
@@ -374,6 +386,9 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
   const cardFile = readCardFile(deps, card, args.parking)
+  const edited = editedPastAdmission(admitted, cardFile, card)
+  if (edited !== null)
+    return refuse(edited)
   const contract = handed === undefined ? manualContract(card, cardFile) : { CONTRACT: handed.CONTRACT, EXPECT: handed.EXPECT }
   if (typeof contract === 'string')
     return refuse(contract)

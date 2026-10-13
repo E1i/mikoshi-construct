@@ -36,8 +36,8 @@ const NO_CARD_TREE = 'no_card_tree'
 function cardBodyShaOf(card: string): string {
   return `(
     SELECT json_extract(intake.payload, '$.bodySha') FROM events AS intake
-    WHERE intake.legacy = 1 AND intake.card_id = ${card} AND intake.type IN ('${INTAKE_EVENT}', '${INTAKE_MOVE_EVENT}')
-      AND json_type(intake.payload, '$.bodySha') = 'text'
+    WHERE intake.card_id = ${card} AND json_type(intake.payload, '$.bodySha') = 'text'
+      AND ((intake.legacy = 1 AND intake.type IN ('${INTAKE_EVENT}', '${INTAKE_MOVE_EVENT}')) OR (intake.legacy = 0 AND intake.type = '${CARD_ADMITTED}'))
     ORDER BY intake.id DESC LIMIT 1
   )`
 }

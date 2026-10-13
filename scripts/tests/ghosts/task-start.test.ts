@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
+import { bodySha, INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../../src/commands/intake/move.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
@@ -561,5 +561,39 @@ describe('the card.started carries the card who and risk read from the card file
     const entry = starts(world)[0]!.entry as Record<string, string>
     expect(entry.CONTRACT).toContain(reason)
     expect(entry.CONTRACT).not.toContain('no parking file')
+  })
+})
+
+describe('task:start checks the card file against the body its card.admitted carries', () => {
+  function parkedWithAdmission(world: World, id: number, admitted: string | null, onDisk: string): TaskStartDeps {
+    const dir = path.join(world.root, 'parking')
+    mkdirSync(dir, { recursive: true })
+    const text = (body: string): string => `card: ${card(id)}\nbranch: feat/b\ntouches: a.ts\ncontinue: stop\nwho: window\n\n${body}\n`
+    writeFileSync(path.join(dir, `${id}.md`), text(onDisk))
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}:body`, payload: { card: card(id), lane: null, depends: [], decision: 'auto', contour: 'cheap', ...(admitted === null ? {} : { bodySha: bodySha(text(admitted)) }) }, legacy: false })
+    db.close()
+    return { ...depsOf(world), parking: { dir, read: file => existsSync(file) ? readFileSync(file, 'utf8') : null } }
+  }
+
+  it('a card file edited past its admission is refused with nothing written', () => {
+    const world = newWorld()
+    const deps = parkedWithAdmission(world, 91, 'the admitted body', 'a body edited past intake')
+    const result = runTaskStart(['feat/b1', '--card', card(91)], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toMatch(/^\[task:start\] the parking file of card #91 is not the body card\.admitted:91:body admitted \(bodySha [0-9a-f]{12}, the file [0-9a-f]{12}\): it was edited past intake; admit it again through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written$/)
+    expect(starts(world)).toEqual([])
+    expect(existsSync(path.join(world.root, 'mc-91'))).toBe(false)
+    expect(runTaskStart(['feat/b1', '--card', card(91), '--without-intake', 'the owner said so'], deps).exitCode).toBe(0)
+  })
+
+  it('a card file holding the admitted body starts', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/b2', '--card', card(92)], parkedWithAdmission(world, 92, 'the admitted body', 'the admitted body')).exitCode).toBe(0)
+  })
+
+  it('an admission without a bodySha starts as before', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/b3', '--card', card(93)], parkedWithAdmission(world, 93, null, 'any body')).exitCode).toBe(0)
   })
 })
