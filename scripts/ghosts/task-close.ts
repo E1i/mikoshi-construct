@@ -22,7 +22,7 @@ import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
-import { cardStartedLines } from './tasks.js'
+import { cardStartedLines, prCardOf } from './tasks.js'
 
 export const PREFIX = '[task:close] '
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]'
@@ -73,6 +73,7 @@ export interface TaskCloseDeps {
   tokens?: (session: CheapSession) => number | null
   style?: SignalStyle
   prBody: (pr: number) => string | null
+  prCard?: (pr: number) => number | null
   decisionsFile?: string
   openIssue?: (issue: number) => OpenIssue | null
   closeIssue?: (issue: number, comment: string) => void
@@ -230,7 +231,7 @@ export function prBodyOf(gh: GhRunner): (pr: number) => string | null {
 }
 
 interface Ownership {
-  owner: number | null
+  cardLine: number | null
   sharedBy?: string
 }
 
@@ -262,20 +263,32 @@ function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: str
     return `the body of PR #${pr} was not read, so whose result it is was not checked: ${firstLine(error)}; nothing written`
   }
   const parsed = readBodyCard(body ?? '')
-  const owner = parsed.kind === 'card' ? parsed.card.id : null
+  const cardLine = parsed.kind === 'card' ? parsed.card.id : null
+  let busOwner: number | null = null
+  try {
+    busOwner = deps.prCard?.(pr) ?? null
+  }
+  catch (error) {
+    return `the bus was not read, so whose result PR #${pr} is was not checked: ${firstLine(error)}; nothing written`
+  }
+  const owner = busOwner ?? cardLine
   if (reference === undefined) {
-    if (owner !== null && owner !== Number(id))
-      return `PR #${pr} opens with the card line of #${owner}, not #${id}: it is that card's result; a pull request an owner decision shares between both cards closes with --shared-by D-<N>; nothing written`
-    return { owner }
+    if (busOwner !== null && busOwner !== Number(id))
+      return `PR #${pr} belongs to #${busOwner} in the bus (prs.card_id), not #${id}: it is that card's result; a pull request an owner decision shares between both cards closes with --shared-by D-<N>; nothing written`
+    if (cardLine !== null && cardLine !== Number(id))
+      return `PR #${pr} opens with the card line of #${cardLine}, not #${id}: it is that card's result; a pull request an owner decision shares between both cards closes with --shared-by D-<N>; nothing written`
+    if (deps.prCard !== undefined && owner === null)
+      return `PR #${pr} has no prs row in the bus and its body opens with no card line, so whose result it is is not known; open the body with the card line of #${id} and let netwatch observe it, then close again; nothing written`
+    return { cardLine }
   }
   if (owner === null)
     return `--shared-by ${reference}: PR #${pr} opens with no card line, so no card shares it with #${id}; nothing written`
   const refusal = sharingRefusal(deps, reference, [...new Set([Number(id), owner])])
-  return refusal ?? { owner, sharedBy: reference }
+  return refusal ?? { cardLine, sharedBy: reference }
 }
 
 function cardLineNote(id: string, pr: number, ownership: Ownership): string[] {
-  if (ownership.owner !== null)
+  if (ownership.cardLine !== null)
     return []
   return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
 }
@@ -355,7 +368,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const reference = flags.get('--shared-by')
   if (outcome === '--report' && reference !== undefined)
     return refuse(`--shared-by shares a pull request, and #${id} closes with --report; nothing written`)
-  const ownership = outcome === '--pr' ? ownershipOf(deps, id, Number(value), reference) : { owner: null }
+  const ownership = outcome === '--pr' ? ownershipOf(deps, id, Number(value), reference) : { cardLine: null }
   if (typeof ownership === 'string')
     return refuse(ownership)
   const shared = ownership.sharedBy === undefined ? {} : { sharedBy: ownership.sharedBy }
@@ -395,6 +408,7 @@ function realDeps(): TaskCloseDeps {
     now: () => new Date(),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
     busPath: defaultBusPath(),
+    prCard: pr => prCardOf(defaultBusPath(), pr),
     exists: existsSync,
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),

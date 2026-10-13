@@ -112,6 +112,19 @@ function jsonObject(text: string): Record<string, unknown> | undefined {
   }
 }
 
+export function prCardOf(busPath: string, pr: number): number | null {
+  if (!existsSync(busPath))
+    return null
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const row = db.prepare('SELECT card_id FROM prs WHERE pr = ?').get(pr) as { card_id: number | null } | undefined
+    return row?.card_id ?? null
+  }
+  finally {
+    db.close()
+  }
+}
+
 export function cardStartedLines(busPath: string): StartRecord[] {
   if (!existsSync(busPath))
     return []
