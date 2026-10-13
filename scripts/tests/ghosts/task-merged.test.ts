@@ -93,13 +93,14 @@ describe('recordMerges', () => {
     }, now: () => new Date('2026-10-13T18:00:00.000Z') }
     const result = recordMerges(deps)
     expect(mergeLines(journal)).toEqual([])
-    expect(result.inBus).toEqual([700])
+    expect(result.notInBus).toEqual([700])
     expect(result.skipped.map(line => [line.pr, line.skip])).toEqual([[701, 'closed']])
-    expect(mergedSummary(result)).toBe('merged: 0 new · 1 PR closed without merge skipped · 1 PR merged after the cutoff, left to the bus')
+    expect(mergedSummary(result)).toBe('merged: 0 new · 1 PR closed without merge skipped · 1 PR merged with no merged pr.closed in the bus yet, nothing written')
+    expect(mergedDetails(result)).toEqual(['PR #701 closed without merge', 'PR #700 merged; no merged pr.closed in the bus yet, and from 2026-10-12T17:04:00.000Z no merge line is written'])
     journal += skipped
     const rechecked = recheckMerge(deps, 702)
     expect(rechecked.written).toEqual([])
-    expect(rechecked.notes).toEqual(['PR #702 merged after 2026-10-12T17:04:00.000Z; its merge fact is pr.closed in the bus, nothing written'])
+    expect(rechecked.notes).toEqual(['PR #702 merged; no merged pr.closed in the bus yet, and from 2026-10-12T17:04:00.000Z no merge line is written; nothing written'])
     expect(mergeLines(journal)).toEqual([])
   })
 
@@ -306,6 +307,6 @@ describe('the merge fact in the bus', () => {
     expect(result.stderr).toBe('')
     expect(existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '').toBe('701\n')
     expect(readFileSync(journal, 'utf8')).toBe(CLOSING)
-    expect(result.stdout).toBe('[task:merged] merged: 0 new · 1 PR merged after the cutoff, left to the bus\n')
+    expect(result.stdout).toBe('[task:merged] merged: 0 new · 1 PR merged with no merged pr.closed in the bus yet, nothing written\n')
   })
 })

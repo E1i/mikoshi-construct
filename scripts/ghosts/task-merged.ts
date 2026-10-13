@@ -71,7 +71,7 @@ export interface MergedResult {
   written: MergeEvent[]
   skipped: (MergeSkip & { detail: string })[]
   open: number[]
-  inBus: number[]
+  notInBus: number[]
   notes: string[]
 }
 
@@ -130,7 +130,7 @@ function lookUp(deps: MergedDeps, pr: number): Outcome {
 }
 
 function emptyResult(): MergedResult {
-  return { written: [], skipped: [], open: [], inBus: [], notes: [] }
+  return { written: [], skipped: [], open: [], notInBus: [], notes: [] }
 }
 
 export function recordMerges(deps: MergedDeps): MergedResult {
@@ -147,7 +147,7 @@ export function recordMerges(deps: MergedDeps): MergedResult {
         result.skipped.push({ ...skip, detail: outcome.detail })
       }
       else if (!writtenBeforeHistoryEnds(outcome.line)) {
-        result.inBus.push(pr)
+        result.notInBus.push(pr)
       }
       else {
         deps.append(deps.journal, journalLine(outcome.line))
@@ -179,7 +179,7 @@ export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
   try {
     const outcome = lookUp(deps, pr)
     if (outcome.kind === 'merge' && !writtenBeforeHistoryEnds(outcome.line)) {
-      result.notes.push(`PR #${pr} merged after ${JOURNAL_HISTORY_ENDS}; its merge fact is pr.closed in the bus, nothing written`)
+      result.notes.push(`PR #${pr} merged; no merged pr.closed in the bus yet, and from ${JOURNAL_HISTORY_ENDS} no merge line is written; nothing written`)
     }
     else if (outcome.kind === 'merge') {
       deps.append(deps.journal, journalLine(outcome.line))
@@ -211,7 +211,7 @@ export function recheckSummary(result: MergedResult): string[] {
 }
 
 function lookedUp(result: MergedResult): number {
-  return result.written.length + result.skipped.length + result.open.length + result.inBus.length + result.notes.length
+  return result.written.length + result.skipped.length + result.open.length + result.notInBus.length + result.notes.length
 }
 
 export function mergedSummary(result: MergedResult): string | null {
@@ -223,7 +223,7 @@ export function mergedSummary(result: MergedResult): string | null {
     [count('no-card'), 'without a card skipped'],
     [count('closed'), 'closed without merge skipped'],
     [result.open.length, 'open'],
-    [result.inBus.length, 'merged after the cutoff, left to the bus'],
+    [result.notInBus.length, 'merged with no merged pr.closed in the bus yet, nothing written'],
     [result.notes.length, 'not read'],
   ].flatMap(part => typeof part === 'string' ? [part] : part[0] === 0 ? [] : [`${part[0]} ${part[0] === 1 ? 'PR' : 'PRs'} ${part[1]}`])
   return `merged: ${parts.join(' · ')}`
@@ -234,7 +234,7 @@ export function mergedDetails(result: MergedResult): string[] {
     ...result.written.map(line => `#${line.task} merged in PR #${line.pr}`),
     ...result.skipped.map(line => `PR #${line.pr} ${line.detail}`),
     ...result.open.map(pr => `PR #${pr} open`),
-    ...result.inBus.map(pr => `PR #${pr} merged after ${JOURNAL_HISTORY_ENDS}; its merge fact is pr.closed in the bus`),
+    ...result.notInBus.map(pr => `PR #${pr} merged; no merged pr.closed in the bus yet, and from ${JOURNAL_HISTORY_ENDS} no merge line is written`),
     ...result.notes,
   ]
 }

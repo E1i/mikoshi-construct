@@ -9,6 +9,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { MERGE_DONE, REVIEW_RECORDED } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
+import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
 import { STOP_EVENT } from '../shift/relaunch.js'
@@ -16,7 +17,6 @@ import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const PR_CLOSED = 'pr.closed'
 export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED]
 export const FAILED_CI = 'red'
 export const POLL_MS = 500
