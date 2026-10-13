@@ -1,13 +1,17 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { BusMerge } from '../ghosts/task-merged.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard } from '../../src/card/grammar.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { defaultBusPath } from '../bus/db.js'
+import { busMerges } from '../ghosts/task-merged.js'
 import { PREFIX as MERGE_PREFIX } from '../shift/merge.js'
 import { GHOST_JOURNAL, SHIFT_JOURNAL } from '../shift/places.js'
 
@@ -24,8 +28,10 @@ interface Line {
 
 export interface EvidenceDeps {
   journal: string
+  bus: string
   read: (file: string) => string | null
   commits: (from: string, to: string) => Set<string>
+  busMerges: () => BusMerge[]
 }
 
 export interface EvidenceResult {
@@ -133,6 +139,17 @@ function profile(deps: EvidenceDeps, lines: Line[], merge: Line): Field[] {
   ]
 }
 
+function journalMerges(lines: Line[], commits: Set<string>): Line[] {
+  return lines.filter(({ entry }) => entry.event === 'merge' && writtenBeforeHistoryEnds(entry) && typeof entry.commit === 'string' && commits.has(entry.commit))
+}
+
+function mergesInBus(deps: EvidenceDeps, commits: Set<string>): Line[] {
+  return deps.busMerges().filter(merge => merge.commit !== null && commits.has(merge.commit)).map(merge => ({
+    entry: { event: 'merge', task: merge.task, pr: merge.pr, by: merge.by, commit: merge.commit, merged: merge.merged },
+    source: `${deps.bus} event ${merge.event}`,
+  }))
+}
+
 function header({ entry }: Line): string {
   return `#${String(entry.task)} · PR #${String(entry.pr)} · commit ${String(entry.commit).slice(0, 7)}`
 }
@@ -152,14 +169,17 @@ export function runEvidence(argv: string[], deps: EvidenceDeps): EvidenceResult 
   if (text === null)
     return { stdout: [], stderr: [`${PREFIX}${deps.journal} cannot be read`], exitCode: 1 }
   const lines = linesOf(text, deps.journal)
-  const merges = lines.filter(({ entry }) => entry.event === 'merge' && typeof entry.commit === 'string' && commits.has(entry.commit))
+  const merges = [...journalMerges(lines, commits), ...mergesInBus(deps, commits)]
   const stdout = merges.flatMap(merge => [header(merge), ...profile(deps, lines, merge).map(field => `  ${field.name}: ${field.value} — ${field.source}`)])
-  return { stdout: stdout.length === 0 ? [`no merge line in ${deps.journal} has a commit in ${from}..${to}`] : stdout, stderr: [], exitCode: 0 }
+  return { stdout: stdout.length === 0 ? [`no merge line in ${deps.journal} and no merged pr.closed in ${deps.bus} has a commit in ${from}..${to}`] : stdout, stderr: [], exitCode: 0 }
 }
 
 function realDeps(): EvidenceDeps {
+  const bus = defaultBusPath()
   return {
     journal: path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL),
+    bus,
+    busMerges: () => busMerges(bus),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     commits: (from, to) => new Set(execFileSync('git', ['rev-list', `${from}..${to}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(sha => sha !== '')),
   }

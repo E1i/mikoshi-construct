@@ -1,8 +1,18 @@
+import type { BusMerge } from '../../ghosts/task-merged.js'
 import type { EvidenceDeps } from '../../release/evidence.js'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { HANDOFF_DIR_VARIABLE } from '../../board/run.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
+import { prClosed } from '../../bus/observations.js'
 import { runEvidence } from '../../release/evidence.js'
 
 const JOURNAL = '/handoff/ghosts.jsonl'
+const BUS = '/construct/bus.db'
 const SHIFT = '/shift/r1'
 const COMMIT = 'a'.repeat(40)
 const OUTSIDE = 'b'.repeat(40)
@@ -11,9 +21,9 @@ const CARD = { id: 7, name: 'seven', kind: 'implement', milestone: 'runner', siz
 const intake = { event: 'intake', task: '7', card: CARD.line, confirmation: 'none', corrections: [], ts: 't0' }
 const merge = { event: 'merge', task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-07T00:00:00Z', ts: 't9' }
 
-function world(journal: object[], files: Record<string, string> = {}): EvidenceDeps {
+function world(journal: object[], files: Record<string, string> = {}, inBus: BusMerge[] = []): EvidenceDeps {
   const all: Record<string, string> = { [JOURNAL]: journal.map(line => JSON.stringify(line)).join('\n'), ...files }
-  return { journal: JOURNAL, read: file => all[file] ?? null, commits: () => new Set([COMMIT]) }
+  return { journal: JOURNAL, bus: BUS, read: file => all[file] ?? null, commits: () => new Set([COMMIT]), busMerges: () => inBus }
 }
 
 function field(stdout: string[], name: string): string {
@@ -71,10 +81,59 @@ describe('release:evidence prints the execution profile of every merged card in 
   it('leaves out a merge line whose commit is outside the range', () => {
     const { stdout } = runEvidence(['v1', 'v2'], world([intake, { ...merge, commit: OUTSIDE }]))
 
-    expect(stdout).toEqual([`no merge line in ${JOURNAL} has a commit in v1..v2`])
+    expect(stdout).toEqual([`no merge line in ${JOURNAL} and no merged pr.closed in ${BUS} has a commit in v1..v2`])
   })
 
   it('refuses without exactly two revisions', () => {
     expect(runEvidence(['v1'], world([])).exitCode).toBe(1)
+  })
+
+  it('a merge after the cutoff comes from pr.closed in the bus with no merge line in the journal', () => {
+    const start = { event: 'path', task: '7', path: 'cheap', card: CARD, ts: '2026-10-13T10:00:00.000Z' }
+    const inBus: BusMerge[] = [
+      { task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-13T11:00:00Z', event: 11133264 },
+      { task: '8', pr: 80, by: 'E1i', commit: OUTSIDE, merged: '2026-10-13T11:05:00Z', event: 11133265 },
+    ]
+    const { stdout } = runEvidence(['v1', 'v2'], world([intake, start], {}, inBus))
+    expect(stdout.filter(line => line.startsWith('#'))).toEqual([`#7 · PR #70 · commit ${COMMIT.slice(0, 7)}`])
+    expect(field(stdout, 'result.merge')).toBe(`  result.merge: PR #70 by E1i at 2026-10-13T11:00:00Z — ${BUS} event 11133264`)
+    expect(field(stdout, 'size')).toBe(`  size: XS — ${JOURNAL}:2`)
+  })
+
+  it('a journal merge line written after the cutoff is not read', () => {
+    const late = { ...merge, ts: '2026-10-12T17:04:00.000Z' }
+    const early = { ...merge, task: '6', pr: 60, ts: '2026-10-12T17:03:59.999Z' }
+    const inBus: BusMerge[] = [{ task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-13T11:00:00Z', event: 11133264 }]
+    const { stdout } = runEvidence(['v1', 'v2'], world([intake, early, late], {}, inBus))
+    expect(stdout.filter(line => line.startsWith('#'))).toEqual([`#6 · PR #60 · commit ${COMMIT.slice(0, 7)}`, `#7 · PR #70 · commit ${COMMIT.slice(0, 7)}`])
+    expect(stdout.filter(line => line.startsWith('  result.merge: ')).map(line => line.split(' — ')[1])).toEqual([`${JOURNAL}:2`, `${BUS} event 11133264`])
+  })
+
+  it('the release:evidence script reads the bus it is given', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'release-evidence-bus-'))
+    try {
+      const git = (...args: string[]): string => execFileSync('git', ['-C', root, '-c', 'user.name=world', '-c', 'user.email=world@example.invalid', ...args], { encoding: 'utf8' }).trim()
+      git('init', '-q')
+      git('commit', '-q', '--allow-empty', '-m', 'from')
+      git('commit', '-q', '--allow-empty', '-m', 'to')
+      const to = git('rev-parse', 'HEAD')
+      const handoff = path.join(root, 'handoff')
+      mkdirSync(handoff)
+      writeFileSync(path.join(handoff, 'ghosts.jsonl'), `${JSON.stringify(intake)}\n`)
+      const bus = path.join(root, 'bus.db')
+      const db = openBus(bus)
+      appendEvent(db, prClosed('2026-10-13T11:00:01.000Z', { pr: 70, cardId: 7, merged: true, commit: to, mergedBy: 'E1i', mergedAt: '2026-10-13T11:00:00Z' }))
+      db.close()
+      const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../../release/evidence.ts'), 'HEAD~1', 'HEAD'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, [BUS_DB_VARIABLE]: bus, [HANDOFF_DIR_VARIABLE]: handoff },
+      })
+      expect(result.stderr).toBe('')
+      expect(result.stdout).toContain(`  result.merge: PR #70 by E1i at 2026-10-13T11:00:00Z — ${bus} event 1`)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
