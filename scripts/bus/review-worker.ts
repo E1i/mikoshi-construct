@@ -37,7 +37,7 @@ export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
 const CI_NOT_READY = 'ci_not_ready'
 export const TREE_LEFT = 'tree_left'
-const REVIEWS_DIR = path.join(os.homedir(), '.construct', 'bus', 'reviews')
+const BUS_DIR = path.join(os.homedir(), '.construct', 'bus')
 const MORSE_JOURNAL = path.join(os.homedir(), '.construct', 'bus', 'morse.jsonl')
 
 export type Step
@@ -266,6 +266,10 @@ export function reviewMode(argv: string[]): ReviewMode {
   return pr === null ? { kind: 'refused', reason: `${DRY_RUN_FLAG} needs a pull request number: ${DRY_RUN_FLAG} <pr>` } : { kind: 'dry-run', pr }
 }
 
+export function reviewsDir(busDir: string, mode: ReviewMode): string {
+  return path.join(busDir, mode.kind === 'dry-run' ? 'dry-run-reviews' : 'reviews')
+}
+
 export type CardBodyOf = (cardId: number) => string | null
 
 const NO_CARD_BODY: CardBodyOf = () => null
@@ -382,8 +386,9 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  const trees = new ReviewTrees(cwd, REVIEWS_DIR)
-  return runReview(process.argv.slice(2), {
+  const argv = process.argv.slice(2)
+  const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)))
+  return runReview(argv, {
     busPath: defaultBusPath(),
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),

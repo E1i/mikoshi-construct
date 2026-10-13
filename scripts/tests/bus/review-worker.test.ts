@@ -6,7 +6,8 @@ import type { LeftoverTree, Reviewer } from '../../bus/reviewer.js'
 import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { ChangedFile } from '../../morse/rules.js'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +20,7 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { openDatabase } from '../../bus/sqlite.js'
@@ -621,6 +622,32 @@ describe('review worker', () => {
     expect(reviewMode(['--dry-run'])).toMatchObject({ kind: 'refused' })
     expect(reviewMode(['--on'])).toEqual({ kind: 'on' })
     expect(reviewMode([])).toEqual({ kind: 'off' })
+  })
+
+  it('a dry run started while the switch is on keeps its tree through the switched-on worker\'s leftover pass', () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-review-dry-run-')))
+    const run = (cwd: string, ...args: string[]): string => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    try {
+      const repo = path.join(root, 'repo')
+      const bus = path.join(root, 'bus')
+      mkdirSync(repo)
+      run(repo, 'init', '-q')
+      writeFileSync(path.join(repo, 'a.txt'), 'a\n')
+      run(repo, 'add', 'a.txt')
+      run(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a')
+      const head = run(repo, 'rev-parse', 'HEAD').trim()
+      const switchedOn = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--on'])))
+      const dry = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--dry-run', '949'])))
+      const dryTree = path.join(dry.dir, 'dry-run-session')
+      mkdirSync(dry.dir, { recursive: true })
+      dry.add(dryTree, head)
+
+      expect(switchedOn.clearLeftovers()).toEqual([])
+      expect(existsSync(dryTree)).toBe(true)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 
