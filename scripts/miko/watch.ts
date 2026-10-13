@@ -23,12 +23,14 @@ export interface WatchState {
   offset: number
   rest: string
   busId: number
+  ciByPr: Map<number, unknown>
   pids: Set<number>
 }
 
 export interface BusEvent {
   id: number
   type: string
+  pr: number | null
   payload: string
 }
 
@@ -67,7 +69,7 @@ export function wakingEvent(line: string): string | undefined {
 }
 
 export function watchState(deps: WatchDeps, pids: number[]): WatchState {
-  return { offset: deps.size(), rest: '', busId: deps.lastBusId(), pids: new Set(pids) }
+  return { offset: deps.size(), rest: '', busId: deps.lastBusId(), ciByPr: new Map(), pids: new Set(pids) }
 }
 
 function journalLines(state: WatchState, deps: WatchDeps): string[] {
@@ -95,17 +97,26 @@ function ciOf(payload: string): unknown {
   }
 }
 
-export function wakesTheWindow(event: BusEvent): boolean {
+function turnsRed(state: WatchState, event: BusEvent): boolean {
+  if (event.pr === null)
+    return ciOf(event.payload) === FAILED_CI
+  const before = state.ciByPr.get(event.pr)
+  const now = ciOf(event.payload)
+  state.ciByPr.set(event.pr, now)
+  return now === FAILED_CI && before !== FAILED_CI
+}
+
+export function wakesTheWindow(state: WatchState, event: BusEvent): boolean {
   if (!WAKING_BUS_EVENTS.includes(event.type))
     return false
-  return event.type !== PR_OBSERVED || ciOf(event.payload) === FAILED_CI
+  return event.type !== PR_OBSERVED || turnsRed(state, event)
 }
 
 function busLines(state: WatchState, deps: WatchDeps): string[] {
   const events = deps.busEventsAfter(state.busId)
   for (const event of events)
     state.busId = Math.max(state.busId, event.id)
-  return events.filter(wakesTheWindow).map(event => `bus ${event.type} ${event.payload}`)
+  return events.filter(event => wakesTheWindow(state, event)).map(event => `bus ${event.type} ${event.payload}`)
 }
 
 function exitedPids(state: WatchState, deps: WatchDeps): string[] {
@@ -158,8 +169,8 @@ function busEventsAfter(bus: string, id: number): BusEvent[] {
   const db = openBus(bus)
   try {
     const types = WAKING_BUS_EVENTS.map(() => '?').join(', ')
-    const rows = db.prepare(`SELECT id, type, payload FROM events WHERE type IN (${types}) AND id > ? ORDER BY id`).all(...WAKING_BUS_EVENTS, id) as Array<{ id: number, type: string, payload: string }>
-    return rows.map(row => ({ id: Number(row.id), type: row.type, payload: row.payload }))
+    const rows = db.prepare(`SELECT id, type, pr, payload FROM events WHERE type IN (${types}) AND id > ? ORDER BY id`).all(...WAKING_BUS_EVENTS, id) as Array<{ id: number, type: string, pr: number | null, payload: string }>
+    return rows.map(row => ({ id: Number(row.id), type: row.type, pr: row.pr === null ? null : Number(row.pr), payload: row.payload }))
   }
   finally {
     db.close()

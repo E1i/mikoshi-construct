@@ -117,11 +117,11 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
 
   it('wakes once on each relaunch-stop the bus holds after the watch started, and never on one before it', () => {
     const file = journal()
-    const events: BusEvent[] = [{ id: 3, type: STOP_EVENT, payload: '{"event":"relaunch-stop"}' }]
+    const events: BusEvent[] = [{ id: 3, type: STOP_EVENT, pr: null, payload: '{"event":"relaunch-stop"}' }]
     const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 3 }
     const state = watchState(deps, [])
     expect(tick(state, deps)).toEqual([])
-    events.push({ id: 7, type: STOP_EVENT, payload: '{"event":"relaunch-stop","reason":"max"}' })
+    events.push({ id: 7, type: STOP_EVENT, pr: null, payload: '{"event":"relaunch-stop","reason":"max"}' })
     expect(tick(state, deps)).toEqual(['bus relaunch-stop {"event":"relaunch-stop","reason":"max"}'])
     expect(tick(state, deps)).toEqual([])
   })
@@ -132,7 +132,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const deps = fileDeps(file, () => true, events)
     const state = watchState(deps, [])
     const text = JSON.stringify(payload)
-    events.push({ id: 1, type, payload: text })
+    events.push({ id: 1, type, pr: 801, payload: text })
     expect(tick(state, deps)).toEqual(wakes ? [`bus ${type} ${text}`] : [])
     expect(tick(state, deps)).toEqual([])
   })
@@ -152,6 +152,28 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       watch.child.kill()
     }
   }, 20_000)
+
+  it('a PR wakes the window once when its CI turns red, not again on later red observations of it, and again after it left red', () => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    const observe = (id: number, pr: number, ci: string, extra: object = {}): string => {
+      const text = JSON.stringify({ head: `h${id}`, ci, ...extra })
+      events.push({ id, type: PR_OBSERVED, pr, payload: text })
+      return text
+    }
+    const red = observe(1, 801, 'red')
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${red}`])
+    observe(2, 801, 'red', { verdict_on_head: 'changes' })
+    observe(3, 801, 'red', { mergeable: 'clean' })
+    expect(tick(state, deps)).toEqual([])
+    const otherPr = observe(4, 802, 'red')
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${otherPr}`])
+    observe(5, 801, 'pending')
+    const again = observe(6, 801, 'red')
+    expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} ${again}`])
+  })
 
   it('a relaunch-stop written to the bus wakes miko', async () => {
     const file = journal()
