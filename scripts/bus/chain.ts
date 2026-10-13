@@ -75,7 +75,7 @@ function chainState(payload: Record<string, unknown>): ChainState {
 }
 
 export function chainOfCard(db: DatabaseSync, cardId: number): ChainRow | undefined {
-  return db.prepare(`SELECT ${CHAIN_COLUMNS} FROM chains WHERE card_id = ? ORDER BY dir LIMIT 1`).get(cardId) as ChainRow | undefined
+  return db.prepare(`SELECT ${CHAIN_COLUMNS} FROM chains WHERE card_id = ? ORDER BY state = 'stopped', event_id DESC LIMIT 1`).get(cardId) as ChainRow | undefined
 }
 
 export function chainOfDir(db: DatabaseSync, dir: string): ChainRow | undefined {

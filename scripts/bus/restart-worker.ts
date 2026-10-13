@@ -4,6 +4,8 @@ import type { ChainLauncher, RelaunchOutcome, RestartOutcome, RoleLauncher } fro
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +19,7 @@ import { FAILURES_TO_STOP } from './queue.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
 import { SWITCH_FLAG } from './review-worker.js'
 import { leaseRole, RAISED_VARIABLE, roleToOwner } from './role.js'
+import { switchedOn } from './workers.js'
 
 export const PREFIX = '[bus:restart] '
 export const MIKO_LAUNCH_OFF = 'the launch of pnpm miko is switched off: whether nohup pnpm miko can start a claude window without a terminal is not settled; start pnpm miko in a terminal'
@@ -27,6 +30,8 @@ export interface RestartWorkerParts {
   db: DatabaseSync
   launcher: ChainLauncher
   roles: RoleLauncher
+  processes: ProcessTable
+  launchSwitchedOn: () => boolean
   clock: () => Date
   session: string
 }
@@ -116,6 +121,8 @@ export interface RestartRun {
   busPath: string
   launcher: ChainLauncher
   roles: RoleLauncher
+  processes: ProcessTable
+  launchSwitchedOn: () => boolean
   session: string
   pause: (ms: number) => Promise<unknown>
 }
@@ -127,7 +134,7 @@ export async function runRestartWorker(argv: string[], run: RestartRun): Promise
   }
   const db = openBus(run.busPath)
   try {
-    const worker = new RestartWorker({ db, launcher: run.launcher, roles: run.roles, clock: () => new Date(), session: run.session })
+    const worker = new RestartWorker({ db, launcher: run.launcher, roles: run.roles, processes: run.processes, launchSwitchedOn: run.launchSwitchedOn, clock: () => new Date(), session: run.session })
     console.log(`${PREFIX}${run.busPath}: the restart worker ${worker.actor} takes the restart queue`)
     for (;;) {
       const step = worker.step()
@@ -142,8 +149,13 @@ export async function runRestartWorker(argv: string[], run: RestartRun): Promise
   }
 }
 
+export function launchSwitchedOn(busDir: string): boolean {
+  return switchedOn(busDir).includes('launch')
+}
+
 async function main(): Promise<number> {
-  return runRestartWorker(process.argv.slice(2), { busPath: defaultBusPath(), launcher: checkoutLauncher(process.cwd()), roles: roleLauncher(), session: randomUUID(), pause: sleep })
+  const busDir = path.join(os.homedir(), '.construct', 'bus')
+  return runRestartWorker(process.argv.slice(2), { busPath: defaultBusPath(), launcher: checkoutLauncher(process.cwd()), roles: roleLauncher(), processes: REAL_PROCESSES, launchSwitchedOn: () => launchSwitchedOn(busDir), session: randomUUID(), pause: sleep })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
