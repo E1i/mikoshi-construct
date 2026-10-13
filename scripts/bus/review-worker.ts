@@ -6,6 +6,7 @@ import type { AfterFailure, Lease } from './lease.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { LeftoverTree, Review, Reviewer } from './reviewer.js'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -24,7 +25,7 @@ import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, expireLeases, failTask, leaseNext, leaseQueued, releaseTask, RENEW_MS, renewLease, StaleLease } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { BOARD_ALARM, cardBodyShaOfCard } from './queue.js'
+import { BOARD_ALARM, cardBodyShaOfCard, changesRoundsOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
 import { fullReview } from './review-depth.js'
@@ -37,6 +38,8 @@ export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
 const CI_NOT_READY = 'ci_not_ready'
 export const TREE_LEFT = 'tree_left'
+export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
+export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 const BUS_DIR = path.join(os.homedir(), '.construct', 'bus')
 const MORSE_JOURNAL = path.join(os.homedir(), '.construct', 'bus', 'morse.jsonl')
 
@@ -56,6 +59,7 @@ export interface WorkerParts {
   clock: () => Date
   session: string
   clearLeftovers?: () => LeftoverTree[]
+  notePr?: (pr: number, line: string) => void
 }
 
 interface Reviewed {
@@ -171,8 +175,39 @@ export class ReviewWorker {
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, reviewed)])
+    const spent = this.roundsSpent(lease, review)
+    completeTask(db, this.ts(), lease, [this.recorded(lease, reviewed), ...(spent === null ? [] : [spent])])
+    if (spent !== null && lease.pr !== null)
+      this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth }
+  }
+
+  private roundsSpent(lease: Lease, review: Review): BusEvent | null {
+    if (review.verdict !== 'changes' || lease.pr === null)
+      return null
+    const rounds = changesRoundsOf(this.parts.db, lease.pr) + 1
+    if (rounds < REVIEW_ROUNDS)
+      return null
+    return {
+      ts: this.ts(),
+      type: REVIEW_ROUNDS_SPENT,
+      actor: this.actor,
+      cardId: lease.cardId,
+      pr: lease.pr,
+      head: lease.head,
+      dedupeKey: `${REVIEW_ROUNDS_SPENT}:${lease.pr}`,
+      payload: { state: ROUND_LIMIT_REACHED, pr: lease.pr, rounds, findings: review.findings },
+      legacy: false,
+    }
+  }
+
+  private noted(pr: number, line: string): void {
+    try {
+      this.parts.notePr?.(pr, line)
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${pr}: the round-limit line was not added to its body, the bus event holds the report: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   private recorded(lease: Lease, { review, plan, ms }: Reviewed): BusEvent {
@@ -211,6 +246,10 @@ export class ReviewWorker {
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
+}
+
+export function roundLimitLine(pr: number, rounds: number): string {
+  return `Review round limit reached (D-104): ${rounds} rounds of changes on PR #${pr}; the bus queues no further review or answer for it and does not merge it. The remaining findings are in the bus event ${REVIEW_ROUNDS_SPENT}.`
 }
 
 export function startReviewWorkers(parts: WorkerParts, slots: number): ReviewWorker[] {
@@ -328,6 +367,14 @@ export interface ReviewRun {
   slots: number
   pause: (ms: number) => Promise<unknown>
   clearLeftovers: () => LeftoverTree[]
+  notePr?: (pr: number, line: string) => void
+}
+
+export function ghNotePr(cwd: string): (pr: number, line: string) => void {
+  return (pr, line) => {
+    const view = execFileSync('gh', ['pr', 'view', String(pr), '--json', 'body', '-q', '.body'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    execFileSync('gh', ['pr', 'edit', String(pr), '--body-file', '-'], { cwd, input: `${view.trimEnd()}\n\n${line}\n`, stdio: ['pipe', 'pipe', 'pipe'] })
+  }
 }
 
 export function recordLeftovers(db: DatabaseSync, actor: string, ts: string, leftovers: LeftoverTree[]): void {
@@ -365,6 +412,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     clock: () => new Date(),
     session: run.session,
     clearLeftovers: run.clearLeftovers,
+    notePr: run.notePr,
   }
   try {
     const workers = startReviewWorkers(parts, run.slots)
@@ -398,6 +446,7 @@ async function main(): Promise<number> {
     slots: slotsOf('review', process.env),
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
+    notePr: ghNotePr(cwd),
   })
 }
 

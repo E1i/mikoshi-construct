@@ -9,10 +9,10 @@ import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
-import { queueTask, TASK_SUPERSEDED } from '../../bus/queue.js'
+import { queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview } from '../../bus/review-depth.js'
-import { ReviewWorker } from '../../bus/review-worker.js'
+import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -314,4 +314,108 @@ describe('review queue', () => {
       db.close()
     }
   }, 120_000)
+})
+
+describe('the review round limit of D-104', () => {
+  const HEADS = [sha('a'), sha('b'), sha('c'), sha('d')]
+
+  async function rounds(pr: number, verdicts: ('pass' | 'changes')[]): Promise<{ db: DatabaseSync, gitHub: FakeGitHub, tick: () => void, worker: ReviewWorker, notes: [number, string][] }> {
+    const { db, gitHub, clock, tick } = setUp()
+    const notes: [number, string][] = []
+    let round = 0
+    const worker = new ReviewWorker({
+      db,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        gitHub.pulls.get(pr)!.review = status.state
+      },
+      reviewer: async () => {
+        round += 1
+        const verdict = verdicts[round - 1]!
+        return { verdict, findings: verdict === 'changes' ? [`a.ts:${round} the finding of round ${round}`, `b.ts:${round} the second finding of round ${round}`] : [], session: `reviewer-${round}` }
+      },
+      plan: () => fullReview('a fixed plan'),
+      clock: clock.now,
+      session: 'worker-1',
+      notePr: (number, line) => {
+        notes.push([number, line])
+        gitHub.pulls.get(number)!.body = `${cardBody(number)}\n\n${line}`
+      },
+    })
+    for (const [at, verdict] of verdicts.entries()) {
+      gitHub.open({ number: pr, head: HEADS[at]! })
+      tick()
+      tick()
+      expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict })
+      tick()
+      tick()
+    }
+    return { db, gitHub, tick, worker, notes }
+  }
+
+  function liveTasksOn(db: DatabaseSync, head: string): string[] {
+    return (db.prepare(`SELECT queue FROM tasks WHERE head = ? AND state IN ('queued', 'leased') ORDER BY id`).all(head) as { queue: string }[]).map(row => row.queue)
+  }
+
+  function spentEvents(db: DatabaseSync): unknown[] {
+    return (db.prepare(`SELECT payload FROM events WHERE type = '${REVIEW_ROUNDS_SPENT}' ORDER BY id`).all() as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
+  }
+
+  it('after the third changes round no fourth review and no answer are queued for the PR, the merge is blocked, and the bus holds one event with the full list of findings', async () => {
+    const { db, gitHub, tick, worker, notes } = await rounds(940, ['changes', 'changes', 'changes'])
+
+    expect(liveTasksOn(db, HEADS[2]!)).toEqual([])
+    expect(spentEvents(db)).toEqual([{ state: 'round_limit_reached', pr: 940, rounds: 3, findings: ['a.ts:3 the finding of round 3', 'b.ts:3 the second finding of round 3'] }])
+    expect(notes).toEqual([[940, roundLimitLine(940, 3)]])
+    expect(gitHub.pulls.get(940)!.body).toBe(`${cardBody(940)}\n\n${roundLimitLine(940, 3)}`)
+
+    gitHub.open({ number: 940, head: HEADS[3]! })
+    tick()
+    tick()
+    expect(liveTasksOn(db, HEADS[3]!)).toEqual([])
+    expect(await worker.step()).toEqual({ kind: 'idle' })
+
+    gitHub.open({ number: 940, head: HEADS[3]!, review: 'success' })
+    tick()
+    tick()
+    expect(liveTasksOn(db, HEADS[3]!)).toEqual([])
+    expect(spentEvents(db)).toHaveLength(1)
+    const live = projectionDump(db)
+    reduce(db)
+    expect(projectionDump(db)).toBe(live)
+    db.close()
+  })
+
+  it('a review of the spent PR superseded under its current body is not queued again', async () => {
+    const { db, tick } = await rounds(943, ['changes', 'changes', 'changes'])
+    const ts = '2026-10-13T12:00:00.000Z'
+    const task = { queue: 'review' as const, cardId: 1043, pr: 943, head: HEADS[2]!, input: { prBody: prBodySha(`${cardBody(943)}\n\n${roundLimitLine(943, 3)}`), cardBody: null } }
+    expect(queueTask(db, ts, task)).toBe(true)
+    expect(supersedeTask(db, ts, task)).toBe(true)
+    tick()
+    tick()
+    expect(tasks(db)).toContainEqual({ task_key: taskKey(task), state: 'superseded' })
+    expect(liveTasksOn(db, HEADS[2]!)).toEqual([])
+    db.close()
+  })
+
+  it('before the limit a changes verdict is answered as before', async () => {
+    const { db, notes } = await rounds(941, ['changes', 'changes'])
+    expect(liveTasksOn(db, HEADS[1]!)).toEqual(['answer'])
+    expect(spentEvents(db)).toEqual([])
+    expect(notes).toEqual([])
+    db.close()
+  })
+
+  it.each([
+    ['the first', ['pass']],
+    ['the second', ['changes', 'pass']],
+    ['the third', ['changes', 'changes', 'pass']],
+  ] as const)('a pass on %s round merges as before', async (_, verdicts) => {
+    const { db, notes } = await rounds(942, [...verdicts])
+    expect(liveTasksOn(db, HEADS[verdicts.length - 1]!)).toEqual(['merge'])
+    expect(spentEvents(db)).toEqual([])
+    expect(notes).toEqual([])
+    db.close()
+  })
 })

@@ -807,18 +807,25 @@ describe('review depth by MORSE', () => {
     expect(world.asked).toEqual([`${MERGE_BASE}..${sha('a')}`, `${sha('a')}..${sha('b')}`])
     expect(world.predictions).toHaveLength(1)
     const prompt = reviewPrompt(seen[1]!.lease, seen[1]!.plan, '/t', '/v.json')
-    expect(prompt).toContain(`read only the diff ${sha('a')}..${sha('b')}, not the whole pull request, and check that each finding of the earlier verdict is closed`)
+    expect(prompt).toContain(`check that each finding of the earlier verdict is closed, one still open stays a finding, and explore the diff ${sha('a')}..${sha('b')}`)
+    expect(prompt).toContain('a regression outside the diff that the change causes')
+    expect(prompt).toContain('a new finding on code the change neither touches nor affects, which the first pass already read, is not allowed')
     expect(prompt).toContain(`Earlier finding: ${finding}`)
     expect(events(bench.db, 'review.recorded').map(payload => [payload.head, payload.verdict, payload.depth])).toEqual([[sha('a'), 'changes', 'cheap'], [sha('b'), 'pass', 'diff']])
     expectReplayIdentical(bench.db)
     bench.db.close()
   })
 
-  it('a re-review whose diff touches a file outside the last findings gets the full review', async () => {
-    const { bench, seen } = await changesThenNewHead(966, 'docs/guide.md: the heading is wrong', [edited('docs/guide.md'), edited('docs/cli.md')])
+  it('a re-review whose diff touches a file outside the last findings stays a re-review of the diff with the earlier findings', async () => {
+    const finding = 'docs/guide.md: the heading is wrong'
+    const { bench, seen } = await changesThenNewHead(966, finding, [edited('docs/guide.md'), edited('docs/cli.md')])
 
-    expect(seen[1]!.plan).toEqual({ depth: 'full', why: `${sha('a')}..${sha('b')} changes docs/cli.md, which no finding of the earlier changes verdict names`, prediction: null })
-    expect(events(bench.db, 'review.recorded').map(payload => payload.depth)).toEqual(['cheap', 'full'])
+    expect(seen[1]!.plan).toEqual({ depth: 'diff', why: `${sha('a')}..${sha('b')} also changes docs/cli.md, which no finding of the earlier changes verdict names`, since: sha('a'), findings: [finding] })
+    const prompt = reviewPrompt(seen[1]!.lease, seen[1]!.plan, '/t', '/v.json')
+    expect(prompt).toContain(`explore the diff ${sha('a')}..${sha('b')}`)
+    expect(prompt).toContain(`Earlier finding: ${finding}`)
+    expect(prompt).not.toContain('Review the whole pull request')
+    expect(events(bench.db, 'review.recorded').map(payload => payload.depth)).toEqual(['cheap', 'diff'])
     bench.db.close()
   })
 

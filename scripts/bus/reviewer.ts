@@ -40,21 +40,26 @@ export function reviewOf(text: string, session: string): Review {
   return { verdict: parsed.verdict as VerdictWord, findings: parsed.findings as string[], session }
 }
 
+const ONE_PASS = 'Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.'
+
+function reReviewLines(since: string, head: string | null, findings: readonly string[]): string[] {
+  return [
+    `This is a re-review: check that each finding of the earlier verdict is closed, one still open stays a finding, and explore the diff ${since}..${head}.`,
+    `A new finding is allowed on the changed lines and on code the change affects: its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes. Do not re-read the whole pull request without a reason; a new finding on code the change neither touches nor affects, which the first pass already read, is not allowed.`,
+    ...findings.map(finding => `Earlier finding: ${finding}`),
+  ]
+}
+
 function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   const depth = `Review depth ${plan.depth}: ${plan.why}.`
   if (plan.depth === 'cheap')
-    return [depth, `Read only the diff ${plan.base}..${lease.head} against the card and its witnesses; do not walk the modules it touches.`]
-  if (plan.depth === 'diff') {
-    return [
-      depth,
-      `This is a re-review: read only the diff ${plan.since}..${lease.head}, not the whole pull request, and check that each finding of the earlier verdict is closed; one still open stays a finding.`,
-      ...plan.findings.map(finding => `Earlier finding: ${finding}`),
-    ]
-  }
+    return [depth, `Read only the diff ${plan.base}..${lease.head} against the card and its witnesses; do not walk the modules it touches.`, ONE_PASS]
+  if (plan.depth === 'diff')
+    return [depth, ...reReviewLines(plan.since, lease.head, plan.findings), ONE_PASS]
   const ladder = plan.prediction?.verdict === 'ladder'
     ? [`MORSE predicts the ladder by rule ${plan.prediction.rule} (${plan.prediction.why.join(', ')}): check that the card or the pull request names the reason this change takes the ladder (D-76), and make a missing reason a finding.`]
     : []
-  return [depth, `Review the whole pull request and walk every module it touches.`, ...ladder]
+  return [depth, `Review the whole pull request and walk every module it touches.`, ...ladder, ONE_PASS]
 }
 
 export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string): string {

@@ -4,7 +4,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
-import { MERGE_DONE } from './card-automaton.js'
+import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, ownerQuestionAnswered } from './inbox.js'
@@ -20,6 +20,7 @@ export const QUEUE_ACTOR = 'policy'
 export const CARD_CLOSED = 'card.closed'
 export const BOARD_ALARM = 'board.alarm'
 export const FAILURES_TO_STOP = 3
+export const REVIEW_ROUNDS = 3
 
 export const QUEUED = 'queued'
 export const LEASED = 'leased'
@@ -176,6 +177,21 @@ interface Candidate {
   stop?: number | null
   body_sha?: string | null
   card_body?: unknown
+}
+
+const CHANGES_ROUNDS_OF_A_PR = `
+  SELECT count(*) AS rounds FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'
+`
+
+export function changesRoundsOf(db: DatabaseSync, pr: number): number {
+  return Number((db.prepare(CHANGES_ROUNDS_OF_A_PR).get(pr) as { rounds: number }).rounds)
+}
+
+const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
+
+function outOfRounds(db: DatabaseSync, queue: Queue, pr: number | null): boolean {
+  return ROUND_LIMITED.includes(queue) && pr !== null && changesRoundsOf(db, pr) >= REVIEW_ROUNDS
 }
 
 type Admits = (row: Candidate) => boolean
@@ -420,6 +436,8 @@ function underCurrentInput(row: ReviewRow): boolean {
 }
 
 function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow, fault = false): boolean {
+  if (outOfRounds(db, row.queue, row.pr))
+    return false
   return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
 }
 
@@ -463,7 +481,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       derived.queued.push(row.task_key)
   }
   for (const [queue, query, admits] of candidates(db)) {
-    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits)) {
+    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits).filter(row => !outOfRounds(db, queue, row.pr))) {
       const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
       const task: QueuedTask = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
       if (queueTask(db, ts, task))
