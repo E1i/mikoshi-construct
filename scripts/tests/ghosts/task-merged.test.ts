@@ -1,8 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { HANDOFF_DIR_VARIABLE } from '../../board/run.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { prClosed } from '../../bus/observations.js'
 import { busMerges, mergedDetails, mergedSummary, recheckArgument, recheckMerge, recheckSummary, recordMerges } from '../../ghosts/task-merged.js'
 
@@ -198,13 +201,15 @@ describe('the merge fact in the bus', () => {
       rmSync(root, { recursive: true, force: true })
   })
 
-  function busWith(closings: { ts: string, pr: number, cardId: number | null, merged: boolean }[]): string {
+  function busWith(closings: { ts: string, pr: number, cardId: number | null, merged: boolean, legacy?: boolean }[]): string {
     const root = mkdtempSync(path.join(tmpdir(), 'task-merged-bus-'))
     roots.push(root)
     const file = path.join(root, 'bus.db')
     const db = openBus(file)
-    for (const closing of closings)
-      appendEvent(db, prClosed(closing.ts, { pr: closing.pr, cardId: closing.cardId, merged: closing.merged, commit: closing.merged ? 'c0ffee' : null, mergedBy: closing.merged ? 'E1i' : null, mergedAt: closing.merged ? '2026-10-13T08:30:00Z' : null }))
+    for (const closing of closings) {
+      const event = prClosed(closing.ts, { pr: closing.pr, cardId: closing.cardId, merged: closing.merged, commit: closing.merged ? 'c0ffee' : null, mergedBy: closing.merged ? 'E1i' : null, mergedAt: closing.merged ? '2026-10-13T08:30:00Z' : null })
+      appendEvent(db, closing.legacy === true ? { ...event, actor: null, legacy: true } : event)
+    }
     db.close()
     return file
   }
@@ -251,5 +256,37 @@ describe('the merge fact in the bus', () => {
 
   it('reads no merge fact from a bus that does not exist', () => {
     expect(busMerges(path.join(tmpdir(), 'no-such-dir-934', 'bus.db'))).toEqual([])
+  })
+
+  it('holds a merged pr.closed written at the very instant the journal half of history ends, and leaves out a legacy one', () => {
+    const bus = busWith([
+      { ts: '2026-10-12T17:04:00.000Z', pr: 700, cardId: 570, merged: true },
+      { ts: '2026-10-13T08:31:00.000Z', pr: 701, cardId: 574, merged: true, legacy: true },
+    ])
+    expect(busMerges(bus).map(merge => merge.pr)).toEqual([700])
+    const swept = sweepWithBus(bus, CLOSING)
+    expect(swept.calls).toEqual(['701'])
+  })
+
+  it('the task:merged script reads the bus it is given and asks gh only about the pull request the bus does not hold', () => {
+    const bus = busWith([{ ts: '2026-10-13T08:31:00.000Z', pr: 700, cardId: 570, merged: true }])
+    const root = path.dirname(bus)
+    const handoff = path.join(root, 'handoff')
+    const bin = path.join(root, 'bin')
+    mkdirSync(handoff)
+    mkdirSync(bin)
+    const journal = path.join(handoff, 'ghosts.jsonl')
+    writeFileSync(journal, CLOSING)
+    const ghLog = path.join(root, 'gh.log')
+    const gh = path.join(bin, 'gh')
+    writeFileSync(gh, `#!/bin/sh\necho "$3" >> '${ghLog}'\nprintf '%s' '${view('MERGED', 574)}'\n`)
+    chmodSync(gh, 0o755)
+    const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../../ghosts/task-merged.ts')], {
+      encoding: 'utf8',
+      env: { ...process.env, [BUS_DB_VARIABLE]: bus, [HANDOFF_DIR_VARIABLE]: handoff, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+    })
+    expect(result.stderr).toBe('')
+    expect(existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '').toBe('701\n')
+    expect(mergeLines(readFileSync(journal, 'utf8')).map(line => line.pr)).toEqual([701])
   })
 })
