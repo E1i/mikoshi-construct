@@ -92,7 +92,7 @@ function mergeLines(world: World): Record<string, unknown>[] {
 const DONE_1 = { event: 'path', task: '1', path: 'cheap', pr: 600, verification: 'run' }
 const DONE_9 = { event: 'path', task: 'ghost-nine', path: 'ladder', pr: 609, verification: 'run' }
 
-function ghMerged(merged: Record<number, number>, laterMerged: Record<number, number> = {}): { gh: (args: string[]) => string, calls: string[][] } {
+function ghMerged(merged: Record<number, number>, laterMerged: Record<number, number> = {}, bodyCards: Record<number, number> = {}): { gh: (args: string[]) => string, calls: string[][] } {
   const calls: string[][] = []
   const seen = new Map<number, number>()
   const gh = (args: string[]): string => {
@@ -104,7 +104,7 @@ function ghMerged(merged: Record<number, number>, laterMerged: Record<number, nu
     seen.set(number, count)
     const card = merged[number] ?? (count > 1 ? laterMerged[number] : undefined)
     const state = card === undefined ? 'OPEN' : 'MERGED'
-    return JSON.stringify({ state, mergedAt: card === undefined ? null : '2026-10-05T00:30:00Z', mergedBy: card === undefined ? null : { login: 'E1i' }, mergeCommit: card === undefined ? null : { oid: 'c0ffee' }, body: `${cardLine(card ?? number)}\n\nbody` })
+    return JSON.stringify({ state, mergedAt: card === undefined ? null : '2026-10-05T00:30:00Z', mergedBy: card === undefined ? null : { login: 'E1i' }, mergeCommit: card === undefined ? null : { oid: 'c0ffee' }, body: `${cardLine(card ?? bodyCards[number] ?? number)}\n\nbody` })
   }
   return { gh, calls }
 }
@@ -177,7 +177,7 @@ function closingLines(world: World): Record<string, unknown>[] {
 describe('the shift closes a task from its report', () => {
   it('a report with PR #N and verification: run leaves a task:close line, and the next parking choice does not take the card', async () => {
     const world = newWorld([], [{ id: 2, body: 'do 2 STUB-VERIFIED-run' }])
-    const { gh } = ghMerged({})
+    const { gh } = ghMerged({}, {}, { 1: 2 })
     const out: string[] = []
     await runShift([world.shift, '--parking', world.parking], depsOf(world, gh, out, []))
     expect(closingLines(world)).toMatchObject([{ task: '2', path: 'cheap', pr: 1, verification: 'run' }])

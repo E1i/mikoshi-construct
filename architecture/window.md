@@ -249,7 +249,10 @@ parking file for #<id>`), and a file whose card line is not the `--card` given i
 entry line carries `"schema":2`; the entry line `ghosts:launch` writes carries no `schema` and stays version 1. The
 shift starts its tasks through the same `task:start`, so the door holds there too. It closes with `pnpm task:close <id> (--pr <N> | --report
 <path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
-whose start line carries no card. That `event:path` line carries `verification`, and a closing line without that word
+whose start line carries no card. An implement task closes only on its own pull request: `task:close`, and the shift through it,
+refuse with nothing written when the first line of the body names another card or the body cannot be read. A pull
+request an owner decision shares closes with `--shared-by D-<N>`, a recorded owner decision, in force or archived,
+that names both cards, and the line records it as `sharedBy`. That `event:path` line carries `verification`, and a closing line without that word
 does not close the task: the board shows its verification as UNKNOWN until a line that carries it is written. The line
 and the words are in
 [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).

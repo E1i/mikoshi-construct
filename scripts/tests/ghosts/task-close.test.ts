@@ -35,6 +35,7 @@ function world(journal: string[], sessionFiles: string[] = [], files: Record<str
       session: undefined,
       projectsDir: PROJECTS,
       tokens: () => null,
+      prBody: () => null,
     },
   }
 }
@@ -397,14 +398,90 @@ describe('the card line of the pull request body', () => {
     expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: prBodyOf(body) }).stderr).toEqual([])
   })
 
-  it('notes a body that cannot be read and still closes', () => {
+  it('refuses a body that cannot be read and writes nothing', () => {
     const { deps, written } = world([startLine('123', 'implement')])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => {
       throw new Error('gh: no network')
     } })
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+    expect(result.stderr).toEqual(['[task:close] the body of PR #460 was not read, so whose result it is was not checked: gh: no network; nothing written'])
+  })
+
+  it('refuses when there is no reader of the PR body', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: undefined as unknown as TaskCloseDeps['prBody'] })
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+    expect(result.stderr[0]).toContain('the body of PR #460 was not read')
+  })
+
+  it('refuses a PR whose card line names another card and leaves the journal as it was', () => {
+    const { deps, written } = world([startLine('889', 'implement')])
+    const closed: number[] = []
+    const result = runTaskClose(['889', '--pr', '786', '--verification', 'run'], {
+      ...deps,
+      prBody: prBodyOf('#855 card-automaton-folds [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nbody'),
+      openIssue: () => ({ title: 'n', body: null }),
+      closeIssue: issue => closed.push(issue),
+    })
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual([])
+    expect(result.stderr).toEqual(['[task:close] PR #786 opens with the card line of #855, not #889: it is that card\'s result; a pull request an owner decision shares between both cards closes with --shared-by D-<N>; nothing written'])
+    expect(written).toEqual([])
+    expect(closed).toEqual([])
+  })
+})
+
+describe('a PR shared by an owner decision', () => {
+  const DECISIONS = '/owner-decisions.md'
+  const ARCHIVE = '/owner-decisions.archive.md'
+  const SHARED_BODY = '#534 atlas-command [implement/engram/M/cheap/auto] · depends — · blocks —\n\nCards #533 and #532 close when this pull request merges'
+  const D33 = '- D-33 · 2026-10-08 — #532 and #533 are product (Atlas). Both entered main with #534 (PR #642, c4a579e). · superseded-by D-54'
+  const D40 = '- D-40 · 2026-10-08 — #532 waits for the renderer of PR #534. · card #532'
+
+  function shared(argv: string[], files: Record<string, string> = { [ARCHIVE]: `# Owner decisions archive\n\n${D33}\n` }): { result: ReturnType<typeof runTaskClose>, written: string[] } {
+    const { deps, written } = world([startLine('532', 'implement')], [], files)
+    return { result: runTaskClose(['532', '--pr', '642', ...argv, '--verification', 'review'], { ...deps, prBody: () => SHARED_BODY, decisionsFile: DECISIONS }), written }
+  }
+
+  it('closes on a decision in the archive that names both cards, and records it on the path line', () => {
+    const { result, written } = shared(['--shared-by', 'D-33'])
     expect(result.exitCode).toBe(0)
-    expect(written).toHaveLength(1)
-    expect(result.stderr).toEqual([expect.stringContaining('body not read, card line not checked: gh: no network')])
+    expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '532', pr: 642, sharedBy: 'D-33', verification: 'review' })
+    expect(result.stdout[3]).toBe('ACTION   | task:close #532 --pr 642 --shared-by D-33 --verification review')
+  })
+
+  it('closes on a decision in force that names both cards', () => {
+    const { result, written } = shared(['--shared-by', 'D-33'], { [DECISIONS]: `# Owner decisions\n\n${D33.replace(' · superseded-by D-54', '')}\n` })
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ sharedBy: 'D-33' })
+  })
+
+  it.each([
+    ['without --shared-by', [], 'PR #642 opens with the card line of #534, not #532'],
+    ['a decision that names only one of the cards, PR #534 not counted as a card', ['--shared-by', 'D-40'], '--shared-by D-40 does not name #532 and #534'],
+    ['a decision that is not recorded', ['--shared-by', 'D-41'], `--shared-by D-41: no decision D-41 in ${DECISIONS} or ${ARCHIVE}`],
+    ['a reference that is no decision number', ['--shared-by', '33'], '--shared-by \'33\' is not an owner decision D-<N>'],
+  ])('refuses %s and writes nothing', (_, argv, reason) => {
+    const { result, written } = shared(argv, { [ARCHIVE]: `${D33}\n${D40}\n` })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toContain(reason)
+    expect(written).toEqual([])
+  })
+
+  it('refuses --shared-by on a PR whose body has no card line, and on a probe closed by its report', () => {
+    const { deps, written } = world([startLine('532', 'implement'), startLine('7', 'probe')], [], { [ARCHIVE]: `${D33}\n` })
+    const decided = { ...deps, decisionsFile: DECISIONS }
+    expect(runTaskClose(['532', '--pr', '642', '--shared-by', 'D-33', '--verification', 'run'], decided).stderr[0]).toContain('PR #642 opens with no card line, so no card shares it with #532')
+    expect(runTaskClose(['7', '--report', 'r.md', '--shared-by', 'D-33', '--verification', 'run'], decided).stderr[0]).toContain('--shared-by shares a pull request, and #7 closes with --report')
+    expect(written).toEqual([])
+  })
+
+  it('refuses --shared-by when no decisions file is given', () => {
+    const { deps, written } = world([startLine('532', 'implement')])
+    expect(runTaskClose(['532', '--pr', '642', '--shared-by', 'D-33', '--verification', 'run'], { ...deps, prBody: () => SHARED_BODY }).stderr[0]).toContain('no decisions file is given')
+    expect(written).toEqual([])
   })
 })
 

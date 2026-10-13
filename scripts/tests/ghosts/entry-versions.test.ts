@@ -21,6 +21,7 @@ function closeCard(journal: string[], id: string): string[] {
     exists: () => false,
     session: undefined,
     projectsDir: '/projects',
+    prBody: () => null,
   }
   return runTaskClose([id, '--pr', '1', '--verification', 'run'], deps).stdout
 }

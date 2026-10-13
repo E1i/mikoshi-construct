@@ -1,6 +1,8 @@
 import type { Card } from '../../src/card/grammar.js'
 import type { CheapSession } from '../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
+import type { GhRunner } from '../board/gh.js'
+import type { Decision } from '../decisions/decisions.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,15 +17,19 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { defaultBusPath } from '../bus/db.js'
+import { parseDecisions } from '../decisions/decisions.js'
+import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf } from './entry.js'
 import { cardStartedLines } from './tasks.js'
 
 export const PREFIX = '[task:close] '
-export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>]'
-const FLAGS = ['--pr', '--report', '--verification', '--override-report'] as const
+export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]'
+const FLAGS = ['--pr', '--report', '--verification', '--override-report', '--shared-by'] as const
 const PR_NUMBER = /^[1-9]\d*$/
+const DECISION_REFERENCE = /^D-[1-9]\d*$/
+const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
@@ -66,7 +72,8 @@ export interface TaskCloseDeps {
   projectsDir: string
   tokens?: (session: CheapSession) => number | null
   style?: SignalStyle
-  prBody?: (pr: number) => string | null
+  prBody: (pr: number) => string | null
+  decisionsFile?: string
   openIssue?: (issue: number) => OpenIssue | null
   closeIssue?: (issue: number, comment: string) => void
 }
@@ -218,18 +225,59 @@ function actualOf(deps: TaskCloseDeps, lines: Record<string, unknown>[], start: 
   return { tokens: actualTokens(deps, counted), minutes: actualMinutes(start, ended) }
 }
 
-function cardLineNote(deps: TaskCloseDeps, id: string, pr: number): string[] {
-  if (deps.prBody === undefined)
-    return []
+export function prBodyOf(gh: GhRunner): (pr: number) => string | null {
+  return pr => (JSON.parse(gh(['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])) as { body: string | null }).body
+}
+
+interface Ownership {
+  owner: number | null
+  sharedBy?: string
+}
+
+function cardsNamedBy(decision: Decision): Set<number> {
+  return new Set([...decision.cards, ...[...decision.body.matchAll(CARD_MENTION)].map(mention => Number(mention[1]))])
+}
+
+function sharingRefusal(deps: TaskCloseDeps, reference: string, cards: number[]): string | null {
+  if (!DECISION_REFERENCE.test(reference))
+    return `--shared-by '${reference}' is not an owner decision D-<N>; nothing written`
+  if (deps.decisionsFile === undefined)
+    return `--shared-by ${reference} is checked against the owner decisions, and no decisions file is given; nothing written`
+  const files = [deps.decisionsFile, archiveOf(deps.decisionsFile)]
+  const found = files.flatMap(file => parseDecisions(deps.read(file) ?? '').decisions).filter(decision => decision.number === Number(reference.slice(2)))
+  const named = cards.map(card => `#${card}`).join(' and ')
+  if (found.length === 0)
+    return `--shared-by ${reference}: no decision ${reference} in ${files.join(' or ')}; nothing written`
+  if (!found.some(decision => cards.every(card => cardsNamedBy(decision).has(card))))
+    return `--shared-by ${reference} does not name ${named}, so it does not share the pull request between them; nothing written`
+  return null
+}
+
+function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: string | undefined): Ownership | string {
+  let body: string | null
   try {
-    const body = deps.prBody(pr)
-    if (body === null || readBodyCard(body).kind !== 'refused')
-      return []
-    return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
+    body = deps.prBody(pr)
   }
   catch (error) {
-    return [`${PREFIX}PR #${pr} body not read, card line not checked: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`]
+    return `the body of PR #${pr} was not read, so whose result it is was not checked: ${firstLine(error)}; nothing written`
   }
+  const parsed = readBodyCard(body ?? '')
+  const owner = parsed.kind === 'card' ? parsed.card.id : null
+  if (reference === undefined) {
+    if (owner !== null && owner !== Number(id))
+      return `PR #${pr} opens with the card line of #${owner}, not #${id}: it is that card's result; a pull request an owner decision shares between both cards closes with --shared-by D-<N>; nothing written`
+    return { owner }
+  }
+  if (owner === null)
+    return `--shared-by ${reference}: PR #${pr} opens with no card line, so no card shares it with #${id}; nothing written`
+  const refusal = sharingRefusal(deps, reference, [...new Set([Number(id), owner])])
+  return refusal ?? { owner, sharedBy: reference }
+}
+
+function cardLineNote(id: string, pr: number, ownership: Ownership): string[] {
+  if (ownership.owner !== null)
+    return []
+  return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
 }
 
 function namesCard(issue: OpenIssue, card: Card): boolean {
@@ -304,12 +352,19 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const value = flags.get(outcome)!
   if (outcome === '--pr' && !PR_NUMBER.test(value))
     return refuse(`--pr '${value}' is not a pull request number; nothing written`)
+  const reference = flags.get('--shared-by')
+  if (outcome === '--report' && reference !== undefined)
+    return refuse(`--shared-by shares a pull request, and #${id} closes with --report; nothing written`)
+  const ownership = outcome === '--pr' ? ownershipOf(deps, id, Number(value), reference) : { owner: null }
+  if (typeof ownership === 'string')
+    return refuse(ownership)
+  const shared = ownership.sharedBy === undefined ? {} : { sharedBy: ownership.sharedBy }
   const report = path.resolve(deps.cwd, value)
   const closing = outcome === '--pr' ? { pr: Number(value) } : { report }
   const at = deps.now().toISOString()
   const sessions = taskSessions(deps, start)
   const actual = actualOf(deps, lines, start, sessions, at)
-  const line = { event: 'path', task: id, path: start.path, ...closing, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, actual, ts: at }
+  const line = { event: 'path', task: id, path: start.path, ...closing, ...shared, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, actual, ts: at }
   try {
     deps.append(journal, `${JSON.stringify(line)}\n`)
   }
@@ -322,10 +377,10 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {
     CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${journal}: no entry line for #${id}`,
     EXPECT: entry?.EXPECT ?? `expect not recorded in ${journal}: no entry line for #${id}`,
-    ACTION: `task:close #${id} ${outcome} ${value} --verification ${verification}${override === undefined ? '' : ` --override-report ${override}`}`,
+    ACTION: `task:close #${id} ${outcome} ${value}${ownership.sharedBy === undefined ? '' : ` --shared-by ${ownership.sharedBy}`} --verification ${verification}${override === undefined ? '' : ` --override-report ${override}`}`,
     RESULT: closed,
   }, deps.style ?? PLAIN_STYLE)
-  return { stdout: [...card, ...unplacedLine(deps, start, sessions), ...issueLines(deps, start.card, closedBy)], stderr: outcome === '--pr' ? cardLineNote(deps, id, Number(value)) : [], exitCode: 0 }
+  return { stdout: [...card, ...unplacedLine(deps, start, sessions), ...issueLines(deps, start.card, closedBy)], stderr: outcome === '--pr' ? cardLineNote(id, Number(value), ownership) : [], exitCode: 0 }
 }
 
 function realDeps(): TaskCloseDeps {
@@ -343,7 +398,8 @@ function realDeps(): TaskCloseDeps {
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
-    prBody: pr => (JSON.parse(execGh(['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])) as { body: string | null }).body,
+    prBody: prBodyOf(execGh),
+    decisionsFile: defaultDecisions(os.homedir()),
     openIssue: (issue) => {
       const open = JSON.parse(execGh(['issue', 'list', '-R', REPO, '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])) as (OpenIssue & { number: number })[]
       return open.find(candidate => candidate.number === issue) ?? null

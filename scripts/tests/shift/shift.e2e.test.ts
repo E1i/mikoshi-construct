@@ -978,7 +978,7 @@ function chainGh(options: { ownerMergedAfterViews?: number, checks?: { name: str
       return JSON.stringify({ headRefName: `feat/${number - 100}`, headRefOid: CHAIN_HEAD })
     if (args[1] === 'view' && args.at(-1) === 'headRefOid,statusCheckRollup,files')
       return JSON.stringify({ headRefOid: CHAIN_HEAD, statusCheckRollup: options.checks ?? [{ name: 'required', status: 'IN_PROGRESS', conclusion: '' }], files: [] })
-    if (args[1] === 'view' && owner.includes(number) && args.at(-1) !== 'body,headRefOid,files') {
+    if (args[1] === 'view' && owner.includes(number) && !['body,headRefOid,files', 'body'].includes(args.at(-1)!)) {
       const seen = (views.get(number) ?? 0) + 1
       views.set(number, seen)
       if (options.ownerMergedAfterViews !== undefined && seen > options.ownerMergedAfterViews)
@@ -1006,6 +1006,17 @@ function chainSteps(world: ReturnType<typeof newChainWorld>): string[] {
 }
 
 const A_AND_B = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101' }, { id: 2, depends: '#1', body: 'do 2 STUB-VERIFIED-run STUB-PR-102' }]
+
+describe('the shift closes a task only on its own pull request', () => {
+  it('the shift does not close a task on the PR of another card', async () => {
+    const world = newChainWorld([{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-102' }])
+    const gh = chainGh()
+    const io = capturedIo()
+    await runShift([world.shift, '--parking', world.parking], chainDepsOf(world, gh.gh, io, { busMerge: gh.bus }))
+    expect(eventsOf(world, 'path').filter(line => 'pr' in line)).toEqual([])
+    expect(io.out).toContainEqual(expect.stringContaining('#1 not closed: PR #102 opens with the card line of #2, not #1'))
+  })
+})
 
 describe('a shift continues itself: --chain waits for the merge and takes the next card', () => {
   it('a merged card A starts card B that depends on A without a window', async () => {
