@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { JOURNAL_HISTORY_ENDS } from '../../src/card/closed.js'
+import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
@@ -71,6 +71,7 @@ export interface MergedResult {
   written: MergeEvent[]
   skipped: (MergeSkip & { detail: string })[]
   open: number[]
+  inBus: number[]
   notes: string[]
 }
 
@@ -128,8 +129,12 @@ function lookUp(deps: MergedDeps, pr: number): Outcome {
   return { kind: 'merge', line: { event: 'merge', task: String(card.card.id), pr, by: view.mergedBy.login, commit: view.mergeCommit.oid, merged: view.mergedAt, ts: deps.now().toISOString() } }
 }
 
+function emptyResult(): MergedResult {
+  return { written: [], skipped: [], open: [], inBus: [], notes: [] }
+}
+
 export function recordMerges(deps: MergedDeps): MergedResult {
-  const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
+  const result = emptyResult()
   for (const pr of pullRequestsToLookUp(deps.readJournal(deps.journal), deps.mergedInBus ?? NONE_IN_BUS)) {
     try {
       const outcome = lookUp(deps, pr)
@@ -140,6 +145,9 @@ export function recordMerges(deps: MergedDeps): MergedResult {
         const skip: MergeSkip = { event: 'merge-skip', pr, skip: outcome.skip, ts: deps.now().toISOString() }
         deps.append(deps.journal, journalLine(skip))
         result.skipped.push({ ...skip, detail: outcome.detail })
+      }
+      else if (!writtenBeforeHistoryEnds(outcome.line)) {
+        result.inBus.push(pr)
       }
       else {
         deps.append(deps.journal, journalLine(outcome.line))
@@ -154,7 +162,7 @@ export function recordMerges(deps: MergedDeps): MergedResult {
 }
 
 export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
-  const result: MergedResult = { written: [], skipped: [], open: [], notes: [] }
+  const result = emptyResult()
   if ((deps.mergedInBus ?? NONE_IN_BUS).has(pr)) {
     result.notes.push(`PR #${pr} has its merge in the bus as pr.closed; nothing written`)
     return result
@@ -170,7 +178,10 @@ export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
   }
   try {
     const outcome = lookUp(deps, pr)
-    if (outcome.kind === 'merge') {
+    if (outcome.kind === 'merge' && !writtenBeforeHistoryEnds(outcome.line)) {
+      result.notes.push(`PR #${pr} merged after ${JOURNAL_HISTORY_ENDS}; its merge fact is pr.closed in the bus, nothing written`)
+    }
+    else if (outcome.kind === 'merge') {
       deps.append(deps.journal, journalLine(outcome.line))
       result.written.push(outcome.line)
     }
@@ -200,7 +211,7 @@ export function recheckSummary(result: MergedResult): string[] {
 }
 
 function lookedUp(result: MergedResult): number {
-  return result.written.length + result.skipped.length + result.open.length + result.notes.length
+  return result.written.length + result.skipped.length + result.open.length + result.inBus.length + result.notes.length
 }
 
 export function mergedSummary(result: MergedResult): string | null {
@@ -212,6 +223,7 @@ export function mergedSummary(result: MergedResult): string | null {
     [count('no-card'), 'without a card skipped'],
     [count('closed'), 'closed without merge skipped'],
     [result.open.length, 'open'],
+    [result.inBus.length, 'merged after the cutoff, left to the bus'],
     [result.notes.length, 'not read'],
   ].flatMap(part => typeof part === 'string' ? [part] : part[0] === 0 ? [] : [`${part[0]} ${part[0] === 1 ? 'PR' : 'PRs'} ${part[1]}`])
   return `merged: ${parts.join(' · ')}`
@@ -222,6 +234,7 @@ export function mergedDetails(result: MergedResult): string[] {
     ...result.written.map(line => `#${line.task} merged in PR #${line.pr}`),
     ...result.skipped.map(line => `PR #${line.pr} ${line.detail}`),
     ...result.open.map(pr => `PR #${pr} open`),
+    ...result.inBus.map(pr => `PR #${pr} merged after ${JOURNAL_HISTORY_ENDS}; its merge fact is pr.closed in the bus`),
     ...result.notes,
   ]
 }

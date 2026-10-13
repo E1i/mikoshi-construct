@@ -1,6 +1,7 @@
 import type { BusCardStates } from '../../src/card/closed.js'
 import type { GhRunner } from '../board/gh.js'
 import type { VerifiedClosing } from '../ghosts/task-close.js'
+import type { BusMerge } from '../ghosts/task-merged.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -13,6 +14,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
 import { openDatabase } from '../bus/sqlite.js'
 import { cardVerifiedClosings } from '../ghosts/task-close.js'
+import { busMerges } from '../ghosts/task-merged.js'
 import { busCardStates, cardStartedLines } from '../ghosts/tasks.js'
 import { REPO } from '../shift/places.js'
 
@@ -63,9 +65,10 @@ interface BusReadings {
   cards: BusCardStates
   verified: readonly VerifiedClosing[]
   prsClosedWithoutMerge: readonly number[]
+  merges: readonly BusMerge[]
 }
 
-const NO_BUS: BusReadings = { starts: [], cards: new Map(), verified: [], prsClosedWithoutMerge: [] }
+const NO_BUS: BusReadings = { starts: [], cards: new Map(), verified: [], prsClosedWithoutMerge: [], merges: [] }
 
 type Verdict = { kind: 'remove', why: string } | { kind: 'keep', why: string }
 
@@ -94,7 +97,7 @@ function prsClosedWithoutMerge(busPath: string): number[] {
 }
 
 function busReadings(busPath: string): BusReadings {
-  return { starts: cardStartedLines(busPath), cards: busCardStates(busPath), verified: cardVerifiedClosings(busPath), prsClosedWithoutMerge: prsClosedWithoutMerge(busPath) }
+  return { starts: cardStartedLines(busPath), cards: busCardStates(busPath), verified: cardVerifiedClosings(busPath), prsClosedWithoutMerge: prsClosedWithoutMerge(busPath), merges: busMerges(busPath) }
 }
 
 function journalOf(text: string | null, bus: BusReadings): Journal {
@@ -111,7 +114,7 @@ function journalOf(text: string | null, bus: BusReadings): Journal {
       closedPrs.add(entry.pr)
     if (typeof entry.task !== 'string')
       continue
-    if (entry.event === 'merge') {
+    if (entry.event === 'merge' && writtenBeforeHistoryEnds(entry)) {
       Object.assign(recordOf(entry.task), typeof entry.pr === 'number' ? { mergedPr: entry.pr } : {})
     }
     else if (entry.event === 'path' && typeof entry.worktree === 'string') {
@@ -130,7 +133,12 @@ function journalOf(text: string | null, bus: BusReadings): Journal {
     if (closing.pr !== null)
       recordOf(closing.task).closedPr = closing.pr
   }
-  return { byTree, cards, closedPrs, merged: mergedTasks(text, bus.cards), closed }
+  const merged = mergedTasks(text, bus.cards)
+  for (const merge of bus.merges) {
+    merged.add(merge.task)
+    recordOf(merge.task).mergedPr = merge.pr
+  }
+  return { byTree, cards, closedPrs, merged, closed }
 }
 
 function worktreesOf(porcelain: string): Worktree[] {

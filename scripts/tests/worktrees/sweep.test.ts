@@ -228,6 +228,24 @@ describe('worktrees:sweep removes a finished card\'s tree only when nothing in i
     expect(existsSync(tree)).toBe(false)
   })
 
+  it('removes the tree of a squash-merged card whose merge after the cutoff is only pr.closed in the bus', () => {
+    const world = newWorld()
+    const { tree, bus } = startedInTheBus(world, 11)
+    const head = commit(tree, 'squashed.txt')
+    const db = openBus(bus)
+    try {
+      appendEvent(db, prClosed('2026-10-13T18:00:00.000Z', { pr: 111, cardId: 11, merged: true, commit: 'c0ffee', mergedBy: 'E1i', mergedAt: '2026-10-13T17:59:00Z' }))
+    }
+    finally {
+      db.close()
+    }
+    const deps = { ...depsOf(world, { 111: head }), bus }
+    const applied = runSweep(['--apply', '--card', '11'], deps)
+    expect(applied.stdout[0]).toBe(`[worktrees:sweep] removed ${tree} and branch feat/11: card #11 is merged`)
+    expect(deps.ghCalls).toEqual([['pr', 'view', '111', '-R', 'E1i/mikoshi-construct', '--json', 'headRefOid']])
+    expect([existsSync(tree), branchExists(world, 'feat/11')]).toEqual([false, false])
+  })
+
   it('does not count a squash-merged branch whose HEAD is the merged pull request\'s head as unpushed', () => {
     const world = newWorld()
     const tree = cut(world, 6)

@@ -16,7 +16,8 @@ import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, CARD_CLOSED, PR_OBSERVED]
+export const PR_CLOSED = 'pr.closed'
+export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED]
 export const FAILED_CI = 'red'
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--once] [--pid <pid>…]'
