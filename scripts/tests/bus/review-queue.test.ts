@@ -4,12 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
-import { openBus } from '../../bus/db.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
-import { queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
+import { cardBodyShaOfCard, queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../bus/review-worker.js'
@@ -416,6 +417,32 @@ describe('the review round limit of D-104', () => {
     expect(liveTasksOn(db, HEADS[verdicts.length - 1]!)).toEqual(['merge'])
     expect(spentEvents(db)).toEqual([])
     expect(notes).toEqual([])
+    db.close()
+  })
+})
+
+describe('the card body of the review input is the bodySha the card was last admitted with', () => {
+  function admitted(db: DatabaseSync, cardId: number, body: string | null, at: string): void {
+    appendEvent(db, { ts: at, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${at}`, payload: { card: `#${cardId} a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, ...(body === null ? {} : { bodySha: body }) }, legacy: false })
+  }
+
+  it('cardBodyShaOf reads the bodySha of a card admitted after the cutoff', () => {
+    const db = openBus(onDisk())
+    expect(cardBodyShaOfCard(db, 924)).toBeNull()
+    admitted(db, 924, '2203d551cb65', '2026-10-12T19:00:00.000Z')
+    admitted(db, 924, null, '2026-10-12T20:00:00.000Z')
+    expect(cardBodyShaOfCard(db, 924)).toBe('2203d551cb65')
+    db.close()
+  })
+
+  it('the later of a legacy intake and a card.admitted gives the card body', () => {
+    const db = openBus(onDisk())
+    importJournal(db, intakeLine(925, '0123abcd4567ef89'))
+    expect(cardBodyShaOfCard(db, 925)).toBe('0123abcd4567ef89')
+    admitted(db, 925, 'fedc4567ba98', '2026-10-12T19:00:00.000Z')
+    expect(cardBodyShaOfCard(db, 925)).toBe('fedc4567ba98')
+    importJournal(db, intakeLine(925, '89ab0123cdef'))
+    expect(cardBodyShaOfCard(db, 925)).toBe('89ab0123cdef')
     db.close()
   })
 })

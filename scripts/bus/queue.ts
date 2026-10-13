@@ -33,13 +33,17 @@ const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
 const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
 const NO_CARD_TREE = 'no_card_tree'
 
-function cardBodyShaOf(card: string): string {
-  return `(
-    SELECT json_extract(intake.payload, '$.bodySha') FROM events AS intake
-    WHERE intake.legacy = 1 AND intake.card_id = ${card} AND intake.type IN ('${INTAKE_EVENT}', '${INTAKE_MOVE_EVENT}')
-      AND json_type(intake.payload, '$.bodySha') = 'text'
+function latestBodyAdmission(card: string, columns: string): string {
+  return `
+    SELECT ${columns} FROM events AS intake
+    WHERE intake.card_id = ${card} AND json_type(intake.payload, '$.bodySha') = 'text'
+      AND ((intake.legacy = 1 AND intake.type IN ('${INTAKE_EVENT}', '${INTAKE_MOVE_EVENT}')) OR (intake.legacy = 0 AND intake.type = '${CARD_ADMITTED}'))
     ORDER BY intake.id DESC LIMIT 1
-  )`
+  `
+}
+
+function cardBodyShaOf(card: string): string {
+  return `(${latestBodyAdmission(card, `json_extract(intake.payload, '$.bodySha')`)})`
 }
 
 const REVIEWED_UNDER_AN_INPUT = `EXISTS (
@@ -409,9 +413,15 @@ function identity(row: TaskRow): QueuedTask {
   return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input }
 }
 
+export interface BodyAdmission { bodySha: string, event: string }
+
+export function cardBodyAdmissionOf(db: DatabaseSync, cardId: number): BodyAdmission | null {
+  const row = db.prepare(latestBodyAdmission('?', `json_extract(intake.payload, '$.bodySha') AS body_sha, intake.dedupe_key AS event`)).get(cardId) as { body_sha: unknown, event: unknown } | undefined
+  return typeof row?.body_sha === 'string' && typeof row.event === 'string' ? { bodySha: row.body_sha, event: row.event } : null
+}
+
 export function cardBodyShaOfCard(db: DatabaseSync, cardId: number): string | null {
-  const row = db.prepare(`SELECT ${cardBodyShaOf('?')} AS card_body`).get(cardId) as { card_body: unknown }
-  return typeof row.card_body === 'string' ? row.card_body : null
+  return cardBodyAdmissionOf(db, cardId)?.bodySha ?? null
 }
 
 function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
