@@ -123,6 +123,42 @@ describe('worktrees:sweep removes a finished card\'s tree only when nothing in i
     expect([existsSync(tree), branchExists(world, 'feat/4')]).toEqual([false, false])
   })
 
+  it('removes the tree of a card the bus holds merged with no merge line in the journal, and keeps one whose merge line came after the journal half of history while the bus runs it', () => {
+    const world = newWorld()
+    const { tree, bus } = startedInTheBus(world, 5)
+    const late = cut(world, 6)
+    world.journal.push(JSON.stringify({ event: 'merge', task: '6', pr: 106, by: 'E1i', commit: 'c0ffee', ts: '2026-10-12T18:00:00.000Z' }))
+    const db = openBus(bus)
+    try {
+      db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (5, \'merged\', NULL, 1), (6, \'running\', NULL, 1)').run()
+    }
+    finally {
+      db.close()
+    }
+    const applied = runSweep(['--apply'], { ...depsOf(world), bus })
+    expect(applied.exitCode).toBe(0)
+    expect(applied.stdout).toContain(`[worktrees:sweep] removed ${tree} and branch feat/5: card #5 is merged`)
+    expect([existsSync(tree), existsSync(late)]).toEqual([false, true])
+  })
+
+  it('keeps the tree of a card whose closing path line came after the journal half of history and whose PR was closed without a merge while the bus runs it, as #889', () => {
+    const world = newWorld()
+    const { bus } = startedInTheBus(world, 7)
+    const late = cut(world, 8)
+    world.journal.push(JSON.stringify({ event: 'path', task: '8', path: 'ladder', pr: 108, verification: 'run', ts: '2026-10-12T17:07:15.949Z' }))
+    world.journal.push(JSON.stringify({ event: 'merge-skip', pr: 108, skip: 'closed' }))
+    const db = openBus(bus)
+    try {
+      db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (8, \'running\', NULL, 1)').run()
+    }
+    finally {
+      db.close()
+    }
+    const applied = runSweep(['--apply', '--card', '8'], { ...depsOf(world), bus })
+    expect(applied.stdout[0]).toBe(`[worktrees:sweep] kept ${late}: card #8 is open`)
+    expect(existsSync(late)).toBe(true)
+  })
+
   it('keeps a dirty tree and a tree with an unpushed commit and lists them', () => {
     const world = newWorld()
     const dirty = cut(world, 2)

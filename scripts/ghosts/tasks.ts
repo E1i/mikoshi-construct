@@ -1,3 +1,4 @@
+import type { BusCardStates } from '../../src/card/closed.js'
 import type { Card } from '../../src/card/grammar.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { parseCard } from '../../src/card/grammar.js'
@@ -135,6 +136,19 @@ export function cardStartedLines(busPath: string): StartRecord[] {
       const payload = jsonObject(row.payload)
       return payload === undefined ? [] : [{ ...payload, event: 'path' as const, task: String(row.card_id), ...(row.ts === null ? {} : { ts: row.ts }) }]
     })
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function busCardStates(busPath: string): BusCardStates {
+  if (!existsSync(busPath))
+    return new Map()
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as unknown as { card_id: number, state: string }[]
+    return new Map(rows.map(row => [String(row.card_id), row.state]))
   }
   finally {
     db.close()

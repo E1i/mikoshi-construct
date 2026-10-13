@@ -21,6 +21,7 @@ import { CARD_STARTED } from '../bus/inbox.js'
 import { CARD_ADMITTED } from '../bus/launch-candidates.js'
 import { LEASED } from '../bus/queue.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
+import { busCardStates } from './tasks.js'
 import { taskWorktree, worktreeHome } from './worktree-home.js'
 
 export const PREFIX = '[task:start] '
@@ -359,7 +360,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const journalText = deps.readJournal(journal)
-  const merged = mergedTasks(journalText)
+  const merged = mergedTasks(journalText, busCardStates(deps.bus))
   const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
   if (unmerged.length > 0)
     return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)

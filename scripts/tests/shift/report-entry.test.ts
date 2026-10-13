@@ -100,4 +100,17 @@ describe('shift:report reads CONTRACT and EXPECT from the entry line of ghosts.j
     const rows = report(null, bus)
     expect(rows).toContain(`CONTRACT | contract not recorded in the bus ${bus} or in ${JOURNAL}: no entry line for #1`)
   })
+
+  it('reads the bus\'s card states, so a card the bus merged with no path line in the journal is closed merged', () => {
+    const bus = busWithStart({})
+    const db = openBus(bus)
+    try {
+      db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (1, \'merged\', NULL, 1)').run()
+    }
+    finally {
+      db.close()
+    }
+    expect(report([V1_ENTRY], bus).find(row => row.startsWith('RESULT'))).toContain(' · closed merged · ')
+    expect(report([V1_ENTRY]).find(row => row.startsWith('RESULT'))).toContain(' · not closed · ')
+  })
 })

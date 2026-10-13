@@ -22,3 +22,21 @@ describe('mergedTasks', () => {
     expect([...closedTasks(JOURNAL).keys()].sort()).toEqual(['10', '11', '12'])
   })
 })
+
+describe('mergedTasks over the journal half of history and the bus', () => {
+  const journal = [
+    JSON.stringify({ event: 'merge', task: '608', pr: 730, by: 'E1i', commit: '29ab6f00', ts: '2026-10-10T19:00:00.000Z' }),
+    JSON.stringify({ event: 'merge', task: '842', pr: 791, by: 'E1i', commit: 'f6525f36', ts: '2026-10-12T17:05:45.291Z' }),
+  ].join('\n')
+
+  it('keeps a card merged before the journal half of history ended merged whatever the bus holds, as #608 the bus stopped', () => {
+    expect(mergedTasks(journal, new Map([['608', 'stopped']])).has('608')).toBe(true)
+    expect(closedTasks(journal, new Map([['608', 'stopped']])).has('608')).toBe(false)
+  })
+
+  it('takes a merge after the journal half of history from the bus alone', () => {
+    expect(mergedTasks(journal).has('842')).toBe(false)
+    expect(mergedTasks(journal, new Map([['842', 'closed']])).has('842')).toBe(true)
+    expect(mergedTasks(journal, new Map([['928', 'merged'], ['889', 'running']]))).toEqual(new Set(['608', '928']))
+  })
+})

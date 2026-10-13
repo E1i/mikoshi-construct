@@ -12,7 +12,7 @@ function file(...lines: string[]): string {
 const JOURNAL = '/h/ghosts.jsonl'
 const ARCHIVE = '/d/owner-decisions.archive.md'
 
-function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null, archive: string | null = null): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
+function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null, archive: string | null = null, bus: ReadonlyMap<string, string> = new Map()): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
   const out: string[] = []
   const err: string[] = []
   const findings: string[] = []
@@ -20,6 +20,7 @@ function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal:
   const code = runDecisionsRead(args, {
     home: '/home/x',
     journal: JOURNAL,
+    bus,
     exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null) || (candidate === ARCHIVE && archive !== null),
     read: candidate => candidate === JOURNAL ? journal! : candidate === ARCHIVE ? archive! : text,
     write: (candidate, content) => {
@@ -333,6 +334,23 @@ describe('a decision bound to a card is spent once the card is merged or closed'
     expect(result.written).toEqual({})
     expect(result.out).toContain('- D-55 · 2026-10-09 — #730 runs on lane-1.')
     expect(result.out).toContain('- D-56 · 2026-10-09 — two cards. · card #730 #731')
+  })
+
+  it('keeps a decision on card #889 in force while the bus holds #889 running, though the journal closes it after the journal half of history ended', () => {
+    const text = upToSpending('- D-55 · 2026-10-13 — #889 stays a witness. · card #889')
+    const result = read(text, undefined, journal(
+      { event: 'path', task: '889', path: 'ladder', pr: 786, verification: 'run', ts: '2026-10-12T17:07:15.949Z' },
+    ), null, new Map([['889', 'running']]))
+    expect(result.code).toBe(0)
+    expect(result.written).toEqual({})
+    expect(result.out).toContain('- D-55 · 2026-10-13 — #889 stays a witness. · card #889')
+  })
+
+  it('spends a decision whose card the bus holds merged or closed, with no journal line for it', () => {
+    const text = upToSpending('- D-55 · 2026-10-13 — one. · card #855', '- D-56 · 2026-10-13 — two. · card #928')
+    const result = read(text, undefined, null, null, new Map([['855', 'closed'], ['928', 'merged']]))
+    expect(result.written['/d/owner-decisions.md']).toContain('one. · card #855 · superseded-by D-54')
+    expect(result.written['/d/owner-decisions.md']).toContain('two. · card #928 · superseded-by D-54')
   })
 
   it('spends before the size check, so a file over the limit only by spent decisions is read', () => {

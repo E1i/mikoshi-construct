@@ -2,11 +2,13 @@ import type { ParkedTask } from '../../../src/card/parking.js'
 import type { ShiftDeps } from '../../shift/shift.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, waitingLine } from '../../shift/parking.js'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, readParking, waitingLine } from '../../shift/parking.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
 
@@ -193,6 +195,39 @@ describe('dependencyWaits', () => {
   it('reads a close line without started as no start', () => {
     const closed = `${JSON.stringify({ event: 'path', task: '5', path: 'cheap', verification: 'run' })}\n`
     expect(dependencyWaits([{ id: '7', reason: 'depends #5 not merged' }], closed)).toEqual([{ id: '7', on: ['5'], inWork: false }])
+  })
+
+  it('takes a depends the bus holds merged out of work, and a merge line after the journal half of history only through the bus', () => {
+    const late = `${JSON.stringify({ event: 'merge', task: '6', pr: 106, ts: '2026-10-12T18:00:00.000Z' })}\n`
+    const left = [{ id: '7', reason: 'depends #5 not merged' }, { id: '8', reason: 'depends #6 not merged' }]
+    expect(dependencyWaits(left, `${started('5')}${started('6')}${late}`, new Map([['5', 'merged'], ['6', 'running']]))).toEqual([
+      { id: '7', on: ['5'], inWork: false },
+      { id: '8', on: ['6'], inWork: true },
+    ])
+  })
+})
+
+describe('readParking', () => {
+  it('reads a depends as merged when the bus it is given holds the card closed', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'read-parking-bus-'))
+    try {
+      const bus = path.join(root, 'bus.db')
+      const db = openBus(bus)
+      try {
+        appendEvent(db, { ts: '2026-10-13T00:00:00.000Z', type: 'card.admitted', actor: 'worker:intake:test', cardId: 5, pr: null, head: null, dedupeKey: 'card.admitted:5', payload: {}, legacy: false })
+        db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (5, \'closed\', NULL, 1)').run()
+      }
+      finally {
+        db.close()
+      }
+      const card = 'card: #7 task-7 [implement/ghosts/S/cheap/owner] · depends #5 · blocks —\nbranch: feat/7\ntouches: scripts/7/**\nwho: shift\n\ndo 7\n'
+      const reads = { cwd: root, handoffDir: root, listDir: () => ['7.md'], read: () => card, exists: (target: string) => target === bus, git: () => '' }
+      expect(readParking(reads, root).choice.left).toEqual([{ id: '7', reason: 'depends #5 not merged' }])
+      expect(readParking({ ...reads, bus }, root).choice.chosen.map(task => task.id)).toEqual(['7'])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

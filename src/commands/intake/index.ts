@@ -1,3 +1,4 @@
+import type { BusCardStates } from '../../card/closed.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { Confirmation } from './confirm.js'
@@ -80,6 +81,8 @@ export interface CardEvent {
 
 export type CardEventPort = (event: CardEvent) => void
 
+export type CardStatesPort = () => BusCardStates
+
 export interface IntakeRecord {
   journalLine: string
   event: CardEvent
@@ -133,6 +136,7 @@ export interface IntakeOptions {
   autoConfirm: boolean
   readStdin: () => string
   events?: CardEventPort
+  cardStates?: CardStatesPort
 }
 
 type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid' | 'invalidTestPattern'
@@ -212,11 +216,12 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return refused('invalid', [taken.reason])
   const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
   const numbers = nextFreeNumbers([...taken.numbers, ...parked, ...admittedNumbers(journalText)], draft.cards.length)
+  const cards = options.cardStates?.()
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),
-    done: new Set(closedTasks(journalText).keys()),
-    merged: mergedTasks(journalText),
+    done: new Set(closedTasks(journalText, cards).keys()),
+    merged: mergedTasks(journalText, cards),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),

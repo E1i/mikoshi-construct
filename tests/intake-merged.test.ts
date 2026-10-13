@@ -29,7 +29,7 @@ function journalOf(...lines: object[]): string {
   return file
 }
 
-function parkedCardText(journal: string, fields: Record<string, unknown>): { text: string, output: string } {
+function parkedCardText(journal: string, fields: Record<string, unknown>, cardStates?: () => ReadonlyMap<string, string>): { text: string, output: string } {
   const root = scratch()
   const parking = path.join(root, 'parking')
   mkdirSync(parking)
@@ -37,7 +37,7 @@ function parkedCardText(journal: string, fields: Record<string, unknown>): { tex
   const draft = path.join(root, 'draft.json')
   const card = { name: 'merge-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: TASK, witnesses: ['`pnpm run quality` is green'], ...fields }
   writeFileSync(draft, JSON.stringify({ cards: [card] }))
-  const result: IntakeResult = runIntake({ draft, parking, dir: root, journal, dryRun: false, autoConfirm: true, readStdin: () => '12', taken: '-' })
+  const result: IntakeResult = runIntake({ draft, parking, dir: root, journal, dryRun: false, autoConfirm: true, readStdin: () => '12', taken: '-', ...(cardStates === undefined ? {} : { cardStates }) })
   if (result.status === 'refused')
     throw new Error(`refused: ${result.refusal} ${result.detail.join('; ')}`)
   const lines: string[] = []
@@ -63,5 +63,12 @@ describe('a depends or blocks is met by a merge line, not by a done task', () =>
     const merged = parkedCardText(journalOf(DONE, MERGED), { blocks: ['#77'] })
     expect(merged.output).toContain('corrected: blocks — #77 → (removed) — already merged')
     expect(merged.text).toMatch(/^card: #14 \S+ \[.*\] · depends — · blocks —$/m)
+  })
+
+  it('reads a depends as merged when the bus holds its card merged or closed, and a merge line after the journal half of history only through the bus', () => {
+    const byBus = parkedCardText(journalOf(DONE), { depends: ['#77'] }, () => new Map([['77', 'closed']]))
+    expect(byBus.output).toContain('corrected: depends — #77 → (removed) — already merged')
+    const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] }, () => new Map([['77', 'running']]))
+    expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends #77 · blocks —$/m)
   })
 })

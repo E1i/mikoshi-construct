@@ -2,6 +2,7 @@ import type { ParkedCard } from './fixtures/autopilot-world.js'
 import { existsSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { openBus } from '../../bus/db.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
 
@@ -80,5 +81,26 @@ describe('the stop table: where a card ends decides the stop line it leaves', ()
     const gone = captured()
     await runShift([path.join(world.root, 'check-2'), '--parking', world.parking, '--check'], depsOf(world, gh, gone))
     expect(gone.out).toContain('[shift] parking: takes #1')
+  })
+
+  it('a report that names no pull request leaves no stop when the bus closed the card during the session', async () => {
+    const world = newWorld([{ id: 1, body: 'do 1 STUB-NO-PR' }])
+    const { gh } = fakeGh({})
+    const deps = depsOf(world, gh, captured())
+    const closeInTheBus = (): void => {
+      const db = openBus(world.bus)
+      try {
+        db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (1, \'closed\', NULL, 1) ON CONFLICT(card_id) DO UPDATE SET state = \'closed\'').run()
+      }
+      finally {
+        db.close()
+      }
+    }
+    await runShift([world.shift, '--parking', world.parking], { ...deps, run: async (run) => {
+      const exit = await deps.run(run)
+      closeInTheBus()
+      return exit
+    } })
+    expect(eventsOf(world, 'stop')).toEqual([])
   })
 })

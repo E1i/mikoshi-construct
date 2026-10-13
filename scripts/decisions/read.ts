@@ -1,8 +1,12 @@
+import type { BusCardStates } from '../../src/card/closed.js'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { closedTasks, mergedTasks } from '../../src/card/closed.js'
+import { defaultBusPath } from '../bus/db.js'
+import { busCardStates } from '../ghosts/tasks.js'
 import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spendDecisions } from './decisions.js'
 
 export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
@@ -11,6 +15,7 @@ export interface DecisionsReadDeps {
   home: string
   exists: (file: string) => boolean
   journal: string
+  bus: BusCardStates
   read: (file: string) => string
   write: (file: string, text: string) => void
   out: (line: string) => void
@@ -30,27 +35,9 @@ export function journalOf(home: string, handoffDir: string | undefined): string 
   return path.join(handoffDir ?? path.join(home, '.construct', 'handoff'), 'ghosts.jsonl')
 }
 
-function journalLines(text: string): Record<string, unknown>[] {
-  return text.split('\n').flatMap((line) => {
-    try {
-      const entry: unknown = JSON.parse(line)
-      return typeof entry === 'object' && entry !== null ? [entry as Record<string, unknown>] : []
-    }
-    catch {
-      return []
-    }
-  })
-}
-
-function settledCards(journalText: string): Set<number> {
-  const settled = new Set<number>()
-  for (const entry of journalLines(journalText)) {
-    const merged = entry.event === 'merge'
-    const closed = entry.event === 'path' && (entry.report !== undefined || entry.verification !== undefined)
-    if ((merged || closed) && typeof entry.task === 'string' && /^[1-9]\d*$/.test(entry.task))
-      settled.add(Number(entry.task))
-  }
-  return settled
+function settledCards(journalText: string, bus: BusCardStates): Set<number> {
+  const settled = [...closedTasks(journalText, bus).keys(), ...mergedTasks(journalText, bus)]
+  return new Set(settled.filter(task => /^[1-9]\d*$/.test(task)).map(Number))
 }
 
 export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): number {
@@ -64,7 +51,7 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
     return 1
   }
   const read = deps.read(file)
-  const settled = settledCards(deps.exists(deps.journal) ? deps.read(deps.journal) : '')
+  const settled = settledCards(deps.exists(deps.journal) ? deps.read(deps.journal) : '', deps.bus)
   const archiveFile = archiveOf(file)
   const archive = deps.exists(archiveFile) ? deps.read(archiveFile) : ''
   const text = settleSupersedes(spendDecisions(read, card => settled.has(card)), archive)
@@ -88,6 +75,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   process.exitCode = runDecisionsRead(process.argv.slice(2), {
     home: os.homedir(),
     journal: journalOf(os.homedir(), process.env.CONSTRUCT_HANDOFF_DIR),
+    bus: busCardStates(defaultBusPath()),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
     write: (file, text) => writeFileSync(file, text),
