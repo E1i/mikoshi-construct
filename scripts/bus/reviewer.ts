@@ -2,9 +2,10 @@ import type { SpawnSessionParams } from '../ghosts/session.js'
 import type { Lease } from './lease.js'
 import type { VerdictWord } from './record-verdict.js'
 import type { ReviewPlan } from './review-depth.js'
+import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { spawnSession } from '../ghosts/session.js'
 
@@ -16,9 +17,14 @@ export interface Review {
 
 export type Reviewer = (lease: Lease, plan: ReviewPlan) => Promise<Review>
 
-export interface ReviewerTools {
+export interface TreeTools {
   git: (cwd: string, args: string[]) => void
-  spawn: (params: SpawnSessionParams) => Promise<number>
+  worktrees: (repo: string) => string[]
+}
+
+export interface LeftoverTree {
+  path: string
+  left: string | null
 }
 
 export const PREFIX = '[bus:review] '
@@ -65,14 +71,62 @@ function git(cwd: string, args: string[]): void {
   execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-const REAL_TOOLS: ReviewerTools = { git, spawn: spawnSession }
+function worktrees(repo: string): string[] {
+  return execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    .split('\n')
+    .filter(line => line.startsWith('worktree '))
+    .map(line => line.slice('worktree '.length))
+}
 
-function removeTree(tools: ReviewerTools, repo: string, tree: string): void {
-  try {
-    tools.git(repo, ['worktree', 'remove', '--force', tree])
+export const GIT_TREE_TOOLS: TreeTools = { git, worktrees }
+
+function failureOf(error: unknown): string {
+  const stderr = (error as { stderr?: unknown }).stderr
+  const said = Buffer.isBuffer(stderr) || typeof stderr === 'string' ? String(stderr).trim() : ''
+  return said !== '' ? said : error instanceof Error ? error.message : String(error)
+}
+
+function canonical(where: string): string {
+  return existsSync(where) ? realpathSync(where) : path.resolve(where)
+}
+
+export class ReviewTrees {
+  private readonly held = new Set<string>()
+
+  constructor(readonly repo: string, readonly dir: string, private readonly tools: TreeTools = GIT_TREE_TOOLS) {}
+
+  add(tree: string, head: string): void {
+    this.tools.git(this.repo, ['worktree', 'add', '--detach', tree, head])
+    this.held.add(canonical(tree))
   }
-  catch (error) {
-    console.error(`${PREFIX}could not remove the review tree ${tree}: ${error instanceof Error ? error.message : String(error)}`)
+
+  fetch(ref: string): void {
+    this.tools.git(this.repo, ['fetch', '--quiet', 'origin', ref])
+  }
+
+  release(tree: string): void {
+    this.held.delete(canonical(tree))
+    const failure = this.remove(tree)
+    if (failure !== null)
+      console.error(`${PREFIX}could not remove the review tree ${tree}: ${failure}`)
+  }
+
+  clearLeftovers(): LeftoverTree[] {
+    const inside = canonical(this.dir) + path.sep
+    const leftovers = this.tools.worktrees(this.repo).filter(tree => canonical(tree).startsWith(inside) && !this.held.has(canonical(tree)))
+    const cleared = leftovers.map(tree => ({ path: tree, left: this.remove(tree) }))
+    this.tools.git(this.repo, ['worktree', 'prune'])
+    return cleared
+  }
+
+  private remove(tree: string): string | null {
+    try {
+      this.tools.git(this.repo, ['worktree', 'remove', '--force', tree])
+      return null
+    }
+    catch (error) {
+      return failureOf(error)
+    }
   }
 }
 
@@ -91,21 +145,21 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
   }
 }
 
-export function claudeReviewer(repo: string, dir: string, tools: ReviewerTools = REAL_TOOLS): Reviewer {
+export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession): Reviewer {
   return async (lease, plan) => {
     const session = randomUUID()
-    const { tree, verdictPath, ...params } = reviewSession(repo, dir, session, lease, plan)
-    mkdirSync(dir, { recursive: true })
-    tools.git(repo, ['fetch', '--quiet', 'origin', `pull/${lease.pr}/head`])
-    tools.git(repo, ['worktree', 'add', '--detach', tree, lease.head!])
+    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan)
+    mkdirSync(trees.dir, { recursive: true })
+    trees.fetch(`pull/${lease.pr}/head`)
+    trees.add(tree, lease.head!)
     try {
-      const code = await tools.spawn(params)
+      const code = await spawn(params)
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
       return reviewOf(readFileSync(verdictPath, 'utf8'), session)
     }
     finally {
-      removeTree(tools, repo, tree)
+      trees.release(tree)
     }
   }
 }
