@@ -3,6 +3,7 @@ import type { MergeEvent } from '../board/handoff.js'
 import type { CardFileStep } from './card-archive.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
@@ -20,9 +21,15 @@ export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge
 
 export type MergeLineStep = 'written' | 'present' | 'no-merger'
 
+export interface TreeLeft {
+  path: string
+  left: string
+}
+
 export interface CloseCycle {
   mergeLine: MergeLineStep
   cardFile: CardFileStep
+  treeLeft: TreeLeft | null
 }
 
 export interface CloseDenial {
@@ -62,6 +69,12 @@ export interface CloseParts {
 
 function git(repo: string, args: string[]): string {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function failureOf(error: unknown): string {
+  const stderr = (error as { stderr?: unknown }).stderr
+  const said = Buffer.isBuffer(stderr) || typeof stderr === 'string' ? String(stderr).trim() : ''
+  return said !== '' ? said : error instanceof Error ? error.message : String(error)
 }
 
 function canonical(dir: string): string {
@@ -203,24 +216,25 @@ export class CloseExecutor {
       if (cardClosed(db, lease.cardId))
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
-    this.removeCardTree(lease)
-    return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { mergeLine, cardFile } }
+    const treeLeft = this.removeCardTree(lease)
+    return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { mergeLine, cardFile, treeLeft } }
   }
 
-  private removeCardTree(lease: Lease): void {
+  private removeCardTree(lease: Lease): TreeLeft | null {
     const session = cardSessionOf(this.parts.db, lease.cardId)
     if (session === null)
-      return
+      return null
     let removed: RemovedTree | null
     try {
       removed = this.trees.remove(session.worktree)
     }
-    catch {
-      return
+    catch (error) {
+      return { path: session.worktree, left: failureOf(error) }
     }
     if (removed === null)
-      return
+      return null
     appendEvent(this.parts.db, { ts: this.ts(), type: ARTIFACT_REMOVED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${ARTIFACT_REMOVED}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty }, legacy: false })
+    return null
   }
 
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {

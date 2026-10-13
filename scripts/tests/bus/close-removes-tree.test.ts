@@ -5,16 +5,18 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ARTIFACT_REMOVED, CloseExecutor, gitTreeRemover } from '../../bus/close-executor.js'
+import { ARTIFACT_REMOVED, gitTreeRemover } from '../../bus/close-executor.js'
+import { CloseWorker } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
-import { leaseNext } from '../../bus/lease.js'
-import { CARD_CLOSED } from '../../bus/queue.js'
+import { BOARD_ALARM, CARD_CLOSED } from '../../bus/queue.js'
+import { TREE_LEFT } from '../../bus/review-worker.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const PR = 993
 const CARD = PR + 100
-const CLOSER = 'worker:close:worker-1'
+const SESSION = 'worker-1'
+const CLOSER = `worker:close:${SESSION}`
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -48,10 +50,11 @@ function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRem
     bench.tick()
     if (closedEarlier)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-    const executor = new CloseExecutor({ db: bench.db, reported: () => 'run', clock: bench.clock.now, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees })
-    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'close', CLOSER)!
-    const outcome = executor.close(lease)
-    return { outcome, closed: eventsOf(bench.db, CARD_CLOSED), removed: eventsOf(bench.db, ARTIFACT_REMOVED), task: taskState(bench.db, lease.taskKey) }
+    const worker = new CloseWorker({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees })
+    const outcome = worker.step()
+    if (outcome.kind === 'idle')
+      throw new Error('the close queue held no task')
+    return { outcome, closed: eventsOf(bench.db, CARD_CLOSED), removed: eventsOf(bench.db, ARTIFACT_REMOVED), alarms: eventsOf(bench.db, BOARD_ALARM), task: taskState(bench.db, outcome.taskKey) }
   }
   finally {
     bench.close()
@@ -132,14 +135,15 @@ describe('the close executor removes the card tree it closed', () => {
     expect(run.removed).toEqual([])
   })
 
-  it('a removal that fails leaves the close recorded and completed, for the sweeper to finish', () => {
+  it('a removal that fails gives board.alarm tree_left with git\'s stderr, and the close is recorded and completed', () => {
     const run = closeOnce({ remove: () => {
-      throw new Error('git worktree remove failed')
+      throw Object.assign(new Error('Command failed: git worktree remove'), { stderr: 'fatal: \'/trees/mc-gone\' contains modified or untracked files\n' })
     } }, '/trees/mc-gone')
 
     expect(run.outcome).toMatchObject({ kind: 'closed' })
     expect(run.closed).toEqual([{ verification: 'run' }])
     expect(run.task).toMatchObject({ state: 'completed', failures: 0 })
     expect(run.removed).toEqual([])
+    expect(run.alarms).toEqual([{ reason: TREE_LEFT, path: '/trees/mc-gone', detail: 'fatal: \'/trees/mc-gone\' contains modified or untracked files' }])
   })
 })
