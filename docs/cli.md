@@ -1946,8 +1946,9 @@ card's `touches` from `<dir>/<id>.md`, `~/.construct/parking` by default, into t
 entry line it writes to `ghosts.jsonl`, under `--without-intake` too. A missing file is named in that
 value as `touches not recorded on the card: no parking file for #<id>`; a file whose card line is not
 the `--card` given is refused with nothing written, and so is a file whose body is not the `bodySha`
-its latest `card.admitted` carries, with or without its `touches` line, unless `--without-intake` is
-given; an admission that carries no `bodySha` is not checked. The entry line `task:start` writes carries
+of the latest `card.admitted` that carries one, with or without its `touches` line, unless
+`--without-intake` is given. A move to a lane admits without a `bodySha`, so the body admitted before
+the move still holds; a card none of whose admissions carries a `bodySha` is not checked. The entry line `task:start` writes carries
 `"schema":2`; the one `ghosts:launch` writes carries no `schema` and stays version 1.
 
 One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written

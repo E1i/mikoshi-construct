@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bodySha, INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
+import { bodySha, bodyShaWithoutTouches, INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../../src/commands/intake/move.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
@@ -565,16 +565,34 @@ describe('the card.started carries the card who and risk read from the card file
 })
 
 describe('task:start checks the card file against the body its card.admitted carries', () => {
-  function parkedWithAdmission(world: World, id: number, admitted: string | null, onDisk: string): TaskStartDeps {
+  interface Admission { sha?: (text: string) => string, touchesOnDisk?: string, movedAfter?: boolean }
+
+  function parkedWithAdmission(world: World, id: number, admitted: string | null, onDisk: string, more: Admission = {}): TaskStartDeps {
+    const { sha = bodySha, touchesOnDisk = 'a.ts', movedAfter = false } = more
     const dir = path.join(world.root, 'parking')
     mkdirSync(dir, { recursive: true })
-    const text = (body: string): string => `card: ${card(id)}\nbranch: feat/b\ntouches: a.ts\ncontinue: stop\nwho: window\n\n${body}\n`
-    writeFileSync(path.join(dir, `${id}.md`), text(onDisk))
+    const text = (body: string, touches = 'a.ts'): string => `card: ${card(id)}\nbranch: feat/b\ntouches: ${touches}\ncontinue: stop\nwho: window\n\n${body}\n`
+    writeFileSync(path.join(dir, `${id}.md`), text(onDisk, touchesOnDisk))
     const db = openBus(world.bus)
-    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}:body`, payload: { card: card(id), lane: null, depends: [], decision: 'auto', contour: 'cheap', ...(admitted === null ? {} : { bodySha: bodySha(text(admitted)) }) }, legacy: false })
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}:body`, payload: { card: card(id), lane: null, depends: [], decision: 'auto', contour: 'cheap', ...(admitted === null ? {} : { bodySha: sha(text(admitted)) }) }, legacy: false })
+    if (movedAfter)
+      appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}:moved`, payload: { card: card(id), lane: 'lane-1', depends: [], decision: 'auto', contour: 'cheap', moved: true }, legacy: false })
     db.close()
     return { ...depsOf(world), parking: { dir, read: file => existsSync(file) ? readFileSync(file, 'utf8') : null } }
   }
+
+  it('a card admitted with a body, moved to a lane by an admission without one, then edited is refused', () => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/b4', '--card', card(94)], parkedWithAdmission(world, 94, 'the admitted body', 'a body edited past intake', { movedAfter: true }))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('the parking file of card #94 is not the body card.admitted:94:moved admitted')
+    expect(starts(world)).toEqual([])
+  })
+
+  it('a card file whose touches line changed since an admission of its body without touches starts', () => {
+    const world = newWorld()
+    expect(runTaskStart(['feat/b5', '--card', card(95)], parkedWithAdmission(world, 95, 'the admitted body', 'the admitted body', { sha: bodyShaWithoutTouches, touchesOnDisk: 'b.ts' })).exitCode).toBe(0)
+  })
 
   it('a card file edited past its admission is refused with nothing written', () => {
     const world = newWorld()

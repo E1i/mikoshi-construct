@@ -20,7 +20,7 @@ import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
 import { CARD_STARTED } from '../bus/inbox.js'
 import { CARD_ADMITTED } from '../bus/launch-candidates.js'
-import { LEASED } from '../bus/queue.js'
+import { cardBodyShaOfCard, LEASED } from '../bus/queue.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
 import { busCardStates } from './tasks.js'
 import { taskWorktree, worktreeHome } from './worktree-home.js'
@@ -116,8 +116,8 @@ function busAdmission(bus: string, card: Card): Admission | undefined {
     const admittedLine = admittedCardLine(db, card.id, admitted)
     if (admittedLine !== undefined && !sameCard(admittedLine, card))
       return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
-    const admittedBody = stringField(admitted.payload, 'bodySha')
-    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts, ...(admittedBody === undefined ? {} : { bodySha: admittedBody }) }
+    const admittedBody = cardBodyShaOfCard(db, card.id)
+    return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts, ...(admittedBody === null ? {} : { bodySha: admittedBody }) }
   }
   finally {
     db.close()
