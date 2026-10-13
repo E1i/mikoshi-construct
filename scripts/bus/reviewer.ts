@@ -87,7 +87,11 @@ function failureOf(error: unknown): string {
 }
 
 function canonical(where: string): string {
-  return existsSync(where) ? realpathSync(where) : path.resolve(where)
+  const resolved = path.resolve(where)
+  if (existsSync(resolved))
+    return realpathSync(resolved)
+  const parent = path.dirname(resolved)
+  return parent === resolved ? resolved : path.join(canonical(parent), path.basename(resolved))
 }
 
 export class ReviewTrees {

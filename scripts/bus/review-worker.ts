@@ -55,6 +55,7 @@ export interface WorkerParts {
   plan: ReviewPlanner
   clock: () => Date
   session: string
+  clearLeftovers?: () => LeftoverTree[]
 }
 
 interface Reviewed {
@@ -118,6 +119,8 @@ export class ReviewWorker {
   }
 
   private async review(lease: Lease): Promise<Step> {
+    if (this.parts.clearLeftovers !== undefined)
+      recordLeftovers(this.parts.db, this.actor, this.ts(), this.parts.clearLeftovers())
     const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime())
     if (stale?.kind === 'technical' && stale.reason === CI_NOT_READY)
       return this.waiting(lease, stale.detail)
@@ -357,6 +360,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     plan: run.plan,
     clock: () => new Date(),
     session: run.session,
+    clearLeftovers: run.clearLeftovers,
   }
   try {
     const workers = startReviewWorkers(parts, run.slots)

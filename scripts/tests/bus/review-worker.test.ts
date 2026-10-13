@@ -6,7 +6,7 @@ import type { LeftoverTree, Reviewer } from '../../bus/reviewer.js'
 import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { ChangedFile } from '../../morse/rules.js'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -43,7 +43,7 @@ interface Bench {
   clock: Clock
   statuses: ReviewStatus[]
   tick: () => void
-  worker: (reviewer: Reviewer, publish?: StatusPublisher, plan?: ReviewPlanner) => ReviewWorker
+  worker: (reviewer: Reviewer, publish?: StatusPublisher, plan?: ReviewPlanner, clearLeftovers?: () => LeftoverTree[]) => ReviewWorker
 }
 
 const fixedPlan: ReviewPlanner = () => fullReview('a fixed plan')
@@ -73,7 +73,7 @@ function setUp(): Bench {
       busTick.run()
       clock.advance(TICK_MS)
     },
-    worker: (reviewer, publish = posted, plan = fixedPlan) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1' }),
+    worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers }),
   }
 }
 
@@ -503,6 +503,47 @@ describe('review worker', () => {
     await expect(runReview(['--on'], run)).rejects.toThrow(Stopped)
     expect(output()).toContain(`${busPath}: the review worker worker:review:main-1-1 takes the review queue`)
     expect(existsSync(busPath)).toBe(true)
+  })
+
+  it('a leftover tree whose removal failed at the end of a review is freed on the next lease without a restart, and the tree of that lease is untouched', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-next-lease-'))
+    roots.push(dir)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const listed = new Set<string>()
+    let removals = 0
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'add')
+          listed.add(args[3]!)
+        if (args[1] === 'remove') {
+          removals += 1
+          if (removals === 1)
+            throw new Error('error: unable to remove the tree: Resource busy')
+          listed.delete(args[3]!)
+        }
+      },
+      worktrees: () => ['/repo', ...listed],
+    })
+    const seen: string[][] = []
+    const reviewer = claudeReviewer(trees, async (params) => {
+      seen.push([...listed])
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    const running = worker(reviewer, undefined, undefined, () => trees.clearLeftovers())
+    gitHub.open({ number: 939 })
+    gitHub.open({ number: 940 })
+    tick()
+    expect(await running.step()).toMatchObject({ kind: 'recorded' })
+    const [stuck] = [...listed]
+
+    expect(await running.step()).toMatchObject({ kind: 'recorded' })
+    expect(seen[1]).toHaveLength(1)
+    expect(seen[1]).not.toContain(stuck)
+    expect(listed.size).toBe(0)
+    expect(events(db, 'artifact.removed')).toEqual([{ path: stuck, by: 'worker:review:worker-1' }])
+    db.close()
   })
 
   it('a leftover review tree is cleared when the worker starts on, before any lease, and off or a dry run clears nothing', async () => {
