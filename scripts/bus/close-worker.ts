@@ -12,7 +12,7 @@ import { closingVerificationOf } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ghosts/worktree-home.js'
 import { reportPath } from '../shift/places.js'
-import { CloseExecutor } from './close-executor.js'
+import { CloseExecutor, failureOf } from './close-executor.js'
 import { defaultBusPath, openBus } from './db.js'
 import { EndedCardTrees, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
 import { expireLeases, leaseNext } from './lease.js'
@@ -45,8 +45,14 @@ export class CloseWorker {
   }
 
   freeEndedTrees(): void {
-    if (this.parts.endedTrees !== undefined)
+    if (this.parts.endedTrees === undefined)
+      return
+    try {
       recordEndedTrees(this.parts.db, this.actor, this.parts.clock().toISOString(), this.parts.endedTrees())
+    }
+    catch (error) {
+      console.error(`${PREFIX}the pass over ended cards' trees failed, the close goes on: ${failureOf(error)}`)
+    }
   }
 
   step(): CloseStep {

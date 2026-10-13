@@ -10,6 +10,7 @@ import { appendEvent } from '../../bus/db.js'
 import { DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../bus/ended-card-trees.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { leaseNext } from '../../bus/lease.js'
 import { BOARD_ALARM, CARD_CLOSED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
@@ -32,8 +33,8 @@ let root: string
 let repo: string
 let bench: ReturnType<typeof mergeBench>
 
-function cardTree(cardId: number): string {
-  const tree = path.join(root, `mc-${cardId}`)
+function cardTree(cardId: number, home = root): string {
+  const tree = path.join(home, `mc-${cardId}`)
   git(repo, ['worktree', 'add', '-q', '-b', `feat/card-${cardId}`, tree])
   return realpathSync(tree)
 }
@@ -43,6 +44,15 @@ function started(cardId: number, worktree: string): void {
   appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
   appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: `s-${cardId}`, worktree, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
   reduce(bench.db)
+}
+
+function closeLeased(cardId: number): void {
+  const pr = cardId - 100
+  bench.gitHub.open({ number: pr })
+  bench.tick()
+  bench.gitHub.close(pr, true)
+  bench.tick()
+  expect(leaseNext(bench.db, bench.clock.now().toISOString(), 'close', 'worker:close:other')).toMatchObject({ cardId })
 }
 
 function closed(cardId: number): void {
@@ -135,5 +145,56 @@ describe('the close worker frees the trees of ended cards', () => {
     expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
     expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${DIRTY}:  M package.json` }])
+  })
+
+  it('a closed card\'s half-deleted tree that also holds an untracked file stays and gives board.alarm tree_left with the reason dirty', () => {
+    const tree = cardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    writeFileSync(path.join(tree, 'notes.txt'), 'never committed\n')
+    started(CLOSED, tree)
+    closed(CLOSED)
+
+    pass()
+
+    expect(existsSync(path.join(tree, 'notes.txt'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${DIRTY}: ?? notes.txt` }])
+  })
+
+  it('the tree of a closed card that holds a live close lease is left untouched', () => {
+    const tree = cardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    started(CLOSED, tree)
+    closeLeased(CLOSED)
+    closed(CLOSED)
+
+    pass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('an mc-<id> tree outside the homes is left untouched though its card is closed', () => {
+    const tree = cardTree(CLOSED, path.join(root, 'elsewhere'))
+    unlinkSync(path.join(tree, 'README.md'))
+    started(CLOSED, tree)
+    closed(CLOSED)
+
+    pass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('an mc-<id> tree that is not the worktree card.started recorded is left untouched', () => {
+    const tree = cardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    started(CLOSED, path.join(root, 'elsewhere', `mc-${CLOSED}`))
+    closed(CLOSED)
+
+    pass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
   })
 })

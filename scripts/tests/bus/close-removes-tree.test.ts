@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardTreeRemover } from '../../bus/close-executor.js'
+import type { EndedTree } from '../../bus/ended-card-trees.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -37,7 +38,7 @@ function listed(repo: string): string[] {
   return git(repo, ['worktree', 'list', '--porcelain']).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length))
 }
 
-function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRemover), worktree: string | null, closedEarlier = false) {
+function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRemover), worktree: string | null, closedEarlier = false, endedTrees?: () => EndedTree[]) {
   const bench = mergeBench()
   const root = mkdtempSync(path.join(tmpdir(), 'bus-close-tree-'))
   const trees = typeof treesOf === 'function' ? treesOf(bench.db) : treesOf
@@ -50,7 +51,7 @@ function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRem
     bench.tick()
     if (closedEarlier)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-    const worker = new CloseWorker({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees })
+    const worker = new CloseWorker({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees, endedTrees })
     const outcome = worker.step()
     if (outcome.kind === 'idle')
       throw new Error('the close queue held no task')
@@ -145,5 +146,15 @@ describe('the close executor removes the card tree it closed', () => {
     expect(run.task).toMatchObject({ state: 'completed', failures: 0 })
     expect(run.removed).toEqual([])
     expect(run.alarms).toEqual([{ reason: TREE_LEFT, path: '/trees/mc-gone', detail: 'fatal: \'/trees/mc-gone\' contains modified or untracked files' }])
+  })
+
+  it('a pass over ended cards\' trees that throws does not stop the close: the card is closed and the task completed', () => {
+    const run = closeOnce({ remove: () => null }, '/trees/mc-recorded', false, () => {
+      throw Object.assign(new Error('Command failed: git worktree list'), { stderr: 'fatal: not a git repository' })
+    })
+
+    expect(run.outcome).toMatchObject({ kind: 'closed' })
+    expect(run.closed).toEqual([{ verification: 'run' }])
+    expect(run.task).toMatchObject({ state: 'completed', failures: 0 })
   })
 })
