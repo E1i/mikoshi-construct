@@ -4,8 +4,6 @@ export const ENDED_IN_BUS: ReadonlySet<string> = new Set(['merged', 'closed'])
 
 export type BusCardStates = ReadonlyMap<string, string>
 
-const NO_BUS_CARDS: BusCardStates = new Map()
-
 interface JournalEntry { event?: unknown, task?: unknown, verification?: unknown, report?: unknown, pr?: unknown, ts?: unknown }
 
 export function writtenBeforeHistoryEnds(entry: JournalEntry): boolean {
@@ -13,11 +11,12 @@ export function writtenBeforeHistoryEnds(entry: JournalEntry): boolean {
   return Number.isNaN(writtenAt) || writtenAt < Date.parse(JOURNAL_HISTORY_ENDS)
 }
 
-function historyOf(journal: string | null): JournalEntry[] {
+function historyOf(journal: string | null, bus: BusCardStates | undefined): JournalEntry[] {
+  const counted = bus === undefined ? () => true : writtenBeforeHistoryEnds
   return (journal ?? '').split('\n').flatMap((line) => {
     try {
       const entry = JSON.parse(line) as JournalEntry | null
-      return entry !== null && typeof entry === 'object' && writtenBeforeHistoryEnds(entry) ? [entry] : []
+      return entry !== null && typeof entry === 'object' && counted(entry) ? [entry] : []
     }
     catch {
       return []
@@ -25,12 +24,12 @@ function historyOf(journal: string | null): JournalEntry[] {
   })
 }
 
-function endedInBus(bus: BusCardStates): [string, string][] {
-  return [...bus].filter(([, state]) => ENDED_IN_BUS.has(state))
+function endedInBus(bus: BusCardStates | undefined): [string, string][] {
+  return [...(bus ?? [])].filter(([, state]) => ENDED_IN_BUS.has(state))
 }
 
-export function closedTasks(journal: string | null, bus: BusCardStates = NO_BUS_CARDS): Map<string, string> {
-  const closed = new Map(historyOf(journal).flatMap(entry =>
+export function closedTasks(journal: string | null, bus?: BusCardStates): Map<string, string> {
+  const closed = new Map(historyOf(journal, bus).flatMap(entry =>
     entry.event === 'path' && typeof entry.task === 'string' && typeof entry.verification === 'string' ? [[entry.task, entry.verification] as const] : []))
   for (const [task, state] of endedInBus(bus)) {
     if (!closed.has(task))
@@ -39,8 +38,8 @@ export function closedTasks(journal: string | null, bus: BusCardStates = NO_BUS_
   return closed
 }
 
-export function mergedTasks(journal: string | null, bus: BusCardStates = NO_BUS_CARDS): Set<string> {
-  const merged = new Set(historyOf(journal).flatMap((entry) => {
+export function mergedTasks(journal: string | null, bus?: BusCardStates): Set<string> {
+  const merged = new Set(historyOf(journal, bus).flatMap((entry) => {
     if (typeof entry.task !== 'string')
       return []
     const mergeLine = entry.event === 'merge'

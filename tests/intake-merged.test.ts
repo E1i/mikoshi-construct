@@ -71,4 +71,16 @@ describe('a depends or blocks is met by a merge line, not by a done task', () =>
     const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] }, () => new Map([['77', 'running']]))
     expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends #77 · blocks —$/m)
   })
+
+  it('without a bus a merge line after the cutoff lifts depends', () => {
+    const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] })
+    expect(late.output).toContain('corrected: depends — #77 → (removed) — already merged')
+    expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends — · blocks —$/m)
+  })
+
+  it('with a bus a merge line after the cutoff lifts nothing', () => {
+    const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] }, () => new Map())
+    expect(late.output).not.toContain('corrected: depends')
+    expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends #77 · blocks —$/m)
+  })
 })
