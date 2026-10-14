@@ -1,17 +1,26 @@
+import type { TreeTools } from '../../bus/reviewer.js'
 import type { SpawnSessionParams } from '../../ghosts/session.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../bus/review-depth.js'
-import { claudeReviewer, GIT_TREE_TOOLS, PREFIX, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
+import { claudeReviewer, GIT_TREE_TOOLS, PREPARED_TREE_LINE, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
 import { sessionArgv } from '../../ghosts/session.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
 const full = fullReview('a fixed plan')
+const cleanTree: Pick<TreeTools, 'prepare' | 'state'> = { prepare: () => {}, state: () => ({ head: sha('a'), status: [] }) }
+const unprepared: TreeTools = { ...GIT_TREE_TOOLS, prepare: () => {} }
+const WORKAROUNDS = [/\b(?:pnpm|npm|yarn) (?:i|install|add)\b/, /\bln -s\b/, /symlink/i, /git archive/]
+
+function gitRun(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
 
 describe('reviewer', () => {
   it('a review file gives the verdict, the findings and the session', () => {
@@ -73,7 +82,7 @@ describe('reviewer', () => {
         writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
         return 0
       }
-      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [] })
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
       expect(await claudeReviewer(trees, running)(lease, full)).toMatchObject({ verdict: 'pass', model: 'claude-haiku-5-5' })
       expect(spawned.map(params => params.model)).toEqual(['claude-sonnet-5-5'])
     }
@@ -83,9 +92,8 @@ describe('reviewer', () => {
     }
   })
 
-  it('a failing worktree remove does not mask the review', async () => {
+  it('a failing worktree remove does not mask the review, and the release of the tree returns git\'s reason', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-'))
-    const printed = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const git = (_cwd: string, args: string[]): void => {
         if (args[0] === 'worktree' && args[1] === 'remove')
@@ -96,20 +104,62 @@ describe('reviewer', () => {
         return 0
       }
 
-      const trees = new ReviewTrees('/repo', dir, { git, worktrees: () => [] })
-      expect(await claudeReviewer(trees, passing)(lease, full)).toMatchObject({ verdict: 'pass', findings: [] })
-      await expect(claudeReviewer(trees, async () => 1)(lease, full)).rejects.toThrow(/exited 1/)
-      const lines = printed.mock.calls.map(call => String(call[0]))
-      expect(lines).toHaveLength(2)
-      for (const line of lines) {
-        expect(line.startsWith(`${PREFIX}could not remove the review tree ${dir}/`)).toBe(true)
-        expect(line.endsWith('fatal: the tree is locked')).toBe(true)
-      }
+      const trees = new ReviewTrees('/repo', dir, { git, worktrees: () => [], ...cleanTree })
+      const review = await claudeReviewer(trees, passing)(lease, full)
+      expect(review).toMatchObject({ verdict: 'pass', findings: [] })
+      expect(review.tree!.path.startsWith(`${dir}/`)).toBe(true)
+      expect(review.tree!.release()).toBe('fatal: the tree is locked')
+      const failed = await claudeReviewer(trees, async () => 1)(lease, full).catch((error: unknown) => error)
+      expect(failed).toMatchObject({ message: expect.stringMatching(/exited 1/) })
+      expect((failed as { held: { release: () => string | null } }).held.release()).toBe('fatal: the tree is locked')
     }
     finally {
-      printed.mockRestore()
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('after ReviewTrees.add prepares the tree node_modules/.bin/vitest exists in it', () => {
+    const repo = gitRun(process.cwd(), 'rev-parse', '--show-toplevel').trim()
+    const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-reviewer-prepare-')))
+    const trees = new ReviewTrees(repo, dir)
+    const tree = path.join(dir, 'prepared')
+    try {
+      trees.add(tree, gitRun(repo, 'rev-parse', 'HEAD').trim())
+
+      expect(existsSync(path.join(tree, 'node_modules', '.bin', 'vitest'))).toBe(true)
+      expect(trees.state(tree).status).toEqual([])
+    }
+    finally {
+      trees.release(tree)
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 300_000)
+
+  it('a review tree that is not clean before the review is refused before the session runs', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-dirty-'))
+    try {
+      const spawned: string[] = []
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: [' M a.txt'] }) })
+
+      await expect(claudeReviewer(trees, async (params) => {
+        spawned.push(params.sessionId)
+        return 0
+      })(lease, full)).rejects.toThrow(/not clean before the review: {2}M a\.txt/)
+      expect(spawned).toEqual([])
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('the reviewer instruction names no install, symlink or git archive workaround', () => {
+    const prompt = reviewPrompt(lease, full, '/tmp/t', '/tmp/v.json')
+    const role = readFileSync(path.join(process.cwd(), '.claude', 'agents', 'review.md'), 'utf8')
+
+    expect(prompt).toContain(PREPARED_TREE_LINE)
+    expect(role).toContain('never prepare it yourself')
+    for (const text of [prompt, role])
+      expect(WORKAROUNDS.filter(workaround => workaround.test(text))).toEqual([])
   })
 
   it('a leftover tree of a killed review session goes on the next pass, while a held tree, a tree outside the reviews dir and the session files stay', () => {
@@ -128,12 +178,12 @@ describe('reviewer', () => {
       const killed = path.join(dir, 'killed')
       const held = path.join(dir, 'held')
       const outside = path.join(root, 'card-tree')
-      new ReviewTrees(repo, dir).add(killed, head)
+      new ReviewTrees(repo, dir, unprepared).add(killed, head)
       const sessionFiles = ['killed.out.jsonl', 'killed.err.log', 'killed.verdict.json'].map(name => path.join(dir, name))
       for (const file of sessionFiles)
         writeFileSync(file, '{}')
       run(repo, 'worktree', 'add', '-q', '--detach', outside, head)
-      const next = new ReviewTrees(repo, dir)
+      const next = new ReviewTrees(repo, dir, unprepared)
       next.add(held, head)
 
       expect(next.clearLeftovers()).toEqual([{ path: killed, left: null }])
@@ -156,7 +206,7 @@ describe('reviewer', () => {
         throw Object.assign(new Error('Command failed: git worktree remove'), { stderr: Buffer.from('error: unable to remove /reviews/stuck/node_modules: Resource busy\n') })
       }
     }
-    const trees = new ReviewTrees('/repo', '/reviews', { git, worktrees: () => ['/repo', '/reviews/stuck'] })
+    const trees = new ReviewTrees('/repo', '/reviews', { git, worktrees: () => ['/repo', '/reviews/stuck'], ...cleanTree })
 
     expect(trees.clearLeftovers()).toEqual([{ path: '/reviews/stuck', left: 'error: unable to remove /reviews/stuck/node_modules: Resource busy' }])
     expect(trees.clearLeftovers()).toEqual([{ path: '/reviews/stuck', left: 'error: unable to remove /reviews/stuck/node_modules: Resource busy' }])

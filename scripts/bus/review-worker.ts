@@ -5,7 +5,7 @@ import type { GitHub } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
-import type { LeftoverTree, Review, Reviewer } from './reviewer.js'
+import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
@@ -29,7 +29,7 @@ import { BOARD_ALARM, cardBodyShaOfCard, changesRoundsOf, REVIEW_ROUNDS } from '
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { shadowProblems } from './report.js'
 import { fullReview } from './review-depth.js'
-import { claudeReviewer, PREFIX, ReviewTrees } from './reviewer.js'
+import { claudeReviewer, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
 
@@ -40,6 +40,7 @@ const CI_NOT_READY = 'ci_not_ready'
 export const TREE_LEFT = 'tree_left'
 export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
+export const REVIEW_TREE_ORPHANED = 'review.tree.orphaned'
 const BUS_DIR = path.join(os.homedir(), '.construct', 'bus')
 const MORSE_JOURNAL = path.join(os.homedir(), '.construct', 'bus', 'morse.jsonl')
 
@@ -66,6 +67,11 @@ interface Reviewed {
   review: Review
   plan: ReviewPlan
   ms: number
+}
+
+interface Attempt {
+  outcome: Reviewed | Denial
+  held: HeldTree | null
 }
 
 function strings(value: unknown): string[] {
@@ -141,8 +147,11 @@ export class ReviewWorker {
           console.error(`${PREFIX}${lease.taskKey}: the lease was not renewed this beat, the heartbeat keeps running: ${error instanceof Error ? error.message : String(error)}`)
       }
     }, RENEW_MS)
+    let held: HeldTree | null = null
     try {
-      return this.settle(lease, await this.reviewed(lease))
+      const attempt = await this.reviewed(lease)
+      held = attempt.held
+      return this.settle(lease, attempt.outcome)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -151,20 +160,28 @@ export class ReviewWorker {
     }
     finally {
       clearInterval(heartbeat)
+      if (held !== null)
+        this.released(lease, held)
     }
   }
 
-  private async reviewed(lease: Lease): Promise<Reviewed | Denial> {
+  private async reviewed(lease: Lease): Promise<Attempt> {
     const { db, clock } = this.parts
     const plan = planned(this.parts.plan, lease, earlierVerdict(db, lease))
     try {
       const started = clock().getTime()
       const review = await this.parts.reviewer(lease, plan)
-      return { review, plan, ms: clock().getTime() - started }
+      return { outcome: { review, plan, ms: clock().getTime() - started }, held: review.tree ?? null }
     }
     catch (error) {
-      return { kind: 'technical', reason: 'review_failed', detail: error instanceof Error ? error.message : String(error) }
+      return { outcome: { kind: 'technical', reason: 'review_failed', detail: error instanceof Error ? error.message : String(error) }, held: error instanceof ReviewFailed ? error.held : null }
     }
+  }
+
+  private released(lease: Lease, held: HeldTree): void {
+    const left = held.release()
+    if (left !== null)
+      appendEvent(this.parts.db, orphaned(this.ts(), this.actor, lease, held.path, left))
   }
 
   private settle(lease: Lease, reviewed: Reviewed | Denial): Step {
@@ -219,7 +236,7 @@ export class ReviewWorker {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, findings: review.findings },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, findings: review.findings, ...treeFields(review) },
       legacy: false,
     }
   }
@@ -246,6 +263,14 @@ export class ReviewWorker {
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
+}
+
+function treeFields({ tree }: Review): Record<string, unknown> {
+  return tree === undefined ? {} : { treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
+}
+
+function orphaned(ts: string, actor: string, lease: Lease, tree: string, detail: string): BusEvent {
+  return { ts, type: REVIEW_TREE_ORPHANED, actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${REVIEW_TREE_ORPHANED}:${tree}`, payload: { path: tree, detail }, legacy: false }
 }
 
 export function roundLimitLine(pr: number, rounds: number): string {
@@ -351,10 +376,26 @@ export function dryRunLines(lease: Lease, plan: ReviewPlan, review: Review): str
   ]
 }
 
+function releasedLines(held: HeldTree): string[] {
+  const left = held.release()
+  return left === null ? [] : [`${PREFIX}the review tree ${held.path} was not removed: ${left}`]
+}
+
 export async function dryRun(gitHub: GitHub, reviewer: Reviewer, planner: ReviewPlanner, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY): Promise<string[]> {
   const lease = dryRunLease(gitHub, pr, cardBodyOf)
   const plan = planned(planner, lease, null)
-  return dryRunLines(lease, plan, await reviewer(lease, plan))
+  let review: Review
+  try {
+    review = await reviewer(lease, plan)
+  }
+  catch (error) {
+    if (error instanceof ReviewFailed) {
+      for (const line of releasedLines(error.held))
+        console.error(line)
+    }
+    throw error
+  }
+  return [...dryRunLines(lease, plan, review), ...(review.tree === undefined ? [] : releasedLines(review.tree))]
 }
 
 export interface ReviewRun {

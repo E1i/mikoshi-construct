@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
 import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../bus/review-depth.js'
 import type { ReviewRun } from '../../bus/review-worker.js'
-import type { LeftoverTree, Reviewer } from '../../bus/reviewer.js'
+import type { LeftoverTree, Reviewer, TreeTools } from '../../bus/reviewer.js'
 import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { ChangedFile } from '../../morse/rules.js'
@@ -21,7 +21,7 @@ import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
 import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
-import { claudeReviewer, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
+import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { openDatabase } from '../../bus/sqlite.js'
 import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
@@ -92,6 +92,34 @@ function task(db: DatabaseSync, key: string): { state: string, lease_gen: number
 
 function events(db: DatabaseSync, type: string): Record<string, unknown>[] {
   return db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(type).map(row => JSON.parse(String(row.payload)) as Record<string, unknown>)
+}
+
+const cleanTree: Pick<TreeTools, 'prepare' | 'state'> = { prepare: () => {}, state: () => ({ head: sha('a'), status: [] }) }
+
+function gitRun(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function oneCommitRepo(root: string): { repo: string, head: string } {
+  const repo = path.join(root, 'repo')
+  mkdirSync(repo)
+  gitRun(repo, 'init', '-q')
+  writeFileSync(path.join(repo, 'a.txt'), 'a\n')
+  gitRun(repo, 'add', 'a.txt')
+  gitRun(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a')
+  return { repo, head: gitRun(repo, 'rev-parse', 'HEAD').trim() }
+}
+
+function localTrees(onGit: (args: string[]) => void = () => {}): TreeTools {
+  return {
+    ...GIT_TREE_TOOLS,
+    prepare: () => {},
+    git: (cwd, args) => {
+      onGit(args)
+      if (args[0] !== 'fetch')
+        GIT_TREE_TOOLS.git(cwd, args)
+    },
+  }
 }
 
 function eventCount(db: DatabaseSync): number {
@@ -539,6 +567,7 @@ describe('review worker', () => {
         }
       },
       worktrees: () => ['/repo', ...listed],
+      ...cleanTree,
     })
     const seen: string[][] = []
     const reviewer = claudeReviewer(trees, async (params) => {
@@ -608,10 +637,129 @@ describe('review worker', () => {
     vi.restoreAllMocks()
   })
 
+  it('a file planted in the review tree gives treeMutated with its path and a verdict that is not pass', async () => {
+    const { db, gitHub, statuses, tick, worker } = setUp()
+    const { repo, head } = oneCommitRepo(roots.at(-1)!)
+    const dir = path.join(roots.at(-1)!, 'reviews')
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      writeFileSync(path.join(dir, params.sessionId, 'planted.txt'), 'planted\n')
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    gitHub.open({ number: 961, head })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    const [recorded] = events(db, 'review.recorded')
+    expect(recorded).toMatchObject({ verdict: 'changes', treeBefore: { head, status: [] }, treeAfter: { head, status: ['?? planted.txt'] }, treeMutated: ['planted.txt'] })
+    expect(recorded!.findings).toEqual([expect.stringContaining('planted.txt')])
+    expect(statuses.map(status => status.state)).not.toContain('success')
+    db.close()
+  })
+
+  it('after review.recorded the review tree is gone', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const { repo, head } = oneCommitRepo(roots.at(-1)!)
+    const dir = path.join(roots.at(-1)!, 'reviews')
+    const recordedAtRemoval: number[] = []
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees((args) => {
+      if (args[0] === 'worktree' && args[1] === 'remove')
+        recordedAtRemoval.push(events(db, 'review.recorded').length)
+    })), async (params) => {
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    gitHub.open({ number: 962, head })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+    expect(recordedAtRemoval).toEqual([1])
+    expect(GIT_TREE_TOOLS.worktrees(repo).map(tree => realpathSync(tree))).toEqual([realpathSync(repo)])
+    expect(events(db, 'review.recorded')).toEqual([expect.objectContaining({ treeMutated: [] })])
+    db.close()
+  })
+
+  it('a failed removal gives review.tree.orphaned with the path', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-orphaned-'))
+    roots.push(dir)
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'remove')
+          throw new Error('error: unable to remove the tree: Resource busy')
+      },
+      worktrees: () => [],
+      ...cleanTree,
+    })
+    const sessions: string[] = []
+    const reviewer = claudeReviewer(trees, async (params) => {
+      sessions.push(params.sessionId)
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    gitHub.open({ number: 963 })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded' })
+    expect(events(db, 'review.tree.orphaned')).toEqual([{ path: path.join(dir, sessions[0]!), detail: 'error: unable to remove the tree: Resource busy' }])
+    db.close()
+  })
+
+  it('a review session that fails still has its review tree removed', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-failed-'))
+    roots.push(dir)
+    const removed: string[] = []
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'remove')
+          removed.push(args[3]!)
+      },
+      worktrees: () => [],
+      ...cleanTree,
+    })
+    const sessions: string[] = []
+    gitHub.open({ number: 964 })
+    tick()
+
+    expect(await worker(claudeReviewer(trees, async (params) => {
+      sessions.push(params.sessionId)
+      return 1
+    })).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
+    expect(removed).toEqual([path.join(dir, sessions[0]!)])
+    db.close()
+  })
+
+  it('a dry run removes its review tree after the review', async () => {
+    const { db, gitHub, tick } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-dry-tree-'))
+    roots.push(dir)
+    const removed: string[] = []
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'remove')
+          removed.push(args[3]!)
+      },
+      worktrees: () => [],
+      ...cleanTree,
+    })
+    const sessions: string[] = []
+    gitHub.open({ number: 965 })
+    tick()
+
+    await dryRun(gitHub.client, claudeReviewer(trees, async (params) => {
+      sessions.push(params.sessionId)
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    }), fixedPlan, 965)
+    expect(removed).toEqual([path.join(dir, sessions[0]!)])
+    db.close()
+  })
+
   it('the review session runs in the mode the contract names, not the window SHIFT_CLAUDE', async () => {
     vi.stubEnv('SHIFT_CLAUDE', 'claude --permission-mode bypassPermissions')
     const spawned: SpawnSessionParams[] = []
-    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-mode'), { git: () => {}, worktrees: () => [] }), async (params) => {
+    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-mode'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
       spawned.push(params)
       throw new Error('stop after the spawn')
     })
@@ -650,8 +798,8 @@ describe('review worker', () => {
       run(repo, 'add', 'a.txt')
       run(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a')
       const head = run(repo, 'rev-parse', 'HEAD').trim()
-      const switchedOn = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--on'])))
-      const dry = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--dry-run', '949'])))
+      const switchedOn = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--on'])), localTrees())
+      const dry = new ReviewTrees(repo, reviewsDir(bus, reviewMode(['--dry-run', '949'])), localTrees())
       const dryTree = path.join(dry.dir, 'dry-run-session')
       mkdirSync(dry.dir, { recursive: true })
       dry.add(dryTree, head)
