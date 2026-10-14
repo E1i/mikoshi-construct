@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
+import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit } from '../../bus/policy.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { sha } from './github-fake.js'
@@ -112,5 +113,47 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(moved.merge(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' } })
     expect(moved.gitHub.published).toEqual([])
     expect(moved.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+  })
+
+  it('a review status GitHub refuses denies the merge as github_error and puts no merge', () => {
+    const bench = roundLimited()
+    decide(bench, `PR #${PR} merges at ${HEAD} past the round limit`)
+    bench.tick()
+    bench.gitHub.published.push = () => {
+      throw new Error('gh api: 422 status refused')
+    }
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'github_error' } })
+    expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
+  })
+
+  it('an open version pull request locks a decided merge before any review status is set', () => {
+    const bench = roundLimited()
+    decide(bench, `PR #${PR} merges at ${HEAD} past the round limit`)
+    bench.tick()
+    bench.gitHub.open({ number: PR + 2, head: sha('f'), ref: 'changeset-release/main', runs: [{ status: 'completed', conclusion: 'success' }] })
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'version_pr_open' } })
+    expect(bench.gitHub.published).toEqual([])
+    expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+  })
+
+  it('a decision whose term has lapsed, at the tick or by the merge, merges nothing', () => {
+    const lapsedAtTick = roundLimited()
+    decide(lapsedAtTick, `PR #${PR} merges at ${HEAD} past the round limit until 2026-10-09T12:00Z`)
+    lapsedAtTick.tick()
+
+    expect(queuedFor(lapsedAtTick, PR)).toEqual([])
+
+    const lapsedByMerge = roundLimited()
+    decide(lapsedByMerge, `PR #${PR} merges at ${HEAD} past the round limit until 2026-10-09T12:03Z`)
+    lapsedByMerge.tick()
+    const lease = lapsedByMerge.lease()!
+    lapsedByMerge.clock.advance(3 * TICK_MS)
+
+    expect(lapsedByMerge.merge(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'no_pass_on_head' } })
+    expect(lapsedByMerge.gitHub.published).toEqual([])
+    expect(lapsedByMerge.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
   })
 })
