@@ -200,10 +200,7 @@ export class ReviewTrees {
 
   release(tree: string): string | null {
     this.held.delete(canonical(tree))
-    const failure = this.remove(tree)
-    if (failure === null)
-      this.tools.git(this.repo, ['worktree', 'prune'])
-    return failure
+    return this.remove(tree) ?? this.prune()
   }
 
   clearLeftovers(): LeftoverTree[] {
@@ -212,6 +209,16 @@ export class ReviewTrees {
     const cleared = leftovers.map(tree => ({ path: tree, left: this.remove(tree) }))
     this.tools.git(this.repo, ['worktree', 'prune'])
     return cleared
+  }
+
+  private prune(): string | null {
+    try {
+      this.tools.git(this.repo, ['worktree', 'prune'])
+      return null
+    }
+    catch (error) {
+      return failureOf(error)
+    }
   }
 
   private remove(tree: string): string | null {

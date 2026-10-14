@@ -748,6 +748,32 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('a failing prune gives review.tree.orphaned', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-prune-'))
+    roots.push(dir)
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'prune')
+          throw new Error('error: could not lock the worktrees directory')
+      },
+      worktrees: () => [],
+      ...cleanTree,
+    })
+    const sessions: string[] = []
+    const reviewer = claudeReviewer(trees, async (params) => {
+      sessions.push(params.sessionId)
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    gitHub.open({ number: 963 })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded' })
+    expect(events(db, 'review.tree.orphaned')).toEqual([{ path: path.join(dir, sessions[0]!), detail: 'error: could not lock the worktrees directory' }])
+    db.close()
+  })
+
   it('a review session that fails still has its review tree removed', async () => {
     const { db, gitHub, tick, worker } = setUp()
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-failed-'))
