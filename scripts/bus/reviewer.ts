@@ -280,5 +280,5 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
 function withoutPassOnMutation(review: Review, mutated: string[]): Pick<Review, 'verdict' | 'findings'> {
   if (mutated.length === 0)
     return review
-  return { verdict: 'changes', findings: [...review.findings, `the review session changed its tree, so its verdict ${review.verdict} does not count as pass: ${mutated.join(', ')}`] }
+  return { verdict: 'changes', findings: [...review.findings, `the review session changed its tree, so its verdict does not count as pass: ${mutated.join(', ')}`] }
 }

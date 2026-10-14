@@ -7,7 +7,7 @@ import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { ChangedFile } from '../../morse/rules.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -657,6 +657,24 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('a mutated tree under a changes verdict adds a finding that names no verdict', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const { repo, head } = oneCommitRepo(roots.at(-1)!)
+    const dir = path.join(roots.at(-1)!, 'reviews')
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      writeFileSync(path.join(dir, params.sessionId, 'planted.txt'), 'planted\n')
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"changes","findings":["a finding"]}')
+      return 0
+    })
+    gitHub.open({ number: 961, head })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    const [recorded] = events(db, 'review.recorded')
+    expect(recorded!.findings).toEqual(['a finding', 'the review session changed its tree, so its verdict does not count as pass: planted.txt'])
+    db.close()
+  })
+
   it('a commit made in the review tree gives treeMutated HEAD and a verdict that is not pass', async () => {
     const { db, gitHub, tick, worker } = setUp()
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
@@ -696,6 +714,29 @@ describe('review worker', () => {
 
     expect(await worker(claudeReviewer(trees, async () => 0)).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
     expect(removed).toEqual([])
+    expect(events(db, 'review.tree.orphaned')).toEqual([])
+    db.close()
+  })
+
+  it('a worktree add that fails during its checkout leaves no directory and no worktree', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const { repo, head } = oneCommitRepo(roots.at(-1)!)
+    writeFileSync(path.join(repo, '.git', 'info', 'attributes'), 'a.txt filter=failing\n')
+    gitRun(repo, 'config', 'filter.failing.smudge', 'false')
+    gitRun(repo, 'config', 'filter.failing.required', 'true')
+    const dir = path.join(roots.at(-1)!, 'reviews')
+    const sessions: string[] = []
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      sessions.push(params.sessionId)
+      return 0
+    })
+    gitHub.open({ number: 967, head })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
+    expect(sessions).toEqual([])
+    expect(readdirSync(dir)).toEqual([])
+    expect(GIT_TREE_TOOLS.worktrees(repo).map(tree => realpathSync(tree))).toEqual([realpathSync(repo)])
     expect(events(db, 'review.tree.orphaned')).toEqual([])
     db.close()
   })
