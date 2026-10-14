@@ -166,6 +166,21 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(existsSync(w.journal)).toBe(false)
   })
 
+  it('through createMain an unchanged card admitted twice leaves one card.admitted in the bus', async () => {
+    const w = world()
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const file = park(w, '')
+    const db = openBus(w.bus)
+    try {
+      for (let run = 0; run < 2; run++)
+        await runMain(createMain(busIntakePorts(db)), { rawArgs: ['intake', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--plain'] })
+    }
+    finally {
+      db.close()
+    }
+    expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED)).toHaveLength(1)
+  })
+
   it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and keeps one merged in the journal only after its half of history while the bus runs it', async () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
