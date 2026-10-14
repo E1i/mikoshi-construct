@@ -34,7 +34,7 @@ export function mergeBench(intake: (db: DatabaseSync, clock: Clock) => () => voi
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, intake(db, clock))
-  const executor = new MergeExecutor({ db, gitHub: gitHub.client, put: gitHub.put, clock: clock.now, run: RUN })
+  const executor = new MergeExecutor({ db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN })
   const tick = (): void => {
     busTick.run()
     clock.advance(TICK_MS)

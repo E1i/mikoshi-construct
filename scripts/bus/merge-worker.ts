@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { MergeOutcome } from './executor.js'
 import type { GitHub, GitHubPut } from './github.js'
 import { randomUUID } from 'node:crypto'
@@ -6,6 +7,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { defaultBusPath, openBus } from './db.js'
 import { MergeExecutor } from './executor.js'
@@ -23,6 +25,7 @@ export interface MergeWorkerParts {
   db: DatabaseSync
   gitHub: GitHub
   put: GitHubPut
+  publish: StatusPublisher
   clock: () => Date
   session: string
   run: string | null
@@ -45,7 +48,7 @@ export class MergeWorker {
 
   constructor(private readonly parts: MergeWorkerParts) {
     this.actor = `worker:merge:${parts.session}`
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, clock: parts.clock, run: parts.run })
+    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run })
   }
 
   step(): MergeStep {
@@ -77,6 +80,7 @@ export interface MergeRun {
   busPath: string
   gitHub: GitHub
   put: GitHubPut
+  publish: StatusPublisher
   session: string
   pause: (ms: number) => Promise<unknown>
 }
@@ -88,7 +92,7 @@ export async function runMergeWorker(argv: string[], run: MergeRun): Promise<num
   }
   const db = openBus(run.busPath)
   try {
-    const worker = startMergeWorker({ db, gitHub: run.gitHub, put: run.put, clock: () => new Date(), session: run.session, run: null })
+    const worker = startMergeWorker({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null })
     console.log(`${PREFIX}${run.busPath}: the merge worker ${worker.actor} takes the merge queue`)
     for (;;) {
       const step = worker.step()
@@ -111,7 +115,7 @@ export async function runMergeWorker(argv: string[], run: MergeRun): Promise<num
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  return runMergeWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), session: randomUUID(), pause: sleep })
+  return runMergeWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

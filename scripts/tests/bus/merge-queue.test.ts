@@ -69,7 +69,7 @@ function recorded(bench: ReturnType<typeof mergeBench>, actor: string): void {
 }
 
 function parts(bench: ReturnType<typeof mergeBench>): MergeWorkerParts {
-  return { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, clock: bench.clock.now, session: 'worker-1', run: null }
+  return { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, session: 'worker-1', run: null }
 }
 
 describe('the merge worker', () => {
@@ -84,7 +84,7 @@ describe('the merge worker', () => {
     expect(firstLiveVerdict(bench.db)).toBeNull()
     const before = eventCount(bench.db)
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(await runMergeWorker(['--on'], { busPath: bench.busPath, gitHub: bench.gitHub.client, put: bench.gitHub.put, session: 'worker-1', pause: async () => {} })).toBe(1)
+    expect(await runMergeWorker(['--on'], { busPath: bench.busPath, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, session: 'worker-1', pause: async () => {} })).toBe(1)
     expect(error).toHaveBeenCalledWith(expect.stringContaining('refused to switch on'))
     expect(eventCount(bench.db)).toBe(before)
     expect(bench.gitHub.puts).toEqual([])
@@ -267,7 +267,7 @@ describe('the merge worker', () => {
   it('ships switched off: without --on it opens nothing and exits 0', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const bench = mergeBench()
-    expect(await runMergeWorker([], { busPath: '/nonexistent/bus.db', gitHub: bench.gitHub.client, put: bench.gitHub.put, session: 'worker-1', pause: async () => {} })).toBe(0)
+    expect(await runMergeWorker([], { busPath: '/nonexistent/bus.db', gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, session: 'worker-1', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
     bench.close()
   })

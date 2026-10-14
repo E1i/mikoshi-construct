@@ -1,16 +1,19 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts } from './policy.js'
 import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
+import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { MERGE_DONE } from './card-automaton.js'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
-import { mergePolicy, VERSION_BRANCH } from './policy.js'
+import { mergePolicy, pastRoundLimit, VERSION_BRANCH } from './policy.js'
+import { mergeDecidedPastRoundLimit } from './queue.js'
 import { decisionsInForceAt, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
@@ -38,6 +41,7 @@ export interface ExecutorParts {
   db: DatabaseSync
   gitHub: GitHub
   put: GitHubPut
+  publish: StatusPublisher
   clock: () => Date
   run: string | null
 }
@@ -54,7 +58,7 @@ interface Pull {
   head?: { sha?: string, ref?: string }
 }
 
-type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, shard: string | null } | { kind: 'denied', denial: MergeDenial }
+type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, shard: string | null, decidedPastRoundLimit: number | null } | { kind: 'denied', denial: MergeDenial }
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
@@ -101,15 +105,22 @@ export class MergeExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
-      const verdict = mergePolicy(checked.facts)
-      if (verdict.kind === 'denied')
-        return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
-      const spent = verdict.rule === 'owner_under_shard' ? checked.shard : null
+      const policy = mergePolicy(checked.facts)
+      if (policy.kind === 'denied')
+        return this.denied(lease, { kind: 'authority', rule: policy.rule, detail: policy.detail })
+      const spent = policy.rule === 'owner_under_shard' ? checked.shard : null
+      const decision = checked.decidedPastRoundLimit
+      const verdict = decision === null ? policy : pastRoundLimit(policy.detail, decision, lease.pr!, lease.head!)
       if (checked.mergedCommit !== null)
         return this.finished(lease, checked.mergedCommit, verdict.rule, spent)
       const locked = this.versionLock(lease)
       if (locked !== null)
         return this.denied(lease, locked)
+      if (decision !== null) {
+        const unpublished = this.reviewStatusOfTheDecision(lease, decision)
+        if (unpublished !== null)
+          return this.denied(lease, unpublished)
+      }
       return this.merged(lease, verdict.rule, spent)
     }
     catch (error) {
@@ -126,6 +137,7 @@ export class MergeExecutor {
       if (pull.base?.ref !== MAIN_BRANCH)
         return technical('wrong_base', `#${lease.pr} targets ${pull.base?.ref ?? 'no base'}, not ${MAIN_BRANCH}`)
       const mergedCommit = this.mergedAtLeasedHead(pull, lease)
+      let decidedPastRoundLimit: number | null = null
       if (mergedCommit === null) {
         if (pull.state !== 'open' || pull.head?.sha !== lease.head)
           return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
@@ -139,6 +151,8 @@ export class MergeExecutor {
           return technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
         const verdict = verdictOf(meter, lease.head!)
         if (verdict !== 'pass')
+          decidedPastRoundLimit = mergeDecidedPastRoundLimit(this.parts.db, this.ts(), lease.pr, lease.head)
+        if (verdict !== 'pass' && decidedPastRoundLimit === null)
           return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
       }
       const decisions = decisionsInForceAt(this.parts.db, this.parts.clock())
@@ -148,6 +162,7 @@ export class MergeExecutor {
         kind: 'ready',
         mergedCommit,
         shard: shard?.id ?? null,
+        decidedPastRoundLimit,
         facts: {
           cardId: lease.cardId,
           description: pull.body ?? '',
@@ -163,6 +178,16 @@ export class MergeExecutor {
     }
     catch (error) {
       return technical('github_error', messageOf(error))
+    }
+  }
+
+  private reviewStatusOfTheDecision(lease: Lease, decision: number): MergeDenial | null {
+    try {
+      this.parts.publish({ commit: lease.head!, state: 'success', context: REVIEW_STATUS_CONTEXT, description: `owner decision D-${decision}, no review pass` })
+      return null
+    }
+    catch (error) {
+      return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
     }
   }
 

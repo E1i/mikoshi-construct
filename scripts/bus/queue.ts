@@ -10,7 +10,8 @@ import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, ownerQuestionAnswered } from './inbox.js'
 import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
-import { unspentShardsOf } from './shards.js'
+import { roundLimitDecisionOf } from './round-limit-decision.js'
+import { decisionsInForceAt, unspentShardsOf } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -98,12 +99,18 @@ const A_DEPENDENCY_UNMERGED = `EXISTS (
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
 )`
 
-const MERGE_CANDIDATES = `
+function mergeCandidatesWhere(verdict: string): string {
+  return `
   SELECT pr, card_id, head FROM prs
-  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND verdict_on_head = 'pass' AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT ${A_DEPENDENCY_UNMERGED}
   ORDER BY pr
 `
+}
+
+const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`)
+
+const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`)
 
 const UPDATE_CANDIDATES = `
   SELECT pr, card_id, head, verdict_on_head FROM prs
@@ -200,6 +207,16 @@ function outOfRounds(db: DatabaseSync, queue: Queue, pr: number | null): boolean
   return ROUND_LIMITED.includes(queue) && pr !== null && changesRoundsOf(db, pr) >= REVIEW_ROUNDS
 }
 
+export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: number | null, head: string | null): number | null {
+  if (pr === null || head === null || !outOfRounds(db, 'merge', pr))
+    return null
+  return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head)
+}
+
+function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: number | null, head: string | null): boolean {
+  return outOfRounds(db, queue, pr) && !(queue === 'merge' && mergeDecidedPastRoundLimit(db, ts, pr, head) !== null)
+}
+
 type Admits = (row: Candidate) => boolean
 
 const everyRow: Admits = () => true
@@ -209,11 +226,16 @@ function passOrWaitingForOwner(db: DatabaseSync): Admits {
   return row => row.verdict_on_head === 'pass' || waiting.has(row.card_id)
 }
 
-function candidates(db: DatabaseSync): [Queue, string, Admits][] {
+function decidedPastRoundLimit(db: DatabaseSync, ts: string): Admits {
+  return row => mergeDecidedPastRoundLimit(db, ts, row.pr, row.head) !== null
+}
+
+function candidates(db: DatabaseSync, ts: string): [Queue, string, Admits][] {
   return [
     ['review', REVIEW_CANDIDATES, everyRow],
     ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
     ['merge', MERGE_CANDIDATES, everyRow],
+    ['merge', MERGE_CANDIDATES_WITHOUT_PASS, decidedPastRoundLimit(db, ts)],
     ['restart', RESTART_CANDIDATES, everyRow],
     ['close', CLOSE_CANDIDATES, everyRow],
     ['answer', QUESTION_CANDIDATES, everyRow],
@@ -448,7 +470,7 @@ function underCurrentInput(row: ReviewRow): boolean {
 }
 
 function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow, fault = false): boolean {
-  if (outOfRounds(db, row.queue, row.pr))
+  if (closedByRounds(db, ts, row.queue, row.pr, row.head))
     return false
   return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
 }
@@ -492,8 +514,8 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (setAgainAfterItsStop(db, ts, row))
       derived.queued.push(row.task_key)
   }
-  for (const [queue, query, admits] of candidates(db)) {
-    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits).filter(row => !outOfRounds(db, queue, row.pr))) {
+  for (const [queue, query, admits] of candidates(db, ts)) {
+    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits).filter(row => !closedByRounds(db, ts, queue, row.pr, row.head))) {
       const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
       const task: QueuedTask = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
       if (queueTask(db, ts, task))
