@@ -337,6 +337,15 @@ describe('construct intake --admit takes a card parked before the intake door', 
   })
 })
 
+describe('construct intake --admit with the bus counts a journal line only before the cutoff', () => {
+  it('a journal intake line after the cutoff with no card.admitted in the bus does not make the card admitted', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    journal(w, [{ event: 'intake', task: '80', card: CLEAN, bodySha: bodySha(readFileSync(file, 'utf8')), confirmation: 'none', source: 'admit', ts: '2026-10-13T00:00:00.000Z' }])
+    expect(admit(w, file, { admissions: () => null }, new Date('2026-10-13T09:00:00.000Z'))).toMatchObject({ status: 'admitted', source: 'admit' })
+  })
+})
+
 describe('construct intake --admit says whether task:start will take the card', () => {
   it('names the bus when the port wrote card.admitted, and task:start takes the card', () => {
     const w = world()

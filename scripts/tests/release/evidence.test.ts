@@ -58,6 +58,13 @@ describe('release:evidence prints the execution profile of every merged card in 
     expect(field(stdout, 'confirmation')).toBe(`  confirmation: auto · corrections [] — ${BUS} event 12`)
   })
 
+  it('after the cutoff a journal intake line with no card.admitted in the bus gives no intake fields', () => {
+    const start = { event: 'path', task: '7', path: 'cheap', card: CARD, ts: '2026-10-13T00:00:01Z' }
+    const { stdout } = runEvidence(['v1', 'v2'], world([{ ...intake, ts: '2026-10-13T00:00:00Z' }, start, merge]))
+
+    expect(field(stdout, 'confirmation')).toMatch(/^ {2}confirmation: unknown — /)
+  })
+
   it('risk comes only from the recorded risk', () => {
     const bare = { event: 'path', task: '7', path: 'cheap', card: { ...CARD, size: 'L', contour: 'ladder' }, ts: 't1' }
     expect(field(runEvidence(['v1', 'v2'], world([intake, bare, merge])).stdout, 'risk')).toMatch(/^ {2}risk: unknown — /)

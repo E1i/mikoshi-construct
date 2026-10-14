@@ -55,6 +55,13 @@ describe('cloud-start', () => {
     expect(written).toHaveLength(1)
   })
 
+  it('after the cutoff a journal intake line alone does not admit the card', () => {
+    const late = JSON.stringify({ ...JSON.parse(intake(CARD)) as Record<string, unknown>, ts: '2026-10-13T00:00:00.000Z' })
+    const { deps, written } = world([late])
+    expect(runCloudStart(['trig_1', '--card', CARD], deps).exitCode).toBe(1)
+    expect(written).toEqual([])
+  })
+
   it('cloud-start refuses a card the intake door has not admitted and writes nothing', () => {
     const { deps, written } = world([intake('#666 other [probe/ghosts/S/cheap/none] · depends — · blocks —')])
     const result = runCloudStart(['trig_1', '--card', CARD], deps)

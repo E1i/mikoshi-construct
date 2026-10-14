@@ -121,6 +121,12 @@ describe('intake confirmation gate', () => {
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', ts: bus[0]!.ts }])
   })
 
+  it('a bus-wired draft intake with an accepted correction says it is recorded in the bus', () => {
+    const w = world([card({ number: 12 })])
+    const { lines } = printed(intake(w, { autoConfirm: true, events: () => {} }))
+    expect(lines.join('\n')).toContain('accepted in advance by --auto-confirm, and recorded in the bus.')
+  })
+
   it('--dry-run neither parks nor journals, whatever the corrections', () => {
     const w = world([card({ number: 12 })])
     expect(intake(w, { dryRun: true }).status).toBe('dryRun')

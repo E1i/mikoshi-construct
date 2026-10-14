@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
-import type { MainPorts } from '../../src/program.js'
+import type { BusPorts } from '../../src/program.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -99,7 +99,7 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
   }
 }
 
-export function busIntakePorts(db: DatabaseSync, session?: string): MainPorts {
+export function busIntakePorts(db: DatabaseSync, session?: string): BusPorts {
   return { cardEvents: busCardEvents(db, session), cardStates: () => busCardStates(defaultBusPath()), cardAdmissions: busCardAdmissions(db) }
 }
 

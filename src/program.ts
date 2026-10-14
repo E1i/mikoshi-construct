@@ -353,7 +353,8 @@ const sync = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
-function intakeCommand(events: CardEventPort | undefined, cardStates: CardStatesPort | undefined, admissions: CardAdmissionsPort | undefined) {
+function intakeCommand(bus: BusPorts | undefined) {
+  const { cardEvents: events, cardStates, cardAdmissions: admissions } = bus ?? {}
   return withKnownFlags(defineCommand({
     meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
     args: {
@@ -467,14 +468,14 @@ const mutate = defineCommand({
   },
 })
 
-export interface MainPorts {
-  cardEvents?: CardEventPort
-  cardStates?: CardStatesPort
-  cardAdmissions?: CardAdmissionsPort
+export interface BusPorts {
+  cardEvents: CardEventPort
+  cardStates: CardStatesPort
+  cardAdmissions: CardAdmissionsPort
 }
 
-export function createMain({ cardEvents, cardStates, cardAdmissions }: MainPorts = {}) {
-  const intake = intakeCommand(cardEvents, cardStates, cardAdmissions)
+export function createMain(bus?: BusPorts) {
+  const intake = intakeCommand(bus)
   return defineCommand({
     meta: ROOT_META,
     subCommands: {

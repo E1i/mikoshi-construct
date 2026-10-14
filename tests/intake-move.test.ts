@@ -106,6 +106,13 @@ describe('intake --move', () => {
     expect(journalLines(w.journal).map(line => line.event)).toEqual(['intake', 'intake-move'])
   })
 
+  it('a bus-wired move says the bus holds the move', () => {
+    const w = world()
+    park(w.parking, 707)
+    const { lines } = printed(move(w, 707, 'lane-2', () => {}))
+    expect(lines.join('\n')).toContain('The bus holds the move as card.moved; the card is unchanged.')
+  })
+
   it('a move into a missing directory creates it', () => {
     const w = world()
     park(w.parking, 701)
