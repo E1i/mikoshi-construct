@@ -105,6 +105,13 @@ export interface SupervisorParts {
   processes: ProcessList
   mainSince: (afterId: number) => MainAdvance[]
   code: BusCode
+  journal?: (entry: Record<string, unknown>) => void
+  now?: () => number
+}
+
+interface Restarted {
+  lines: string[]
+  down: string[]
 }
 
 export class BusSupervisor {
@@ -155,10 +162,11 @@ export class BusSupervisor {
       return [...lines, `${PREFIX}main advanced to ${sha} with no change under ${BUS_CODE_PATH}; nothing restarted`]
     }
     const wanted = this.parts.wanted()
-    const restarted = await this.restart(wanted)
+    const restarted = await this.restart(wanted, head)
     this.settle(head)
     this.outdatedBy = head
-    return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}`, ...restarted]
+    const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
+    return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
   }
 
   private pullFailure(): string | null {
@@ -176,7 +184,7 @@ export class BusSupervisor {
     this.codeSha = head
   }
 
-  private async restart(wanted: DetachedLaunch[]): Promise<string[]> {
+  private async restart(wanted: DetachedLaunch[], head: string): Promise<Restarted> {
     const processes = this.parts.processes()
     const running = this.parts.known.flatMap((launch) => {
       const instance = runningInstance(processes, launch.markers)
@@ -187,10 +195,17 @@ export class BusSupervisor {
     const stopped = running.map(({ launch }) => launch)
     const freed = this.parts.freeLeases?.(stopped) ?? []
     const again = [...wanted, ...stopped.filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
-    return [...freed, ...again.flatMap((launch) => {
+    const down: string[] = []
+    const lines = again.flatMap((launch) => {
+      const name = launchName(launch)
       const started = this.parts.start(launch)
+      if (started.exitCode !== 0 && started.alreadyRunning === undefined) {
+        down.push(name)
+        this.parts.journal?.({ ts: new Date(this.parts.now?.() ?? Date.now()).toISOString(), event: 'worker.down', worker: name, failures: [causeOf(started)], restart: head })
+      }
       return [...started.stdout, ...started.stderr]
-    })]
+    })
+    return { lines: [...freed, ...lines], down }
   }
 }
 
@@ -392,6 +407,9 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   const processes = psList()
+  const journal = (entry: Record<string, unknown>): void => {
+    appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
+  }
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
     wanted: () => wantedLaunches(busDir, reviewPreflight),
@@ -401,15 +419,15 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code: gitCode(cwd),
+    journal,
+    now: () => Date.now(),
   }, lastMainAdvance(db))
   const keeper = new WorkerKeeper({
     wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: launch => startDetached(launch, busDir, process.env, processes),
     processes,
     reduce: () => runReducer(cwd),
-    journal: (entry) => {
-      appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
-    },
+    journal,
     now: () => Date.now(),
   })
   console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and a switched-on worker that is not running is started again`)

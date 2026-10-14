@@ -287,17 +287,22 @@ interface Supervised {
   advance: (sha: string) => void
   stopped: number[]
   starts: { name: string, head: string }[]
+  journal: Record<string, unknown>[]
 }
 
-function supervised(r: Repo, busDir: string, running: RunningProcess[], code: BusCode = gitCode(r.dir)): Supervised {
+function supervised(r: Repo, busDir: string, running: RunningProcess[], code: BusCode = gitCode(r.dir), reviewPreflight: () => string[] = NO_PREFLIGHT): Supervised {
   const db = openBus(path.join(busDir, 'bus.db'))
   const stopped: number[] = []
   const starts: { name: string, head: string }[] = []
+  const journal: Record<string, unknown>[] = []
   let alive = [...running]
   const supervisor = new BusSupervisor({
-    known: busLaunches(NO_PREFLIGHT),
-    wanted: () => wantedLaunches(busDir, NO_PREFLIGHT),
+    known: busLaunches(reviewPreflight),
+    wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: (launch: DetachedLaunch) => {
+      const problems = launch.preflight?.() ?? []
+      if (problems.length > 0)
+        return { stdout: [], stderr: [`${launch.prefix}refused to start ${launch.script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
       starts.push({ name: launchName(launch), head: code.head() })
       return { stdout: [`started ${launchName(launch)}`], stderr: [], exitCode: 0 }
     },
@@ -308,12 +313,17 @@ function supervised(r: Repo, busDir: string, running: RunningProcess[], code: Bu
     processes: () => alive,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code,
+    journal: entry => journal.push(entry),
+    now: () => Date.parse('2026-10-12T10:22:10Z'),
   }, lastMainAdvance(db))
   const advance = (sha: string): void => {
     appendEvent(db, { ts: new Date().toISOString(), type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `main:${sha}`, payload: { sha, touches_mechanics: true }, legacy: false })
   }
-  return { supervisor, advance, stopped, starts }
+  return { supervisor, advance, stopped, starts, journal }
 }
+
+const GITHUB_MISMATCH = 'prs vs GitHub: #782 at 37e3eecf here, f0d7481a on GitHub'
+const OLD_REDUCER_DIFF = 'replay byte-diff: prs 782: head live "37e3eecf", replay "f0d7481a"'
 
 const RUNNING: RunningProcess[] = [
   { pid: 101, args: 'node pnpm.cjs --silent bus:run' },
@@ -461,6 +471,21 @@ describe('bus:bg --supervise', () => {
     await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102])
     expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:review --on', 'bus:run'])
+  })
+
+  it('a restart whose review preflight refuses journals worker.down and names the worker it did not bring back', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    switchWorker(busDir, 'review', true)
+    const s = supervised(r, busDir, RUNNING.slice(0, 2), gitCode(r.dir), () => [GITHUB_MISMATCH, OLD_REDUCER_DIFF])
+    const next = r.commit('scripts/bus/queue.ts')
+    s.advance(next)
+    const lines = await s.supervisor.step()
+    expect(s.stopped).toEqual([101, 102])
+    expect(s.starts.map(start => start.name)).toEqual(['bus:run'])
+    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change under scripts/bus; restarting every running bus process on ${next}; not brought back: bus:review --on`)
+    expect(s.journal).toEqual([{ ts: '2026-10-12T10:22:10.000Z', event: 'worker.down', worker: 'bus:review --on', failures: [expect.stringContaining(GITHUB_MISMATCH)], restart: next }])
+    expect(String((s.journal[0]!.failures as string[])[0])).toContain(OLD_REDUCER_DIFF)
   })
 
   it('a git failure keeps the advance pending and the next step retries it', async () => {
