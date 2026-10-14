@@ -58,7 +58,7 @@ export type AdmitResult
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
 
-function witnessesOf(body: string): string[] {
+export function witnessesOf(body: string): string[] {
   const lines = body.split('\n')
   const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
   if (at === -1)

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../src/card/text-sha.js'
 import { ADMIT_SOURCE, AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
 import { CARD_ADMITTED, INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
@@ -152,7 +153,7 @@ describe('intake confirmation gate', () => {
       cardId: 80,
       ts: expect.any(String),
       dedupeKey: expect.stringMatching(/^card\.admitted:80:/),
-      payload: { card: expect.stringMatching(/^#80 clean-card /), lane: 'lane-2', depends: [], decision: 'owner', contour: 'cheap', confirmation: 'none', corrections: [], bodySha: bodySha(text), source: ADMIT_SOURCE },
+      payload: { card: expect.stringMatching(/^#80 clean-card /), lane: 'lane-2', depends: [], decision: 'owner', contour: 'cheap', confirmation: 'none', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: ADMIT_SOURCE },
     }])
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '80', source: ADMIT_SOURCE, bodySha: bodySha(text) }])
     expect(admit().status).toBe('alreadyAdmitted')

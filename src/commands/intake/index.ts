@@ -10,6 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
+import { textSha } from '../../card/text-sha.js'
 import { laneOf } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
@@ -128,6 +129,8 @@ export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at:
         confirmation,
         corrections: card.corrections.map(correctionText),
         bodySha: sha,
+        text: card.text,
+        textSha: textSha(card.text),
         ...(source === undefined ? {} : { source }),
       },
     },

@@ -30,7 +30,7 @@ export interface TreeCard {
   namedPathReason: string | null
 }
 
-const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
+export const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
 
 export function shiftTreeCard(task: ShiftTask): TreeCard {
   return {

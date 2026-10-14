@@ -58,6 +58,7 @@
     "bus:run": "tsx scripts/bus/run.ts",
     "bus:slot": "tsx scripts/bus/slot.ts",
     "bus:update": "tsx scripts/bus/update-worker.ts",
+    "card": "tsx scripts/bus/card.ts",
     "changeset": "changeset",
     "ci": "pnpm run quality",
     "contract:bump": "tsx scripts/contract/bump.ts",

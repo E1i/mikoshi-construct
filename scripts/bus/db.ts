@@ -98,6 +98,22 @@ CREATE TABLE IF NOT EXISTS decisions (
   source TEXT NOT NULL,
   event_id INTEGER NOT NULL REFERENCES events(id)
 );
+CREATE TABLE IF NOT EXISTS card_bodies (
+  card_id INTEGER PRIMARY KEY,
+  admission_event_id INTEGER NOT NULL REFERENCES events(id),
+  text TEXT NOT NULL,
+  text_sha TEXT NOT NULL,
+  lane TEXT,
+  who TEXT,
+  priority TEXT,
+  branch TEXT,
+  touches TEXT,
+  creates TEXT,
+  card_line TEXT,
+  contour TEXT,
+  decision TEXT,
+  depends TEXT
+);
 `
 
 const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT']]
