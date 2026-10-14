@@ -5,11 +5,10 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { recordDecision } from '../bus/decisions.js'
-import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
+import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, OWNER_SOURCE, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
 import { archiveOf, defaultDecisions } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
-export const OWNER_SOURCE = '[owner]'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
 
 const SOURCE_TAG = /^\[[^\]]*\]/

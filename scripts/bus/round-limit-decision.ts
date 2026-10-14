@@ -1,5 +1,5 @@
 import type { InForceDecision } from './decisions.js'
-import { OWNER_SOURCE } from '../decisions/add.js'
+import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { isFullSha } from './identifiers.js'
 
 const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `

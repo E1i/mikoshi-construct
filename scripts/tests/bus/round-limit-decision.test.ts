@@ -46,12 +46,14 @@ describe('a merge past the review round limit by an owner decision', () => {
   })
 
   it('a decision naming the PR and its head makes it a merge candidate and queues no review or answer', () => {
-    const bench = roundLimited()
-    decide(bench, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
-    bench.tick()
+    for (const text of [`[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`, `allow-merge PR #${PR} at ${HEAD} past the round limit`, `allow-merge PR #${PR} at ${HEAD} past the round limit · until 2026-10-20T00:00Z`]) {
+      const bench = roundLimited()
+      decide(bench, text)
+      bench.tick()
 
-    expect(queuedFor(bench, PR)).toEqual(['merge'])
-    expect(changesRoundsOf(bench.db, PR)).toBe(REVIEW_ROUNDS)
+      expect(queuedFor(bench, PR), text).toEqual(['merge'])
+      expect(changesRoundsOf(bench.db, PR)).toBe(REVIEW_ROUNDS)
+    }
   })
 
   it('a decision naming another sha or another PR does not make it a merge candidate', () => {

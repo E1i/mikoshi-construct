@@ -12,8 +12,10 @@ and its sha does not count, because it can just as well be a hold, a question or
 ## Decision
 
 - An owner decision in force (`decisionsInForceAt`) lets the bus merge PR #N past the round limit only when its
-  text begins with `allow-merge PR #N at <full 40-character head sha>`, right after the optional `[owner]` writer
-  prefix that `pnpm decisions:add` stores. Anything may follow the phrase, an `until` term included.
+  text begins with `allow-merge PR #N at <full 40-character head sha>`. Both stored forms are live: the
+  `decision.recorded` event `pnpm decisions:add` writes holds the text without `[owner]`, and a row that
+  `decisions.imported` folds from the owner's decisions file keeps it, so the phrase may follow an optional `[owner] `.
+  Anything may follow the phrase, the ` · until <term>` tail included.
 - A decision that names the PR and the sha anywhere else in its text does not authorise the merge, including one
   that negates or withdraws `allow-merge`.
 - The decision covers that PR at that head only. When the head moves, it covers nothing.
@@ -26,7 +28,7 @@ and its sha does not count, because it can just as well be a hold, a question or
 
 ## Consequences
 
-- The owner writes, for example: `pnpm decisions:add "[owner] allow-merge PR #825 at <full head sha>"`.
+- The owner writes, for example: `pnpm decisions:add "[owner] allow-merge PR #N at <full head sha>"`.
 - A decision written in another form leaves the PR where the round limit stopped it, which is the safe failure.
 
 ## Enforced by

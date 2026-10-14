@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 export const PREFIX = '[decisions] '
 export const DECISIONS_IN_FORCE_LIMIT = 8000
 export const WRITER_MARKER = 'decisions:add'
+export const OWNER_SOURCE = '[owner]'
 export const DECISION_FORMAT = `- D-N · <date> — <decision> [· supersedes D-K D-L] [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
 export const SPENDING_DECISION = 54
 
