@@ -47,7 +47,7 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('a decision naming the PR and its head makes it a merge candidate and queues no review or answer', () => {
     const bench = roundLimited()
-    decide(bench, `allow-merge PR #${PR} merges at ${HEAD} past the round limit`)
+    decide(bench, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
     bench.tick()
 
     expect(queuedFor(bench, PR)).toEqual(['merge'])
@@ -74,6 +74,16 @@ describe('a merge past the review round limit by an owner decision', () => {
     }
   })
 
+  it('(е) a decision that negates or withdraws allow-merge for the PR and its head is not a merge candidate', () => {
+    for (const text of [`[owner] do not allow-merge PR #${PR} at ${HEAD}`, `[owner] allow-merge withdrawn for PR #${PR} at ${HEAD}`, `[owner] hold: allow-merge PR #${PR} at ${HEAD} only after the owner looks`]) {
+      const bench = roundLimited()
+      decide(bench, text)
+      bench.tick()
+
+      expect(queuedFor(bench, PR), text).toEqual([])
+    }
+  })
+
   it('a PR below the round limit gets no merge task without a pass, with a decision or without', () => {
     for (const text of [null, `allow-merge PR #${PR + 1} at ${sha('e')} past the round limit`]) {
       const bench = mergeBench()
@@ -89,7 +99,7 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('the merge rule and its detail name the decision D-N', () => {
     const bench = roundLimited()
-    decide(bench, `allow-merge PR #${PR} merges at ${HEAD} past the round limit`)
+    decide(bench, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
     bench.tick()
 
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged', rule: 'owner_after_round_limit' })
@@ -99,7 +109,7 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('the review status is set on the decided head with D-N before the merge and never on another head', () => {
     const bench = roundLimited()
-    decide(bench, `allow-merge PR #${PR} merges at ${HEAD} past the round limit`)
+    decide(bench, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
     bench.tick()
     const putsAtPublish: number[] = []
     const published = bench.gitHub.published
@@ -115,7 +125,7 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(putsAtPublish).toEqual([0])
 
     const moved = roundLimited()
-    decide(moved, `allow-merge PR #${PR} merges at ${HEAD} past the round limit`)
+    decide(moved, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
     moved.tick()
     const lease = moved.lease()!
     moved.gitHub.open({ number: PR, head: sha('c'), review: 'failure' })
@@ -127,7 +137,7 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('a review status GitHub refuses denies the merge as github_error and puts no merge', () => {
     const bench = roundLimited()
-    decide(bench, `allow-merge PR #${PR} merges at ${HEAD} past the round limit`)
+    decide(bench, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
     bench.tick()
     bench.gitHub.published.push = () => {
       throw new Error('gh api: 422 status refused')
@@ -140,7 +150,7 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('an open version pull request locks a decided merge before any review status is set', () => {
     const bench = roundLimited()
-    decide(bench, `allow-merge PR #${PR} merges at ${HEAD} past the round limit`)
+    decide(bench, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`)
     bench.tick()
     bench.gitHub.open({ number: PR + 2, head: sha('f'), ref: 'changeset-release/main', runs: [{ status: 'completed', conclusion: 'success' }] })
 
@@ -151,13 +161,13 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('a decision whose term has lapsed, at the tick or by the merge, merges nothing', () => {
     const lapsedAtTick = roundLimited()
-    decide(lapsedAtTick, `allow-merge PR #${PR} merges at ${HEAD} past the round limit until 2026-10-09T12:00Z`)
+    decide(lapsedAtTick, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit until 2026-10-09T12:00Z`)
     lapsedAtTick.tick()
 
     expect(queuedFor(lapsedAtTick, PR)).toEqual([])
 
     const lapsedByMerge = roundLimited()
-    decide(lapsedByMerge, `allow-merge PR #${PR} merges at ${HEAD} past the round limit until 2026-10-09T12:03Z`)
+    decide(lapsedByMerge, `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit until 2026-10-09T12:03Z`)
     lapsedByMerge.tick()
     const lease = lapsedByMerge.lease()!
     lapsedByMerge.clock.advance(3 * TICK_MS)
