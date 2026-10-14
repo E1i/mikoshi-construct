@@ -183,7 +183,7 @@ export class MergeExecutor {
 
   private reviewStatusOfTheDecision(lease: Lease, decision: number): MergeDenial | null {
     try {
-      this.parts.publish({ commit: lease.head!, state: 'success', context: REVIEW_STATUS_CONTEXT, description: `D-${decision}: the owner's decision past the review round limit for PR #${lease.pr} at this head` })
+      this.parts.publish({ commit: lease.head!, state: 'success', context: REVIEW_STATUS_CONTEXT, description: `owner decision D-${decision}, no review pass` })
       return null
     }
     catch (error) {

@@ -99,7 +99,7 @@ describe('a merge past the review round limit by an owner decision', () => {
     const merged = bench.merge(bench.lease()!)
 
     expect(merged).toMatchObject({ kind: 'merged' })
-    expect([...bench.gitHub.published]).toEqual([expect.objectContaining({ commit: HEAD, state: 'success', context: 'review', description: expect.stringContaining(`D-${DECISION}`) })])
+    expect([...bench.gitHub.published]).toEqual([expect.objectContaining({ commit: HEAD, state: 'success', context: 'review', description: expect.stringContaining(`owner decision D-${DECISION}, no review pass`) })])
     expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge')).map(put => put.fields.sha)).toEqual([HEAD])
     expect(putsAtPublish).toEqual([0])
 
