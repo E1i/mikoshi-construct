@@ -105,8 +105,8 @@ export interface SupervisorParts {
   processes: ProcessList
   mainSince: (afterId: number) => MainAdvance[]
   code: BusCode
-  journal?: (entry: Record<string, unknown>) => void
-  now?: () => number
+  journal: (entry: Record<string, unknown>) => void
+  now: () => number
 }
 
 interface Restarted {
@@ -201,7 +201,7 @@ export class BusSupervisor {
       const started = this.parts.start(launch)
       if (started.exitCode !== 0 && started.alreadyRunning === undefined) {
         down.push(name)
-        this.parts.journal?.({ ts: new Date(this.parts.now?.() ?? Date.now()).toISOString(), event: 'worker.down', worker: name, failures: [causeOf(started)], restart: head })
+        this.parts.journal({ ts: new Date(this.parts.now()).toISOString(), event: 'worker.down', worker: name, failures: [causeOf(started)], restart: head })
       }
       return [...started.stdout, ...started.stderr]
     })

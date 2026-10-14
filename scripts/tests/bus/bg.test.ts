@@ -290,7 +290,7 @@ interface Supervised {
   journal: Record<string, unknown>[]
 }
 
-function supervised(r: Repo, busDir: string, running: RunningProcess[], code: BusCode = gitCode(r.dir), reviewPreflight: () => string[] = NO_PREFLIGHT): Supervised {
+function supervised(r: Repo, busDir: string, running: RunningProcess[], code: BusCode = gitCode(r.dir), reviewPreflight: () => string[] = NO_PREFLIGHT, startedAs: (launch: DetachedLaunch) => BgResult | null = () => null): Supervised {
   const db = openBus(path.join(busDir, 'bus.db'))
   const stopped: number[] = []
   const starts: { name: string, head: string }[] = []
@@ -300,6 +300,9 @@ function supervised(r: Repo, busDir: string, running: RunningProcess[], code: Bu
     known: busLaunches(reviewPreflight),
     wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: (launch: DetachedLaunch) => {
+      const answered = startedAs(launch)
+      if (answered !== null)
+        return answered
       const problems = launch.preflight?.() ?? []
       if (problems.length > 0)
         return { stdout: [], stderr: [`${launch.prefix}refused to start ${launch.script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
@@ -486,6 +489,19 @@ describe('bus:bg --supervise', () => {
     expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change under scripts/bus; restarting every running bus process on ${next}; not brought back: bus:review --on`)
     expect(s.journal).toEqual([{ ts: '2026-10-12T10:22:10.000Z', event: 'worker.down', worker: 'bus:review --on', failures: [expect.stringContaining(GITHUB_MISMATCH)], restart: next }])
     expect(String((s.journal[0]!.failures as string[])[0])).toContain(OLD_REDUCER_DIFF)
+  })
+
+  it('a restart whose start finds the worker already running neither journals worker.down nor names it as not brought back', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
+    switchWorker(busDir, 'review', true)
+    const lingering: RunningProcess = { pid: 202, args: 'node pnpm.cjs --silent bus:review --on' }
+    const s = supervised(r, busDir, RUNNING.slice(0, 2), gitCode(r.dir), NO_PREFLIGHT, launch => launch.script === 'bus:review' ? { stdout: [], stderr: [`${PREFIX}bus:review is already running as pid 202`], exitCode: 1, alreadyRunning: lingering } : null)
+    const next = r.commit('scripts/bus/queue.ts')
+    s.advance(next)
+    const lines = await s.supervisor.step()
+    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change under scripts/bus; restarting every running bus process on ${next}`)
+    expect(s.journal).toEqual([])
   })
 
   it('a git failure keeps the advance pending and the next step retries it', async () => {
