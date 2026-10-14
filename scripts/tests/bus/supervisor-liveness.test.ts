@@ -375,6 +375,8 @@ function machine(): Machine {
           processes: () => m.alive,
           mainSince: afterId => m.events.filter(event => event.id > afterId),
           code,
+          journal: () => {},
+          now: () => 0,
         }, m.events.at(-1)?.id ?? 0),
         keeper: new WorkerKeeper({
           wanted: () => [review],
@@ -477,6 +479,8 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       processes: () => alive,
       mainSince: () => [{ id: 1, sha: NEW_MAIN }],
       code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => true },
+      journal: () => {},
+      now: () => 0,
     }, 0)
 
     const lines = await supervisor.step()
