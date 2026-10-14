@@ -20,7 +20,7 @@ export type AuthorityRule
     | 'owner_without_shard'
     | 'r1'
 
-export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision'
+export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
 export type MergeVerdict
   = | { kind: 'allowed', rule: AllowedRule, detail: string }
@@ -123,4 +123,8 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
   if (r1 !== undefined)
     return denied('r1', `${why}; ${r1} is ${OWNER_EVEN_UNDER_THE_DECISION} and stays the owner's under D-${OWNER_PR_MERGED_BY_THE_BUS}`)
   return { kind: 'allowed', rule: 'owner_by_decision', detail: `${why}; under D-${OWNER_PR_MERGED_BY_THE_BUS} a pass and green CI merge it without a shard` }
+}
+
+export function pastRoundLimit(detail: string, decisionId: number, pr: number, head: string): MergeVerdict & { kind: 'allowed' } {
+  return { kind: 'allowed', rule: 'owner_after_round_limit', detail: `${detail}; past the review round limit D-${decisionId} names PR #${pr} at ${head}` }
 }
