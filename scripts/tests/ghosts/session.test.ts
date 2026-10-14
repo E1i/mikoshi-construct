@@ -74,6 +74,25 @@ describe('sessionEnv witness environment', () => {
 })
 
 describe('spawnSession', () => {
+  it('spawns claude with --model when the session params name a model', async () => {
+    const bin = stubBinDir('printf \'%s\\0\' "$@" >"$CAPTURE_ARGV"; exit 0')
+    const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-model-'))
+    const argvFile = path.join(work, 'argv')
+
+    const code = await spawnSession({
+      cwd: work,
+      sessionId: 'sess-1',
+      prompt: 'review it',
+      stdoutPath: path.join(work, 'out.jsonl'),
+      stderrPath: path.join(work, 'out.stderr'),
+      model: 'claude-sonnet-5-5',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CAPTURE_ARGV: argvFile },
+    })
+
+    expect(code).toBe(0)
+    expect(readFileSync(argvFile, 'utf8').split('\0').filter(Boolean)).toEqual(['--model', 'claude-sonnet-5-5', ...HEADLESS_FLAGS, 'sess-1', 'review it'])
+  })
+
   it('spawns claude from PATH with the documented argv, cwd and env, writing stdout byte for byte', async () => {
     const bin = stubBinDir('printf \'%s\\0\' "$@" >"$CAPTURE_ARGV"; pwd -P >"$CAPTURE_CWD"; printf \'%s\' "$CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS" >"$CAPTURE_CEILING"; printf \'line-one\\nline-two\\n\'; exit 0')
     const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-work-'))
