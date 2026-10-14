@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardTreeRemover, CloseOutcome, ReportedVerification } from './close-executor.js'
 import type { EndedTree } from './ended-card-trees.js'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url'
 import { cardVerifiedClosings, closingVerificationOf } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ghosts/worktree-home.js'
-import { reportPath } from '../shift/places.js'
 import { CloseExecutor, failureOf } from './close-executor.js'
 import { defaultBusPath, openBus } from './db.js'
 import { EndedCardTrees, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
@@ -20,7 +19,6 @@ import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { SWITCH_FLAG } from './review-worker.js'
 
 export const PREFIX = '[bus:close] '
-const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 
 export type CloseStep = { kind: 'idle' } | CloseOutcome
 
@@ -79,28 +77,8 @@ export function closeStepLine(step: CloseStep): string | null {
   return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
 }
 
-export function shiftReportVerification(shiftRoot: string): (cardId: number) => string | null {
-  return (cardId) => {
-    if (!existsSync(shiftRoot))
-      return null
-    const reports = readdirSync(shiftRoot, { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
-      .map(entry => reportPath(path.join(shiftRoot, entry.name), String(cardId)))
-      .filter(file => existsSync(file))
-      .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)
-    const newest = reports[0]
-    return newest === undefined ? null : REPORT_VERIFICATION_LINE.exec(readFileSync(newest, 'utf8'))?.[1] ?? null
-  }
-}
-
 export function closingVerification(journal: string, busPath: string): ReportedVerification {
   return (cardId, pr) => pr === null ? null : closingVerificationOf(existsSync(journal) ? readFileSync(journal, 'utf8') : '', cardVerifiedClosings(busPath), String(cardId), pr)
-}
-
-export function anyExecutorVerification(shiftRoot: string, journal: string, busPath: string): ReportedVerification {
-  const fromShift = shiftReportVerification(shiftRoot)
-  const fromClosing = closingVerification(journal, busPath)
-  return (cardId, pr) => fromShift(cardId) ?? fromClosing(cardId, pr)
 }
 
 export interface CloseRun {
@@ -145,7 +123,7 @@ async function main(): Promise<number> {
     return () => trees.free()
   }
   const busPath = defaultBusPath()
-  return runCloseWorker(process.argv.slice(2), { busPath, reported: anyExecutorVerification(path.join(construct, 'shift'), journal, busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
+  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(journal, busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
