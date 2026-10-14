@@ -57,6 +57,32 @@ describe('reviewer', () => {
     expect(params.prompt).toContain('checked out at /reviews/s-1')
   })
 
+  it('the review session passes CONSTRUCT_REVIEW_MODEL as its model, and none without it', () => {
+    expect(reviewSession('/repo', '/reviews', 's-1', lease, full, { CONSTRUCT_REVIEW_MODEL: 'claude-sonnet-5-5' }).model).toBe('claude-sonnet-5-5')
+    expect(reviewSession('/repo', '/reviews', 's-1', lease, full, {}).model).toBeUndefined()
+  })
+
+  it('the review carries the model the session ran from its stream-json, not the env value', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-model-'))
+    vi.stubEnv('CONSTRUCT_REVIEW_MODEL', 'claude-sonnet-5-5')
+    try {
+      const spawned: SpawnSessionParams[] = []
+      const running = async (params: SpawnSessionParams): Promise<number> => {
+        spawned.push(params)
+        writeFileSync(params.stdoutPath, '{"type":"system","subtype":"init","model":"claude-haiku-5-5"}\n')
+        writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+        return 0
+      }
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [] })
+      expect(await claudeReviewer(trees, running)(lease, full)).toMatchObject({ verdict: 'pass', model: 'claude-haiku-5-5' })
+      expect(spawned.map(params => params.model)).toEqual(['claude-sonnet-5-5'])
+    }
+    finally {
+      vi.unstubAllEnvs()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('a failing worktree remove does not mask the review', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-'))
     const printed = vi.spyOn(console, 'error').mockImplementation(() => {})

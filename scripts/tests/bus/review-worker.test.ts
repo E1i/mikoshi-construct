@@ -117,6 +117,20 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('review.recorded and its review.log line carry the model the review session ran', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    gitHub.open({ number: 941 })
+    tick()
+    const ran: Reviewer = async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1', model: 'claude-haiku-5-5' })
+
+    const step = await worker(ran).step()
+    expect(step).toEqual({ kind: 'recorded', taskKey: review(941), verdict: 'pass', depth: 'full', model: 'claude-haiku-5-5' })
+    expect(stepLine(step)).toBe(`[bus:review] ${review(941)}: pass recorded, review depth full, model claude-haiku-5-5`)
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [] }])
+    expectReplayIdentical(db)
+    db.close()
+  })
+
   it('a changes verdict is recorded as a review status on the leased head and as review.recorded', async () => {
     const { db, gitHub, statuses, tick, worker } = setUp()
     gitHub.open({ number: 940 })
@@ -794,6 +808,7 @@ describe('review depth by MORSE', () => {
       findings: [],
     }])
     expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'cheap' })).toContain('pass recorded, review depth cheap')
+    expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'cheap' })).toContain('model not reported by the session')
     expectReplayIdentical(bench.db)
     bench.db.close()
   })

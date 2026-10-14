@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { HEADLESS_FLAGS, sessionArgv, sessionEnv, spawnSession } from '../../ghosts/session.js'
+import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, sessionEnv, sessionModelOf, spawnSession } from '../../ghosts/session.js'
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))
@@ -23,6 +23,34 @@ describe('sessionArgv', () => {
   it('loads no MCP server from the user\'s configuration, since none is passed with --mcp-config', () => {
     expect(sessionArgv('sess-1', '/implement do it')).toContain('--strict-mcp-config')
     expect(sessionArgv('sess-1', '/implement do it')).not.toContain('--mcp-config')
+  })
+})
+
+describe('the review model of CONSTRUCT_REVIEW_MODEL', () => {
+  it('with CONSTRUCT_REVIEW_MODEL set, argv holds --model <value> before the headless flags', () => {
+    const argv = sessionArgv('sess-1', 'review it', ['/reviews'], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: 'claude-sonnet-5-5' }))
+    expect(argv).toEqual(['--add-dir', '/reviews', '--model', 'claude-sonnet-5-5', ...HEADLESS_FLAGS, 'sess-1', 'review it'])
+  })
+
+  it('with CONSTRUCT_REVIEW_MODEL unset or empty, argv holds no --model', () => {
+    expect(sessionArgv('sess-1', 'review it', [], reviewModelOf({}))).not.toContain('--model')
+    expect(sessionArgv('sess-1', 'review it', [], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: ' ' }))).not.toContain('--model')
+  })
+})
+
+describe('sessionModelOf', () => {
+  it('the model the session ran is the model of its stream-json system/init event', () => {
+    const stream = [
+      '{"type":"system","subtype":"hook_started","model":"not-this-one"}',
+      'not json',
+      '{"type":"system","subtype":"init","model":"claude-opus-5-5"}',
+      '{"type":"result","subtype":"success"}',
+    ].join('\n')
+    expect(sessionModelOf(stream)).toBe('claude-opus-5-5')
+  })
+
+  it('a stream with no init event names no model', () => {
+    expect(sessionModelOf('{"type":"result"}\n')).toBeUndefined()
   })
 })
 
@@ -46,6 +74,25 @@ describe('sessionEnv witness environment', () => {
 })
 
 describe('spawnSession', () => {
+  it('spawns claude with --model when the session params name a model', async () => {
+    const bin = stubBinDir('printf \'%s\\0\' "$@" >"$CAPTURE_ARGV"; exit 0')
+    const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-model-'))
+    const argvFile = path.join(work, 'argv')
+
+    const code = await spawnSession({
+      cwd: work,
+      sessionId: 'sess-1',
+      prompt: 'review it',
+      stdoutPath: path.join(work, 'out.jsonl'),
+      stderrPath: path.join(work, 'out.stderr'),
+      model: 'claude-sonnet-5-5',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CAPTURE_ARGV: argvFile },
+    })
+
+    expect(code).toBe(0)
+    expect(readFileSync(argvFile, 'utf8').split('\0').filter(Boolean)).toEqual(['--model', 'claude-sonnet-5-5', ...HEADLESS_FLAGS, 'sess-1', 'review it'])
+  })
+
   it('spawns claude from PATH with the documented argv, cwd and env, writing stdout byte for byte', async () => {
     const bin = stubBinDir('printf \'%s\\0\' "$@" >"$CAPTURE_ARGV"; pwd -P >"$CAPTURE_CWD"; printf \'%s\' "$CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS" >"$CAPTURE_CEILING"; printf \'line-one\\nline-two\\n\'; exit 0')
     const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-work-'))
