@@ -10,11 +10,34 @@ import path from 'node:path'
 import process from 'node:process'
 import { reviewModelOf, sessionModelOf, spawnSession } from '../ghosts/session.js'
 
+export interface TreeState {
+  head: string
+  status: string[]
+}
+
+export interface HeldTree {
+  path: string
+  release: () => string | null
+}
+
+export interface ReviewedTree extends HeldTree {
+  before: TreeState
+  after: TreeState
+  mutated: string[]
+}
+
 export interface Review {
   verdict: VerdictWord
   findings: string[]
   session: string
   model?: string
+  tree?: ReviewedTree
+}
+
+export class ReviewFailed extends Error {
+  constructor(message: string, readonly held: HeldTree) {
+    super(message)
+  }
 }
 
 export type Reviewer = (lease: Lease, plan: ReviewPlan) => Promise<Review>
@@ -22,6 +45,8 @@ export type Reviewer = (lease: Lease, plan: ReviewPlan) => Promise<Review>
 export interface TreeTools {
   git: (cwd: string, args: string[]) => void
   worktrees: (repo: string) => string[]
+  prepare: (tree: string) => void
+  state: (tree: string) => TreeState
 }
 
 export interface LeftoverTree {
@@ -32,6 +57,16 @@ export interface LeftoverTree {
 export const PREFIX = '[bus:review] '
 
 const VERDICTS = new Set<string>(['pass', 'changes'])
+
+export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--offline', '--ignore-scripts']
+
+export const PREPARE_MS = 10 * 60_000
+
+export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME']
+
+export const HEAD_MOVED = 'HEAD'
+
+export const PREPARED_TREE_LINE = 'The worker prepared this tree before the session: its dependencies are in place, so run the harness there as it is. Read and run; leave the tree as the worker left it, because the worker compares it before and after the review and a moved HEAD or a changed or new file git does not ignore makes the verdict changes.'
 
 export function reviewOf(text: string, session: string): Review {
   const parsed = JSON.parse(text) as { verdict?: unknown, findings?: unknown }
@@ -68,6 +103,7 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
   return [
     `[review:${lease.taskKey}]`,
     `Act as the review role defined in .claude/agents/review.md. Pull request #${lease.pr} of card #${lease.cardId} is checked out at ${tree}, at its head ${lease.head}; read it there.`,
+    PREPARED_TREE_LINE,
     `Review it against its card (the first line of the pull request description) and the repository's rules. Change nothing, commit nothing, push nothing, and post nothing to GitHub.`,
     ...depthLines(lease, plan),
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"]}.`,
@@ -85,7 +121,45 @@ function worktrees(repo: string): string[] {
     .map(line => line.slice('worktree '.length))
 }
 
-export const GIT_TREE_TOOLS: TreeTools = { git, worktrees }
+export function prepareEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(PREPARE_ENV_KEYS.filter(key => env[key] !== undefined).map(key => [key, env[key]]))
+}
+
+function prepare(tree: string): void {
+  execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function statusLines(porcelainZ: string): string[] {
+  const fields = porcelainZ.split('\0').filter(field => field !== '')
+  const lines: string[] = []
+  for (let at = 0; at < fields.length; at += 1) {
+    const field = fields[at]!
+    lines.push(field)
+    if (field[0] === 'R' && fields[at + 1] !== undefined) {
+      lines.push(`${field.slice(0, 3)}${fields[at + 1]}`)
+      at += 1
+    }
+    else if (field[0] === 'C') {
+      at += 1
+    }
+  }
+  return lines
+}
+
+function state(tree: string): TreeState {
+  const read = (args: string[]): string => execFileSync('git', ['-C', tree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return { head: read(['rev-parse', 'HEAD']).trim(), status: statusLines(read(['status', '--porcelain', '-z'])) }
+}
+
+export const GIT_TREE_TOOLS: TreeTools = { git, worktrees, prepare, state }
+
+function pathOfStatus(line: string): string {
+  return line.slice(3)
+}
+
+export function mutatedPaths(before: TreeState, after: TreeState): string[] {
+  return [...(after.head === before.head ? [] : [HEAD_MOVED]), ...after.status.map(pathOfStatus)]
+}
 
 function failureOf(error: unknown): string {
   const stderr = (error as { stderr?: unknown }).stderr
@@ -109,17 +183,24 @@ export class ReviewTrees {
   add(tree: string, head: string): void {
     this.tools.git(this.repo, ['worktree', 'add', '--detach', tree, head])
     this.held.add(canonical(tree))
+    this.tools.prepare(tree)
+  }
+
+  state(tree: string): TreeState {
+    return this.tools.state(tree)
+  }
+
+  holds(tree: string): boolean {
+    return this.held.has(canonical(tree))
   }
 
   fetch(ref: string): void {
     this.tools.git(this.repo, ['fetch', '--quiet', 'origin', ref])
   }
 
-  release(tree: string): void {
+  release(tree: string): string | null {
     this.held.delete(canonical(tree))
-    const failure = this.remove(tree)
-    if (failure !== null)
-      console.error(`${PREFIX}could not remove the review tree ${tree}: ${failure}`)
+    return this.remove(tree) ?? this.prune()
   }
 
   clearLeftovers(): LeftoverTree[] {
@@ -128,6 +209,16 @@ export class ReviewTrees {
     const cleared = leftovers.map(tree => ({ path: tree, left: this.remove(tree) }))
     this.tools.git(this.repo, ['worktree', 'prune'])
     return cleared
+  }
+
+  private prune(): string | null {
+    try {
+      this.tools.git(this.repo, ['worktree', 'prune'])
+      return null
+    }
+    catch (error) {
+      return failureOf(error)
+    }
   }
 
   private remove(tree: string): string | null {
@@ -163,15 +254,31 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
     const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan)
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
-    trees.add(tree, lease.head!)
+    const held: HeldTree = { path: tree, release: () => trees.release(tree) }
     try {
+      trees.add(tree, lease.head!)
+      const before = trees.state(tree)
+      if (before.status.length > 0)
+        throw new Error(`the review tree ${tree} is not clean before the review: ${before.status.join('; ')}`)
       const code = await spawn(params)
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
-      return { ...reviewOf(readFileSync(verdictPath, 'utf8'), session), model: existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined }
+      const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
+      const after = trees.state(tree)
+      const mutated = mutatedPaths(before, after)
+      const model = existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined
+      return { ...review, ...withoutPassOnMutation(review, mutated), model, tree: { ...held, before, after, mutated } }
     }
-    finally {
-      trees.release(tree)
+    catch (error) {
+      if (!trees.holds(tree))
+        throw error
+      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held)
     }
   }
+}
+
+function withoutPassOnMutation(review: Review, mutated: string[]): Pick<Review, 'verdict' | 'findings'> {
+  if (mutated.length === 0)
+    return review
+  return { verdict: 'changes', findings: [...review.findings, `the review session changed its tree, so its verdict does not count as pass: ${mutated.join(', ')}`] }
 }
