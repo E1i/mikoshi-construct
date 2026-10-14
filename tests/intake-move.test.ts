@@ -3,13 +3,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
-import { CARD_MOVED } from '../src/commands/intake/index.js'
+import { CARD_ADMITTED, CARD_MOVED } from '../src/commands/intake/index.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const NOW = new Date('2026-10-07T09:00:00.000Z')
+const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const roots: string[] = []
 
 afterEach(() => {
@@ -34,6 +36,15 @@ function park(dir: string, id: number, body = 'Do the thing.'): string {
 
 function move(w: { parking: string, journal: string }, id: number, to: string, events?: CardEventPort) {
   return runMove({ move: `#${id}`, to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)
+}
+
+function admitThenMove(w: { parking: string, journal: string }, events?: CardEventPort): void {
+  const file = park(w.parking, 706)
+  const repo = path.join(path.dirname(w.parking), 'repo')
+  mkdirSync(path.join(repo, 'src'), { recursive: true })
+  writeFileSync(path.join(repo, 'src', 'a.ts'), '')
+  expect(runAdmit({ file, dir: repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
+  expect(runMove({ move: '#706', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF).status).toBe('moved')
 }
 
 function journalLines(journal: string): Record<string, unknown>[] {
@@ -79,6 +90,27 @@ describe('intake --move', () => {
       payload: { from: w.parking, to, bodySha: bodySha(text), lane: 'lane-2' },
     }])
     expect(journalLines(w.journal)).toEqual([{ event: 'intake-move', task: '704', from: w.parking, to, bodySha: bodySha(text), ts: NOW.toISOString() }])
+  })
+
+  it('with a connected bus after the cutoff intake writes no journal line', () => {
+    const w = world()
+    const bus: CardEvent[] = []
+    admitThenMove(w, event => bus.push(event))
+    expect(bus.map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
+    expect(journalLines(w.journal)).toEqual([])
+  })
+
+  it('without a bus intake writes its journal lines as today', () => {
+    const w = world()
+    admitThenMove(w)
+    expect(journalLines(w.journal).map(line => line.event)).toEqual(['intake', 'intake-move'])
+  })
+
+  it('a bus-wired move says the bus holds the move', () => {
+    const w = world()
+    park(w.parking, 707)
+    const { lines } = printed(move(w, 707, 'lane-2', () => {}))
+    expect(lines.join('\n')).toContain('The bus holds the move as card.moved; the card is unchanged.')
   })
 
   it('a move into a missing directory creates it', () => {

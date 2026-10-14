@@ -1,13 +1,17 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { IntakeAdmission } from '../bus/intake.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { cardLine, parseCard } from '../../src/card/grammar.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { defaultBusPath } from '../bus/db.js'
+import { busIntakeAdmissions } from '../bus/intake.js'
 
 export const PREFIX = '[cloud-start] '
 export const USAGE = 'usage: cloud-start.ts <run-id> --card "<card>" [--journal <path>]'
@@ -22,6 +26,7 @@ export interface CloudStartDeps {
   now: () => Date
   handoffDir: string
   base: () => string | null
+  admissions: () => IntakeAdmission[]
 }
 
 export interface CloudStartResult {
@@ -72,13 +77,14 @@ function journalEntries(journal: string | null): JournalEntry[] {
   })
 }
 
-function intakeAdmits(entries: JournalEntry[], card: Card): boolean {
-  return entries.some((entry) => {
-    if (entry.event !== INTAKE_EVENT || entry.task !== String(card.id) || typeof entry.card !== 'string')
-      return false
-    const recorded = parseCard(entry.card)
-    return recorded.kind === 'card' && cardLine(recorded.card) === cardLine(card)
-  })
+function sameCard(recordedLine: string, card: Card): boolean {
+  const recorded = parseCard(recordedLine)
+  return recorded.kind === 'card' && cardLine(recorded.card) === cardLine(card)
+}
+
+function intakeAdmits(entries: JournalEntry[], admissions: readonly IntakeAdmission[], card: Card): boolean {
+  const journaled = entries.some(entry => entry.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string' && writtenBeforeHistoryEnds(entry) && sameCard(entry.card, card))
+  return journaled || admissions.some(admission => admission.task === String(card.id) && sameCard(admission.card, card))
 }
 
 function earlierStartOf(entries: JournalEntry[], card: Card): JournalEntry | undefined {
@@ -97,7 +103,7 @@ export function runCloudStart(argv: string[], deps: CloudStartDeps): CloudStartR
   const { card } = parsed
   const journal = args.journal ?? path.join(deps.handoffDir, 'ghosts.jsonl')
   const entries = journalEntries(deps.read(journal))
-  if (!intakeAdmits(entries, card))
+  if (!intakeAdmits(entries, deps.admissions(), card))
     return refuse(`card #${card.id} has no intake line in ${journal} that confirms this card: slice and confirm it with construct intake; nothing written`)
   const earlierStart = earlierStartOf(entries, card)
   if (earlierStart !== undefined) {
@@ -124,6 +130,7 @@ function realDeps(): CloudStartDeps {
     },
     now: () => new Date(),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    admissions: () => busIntakeAdmissions(defaultBusPath()),
     base: () => {
       try {
         return execFileSync('git', ['rev-parse', BASE_REF], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()

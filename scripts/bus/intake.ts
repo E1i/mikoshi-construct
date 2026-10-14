@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { CardEvent, CardEventPort } from '../../src/commands/intake/index.js'
-import type { MainPorts } from '../../src/program.js'
+import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
+import type { BusPorts } from '../../src/program.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -12,11 +12,58 @@ import { CARD_ADMITTED, CARD_MOVED } from '../../src/commands/intake/index.js'
 import { createMain } from '../../src/program.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
-import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { openDatabase } from './sqlite.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_BY_HAND = 'by-hand'
+
+const INTAKE_ADMISSIONS = `
+  SELECT id, ts, card_id, payload FROM events
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id IS NOT NULL
+  ORDER BY id
+`
+
+export interface IntakeAdmission extends RecordedIntake {
+  task: string
+  corrections: unknown
+  event: number
+}
+
+interface AdmissionRow { id: number, ts: string | null, card_id: number, payload: string }
+
+function admissionOf(row: AdmissionRow): IntakeAdmission | null {
+  try {
+    const payload = JSON.parse(row.payload) as Record<string, unknown> | null
+    if (typeof payload?.card !== 'string' || payload.bodySha === undefined)
+      return null
+    return { task: String(row.card_id), card: payload.card, bodySha: payload.bodySha, ts: row.ts, confirmation: payload.confirmation, source: payload.source, corrections: payload.corrections, event: row.id }
+  }
+  catch {
+    return null
+  }
+}
+
+export function intakeAdmissions(db: DatabaseSync): IntakeAdmission[] {
+  return (db.prepare(INTAKE_ADMISSIONS).all() as unknown as AdmissionRow[]).flatMap(row => admissionOf(row) ?? [])
+}
+
+export function busIntakeAdmissions(busPath: string): IntakeAdmission[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return intakeAdmissions(db)
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
+  return cardId => intakeAdmissions(db).filter(admission => admission.task === String(cardId)).at(-1) ?? null
+}
 
 function append(db: DatabaseSync, actor: string, event: CardEvent): void {
   appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
@@ -52,8 +99,8 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
   }
 }
 
-export function busIntakePorts(db: DatabaseSync, session?: string): MainPorts {
-  return { cardEvents: busCardEvents(db, session), cardStates: () => busCardStates(defaultBusPath()) }
+export function busIntakePorts(db: DatabaseSync, session?: string): BusPorts {
+  return { cardEvents: busCardEvents(db, session), cardStates: () => busCardStates(defaultBusPath()), cardAdmissions: busCardAdmissions(db) }
 }
 
 async function main(): Promise<void> {

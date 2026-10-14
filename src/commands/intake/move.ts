@@ -23,7 +23,7 @@ export interface MoveOptions {
 
 export type MoveResult
   = | { status: 'refused', why: (ui: Ui) => string }
-    | { status: 'moved', from: string, to: string }
+    | { status: 'moved', from: string, to: string, inBus: boolean }
 
 function refused(why: (ui: Ui) => string): MoveResult {
   return { status: 'refused', why }
@@ -75,7 +75,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
     journalLine: JSON.stringify({ event: INTAKE_MOVE_EVENT, task: String(number), ...moved, ts }),
     event: { type: CARD_MOVED, cardId: number, ts, dedupeKey: `${CARD_MOVED}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane: path.basename(targetDir) } },
   }], options.events)
-  return { status: 'moved', from, to: target }
+  return { status: 'moved', from, to: target, inBus: options.events !== undefined }
 }
 
 export function printMove(ui: Ui, result: MoveResult): number {
@@ -83,6 +83,6 @@ export function printMove(ui: Ui, result: MoveResult): number {
     ui.flatline(result.why(ui))
     return INTAKE_EXIT.refused
   }
-  ui.ok(ui.lore.intakeMoved(result.from, result.to))
+  ui.ok(ui.lore.intakeMoved(result.from, result.to, result.inBus))
   return INTAKE_EXIT.admitted
 }

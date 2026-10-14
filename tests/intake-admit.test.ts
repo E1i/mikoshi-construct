@@ -207,7 +207,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const before = readFileSync(file, 'utf8')
     const again = admit(w, file)
     expect(again).toMatchObject({ status: 'alreadyAdmitted', source: 'amend' })
-    expect(printed(again).lines.join('\n')).toContain('its card.admitted is in the bus')
+    expect(printed(again).lines.join('\n')).toContain('Its card.admitted is in the bus')
     expect(readFileSync(file, 'utf8')).toBe(before)
     expect(journalLines(w)).toHaveLength(1)
   })
@@ -260,7 +260,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     journal(w, [{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodyShaWithoutTouches(text), source: 'admit', ts: NOW.toISOString() }])
     const again = admit(w, file)
     expect(again).toMatchObject({ status: 'alreadyAdmitted', source: 'amend' })
-    expect(printed(again).lines.join('\n')).toContain('its card.admitted is in the bus')
+    expect(printed(again).lines.join('\n')).toContain('Its card.admitted is in the bus')
     expect(journalLines(w)).toHaveLength(1)
   })
 
@@ -337,11 +337,20 @@ describe('construct intake --admit takes a card parked before the intake door', 
   })
 })
 
+describe('construct intake --admit with the bus counts a journal line only before the cutoff', () => {
+  it('a journal intake line after the cutoff with no card.admitted in the bus does not make the card admitted', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    journal(w, [{ event: 'intake', task: '80', card: CLEAN, bodySha: bodySha(readFileSync(file, 'utf8')), confirmation: 'none', source: 'admit', ts: '2026-10-13T00:00:00.000Z' }])
+    expect(admit(w, file, { admissions: () => null }, new Date('2026-10-13T09:00:00.000Z'))).toMatchObject({ status: 'admitted', source: 'admit' })
+  })
+})
+
 describe('construct intake --admit says whether task:start will take the card', () => {
   it('names the bus when the port wrote card.admitted, and task:start takes the card', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
-    expect(printed(admit(w, file)).lines[0]).toBe(`[ok] Admitted ${file}: ${CLEAN}. Its intake line is in the journal and its card.admitted is in the bus, so task:start and the shift take it.\n`)
+    expect(printed(admit(w, file)).lines[0]).toBe(`[ok] Admitted ${file}: ${CLEAN}. Its card.admitted is in the bus, so task:start and the shift take it.\n`)
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
@@ -358,7 +367,7 @@ describe('construct intake --admit says whether task:start will take the card', 
     admit(w, file, { events: undefined })
     const again = admit(w, file)
     expect(again.status).toBe('alreadyAdmitted')
-    expect(printed(again).lines[0]).toBe(`[ok] Already admitted ${file}: ${CLEAN}. The journal holds its intake line and its card.admitted is in the bus, so task:start and the shift take it.\n`)
+    expect(printed(again).lines[0]).toBe(`[ok] Already admitted ${file}: ${CLEAN}. Its card.admitted is in the bus, so task:start and the shift take it.\n`)
     expect(journalLines(w)).toHaveLength(1)
     expect(admittedEvents(w)).toBe(1)
     expect(taskStart(w, CLEAN)).toBe(0)

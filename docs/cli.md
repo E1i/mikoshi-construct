@@ -1881,7 +1881,7 @@ corrections in advance: the cards are parked at once. Every parked card gets an 
 `--journal` — `{"event":"intake","task","card","confirmation","corrections","bodySha","ts"}`, with
 `confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
 recorded with the corrections it accepted; `bodySha` is the digest of the card's `touches` line and
-its text below its header, the task and its witnesses. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+its text below its header, the task and its witnesses. When a caller wires a bus in, as this repository's `pnpm intake` does, a card parked after `2026-10-12T17:04Z` gets its `card.admitted` in the bus and no `intake` line: past that time the bus is the record, and numbers, admissions and amendments read it, counting only the `intake` lines written before. The published CLI has no bus and writes the journal line as before. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1932,7 +1932,7 @@ created when missing, or `.` for the root itself). The card is found by number i
 subdirectories; a number found in more than one place is refused naming every path, and a target that
 already holds the number is refused with nothing written. The card must pass the parking grammar. The
 file is moved unchanged, so it is the same record with no new number, and one line is appended to
-`--journal`: `{"event":"intake-move","task","from","to","bodySha","ts"}`. With `--draft`, `--taken` or
+`--journal`: `{"event":"intake-move","task","from","to","bodySha","ts"}`, or, with a bus wired in and after `2026-10-12T17:04Z`, a `card.moved` in the bus and no journal line. With `--draft`, `--taken` or
 `--admit` the move refuses.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an

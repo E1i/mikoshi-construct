@@ -8,7 +8,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readS
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { closedTasks, mergedTasks } from '../../card/closed.js'
+import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
 import { laneOf } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -83,14 +83,25 @@ export type CardEventPort = (event: CardEvent) => void
 
 export type CardStatesPort = () => BusCardStates
 
+export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown }
+
+export type CardAdmissionsPort = (cardId: number) => RecordedIntake | null
+
 export interface IntakeRecord {
   journalLine: string
   event: CardEvent
 }
 
+function journaled(record: IntakeRecord, events: CardEventPort | undefined): boolean {
+  return events === undefined || writtenBeforeHistoryEnds({ ts: record.event.ts })
+}
+
 export function recordIntake(journal: string, records: readonly IntakeRecord[], events: CardEventPort | undefined): void {
-  mkdirSync(path.dirname(journal), { recursive: true })
-  appendFileSync(journal, records.map(record => `${record.journalLine}\n`).join(''))
+  const lines = records.filter(record => journaled(record, events)).map(record => `${record.journalLine}\n`)
+  if (lines.length > 0) {
+    mkdirSync(path.dirname(journal), { recursive: true })
+    appendFileSync(journal, lines.join(''))
+  }
   for (const record of records)
     events?.(record.event)
 }
@@ -143,7 +154,7 @@ type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unr
 
 export type IntakeResult
   = | { status: 'refused', refusal: Refusal, detail: string[] }
-    | { status: 'written', parking: string, cards: SlicedCard[], autoConfirm: boolean }
+    | { status: 'written', parking: string, cards: SlicedCard[], autoConfirm: boolean, inBus: boolean }
     | { status: 'dryRun', parking: string, cards: SlicedCard[] }
     | { status: 'awaiting', parking: string, cards: SlicedCard[], token: string, stale: boolean }
 
@@ -215,8 +226,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   if (taken.kind === 'refused')
     return refused('invalid', [taken.reason])
   const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
-  const numbers = nextFreeNumbers([...taken.numbers, ...parked, ...admittedNumbers(journalText)], draft.cards.length)
   const cards = options.cardStates?.()
+  const numbers = nextFreeNumbers([...taken.numbers, ...parked, ...admittedNumbers(journalText, cards)], draft.cards.length)
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),
@@ -239,7 +250,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     writeFileSync(path.join(options.parking, card.file), card.text, { flag: 'wx' })
   const at = new Date()
   recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, laneOf(options.parkingRoot ?? defaultParking(), options.parking))), options.events)
-  return { status: 'written', parking: options.parking, cards: slice.cards, autoConfirm: options.autoConfirm }
+  return { status: 'written', parking: options.parking, cards: slice.cards, autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
 }
 
 export function printIntake(ui: Ui, result: IntakeResult): number {
@@ -265,7 +276,7 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
         ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))
     }
     if (card.corrections.length > 0 && result.status === 'written')
-      ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm)}`))
+      ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm, result.inBus)}`))
     else if (card.corrections.length > 0)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrections(card.corrections.length)}`))
     if (card.unclear.length > 0)
