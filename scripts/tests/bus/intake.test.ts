@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -53,6 +54,21 @@ function cardEvents(w: World): Record<string, unknown>[] {
   }
 }
 
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+function admissions(w: World): { id: number, payload: Record<string, unknown> }[] {
+  const db = openBus(w.bus)
+  try {
+    return (db.prepare(`SELECT id, payload FROM events WHERE type = '${CARD_ADMITTED}' ORDER BY id`).all() as { id: number, payload: string }[])
+      .map(row => ({ id: row.id, payload: JSON.parse(row.payload) as Record<string, unknown> }))
+  }
+  finally {
+    db.close()
+  }
+}
+
 function appendEventRow(db: ReturnType<typeof openBus>): void {
   db.prepare('INSERT INTO events (ts, type, actor, card_id, dedupe_key, payload, legacy) VALUES (\'2026-10-12T12:00:00.000Z\', \'card.state\', \'test\', 80, \'seed\', \'{}\', 1)').run()
 }
@@ -84,6 +100,38 @@ describe('pnpm intake writes card events to bus.db', () => {
     const file = park(w, 'lane-7')
     expect(withPort(w, events => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: 'lane-7', depends: [], decision: 'auto', contour: 'cheap' } }])
+  })
+
+  it('an --admit with the bus writes text, textSha, prevTextSha and prevAdmissionId', () => {
+    const w = world()
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const file = park(w, 'lane-7')
+    const text = readFileSync(file, 'utf8')
+    expect(admitThroughThePorts(w, file)).toBe('admitted')
+    expect(admissions(w).map(admission => admission.payload)).toMatchObject([{ card: CARD, text, textSha: sha256(text), prevTextSha: null, prevAdmissionId: null }])
+  })
+
+  it('a second admission names the first as prevAdmissionId and its textSha as prevTextSha', () => {
+    const w = world()
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const file = park(w, 'lane-7')
+    const first = readFileSync(file, 'utf8')
+    expect(admitThroughThePorts(w, file)).toBe('admitted')
+    const second = first.replace('Do the thing.', 'Do the other thing.')
+    writeFileSync(file, second)
+    expect(admitThroughThePorts(w, file)).toBe('admitted')
+    const [earlier, later] = admissions(w)
+    expect(later!.payload).toMatchObject({ text: second, textSha: sha256(second), prevAdmissionId: earlier!.id, prevTextSha: sha256(first) })
+  })
+
+  it('a move into a lane admits the moved text as a version with the same textSha and the new lane', () => {
+    const w = world()
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const text = readFileSync(park(w, ''), 'utf8')
+    expect(admitThroughThePorts(w, path.join(w.parking, '90.md'))).toBe('admitted')
+    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    const [admitted, moved] = admissions(w)
+    expect(moved!.payload).toMatchObject({ lane: 'lane-8', text, textSha: sha256(text), prevAdmissionId: admitted!.id, prevTextSha: sha256(text) })
   })
 
   it('a move into a lane writes card.moved and a card.admitted that carries the card and the lane', () => {

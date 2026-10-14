@@ -4,10 +4,12 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, PR_OPENED } from './card-automaton.js'
+import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAIN_FOLDS } from './chain.js'
 import { defaultBusPath, inTransaction, openBus } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
 import { isFullSha, prOf } from './identifiers.js'
+import { CARD_ADMITTED } from './launch-candidates.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
@@ -143,6 +145,11 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('INSERT INTO mains (sha, touches_mechanics, event_id) VALUES (?, ?, ?)').run(payload.sha, touches ? 1 : 0, event.id)
 }
 
+function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
+  CARD_FOLDS[CARD_ADMITTED]!(db, event)
+  foldCardBody(db, event)
+}
+
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
   const pr = prOf(payloadOf(event).pr) ?? event.pr ?? reject(`${PR_OPENED} needs a pr`)
   const cardId = event.card_id ?? reject(`${PR_OPENED} needs a card_id`)
@@ -167,6 +174,7 @@ const REDUCERS: Record<string, Fold> = {
   ...ROLE_FOLDS,
   ...DECISION_FOLDS,
   ...CARD_FOLDS,
+  [CARD_ADMITTED]: foldAdmittedWithBody,
 }
 
 export function reducedThrough(db: DatabaseSync): number {
@@ -175,7 +183,7 @@ export function reducedThrough(db: DatabaseSync): number {
 
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
-    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM decisions; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM decisions; DELETE FROM ${CARD_BODIES}; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
     const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
     db.exec(`PRAGMA user_version = ${through}`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
@@ -202,6 +210,7 @@ export function projectionDump(db: DatabaseSync): string {
     chains: db.prepare('SELECT * FROM chains ORDER BY dir').all(),
     roles: db.prepare('SELECT * FROM roles ORDER BY role').all(),
     decisions: db.prepare('SELECT * FROM decisions ORDER BY decision_id').all(),
+    card_bodies: db.prepare(`SELECT * FROM ${CARD_BODIES} ORDER BY card_id`).all(),
   })
 }
 

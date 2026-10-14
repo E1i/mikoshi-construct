@@ -178,7 +178,7 @@ function rejectedLine(period: Period): string {
   return `${EXIT_CRITERIA.rejected}: ${rejections.length}${detail === '' ? '' : ` (${detail})`}`
 }
 
-const ROW_KEYS: Record<string, string> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id' }
+const ROW_KEYS: Record<string, string> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', card_bodies: 'card_id' }
 const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...Object.keys(ROLE_FOLDS), ...CARD_FOLDED_ON_APPEND, CHAIN_OBSERVED])
 
 type ProjectionRow = Record<string, unknown>

@@ -4,6 +4,7 @@ import type { Lore } from '../../ui/lore.js'
 import type { Confirmation } from './confirm.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -111,6 +112,10 @@ function admissionOf(line: string): { depends: number[], decision: string | null
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
 }
 
+export function textSha(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
 export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, lane: string | null, source?: string): IntakeRecord {
   const ts = at.toISOString()
   const sha = bodySha(card.text)
@@ -128,6 +133,8 @@ export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at:
         confirmation,
         corrections: card.corrections.map(correctionText),
         bodySha: sha,
+        text: card.text,
+        textSha: textSha(card.text),
         ...(source === undefined ? {} : { source }),
       },
     },
