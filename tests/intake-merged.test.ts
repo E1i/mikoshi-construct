@@ -42,7 +42,8 @@ function parkedCardText(journal: string, fields: Record<string, unknown>, cardSt
     throw new Error(`refused: ${result.refusal} ${result.detail.join('; ')}`)
   const lines: string[] = []
   printIntake(createUi(resolveTheme({ plain: true }), line => lines.push(line)), result)
-  return { text: readFileSync(path.join(parking, '14.md'), 'utf8'), output: lines.join('\n') }
+  const assigned = result.status === 'written' ? result.cards[0]!.id : 14
+  return { text: readFileSync(path.join(parking, `${assigned}.md`), 'utf8'), output: lines.join('\n') }
 }
 
 describe('a depends or blocks is met by a merge line, not by a done task', () => {
@@ -69,7 +70,7 @@ describe('a depends or blocks is met by a merge line, not by a done task', () =>
     const byBus = parkedCardText(journalOf(DONE), { depends: ['#77'] }, () => new Map([['77', 'closed']]))
     expect(byBus.output).toContain('corrected: depends — #77 → (removed) — already merged')
     const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] }, () => new Map([['77', 'running']]))
-    expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends #77 · blocks —$/m)
+    expect(late.text).toMatch(/^card: #78 \S+ \[.*\] · depends #77 · blocks —$/m)
   })
 
   it('without a bus a merge line after the cutoff lifts depends', () => {

@@ -2,16 +2,22 @@ import type { CardEvent, IntakeOptions, IntakeResult } from '../src/commands/int
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ADMIT_SOURCE, AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
 import { CARD_ADMITTED, INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
+const BEFORE_THE_CUTOFF = new Date('2026-10-12T16:00:00.000Z')
 const roots: string[] = []
 
+beforeEach(() => {
+  vi.useFakeTimers({ now: BEFORE_THE_CUTOFF, toFake: ['Date'] })
+})
+
 afterEach(() => {
+  vi.useRealTimers()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
