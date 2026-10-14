@@ -12,7 +12,7 @@ import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { BOARD_ALARM, CARD_CLOSED } from '../../bus/queue.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
-import { eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { cardVerified, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const PR = 993
 const CARD = PR + 100
@@ -47,6 +47,7 @@ function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRem
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${CARD}`, payload: { session: 's', worktree, branch: `feat/card-${CARD}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
     bench.gitHub.open({ number: PR })
     bench.tick()
+    cardVerified(bench.db, bench.clock.now().toISOString(), CARD, PR)
     bench.gitHub.close(PR, true)
     bench.tick()
     if (closedEarlier)

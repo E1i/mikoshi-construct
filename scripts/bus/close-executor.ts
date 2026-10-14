@@ -12,7 +12,7 @@ import { VERIFICATION_WORDS } from '../board/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
 import { archiveCardFile } from './card-archive.js'
-import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
+import { MERGE_DONE } from './card-automaton.js'
 import { appendEvent } from './db.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
@@ -45,8 +45,6 @@ export type CloseOutcome
     | { kind: 'fenced', taskKey: string }
 
 export type ReportedVerification = (cardId: number, pr: number | null) => string | null
-
-const REVIEWED_VERIFICATION = 'review'
 
 export const ARTIFACT_REMOVED = 'artifact.removed'
 
@@ -126,12 +124,6 @@ const OBSERVED_MERGER = `
   ORDER BY id LIMIT 1
 `
 
-const REVIEW_PASS_AT_HEAD = `
-  SELECT 1 FROM events
-  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.head') = ? AND json_extract(payload, '$.verdict') = 'pass'
-  LIMIT 1
-`
-
 class CardAlreadyClosed extends Error {}
 
 function technical(reason: CloseTechnicalReason, detail: string): CloseDenial {
@@ -162,9 +154,9 @@ export class CloseExecutor {
       assertHeld(this.parts.db, lease)
       if (cardClosed(this.parts.db, lease.cardId))
         return this.denied(lease, technical('card_closed', `card ${lease.cardId} is already closed`))
-      const verification = this.parts.reported(lease.cardId, lease.pr) ?? this.reviewedHead(lease)
+      const verification = this.parts.reported(lease.cardId, lease.pr)
       if (!isVerificationWord(verification))
-        return this.denied(lease, technical('no_verification', `card ${lease.cardId} has ${verification === null ? `no verification: no shift report, no task:close line for PR #${lease.pr} and no review pass at ${lease.head}` : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
+        return this.denied(lease, technical('no_verification', `card ${lease.cardId} has ${verification === null ? `no verification: no card.verified for PR #${lease.pr}` : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
       const commit = this.mergeCommit(lease)
       if (commit === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
@@ -177,12 +169,6 @@ export class CloseExecutor {
         return this.denied(lease, technical('card_closed', error.message))
       throw error
     }
-  }
-
-  private reviewedHead(lease: Lease): string | null {
-    if (lease.pr === null || lease.head === null)
-      return null
-    return this.parts.db.prepare(REVIEW_PASS_AT_HEAD).get(lease.pr, lease.head) === undefined ? null : REVIEWED_VERIFICATION
   }
 
   private mergeCommit(lease: Lease): string | null {

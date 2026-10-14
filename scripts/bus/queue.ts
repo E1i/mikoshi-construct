@@ -4,6 +4,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
+import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
@@ -128,6 +129,7 @@ const CLOSE_CANDIDATES = `
   SELECT pr, card_id, head FROM prs
   WHERE state = 'merged' AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = prs.card_id)
+    AND EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_VERIFIED}' AND events.legacy = 0 AND events.card_id = prs.card_id AND events.pr = prs.pr)
   ORDER BY pr
 `
 

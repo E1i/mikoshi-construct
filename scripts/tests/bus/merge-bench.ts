@@ -10,6 +10,7 @@ import { leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { BusTick } from '../../bus/run.js'
 import { SHARD_USED } from '../../bus/shards.js'
+import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
 export const RUN = '/shift/run-1'
@@ -55,6 +56,10 @@ export function mergeBench(intake: (db: DatabaseSync, clock: Clock) => () => voi
       rmSync(root, { recursive: true, force: true })
     },
   }
+}
+
+export function cardVerified(db: DatabaseSync, ts: string, cardId: number, pr: number, verification = 'run'): void {
+  appendEvent(db, { ts, type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId, pr, head: null, dedupeKey: `${CARD_VERIFIED}:${cardId}:${pr}:${verification}`, payload: { path: 'cheap', pr, verification }, legacy: false })
 }
 
 export function eventsOf(db: DatabaseSync, type: string): Record<string, unknown>[] {
