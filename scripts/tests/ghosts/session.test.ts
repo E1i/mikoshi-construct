@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { HEADLESS_FLAGS, sessionArgv, sessionEnv, spawnSession } from '../../ghosts/session.js'
+import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, sessionEnv, sessionModelOf, spawnSession } from '../../ghosts/session.js'
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))
@@ -23,6 +23,34 @@ describe('sessionArgv', () => {
   it('loads no MCP server from the user\'s configuration, since none is passed with --mcp-config', () => {
     expect(sessionArgv('sess-1', '/implement do it')).toContain('--strict-mcp-config')
     expect(sessionArgv('sess-1', '/implement do it')).not.toContain('--mcp-config')
+  })
+})
+
+describe('the review model of CONSTRUCT_REVIEW_MODEL', () => {
+  it('with CONSTRUCT_REVIEW_MODEL set, argv holds --model <value> before the headless flags', () => {
+    const argv = sessionArgv('sess-1', 'review it', ['/reviews'], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: 'claude-sonnet-5-5' }))
+    expect(argv).toEqual(['--add-dir', '/reviews', '--model', 'claude-sonnet-5-5', ...HEADLESS_FLAGS, 'sess-1', 'review it'])
+  })
+
+  it('with CONSTRUCT_REVIEW_MODEL unset or empty, argv holds no --model', () => {
+    expect(sessionArgv('sess-1', 'review it', [], reviewModelOf({}))).not.toContain('--model')
+    expect(sessionArgv('sess-1', 'review it', [], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: ' ' }))).not.toContain('--model')
+  })
+})
+
+describe('sessionModelOf', () => {
+  it('the model the session ran is the model of its stream-json system/init event', () => {
+    const stream = [
+      '{"type":"system","subtype":"hook_started","model":"not-this-one"}',
+      'not json',
+      '{"type":"system","subtype":"init","model":"claude-opus-5-5"}',
+      '{"type":"result","subtype":"success"}',
+    ].join('\n')
+    expect(sessionModelOf(stream)).toBe('claude-opus-5-5')
+  })
+
+  it('a stream with no init event names no model', () => {
+    expect(sessionModelOf('{"type":"result"}\n')).toBeUndefined()
   })
 })
 

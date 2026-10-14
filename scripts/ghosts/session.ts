@@ -17,8 +17,35 @@ export const HEADLESS_FLAGS = [
   '--session-id',
 ] as const
 
-export function sessionArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
-  return [...addDirs.flatMap(dir => ['--add-dir', dir]), ...HEADLESS_FLAGS, sessionId, prompt]
+export function sessionArgv(sessionId: string, prompt: string, addDirs: string[] = [], model?: string): string[] {
+  const modelFlag = model === undefined ? [] : ['--model', model]
+  return [...addDirs.flatMap(dir => ['--add-dir', dir]), ...modelFlag, ...HEADLESS_FLAGS, sessionId, prompt]
+}
+
+export const REVIEW_MODEL_VARIABLE = 'CONSTRUCT_REVIEW_MODEL'
+
+export function reviewModelOf(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const model = env[REVIEW_MODEL_VARIABLE]?.trim()
+  return model === undefined || model === '' ? undefined : model
+}
+
+function initModelOf(line: string): string | undefined {
+  try {
+    const event = JSON.parse(line) as { type?: unknown, subtype?: unknown, model?: unknown }
+    return event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string' ? event.model : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+export function sessionModelOf(streamJson: string): string | undefined {
+  for (const line of streamJson.split('\n')) {
+    const model = initModelOf(line)
+    if (model !== undefined)
+      return model
+  }
+  return undefined
 }
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
@@ -41,6 +68,7 @@ export interface SpawnSessionParams {
   stderrPath: string
   env?: NodeJS.ProcessEnv
   addDirs?: string[]
+  model?: string
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
@@ -56,7 +84,7 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', sessionArgv(params.sessionId, params.prompt, params.addDirs), {
+    const child = spawn('claude', sessionArgv(params.sessionId, params.prompt, params.addDirs, params.model), {
       cwd: params.cwd,
       env: sessionEnv(params.env),
       stdio: ['ignore', outFd, errFd],

@@ -7,12 +7,14 @@ import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
-import { spawnSession } from '../ghosts/session.js'
+import process from 'node:process'
+import { reviewModelOf, sessionModelOf, spawnSession } from '../ghosts/session.js'
 
 export interface Review {
   verdict: VerdictWord
   findings: string[]
   session: string
+  model?: string
 }
 
 export type Reviewer = (lease: Lease, plan: ReviewPlan) => Promise<Review>
@@ -139,7 +141,7 @@ export class ReviewTrees {
   }
 }
 
-export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan): SpawnSessionParams & { tree: string, verdictPath: string } {
+export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
   return {
@@ -149,6 +151,7 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
     prompt: reviewPrompt(lease, plan, tree, verdictPath),
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
+    model: reviewModelOf(env),
     tree,
     verdictPath,
   }
@@ -165,7 +168,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       const code = await spawn(params)
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
-      return reviewOf(readFileSync(verdictPath, 'utf8'), session)
+      return { ...reviewOf(readFileSync(verdictPath, 'utf8'), session), model: existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined }
     }
     finally {
       trees.release(tree)

@@ -45,7 +45,7 @@ const MORSE_JOURNAL = path.join(os.homedir(), '.construct', 'bus', 'morse.jsonl'
 
 export type Step
   = | { kind: 'idle' }
-    | { kind: 'recorded', taskKey: string, verdict: VerdictWord, depth: ReviewDepth }
+    | { kind: 'recorded', taskKey: string, verdict: VerdictWord, depth: ReviewDepth, model?: string }
     | { kind: 'denied', taskKey: string, denial: Denial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
     | { kind: 'waiting', taskKey: string, detail: string }
@@ -179,7 +179,7 @@ export class ReviewWorker {
     completeTask(db, this.ts(), lease, [this.recorded(lease, reviewed), ...(spent === null ? [] : [spent])])
     if (spent !== null && lease.pr !== null)
       this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
-    return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth }
+    return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
   }
 
   private roundsSpent(lease: Lease, review: Review): BusEvent | null {
@@ -219,7 +219,7 @@ export class ReviewWorker {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, findings: review.findings },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, findings: review.findings },
       legacy: false,
     }
   }
@@ -276,7 +276,7 @@ export function stepLine(step: Step): string | null {
   if (step.kind === 'idle')
     return null
   if (step.kind === 'recorded')
-    return `${PREFIX}${step.taskKey}: ${step.verdict} recorded, review depth ${step.depth}`
+    return `${PREFIX}${step.taskKey}: ${step.verdict} recorded, review depth ${step.depth}, model ${step.model ?? 'not reported by the session'}`
   if (step.kind === 'fenced')
     return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
   if (step.kind === 'waiting')
