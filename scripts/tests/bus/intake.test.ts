@@ -134,6 +134,36 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(moved!.payload).toMatchObject({ lane: 'lane-8', text, textSha: sha256(text), prevAdmissionId: admitted!.id, prevTextSha: sha256(text) })
   })
 
+  it('a move whose card.admitted append fails leaves no card.moved: the move and its admission are one transaction', () => {
+    const w = world()
+    park(w, '')
+    const db = openBus(w.bus)
+    try {
+      db.exec(`CREATE TRIGGER refuse_admission BEFORE INSERT ON events WHEN NEW.type = '${CARD_ADMITTED}' BEGIN SELECT RAISE(ABORT, 'admission refused'); END`)
+      expect(() => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events: busCardEvents(db, 's1') }, () => AFTER_THE_CUTOFF)).toThrow('admission refused')
+      expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_MOVED}'`).get()).toEqual({ n: 0 })
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('an admission after one that carries no textSha names it as prevAdmissionId with prevTextSha null', () => {
+    const w = world()
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const file = park(w, 'lane-7')
+    const db = openBus(w.bus)
+    try {
+      db.prepare(`INSERT INTO events (ts, type, actor, card_id, dedupe_key, payload, legacy) VALUES ('2026-10-12T12:00:00.000Z', '${CARD_ADMITTED}', 'test', 90, 'before-text', ?, 0)`).run(JSON.stringify({ card: CARD, bodySha: 'old' }))
+    }
+    finally {
+      db.close()
+    }
+    expect(admitThroughThePorts(w, file)).toBe('admitted')
+    const [earlier, later] = admissions(w)
+    expect(later!.payload).toMatchObject({ prevAdmissionId: earlier!.id, prevTextSha: null })
+  })
+
   it('a move into a lane writes card.moved and a card.admitted that carries the card and the lane', () => {
     const w = world()
     park(w, '')

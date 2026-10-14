@@ -4,13 +4,13 @@ import type { Lore } from '../../ui/lore.js'
 import type { Confirmation } from './confirm.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
-import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
+import { textSha } from '../../card/text-sha.js'
 import { laneOf } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
@@ -110,10 +110,6 @@ export function recordIntake(journal: string, records: readonly IntakeRecord[], 
 function admissionOf(line: string): { depends: number[], decision: string | null, contour: string | null } {
   const parsed = parseCard(line)
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
-}
-
-export function textSha(text: string): string {
-  return createHash('sha256').update(text).digest('hex')
 }
 
 export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, lane: string | null, source?: string): IntakeRecord {

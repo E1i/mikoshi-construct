@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { textSha } from '../../src/commands/intake/index.js'
+import { textSha } from '../../src/card/text-sha.js'
 
 export const CARD_BODIES = 'card_bodies'
 
