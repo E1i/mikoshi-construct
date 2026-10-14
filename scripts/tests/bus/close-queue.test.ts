@@ -112,6 +112,20 @@ describe('the close queue', () => {
     bench.close()
   })
 
+  it.each([
+    { only: 'a legacy card.verified of its own card and PR', cardId: 1087, pr: 987, legacy: true },
+    { only: 'a card.verified of another PR of its card', cardId: 1087, pr: 986, legacy: false },
+    { only: 'a card.verified of another card for its PR', cardId: 1086, pr: 987, legacy: false },
+  ])('a merged PR whose only card.verified is $only does not enter close', ({ cardId, pr, legacy }) => {
+    const bench = closeBench()
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId, pr, head: null, dedupeKey: `${CARD_VERIFIED}:${cardId}:${pr}:run`, payload: { path: 'cheap', pr, verification: 'run' }, legacy })
+    bench.merged(987, false)
+
+    expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'close'`).all()).toEqual([])
+    expect(bench.leaseClose()).toBeNull()
+    bench.close()
+  })
+
   it('card.verified written after the merge brings the card into close and card.closed carries its verification', () => {
     const bench = closeBench()
     bench.merged(988, false)
