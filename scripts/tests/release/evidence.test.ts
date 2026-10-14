@@ -1,3 +1,4 @@
+import type { IntakeAdmission } from '../../bus/intake.js'
 import type { VerifiedClosing } from '../../ghosts/task-close.js'
 import type { BusMerge } from '../../ghosts/task-merged.js'
 import type { EvidenceDeps } from '../../release/evidence.js'
@@ -23,9 +24,9 @@ const CARD = { id: 7, name: 'seven', kind: 'implement', milestone: 'runner', siz
 const intake = { event: 'intake', task: '7', card: CARD.line, confirmation: 'none', corrections: [], ts: 't0' }
 const merge = { event: 'merge', task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-07T00:00:00Z', ts: 't9' }
 
-function world(journal: object[], files: Record<string, string> = {}, inBus: BusMerge[] = [], verified: VerifiedClosing[] = []): EvidenceDeps {
+function world(journal: object[], files: Record<string, string> = {}, inBus: BusMerge[] = [], verified: VerifiedClosing[] = [], admissions: IntakeAdmission[] = []): EvidenceDeps {
   const all: Record<string, string> = { [JOURNAL]: journal.map(line => JSON.stringify(line)).join('\n'), ...files }
-  return { journal: JOURNAL, bus: BUS, read: file => all[file] ?? null, commits: () => new Set([COMMIT]), busMerges: () => inBus, verified: () => verified }
+  return { journal: JOURNAL, bus: BUS, read: file => all[file] ?? null, commits: () => new Set([COMMIT]), busMerges: () => inBus, verified: () => verified, admissions: () => admissions }
 }
 
 function field(stdout: string[], name: string): string {
@@ -47,6 +48,14 @@ describe('release:evidence prints the execution profile of every merged card in 
     expect(field(stdout, 'confirmation')).toBe(`  confirmation: none · corrections [] — ${JOURNAL}:1`)
     expect(field(stdout, 'size')).toBe(`  size: XS — ${JOURNAL}:2`)
     expect(field(stdout, 'result.merge')).toBe(`  result.merge: PR #70 by E1i at 2026-10-07T00:00:00Z — ${JOURNAL}:3`)
+  })
+
+  it('after the cutoff the intake fields come from card.admitted in the bus', () => {
+    const start = { event: 'path', task: '7', path: 'cheap', card: CARD, ts: '2026-10-13T00:00:01Z' }
+    const admitted: IntakeAdmission = { task: '7', card: CARD.line, bodySha: 'abc', ts: '2026-10-13T00:00:00Z', confirmation: 'auto', source: 'admit', corrections: [], event: 12 }
+    const { stdout } = runEvidence(['v1', 'v2'], world([start, merge], {}, [], [], [admitted]))
+
+    expect(field(stdout, 'confirmation')).toBe(`  confirmation: auto · corrections [] — ${BUS} event 12`)
   })
 
   it('risk comes only from the recorded risk', () => {

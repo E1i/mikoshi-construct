@@ -4,12 +4,12 @@ import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
-import type { CardEventPort, CardStatesPort } from './index.js'
+import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { closedTasks, mergedTasks } from '../../card/closed.js'
+import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -49,6 +49,7 @@ export interface AdmitOptions {
   parkingRoot?: string
   events?: CardEventPort
   cardStates?: CardStatesPort
+  admissions?: CardAdmissionsPort
 }
 
 export type AdmitResult
@@ -128,19 +129,18 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown }
-
-function latestIntake(journal: string | null, card: Card): RecordedIntake | null {
+function latestIntake(journal: string | null, card: Card, admissions: CardAdmissionsPort | undefined): RecordedIntake | null {
+  const counted = admissions === undefined ? () => true : writtenBeforeHistoryEnds
   let latest: RecordedIntake | null = null
   for (const text of (journal ?? '').split('\n')) {
     try {
       const entry = JSON.parse(text) as Record<string, unknown> | null
-      if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string')
+      if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string' && counted(entry))
         latest = { card: entry.card, bodySha: entry.bodySha, ts: entry.ts, confirmation: entry.confirmation, source: entry.source }
     }
     catch {}
   }
-  return latest
+  return admissions?.(card.id) ?? latest
 }
 
 function sameCardLine(recorded: string, line: string): boolean {
@@ -227,7 +227,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     corrections: checked.corrections,
     text: admittedText(text, line, checked),
   }
-  const recorded = latestIntake(journal, card)
+  const recorded = latestIntake(journal, card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
   const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
@@ -273,7 +273,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   else if (result.status === 'awaiting')
     ui.line(ui.lore.intakeAwaitingCard(card.line))
   else if (result.source === AMEND_SOURCE)
-    ui.ok(ui.lore.intakeAmended(result.file, card.line))
+    ui.ok(ui.lore.intakeAmended(result.file, card.line, result.inBus))
   else
     ui.ok(ui.lore.intakeAdmitted(result.file, card.line, result.inBus))
   if (result.status !== 'dryRun') {
@@ -281,7 +281,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))
   }
   if (card.corrections.length > 0 && result.status === 'admitted')
-    ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm)}`))
+    ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm, result.inBus)}`))
   if (card.unclear.length > 0)
     ui.line(ui.theme.dim(`  ${ui.lore.intakeAdmitUnclear(card.unclear.length)}`))
   if (result.status === 'dryRun')

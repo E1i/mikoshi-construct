@@ -161,20 +161,20 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeUnclear: (count: number, who: string) => string
   intakeCorrected: (text: string) => string
   intakeCorrections: (count: number) => string
-  intakeConfirmed: (count: number, autoConfirm: boolean) => string
+  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => string
   intakeAwaitingCard: (card: string) => string
   intakeAwaiting: (parking: string, token: string) => string
   intakeConfirmStale: string
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
-  intakeMoved: (from: string, to: string) => string
+  intakeMoved: (from: string, to: string, inBus: boolean) => string
   intakeMoveNotFound: (id: number) => string
   intakeMoveAmbiguous: (id: number, paths: string) => string
   intakeMoveTargetHasNumber: (id: number, target: string) => string
   intakeMoveNeedsBoth: string
   intakeMoveTargetOutside: (to: string) => string
-  intakeAmended: (file: string, card: string) => string
+  intakeAmended: (file: string, card: string, inBus: boolean) => string
   intakeAdmitUnclear: (count: number) => string
   intakeAdmitAwaiting: (file: string, token: string) => string
   intakeAdmitDryRun: (file: string) => string
@@ -498,24 +498,24 @@ export const LORE: Lore = {
   intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
   intakeCorrected: (text: string) => `CORRECTED // ${text}`,
   intakeCorrections: (count: number) => `${count} CORRECTED // written in the card; parked only once a person confirms them`,
-  intakeConfirmed: (count: number, autoConfirm: boolean) => `${count} CORRECTED // ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, recorded in the journal`,
+  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => `${count} CORRECTED // ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, recorded in the ${inBus ? 'bus' : 'journal'}`,
   intakeAwaitingCard: (card: string) => `CARD HELD // ${card}`,
   intakeAwaiting: (parking: string, token: string) => `AWAITING CONFIRMATION // nothing parked in ${parking}; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeConfirmStale: 'CONFIRMATION STALE // --confirm names a different list of corrections than this run holds; nothing parked',
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
-    ? `CARD ADMITTED // ${file}: ${card}; its intake line is in the journal, its card.admitted in the bus`
+    ? `CARD ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
     : `CARD ADMITTED // ${file}: ${card}; its intake line is in the journal. NO BUS // no card.admitted written`,
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
-    ? `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line, its card.admitted is in the bus`
+    ? `ALREADY ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
     : `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line. NO BUS // nothing written`,
-  intakeMoved: (from: string, to: string) => `MOVED // ${from} -> ${to}; the journal holds the move, the card is unchanged`,
+  intakeMoved: (from: string, to: string, inBus: boolean) => `MOVED // ${from} -> ${to}; the ${inBus ? 'bus' : 'journal'} holds the move, the card is unchanged`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
   intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
   intakeMoveTargetHasNumber: (id: number, target: string) => `INTAKE REFUSED // NUMBER TAKEN: ${target} already holds #${id}; nothing moved`,
   intakeMoveNeedsBoth: 'INTAKE REFUSED // --move and --to go together, with no --draft, --taken or --admit',
   intakeMoveTargetOutside: (to: string) => `INTAKE REFUSED // OUTSIDE: --to ${to} is not the parking root (.) or one directory directly under it; nothing moved`,
-  intakeAmended: (file: string, card: string) => `CARD AMENDED // ${file}: ${card}; its text differs from the admitted one, a new intake line is in the journal`,
+  intakeAmended: (file: string, card: string, inBus: boolean) => `CARD AMENDED // ${file}: ${card}; its text differs from the admitted one, a new ${inBus ? 'card.admitted is in the bus' : 'intake line is in the journal'}`,
   intakeAdmitUnclear: (count: number) => `${count} UNCLEAR // marked in the card; who is left as the card states it`,
   intakeAdmitAwaiting: (file: string, token: string) => `AWAITING CONFIRMATION // ${file} unchanged, no intake line; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeAdmitDryRun: (file: string) => `DRY RUN // ${file} unchanged, no intake line`,
@@ -856,24 +856,26 @@ export const PLAIN_LORE: Lore = {
   intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
   intakeCorrected: (text: string) => `corrected: ${text}`,
   intakeCorrections: (count: number) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; the card is parked only once a person confirms them.`,
-  intakeConfirmed: (count: number, autoConfirm: boolean) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, and recorded in the journal.`,
+  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, and recorded in the ${inBus ? 'bus' : 'journal'}.`,
   intakeAwaitingCard: (card: string) => `Held: ${card}`,
   intakeAwaiting: (parking: string, token: string) => `Nothing was written to ${parking}: the corrections above wait for a person. Run again with --confirm ${token} to park the cards as shown, or with --auto-confirm to accept corrections in advance.`,
   intakeConfirmStale: 'Not confirmed: --confirm names a different list of corrections than this run holds. Nothing was written; confirm the list below.',
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
-    ? `Admitted ${file}: ${card}. Its intake line is in the journal and its card.admitted is in the bus, so task:start and the shift take it.`
+    ? `Admitted ${file}: ${card}. Its card.admitted is in the bus, so task:start and the shift take it.`
     : `Admitted ${file}: ${card}. Its intake line is in the journal; no bus is wired to this run, so no card.admitted was written.`,
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
-    ? `Already admitted ${file}: ${card}. The journal holds its intake line and its card.admitted is in the bus, so task:start and the shift take it.`
+    ? `Already admitted ${file}: ${card}. Its card.admitted is in the bus, so task:start and the shift take it.`
     : `Already admitted ${file}: ${card}. The journal holds its intake line; no bus is wired to this run, so nothing was written.`,
-  intakeMoved: (from: string, to: string) => `Moved ${from} to ${to}. The journal holds the move; the card is unchanged.`,
+  intakeMoved: (from: string, to: string, inBus: boolean) => `Moved ${from} to ${to}. The ${inBus ? 'bus holds the move as card.moved' : 'journal holds the move'}; the card is unchanged.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
   intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,
   intakeMoveTargetHasNumber: (id: number, target: string) => `Refused: ${target} already holds #${id}. Nothing was moved.`,
   intakeMoveNeedsBoth: 'Refused: --move and --to go together, with no --draft, --taken or --admit. Nothing was written.',
   intakeMoveTargetOutside: (to: string) => `Refused: --to ${to} is not the parking root (.) or one directory directly under it. Nothing was moved.`,
-  intakeAmended: (file: string, card: string) => `Amended ${file}: ${card}. Its card, task text or witnesses differ from what the journal admitted, so a new intake line with source amend is in the journal.`,
+  intakeAmended: (file: string, card: string, inBus: boolean) => inBus
+    ? `Amended ${file}: ${card}. Its card, task text or witnesses differ from what was admitted, so a new card.admitted with source amend is in the bus.`
+    : `Amended ${file}: ${card}. Its card, task text or witnesses differ from what the journal admitted, so a new intake line with source amend is in the journal.`,
   intakeAdmitUnclear: (count: number) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; who is left as the card states it.`,
   intakeAdmitAwaiting: (file: string, token: string) => `${file} is unchanged and has no intake line: the corrections above wait for a person. Run again with --confirm ${token} to admit the card as shown, or with --auto-confirm to accept corrections in advance.`,
   intakeAdmitDryRun: (file: string) => `Dry run: ${file} is unchanged and no intake line was written.`,

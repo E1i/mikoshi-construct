@@ -1,3 +1,4 @@
+import type { IntakeAdmission } from '../../bus/intake.js'
 import type { CloudStartDeps } from '../../ghosts/cloud-start.js'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -13,7 +14,7 @@ function intake(card: string): string {
   return JSON.stringify({ event: 'intake', task: /^#(\d+)/.exec(card)![1], card, confirmation: 'none', corrections: [], ts: 'x' })
 }
 
-function world(journal: string[]): { deps: CloudStartDeps, written: string[] } {
+function world(journal: string[], admissions: IntakeAdmission[] = []): { deps: CloudStartDeps, written: string[] } {
   const written: string[] = []
   return {
     written,
@@ -26,6 +27,7 @@ function world(journal: string[]): { deps: CloudStartDeps, written: string[] } {
       now: () => NOW,
       handoffDir: HANDOFF,
       base: () => BASE,
+      admissions: () => admissions,
     },
   }
 }
@@ -44,6 +46,13 @@ describe('cloud-start', () => {
       base: BASE,
       ts: NOW.toISOString(),
     })
+  })
+
+  it('after the cutoff a card admitted only in the bus is started', () => {
+    const admitted: IntakeAdmission = { task: '665', card: CARD, bodySha: 'abc', ts: '2026-10-13T00:00:00Z', confirmation: 'none', source: 'admit', corrections: [], event: 3 }
+    const { deps, written } = world([], [admitted])
+    expect(runCloudStart(['trig_1', '--card', CARD], deps).exitCode).toBe(0)
+    expect(written).toHaveLength(1)
   })
 
   it('cloud-start refuses a card the intake door has not admitted and writes nothing', () => {

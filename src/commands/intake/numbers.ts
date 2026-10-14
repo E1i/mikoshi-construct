@@ -1,3 +1,5 @@
+import type { BusCardStates } from '../../card/closed.js'
+import { writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { TASK_FILE } from '../../card/task-file.js'
 import { INTAKE_EVENT } from './confirm.js'
 
@@ -20,16 +22,18 @@ export function parkedNumbers(files: readonly string[]): number[] {
   })
 }
 
-export function admittedNumbers(journal: string | null): number[] {
-  return (journal ?? '').split('\n').flatMap((line) => {
+export function admittedNumbers(journal: string | null, bus?: BusCardStates): number[] {
+  const counted = bus === undefined ? () => true : writtenBeforeHistoryEnds
+  const journaled = (journal ?? '').split('\n').flatMap((line) => {
     try {
-      const entry = JSON.parse(line) as { event?: unknown, task?: unknown } | null
-      return entry?.event === INTAKE_EVENT && typeof entry.task === 'string' && TAKEN_TOKEN.test(entry.task) ? [Number(entry.task)] : []
+      const entry = JSON.parse(line) as { event?: unknown, task?: unknown, ts?: unknown } | null
+      return entry?.event === INTAKE_EVENT && typeof entry.task === 'string' && TAKEN_TOKEN.test(entry.task) && counted(entry) ? [Number(entry.task)] : []
     }
     catch {
       return []
     }
   })
+  return [...journaled, ...[...(bus ?? new Map()).keys()].flatMap(task => TAKEN_TOKEN.test(task) ? [Number(task)] : [])]
 }
 
 export function nextFreeNumbers(taken: readonly number[], count: number): number[] {

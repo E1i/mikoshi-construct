@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runMain } from 'citty'
@@ -13,6 +13,7 @@ import { importJournalFile } from '../../bus/import.js'
 import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
+const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#90 port-card [implement/netwatch/S/cheap/auto] · depends — · blocks —'
 const roots: string[] = []
 
@@ -90,6 +91,26 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(cardEvents(w).map(event => event.type)).toEqual([CARD_MOVED])
   })
 
+  it('with the bus a second --admit of an unchanged card is alreadyAdmitted, the bus holds one card.admitted and the journal no intake line', () => {
+    const w = world()
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const file = park(w, 'lane-7')
+    const admitWithTheBus = (): string => {
+      const db = openBus(w.bus)
+      try {
+        const ports = busIntakePorts(db, 's1')
+        return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF).status
+      }
+      finally {
+        db.close()
+      }
+    }
+    expect(admitWithTheBus()).toBe('admitted')
+    expect(admitWithTheBus()).toBe('alreadyAdmitted')
+    expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED)).toHaveLength(1)
+    expect(existsSync(w.journal)).toBe(false)
+  })
+
   it('the one-time import does not admit a second time a card the port admitted', () => {
     const w = world()
     const file = park(w, 'lane-7')
@@ -111,7 +132,7 @@ describe('pnpm intake writes card events to bus.db', () => {
       db.close()
     }
     expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, cardId: 90, payload: { card: CARD, lane: null } }])
-    expect(readFileSync(w.journal, 'utf8')).toContain('"event":"intake"')
+    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and keeps one merged in the journal only after its half of history while the bus runs it', async () => {
