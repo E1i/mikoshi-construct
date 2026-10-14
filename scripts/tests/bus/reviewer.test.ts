@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../bus/review-depth.js'
-import { claudeReviewer, GIT_TREE_TOOLS, PREPARED_TREE_LINE, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
+import { claudeReviewer, GIT_TREE_TOOLS, HEAD_MOVED, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
 import { sessionArgv } from '../../ghosts/session.js'
 import { sha } from './github-fake.js'
 
@@ -146,6 +146,55 @@ describe('reviewer', () => {
         return 0
       })(lease, full)).rejects.toThrow(/not clean before the review: {2}M a\.txt/)
       expect(spawned).toEqual([])
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('the tree state names a renamed file by both paths and a path with spaces unquoted', () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-reviewer-status-')))
+    try {
+      gitRun(root, 'init', '-q')
+      writeFileSync(path.join(root, 'a.txt'), 'a\n')
+      gitRun(root, 'add', 'a.txt')
+      gitRun(root, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a')
+      gitRun(root, 'mv', 'a.txt', 'b c.txt')
+      writeFileSync(path.join(root, 'd "e".txt'), 'd\n')
+
+      expect(GIT_TREE_TOOLS.state(root).status).toEqual(['R  b c.txt', 'R  a.txt', '?? d "e".txt'])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a moved HEAD is a mutation even when the status is clean', () => {
+    expect(mutatedPaths({ head: sha('a'), status: [] }, { head: sha('b'), status: [] })).toEqual([HEAD_MOVED])
+    expect(mutatedPaths({ head: sha('a'), status: [] }, { head: sha('a'), status: ['?? x.txt'] })).toEqual(['x.txt'])
+  })
+
+  it('the tree is prepared without lifecycle scripts and without the worker credentials', () => {
+    expect(PREPARE_TREE).toContain('--ignore-scripts')
+    expect(prepareEnv({ PATH: '/bin', HOME: '/home/w', GH_TOKEN: 'secret-token', ANTHROPIC_API_KEY: 'secret-key' })).toEqual({ PATH: '/bin', HOME: '/home/w' })
+  })
+
+  it('a worktree add that fails is not a held tree, so nothing is left to release', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-add-'))
+    try {
+      const trees = new ReviewTrees('/repo', dir, {
+        git: (_cwd, args) => {
+          if (args[1] === 'add')
+            throw new Error('fatal: invalid reference')
+        },
+        worktrees: () => [],
+        ...cleanTree,
+      })
+      const failed = await claudeReviewer(trees, async () => 0)(lease, full).catch((error: unknown) => error)
+
+      expect(failed).toBeInstanceOf(Error)
+      expect(failed).not.toBeInstanceOf(ReviewFailed)
+      expect((failed as Error).message).toBe('fatal: invalid reference')
     }
     finally {
       rmSync(dir, { recursive: true, force: true })

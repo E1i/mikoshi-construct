@@ -58,9 +58,15 @@ export const PREFIX = '[bus:review] '
 
 const VERDICTS = new Set<string>(['pass', 'changes'])
 
-export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--offline']
+export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--offline', '--ignore-scripts']
 
-export const PREPARED_TREE_LINE = 'The worker prepared this tree before the session: its dependencies are in place, so run the harness there as it is. Read and run; leave the tree as the worker left it, because the worker compares it before and after the review and a changed or new file makes the verdict changes.'
+export const PREPARE_MS = 10 * 60_000
+
+export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME']
+
+export const HEAD_MOVED = 'HEAD'
+
+export const PREPARED_TREE_LINE = 'The worker prepared this tree before the session: its dependencies are in place, so run the harness there as it is. Read and run; leave the tree as the worker left it, because the worker compares it before and after the review and a moved HEAD or a changed or new file git does not ignore makes the verdict changes.'
 
 export function reviewOf(text: string, session: string): Review {
   const parsed = JSON.parse(text) as { verdict?: unknown, findings?: unknown }
@@ -115,19 +121,44 @@ function worktrees(repo: string): string[] {
     .map(line => line.slice('worktree '.length))
 }
 
+export function prepareEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(PREPARE_ENV_KEYS.filter(key => env[key] !== undefined).map(key => [key, env[key]]))
+}
+
 function prepare(tree: string): void {
-  execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, stdio: ['ignore', 'pipe', 'pipe'] })
+  execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function statusLines(porcelainZ: string): string[] {
+  const fields = porcelainZ.split('\0').filter(field => field !== '')
+  const lines: string[] = []
+  for (let at = 0; at < fields.length; at += 1) {
+    const field = fields[at]!
+    lines.push(field)
+    if (field[0] === 'R' && fields[at + 1] !== undefined) {
+      lines.push(`${field.slice(0, 3)}${fields[at + 1]}`)
+      at += 1
+    }
+    else if (field[0] === 'C') {
+      at += 1
+    }
+  }
+  return lines
 }
 
 function state(tree: string): TreeState {
   const read = (args: string[]): string => execFileSync('git', ['-C', tree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-  return { head: read(['rev-parse', 'HEAD']).trim(), status: read(['status', '--porcelain']).split('\n').filter(line => line !== '') }
+  return { head: read(['rev-parse', 'HEAD']).trim(), status: statusLines(read(['status', '--porcelain', '-z'])) }
 }
 
 export const GIT_TREE_TOOLS: TreeTools = { git, worktrees, prepare, state }
 
 function pathOfStatus(line: string): string {
   return line.slice(3)
+}
+
+export function mutatedPaths(before: TreeState, after: TreeState): string[] {
+  return [...(after.head === before.head ? [] : [HEAD_MOVED]), ...after.status.map(pathOfStatus)]
 }
 
 function failureOf(error: unknown): string {
@@ -157,6 +188,10 @@ export class ReviewTrees {
 
   state(tree: string): TreeState {
     return this.tools.state(tree)
+  }
+
+  holds(tree: string): boolean {
+    return this.held.has(canonical(tree))
   }
 
   fetch(ref: string): void {
@@ -223,11 +258,13 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
         throw new Error(`the review session ${session} exited ${code}`)
       const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
       const after = trees.state(tree)
-      const mutated = after.status.map(pathOfStatus)
+      const mutated = mutatedPaths(before, after)
       const model = existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined
       return { ...review, ...withoutPassOnMutation(review, mutated), model, tree: { ...held, before, after, mutated } }
     }
     catch (error) {
+      if (!trees.holds(tree))
+        throw error
       throw new ReviewFailed(error instanceof Error ? error.message : String(error), held)
     }
   }

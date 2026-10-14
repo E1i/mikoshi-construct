@@ -657,6 +657,49 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('a commit made in the review tree gives treeMutated HEAD and a verdict that is not pass', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const { repo, head } = oneCommitRepo(roots.at(-1)!)
+    const dir = path.join(roots.at(-1)!, 'reviews')
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      const tree = path.join(dir, params.sessionId)
+      writeFileSync(path.join(tree, 'a.txt'), 'b\n')
+      gitRun(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-am', 'b')
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    gitHub.open({ number: 966, head })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    expect(events(db, 'review.recorded')).toEqual([expect.objectContaining({ verdict: 'changes', treeAfter: { head: expect.not.stringMatching(head), status: [] }, treeMutated: ['HEAD'] })])
+    db.close()
+  })
+
+  it('a worktree add that fails gives no review.tree.orphaned and removes nothing', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-review-add-'))
+    roots.push(dir)
+    const removed: string[] = []
+    const trees = new ReviewTrees('/repo', dir, {
+      git: (_cwd, args) => {
+        if (args[1] === 'add')
+          throw new Error('fatal: invalid reference')
+        if (args[1] === 'remove')
+          removed.push(args[3]!)
+      },
+      worktrees: () => [],
+      ...cleanTree,
+    })
+    gitHub.open({ number: 967 })
+    tick()
+
+    expect(await worker(claudeReviewer(trees, async () => 0)).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
+    expect(removed).toEqual([])
+    expect(events(db, 'review.tree.orphaned')).toEqual([])
+    db.close()
+  })
+
   it('after review.recorded the review tree is gone', async () => {
     const { db, gitHub, tick, worker } = setUp()
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
