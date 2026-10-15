@@ -15,6 +15,9 @@ const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
 const KEY_PRESS_GAP_MS = 300
 const READY_DEADLINE_MS = 15_000
 const PAUSE_LINE = 'next session in'
+const SESSION = 'session-972'
+const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
+const WINDOW_DOC = path.join(REPO_ROOT, 'architecture', 'window.md')
 const STUB_CLAUDE = `#!/bin/sh
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$STUB_DIR/count"
@@ -33,6 +36,11 @@ case "$1" in
   write)
     node --disable-warning=ExperimentalWarning --import tsx scripts/shift/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" --parking "$STUB_DIR/parking" >> "$STUB_DIR/threshold.log" 2>&1
     exec sleep 30 ;;
+  done)
+    echo 'STATUS: DONE' > "$HOME/.construct/handoff/miko.md"
+    touch -t 200001010000 "$HOME/.construct/handoff/miko.md"
+    node --disable-warning=ExperimentalWarning --import tsx scripts/miko/exit.ts >> "$STUB_DIR/threshold.log" 2>&1
+    exec sleep 30 ;;
 esac
 exit 0
 `
@@ -50,7 +58,19 @@ function home(plan: string[]): string {
   mkdirSync(path.join(dir, '.construct', 'handoff'), { recursive: true })
   writeFileSync(path.join(dir, 'claude'), STUB_CLAUDE, { mode: 0o755 })
   writeFileSync(path.join(dir, 'plan'), `${plan.join('\n')}\n`)
+  mkdirSync(path.join(dir, '.claude'), { recursive: true })
+  writeFileSync(path.join(dir, '.claude', 'eddies.json'), JSON.stringify(LIMITS))
   return dir
+}
+
+function atTheContextWarn(dir: string): void {
+  const transcript = path.join(dir, '.claude', 'projects', '-repo', `${SESSION}.jsonl`)
+  mkdirSync(path.dirname(transcript), { recursive: true })
+  writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', timestamp: '2026-10-15T00:00:00.000Z', requestId: 'r1', message: { role: 'assistant', usage: { input_tokens: LIMITS.contextLimit * LIMITS.warnRatio } } })}\n`)
+}
+
+function exitLines(dir: string): { reason: string }[] {
+  return lines(dir, path.join('.construct', 'eddies.jsonl')).map(line => JSON.parse(line) as { reason: string })
 }
 
 function lines(dir: string, name: string): string[] {
@@ -60,7 +80,7 @@ function lines(dir: string, name: string): string[] {
 function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number, stderr: NodeJS.ReadableStream } {
   const child = spawn(process.execPath, ['--import', 'tsx', LOOP], {
     cwd: REPO_ROOT,
-    env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: path.join(dir, '.construct', 'bus.db'), STUB_DIR: dir, MIKO_CLAUDE: claude, CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '' },
+    env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: path.join(dir, '.construct', 'bus.db'), STUB_DIR: dir, MIKO_CLAUDE: claude, CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PROJECT_DIR: dir },
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
   })
@@ -209,6 +229,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
 
   it('own handoff: at the context threshold the window writes miko.md with handoff:write, miko:exit ends it, the loop raises the next session on miko.md, and the Operator mikoshi.md is untouched', async () => {
     const dir = home(['threshold', 'owner 0'])
+    atTheContextWarn(dir)
     mkdirSync(path.join(dir, 'parking'))
     const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none' }
     const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
@@ -227,14 +248,36 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(statSync(operator).mtimeMs).toBe(settled)
   }, 40_000)
 
-  it('handoff:write with STATUS: CONTINUE under the pnpm miko loop ends claude, and the loop raises the next session without miko:exit', async () => {
-    const dir = home(['write', 'owner 0'])
+  it('handoff:write with STATUS: CONTINUE does not kill the session', async () => {
+    const dir = home(['write'])
+    atTheContextWarn(dir)
     writeMikoDraft(dir, 'CONTINUE')
-    const outcome = await endsWithin(startLoop(dir), 6 * PAUSE_MS)
-    expect(outcome).not.toBe('still running')
-    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
-    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
+    const loop = startLoop(dir)
+    await waitFor(() => lines(dir, 'threshold.log').length > 0, () => 'the handoff:write line', READY_DEADLINE_MS)
+    expect(await endsWithin(loop, 2 * PAUSE_MS)).toBe('still running')
+    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `)])
+    expect(readFileSync(mikoHandoff(dir), 'utf8')).toContain('STATUS: CONTINUE')
+    expect(lines(dir, 'calls')).toEqual(['0|'])
+    expect(exitLines(dir)).toEqual([])
   }, 40_000)
+
+  it('a handoff with STATUS DONE kills the session and the loop raises no new one', async () => {
+    const dir = home(['done', 'owner 0'])
+    const outcome = await endsWithin(startLoop(dir), 2 * PAUSE_MS)
+    expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('STATUS: DONE: no next session') })
+    expect(lines(dir, 'calls')).toEqual(['0|'])
+    expect(exitLines(dir)).toEqual([expect.objectContaining({ reason: 'done' })])
+  }, 20_000)
+
+  it('the CONTINUE_PROMPT and window.md name no exit after a handoff outside the three stop reasons', () => {
+    const mikoshi = readFileSync(WINDOW_DOC, 'utf8').split('\n\n').find(paragraph => paragraph.startsWith('Mikoshi, the interactive window'))
+    expect(mikoshi).toContain('not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card')
+    expect(mikoshi).toContain('without `pnpm miko:exit`')
+    expect(mikoshi).not.toContain('the two commands the warn names')
+    expect(CONTINUE_PROMPT).toContain('событие жди через pnpm miko:watch --once в этой же сессии')
+    expect(CONTINUE_PROMPT).toContain('следующую карточку бери в этой же сессии')
+    expect(CONTINUE_PROMPT).toContain('без pnpm miko:exit')
+  })
 
   it('handoff:write with STATUS: STOP under the pnpm miko loop does not end claude', async () => {
     const dir = home(['write'])

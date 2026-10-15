@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
 import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
@@ -56,10 +56,9 @@ function world(): { dir: string, handoff: string, draft: string } {
   return { dir, handoff: path.join(dir, 'handoff.md'), draft: path.join(dir, 'draft.md') }
 }
 
-function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[], ended: string[] } {
+function write(args: string[], handoffDir?: string, sessionHandoff: string | null = path.resolve(handoffDir ?? '/nowhere', args[0] ?? '')): { code: number, out: string[], err: string[] } {
   const out: string[] = []
   const err: string[] = []
-  const ended: string[] = []
   const code = runHandoffWrite(args, {
     cwd: '/nowhere',
     handoffDir,
@@ -76,9 +75,8 @@ function write(args: string[], handoffDir?: string, sessionHandoff: string | nul
     home: '/home/x',
     out: line => out.push(line),
     err: line => err.push(line),
-    endSession: handoff => ended.push(handoff),
   })
-  return { code, out, err, ended }
+  return { code, out, err }
 }
 
 describe('handoff:write', () => {
@@ -162,23 +160,6 @@ describe('handoff:write', () => {
     expect(existsSync(session)).toBe(true)
     writeFileSync(handoff, 'old\n')
     expect(write([handoff, file], undefined, session).code).toBe(0)
-  })
-
-  it('ends the session after writing its own handoff with STATUS: CONTINUE, and not after STOP, OWNER, DONE or another file', () => {
-    const { dir, handoff, draft: file } = world()
-    const session = path.join(dir, 'miko.md')
-    writeFileSync(file, draft())
-    expect(write([session, file], undefined, session).ended).toEqual([session])
-    for (const status of ['STOP', `OWNER — boundary: ${OWNER_BOUNDARIES[0]}`, 'DONE']) {
-      writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: ${status}`))
-      const result = write([session, file], undefined, session)
-      expect(result.code).toBe(0)
-      expect(result.ended).toEqual([])
-    }
-    writeFileSync(file, draft())
-    writeFileSync(handoff, 'old\n')
-    expect(write([handoff, file], undefined, session).ended).toEqual([])
-    expect(write([handoff, file], undefined, null).ended).toEqual([])
   })
 
   it('lets a card session with no CONSTRUCT_HANDOFF create its task handoff', () => {
@@ -323,6 +304,38 @@ describe('handoff:write', () => {
     expect(run.status).toBe(0)
     expect(run.stdout).toContain(source)
     expect(readFileSync(handoff, 'utf8')).toContain('queue: none\n')
+  })
+
+  it('handoff:write with STATUS: CONTINUE does not kill the session', () => {
+    const { dir, draft: file } = world()
+    const handoff = path.join(dir, 'miko.md')
+    const stub = path.join(dir, 'claude')
+    writeFileSync(file, draft().replace(/queue: .*/, 'queue: none'))
+    writeFileSync(stub, '#!/bin/sh\n"$NODE" --import tsx "$HANDOFF_WRITE" "$HANDOFF" "$DRAFT" --parking "$STUB_DIR/parking" >"$STUB_DIR/write.log" 2>&1\nsleep 2\necho survived > "$STUB_DIR/survived"\n', { mode: 0o755 })
+    const { CLAUDE_CODE_SESSION_ID: _session, CONSTRUCT_HANDOFF: _handoff, CONSTRUCT_CARD: _card, ...env } = process.env
+    const run = spawnSync(stub, [], { encoding: 'utf8', env: { ...env, HOME: dir, STUB_DIR: dir, NODE: process.execPath, HANDOFF_WRITE, HANDOFF: handoff, DRAFT: file, CONSTRUCT_HANDOFF_DIR: dir, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: dir, NODE_NO_WARNINGS: '1' } })
+    expect({ status: run.status, signal: run.signal }).toEqual({ status: 0, signal: null })
+    expect(readFileSync(path.join(dir, 'write.log'), 'utf8')).toContain(`${handoff}: `)
+    expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('CONTINUE')
+    expect(readFileSync(path.join(dir, 'survived'), 'utf8')).toBe('survived\n')
+  }, 20_000)
+
+  it('handoff:write does not import miko:exit', () => {
+    expect(readFileSync(HANDOFF_WRITE, 'utf8')).not.toMatch(/['"]\.\.\/miko\/exit(?:\.js)?['"]/)
+  })
+
+  it('runHandoffWrite with STATUS: CONTINUE kills nothing', () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, draft())
+      expect(write([handoff, file]).code).toBe(0)
+      expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('CONTINUE')
+      expect(kill).not.toHaveBeenCalled()
+    }
+    finally {
+      kill.mockRestore()
+    }
   })
 
   it('refuses a bad argv', () => {
