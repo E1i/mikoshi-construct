@@ -1,13 +1,13 @@
+import type { AuthorityRule } from '../../bus/policy.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
-import { appendEvent } from '../../bus/db.js'
+import { MERGE_DONE } from '../../bus/card-automaton.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { TICK_MS } from '../../bus/netwatch.js'
-import { pastRoundLimit } from '../../bus/policy.js'
+import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { sha } from './github-fake.js'
-import { eventsOf, mergeBench } from './merge-bench.js'
+import { eventsOf, mergeBench, spendReviewRounds } from './merge-bench.js'
 
 const PR = 970
 const HEAD = sha('a')
@@ -23,8 +23,7 @@ function roundLimited(): MergeBench {
   const bench = mergeBench()
   benches.push(bench)
   bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
-  for (let round = 1; round <= REVIEW_ROUNDS; round += 1)
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: `worker:review:session-${round}`, cardId: PR + 100, pr: PR, head: HEAD, dedupeKey: `${REVIEW_RECORDED}:round-${round}`, payload: { head: HEAD, verdict: 'changes', reviewer_session: `session-${round}`, findings: [] }, legacy: false })
+  spendReviewRounds(bench, PR, HEAD)
   return bench
 }
 
@@ -107,6 +106,20 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged', rule: 'owner_after_round_limit' })
     expect(eventsOf(bench.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'owner_after_round_limit' })])
     expect(pastRoundLimit('card #1070 is auto', DECISION, PR, HEAD).detail).toContain(`D-${DECISION}`)
+  })
+
+  it('under an owner decision r1 and the owner-path denials yield, and every other denial stands', () => {
+    const underTheDecision: Record<AuthorityRule, 'allowed' | 'denied'> = {
+      owner_by_risk: 'allowed',
+      owner_without_shard: 'allowed',
+      r1: 'allowed',
+      security_invariants: 'denied',
+      reserved: 'denied',
+      decision_unread: 'denied',
+      version_pr: 'denied',
+    }
+    for (const [rule, kind] of Object.entries(underTheDecision))
+      expect(underOwnerDecision({ kind: 'denied', rule: rule as AuthorityRule, detail: rule }, DECISION, PR, HEAD), rule).toMatchObject({ kind })
   })
 
   it('the review status is set on the decided head with D-N before the merge and never on another head', () => {

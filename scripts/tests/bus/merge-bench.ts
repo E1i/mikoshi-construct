@@ -4,10 +4,12 @@ import type { Lease } from '../../bus/lease.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { MergeExecutor } from '../../bus/executor.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
+import { REVIEW_ROUNDS } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
 import { SHARD_USED } from '../../bus/shards.js'
 import { CARD_VERIFIED } from '../../ghosts/task-close.js'
@@ -60,6 +62,11 @@ export function mergeBench(intake: (db: DatabaseSync, clock: Clock) => () => voi
 
 export function cardVerified(db: DatabaseSync, ts: string, cardId: number, pr: number, verification = 'run'): void {
   appendEvent(db, { ts, type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId, pr, head: null, dedupeKey: `${CARD_VERIFIED}:${cardId}:${pr}:${verification}`, payload: { path: 'cheap', pr, verification }, legacy: false })
+}
+
+export function spendReviewRounds(bench: MergeBench, pr: number, head: string): void {
+  for (let round = 1; round <= REVIEW_ROUNDS; round += 1)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: `worker:review:session-${round}`, cardId: pr + 100, pr, head, dedupeKey: `${REVIEW_RECORDED}:round-${round}`, payload: { head, verdict: 'changes', reviewer_session: `session-${round}`, findings: [] }, legacy: false })
 }
 
 export function eventsOf(db: DatabaseSync, type: string): Record<string, unknown>[] {

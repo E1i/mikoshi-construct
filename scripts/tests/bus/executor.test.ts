@@ -1,13 +1,19 @@
 import type { FakeRun } from './github-fake.js'
+import type { MergeBench } from './merge-bench.js'
 import { describe, expect, it } from 'vitest'
+import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { assertHeld, expireLeases, LEASE_MS, StaleLease } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { MAIN_2, sha } from './github-fake.js'
-import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { cardBody, MAIN_2, sha } from './github-fake.js'
+import { eventCount, eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
 const merge = (pr: number, head = sha('a')): string => taskKey({ queue: 'merge', cardId: pr + 100, pr, head })
+
+function allowMerge(bench: MergeBench, pr: number): void {
+  recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 120, text: `[owner] allow-merge PR #${pr} at ${sha('a')} past the round limit`, cards: [] })
+}
 const WAITING: FakeRun = { status: 'completed', conclusion: 'action_required' }
 const APPROVED: FakeRun[] = [{ status: 'in_progress', conclusion: null }, { status: 'completed', conclusion: 'success' }, WAITING]
 const AWAITING: FakeRun[] = [WAITING, WAITING]
@@ -208,6 +214,100 @@ describe('the merge executor', () => {
     expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto' }])
     expect(eventsOf(bench.db, 'policy.denied')).toEqual([])
     bench.close()
+  })
+
+  it('a PR blocked only by the review context with an owner decision gets merge.done', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 990, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
+    spendReviewRounds(bench, 990, sha('a'))
+    allowMerge(bench, 990)
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toEqual({ kind: 'merged', taskKey: merge(990), commit: MAIN_2, rule: 'owner_after_round_limit' })
+    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'owner_after_round_limit' }])
+    bench.close()
+  })
+
+  it('an owner-path PR with an owner decision gets merge.done', () => {
+    for (const pull of [{ number: 991, files: ['scripts/ghosts/approve.ts'] }, { number: 992, body: cardBody(992, 'owner') }]) {
+      const bench = mergeBench()
+      bench.gitHub.open({ review: 'failure', ...pull })
+      spendReviewRounds(bench, pull.number, sha('a'))
+      allowMerge(bench, pull.number)
+      bench.tick()
+
+      expect(bench.merge(bench.lease()!), String(pull.number)).toEqual({ kind: 'merged', taskKey: merge(pull.number), commit: MAIN_2, rule: 'owner_after_round_limit' })
+      bench.close()
+    }
+  })
+
+  it('an owner decision does not lift security_invariants', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 993, review: 'failure', files: ['architecture/security-invariants.md'] })
+    spendReviewRounds(bench, 993, sha('a'))
+    allowMerge(bench, 993)
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'security_invariants' } })
+    expect(bench.gitHub.published).toEqual([])
+    expect(bench.gitHub.puts).toEqual([])
+    bench.close()
+  })
+
+  it('a decided PR still blocked after the review status is set is denied not_mergeable and puts no merge', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 996, review: 'failure', mergeable_state: 'blocked' })
+    spendReviewRounds(bench, 996, sha('a'))
+    allowMerge(bench, 996)
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'not_mergeable' } })
+    expect(bench.gitHub.published).toEqual([expect.objectContaining({ commit: sha('a'), context: 'review' })])
+    expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+    bench.close()
+  })
+
+  it('a decided PR that moves, closes or cannot be read after the review status is set puts no merge', () => {
+    const afterTheStatus: Record<string, { change: (bench: MergeBench) => void, reason: string }> = {
+      'head moved': { change: bench => bench.gitHub.open({ number: 997, head: sha('c'), review: 'failure' }), reason: 'stale_head' },
+      'closed': { change: bench => bench.gitHub.close(997, false), reason: 'stale_head' },
+      'GitHub failing': { change: (bench) => { bench.gitHub.failing = true }, reason: 'github_error' },
+    }
+    for (const [name, { change, reason }] of Object.entries(afterTheStatus)) {
+      const bench = mergeBench()
+      bench.gitHub.open({ number: 997, review: 'failure' })
+      spendReviewRounds(bench, 997, sha('a'))
+      allowMerge(bench, 997)
+      bench.tick()
+      const lease = bench.lease()!
+      const published = bench.gitHub.published
+      published.push = (...statuses) => {
+        change(bench)
+        return Array.prototype.push.apply(published, statuses)
+      }
+
+      expect(bench.merge(lease), name).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason } })
+      expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge')), name).toEqual([])
+      bench.close()
+    }
+  })
+
+  it('without a decision an owner-path or review-blocked PR is not merged', () => {
+    const blocked = mergeBench()
+    blocked.gitHub.open({ number: 994, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
+    spendReviewRounds(blocked, 994, sha('a'))
+    blocked.tick()
+
+    expect(blocked.lease()).toBeNull()
+    blocked.close()
+
+    const ownerPath = mergeBench()
+    ownerPath.gitHub.open({ number: 995, review: 'success', files: ['scripts/ghosts/approve.ts'] })
+    ownerPath.tick()
+
+    expect(ownerPath.merge(ownerPath.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+    expect(ownerPath.gitHub.puts).toEqual([])
+    ownerPath.close()
   })
 
   it('a command with a stale lease_gen is refused and writes nothing', () => {

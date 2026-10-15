@@ -12,7 +12,7 @@ import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
-import { mergePolicy, pastRoundLimit, VERSION_BRANCH } from './policy.js'
+import { mergePolicy, underOwnerDecision, VERSION_BRANCH } from './policy.js'
 import { mergeDecidedPastRoundLimit } from './queue.js'
 import { decisionsInForceAt, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
@@ -106,20 +106,20 @@ export class MergeExecutor {
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
       const policy = mergePolicy(checked.facts)
-      if (policy.kind === 'denied')
-        return this.denied(lease, { kind: 'authority', rule: policy.rule, detail: policy.detail })
-      const spent = policy.rule === 'owner_under_shard' ? checked.shard : null
       const decision = checked.decidedPastRoundLimit
-      const verdict = decision === null ? policy : pastRoundLimit(policy.detail, decision, lease.pr!, lease.head!)
+      const verdict = decision === null ? policy : underOwnerDecision(policy, decision, lease.pr!, lease.head!)
+      if (verdict.kind === 'denied')
+        return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
+      const spent = policy.rule === 'owner_under_shard' ? checked.shard : null
       if (checked.mergedCommit !== null)
         return this.finished(lease, checked.mergedCommit, verdict.rule, spent)
       const locked = this.versionLock(lease)
       if (locked !== null)
         return this.denied(lease, locked)
       if (decision !== null) {
-        const unpublished = this.reviewStatusOfTheDecision(lease, decision)
-        if (unpublished !== null)
-          return this.denied(lease, unpublished)
+        const unready = this.reviewStatusOfTheDecision(lease, decision) ?? this.cleanAfterTheStatus(lease)
+        if (unready !== null)
+          return this.denied(lease, unready)
       }
       return this.merged(lease, verdict.rule, spent)
     }
@@ -139,19 +139,20 @@ export class MergeExecutor {
       const mergedCommit = this.mergedAtLeasedHead(pull, lease)
       let decidedPastRoundLimit: number | null = null
       if (mergedCommit === null) {
-        if (pull.state !== 'open' || pull.head?.sha !== lease.head)
-          return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
-        const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
-        if (mergeable !== 'clean')
-          return technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`)
+        const moved = this.movedFromTheLease(pull, lease)
+        if (moved !== null)
+          return { kind: 'denied', denial: moved }
+        const verdict = verdictOf(meter, lease.head!)
+        if (verdict !== 'pass')
+          decidedPastRoundLimit = mergeDecidedPastRoundLimit(this.parts.db, this.ts(), lease.pr, lease.head)
+        const unmergeable = decidedPastRoundLimit === null ? this.notClean(pull, lease) : null
+        if (unmergeable !== null)
+          return { kind: 'denied', denial: unmergeable }
         const ci = ciOf(meter, lease.head!)
         if (ci === 'red')
           return technical('ci_red', `CI is red on ${lease.head}`)
         if (ci !== 'green')
           return technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
-        const verdict = verdictOf(meter, lease.head!)
-        if (verdict !== 'pass')
-          decidedPastRoundLimit = mergeDecidedPastRoundLimit(this.parts.db, this.ts(), lease.pr, lease.head)
         if (verdict !== 'pass' && decidedPastRoundLimit === null)
           return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
       }
@@ -189,6 +190,28 @@ export class MergeExecutor {
     catch (error) {
       return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
     }
+  }
+
+  private cleanAfterTheStatus(lease: Lease): MergeDenial | null {
+    try {
+      const pull = new Meter(this.parts.gitHub, () => this.parts.clock().getTime()).get(`${REPO}/pulls/${lease.pr}`) as Pull
+      return this.movedFromTheLease(pull, lease) ?? this.notClean(pull, lease)
+    }
+    catch (error) {
+      return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
+    }
+  }
+
+  private movedFromTheLease(pull: Pull, lease: Lease): MergeDenial | null {
+    if (pull.state === 'open' && pull.head?.sha === lease.head)
+      return null
+    return { kind: 'technical', reason: 'stale_head', detail: `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}` }
+  }
+
+  private notClean(pull: Pull, lease: Lease): MergeDenial | null {
+    if (MERGEABLE_OF_STATE[pull.mergeable_state ?? ''] === 'clean')
+      return null
+    return { kind: 'technical', reason: 'not_mergeable', detail: `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean` }
   }
 
   private mergedAtLeasedHead(pull: Pull, lease: Lease): string | null {
