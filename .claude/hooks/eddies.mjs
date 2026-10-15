@@ -23,7 +23,8 @@ const RETURN_TOOL = 'SubagentHandback'
 const SESSION_ACTION = 'no new work — write the handoff and stop'
 const AGENT_ACTION = 'return what you have now'
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
-const MIKO_EXIT_LINE = 'eddies: then end this session with pnpm miko:exit — under the pnpm miko loop the next session starts from the handoff\n'
+const MIKO_EXIT_LEVEL = 'session-context'
+const MIKO_EXIT_LINE = 'eddies: then end this session with pnpm miko:exit — the exit rule of scripts/miko/exit.ts holds at this context warn; under the pnpm miko loop the next session starts from the handoff\n'
 const CONTINUE_PROMPT = 'Прочитай handoff задачи целиком и продолжай с места остановки'
 const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
@@ -224,7 +225,7 @@ function warnOnce(root, gauge, caller, config) {
   }
   journal(root, { event: 'budget-warn', ...measurementOf(gauge, caller), warn_ratio: config.warnRatio })
   const warning = warningOf(gauge, config)
-  return gauge.level.startsWith('session-') && caller.agent_id == null ? `${warning}${continueLineOf(root)}` : warning
+  return gauge.level.startsWith('session-') && caller.agent_id == null ? `${warning}${continueLineOf(root, gauge)}` : warning
 }
 
 function warningOf(gauge, config) {
@@ -245,12 +246,13 @@ function isCardSession() {
   return card != null && card !== ''
 }
 
-function continueLineOf(root) {
+function continueLineOf(root, gauge) {
   if (!isCardSession()) {
     const handoff = sessionHandoffOf()
     const writeLine = `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n`
     const unset = process.env[HANDOFF_VARIABLE] == null || process.env[HANDOFF_VARIABLE] === ''
-    return unset ? `${writeLine}${MIKO_EXIT_LINE}eddies: to continue in a new window — cd ${shellQuoted(root)} && pnpm miko\n` : writeLine
+    const exitLine = gauge.level === MIKO_EXIT_LEVEL ? MIKO_EXIT_LINE : ''
+    return unset ? `${writeLine}${exitLine}eddies: to continue in a new window — cd ${shellQuoted(root)} && pnpm miko\n` : writeLine
   }
   return `eddies: to continue in a new window — cd ${shellQuoted(root)} && claude ${shellQuoted(CONTINUE_PROMPT)}\n`
 }

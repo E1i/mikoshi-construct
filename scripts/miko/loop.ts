@@ -12,7 +12,7 @@ export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
 export const MIKO_HANDOFF_NAME = 'miko.md'
-export const CONTINUE_PROMPT = `прочитай ${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца`
+export const CONTINUE_PROMPT = `прочитай ${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; событие жди через pnpm miko:watch --once в этой же сессии, следующую карточку бери в этой же сессии, pnpm handoff:write на каждой границе — страховка, без pnpm miko:exit; pnpm miko:exit — только при контексте не ниже порога предупреждения Eddies, тратах сессии не ниже sessionSpend или STATUS: OWNER либо DONE`
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 
