@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
 import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
@@ -319,6 +319,24 @@ describe('handoff:write', () => {
     expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('CONTINUE')
     expect(readFileSync(path.join(dir, 'survived'), 'utf8')).toBe('survived\n')
   }, 20_000)
+
+  it('handoff:write does not import miko:exit', () => {
+    expect(readFileSync(HANDOFF_WRITE, 'utf8')).not.toMatch(/['"]\.\.\/miko\/exit(?:\.js)?['"]/)
+  })
+
+  it('runHandoffWrite with STATUS: CONTINUE kills nothing', () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, draft())
+      expect(write([handoff, file]).code).toBe(0)
+      expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('CONTINUE')
+      expect(kill).not.toHaveBeenCalled()
+    }
+    finally {
+      kill.mockRestore()
+    }
+  })
 
   it('refuses a bad argv', () => {
     expect(write([]).code).toBe(2)
