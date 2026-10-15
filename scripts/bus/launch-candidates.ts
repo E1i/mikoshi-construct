@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { NOT_A_BACKFILL } from './backfill-source.js'
 import { prOf } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 
@@ -8,6 +9,7 @@ export const CARD_CLOSED = 'card.closed'
 const CARD_LIFE = `
   SELECT id, type, card_id, dedupe_key, payload FROM events
   WHERE legacy = 0 AND card_id IS NOT NULL AND type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}')
+    AND ${NOT_A_BACKFILL}
   ORDER BY id
 `
 

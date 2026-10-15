@@ -18,6 +18,7 @@ import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
 import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confirm.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
 import { CARD_STARTED } from '../bus/inbox.js'
 import { CARD_ADMITTED } from '../bus/launch-candidates.js'
@@ -71,7 +72,7 @@ type Admission
     | { kind: 'admitted', by: 'waiver', reason: string }
     | { kind: 'refused', reason: string }
 
-const LATEST_ADMISSION = `SELECT ts, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LATEST_ADMISSION = `SELECT ts, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
 const ADMISSION_SOURCES = `
   SELECT source.payload FROM events admitted
   JOIN events source ON source.legacy = 1 AND source.dedupe_key = json_extract(admitted.payload, '$.admission')
