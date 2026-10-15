@@ -254,6 +254,19 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('a decided PR still blocked after the review status is set is denied not_mergeable and puts no merge', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 996, review: 'failure', mergeable_state: 'blocked' })
+    spendReviewRounds(bench, 996, sha('a'))
+    allowMerge(bench, 996)
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'not_mergeable' } })
+    expect(bench.gitHub.published).toEqual([expect.objectContaining({ commit: sha('a'), context: 'review' })])
+    expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+    bench.close()
+  })
+
   it('without a decision an owner-path or review-blocked PR is not merged', () => {
     const blocked = mergeBench()
     blocked.gitHub.open({ number: 994, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
