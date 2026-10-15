@@ -1,8 +1,11 @@
 import type { Card } from '../../../src/card/grammar.js'
+import type { DepthSources } from '../../bus/review-depth.js'
 import { describe, expect, it } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
+import { REVIEW_DEPTHS as BUS_REVIEW_DEPTHS, FULL_DEPTH_RULE, planReview } from '../../bus/review-depth.js'
 import { REVIEW_DEPTHS, reviewDepth, reviewOf } from '../../ghosts/verdict.js'
+import { classify } from '../../morse/rules.js'
 import { isLadder, reviewBody } from '../../shift/ladder.js'
 
 function cardOf(line: string): Card {
@@ -48,5 +51,36 @@ describe('no touches is a full review', () => {
   it('the deeper of the touches and the changed files decides', () => {
     expect(reviewOf(['docs/cli.md'], ['docs/cli.md'])).toEqual({ risk: 'R4', depth: 'none' })
     expect(reviewOf(['docs/cli.md'], ['src/materialize/plan.ts'])).toEqual({ risk: 'R1', depth: 'full' })
+  })
+})
+
+describe('bus review depth follows the MORSE instructions rule', () => {
+  const BASE = 'b'.repeat(40)
+  const HEAD = 'h'.repeat(40)
+  const lease = { taskKey: `review:1974:974:${HEAD}`, queue: 'review' as const, cardId: 1974, pr: 974, head: HEAD, leaseGen: 1, actor: 'worker:review:w' }
+
+  function sourcesOf(paths: string[], touches: string[]): DepthSources {
+    return {
+      base: () => BASE,
+      changed: () => paths,
+      predict: () => ({ prediction: classify(paths.map(file => ({ path: file, status: 'M', additions: 1, deletions: 0 }))), files: paths }),
+      touches: () => touches,
+    }
+  }
+
+  it.each([
+    { paths: ['docs/cli.md'], rule: 'docs-only' },
+    { paths: ['src/atlas/index.ts'], rule: 'src' },
+    { paths: ['scripts/bus/queue.ts'], rule: 'doubt' },
+  ])('a bus review with no MORSE instructions rule runs at diff depth ($rule)', ({ paths, rule }) => {
+    const plan = planReview(lease, null, sourcesOf(paths, paths))
+    expect(plan).toEqual({ depth: 'diff', round: 'first', why: expect.stringContaining(`by rule ${rule}`), since: BASE, touchFindings: [] })
+  })
+
+  it('a bus review under the MORSE instructions rule runs at full depth', () => {
+    const paths = ['.claude/agents/review.md', 'docs/cli.md']
+    const plan = planReview(lease, null, sourcesOf(paths, paths))
+    expect(plan).toMatchObject({ depth: 'full', prediction: { verdict: 'ladder', rule: FULL_DEPTH_RULE } })
+    expect(BUS_REVIEW_DEPTHS).toEqual(['full', 'diff'])
   })
 })

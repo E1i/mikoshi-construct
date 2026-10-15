@@ -14,6 +14,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
@@ -235,7 +236,7 @@ export class ReviewWorker {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, findings: review.findings, ...treeFields(review) },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review) },
       legacy: false,
     }
   }
@@ -481,7 +482,7 @@ async function main(): Promise<number> {
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(trees),
-    plan: gitReviewPlanner(cwd, MORSE_JOURNAL),
+    plan: gitReviewPlanner(cwd, MORSE_JOURNAL, defaultParking(os.homedir())),
     session: randomUUID(),
     slots: slotsOf('review', process.env),
     pause: sleep,
