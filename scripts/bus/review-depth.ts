@@ -1,14 +1,14 @@
 import type { Prediction } from '../morse/rules.js'
 import type { Lease } from './lease.js'
-import { PREFIX_SUFFIX } from '../../src/card/task-file.js'
 
-export const REVIEW_DEPTHS = ['cheap', 'full', 'diff'] as const
+export const REVIEW_DEPTHS = ['full', 'diff'] as const
 
 export type ReviewDepth = typeof REVIEW_DEPTHS[number]
 
+export const FULL_DEPTH_RULE = 'instructions'
+
 export type ReviewPlan
   = | { depth: 'full', why: string, prediction: Prediction | null }
-    | { depth: 'cheap', why: string, base: string }
     | { depth: 'diff', why: string, since: string, findings: string[] }
 
 export interface EarlierVerdict {
@@ -17,28 +17,16 @@ export interface EarlierVerdict {
   findings: string[]
 }
 
-export interface Predicted {
-  prediction: Prediction
-  files: string[]
-}
-
 export interface DepthSources {
   base: (head: string) => string
   changed: (from: string, to: string) => string[]
-  predict: (task: string, base: string, head: string) => Predicted
-  touches: (cardId: number) => string[] | null
+  predict: (task: string, base: string, head: string) => Prediction
 }
 
 export type ReviewPlanner = (lease: Lease, earlier: EarlierVerdict | null) => ReviewPlan
 
 export function fullReview(why: string, prediction: Prediction | null = null): ReviewPlan {
   return { depth: 'full', why, prediction }
-}
-
-export function withinTouches(file: string, touches: readonly string[]): boolean {
-  return touches.some(entry => entry.endsWith(PREFIX_SUFFIX)
-    ? file.startsWith(`${entry.slice(0, -PREFIX_SUFFIX.length)}/`)
-    : file === entry)
 }
 
 function namedByFindings(file: string, findings: readonly string[]): boolean {
@@ -56,17 +44,11 @@ function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources):
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {
   const base = sources.base(head)
-  const { prediction, files } = sources.predict(lease.taskKey, base, head)
+  const prediction = sources.predict(lease.taskKey, base, head)
   const rule = `MORSE predicts ${prediction.verdict} by rule ${prediction.rule}`
-  if (prediction.verdict === 'ladder')
+  if (prediction.rule === FULL_DEPTH_RULE)
     return fullReview(rule, prediction)
-  const touches = sources.touches(lease.cardId)
-  if (touches === null)
-    return fullReview(`${rule}, but the touches of card #${lease.cardId} could not be read`, prediction)
-  const outside = files.filter(file => !withinTouches(file, touches))
-  if (outside.length > 0)
-    return fullReview(`${rule}, but ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside the card's touches`, prediction)
-  return { depth: 'cheap', why: `${rule} and every changed file is inside the card's touches`, base }
+  return { depth: 'diff', why: `${rule}, and only the ${FULL_DEPTH_RULE} rule takes the full review`, since: base, findings: [] }
 }
 
 export function planReview(lease: Lease, earlier: EarlierVerdict | null, sources: DepthSources): ReviewPlan {

@@ -14,7 +14,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
@@ -482,7 +481,7 @@ async function main(): Promise<number> {
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(trees),
-    plan: gitReviewPlanner(cwd, MORSE_JOURNAL, defaultParking(os.homedir())),
+    plan: gitReviewPlanner(cwd, MORSE_JOURNAL),
     session: randomUUID(),
     slots: slotsOf('review', process.env),
     pause: sleep,
